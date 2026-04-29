@@ -1,0 +1,189 @@
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { getServiceSupabase } from "@/lib/supabase";
+import { buildProfileSlug, parseProfileSlug, ADMIN_PROFILE_SLUG } from "@/lib/profile-slug";
+
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
+
+/**
+ * Public profile lookup.
+ *
+ * GET /api/p/[slug]
+ *
+ * No auth required. Only returns sanitized fields — no DOB, address,
+ * postal code, phone, email. The slug is derived from name + a 4-digit
+ * hash of the user's UUID so a candidate's URL is permanent.
+ *
+ * "Verified" = has both an approved passport AND an approved Lebenslauf
+ * (cv_de). Anything less and the profile is hidden behind 404.
+ */
+export async function GET(
+  _req: NextRequest,
+  ctx: { params: Promise<{ slug: string }> },
+) {
+  const { slug } = await ctx.params;
+  const slugLower = slug.toLowerCase();
+  const isAdminSlug = slugLower === ADMIN_PROFILE_SLUG;
+  const parsed = isAdminSlug ? null : parseProfileSlug(slug);
+  if (!parsed && !isAdminSlug) return NextResponse.json({ error: "not_found" }, { status: 404 });
+
+  const db = getServiceSupabase();
+  const url  = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  const sk   = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+  const adminClient = createClient(url, sk);
+
+  // Special case: the admin's vanity slug → resolve via ADMIN_EMAIL.
+  let isAdminUser = false;
+
+  let match: {
+    user_id: string;
+    first_name: string | null;
+    last_name: string | null;
+    city_of_residence: string | null;
+    country_of_residence: string | null;
+    nationality: string | null;
+  } | null = null;
+
+  if (isAdminSlug) {
+    // Resolve "borivon" → admin user via ADMIN_EMAIL
+    if (ADMIN_EMAIL) {
+      try {
+        let page = 1;
+        while (page <= 50) {
+          const { data: usersList } = await adminClient.auth.admin.listUsers({ perPage: 200, page });
+          const list = usersList?.users ?? [];
+          if (list.length === 0) break;
+          const u = list.find(u => (u.email ?? "").toLowerCase() === ADMIN_EMAIL);
+          if (u) {
+            match = {
+              user_id: u.id,
+              first_name: (u.user_metadata?.first_name as string) ?? "Borivon",
+              last_name:  (u.user_metadata?.last_name  as string) ?? "",
+              city_of_residence: null,
+              country_of_residence: null,
+              nationality: null,
+            };
+            isAdminUser = true;
+            break;
+          }
+          if (list.length < 200) break;
+          page++;
+        }
+      } catch (err) {
+        console.warn("[/api/p admin lookup]:", err);
+      }
+    }
+  } else if (parsed) {
+    // Scope the candidate_profiles query to the slug's first-name prefix —
+    // a public-profile bot probing random slugs can't melt the DB this way.
+    const { data: profiles } = await db
+      .from("candidate_profiles")
+      .select("user_id,first_name,last_name,city_of_residence,country_of_residence,nationality")
+      .ilike("first_name", `${parsed.firstName.replace(/_/g, "\\_").replace(/%/g, "\\%")}%`);
+
+    match = (profiles ?? []).find(p =>
+      buildProfileSlug(p.first_name ?? "", p.last_name ?? "", p.user_id) === slugLower,
+    ) ?? null;
+  }
+
+  // Fall back to scanning auth.users metadata when there's no profile row.
+  if (!match && !isAdminSlug) {
+    try {
+      let page = 1;
+      while (page <= 50) {
+        const { data: usersList } = await adminClient.auth.admin.listUsers({ perPage: 200, page });
+        const list = usersList?.users ?? [];
+        if (list.length === 0) break;
+        const u = list.find(u => {
+          const fn = (u.user_metadata?.first_name as string | undefined) ?? "";
+          const ln = (u.user_metadata?.last_name  as string | undefined) ?? "";
+          return buildProfileSlug(fn, ln, u.id) === slugLower;
+        });
+        if (u) {
+          match = {
+            user_id: u.id,
+            first_name: (u.user_metadata?.first_name as string) ?? null,
+            last_name:  (u.user_metadata?.last_name  as string) ?? null,
+            city_of_residence: null,
+            country_of_residence: null,
+            nationality: null,
+          };
+          break;
+        }
+        if (list.length < 200) break;
+        page++;
+      }
+    } catch (err) {
+      console.warn("[/api/p] listUsers fallback failed:", err);
+    }
+  }
+
+  if (!match) {
+    return NextResponse.json(
+      { error: "not_found" },
+      { status: 404, headers: { "Cache-Control": "public, s-maxage=60" } },
+    );
+  }
+
+  // Verification: passport approved + cv_de approved. Admin user is always
+  // verified — the blue check is their identity badge, not a doc-status flag.
+  let verified = false;
+  if (isAdminUser) {
+    verified = true;
+  } else {
+    // Detect "this match IS the admin" even when slug isn't /borivon
+    try {
+      const { data } = await adminClient.auth.admin.getUserById(match.user_id);
+      if (ADMIN_EMAIL && (data?.user?.email ?? "").toLowerCase() === ADMIN_EMAIL) {
+        verified = true;
+        isAdminUser = true;
+      }
+    } catch { /* ignore */ }
+
+    if (!verified) {
+      const { data: docs } = await db
+        .from("documents")
+        .select("file_type,status")
+        .eq("user_id", match.user_id)
+        .in("file_type", ["Passport", "Reisepass", "Passeport", "Lebenslauf (DE)", "Lebenslauf"])
+        .eq("status", "approved");
+      const hasApprovedPassport = (docs ?? []).some(d => /pass/i.test(d.file_type));
+      const hasApprovedCV       = (docs ?? []).some(d => /lebenslauf|cv/i.test(d.file_type));
+      verified = hasApprovedPassport && hasApprovedCV;
+    }
+  }
+
+  // Display name fall-back: when candidate_profiles has nulls, look up
+  // the user's auth metadata for a nicer rendered name.
+  let avatarInitial = (match.first_name ?? "?").charAt(0).toUpperCase();
+  let displayName   = [match.first_name, match.last_name].filter(Boolean).join(" ");
+  try {
+    const { data } = await adminClient.auth.admin.getUserById(match.user_id);
+    if (data?.user?.user_metadata?.full_name) {
+      displayName = String(data.user.user_metadata.full_name).slice(0, 200);
+      avatarInitial = displayName.charAt(0).toUpperCase();
+    } else if (data?.user?.email && !displayName) {
+      displayName = data.user.email.split("@")[0];
+      avatarInitial = displayName.charAt(0).toUpperCase();
+    }
+  } catch { /* fall back */ }
+  if (!displayName) displayName = "Borivon User";
+
+  return NextResponse.json(
+    {
+      slug: isAdminUser ? ADMIN_PROFILE_SLUG : slug,
+      name: isAdminUser ? "Borivon" : displayName,
+      initial: isAdminUser ? "B" : avatarInitial,
+      cityOfResidence: match.city_of_residence ?? null,
+      countryOfResidence: match.country_of_residence ?? null,
+      nationality: match.nationality ?? null,
+      verified,
+      isAdmin: isAdminUser,
+    },
+    {
+      // Short edge cache so a bot scraping random slugs can't fan out
+      // every hit into a fresh DB scan + admin-API call.
+      headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60" },
+    },
+  );
+}

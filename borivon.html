@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="fr" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Borivon — Ecole d'allemand</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=DM+Serif+Display:ital@0;1&family=Noto+Naskh+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#09090a;--bg2:#111113;--card:#161618;
+  --bdr:rgba(255,255,255,0.07);--bdr2:rgba(255,255,255,0.12);--bdr-g:rgba(201,162,64,0.32);
+  --w:#eeecea;--w2:rgba(238,236,234,0.52);--w3:rgba(238,236,234,0.26);
+  --gold:#c9a240;--gold2:#dcb84e;--gdim:rgba(201,162,64,0.1);
+  --r:10px;--ease:cubic-bezier(.4,0,.2,1);
+  --title:'DM Serif Display',Georgia,serif;
+  --body:'DM Sans',system-ui,sans-serif;
+  --ar:'Noto Naskh Arabic',serif;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{font-family:var(--body);background:var(--bg);color:var(--w);min-height:100vh;overflow-x:hidden}
+body.ar{font-family:var(--ar)}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:radial-gradient(ellipse 75% 55% at 8% 0%,rgba(201,162,64,0.06) 0%,transparent 60%),
+             radial-gradient(ellipse 55% 65% at 92% 100%,rgba(201,162,64,0.04) 0%,transparent 60%)}
+
+.flag-strip{position:fixed;top:0;left:0;right:0;height:3px;z-index:600;display:flex}
+.flag-strip div{flex:1}
+.fa{background:#111}.fb{background:#CC0000}.fc{background:#FFCE00}
+
+nav{position:fixed;top:3px;left:0;right:0;z-index:500;display:flex;align-items:center;justify-content:space-between;padding:0 3.5vw;height:56px;background:rgba(9,9,10,0.9);backdrop-filter:blur(20px);border-bottom:1px solid var(--bdr)}
+.nav-logo{font-family:var(--title);font-size:1.35rem;font-weight:400;font-style:italic;color:var(--w);text-decoration:none}
+.nav-logo em{color:var(--gold);font-style:normal}
+
+.langs{display:flex;gap:2px;background:rgba(255,255,255,0.04);border:1px solid var(--bdr);border-radius:8px;padding:3px}
+.lb{background:none;border:none;cursor:pointer;font-family:var(--body);font-size:0.69rem;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--w3);padding:0.28rem 0.62rem;border-radius:5px;transition:color .15s,background .15s;display:flex;align-items:center;gap:0.3rem;white-space:nowrap}
+.lb .fl{font-size:0.95rem;line-height:1}
+.lb.on{color:#09090a;background:var(--gold);font-weight:700}
+.lb:not(.on):hover{color:var(--w2)}
+
+.page{position:relative;z-index:1;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:72px 4vw 40px}
+.bg-char{position:fixed;font-family:var(--title);font-size:60vw;font-style:italic;color:rgba(255,255,255,0.013);top:50%;left:50%;transform:translate(-50%,-50%);line-height:1;user-select:none;pointer-events:none;z-index:0;letter-spacing:-0.05em}
+body.ar .bg-char{font-family:var(--ar)}
+
+.tagline{text-align:center;margin-bottom:2.25rem}
+.tagline-pill{display:inline-flex;align-items:center;gap:0.5rem;border:1px solid var(--bdr2);border-radius:100px;padding:0.38rem 0.95rem;font-size:0.7rem;color:var(--w2);margin-bottom:1.1rem;letter-spacing:0.03em}
+.pulse{width:6px;height:6px;border-radius:50%;background:#4db87a;flex-shrink:0;animation:pls 2s ease-in-out infinite}
+@keyframes pls{0%,100%{opacity:1}50%{opacity:.35}}
+.tagline-title{font-family:var(--title);font-size:clamp(2.4rem,6vw,4.5rem);font-weight:400;font-style:italic;line-height:1.02;letter-spacing:-0.025em;color:var(--w);margin-bottom:0.6rem}
+.tagline-title em{font-style:normal;color:var(--gold)}
+body.ar .tagline-title{font-family:var(--ar);font-style:normal;font-size:clamp(1.9rem,5vw,3.2rem);letter-spacing:0;line-height:1.4}
+.tagline-sub{font-size:0.88rem;color:var(--w2);line-height:1.75;max-width:420px;margin:0 auto;font-weight:300}
+body.ar .tagline-sub{font-family:var(--ar);font-size:0.95rem;line-height:1.9}
+
+.fcard{background:var(--card);border:1px solid var(--bdr);border-radius:20px;padding:2.75rem;width:min(500px,96vw);box-shadow:0 24px 80px rgba(0,0,0,0.55);position:relative}
+.fcard::before{content:'';position:absolute;top:-1px;left:22%;right:22%;height:1px;background:linear-gradient(90deg,transparent,var(--gold),transparent)}
+
+.fback{background:none;border:none;cursor:pointer;font-family:inherit;font-size:0.77rem;font-weight:500;color:var(--w3);display:inline-flex;align-items:center;gap:0.4rem;margin-bottom:1.4rem;padding:0;transition:color .15s}
+.fback:hover{color:var(--w2)}
+
+.fstep{display:none}
+.fstep.on{display:block;animation:fup .28s var(--ease) both}
+@keyframes fup{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+
+.fey{font-size:0.61rem;font-weight:600;letter-spacing:0.22em;text-transform:uppercase;color:var(--gold);margin-bottom:0.7rem}
+body.ar .fey{letter-spacing:0.04em;font-family:var(--ar)}
+
+.fti{font-family:var(--title);font-size:clamp(1.65rem,4vw,2.2rem);font-weight:400;font-style:italic;line-height:1.1;letter-spacing:-0.02em;color:var(--w);margin-bottom:1.5rem}
+body.ar .fti{font-family:var(--ar);font-style:normal;font-size:clamp(1.3rem,3.5vw,1.9rem);letter-spacing:0;line-height:1.45}
+
+.fchoices{display:flex;flex-direction:column;gap:0.55rem}
+.fch{border:1px solid var(--bdr);border-radius:var(--r);padding:1rem 1.2rem;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:0.75rem;background:rgba(255,255,255,0.018);transition:border-color .18s,background .18s,transform .18s}
+.fch:hover{border-color:var(--bdr-g);background:var(--gdim);transform:translateX(4px)}
+[dir=rtl] .fch:hover{transform:translateX(-4px)}
+.fch-lbl{font-size:0.97rem;font-weight:600;color:var(--w)}
+body.ar .fch-lbl{font-family:var(--ar);font-size:1rem}
+.fch-arr{color:var(--w3);font-size:0.88rem;flex-shrink:0;transition:color .18s,transform .18s}
+.fch:hover .fch-arr{color:var(--gold);transform:translateX(3px)}
+[dir=rtl] .fch:hover .fch-arr{transform:translateX(-3px)}
+
+.flvl{display:grid;grid-template-columns:1fr 1fr;gap:0.55rem}
+.flc{border:1px solid var(--bdr);border-radius:var(--r);padding:1.2rem 0.85rem 0.95rem;cursor:pointer;text-align:center;background:rgba(255,255,255,0.018);transition:border-color .18s,background .18s,transform .18s}
+.flc:hover{border-color:var(--gold);background:var(--gdim);transform:translateY(-3px)}
+.flc-code{font-family:var(--title);font-size:2rem;font-weight:400;font-style:italic;color:var(--gold);line-height:1;margin-bottom:0.2rem}
+.flc-name{font-size:0.66rem;font-weight:600;letter-spacing:0.07em;text-transform:uppercase;color:var(--w3)}
+body.ar .flc-name{font-family:var(--ar);letter-spacing:0;text-transform:none;font-size:0.78rem}
+.flc-wide{grid-column:1/-1;display:flex;align-items:center;justify-content:center;padding:0.8rem;gap:0.5rem}
+.flc-wide .flc-code{font-size:1.4rem;margin:0}
+.flc-wide .flc-name{text-transform:none;letter-spacing:0;font-size:0.79rem;color:var(--w2)}
+
+.fsum{display:flex;align-items:center;gap:0.65rem;background:var(--gdim);border:1px solid var(--bdr-g);border-radius:var(--r);padding:0.75rem 1rem;margin-bottom:1.15rem}
+.fsum-ico{color:var(--gold);font-size:0.8rem;flex-shrink:0}
+.fsum-txt{font-size:0.78rem;color:var(--w2);line-height:1.5}
+.fsum-txt strong{color:var(--gold);font-weight:600}
+body.ar .fsum-txt{font-family:var(--ar);font-size:0.85rem}
+
+.flabel{display:block;font-size:0.61rem;font-weight:600;letter-spacing:0.13em;text-transform:uppercase;color:var(--w3);margin-bottom:0.35rem}
+body.ar .flabel{font-family:var(--ar);letter-spacing:0;font-size:0.78rem;text-transform:none}
+
+.finput{width:100%;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.09);border-radius:var(--r);padding:0.85rem 1.05rem;font-family:inherit;font-size:0.91rem;color:var(--w);outline:none;display:block;margin-bottom:0.68rem;transition:border-color .18s,background .18s}
+.finput::placeholder{color:rgba(255,255,255,0.18)}
+.finput:focus{border-color:var(--gold);background:rgba(201,162,64,0.04)}
+.finput.err{border-color:#c0392b}
+.ftarea{resize:vertical;min-height:78px;line-height:1.6}
+
+.fsbtn{width:100%;background:var(--gold);color:#09090a;border:none;border-radius:var(--r);padding:0.9rem;font-family:inherit;font-size:0.92rem;font-weight:700;cursor:pointer;transition:background .18s,transform .15s;margin-top:0.1rem}
+.fsbtn:hover{background:var(--gold2);transform:translateY(-1px)}
+body.ar .fsbtn{font-family:var(--ar);font-size:1rem}
+.fpnote{text-align:center;font-size:0.64rem;color:var(--w3);margin-top:0.58rem;line-height:1.5}
+body.ar .fpnote{font-family:var(--ar);font-size:0.78rem}
+
+.fsuc{text-align:center;padding:0.5rem 0}
+.fsuc-ico{width:56px;height:56px;background:var(--gdim);border:1px solid var(--bdr-g);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:1.55rem;margin:0 auto 1.15rem}
+
+footer{position:relative;z-index:1;background:var(--bg2);border-top:1px solid var(--bdr);padding:1.25rem 3.5vw;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem}
+.foot-logo{font-family:var(--title);font-size:1rem;font-weight:400;font-style:italic;color:var(--w)}
+.foot-logo em{color:var(--gold);font-style:normal}
+.foot-links{display:flex;gap:2px;flex-wrap:wrap}
+.flink{background:none;border:none;cursor:pointer;font-family:inherit;font-size:0.73rem;color:var(--w3);padding:0.3rem 0.65rem;border-radius:5px;transition:color .15s,background .15s}
+.flink:hover{color:var(--w);background:rgba(255,255,255,0.05)}
+body.ar .flink{font-family:var(--ar);font-size:0.85rem}
+.foot-copy{font-size:0.67rem;color:var(--w3)}
+body.ar .foot-copy{font-family:var(--ar);font-size:0.8rem}
+
+/* MODALS */
+.modal-overlay{position:fixed;inset:0;z-index:800;background:rgba(0,0,0,0.72);backdrop-filter:blur(10px);display:none;align-items:flex-end;justify-content:center;padding:1rem}
+.modal-overlay.open{display:flex;animation:mfade .2s var(--ease) both}
+@keyframes mfade{from{opacity:0}to{opacity:1}}
+@media(min-width:600px){.modal-overlay{align-items:center}}
+.modal{background:var(--card);border:1px solid var(--bdr2);border-radius:20px;width:min(680px,100%);max-height:88vh;display:flex;flex-direction:column;box-shadow:0 40px 100px rgba(0,0,0,0.7);animation:mup .28s var(--ease) both;position:relative}
+@keyframes mup{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:translateY(0)}}
+.modal::before{content:'';position:absolute;top:-1px;left:25%;right:25%;height:1px;background:linear-gradient(90deg,transparent,var(--gold),transparent)}
+.modal-head{display:flex;align-items:center;justify-content:space-between;padding:1.4rem 1.75rem 1.15rem;border-bottom:1px solid var(--bdr);flex-shrink:0}
+.modal-title{font-family:var(--title);font-size:1.2rem;font-weight:400;font-style:italic;color:var(--w);letter-spacing:-0.015em}
+.modal-close{background:rgba(255,255,255,0.06);border:1px solid var(--bdr);border-radius:50%;width:30px;height:30px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:0.82rem;color:var(--w2);flex-shrink:0;transition:background .15s}
+.modal-close:hover{background:rgba(255,255,255,0.1);color:var(--w)}
+.modal-body{overflow-y:auto;padding:1.75rem;flex:1;scrollbar-width:thin;scrollbar-color:var(--bdr2) transparent}
+.modal-body::-webkit-scrollbar{width:4px}
+.modal-body::-webkit-scrollbar-thumb{background:var(--bdr2);border-radius:2px}
+
+.legal{font-size:0.875rem;color:var(--w2);line-height:1.85}
+.legal h3{font-family:var(--title);font-size:1.05rem;font-weight:400;font-style:italic;color:var(--w);margin:1.7rem 0 0.45rem}
+.legal h3:first-child{margin-top:0}
+.legal p{margin-bottom:0.8rem}
+.legal ul{margin:0.3rem 0 0.8rem 1.1rem;display:flex;flex-direction:column;gap:0.3rem}
+.legal a{color:var(--gold);text-decoration:none}
+.legal a:hover{text-decoration:underline}
+
+.contact-grid{display:grid;grid-template-columns:1fr 1fr;gap:1.75rem}
+@media(max-width:500px){.contact-grid{grid-template-columns:1fr}}
+.cinfo{display:flex;flex-direction:column;gap:1rem}
+.crow{display:flex;gap:0.7rem;align-items:flex-start}
+.cico{color:var(--gold);width:17px;flex-shrink:0;margin-top:1px;font-size:0.82rem}
+.cval{font-size:0.86rem;color:var(--w2);line-height:1.65}
+.cval a{color:var(--gold);text-decoration:none}
+.cval a:hover{text-decoration:underline}
+.map-frame{border-radius:10px;overflow:hidden;border:1px solid var(--bdr);aspect-ratio:4/3}
+.map-frame iframe{width:100%;height:100%;border:none;filter:grayscale(70%) invert(88%) contrast(1.05)}
+
+/* COOKIE */
+.cookie-bar{position:fixed;bottom:0;left:0;right:0;z-index:900;background:var(--card);border-top:1px solid var(--bdr2);padding:1.1rem 3.5vw;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.85rem;box-shadow:0 -8px 40px rgba(0,0,0,0.4);transform:translateY(0);transition:transform .4s var(--ease),opacity .4s}
+.cookie-bar.hidden{transform:translateY(110%);opacity:0;pointer-events:none}
+.cookie-bar::before{content:'';position:absolute;top:-1px;left:30%;right:30%;height:1px;background:linear-gradient(90deg,transparent,var(--gold),transparent)}
+.cookie-text{font-size:0.78rem;color:var(--w2);line-height:1.6;max-width:560px}
+.cookie-text strong{color:var(--w);font-weight:600}
+.cookie-text a{color:var(--gold);text-decoration:none}
+body.ar .cookie-text{font-family:var(--ar);font-size:0.88rem}
+.cookie-actions{display:flex;gap:0.5rem;flex-shrink:0;flex-wrap:wrap}
+.ck-btn{border:none;cursor:pointer;font-family:inherit;font-size:0.75rem;font-weight:600;padding:0.5rem 1.1rem;border-radius:6px;transition:background .15s,transform .15s;white-space:nowrap}
+.ck-accept{background:var(--gold);color:#09090a}
+.ck-accept:hover{background:var(--gold2);transform:translateY(-1px)}
+.ck-decline{background:rgba(255,255,255,0.07);color:var(--w2);border:1px solid var(--bdr)}
+.ck-decline:hover{background:rgba(255,255,255,0.11)}
+body.ar .ck-btn{font-family:var(--ar);font-size:0.85rem}
+
+@media(max-width:520px){.fcard{padding:2rem 1.35rem}nav{padding:0 1.1rem}.tagline-title{font-size:clamp(2rem,9vw,3rem)}}
+</style>
+</head>
+<body class="fr">
+
+<div class="flag-strip"><div class="fa"></div><div class="fb"></div><div class="fc"></div></div>
+<div class="bg-char">B</div>
+
+<nav>
+  <a class="nav-logo" href="#">Borivon<em>.</em></a>
+  <div class="langs">
+    <button class="lb on" onclick="L('fr')"><span class="fl">&#127467;&#127479;</span>FR</button>
+    <button class="lb"    onclick="L('en')"><span class="fl">&#127468;&#127463;</span>EN</button>
+    <button class="lb"    onclick="L('de')"><span class="fl">&#127465;&#127466;</span>DE</button>
+    <button class="lb"    onclick="L('ar')"><span class="fl">&#127474;&#127462;</span>AR</button>
+  </div>
+</nav>
+
+<div class="page">
+  <div class="tagline">
+    <div class="tagline-pill"><div class="pulse"></div><span id="pill-txt">Inscriptions ouvertes</span></div>
+    <h1 class="tagline-title" id="hero-ti">Parlez <em>allemand.</em><br>Ouvrez chaque porte.</h1>
+    <p class="tagline-sub" id="hero-sub">Remplissez ce formulaire pour que nous puissions vous orienter au mieux.</p>
+  </div>
+
+  <div class="fcard">
+    <button class="fback" id="fbk" style="display:none" onclick="goBack()">
+      <span id="fbk-arr">&#8592;</span>&nbsp;<span id="fbk-lbl">Retour</span>
+    </button>
+
+    <!-- S0: person or org -->
+    <div class="fstep on" id="fs0">
+      <p class="fey" id="s0-ey">Bienvenue</p>
+      <h2 class="fti" id="s0-ti">Qui decrit le mieux votre situation ?</h2>
+      <div class="fchoices">
+        <div class="fch" onclick="pick('person')"><span class="fch-lbl" id="c-ind">Particulier</span><span class="fch-arr" id="arr0">&#8594;</span></div>
+        <div class="fch" onclick="pick('org')"><span class="fch-lbl" id="c-org">Organisation</span><span class="fch-arr" id="arr1">&#8594;</span></div>
+      </div>
+    </div>
+
+    <!-- S1: person level -->
+    <div class="fstep" id="fs1">
+      <p class="fey" id="s1-ey">Niveau en allemand</p>
+      <h2 class="fti" id="s1-ti">Votre niveau actuel ?</h2>
+      <div class="flvl">
+        <div class="flc" onclick="pLvl('A1',{fr:'Debutant',en:'Beginner',de:'Anfanger',ar:'&#x645;&#x628;&#x62A;&#x62F;&#x626;'})">
+          <div class="flc-code">A1</div><div class="flc-name" id="ln-a1">Debutant</div>
+        </div>
+        <div class="flc" onclick="pLvl('A2',{fr:'Elementaire',en:'Elementary',de:'Grundstufe',ar:'&#x623;&#x633;&#x627;&#x633;&#x64A;'})">
+          <div class="flc-code">A2</div><div class="flc-name" id="ln-a2">Elementaire</div>
+        </div>
+        <div class="flc" onclick="pLvl('B1',{fr:'Intermediaire',en:'Intermediate',de:'Mittelstufe',ar:'&#x645;&#x62A;&#x648;&#x633;&#x637;'})">
+          <div class="flc-code">B1</div><div class="flc-name" id="ln-b1">Intermediaire</div>
+        </div>
+        <div class="flc" onclick="pLvl('B2',{fr:'Inter. superieur',en:'Upper-Int.',de:'Obere Mittelst.',ar:'&#x645;&#x62A;&#x648;&#x633;&#x637; &#x645;&#x62A;&#x642;&#x62F;&#x645;'})">
+          <div class="flc-code">B2</div><div class="flc-name" id="ln-b2">Inter. superieur</div>
+        </div>
+        <div class="flc flc-wide" onclick="pLvl('?',{fr:'Je ne sais pas',en:'Not sure',de:'Unsicher',ar:'&#x63A;&#x64A;&#x631; &#x645;&#x62A;&#x623;&#x643;&#x62F;'})">
+          <div class="flc-code">?</div><div class="flc-name" id="ln-ns">Je ne sais pas</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- S1-org: service type -->
+    <div class="fstep" id="fs1o">
+      <p class="fey" id="s1o-ey">Service souhaite</p>
+      <h2 class="fti" id="s1o-ti">De quoi avez-vous besoin ?</h2>
+      <div class="fchoices">
+        <div class="fch" onclick="pickSvc('courses')"><span class="fch-lbl" id="co-s1">Cours d'allemand</span><span class="fch-arr" id="co-arr0">&#8594;</span></div>
+        <div class="fch" onclick="pickSvc('translation')"><span class="fch-lbl" id="co-s2">Traduction &amp; Interpretation</span><span class="fch-arr" id="co-arr1">&#8594;</span></div>
+        <div class="fch" onclick="pickSvc('other')"><span class="fch-lbl" id="co-s3">Autre</span><span class="fch-arr" id="co-arr2">&#8594;</span></div>
+      </div>
+    </div>
+
+    <!-- S1-org-format: online or onsite (courses only) -->
+    <div class="fstep" id="fs1of">
+      <p class="fey" id="s1of-ey">Format</p>
+      <h2 class="fti" id="s1of-ti">Quel format vous convient ?</h2>
+      <div class="fchoices">
+        <div class="fch" onclick="pickFmt('online')"><span class="fch-lbl" id="co-f1">En ligne</span><span class="fch-arr" id="co-farr0">&#8594;</span></div>
+        <div class="fch" onclick="pickFmt('onsite')"><span class="fch-lbl" id="co-f2">Dans vos locaux</span><span class="fch-arr" id="co-farr1">&#8594;</span></div>
+      </div>
+    </div>
+
+    <!-- S2-person -->
+    <div class="fstep" id="fs2p">
+      <p class="fey" id="s2p-ey">Presque fini</p>
+      <h2 class="fti" id="s2p-ti">Parlons-en.</h2>
+      <div class="fsum"><span class="fsum-ico">&#10003;</span><span class="fsum-txt" id="sum-p">&#8212;</span></div>
+      <label class="flabel" id="lbl-ep">Email</label>
+      <input type="email" class="finput" id="ep-em" onkeydown="if(event.key==='Enter')document.getElementById('ep-ph').focus()">
+      <label class="flabel" id="lbl-pp">Telephone <span style="color:var(--gold);font-size:0.6rem">&#10033;</span></label>
+      <input type="tel" class="finput" id="ep-ph" placeholder="+212 6xx xxx xxx" onkeydown="if(event.key==='Enter')document.getElementById('ep-msg').focus()">
+      <label class="flabel" id="lbl-mp">Message <span style="color:var(--w3);font-weight:300" id="lbl-opt">(optionnel)</span></label>
+      <textarea class="finput ftarea" id="ep-msg"></textarea>
+      <button class="fsbtn" id="sbtn-p" onclick="subP()">Nous nous occuperons de vous &#8594;</button>
+      <p class="fpnote" id="pn-p">Pas de spam. Aucun engagement.</p>
+    </div>
+
+    <!-- S2-org -->
+    <div class="fstep" id="fs2o">
+      <p class="fey" id="s2o-ey">Presque fini</p>
+      <h2 class="fti" id="s2o-ti">Parlons-en.</h2>
+      <div class="fsum"><span class="fsum-ico">&#10003;</span><span class="fsum-txt" id="sum-o">&#8212;</span></div>
+      <label class="flabel" id="lbl-co">Nom de l'entreprise <span style="color:var(--w3);font-weight:300" id="lbl-co-opt">(optionnel)</span></label>
+      <input type="text" class="finput" id="eo-co" placeholder="Borivon SARLAU...">
+      <label class="flabel" id="lbl-eo">Email professionnel</label>
+      <input type="email" class="finput" id="eo-em" onkeydown="if(event.key==='Enter')subO()">
+      <button class="fsbtn" id="sbtn-o" onclick="subO()">Nous vous recontacterons &#8594;</button>
+      <p class="fpnote" id="pn-o">Pas de spam. Aucun engagement.</p>
+    </div>
+
+    <!-- SUCCESS -->
+    <div class="fstep" id="fs-ok">
+      <div class="fsuc">
+        <div class="fsuc-ico">&#127881;</div>
+        <p class="fey" style="text-align:center" id="ok-ey">C'est fait !</p>
+        <h2 class="fti" style="text-align:center;margin-bottom:0.55rem" id="ok-ti">Nous vous recontacterons bientot.</h2>
+        <p style="font-size:0.84rem;color:var(--w2);text-align:center;line-height:1.75;max-width:300px;margin:0 auto" id="ok-sub">Nous avons bien recu votre demande et vous recontacterons dans les 24 heures.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div class="foot-logo">Borivon<em>.</em></div>
+  <div class="foot-links">
+    <button class="flink" onclick="openM('contact')" id="ftab-c">Contact</button>
+    <button class="flink" onclick="openM('privacy')"  id="ftab-p">Politique de confidentialite</button>
+    <button class="flink" onclick="openM('terms')"    id="ftab-t">Conditions generales</button>
+  </div>
+  <div class="foot-copy" id="foot-copy">&#169; 2026 Borivon.com &#8212; Casablanca, Maroc</div>
+</footer>
+
+<!-- MODAL CONTACT -->
+<div class="modal-overlay" id="modal-contact" onclick="oClose(event,'contact')">
+  <div class="modal">
+    <div class="modal-head"><div class="modal-title" id="mc-t">Contact</div><button class="modal-close" onclick="closeM('contact')">&#10005;</button></div>
+    <div class="modal-body">
+      <div class="contact-grid">
+        <div class="cinfo">
+          <div class="crow"><div class="cico">&#128205;</div><div class="cval">77 Boulevard Mohamed Smiha<br>20080 Casablanca, Maroc</div></div>
+          <div class="crow"><div class="cico">&#9993;</div><div class="cval"><a href="mailto:contact@borivon.com">contact@borivon.com</a></div></div>
+          <div class="crow"><div class="cico">&#128222;</div><div class="cval"><a href="tel:+4915731504759">+49 157 315 047 59</a><br><a href="tel:+212700300174">+212 700-300174</a></div></div>
+        </div>
+        <div>
+          <div class="map-frame">
+            <iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3323.7!2d-7.619!3d33.592!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0xda7d2!2s77+Bd+Mohamed+Smiha+Casablanca!5e0!3m2!1sfr!2sma!4v1" allowfullscreen loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL PRIVACY -->
+<div class="modal-overlay" id="modal-privacy" onclick="oClose(event,'privacy')">
+  <div class="modal">
+    <div class="modal-head"><div class="modal-title" id="mp-t">Politique de confidentialite</div><button class="modal-close" onclick="closeM('privacy')">&#10005;</button></div>
+    <div class="modal-body">
+      <div class="legal" id="priv-fr">
+        <h3>1. Identite du responsable du traitement</h3>
+        <p>Le responsable du traitement est <strong>Borivon SARLAU</strong>, 77 Boulevard Mohamed Smiha, 20080 Casablanca, Maroc. Contact : <a href="mailto:contact@borivon.com">contact@borivon.com</a></p>
+        <h3>2. Donnees collectees et base legale</h3>
+        <p>Borivon SARLAU collecte uniquement les donnees strictement necessaires : adresse e-mail, numero de telephone, et un message facultatif. La collecte repose sur votre consentement explicite lors de la soumission du formulaire. Aucune donnee sensible (origine ethnique, sante, opinions politiques) n'est collectee.</p>
+        <h3>3. Finalites du traitement</h3>
+        <ul>
+          <li>Repondre a votre demande de contact ou d'appel decouverte</li>
+          <li>Evaluer votre niveau et vous orienter vers le programme adapte</li>
+          <li>Vous mettre en relation avec l'instructeur approprie</li>
+          <li>Vous transmettre des informations sur nos programmes, sous reserve de votre consentement</li>
+          <li>Ameliorer la qualite de nos services par analyse anonymisee</li>
+        </ul>
+        <h3>4. Destinataires des donnees</h3>
+        <p>Vos donnees sont destinees exclusivement aux collaborateurs habilites de Borivon SARLAU. Elles ne sont jamais vendues ni cedees a des tiers. Certains sous-traitants techniques (hebergement, messagerie) peuvent y acceder dans le strict respect de la confidentialite.</p>
+        <h3>5. Duree de conservation</h3>
+        <p>Vos donnees sont conservees pour une duree maximale de trois (3) ans a compter du dernier contact. Au-dela, elles sont definitivamente supprimees ou anonymisees. Vous pouvez demander leur suppression anticipee a <a href="mailto:contact@borivon.com">contact@borivon.com</a>.</p>
+        <h3>6. Securite des donnees</h3>
+        <p>Borivon SARLAU met en oeuvre toutes les mesures techniques et organisationnelles appropriees pour garantir la securite, l'integrite et la confidentialite de vos donnees personnelles.</p>
+        <h3>7. Cookies et traceurs</h3>
+        <p>Ce site utilise des cookies techniques strictement necessaires au bon fonctionnement des pages et a la memorisation de vos preferences linguistiques. Aucun cookie publicitaire n'est utilise sans votre consentement.</p>
+        <h3>8. Vos droits</h3>
+        <p>Conformement a la loi marocaine n&#176;09-08, vous disposez des droits suivants :</p>
+        <ul>
+          <li>Droit d'acces a vos donnees</li><li>Droit de rectification</li>
+          <li>Droit a l'effacement (droit a l'oubli)</li><li>Droit d'opposition</li>
+          <li>Droit a la portabilite</li><li>Droit de retrait du consentement</li>
+        </ul>
+        <p>Pour exercer ces droits : <a href="mailto:contact@borivon.com">contact@borivon.com</a>. Reponse sous 30 jours ouvrables.</p>
+        <h3>9. Modifications</h3>
+        <p>Borivon SARLAU se reserve le droit de modifier cette politique a tout moment. La date de mise a jour est indiquee ci-dessous.</p>
+        <p style="margin-top:1.5rem;font-size:0.78rem;color:var(--w3)"><em>Derniere mise a jour : mars 2026</em></p>
+      </div>
+      <div class="legal" id="priv-en" style="display:none">
+        <h3>1. Identity of the Data Controller</h3>
+        <p><strong>Borivon SARLAU</strong>, 77 Boulevard Mohamed Smiha, 20080 Casablanca, Morocco. Contact: <a href="mailto:contact@borivon.com">contact@borivon.com</a></p>
+        <h3>2. Data Collected and Legal Basis</h3>
+        <p>We collect only strictly necessary data: email address, phone number, and an optional message. Collection is based on your explicit consent at form submission. No sensitive categories of data are collected.</p>
+        <h3>3. Purposes of Processing</h3>
+        <ul>
+          <li>Responding to your contact or discovery call request</li>
+          <li>Assessing your level and directing you to the right program</li>
+          <li>Connecting you with the appropriate instructor</li>
+          <li>Sending program information, subject to prior consent</li>
+          <li>Improving service quality through anonymised analysis</li>
+        </ul>
+        <h3>4. Recipients of Data</h3>
+        <p>Your data is accessible only to authorised Borivon SARLAU staff. It is never sold or transferred to third parties. Certain technical subcontractors (hosting, email) may access it under strict confidentiality obligations.</p>
+        <h3>5. Retention Period</h3>
+        <p>Data is retained for a maximum of three (3) years from the last contact. After that it is permanently deleted or anonymised. You may request early deletion at <a href="mailto:contact@borivon.com">contact@borivon.com</a>.</p>
+        <h3>6. Data Security</h3>
+        <p>Borivon SARLAU implements all appropriate technical and organisational measures to ensure security, integrity and confidentiality of your personal data.</p>
+        <h3>7. Cookies</h3>
+        <p>This site uses only strictly necessary technical cookies for functionality and language preference memory. No advertising cookies are placed without your consent.</p>
+        <h3>8. Your Rights</h3>
+        <p>Under Moroccan Law No. 09-08, you have the following rights:</p>
+        <ul>
+          <li>Right of access</li><li>Right to rectification</li>
+          <li>Right to erasure (right to be forgotten)</li><li>Right to object</li>
+          <li>Right to data portability</li><li>Right to withdraw consent</li>
+        </ul>
+        <p>To exercise these rights: <a href="mailto:contact@borivon.com">contact@borivon.com</a>. We will respond within 30 working days.</p>
+        <h3>9. Policy Updates</h3>
+        <p>Borivon SARLAU reserves the right to update this policy at any time. The last update date is shown below.</p>
+        <p style="margin-top:1.5rem;font-size:0.78rem;color:var(--w3)"><em>Last updated: March 2026</em></p>
+      </div>
+      <div class="legal" id="priv-de" style="display:none">
+        <h3>1. Verantwortlicher</h3>
+        <p><strong>Borivon SARLAU</strong>, 77 Boulevard Mohamed Smiha, 20080 Casablanca, Marokko. Kontakt: <a href="mailto:contact@borivon.com">contact@borivon.com</a></p>
+        <h3>2. Erhobene Daten und Rechtsgrundlage</h3>
+        <p>Borivon SARLAU erhebt ausschliesslich die zwingend erforderlichen Daten: E-Mail-Adresse, Telefonnummer sowie eine optionale Nachricht. Die Erhebung erfolgt auf Grundlage Ihrer ausdrucklichen Einwilligung bei der Formularubermittlung. Es werden keine sensiblen Datenkategorien erhoben.</p>
+        <h3>3. Zwecke der Datenverarbeitung</h3>
+        <ul>
+          <li>Bearbeitung Ihrer Kontakt- oder Erstgesprächsanfrage</li>
+          <li>Einschatzung Ihres Sprachniveaus und Zuordnung zum passenden Programm</li>
+          <li>Vermittlung an die geeignete Lehrkraft</li>
+          <li>Ubersendung von Programminformationen bei vorliegender Einwilligung</li>
+          <li>Verbesserung unserer Dienstleistungen durch anonymisierte Auswertung</li>
+        </ul>
+        <h3>4. Empfanger der Daten</h3>
+        <p>Ihre Daten sind ausschliesslich autorisierten Mitarbeitenden von Borivon SARLAU zuganglich. Sie werden niemals verkauft oder weitergegeben. Bestimmte technische Auftragsverarbeiter (Hosting, E-Mail) konnen im Rahmen strikter Vertraulichkeitsverpflichtungen darauf zugreifen.</p>
+        <h3>5. Speicherdauer</h3>
+        <p>Daten werden maximal drei (3) Jahre ab dem letzten Kontakt gespeichert. Danach werden sie endgultig geloscht oder anonymisiert. Vorzeitige Loschung auf Anfrage an <a href="mailto:contact@borivon.com">contact@borivon.com</a>.</p>
+        <h3>6. Datensicherheit</h3>
+        <p>Borivon SARLAU trifft alle geeigneten technischen und organisatorischen Massnahmen zum Schutz Ihrer personenbezogenen Daten vor unbefugtem Zugriff, Offenlegung oder Vernichtung.</p>
+        <h3>7. Cookies</h3>
+        <p>Diese Website verwendet ausschliesslich technisch notwendige Cookies fur den ordnungsgemassen Betrieb und zur Speicherung Ihrer Sprachpraferenzen. Ohne Ihre Einwilligung werden keine Werbe-Cookies gesetzt.</p>
+        <h3>8. Ihre Rechte</h3>
+        <p>Gemas marokkanischem Gesetz Nr. 09-08 stehen Ihnen folgende Rechte zu:</p>
+        <ul>
+          <li>Recht auf Auskunft</li><li>Recht auf Berichtigung</li>
+          <li>Recht auf Loschung (Recht auf Vergessenwerden)</li><li>Recht auf Widerspruch</li>
+          <li>Recht auf Datentragbarkeit</li><li>Recht auf Widerruf der Einwilligung</li>
+        </ul>
+        <p>Zur Ausubung dieser Rechte: <a href="mailto:contact@borivon.com">contact@borivon.com</a>. Antwort innerhalb von 30 Werktagen.</p>
+        <h3>9. Anderungen</h3>
+        <p>Borivon SARLAU behalt sich vor, diese Datenschutzerklarung jederzeit zu andern. Das Datum der letzten Aktualisierung ist unten angegeben.</p>
+        <p style="margin-top:1.5rem;font-size:0.78rem;color:var(--w3)"><em>Stand: Marz 2026</em></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL TERMS -->
+<div class="modal-overlay" id="modal-terms" onclick="oClose(event,'terms')">
+  <div class="modal">
+    <div class="modal-head"><div class="modal-title" id="mt-t">Conditions generales</div><button class="modal-close" onclick="closeM('terms')">&#10005;</button></div>
+    <div class="modal-body">
+      <div class="legal" id="terms-fr">
+        <h3>1. Objet et champ d'application</h3>
+        <p>Les presentes conditions generales d'utilisation (CGU) regissent l'acces et l'utilisation du site web borivon.com ainsi que les relations entre <strong>Borivon SARLAU</strong>, 77 Boulevard Mohamed Smiha, 20080 Casablanca, Maroc, et tout utilisateur du site ou beneficiaire de ses services d'enseignement de la langue allemande.</p>
+        <h3>2. Description des services</h3>
+        <p>Borivon SARLAU propose des formations linguistiques en langue allemande a destination des particuliers et des organisations, sous differents formats : cours en ligne synchrones, cours en presentiel, et accompagnements individualises. Les formations couvrent les niveaux A1 a B2 du CECRL et sont dispensees par des instructeurs qualifies. Les modalites de chaque programme sont communiquees lors du premier entretien et formalisees par ecrit.</p>
+        <h3>3. Acces au site et responsabilite</h3>
+        <p>L'acces a borivon.com est libre et gratuit. Borivon SARLAU s'efforce d'assurer la disponibilite continue du site mais ne peut garantir une accessibilite sans interruption, notamment en cas de maintenance, de force majeure ou de defaillance reseau. Borivon SARLAU decline toute responsabilite pour les dommages resultant d'une indisponibilite temporaire.</p>
+        <h3>4. Propriete intellectuelle</h3>
+        <p>L'ensemble des contenus du site — textes, illustrations, logos, supports pedagogiques, methodologies et structures de cours — sont la propriete exclusive de Borivon SARLAU. Toute reproduction ou exploitation sans autorisation ecrite prealable est strictement interdite.</p>
+        <h3>5. Confidentialite des echanges</h3>
+        <p>Les informations transmises via le formulaire de contact sont traitees de maniere confidentielle et exclusivement utilisees aux fins decrites dans la Politique de confidentialite. Aucune information personnelle n'est divulguee a des tiers sans consentement prealable.</p>
+        <h3>6. Limitation de responsabilite pedagogique</h3>
+        <p>Borivon SARLAU s'engage a deployer tous les moyens pedagogiques necessaires pour accompagner la progression de chaque apprenant. Les resultats aux examens officiels (Goethe-Institut, TestDaF, telc, etc.) dependent egalement de facteurs propres a chaque individu. Borivon SARLAU ne saurait etre tenu responsable de l'echec a un examen officiel.</p>
+        <h3>7. Cookies</h3>
+        <p>Le site utilise des cookies techniques necessaires a son fonctionnement. Vous pouvez gerer vos preferences via la banniere dediee.</p>
+        <h3>8. Modification des conditions</h3>
+        <p>Borivon SARLAU se reserve le droit de modifier les presentes CGU a tout moment. Les modifications prennent effet des leur publication.</p>
+        <h3>9. Droit applicable et juridiction</h3>
+        <p>Ces CGU sont soumises au droit marocain. En cas de litige, les parties s'engagent a rechercher une solution amiable. A defaut, les tribunaux competents de Casablanca seront seuls competents.</p>
+        <p style="margin-top:1.5rem;font-size:0.78rem;color:var(--w3)"><em>Derniere mise a jour : mars 2026</em></p>
+      </div>
+      <div class="legal" id="terms-en" style="display:none">
+        <h3>1. Purpose and Scope</h3>
+        <p>These General Terms of Use govern access to borivon.com and the relationship between <strong>Borivon SARLAU</strong>, 77 Boulevard Mohamed Smiha, 20080 Casablanca, Morocco, and any user of the site or recipient of its German language teaching services.</p>
+        <h3>2. Description of Services</h3>
+        <p>Borivon SARLAU offers German language training for individuals and organisations via online live sessions, on-site instruction, and personalised coaching. Courses cover CEFR levels A1 to B2 and are delivered by qualified instructors. Programme details are communicated at the first consultation and formalised in writing.</p>
+        <h3>3. Website Access and Liability</h3>
+        <p>Access to borivon.com is free. Borivon SARLAU endeavours to ensure continuous availability but cannot guarantee uninterrupted access due to maintenance, force majeure, or network failure. Borivon SARLAU accepts no liability for temporary unavailability.</p>
+        <h3>4. Intellectual Property</h3>
+        <p>All website content — texts, illustrations, logos, teaching materials, methodologies and course structures — is the exclusive property of Borivon SARLAU. Any reproduction without prior written authorisation is strictly prohibited.</p>
+        <h3>5. Confidentiality</h3>
+        <p>Information submitted via the contact form is treated confidentially and used solely for the purposes described in the Privacy Policy. No personal information is disclosed to third parties without prior consent.</p>
+        <h3>6. Limitation of Educational Liability</h3>
+        <p>Borivon SARLAU commits to deploying all necessary pedagogical resources. However, results in official examinations (Goethe-Institut, TestDaF, telc, etc.) depend on individual factors. Borivon SARLAU cannot be held responsible for failure in any official examination.</p>
+        <h3>7. Cookies</h3>
+        <p>The site uses necessary technical cookies. You can manage your preferences via the banner.</p>
+        <h3>8. Amendments</h3>
+        <p>Borivon SARLAU may modify these Terms at any time. Changes take effect upon publication.</p>
+        <h3>9. Governing Law and Jurisdiction</h3>
+        <p>These Terms are governed by Moroccan law. In the event of a dispute, the parties agree to seek an amicable solution first. Failing that, the competent courts of Casablanca shall have exclusive jurisdiction.</p>
+        <p style="margin-top:1.5rem;font-size:0.78rem;color:var(--w3)"><em>Last updated: March 2026</em></p>
+      </div>
+      <div class="legal" id="terms-de" style="display:none">
+        <h3>1. Gegenstand und Anwendungsbereich</h3>
+        <p>Diese Allgemeinen Nutzungsbedingungen (ANB) regeln den Zugang zu borivon.com sowie die Beziehung zwischen <strong>Borivon SARLAU</strong>, 77 Boulevard Mohamed Smiha, 20080 Casablanca, Marokko, und allen Nutzern der Website oder Empfangern ihrer Deutschkurse.</p>
+        <h3>2. Leistungsbeschreibung</h3>
+        <p>Borivon SARLAU bietet Deutschkurse fur Privatpersonen und Unternehmen an: Online-Live-Kurse, Prasenzunterricht und individuelles Coaching. Die Kurse decken die GER-Niveaustufen A1 bis B2 ab und werden von qualifizierten Lehrkraften durchgefuhrt. Die Modalitaten werden beim Erstgesprach mitgeteilt und schriftlich bestatigt.</p>
+        <h3>3. Websitezugang und Haftung</h3>
+        <p>Der Zugang zu borivon.com ist kostenlos. Borivon SARLAU bemüht sich um eine kontinuierliche Verfugbarkeit, kann jedoch keine unterbrechungsfreie Erreichbarkeit garantieren. Fur Schaden durch eine vorubergehende Nichtverfugbarkeit ubernimmt Borivon SARLAU keine Haftung.</p>
+        <h3>4. Geistiges Eigentum</h3>
+        <p>Alle Inhalte der Website — Texte, Grafiken, Logos, Lehrmaterialien, Methoden und Kursstrukturen — sind ausschliessliches Eigentum von Borivon SARLAU. Jede Vervielfaltigung ohne schriftliche Genehmigung ist untersagt.</p>
+        <h3>5. Vertraulichkeit</h3>
+        <p>Uber das Kontaktformular ubermittelte Informationen werden vertraulich behandelt und ausschliesslich fur die in der Datenschutzerklarung beschriebenen Zwecke verwendet. Ohne vorherige Einwilligung werden keine Daten an Dritte weitergegeben.</p>
+        <h3>6. Haftungsbeschrankung im padagogischen Bereich</h3>
+        <p>Borivon SARLAU setzt alle notwendigen padagogischen Mittel ein. Die Ergebnisse bei offiziellen Prufungen (Goethe-Institut, TestDaF, telc usw.) hangen jedoch auch von individuellen Faktoren ab. Borivon SARLAU haftet nicht fur das Nichtbestehen einer Prufung.</p>
+        <h3>7. Cookies</h3>
+        <p>Die Website verwendet technisch notwendige Cookies. Ihre Praferenzen konnen uber das Banner verwaltet werden.</p>
+        <h3>8. Anderungen</h3>
+        <p>Borivon SARLAU behalt sich vor, diese ANB jederzeit zu andern. Anderungen treten mit Veroffentlichung in Kraft.</p>
+        <h3>9. Anwendbares Recht und Gerichtsstand</h3>
+        <p>Diese ANB unterliegen dem Recht des Konigreichs Marokko. Bei Streitigkeiten wird zunachst eine gutliche Einigung angestrebt. Anderenfalls sind die zustandigen Gerichte in Casablanca ausschliesslich zustandig.</p>
+        <p style="margin-top:1.5rem;font-size:0.78rem;color:var(--w3)"><em>Stand: Marz 2026</em></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- COOKIE BANNER -->
+<div class="cookie-bar hidden" id="cookie-bar">
+  <div class="cookie-text" id="ck-txt"></div>
+  <div class="cookie-actions">
+    <button class="ck-btn ck-decline" id="ck-decline" onclick="ckDecline()">Refuser</button>
+    <button class="ck-btn ck-accept"  id="ck-accept"  onclick="ckAccept()">Accepter</button>
+  </div>
+</div>
+
+<script>
+/* ── TRANSLATIONS ─────────────────────────────────────────────── */
+var TX = {
+  fr:{dir:'ltr',bc:'fr',
+    pill:'Inscriptions ouvertes',
+    hTi:'Parlez <em>allemand.</em><br>Ouvrez chaque porte.',
+    hSub:'Remplissez ce formulaire pour que nous puissions vous orienter au mieux.',
+    bArr:'&#8592;',bLbl:'Retour',
+    s0ey:'Bienvenue',s0ti:'Qui decrit le mieux votre situation ?',
+    cI:'Particulier',cO:'Organisation',arr:'&#8594;',
+    s1ey:'Niveau en allemand',s1ti:'Votre niveau actuel ?',
+    lA1:'Debutant',lA2:'Elementaire',lB1:'Intermediaire',lB2:'Inter. superieur',lNs:'Je ne sais pas',
+    s1oEy:'Service souhaite',s1oTi:'De quoi avez-vous besoin ?',
+    coS1:"Cours d'allemand",coS2:'Traduction &amp; Interpretation',coS3:'Autre',
+    s1ofEy:'Format',s1ofTi:'Quel format vous convient ?',
+    coF1:'En ligne',coF2:'Dans vos locaux',
+    s2pEy:'Presque fini',s2pTi:'Parlons-en.',
+    s2oEy:'Presque fini',s2oTi:'Parlons-en.',
+    lEp:'Email',lPp:'Telephone',lMp:'Message',lOpt:'(optionnel)',
+    lEo:'Email professionnel',lCo:"Nom de l'entreprise",
+    ePh:'vous@exemple.com',pPh:'+212 6xx xxx xxx',oPh:'vous@societe.com',mPh:'Objectif, delai, disponibilites...',
+    sP:'Nous nous occuperons de vous &#8594;',sO:'Nous vous recontacterons &#8594;',
+    pn:'Pas de spam. Aucun engagement.',
+    spP:function(l,n){return 'Particulier &nbsp;&#183;&nbsp; <strong>Niveau '+l+' \u2014 '+n+'</strong>'},
+    spOBase:'Organisation',coS1lbl:"Cours d'allemand",coS2lbl:'Trad. &amp; Interp.',coS3lbl:'Autre',
+    coF1lbl:'En ligne',coF2lbl:'Dans vos locaux',
+    okEy:"C'est fait !",okTi:'Nous vous recontacterons bientot.',okSub:'Nous avons bien recu votre demande et vous recontacterons dans les 24 heures.',
+    ftC:'Contact',ftP:'Politique de confidentialite',ftT:'Conditions generales',
+    fCopy:'&#169; 2026 Borivon.com &#8212; Casablanca, Maroc',
+    mCt:'Contact',mPt:'Politique de confidentialite',mTt:'Conditions generales',
+    ckTxt:'<strong>Nous utilisons des cookies</strong> &#8212; uniquement des cookies techniques essentiels. Aucun cookie publicitaire. En continuant, vous acceptez notre <a href="#" onclick="openM(\'privacy\');return false">Politique de confidentialite</a>.',
+    ckA:'Accepter',ckD:'Refuser'
+  },
+  en:{dir:'ltr',bc:'en',
+    pill:'Now enrolling',
+    hTi:'Learn <em>German.</em><br>Open every door.',
+    hSub:'Fill in this form so we can serve you best.',
+    bArr:'&#8592;',bLbl:'Back',
+    s0ey:'Welcome',s0ti:'What describes you best?',
+    cI:'Individual',cO:'Organization',arr:'&#8594;',
+    s1ey:'German level',s1ti:'Your current level?',
+    lA1:'Beginner',lA2:'Elementary',lB1:'Intermediate',lB2:'Upper-Int.',lNs:'Not sure',
+    s1oEy:'Service needed',s1oTi:'What do you need?',
+    coS1:'German courses',coS2:'Translation &amp; Interpretation',coS3:'Other',
+    s1ofEy:'Format',s1ofTi:'Which format suits you?',
+    coF1:'Online',coF2:'At your premises',
+    s2pEy:'Almost there',s2pTi:"Let's talk.",
+    s2oEy:'Almost there',s2oTi:"Let's talk.",
+    lEp:'Email',lPp:'Phone',lMp:'Message',lOpt:'(optional)',
+    lEo:'Work email',lCo:'Company name',
+    ePh:'you@example.com',pPh:'+212 6xx xxx xxx',oPh:'you@company.com',mPh:'Goal, deadline, availability...',
+    sP:"We'll take care of you &#8594;",sO:"We'll reach out &#8594;",
+    pn:'No spam. No commitment.',
+    spP:function(l,n){return 'Individual &nbsp;&#183;&nbsp; <strong>Level '+l+' \u2014 '+n+'</strong>'},
+    spOBase:'Organization',coS1lbl:'German courses',coS2lbl:'Transl. &amp; Interp.',coS3lbl:'Other',
+    coF1lbl:'Online',coF2lbl:'At your premises',
+    okEy:'Done!',okTi:"We'll be in touch soon.",okSub:'We received your request and will reach out within 24 hours.',
+    ftC:'Contact',ftP:'Privacy Policy',ftT:'Terms &amp; Conditions',
+    fCopy:'&#169; 2026 Borivon.com &#8212; Casablanca, Morocco',
+    mCt:'Contact',mPt:'Privacy Policy',mTt:'Terms &amp; Conditions',
+    ckTxt:'<strong>We use cookies</strong> &#8212; only strictly necessary technical cookies. No advertising cookies. By continuing you accept our <a href="#" onclick="openM(\'privacy\');return false">Privacy Policy</a>.',
+    ckA:'Accept',ckD:'Decline'
+  },
+  de:{dir:'ltr',bc:'de',
+    pill:'Jetzt einschreiben',
+    hTi:'<em>Deutsch</em> lernen.<br>Jede Tur offnen.',
+    hSub:'Fullen Sie dieses Formular aus, damit wir Sie optimal betreuen konnen.',
+    bArr:'&#8592;',bLbl:'Zuruck',
+    s0ey:'Willkommen',s0ti:'Was beschreibt Sie am besten?',
+    cI:'Privatperson',cO:'Unternehmen',arr:'&#8594;',
+    s1ey:'Deutschniveau',s1ti:'Ihr aktuelles Niveau?',
+    lA1:'Anfanger',lA2:'Grundstufe',lB1:'Mittelstufe',lB2:'Obere Mittelst.',lNs:'Unsicher',
+    s1oEy:'Gewunschte Leistung',s1oTi:'Was benotigen <span style="font-size:1.1em;font-weight:700">S</span>ie?',
+    coS1:'Deutschkurse',coS2:'Ubersetzung &amp; Dolmetschen',coS3:'Sonstiges',
+    s1ofEy:'Format',s1ofTi:'Welches Format passt fur <span style="font-size:1.1em;font-weight:700">S</span>ie?',
+    coF1:'Online',coF2:'In Ihrem Unternehmen',
+    s2pEy:'Fast da',s2pTi:'Sprechen wir.',
+    s2oEy:'Fast da',s2oTi:'Sprechen wir.',
+    lEp:'E-Mail',lPp:'Telefon',lMp:'Nachricht',lOpt:'(optional)',
+    lEo:'Geschaftliche E-Mail',lCo:'Unternehmensname',
+    ePh:'sie@beispiel.de',pPh:'+49 / +212 ...',oPh:'sie@unternehmen.de',mPh:'Ziel, Zeitplan, Verfugbarkeit...',
+    sP:'Wir kummern uns um <span style="font-size:1.05em;font-weight:700">S</span>ie &#8594;',
+    sO:'Wir melden uns bei <span style="font-size:1.05em;font-weight:700">I</span>hnen &#8594;',
+    pn:'Kein Spam. Keine Verpflichtung.',
+    spP:function(l,n){return 'Privatperson &nbsp;&#183;&nbsp; <strong>Niveau '+l+' \u2014 '+n+'</strong>'},
+    spOBase:'Unternehmen',coS1lbl:'Deutschkurse',coS2lbl:'Ubersetz. &amp; Dolm.',coS3lbl:'Sonstiges',
+    coF1lbl:'Online',coF2lbl:'Im Unternehmen',
+    okEy:'Geschafft!',okTi:'Wir melden uns bald.',okSub:'Anfrage erhalten. Wir melden uns innerhalb von 24 Stunden.',
+    ftC:'Kontakt',ftP:'Datenschutz',ftT:'AGB',
+    fCopy:'&#169; 2026 Borivon.com &#8212; Casablanca, Marokko',
+    mCt:'Kontakt',mPt:'Datenschutzerklarung',mTt:'Allgemeine Geschaftsbedingungen',
+    ckTxt:'<strong>Wir verwenden Cookies</strong> &#8212; ausschliesslich technisch notwendige. Keine Werbe-Cookies. Durch weitere Nutzung stimmen Sie unserer <a href="#" onclick="openM(\'privacy\');return false">Datenschutzerklarung</a> zu.',
+    ckA:'Akzeptieren',ckD:'Ablehnen'
+  },
+  ar:{dir:'rtl',bc:'ar',
+    pill:'&#x627;&#x644;&#x62A;&#x633;&#x62C;&#x64A;&#x644; &#x645;&#x641;&#x62A;&#x648;&#x62D;',
+    hTi:'&#x62A;&#x639;&#x644;&#x651;&#x645; <em>&#x627;&#x644;&#x623;&#x644;&#x645;&#x627;&#x646;&#x64A;&#x629;.</em><br>&#x627;&#x641;&#x62A;&#x62D; &#x643;&#x644; &#x627;&#x644;&#x623;&#x628;&#x648;&#x627;&#x628;.',
+    hSub:'&#x623;&#x643;&#x645;&#x644; &#x647;&#x630;&#x627; &#x627;&#x644;&#x646;&#x645;&#x648;&#x630;&#x62C; &#x62D;&#x62A;&#x649; &#x646;&#x62A;&#x645;&#x643;&#x646; &#x645;&#x646; &#x62E;&#x62F;&#x645;&#x62A;&#x643; &#x628;&#x623;&#x641;&#x636;&#x644; &#x635;&#x648;&#x631;&#x629;.',
+    bArr:'&#8594;',bLbl:'&#x631;&#x62C;&#x648;&#x639;',
+    s0ey:'&#x645;&#x631;&#x62D;&#x628;&#x627;&#x64B; &#x628;&#x643;',s0ti:'&#x645;&#x627; &#x627;&#x644;&#x630;&#x64A; &#x64A;&#x635;&#x641; &#x648;&#x636;&#x639;&#x643; &#x628;&#x634;&#x643;&#x644; &#x623;&#x641;&#x636;&#x644;&#x61F;',
+    cI:'&#x641;&#x631;&#x62F;',cO:'&#x645;&#x624;&#x633;&#x633;&#x629;',arr:'&#8592;',
+    s1ey:'&#x645;&#x633;&#x62A;&#x648;&#x627;&#x643; &#x641;&#x64A; &#x627;&#x644;&#x623;&#x644;&#x645;&#x627;&#x646;&#x64A;&#x629;',s1ti:'&#x645;&#x627; &#x645;&#x633;&#x62A;&#x648;&#x627;&#x643; &#x627;&#x644;&#x62D;&#x627;&#x644;&#x64A;&#x61F;',
+    lA1:'&#x645;&#x628;&#x62A;&#x62F;&#x626;',lA2:'&#x623;&#x633;&#x627;&#x633;&#x64A;',lB1:'&#x645;&#x62A;&#x648;&#x633;&#x637;',lB2:'&#x645;&#x62A;&#x648;&#x633;&#x637; &#x645;&#x62A;&#x642;&#x62F;&#x645;',lNs:'&#x63A;&#x64A;&#x631; &#x645;&#x62A;&#x623;&#x643;&#x62F;',
+    s1oEy:'&#x627;&#x644;&#x62E;&#x62F;&#x645;&#x629; &#x627;&#x644;&#x645;&#x637;&#x644;&#x648;&#x628;&#x629;',s1oTi:'&#x645;&#x627;&#x630;&#x627; &#x62A;&#x62D;&#x62A;&#x627;&#x62C;&#x648;&#x646;&#x61F;',
+    coS1:'&#x62F;&#x648;&#x631;&#x627;&#x62A; &#x627;&#x644;&#x623;&#x644;&#x645;&#x627;&#x646;&#x64A;&#x629;',coS2:'&#x62A;&#x631;&#x62C;&#x645;&#x629; &#x648;&#x62A;&#x641;&#x633;&#x64A;&#x631;',coS3:'&#x623;&#x62E;&#x631;&#x649;',
+    s1ofEy:'&#x627;&#x644;&#x635;&#x64A;&#x63A;&#x629;',s1ofTi:'&#x645;&#x627; &#x627;&#x644;&#x635;&#x64A;&#x63A;&#x629; &#x627;&#x644;&#x645;&#x646;&#x627;&#x633;&#x628;&#x629;&#x61F;',
+    coF1:'&#x639;&#x628;&#x631; &#x627;&#x644;&#x625;&#x646;&#x62A;&#x631;&#x646;&#x62A;',coF2:'&#x641;&#x64A; &#x645;&#x642;&#x631; &#x634;&#x631;&#x643;&#x62A;&#x643;&#x645;',
+    s2pEy:'&#x627;&#x642;&#x62A;&#x631;&#x628;&#x646;&#x627;',s2pTi:'&#x644;&#x646;&#x62A;&#x62D;&#x62F;&#x62B;.',
+    s2oEy:'&#x627;&#x642;&#x62A;&#x631;&#x628;&#x646;&#x627;',s2oTi:'&#x644;&#x646;&#x62A;&#x62D;&#x62F;&#x62B;.',
+    lEp:'&#x627;&#x644;&#x628;&#x631;&#x64A;&#x62F; &#x627;&#x644;&#x625;&#x644;&#x643;&#x62A;&#x631;&#x648;&#x646;&#x64A;',lPp:'&#x627;&#x644;&#x647;&#x627;&#x62A;&#x641;',lMp:'&#x631;&#x633;&#x627;&#x644;&#x629;',lOpt:'(&#x627;&#x62E;&#x62A;&#x64A;&#x627;&#x631;&#x64A;)',
+    lEo:'&#x628;&#x631;&#x64A;&#x62F; &#x627;&#x644;&#x639;&#x645;&#x644;',lCo:'&#x627;&#x633;&#x645; &#x627;&#x644;&#x634;&#x631;&#x643;&#x629;',
+    ePh:'&#x628;&#x631;&#x64A;&#x62F;&#x643;@&#x627;&#x644;&#x645;&#x62B;&#x627;&#x644;.com',pPh:'+212 6xx xxx xxx',oPh:'&#x628;&#x631;&#x64A;&#x62F;&#x643;@&#x627;&#x644;&#x634;&#x631;&#x643;&#x629;.com',mPh:'&#x627;&#x644;&#x647;&#x62F;&#x641;&#x60C; &#x627;&#x644;&#x62C;&#x62F;&#x648;&#x644; &#x627;&#x644;&#x632;&#x645;&#x646;&#x64A;&#x60C; &#x627;&#x644;&#x623;&#x648;&#x642;&#x627;&#x62A;...',
+    sP:'&#x633;&#x646;&#x647;&#x62A;&#x645; &#x628;&#x643; &#8592;',sO:'&#x633;&#x646;&#x62A;&#x648;&#x627;&#x635;&#x644; &#x645;&#x639;&#x643; &#8592;',
+    pn:'&#x644;&#x627; &#x628;&#x631;&#x64A;&#x62F; &#x645;&#x632;&#x639;&#x62C;. &#x644;&#x627; &#x627;&#x644;&#x62A;&#x632;&#x627;&#x645;.',
+    spP:function(l,n){return '&#x641;&#x631;&#x62F; &nbsp;&#183;&nbsp; <strong>&#x627;&#x644;&#x645;&#x633;&#x62A;&#x648;&#x649; '+l+' \u2014 '+n+'</strong>'},
+    spOBase:'&#x645;&#x624;&#x633;&#x633;&#x629;',coS1lbl:'&#x62F;&#x648;&#x631;&#x627;&#x62A;',coS2lbl:'&#x62A;&#x631;&#x62C;&#x645;&#x629;',coS3lbl:'&#x623;&#x62E;&#x631;&#x649;',
+    coF1lbl:'&#x623;&#x648;&#x646;&#x644;&#x627;&#x64A;&#x646;',coF2lbl:'&#x641;&#x64A; &#x645;&#x642;&#x631;&#x643;&#x645;',
+    okEy:'&#x62A;&#x645;!',okTi:'&#x633;&#x646;&#x62A;&#x648;&#x627;&#x635;&#x644; &#x645;&#x639;&#x643; &#x642;&#x631;&#x64A;&#x628;&#x627;&#x64B;.',okSub:'&#x62A;&#x644;&#x642;&#x64A;&#x646;&#x627; &#x637;&#x644;&#x628;&#x643; &#x648;&#x633;&#x646;&#x62A;&#x648;&#x627;&#x635;&#x644; &#x645;&#x639;&#x643; &#x62E;&#x644;&#x627;&#x644; 24 &#x633;&#x627;&#x639;&#x629;.',
+    ftC:'&#x627;&#x62A;&#x635;&#x644; &#x628;&#x646;&#x627;',ftP:'&#x633;&#x64A;&#x627;&#x633;&#x629; &#x627;&#x644;&#x62E;&#x635;&#x648;&#x635;&#x64A;&#x629;',ftT:'&#x627;&#x644;&#x634;&#x631;&#x648;&#x637; &#x648;&#x627;&#x644;&#x623;&#x62D;&#x643;&#x627;&#x645;',
+    fCopy:'&#169; 2026 Borivon.com &#8212; &#x627;&#x644;&#x62F;&#x627;&#x631; &#x627;&#x644;&#x628;&#x64A;&#x636;&#x627;&#x621;&#x60C; &#x627;&#x644;&#x645;&#x63A;&#x631;&#x628;',
+    mCt:'&#x627;&#x62A;&#x635;&#x644; &#x628;&#x646;&#x627;',mPt:'&#x633;&#x64A;&#x627;&#x633;&#x629; &#x627;&#x644;&#x62E;&#x635;&#x648;&#x635;&#x64A;&#x629;',mTt:'&#x627;&#x644;&#x634;&#x631;&#x648;&#x637; &#x648;&#x627;&#x644;&#x623;&#x62D;&#x643;&#x627;&#x645;',
+    ckTxt:'<strong>&#x646;&#x633;&#x62A;&#x62E;&#x62F;&#x645; &#x645;&#x644;&#x641;&#x627;&#x62A; &#x62A;&#x639;&#x631;&#x64A;&#x641; &#x627;&#x644;&#x627;&#x631;&#x62A;&#x628;&#x627;&#x637;</strong> &#8212; &#x641;&#x642;&#x637; &#x645;&#x644;&#x641;&#x627;&#x62A; &#x636;&#x631;&#x648;&#x631;&#x64A;&#x629;. <a href="#" onclick="openM(\'privacy\');return false">&#x633;&#x64A;&#x627;&#x633;&#x629; &#x627;&#x644;&#x62E;&#x635;&#x648;&#x635;&#x64A;&#x629;</a>.',
+    ckA:'&#x642;&#x628;&#x648;&#x644;',ckD:'&#x631;&#x641;&#x636;'
+  }
+};
+
+/* ── STATE ────────────────────────────────────────────────────── */
+var lang='fr', st={type:null,lc:null,ln:null,svc:null,fmt:null}, hist=[], cur='fs0';
+
+/* ── HELPERS ──────────────────────────────────────────────────── */
+function tx(id,v){var e=document.getElementById(id);if(e)e.textContent=v}
+function ih(id,v){var e=document.getElementById(id);if(e)e.innerHTML=v}
+function at(id,a,v){var e=document.getElementById(id);if(e)e.setAttribute(a,v)}
+
+/* ── LANG ─────────────────────────────────────────────────────── */
+function L(l){
+  lang=l; var t=TX[l];
+  document.documentElement.setAttribute('dir',t.dir);
+  document.documentElement.setAttribute('lang',l);
+  document.body.className=t.bc;
+  document.querySelectorAll('.lb').forEach(function(b){
+    var code=b.textContent.trim().slice(-2).toLowerCase();
+    b.classList.toggle('on',code===l);
+  });
+  ih('pill-txt',t.pill);
+  ih('hero-ti',t.hTi); ih('hero-sub',t.hSub);
+  ih('fbk-arr',t.bArr); tx('fbk-lbl',t.bLbl);
+  tx('s0-ey',t.s0ey); tx('s0-ti',t.s0ti);
+  tx('c-ind',t.cI); tx('c-org',t.cO);
+  ih('arr0',t.arr); ih('arr1',t.arr);
+  tx('s1-ey',t.s1ey); tx('s1-ti',t.s1ti);
+  tx('ln-a1',t.lA1);tx('ln-a2',t.lA2);tx('ln-b1',t.lB1);tx('ln-b2',t.lB2);tx('ln-ns',t.lNs);
+  tx('s1o-ey',t.s1oEy); ih('s1o-ti',t.s1oTi);
+  ih('co-s1',t.coS1); ih('co-s2',t.coS2); tx('co-s3',t.coS3);
+  ih('co-arr0',t.arr);ih('co-arr1',t.arr);ih('co-arr2',t.arr);
+  tx('s1of-ey',t.s1ofEy); ih('s1of-ti',t.s1ofTi);
+  tx('co-f1',t.coF1); tx('co-f2',t.coF2);
+  ih('co-farr0',t.arr);ih('co-farr1',t.arr);
+  tx('s2p-ey',t.s2pEy); tx('s2p-ti',t.s2pTi);
+  tx('s2o-ey',t.s2oEy); tx('s2o-ti',t.s2oTi);
+  tx('lbl-ep',t.lEp); tx('lbl-pp',t.lPp); tx('lbl-eo',t.lEo); tx('lbl-co',t.lCo);
+  var lco=document.getElementById('lbl-co-opt'); if(lco) lco.textContent=t.lOpt;
+  ih('sbtn-p',t.sP); ih('sbtn-o',t.sO);
+  tx('pn-p',t.pn); tx('pn-o',t.pn);
+  tx('ok-ey',t.okEy); tx('ok-ti',t.okTi); tx('ok-sub',t.okSub);
+  var lm=document.getElementById('lbl-mp');
+  if(lm) lm.innerHTML=t.lMp+' <span style="color:var(--w3);font-weight:300">'+t.lOpt+'</span>';
+  at('ep-em','placeholder',t.ePh);
+  at('ep-ph','placeholder',t.pPh);
+  at('eo-em','placeholder',t.oPh);
+  at('ep-msg','placeholder',t.mPh);
+  tx('ftab-c',t.ftC); ih('ftab-p',t.ftP); ih('ftab-t',t.ftT);
+  ih('foot-copy',t.fCopy);
+  tx('mc-t',t.mCt); ih('mp-t',t.mPt); ih('mt-t',t.mTt);
+  var ll=(l==='ar')?'fr':l;
+  ['priv','terms'].forEach(function(p){
+    ['fr','en','de'].forEach(function(x){
+      var el=document.getElementById(p+'-'+x);
+      if(el) el.style.display=(x===ll)?'block':'none';
+    });
+  });
+  // cookie texts
+  ih('ck-txt',t.ckTxt);
+  tx('ck-accept',t.ckA); tx('ck-decline',t.ckD);
+  upSum();
+}
+
+/* ── NAVIGATION ───────────────────────────────────────────────── */
+function showStep(id){
+  document.querySelectorAll('.fstep').forEach(function(e){e.classList.remove('on')});
+  var el=document.getElementById(id); if(el) el.classList.add('on');
+  cur=id;
+  var bb=document.getElementById('fbk');
+  bb.style.display=(hist.length&&id!=='fs-ok')?'flex':'none';
+}
+function goTo(id){hist.push(cur);showStep(id)}
+function goBack(){if(!hist.length)return;showStep(hist.pop())}
+
+/* ── CHOICES ──────────────────────────────────────────────────── */
+function pick(type){st.type=type; if(type==='person') goTo('fs1'); else goTo('fs1o')}
+function pickSvc(svc){st.svc=svc; if(svc==='courses') goTo('fs1of'); else{upSum();goTo('fs2o')}}
+function pickFmt(fmt){st.fmt=fmt; upSum(); goTo('fs2o')}
+function pLvl(code,names){st.lc=code; st.ln=names; upSum(); goTo('fs2p')}
+
+/* ── SUMMARY ──────────────────────────────────────────────────── */
+function upSum(){
+  var t=TX[lang];
+  var sp=document.getElementById('sum-p');
+  var so=document.getElementById('sum-o');
+  if(sp&&st.lc){
+    var n=st.ln?(st.ln[lang]||st.ln.fr):'';
+    sp.innerHTML=t.spP(st.lc,n);
+  }
+  if(so){
+    var svcMap={courses:t.coS1lbl,translation:t.coS2lbl,other:t.coS3lbl};
+    var fmtMap={online:t.coF1lbl,onsite:t.coF2lbl};
+    var parts=[t.spOBase];
+    if(st.svc) parts.push('<strong>'+svcMap[st.svc]+'</strong>');
+    if(st.fmt) parts.push('<strong>'+fmtMap[st.fmt]+'</strong>');
+    so.innerHTML=parts.join(' &nbsp;&#183;&nbsp; ');
+  }
+}
+
+/* ── SUBMIT ───────────────────────────────────────────────────── */
+var re=/^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+function subP(){
+  var em=document.getElementById('ep-em');
+  var ph=document.getElementById('ep-ph');
+  var ok=true;
+  if(!re.test(em.value.trim())){em.classList.add('err');em.focus();setTimeout(function(){em.classList.remove('err')},2000);ok=false}
+  if(!ph.value.trim()){ph.classList.add('err');if(ok)ph.focus();setTimeout(function(){ph.classList.remove('err')},2000);ok=false}
+  if(!ok)return;
+  console.log('P',{email:em.value.trim(),phone:ph.value.trim(),msg:document.getElementById('ep-msg').value,lang:lang,type:st.type,level:st.lc});
+  hist=[];goTo('fs-ok');
+}
+function subO(){
+  var ei=document.getElementById('eo-em');
+  if(!re.test(ei.value.trim())){ei.classList.add('err');ei.focus();setTimeout(function(){ei.classList.remove('err')},2000);return}
+  console.log('O',{email:ei.value.trim(),company:document.getElementById('eo-co').value.trim(),lang:lang,svc:st.svc,fmt:st.fmt});
+  hist=[];goTo('fs-ok');
+}
+
+/* ── MODALS ───────────────────────────────────────────────────── */
+function openM(n){document.getElementById('modal-'+n).classList.add('open');document.body.style.overflow='hidden'}
+function closeM(n){document.getElementById('modal-'+n).classList.remove('open');document.body.style.overflow=''}
+function oClose(e,n){if(e.target===document.getElementById('modal-'+n))closeM(n)}
+document.addEventListener('keydown',function(e){if(e.key==='Escape'){['contact','privacy','terms'].forEach(closeM)}});
+
+/* ── COOKIE ───────────────────────────────────────────────────── */
+function initCookie(){if(!localStorage.getItem('ck'))document.getElementById('cookie-bar').classList.remove('hidden')}
+function ckAccept(){localStorage.setItem('ck','1');document.getElementById('cookie-bar').classList.add('hidden')}
+function ckDecline(){localStorage.setItem('ck','0');document.getElementById('cookie-bar').classList.add('hidden')}
+
+/* ── INIT ─────────────────────────────────────────────────────── */
+L('fr');
+setTimeout(initCookie,900);
+</script>
+</body>
+</html>

@@ -1,0 +1,685 @@
+@import "tailwindcss";
+
+@theme {
+  --font-serif: var(--font-serif-v);
+  --font-sans: var(--font-dm-sans-v);
+
+  --color-bg: var(--bg);
+  --color-bg2: var(--bg2);
+  --color-card: var(--card);
+  --color-card2: var(--card2);
+  --color-border: var(--border);
+  --color-border2: var(--border2);
+  --color-border-gold: var(--border-gold);
+  --color-w: var(--w);
+  --color-w2: var(--w2);
+  --color-w3: var(--w3);
+  --color-gold: var(--gold);
+  --color-gold2: var(--gold2);
+  --color-gold-gradient: var(--gold-gradient);
+  --color-gdim: var(--gdim);
+}
+
+:root {
+  /* Display serif — DM Serif Display (kept).
+     Variable name aliased so call sites can use either --font-dm-serif or --font-serif. */
+  --font-dm-serif: var(--font-serif-v);
+  --font-dm-sans: var(--font-dm-sans-v);
+
+  /* ── Dark mode (default) ─────────────────────────────────────────────── */
+  /* Premium dark — warmer & lighter than near-black so the surface feels
+     designed (Linear / Stripe / Vercel territory, not "OLED black"). Each
+     layer steps ~5 % lighter so elevation reads cleanly. */
+  --bg: #16161a;
+  --bg2: #1e1e22;
+  --card: #25252a;
+  --card2: #2c2c32;
+  /* Borders — slightly stronger so dividers stay visible on the lifted bg */
+  --border: rgba(255, 255, 255, 0.08);
+  --border2: rgba(255, 255, 255, 0.13);
+  --border-gold: rgba(201, 162, 64, 0.32);
+  /* Foreground */
+  --w: #eeecea;
+  --w2: rgba(238, 236, 234, 0.72);
+  /* w3 — slight bump for WCAG AA on the new lighter bg */
+  --w3: rgba(238, 236, 234, 0.55);
+  /* Brand */
+  --gold: #c9a240;
+  --gold2: #dcb84e;
+  --gold-gradient: linear-gradient(135deg, #c9a240 0%, #a48232 100%);
+  --gdim: rgba(201, 162, 64, 0.10);
+  /* Chrome */
+  --nav-bg: rgba(22, 22, 26, 0.78);
+  /* Shadows — softer, two-layered */
+  --shadow-sm:  0 1px 2px rgba(0, 0, 0, 0.18);
+  --shadow-md:  0 6px 16px rgba(0, 0, 0, 0.28);
+  --shadow-lg:  0 16px 48px rgba(0, 0, 0, 0.36);
+  --shadow-card: var(--shadow-md);
+  /* Gold drop-shadows — used for primary CTAs (rest / hover / pressed) */
+  --shadow-gold-sm:    0 4px 12px rgba(201, 162, 64, 0.28);
+  --shadow-gold-md:    0 5px 16px rgba(201, 162, 64, 0.28);
+  --shadow-gold-lg:    0 6px 20px rgba(201, 162, 64, 0.32);
+  --shadow-gold-hover: 0 10px 30px rgba(201, 162, 64, 0.38);
+
+  /* ── Shape & motion (shared across themes) ───────────────────────────── */
+  --r-xs:   6px;
+  --r-sm:   8px;
+  --r-md:  10px;
+  --r-lg:  14px;
+  --r-xl:  18px;
+  --r-2xl: 22px;
+  --ease:    cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-1: 140ms;
+  --dur-2: 220ms;
+  --dur-3: 320ms;
+}
+
+.light {
+  /* ── Luxury Light — Pearl & Deep Charcoal ────────────────────────────── */
+  --bg: #fcfaf7;
+  --bg2: #f4f1ec;
+  --card: #ffffff;
+  --card2: #fbfaf6;
+  --border: rgba(0, 0, 0, 0.06);
+  --border2: rgba(0, 0, 0, 0.10);
+  --border-gold: rgba(173, 139, 58, 0.28);
+  --w: #1a1b1d;
+  --w2: rgba(26, 27, 29, 0.74);
+  /* w3 — bumped from 0.48 → 0.58 for WCAG AA compliance on small text (~4.5:1 vs --bg) */
+  --w3: rgba(26, 27, 29, 0.58);
+  --gold: #ad8b3a;
+  --gold2: #c5a353;
+  --gold-gradient: linear-gradient(135deg, #c5a353 0%, #96752a 100%);
+  --gdim: rgba(173, 139, 58, 0.08);
+  --nav-bg: rgba(252, 250, 247, 0.82);
+  --shadow-sm:  0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md:  0 6px 24px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.04);
+  --shadow-lg:  0 24px 64px rgba(0, 0, 0, 0.08), 0 6px 16px rgba(0, 0, 0, 0.04);
+  --shadow-card: var(--shadow-md);
+  /* Gold drop-shadows — softer in light mode so they read against pearl bg */
+  --shadow-gold-sm:    0 4px 12px rgba(173, 139, 58, 0.22);
+  --shadow-gold-md:    0 5px 16px rgba(173, 139, 58, 0.22);
+  --shadow-gold-lg:    0 6px 20px rgba(173, 139, 58, 0.26);
+  --shadow-gold-hover: 0 10px 30px rgba(173, 139, 58, 0.32);
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+}
+
+html {
+  scroll-behavior: smooth;
+  font-size: 16px;
+  /* Honor the iOS notch + home indicator on every page */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  /* Remove the 300ms tap delay on touch devices */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Prevent iOS Safari from zooming when an input is focused.
+   Triggers when font-size < 16px. We only enforce this on touch viewports
+   so desktop typography rhythm is preserved exactly as designed. */
+@media (max-width: 768px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Touch-friendly affordance — no 300ms tap delay on interactive elements */
+button, a, [role="button"], input, select, textarea {
+  touch-action: manipulation;
+}
+
+/* ── Focus-visible ring — keyboard accessibility ──────────────────────────
+   Browser-default focus outlines are ugly and inconsistent. We replace them
+   with a single brand-aware ring that ONLY shows during keyboard navigation
+   (`:focus-visible`), not on mouse click. Inputs/textareas keep their existing
+   per-element gold border treatment. */
+:focus { outline: none; }
+button:focus-visible,
+a:focus-visible,
+[role="button"]:focus-visible,
+select:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+  border-radius: var(--r-xs);
+}
+
+/* ── Inline link polish — Stripe-style underline glide on body links ──────
+   Applied via .bv-link only (not all <a>) so we don't override decorative
+   anchors used as cards. */
+.bv-link {
+  color: var(--gold);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in oklab, var(--gold) 35%, transparent);
+  text-underline-offset: 3px;
+  transition: text-decoration-color var(--dur-2) var(--ease);
+}
+.bv-link:hover {
+  text-decoration-color: var(--gold);
+}
+
+body {
+  font-family: var(--font-dm-sans);
+  background: var(--bg);
+  color: var(--w);
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Lexend has wider built-in letter-spacing tuned for legibility — don't add to it. */
+  letter-spacing: 0;
+  line-height: 1.6;
+  transition: background-color 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+              color 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Headings — Lexend reads heavier at 500 than DM Sans at 700 due to design */
+h1, h2, h3 {
+  letter-spacing: -0.018em;
+  font-weight: 500;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border2);
+  border-radius: 10px;
+}
+
+/* Hero title em → gold italic */
+.hero-title em {
+  font-style: italic;
+  color: var(--gold);
+}
+
+/* Footer matches page bg in light mode (avoids contrast mismatch) */
+.light footer {
+  background: var(--bg) !important;
+}
+
+/* Choice card lift */
+.choice-lift:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 30px -10px rgba(0, 0, 0, 0.25);
+}
+
+/* Legal content theme-aware colors */
+.legal-body  { color: var(--w2); }
+.legal-head  { color: var(--w) !important; }
+.legal-link  { color: var(--gold); }
+.legal-muted { color: var(--w3); }
+
+/* Input focus ring */
+input:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--gold) !important;
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+   PREMIUM PRIMITIVES — opt-in classes for new/refactored UI surfaces.
+   Existing inline-styled components keep working unchanged; new code
+   should reach for these instead of stacking inline borders + radii.
+   ──────────────────────────────────────────────────────────────────────── */
+
+/* Surface — single hairline border, generous radius, soft shadow */
+.bv-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-sm);
+  transition: border-color var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease);
+}
+.bv-card-hover:hover {
+  border-color: var(--border2);
+  box-shadow: var(--shadow-md);
+}
+
+/* Hairline divider used inside cards / lists */
+.bv-divider {
+  height: 1px;
+  background: var(--border);
+}
+
+/* Buttons — three intents, consistent rhythm */
+.bv-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1.05rem;
+  border-radius: var(--r-md);
+  font-size: 0.825rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background var(--dur-1) var(--ease),
+    border-color var(--dur-1) var(--ease),
+    color var(--dur-1) var(--ease),
+    transform var(--dur-1) var(--ease),
+    opacity var(--dur-1) var(--ease);
+}
+.bv-btn:active:not(:disabled) { transform: translateY(1px); }
+.bv-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.bv-btn-primary {
+  background: var(--gold);
+  color: #131312;
+  border: 1px solid var(--gold);
+}
+.bv-btn-primary:hover:not(:disabled) { background: var(--gold2); border-color: var(--gold2); }
+
+.bv-btn-ghost {
+  background: var(--bg2);
+  color: var(--w2);
+  border: 1px solid var(--border);
+}
+.bv-btn-ghost:hover:not(:disabled) { color: var(--w); border-color: var(--border2); }
+
+.bv-btn-danger {
+  background: rgba(224, 82, 82, 0.08);
+  color: #e05252;
+  border: 1px solid rgba(224, 82, 82, 0.22);
+}
+.bv-btn-danger:hover:not(:disabled) { background: rgba(224, 82, 82, 0.14); }
+
+/* Input — consistent rhythm, gold focus ring */
+.bv-input {
+  width: 100%;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  color: var(--w);
+  padding: 0.625rem 0.8rem;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  transition: border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
+}
+.bv-input::placeholder { color: var(--w3); }
+.bv-input:hover { border-color: var(--border2); }
+.bv-input:focus {
+  outline: none;
+  border-color: var(--gold) !important;
+  background: var(--card);
+}
+
+/* Status chip — quieter than the previous fully-saturated green/red/gold pills */
+.bv-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.22rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.69rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: 1px solid var(--border);
+  background: var(--bg2);
+  color: var(--w2);
+  white-space: nowrap;
+}
+.bv-chip-gold    { background: var(--gdim);                color: var(--gold);  border-color: var(--border-gold); }
+.bv-chip-success { background: rgba(52,199,89,0.10);       color: #34c759;      border-color: rgba(52,199,89,0.24); }
+.bv-chip-danger  { background: rgba(224,82,82,0.08);       color: #e05252;      border-color: rgba(224,82,82,0.22); }
+
+/* Section eyebrow label */
+.bv-eyebrow {
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--w3);
+}
+
+/* ────────────────────────────────────────────────────────────────────────
+   MOTION PRIMITIVES — opt-in entrance + interaction utilities.
+
+   Usage:
+     <div class="bv-enter">             — single element fades up on mount
+     <ul class="bv-enter-stagger">      — children fade up with cascading delay
+     <button class="bv-press">          — slight scale-down on active
+     <div class="bv-card-lift">         — subtle lift on hover (cards / link tiles)
+
+   prefers-reduced-motion is honored globally below — anyone with the OS
+   setting enabled gets a near-instant variant.
+   ──────────────────────────────────────────────────────────────────────── */
+
+@keyframes bvFadeRise {
+  from { opacity: 0; transform: translateY(8px) scale(0.985); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes bvFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.bv-enter      { animation: bvFadeRise 0.32s var(--ease-out) both; }
+.bv-enter-soft { animation: bvFadeIn   0.24s var(--ease-out) both; }
+
+/* Stagger — children animate in with cascading delays */
+.bv-enter-stagger > *           { animation: bvFadeRise 0.32s var(--ease-out) both; opacity: 0; }
+.bv-enter-stagger > *:nth-child(1)  { animation-delay: 0.02s; }
+.bv-enter-stagger > *:nth-child(2)  { animation-delay: 0.06s; }
+.bv-enter-stagger > *:nth-child(3)  { animation-delay: 0.10s; }
+.bv-enter-stagger > *:nth-child(4)  { animation-delay: 0.14s; }
+.bv-enter-stagger > *:nth-child(5)  { animation-delay: 0.18s; }
+.bv-enter-stagger > *:nth-child(6)  { animation-delay: 0.22s; }
+.bv-enter-stagger > *:nth-child(7)  { animation-delay: 0.26s; }
+.bv-enter-stagger > *:nth-child(n+8){ animation-delay: 0.30s; }
+
+/* Press feedback — sub-pixel scale on active for tactile button response */
+.bv-press {
+  transition: transform var(--dur-1) var(--ease);
+}
+.bv-press:active:not(:disabled) { transform: scale(0.98); }
+
+/* Card lift — used by clickable surfaces that aren't pure buttons */
+.bv-card-lift {
+  transition:
+    transform var(--dur-2) var(--ease),
+    border-color var(--dur-2) var(--ease),
+    box-shadow var(--dur-2) var(--ease);
+}
+.bv-card-lift:hover {
+  transform: translateY(-2px);
+  border-color: var(--border2);
+  box-shadow: var(--shadow-md);
+}
+
+/* ── Mobile bottom-bar clearance ────────────────────────────────────────────
+   Android soft-nav bars are ~56 px tall and env(safe-area-inset-bottom) is
+   often 0 on Android. We use a hardcoded 96 px floor so nothing ever sits
+   behind the permanent bottom bar on any phone.
+   Use .bv-page-bottom on every scrollable page <main> or inner wrapper.
+   Use .bv-modal-bottom on fixed/absolute panels that anchor to the bottom.  */
+:root {
+  --bottom-bar: 96px;   /* clearance from viewport bottom on mobile */
+}
+@media (max-width: 767px) {
+  .bv-page-bottom  { padding-bottom: var(--bottom-bar) !important; }
+  .bv-modal-bottom { padding-bottom: var(--bottom-bar) !important; }
+}
+
+/* Sticky bottom action bar — used on form-heavy mobile screens so the primary
+   CTA is always reachable without scrolling. Honors safe-area on iOS. */
+.bv-sticky-bottom {
+  position: sticky;
+  bottom: 0;
+  z-index: 40;
+  margin-left: -1rem;
+  margin-right: -1rem;
+  padding: 0.75rem 1rem calc(0.75rem + env(safe-area-inset-bottom));
+  background: linear-gradient(
+    to top,
+    var(--bg) 60%,
+    color-mix(in oklab, var(--bg) 75%, transparent) 100%
+  );
+  border-top: 1px solid var(--border);
+  backdrop-filter: blur(8px);
+}
+@media (min-width: 768px) {
+  /* Desktop: don't stick — flows inline as a regular block */
+  .bv-sticky-bottom {
+    position: static;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border-top: none;
+    backdrop-filter: none;
+  }
+}
+
+/* Touch-target compliance — on mobile, expand the hit-area of small icon-only
+   buttons to at least 40×40 without changing their visual size. We use the
+   pseudo-element trick so the visible chip stays compact but the tappable
+   area meets WCAG 2.5.5 (target size). Only applies to icon-only buttons
+   marked with .bv-touch (24-28px circles in admin doc rows). */
+@media (hover: none) and (pointer: coarse) {
+  .bv-touch {
+    position: relative;
+  }
+  .bv-touch::before {
+    content: "";
+    position: absolute;
+    inset: 50%;
+    width: 44px;
+    height: 44px;
+    transform: translate(-50%, -50%);
+  }
+}
+
+/* ── Reduced motion — respect the OS preference ─────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Subtle status-dot pulse — used by JourneyView, NotificationBell overdue
+   banner, and ClientPage live indicator. Soft opacity oscillation so a small
+   dot still reads as "alive" without flashing. */
+@keyframes pls {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.45; }
+}
+
+/* Generic slide-down — used by Navbar mobile menu and portal ProfileIcon
+   dropdown. Defined globally so it works regardless of which component
+   mounted first. */
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Same as slideDown but preserves a translateX(-50%) used to horizontally
+   center popups under their trigger. Without this, the X-translate is wiped
+   during the keyframe and the popup appears to slide in from the right. */
+@keyframes slideDownCentered {
+  from { opacity: 0; transform: translate(-50%, -6px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* Slide-in from the left — used by the mobile dashboard sidebar drawer. */
+@keyframes bvSlideInLeft {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(0); }
+}
+
+@keyframes bvSlideUp {
+  from { transform: translateY(100%); opacity: 0.5; }
+  to   { transform: translateY(0);    opacity: 1; }
+}
+
+/* Premium hover-able row — used for doc slots, candidate list rows,
+   sub-admin rows, conversation rows, etc. The row itself has no chrome at
+   rest (just a thin divider underneath). On hover a soft fill appears with
+   smooth, premium rounded corners + a low-key lift (subtle drop shadow and
+   1 px upward translate) so the user can feel which row is targeted, not
+   just see the bg shift. Single class drop-in: <div class="bv-row-hover">. */
+.bv-row-hover {
+  border-radius: 14px;
+  /* Will-change keeps the transform/shadow on the GPU compositor → no jank
+     when hovering rows quickly. */
+  will-change: transform, box-shadow, background-color;
+  transition:
+    background-color 180ms var(--ease, ease),
+    box-shadow 220ms var(--ease, ease),
+    transform 220ms var(--ease, ease);
+}
+.bv-row-hover:hover {
+  background-color: var(--bg2);
+  /* Two-layer shadow — a tight inner one + a softer outer halo. Gives the
+     row a quiet "lift off the page" feel without screaming for attention. */
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 6px 18px rgba(0, 0, 0, 0.10);
+  transform: translateY(-1px);
+}
+.bv-row-hover:active {
+  /* Press-down — softer shadow, slight downward shift. Tactile. */
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  transform: translateY(0);
+  transition-duration: 80ms;
+}
+.bv-row-hover:focus-visible {
+  outline: none;
+  background-color: var(--bg2);
+  box-shadow: 0 0 0 2px var(--border-gold);
+}
+/* Respect reduced-motion: drop the lift, keep just the bg fill. */
+@media (prefers-reduced-motion: reduce) {
+  .bv-row-hover, .bv-row-hover:hover, .bv-row-hover:active {
+    transform: none;
+    box-shadow: none;
+    transition-duration: 0ms;
+  }
+}
+
+/* Phase nav items: lift only, no background, no shadow. */
+.bv-lift-hover {
+  will-change: transform;
+  transition: transform 200ms var(--ease, ease);
+}
+.bv-lift-hover:hover {
+  transform: translateY(-2px);
+}
+.bv-lift-hover:active {
+  transform: translateY(0);
+  transition-duration: 80ms;
+}
+@media (prefers-reduced-motion: reduce) {
+  .bv-lift-hover, .bv-lift-hover:hover, .bv-lift-hover:active {
+    transform: none;
+    transition-duration: 0ms;
+  }
+}
+
+/* Premium row-action icon button — used for Replace / Download / Approve /
+   Reject inline icons. Default: just the icon, no chrome. Hover: a clearly
+   visible greyish circular pill fades in behind the icon + the icon scales
+   up — defines the click target so the user knows exactly which icon their
+   cursor is on. Active: press-down + accent color. Borderless throughout. */
+.bv-icon-btn {
+  position: relative;
+  cursor: pointer;
+  color: var(--w2);
+  transition:
+    color 180ms var(--ease, ease),
+    transform 180ms var(--ease, ease),
+    background-color 180ms var(--ease, ease);
+}
+.bv-icon-btn:hover {
+  /* Slightly more contrast than --bg2 so the pill is distinctly visible
+     in both dark and light mode without feeling heavy. */
+  background-color: var(--border) !important;
+  color: var(--w) !important;
+  transform: scale(1.12);
+}
+.bv-icon-btn:active {
+  transform: scale(0.94);
+  background-color: var(--gdim) !important;
+  color: var(--gold) !important;
+  transition-duration: 80ms;
+}
+.bv-icon-btn:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
+}
+
+/* Colored variants — same hover-pill mechanic but the icon stays in its
+   semantic color (green for approve, red for reject) instead of going gold.
+   Hover pill picks up the same color at low opacity so the affordance feels
+   on-theme. */
+.bv-icon-btn--approve {
+  color: #34c759;
+}
+.bv-icon-btn--approve:hover {
+  background-color: rgba(52,199,89,0.14) !important;
+  color: #34c759 !important;
+}
+.bv-icon-btn--approve:active {
+  background-color: rgba(52,199,89,0.24) !important;
+  color: #34c759 !important;
+}
+
+.bv-icon-btn--reject {
+  color: #e05252;
+}
+.bv-icon-btn--reject:hover {
+  background-color: rgba(224,82,82,0.12) !important;
+  color: #e05252 !important;
+}
+.bv-icon-btn--reject:active {
+  background-color: rgba(224,82,82,0.22) !important;
+  color: #e05252 !important;
+}
+
+/* Info-blue variant — for ⓘ "what is this?" hint buttons. Soft cool blue
+   that reads as informational rather than alarming. Same hover-pill mechanic. */
+.bv-icon-btn--info {
+  color: #5b9ae0;
+}
+.bv-icon-btn--info:hover {
+  background-color: rgba(91, 154, 224, 0.12) !important;
+  color: #7bb1ee !important;
+}
+.bv-icon-btn--info:active {
+  background-color: rgba(91, 154, 224, 0.22) !important;
+  color: #7bb1ee !important;
+}
+
+/* Skeleton shimmer — used by loading placeholders */
+@keyframes bvSkeletonShimmer {
+  0%   { background-position: -200px 0; }
+  100% { background-position: 200px 0; }
+}
+.bv-skeleton {
+  background-image: linear-gradient(
+    90deg,
+    var(--bg2) 0%,
+    var(--border) 50%,
+    var(--bg2) 100%
+  );
+  background-size: 400px 100%;
+  background-repeat: no-repeat;
+  background-color: var(--bg2);
+  animation: bvSkeletonShimmer 1.4s ease-in-out infinite;
+}
+
+/* Doc slot highlight pulse — triggered when notification deep-links to a slot */
+@keyframes bv-doc-glow {
+  0%, 100% {
+    background: rgba(212, 175, 55, 0.06);
+    box-shadow: inset 0 0 0 2px rgba(212, 175, 55, 0.35);
+  }
+  50% {
+    background: rgba(212, 175, 55, 0.14);
+    box-shadow: inset 0 0 0 2px rgba(212, 175, 55, 0.7), 0 0 24px rgba(212, 175, 55, 0.12);
+  }
+}
+.bv-doc-highlight {
+  animation: bv-doc-glow 1.1s ease-in-out infinite;
+}
