@@ -1,7 +1,11 @@
 /**
  * CVDocument.tsx — @react-pdf/renderer component (server-side only).
- * Premium minimalist German Lebenslauf using Lexend font.
  * Do NOT add "use client" here.
+ *
+ * Layout:
+ *  - Fixed header (logo + rule) on every page — like a Word/Docs header
+ *  - Fixed footer (contact line) on every page — like a Word/Docs footer
+ *  - Personal data as vertical list with photo on the right
  */
 import React from "react";
 import {
@@ -12,7 +16,6 @@ import {
   StyleSheet,
   Image,
 } from "@react-pdf/renderer";
-import path from "path";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -71,11 +74,10 @@ export interface CVData {
   hobbies: string;
 }
 
-/** Branding injected by the generate API — defaults to Borivon when absent. */
 export interface CVBrand {
-  /** Absolute path to a logo image in public/logos/ — if absent, Borivon text logo renders. */
+  /** Absolute path to logo image in public/logos/ */
   logoPath?: string;
-  /** Lines for the footer. Borivon default is ["contact@borivon.com"]. */
+  /** Footer lines. Default: ["contact@borivon.com"] */
   footerLines?: string[];
 }
 
@@ -102,12 +104,17 @@ function nursingLabel(status: string, degree: string): string {
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
-const DARK    = "#1C1C1E";
-const NAVY    = "#1a3a5c";
-const GOLD    = "#C9A84C";
-const MUTED   = "#6B7280";
-const DIVIDER = "#E2E6EA";
+const DARK         = "#1C1C1E";
+const NAVY         = "#1a3a5c";
+const GOLD         = "#C9A84C";
+const MUTED        = "#6B7280";
+const DIVIDER      = "#E2E6EA";
 const FOOTER_COLOR = "#9CA3AF";
+
+// Fixed header height: paddingTop(18) + logo(46) + gap(8) + rule(1.5) + bottom gap(6)
+const HEADER_H = 80;
+// Fixed footer height: borderTop(0.5) + paddingTop(6) + text(~9) + paddingBottom(11)
+const FOOTER_H = 30;
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
@@ -116,27 +123,36 @@ const s = StyleSheet.create({
     fontFamily: "Lexend",
     fontSize: 9,
     color: DARK,
-    paddingTop: 36,
-    paddingBottom: 28,
+    paddingTop: HEADER_H,
+    paddingBottom: FOOTER_H,
     paddingLeft: 44,
     paddingRight: 44,
     lineHeight: 1.45,
     backgroundColor: "#FFFFFF",
   },
 
-  // ── Logo banner ──
-  logoBanner: {
+  // ── Fixed header — repeats on every page ──────────────────────────────────
+  fixedHeader: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingTop: 18,
+    paddingHorizontal: 44,
+  },
+  logoWrap: {
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 10,
+    marginBottom: 8,
   },
   logoImage: {
-    height: 54,
+    height: 46,
     objectFit: "contain",
   },
   logoTextRow: {
     flexDirection: "row",
     alignItems: "baseline",
+    justifyContent: "center",
   },
   logoText: {
     fontFamily: "DMSerifItalic",
@@ -148,71 +164,47 @@ const s = StyleSheet.create({
     fontSize: 22,
     color: GOLD,
   },
-
-  // ── Header rule ──
   headerRule: {
     height: 1.5,
     backgroundColor: NAVY,
-    marginBottom: 11,
   },
 
-  // ── Name + photo row ──
-  nameRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 10,
+  // ── Fixed footer — repeats on every page ──────────────────────────────────
+  fixedFooter: {
+    position: "absolute",
+    bottom: 0,
+    left: 44,
+    right: 44,
+    borderTopWidth: 0.5,
+    borderTopColor: DIVIDER,
+    paddingTop: 6,
+    paddingBottom: 11,
+    alignItems: "center",
   },
-  nameLeft: {
-    flex: 1,
-    paddingRight: 14,
+  footerLine: {
+    fontSize: 7.5,
+    color: FOOTER_COLOR,
+    textAlign: "center",
+    lineHeight: 1.55,
   },
-  lebenslaufLabel: {
+
+  // ── Document title ─────────────────────────────────────────────────────────
+  docTitle: {
     fontSize: 7,
     fontWeight: 600,
     color: GOLD,
     letterSpacing: 2.2,
     textTransform: "uppercase",
-    marginBottom: 3,
-  },
-  candidateName: {
-    fontSize: 20,
-    fontWeight: 700,
-    color: DARK,
-    lineHeight: 1.15,
-    marginBottom: 5,
-  },
-  contactRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-  },
-  contactItem: {
-    fontSize: 8,
-    color: MUTED,
-    marginRight: 14,
-    marginBottom: 1.5,
-  },
-  photo: {
-    width: 76,
-    height: 76,
-    borderRadius: 4,
-    objectFit: "cover",
+    marginTop: 10,
+    marginBottom: 10,
   },
 
-  // ── Divider ──
-  divider: {
-    height: 0.5,
-    backgroundColor: DIVIDER,
-    marginTop: 5,
-    marginBottom: 7,
-  },
-
-  // ── Section ──
-  section: { marginBottom: 6 },
+  // ── Section ────────────────────────────────────────────────────────────────
+  section: { marginBottom: 7 },
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 5,
+    marginBottom: 6,
     paddingBottom: 3,
     borderBottomWidth: 1,
     borderBottomColor: NAVY,
@@ -232,30 +224,63 @@ const s = StyleSheet.create({
     textTransform: "uppercase",
   },
 
-  // ── Personal data grid ──
-  pdGrid: { flexDirection: "row", flexWrap: "wrap" },
-  pdItem: { width: "50%", marginBottom: 2.5, flexDirection: "row" },
-  pdItemFull: { width: "100%", marginBottom: 2.5, flexDirection: "row" },
-  pdLabel: { fontSize: 8, color: MUTED, width: 84 },
-  pdValue: { fontSize: 8.5, color: DARK, flex: 1 },
+  // ── Personal data — vertical list with photo ───────────────────────────────
+  pdWithPhoto: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  pdRows: {
+    flex: 1,
+    paddingRight: 14,
+  },
+  pdRow: {
+    flexDirection: "row",
+    marginBottom: 3.5,
+  },
+  pdLabel: {
+    fontSize: 8,
+    color: MUTED,
+    width: 105,
+    flexShrink: 0,
+  },
+  pdValue: {
+    fontSize: 8.5,
+    color: DARK,
+    flex: 1,
+  },
+  photo: {
+    width: 78,
+    height: 78,
+    borderRadius: 4,
+    objectFit: "cover",
+    flexShrink: 0,
+  },
 
-  // ── Timeline entries ──
-  entry: { marginBottom: 5.5, flexDirection: "row" },
-  entryDate: { fontSize: 8, color: MUTED, width: 72, paddingTop: 1 },
+  // ── Divider ────────────────────────────────────────────────────────────────
+  divider: {
+    height: 0.5,
+    backgroundColor: DIVIDER,
+    marginTop: 5,
+    marginBottom: 8,
+  },
+
+  // ── Timeline entries ───────────────────────────────────────────────────────
+  entry: { marginBottom: 6, flexDirection: "row" },
+  entryDate: { fontSize: 8, color: MUTED, width: 80, paddingTop: 1, flexShrink: 0 },
   entryRight: { flex: 1 },
-  entryTitle: { fontSize: 9, fontWeight: 700, color: DARK, marginBottom: 1 },
+  entryTitle: { fontSize: 9, fontWeight: 700, color: DARK, marginBottom: 1.5 },
   entrySubtitle: { fontSize: 8, color: MUTED, marginBottom: 1 },
-  entryDept: { fontSize: 8, color: GOLD, marginTop: 1 },
+  entryDept: { fontSize: 8, color: GOLD, marginTop: 1.5 },
   entryGap: { fontSize: 8.5, color: MUTED },
   entryGapReason: { fontSize: 8, color: MUTED },
 
-  // ── Languages ──
+  // ── Languages ──────────────────────────────────────────────────────────────
   langRow: { flexDirection: "row", flexWrap: "wrap" },
-  langItem: { marginRight: 18, marginBottom: 2.5, flexDirection: "row", alignItems: "baseline" },
+  langItem: { marginRight: 20, marginBottom: 3, flexDirection: "row", alignItems: "baseline" },
   langName: { fontSize: 9, fontWeight: 700, marginRight: 3 },
   langLevel: { fontSize: 8, color: MUTED },
 
-  // ── EDV chips ──
+  // ── EDV chips ──────────────────────────────────────────────────────────────
   edvRow: { flexDirection: "row", flexWrap: "wrap" },
   edvChip: {
     fontSize: 8,
@@ -270,40 +295,27 @@ const s = StyleSheet.create({
     backgroundColor: "#F9FAFB",
   },
 
-  // ── Sonstiges ──
-  miscRow: { flexDirection: "row", flexWrap: "wrap" },
-  miscItem: { marginRight: 20, marginBottom: 2.5, flexDirection: "row" },
-  miscLabel: { fontSize: 8, color: MUTED, width: 84 },
+  // ── Sonstiges ─────────────────────────────────────────────────────────────
+  miscRow: {
+    flexDirection: "row",
+    marginBottom: 3.5,
+  },
+  miscLabel: { fontSize: 8, color: MUTED, width: 105, flexShrink: 0 },
   miscValue: { fontSize: 8.5, color: DARK, flex: 1 },
 
-  // ── Signature / date area ──
+  // ── Signature area ─────────────────────────────────────────────────────────
   sigArea: {
-    marginTop: 22,
+    marginTop: 24,
     flexDirection: "row",
     justifyContent: "space-between",
   },
   sigSlot: { width: 115 },
-  sigSpace: { height: 38 },
+  sigSpace: { height: 40 },
   sigLine: { height: 0.5, backgroundColor: MUTED, marginBottom: 3 },
   sigLabel: { fontSize: 7.5, color: MUTED },
-
-  // ── Footer ──
-  footer: {
-    marginTop: 14,
-    paddingTop: 8,
-    borderTopWidth: 0.5,
-    borderTopColor: DIVIDER,
-    alignItems: "center",
-  },
-  footerLine: {
-    fontSize: 7.5,
-    color: FOOTER_COLOR,
-    textAlign: "center",
-    lineHeight: 1.55,
-  },
 });
 
-// ─── Sub-components ──────────────────────────────────────────────────────────
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
 function SectionHead({ title }: { title: string }) {
   return (
@@ -314,10 +326,10 @@ function SectionHead({ title }: { title: string }) {
   );
 }
 
-function PDItem({ label, value, full }: { label: string; value: string; full?: boolean }) {
+function PDRow({ label, value }: { label: string; value: string }) {
   if (!value) return null;
   return (
-    <View style={full ? s.pdItemFull : s.pdItem}>
+    <View style={s.pdRow}>
       <Text style={s.pdLabel}>{label}</Text>
       <Text style={s.pdValue}>{value}</Text>
     </View>
@@ -390,9 +402,14 @@ function EduRow({ entry }: { entry: EduEntry }) {
 
 export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
   const fullName = [data.firstName, data.lastName].filter(Boolean).join(" ");
-
-  // Effective branding — fall back to Borivon defaults
   const footerLines = brand?.footerLines?.length ? brand.footerLines : ["contact@borivon.com"];
+
+  const allNationalities = [data.nationality, ...(data.additionalNationalities ?? [])].filter(Boolean);
+  const fullAddress = [
+    data.address,
+    [data.postalCode, data.city].filter(Boolean).join(" "),
+    data.countryOfResidence,
+  ].filter(Boolean).join(", ");
 
   // Sort work: newest first
   const datedWork = [...data.workEntries]
@@ -401,8 +418,7 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
       (parseInt(b.start.year) * 12 + parseInt(b.start.month)) -
       (parseInt(a.start.year) * 12 + parseInt(a.start.month))
     );
-  const undatedWork = data.workEntries.filter(e => !datedWork.find(d => d.id === e.id));
-  const allWork = [...datedWork, ...undatedWork];
+  const allWork = [...datedWork, ...data.workEntries.filter(e => !datedWork.find(d => d.id === e.id))];
 
   // Sort edu: newest first
   const datedEdu = [...data.eduEntries]
@@ -411,77 +427,63 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
       (parseInt(b.start.year) * 12 + parseInt(b.start.month)) -
       (parseInt(a.start.year) * 12 + parseInt(a.start.month))
     );
-  const undatedEdu = data.eduEntries.filter(e => !datedEdu.find(d => d.id === e.id));
-  const allEdu = [...datedEdu, ...undatedEdu];
+  const allEdu = [...datedEdu, ...data.eduEntries.filter(e => !datedEdu.find(d => d.id === e.id))];
 
   const allEdv      = [...data.edvSelected, ...data.edvCustomInputs.filter(Boolean)];
   const activeLangs = data.langs.filter(l => l.name && l.level);
-
-  // Build contact line items (plain text, no emojis — keeps PDF clean and printable)
-  const contactItems: string[] = [];
-  if (data.phone) contactItems.push(data.phone);
-  if (data.email) contactItems.push(data.email);
-  const addrParts = [data.address, [data.postalCode, data.city].filter(Boolean).join(" ")].filter(Boolean);
-  if (addrParts.length) contactItems.push(addrParts.join(", "));
-
-  // Full address string for personal data section
-  const fullAddress = [data.address, [data.postalCode, data.city].filter(Boolean).join(" "), data.countryOfResidence]
-    .filter(Boolean).join(", ");
-
-  // Nationalities (primary + additional)
-  const allNationalities = [data.nationality, ...(data.additionalNationalities ?? [])].filter(Boolean);
 
   return (
     <Document title={`Lebenslauf – ${fullName}`} author="Borivon" language="de">
       <Page size="A4" style={s.page} wrap>
 
-        {/* ── 1. LOGO BANNER ── */}
-        <View style={s.logoBanner}>
-          {brand?.logoPath ? (
-            <Image src={brand.logoPath} style={s.logoImage} />
-          ) : (
-            <View style={s.logoTextRow}>
-              <Text style={s.logoText}>Borivon</Text>
-              <Text style={s.logoGold}>.</Text>
-            </View>
-          )}
-        </View>
-
-        {/* ── 2. NAVY RULE ── */}
-        <View style={s.headerRule} />
-
-        {/* ── 3. NAME + CONTACT + PHOTO ── */}
-        <View style={s.nameRow}>
-          <View style={s.nameLeft}>
-            <Text style={s.lebenslaufLabel}>Lebenslauf</Text>
-            <Text style={s.candidateName}>{fullName || "Vorname Nachname"}</Text>
-            <View style={s.contactRow}>
-              {contactItems.map((item, i) => (
-                <Text key={i} style={s.contactItem}>{item}</Text>
-              ))}
-            </View>
+        {/* ── FIXED HEADER — logo + rule, every page ── */}
+        <View fixed style={s.fixedHeader}>
+          <View style={s.logoWrap}>
+            {brand?.logoPath ? (
+              <Image src={brand.logoPath} style={s.logoImage} />
+            ) : (
+              <View style={s.logoTextRow}>
+                <Text style={s.logoText}>Borivon</Text>
+                <Text style={s.logoGold}>.</Text>
+              </View>
+            )}
           </View>
-          {data.photo ? <Image src={data.photo} style={s.photo} /> : null}
+          <View style={s.headerRule} />
         </View>
 
-        <View style={s.divider} />
+        {/* ── FIXED FOOTER — contact line, every page ── */}
+        <View fixed style={s.fixedFooter}>
+          {footerLines.map((line, i) => (
+            <Text key={i} style={s.footerLine}>{line}</Text>
+          ))}
+        </View>
 
-        {/* ── 4. PERSÖNLICHE DATEN ── */}
+        {/* ── DOCUMENT TITLE ── */}
+        <Text style={s.docTitle}>Lebenslauf</Text>
+
+        {/* ── PERSÖNLICHE DATEN ── */}
         <View style={s.section}>
           <SectionHead title="Persönliche Daten" />
-          <View style={s.pdGrid}>
-            <PDItem label="Geburtsdatum"    value={data.birthDate} />
-            <PDItem label="Geburtsort"      value={data.birthPlace} />
-            {data.countryOfBirth     ? <PDItem label="Geburtsland"      value={data.countryOfBirth} /> : null}
-            {allNationalities.length ? <PDItem label="Staatsangehörig." value={allNationalities.join(", ")} /> : null}
-            {data.maritalStatus      ? <PDItem label="Familienstand"    value={data.maritalStatus} /> : null}
-            {fullAddress             ? <PDItem label="Adresse"          value={fullAddress} full /> : null}
+          <View style={s.pdWithPhoto}>
+            <View style={s.pdRows}>
+              <PDRow label="Vorname"           value={data.firstName} />
+              <PDRow label="Nachname"          value={data.lastName} />
+              <PDRow label="Geburtsdatum"      value={data.birthDate} />
+              <PDRow label="Geburtsort"        value={data.birthPlace} />
+              {data.countryOfBirth     ? <PDRow label="Geburtsland"       value={data.countryOfBirth} /> : null}
+              {allNationalities.length ? <PDRow label="Staatsangehörigkeit" value={allNationalities.join(", ")} /> : null}
+              {data.maritalStatus      ? <PDRow label="Familienstand"     value={data.maritalStatus} /> : null}
+              {fullAddress             ? <PDRow label="Adresse"           value={fullAddress} /> : null}
+              {data.phone              ? <PDRow label="Telefon"           value={data.phone} /> : null}
+              {data.email              ? <PDRow label="E-Mail"            value={data.email} /> : null}
+            </View>
+            {data.photo ? <Image src={data.photo} style={s.photo} /> : null}
           </View>
         </View>
 
         <View style={s.divider} />
 
-        {/* ── 5. BERUFSERFAHRUNG ── */}
+        {/* ── BERUFSERFAHRUNG ── */}
         {allWork.length > 0 && (
           <View style={s.section}>
             <SectionHead title="Berufserfahrung" />
@@ -490,7 +492,7 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
         )}
         {allWork.length > 0 && <View style={s.divider} />}
 
-        {/* ── 6. BILDUNGSWEG ── */}
+        {/* ── BILDUNGSWEG ── */}
         {allEdu.length > 0 && (
           <View style={s.section}>
             <SectionHead title="Bildungsweg" />
@@ -499,7 +501,7 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
         )}
         {allEdu.length > 0 && <View style={s.divider} />}
 
-        {/* ── 7. SPRACHKENNTNISSE ── */}
+        {/* ── SPRACHKENNTNISSE ── */}
         {activeLangs.length > 0 && (
           <View style={s.section}>
             <SectionHead title="Sprachkenntnisse" />
@@ -515,7 +517,7 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
         )}
         {activeLangs.length > 0 && <View style={s.divider} />}
 
-        {/* ── 8. EDV-KENNTNISSE ── */}
+        {/* ── EDV-KENNTNISSE ── */}
         {allEdv.length > 0 && (
           <View style={s.section}>
             <SectionHead title="EDV-Kenntnisse" />
@@ -528,28 +530,26 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
         )}
         {allEdv.length > 0 && <View style={s.divider} />}
 
-        {/* ── 9. SONSTIGES ── */}
+        {/* ── SONSTIGES ── */}
         {(data.driverLicense === "B" || data.hobbies) && (
           <View style={s.section}>
             <SectionHead title="Sonstiges" />
-            <View style={s.miscRow}>
-              {data.driverLicense === "B" ? (
-                <View style={s.miscItem}>
-                  <Text style={s.miscLabel}>Führerschein</Text>
-                  <Text style={s.miscValue}>Klasse {data.driverLicense}</Text>
-                </View>
-              ) : null}
-              {data.hobbies ? (
-                <View style={[s.miscItem, { width: "100%" }]}>
-                  <Text style={s.miscLabel}>Interessen</Text>
-                  <Text style={s.miscValue}>{data.hobbies}</Text>
-                </View>
-              ) : null}
-            </View>
+            {data.driverLicense === "B" ? (
+              <View style={s.miscRow}>
+                <Text style={s.miscLabel}>Führerschein</Text>
+                <Text style={s.miscValue}>Klasse B</Text>
+              </View>
+            ) : null}
+            {data.hobbies ? (
+              <View style={s.miscRow}>
+                <Text style={s.miscLabel}>Interessen</Text>
+                <Text style={s.miscValue}>{data.hobbies}</Text>
+              </View>
+            ) : null}
           </View>
         )}
 
-        {/* ── 10. SIGNATURE / DATE AREA ── */}
+        {/* ── UNTERSCHRIFT / DATUM ── */}
         <View style={s.sigArea}>
           <View style={s.sigSlot}>
             <View style={s.sigSpace} />
@@ -561,13 +561,6 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
             <View style={s.sigLine} />
             <Text style={s.sigLabel}>Unterschrift</Text>
           </View>
-        </View>
-
-        {/* ── 11. FOOTER ── */}
-        <View style={s.footer}>
-          {footerLines.map((line, i) => (
-            <Text key={i} style={s.footerLine}>{line}</Text>
-          ))}
         </View>
 
       </Page>
