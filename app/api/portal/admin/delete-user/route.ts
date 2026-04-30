@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
   // Sequence matters — delete dependents before parents.
   // Each call checks for errors so a DB failure aborts early rather than
   // silently leaving orphaned rows or skipping the auth deletion.
-  async function safeDelete(table: string, query: Promise<{ error: { message: string } | null }>) {
+  async function safeDelete(table: string, query: PromiseLike<{ error: { message: string } | null }>) {
     const { error } = await query;
     if (error) {
       console.error(`[delete-user] Failed to delete from ${table}:`, error.message);

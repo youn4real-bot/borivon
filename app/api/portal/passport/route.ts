@@ -3,7 +3,7 @@ import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { uploadPassportPdfToDrive } from "@/lib/passport-pdf";
 
 // DD.MM.YYYY → YYYY-MM-DD for Postgres date columns
-function toIso(s: string): string | null {
+function toIso(s: string | null | undefined): string | null {
   if (!s) return null;
   const m = s.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
   if (m) return `${m[3]}-${m[2]}-${m[1]}`;

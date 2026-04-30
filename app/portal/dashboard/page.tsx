@@ -27,6 +27,7 @@ import { OrgCodeModal } from "@/components/OrgCodeModal";
 import { useMobileMenu } from "@/components/MobileMenuContext";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { buildProfileSlug } from "@/lib/profile-slug";
+import { VerifiedCelebration } from "@/components/VerifiedCelebration";
 
 // Onboarding tour is shown at most once per user (gated by a localStorage
 // flag). Lazy-load so returning users don't pay for it.
@@ -369,6 +370,7 @@ export default function DashboardPage() {
   const [infoPassportLoading, setInfoPassportLoading] = useState(false);
   // passport_status from candidate_profiles — drives info button color independently of doc status
   const [passportStatus, setPassportStatus] = useState<string | null>(null);
+  const [showCelebration, setShowCelebration] = useState(false);
 
   // Issue 4.3: live passport status — no page refresh needed when admin approves/rejects
   useEffect(() => {
@@ -380,6 +382,14 @@ export default function DashboardPage() {
         (payload) => {
           const row = payload.new as { passport_status?: string; manually_verified?: boolean };
           if (row.passport_status !== undefined) setPassportStatus(row.passport_status);
+          // Fire celebration the instant admin flips manually_verified to true.
+          if (row.manually_verified === true) {
+            try {
+              if (!localStorage.getItem(`bv-verified-celebrated-${userId}`)) {
+                setShowCelebration(true);
+              }
+            } catch { /* private mode */ }
+          }
         },
       )
       .subscribe();
@@ -494,10 +504,21 @@ export default function DashboardPage() {
       // Load passport_status for info-button color
       supabase
         .from("candidate_profiles")
-        .select("passport_status")
+        .select("passport_status, manually_verified")
         .eq("user_id", user.id)
         .maybeSingle()
-        .then(({ data }) => setPassportStatus(data?.passport_status ?? null));
+        .then(({ data }) => {
+          setPassportStatus(data?.passport_status ?? null);
+          // Show celebration if verified and not yet celebrated this session.
+          if (data?.manually_verified) {
+            const uid = user.id;
+            try {
+              if (!localStorage.getItem(`bv-verified-celebrated-${uid}`)) {
+                setShowCelebration(true);
+              }
+            } catch { /* private mode */ }
+          }
+        });
       // Load pipeline — JWT-authenticated
       const token = session?.access_token ?? "";
       fetch(`/api/portal/pipeline/me`, {
@@ -2842,6 +2863,15 @@ export default function DashboardPage() {
         </div>
       )}
     </main>
+
+    {/* ── Verification celebration — shown once, above everything ── */}
+    {showCelebration && userId && (
+      <VerifiedCelebration
+        userId={userId}
+        lang={lang as "fr" | "en" | "de"}
+        onDismiss={() => setShowCelebration(false)}
+      />
+    )}
     </>
   );
 }

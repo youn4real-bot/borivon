@@ -12,7 +12,8 @@ export async function GET(req: NextRequest) {
   // Loop until a page comes back short (no more users) or we hit the safety
   // cap of 50 pages (50 000 users) to avoid runaway loops.
   const PER_PAGE = 1000;
-  const allAuthUsers: Awaited<ReturnType<typeof db.auth.admin.listUsers>>["data"]["users"] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const allAuthUsers: any[] = [];
   for (let page = 1; page <= 50; page++) {
     const { data: { users: batch } } = await db.auth.admin.listUsers({ perPage: PER_PAGE, page });
     allAuthUsers.push(...(batch ?? []));
