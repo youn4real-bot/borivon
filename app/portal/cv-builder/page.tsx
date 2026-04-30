@@ -2228,13 +2228,16 @@ export default function CVBuilderPage() {
     }
 
     // 4. Work entries
+    let nonGapCount = 0;
     for (const w of cvData.workEntries) {
       if (w.isGap) continue;
       if (!w.employer.trim())  errors.add(`work_${w.id}_employer`);
       if (!w.location.trim())  errors.add(`work_${w.id}_location`);
       if (!w.start.month || !w.start.year) errors.add(`work_${w.id}_start`);
       if (w.end !== null && (!w.end || !w.end.month || !w.end.year)) errors.add(`work_${w.id}_end`);
-      if (w.departments.length === 0) errors.add(`work_${w.id}_departments`);
+      // Departments required only for position 1; optional for position 2+
+      if (nonGapCount === 0 && w.departments.length === 0) errors.add(`work_${w.id}_departments`);
+      nonGapCount++;
     }
 
     // 5. Languages — "" means "not included" (valid); only flag a custom slot
@@ -3108,7 +3111,7 @@ export default function CVBuilderPage() {
                       onChange={v => updateWork(entry.id, { end: v })} allowNull isPresent={!entry.end}
                       onPresentToggle={() => updateWork(entry.id, { end: entry.end ? null : { month: "", year: "" } })} lang={lang} required hasError={validationErrors.has(`work_${entry.id}_end`)} />
                     <div className="sm:col-span-2">
-                      <Label required>{t.cvb_deptLabel}</Label>
+                      <Label required={jobNum === 1}>{t.cvb_deptLabel}</Label>
                       <div className="flex flex-wrap gap-2 mt-2 rounded-xl p-1" style={validationErrors.has(`work_${entry.id}_departments`) ? { outline: "1px solid #e05252", outlineOffset: "2px" } : {}}>
                         {NURSING_DEPTS.map(dept => {
                           const selected = entry.departments.includes(dept.de);
