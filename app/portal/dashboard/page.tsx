@@ -2251,15 +2251,13 @@ export default function DashboardPage() {
                   onClick={async () => {
                     try {
                       // Build groups from the exact values currently displayed
-                      const resolveOpt = (f: typeof fields[0], val: string) => {
-                        if (!f.opts) return val;
-                        return f.opts.find(o => o.v === val)?.l ?? val;
-                      };
-                      const fv = (key: keyof PassportData) => {
-                        const raw = passportModal?.[key] ?? "";
-                        const fd = fields.find(f => f.key === key);
-                        return (fd && raw) ? resolveOpt(fd, raw) : (raw || "—");
-                      };
+                      const pm = passportModal!;
+                      const raw = (key: keyof PassportData) => pm[key] ?? "";
+                      const nat = (v: string) => natToLangShared(v, lang as "fr"|"en"|"de") || v || "—";
+                      const sex = raw("sex") === "M" ? (lang==="fr"?"Masculin":lang==="de"?"Männlich":"Male")
+                                : raw("sex") === "F" || raw("sex") === "W" ? (lang==="fr"?"Féminin":lang==="de"?"Weiblich":"Female")
+                                : (raw("sex") || "—");
+                      const fv = (key: keyof PassportData) => raw(key) || "—";
                       const G = lang === "fr"
                         ? { personal:"Personnel", passport:"Passeport", address:"Adresse",
                             ln:"Nom de famille", fn:"Prénom", dob:"Date de naissance", sex:"Sexe",
@@ -2282,10 +2280,10 @@ export default function DashboardPage() {
                           { label: G.ln,    value: fv("last_name") },
                           { label: G.fn,    value: fv("first_name") },
                           { label: G.dob,   value: fv("dob") },
-                          { label: G.sex,   value: fv("sex") },
-                          { label: G.nat,   value: fv("nationality") },
+                          { label: G.sex,   value: sex },
+                          { label: G.nat,   value: nat(raw("nationality")) },
                           { label: G.cob,   value: fv("city_of_birth") },
-                          { label: G.cntob, value: fv("country_of_birth") },
+                          { label: G.cntob, value: nat(raw("country_of_birth")) },
                         ]},
                         { title: G.passport, fields: [
                           { label: G.pno, value: fv("passport_no") },
@@ -2298,7 +2296,7 @@ export default function DashboardPage() {
                           { label: G.num,    value: fv("address_number") },
                           { label: G.post,   value: fv("address_postal") },
                           { label: G.cres,   value: fv("city_of_residence") },
-                          { label: G.cntres, value: fv("country_of_residence") },
+                          { label: G.cntres, value: nat(raw("country_of_residence")) },
                         ]},
                       ];
                       const docTitle = lang === "fr" ? "Données du passeport" : lang === "de" ? "Reisepassdaten" : "Passport Data";
