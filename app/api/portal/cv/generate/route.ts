@@ -34,7 +34,7 @@ async function resolveBrand(userId: string): Promise<CVBrand> {
     .eq("candidate_user_id", userId)
     .eq("status", "approved")
     .limit(1)
-    .single();
+    .maybeSingle();
 
   if (!link?.org_id) return {};
 
@@ -50,7 +50,17 @@ async function resolveBrand(userId: string): Promise<CVBrand> {
 
   if (org.logo_filename) {
     const logoPath = path.join(process.cwd(), "public", "logos", org.logo_filename);
-    if (fs.existsSync(logoPath)) brand.logoPath = logoPath;
+    if (fs.existsSync(logoPath)) {
+      const ext = path.extname(org.logo_filename).toLowerCase();
+      const mime =
+        ext === ".png"  ? "image/png"  :
+        ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" :
+        ext === ".webp" ? "image/webp"  :
+        ext === ".svg"  ? "image/svg+xml" :
+        "image/png";
+      const b64 = fs.readFileSync(logoPath).toString("base64");
+      brand.logoSrc = `data:${mime};base64,${b64}`;
+    }
   }
 
   if (org.footer_text) {

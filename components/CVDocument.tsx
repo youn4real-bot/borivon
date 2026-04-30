@@ -75,8 +75,8 @@ export interface CVData {
 }
 
 export interface CVBrand {
-  /** Absolute path to logo image in public/logos/ */
-  logoPath?: string;
+  /** Base64 data URI for the org logo (e.g. "data:image/png;base64,…") */
+  logoSrc?: string;
   /** Footer lines. Default: ["contact@borivon.com"] */
   footerLines?: string[];
 }
@@ -432,8 +432,8 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
         {/* ── FIXED HEADER — logo + rule, every page ── */}
         <View fixed style={s.fixedHeader}>
           <View style={s.logoWrap}>
-            {brand?.logoPath ? (
-              <Image src={brand.logoPath} style={s.logoImage} />
+            {brand?.logoSrc ? (
+              <Image src={brand.logoSrc} style={s.logoImage} />
             ) : (
               <View style={s.logoTextRow}>
                 <Text style={s.logoText}>Borivon</Text>
