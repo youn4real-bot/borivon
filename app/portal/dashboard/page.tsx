@@ -2107,11 +2107,31 @@ export default function DashboardPage() {
 
                 // ── Read-only view (approved or pending) ─────────────────────────
                 if (isPassportApproved || isPassportPending) {
+                  const fmtPassDate = (v: string) => {
+                    if (!v || v === "—") return "—";
+                    const m = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                    return m ? `${m[3]}.${m[2]}.${m[1]}` : v;
+                  };
+                  const fmtCountry = (v: string) =>
+                    (!v || v === "—") ? "—" : (natToLangShared(v, lang as "fr"|"en"|"de") || v);
+                  const fmtSex = (v: string) => {
+                    if (!v || v === "—") return "—";
+                    if (v === "M") return lang === "de" ? "Männlich" : lang === "fr" ? "Masculin" : "Male";
+                    if (v === "F" || v === "W") return lang === "de" ? "Weiblich" : lang === "fr" ? "Féminin" : "Female";
+                    return v;
+                  };
+                  const displayVal = (f: typeof fields[0]): string => {
+                    const v = passportModal[f.key] ?? "";
+                    if (!v || v === "—" || v.trim() === "") return "—";
+                    if (f.key === "nationality" || f.key === "country_of_birth" || f.key === "country_of_residence") return fmtCountry(v);
+                    if (f.key === "dob" || f.key === "issue_date" || f.key === "passport_expiry") return fmtPassDate(v);
+                    if (f.key === "sex") return fmtSex(v);
+                    return v;
+                  };
                   return (
                     <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                       {fields.map(f => {
-                        const val = passportModal[f.key];
-                        const display = (!val || val === "—" || val.trim() === "") ? "—" : val;
+                        const display = displayVal(f);
                         return (
                           <div key={f.key} className={f.wide ? "col-span-2" : ""}>
                             <p className="text-[9.5px] font-semibold uppercase tracking-[0.1em] mb-0.5" style={{ color: "var(--w3)" }}>{f.label}</p>
