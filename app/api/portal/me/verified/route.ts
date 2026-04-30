@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceSupabase } from "@/lib/supabase";
+import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { VERIFICATION_FILE_TYPES } from "@/lib/constants";
 
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
   let userId = "";
   let userEmail = "";
   try {
-    const { data, error } = await db.auth.getUser(token);
+    const { data, error } = await getAnonVerifyClient().auth.getUser(token);
     if (error || !data?.user) {
       return NextResponse.json({ authenticated: false, verified: false, isAdmin: false });
     }

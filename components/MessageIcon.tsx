@@ -49,6 +49,8 @@ type AdminConversation = {
   lastAt: string;
   hasAttachment: boolean;
   unread: number;
+  verified?: boolean;
+  photoUrl?: string | null;
 };
 
 type ViewState =
@@ -205,11 +207,11 @@ function fmtClock(iso: string) {
   return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 }
 
-function MessageBubble({ msg, mine, lang, showAvatar, senderInitial, senderName, onOpenImage }: {
+function MessageBubble({ msg, mine, lang, showAvatar, senderInitial, senderAvatarUrl, onOpenImage }: {
   msg: Msg; mine: boolean; lang: string;
-  showAvatar: boolean;        // false when the previous bubble was from the same sender within a short window
-  senderInitial: string;      // first letter of the sender's name (or "B" for admin)
-  senderName: string;         // full name to show above the bubble (when showAvatar is true)
+  showAvatar: boolean;          // false when the previous bubble was from the same sender within a short window
+  senderInitial: string;        // first letter of the sender's name (or "B" for admin) — fallback if no photo
+  senderAvatarUrl?: string | null; // actual photo URL for the avatar (candidate photo or admin logo)
   onOpenImage: (src: string) => void;
 }) {
   const isBug = msg.kind === "bug";
@@ -217,16 +219,15 @@ function MessageBubble({ msg, mine, lang, showAvatar, senderInitial, senderName,
     <div className={`flex items-end gap-2 ${mine ? "flex-row-reverse" : "flex-row"} ${showAvatar ? "mt-3" : "mt-1"}`}>
       <div className="w-8 flex-shrink-0">
         {showAvatar && (
-          <Avatar initial={senderInitial} isAdmin={msg.sender_role === "admin"} size={32} />
+          <Avatar initial={senderInitial} avatarUrl={senderAvatarUrl} isAdmin={msg.sender_role === "admin"} size={32} />
         )}
       </div>
       <div className={`flex flex-col ${mine ? "items-end" : "items-start"} max-w-[78%]`}>
         {showAvatar && (
-          <p className={`text-[11px] font-semibold mb-0.5 inline-flex items-center ${mine ? "text-right" : ""}`}
-            style={{ color: "var(--w2)" }}>
-            {senderName}
-            {msg.sender_role === "admin" && <VerifiedBadge verified size="xs" title="Borivon" />}
-            <span className="ml-2 font-normal" style={{ color: "var(--w3)" }}>{fmtClock(msg.created_at)}</span>
+          // Only timestamp above the bubble — no name or badge inside the conversation
+          <p className={`text-[10px] mb-0.5 ${mine ? "text-right" : ""}`}
+            style={{ color: "var(--w3)" }}>
+            {fmtClock(msg.created_at)}
           </p>
         )}
         <div className="px-3.5 py-2 rounded-2xl"
@@ -262,11 +263,6 @@ function MessageBubble({ msg, mine, lang, showAvatar, senderInitial, senderName,
             </p>
           )}
         </div>
-        {!showAvatar && (
-          <p className={`text-[10px] mt-0.5 px-1 ${mine ? "text-right" : ""}`} style={{ color: "var(--w3)" }}>
-            {fmtClock(msg.created_at)}
-          </p>
-        )}
       </div>
     </div>
   );
@@ -285,7 +281,12 @@ function DaySeparator({ label }: { label: string }) {
 // Build a render plan for the message list: groups consecutive messages from
 // the same sender within 5 minutes (only first shows the avatar/header), and
 // inserts a day separator whenever the calendar date changes.
-function renderItems(msgs: Msg[], lang: string, otherInitial: string, otherName: string, ownInitial: string, ownName: string, mineRole: Role, onOpenImage: (src: string) => void): React.ReactNode[] {
+function renderItems(
+  msgs: Msg[], lang: string,
+  otherInitial: string, ownInitial: string,
+  otherAvatarUrl: string | null | undefined, ownAvatarUrl: string | null | undefined,
+  mineRole: Role, onOpenImage: (src: string) => void,
+): React.ReactNode[] {
   const out: React.ReactNode[] = [];
   let lastDay = "";
   for (let i = 0; i < msgs.length; i++) {
@@ -305,7 +306,7 @@ function renderItems(msgs: Msg[], lang: string, otherInitial: string, otherName:
       <MessageBubble key={m.id} msg={m} mine={mine} lang={lang}
         showAvatar={!!showAvatar}
         senderInitial={mine ? ownInitial : otherInitial}
-        senderName={mine ? ownName : otherName}
+        senderAvatarUrl={mine ? ownAvatarUrl : otherAvatarUrl}
         onOpenImage={onOpenImage} />,
     );
   }
@@ -480,7 +481,8 @@ function ComposeBar({
 
 function ThreadModal({
   title, subtitle, msgs, mineRole, scrollRef, onSend, onClose, lang,
-  otherInitial, otherName, ownInitial, ownName,
+  otherInitial, otherName, ownInitial, ownName, verifiedOther, isAdminOther,
+  otherAvatarUrl, ownAvatarUrl,
 }: {
   title: string;
   subtitle?: string;
@@ -492,6 +494,14 @@ function ThreadModal({
   lang: string;
   otherInitial: string; otherName: string;
   ownInitial: string;   ownName: string;
+  /** Show the verified badge next to the other party's name in the header */
+  verifiedOther?: boolean;
+  /** true = Borivon admin badge (starburst + "Official"), false = candidate badge */
+  isAdminOther?: boolean;
+  /** Actual photo URL for the other party (candidate photo or admin logo) */
+  otherAvatarUrl?: string | null;
+  /** Actual photo URL for the current user (candidate photo or admin logo) */
+  ownAvatarUrl?: string | null;
 }) {
   // Compact = passport-popup-sized (max-w-md ~448px / max-h 90vh).
   // Expanded = roomier chat window (max-w-2xl ~672px / max-h 95vh) — better
@@ -627,9 +637,12 @@ function ThreadModal({
             onMouseLeave={(e) => { e.currentTarget.style.color = "var(--w3)"; }}>
             {expanded ? <Minimize2 size={13} strokeWidth={1.8} /> : <Maximize2 size={13} strokeWidth={1.8} />}
           </button>
-          <Avatar initial={otherInitial} isAdmin={mineRole === "candidate"} size={32} />
+          <Avatar initial={otherInitial} avatarUrl={otherAvatarUrl} isAdmin={mineRole === "candidate"} size={32} />
           <div className="flex-1 min-w-0">
-            <p className="text-[14px] font-semibold tracking-tight truncate" style={{ color: "var(--w)" }}>{title}</p>
+            <p className="text-[14px] font-semibold tracking-tight truncate inline-flex items-center gap-0.5" style={{ color: "var(--w)" }}>
+              {title}
+              {verifiedOther && <VerifiedBadge verified size="xs" isAdmin={!!isAdminOther} />}
+            </p>
             {subtitle && <p className="text-[11px] truncate" style={{ color: "var(--w3)" }}>{subtitle}</p>}
           </div>
           <button onClick={onClose} aria-label="Close"
@@ -647,7 +660,7 @@ function ThreadModal({
           {msgs.length === 0 ? (
             <p className="text-center text-[13px] mt-10 px-6" style={{ color: "var(--w3)" }}>{empty}</p>
           ) : (
-            renderItems(msgs, lang, otherInitial, otherName, ownInitial, ownName, mineRole, setLightboxSrc)
+            renderItems(msgs, lang, otherInitial, ownInitial, otherAvatarUrl, ownAvatarUrl, mineRole, setLightboxSrc)
           )}
         </div>
 
@@ -716,6 +729,10 @@ function InboxDropdown({
 
 // ── Candidate side ───────────────────────────────────────────────────────────
 
+// The Borivon logo used as the admin's permanent avatar in all chat views.
+// /favicon.png is the site's brand icon (same one shown on the browser tab).
+const ADMIN_LOGO_URL = "/favicon.png";
+
 function CandidateChat({ accessToken, userId }: { accessToken: string; userId: string }) {
   const { lang } = useLang();
   const ref = useRef<HTMLDivElement>(null);
@@ -725,9 +742,9 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
   const [threadOpen, setThreadOpen] = useState(false);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [unread, setUnread] = useState(0);
-  // Candidate's own display name (for the "You: …" avatar/label in the chat).
-  // Pulled from the auth user's metadata or email — best-effort, falls back to "Y".
+  // Candidate's own display name and profile photo.
   const [candidateName, setCandidateName] = useState("You");
+  const [candidatePhoto, setCandidatePhoto] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -738,8 +755,25 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
       const fallback = data.user.email ?? "You";
       setCandidateName(fn || fallback);
     });
+    // Fetch the candidate's profile photo (set when they upload one in CV builder).
+    fetch("/api/portal/me/profile-photo", { headers: { Authorization: `Bearer ${accessToken}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(j => { if (!cancelled && j?.photo) setCandidatePhoto(j.photo); })
+      .catch(() => {});
     return () => { cancelled = true; };
+  }, [accessToken]);
+
+  // Keep candidatePhoto in sync when CV builder updates the photo — same
+  // mechanism as ProfileIcon in the navbar so all avatars change at once.
+  useEffect(() => {
+    const onChange = (e: Event) => {
+      const detail = (e as CustomEvent<{ photo: string | null }>).detail;
+      setCandidatePhoto(detail.photo ?? null);
+    };
+    window.addEventListener("bv-profile-photo-changed", onChange);
+    return () => window.removeEventListener("bv-profile-photo-changed", onChange);
   }, []);
+
   const candidateInitial = (candidateName || "?").charAt(0).toUpperCase();
 
   const fetchMsgs = useCallback(async () => {
@@ -902,6 +936,9 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
           lang={lang}
           otherInitial="B"        otherName={teamName}
           ownInitial={candidateInitial} ownName={candidateName}
+          otherAvatarUrl={ADMIN_LOGO_URL}
+          ownAvatarUrl={candidatePhoto}
+          verifiedOther isAdminOther
         />
       )}
     </>
@@ -1052,6 +1089,9 @@ function AdminInbox({ accessToken }: { accessToken: string }) {
           otherName={activeThread.name || activeThread.email}
           ownInitial="B"
           ownName="Borivon team"
+          otherAvatarUrl={activeThread.photoUrl ?? null}
+          ownAvatarUrl={ADMIN_LOGO_URL}
+          verifiedOther={!!activeThread.verified}
         />
       )}
     </>
@@ -1087,7 +1127,10 @@ function ConversationList({
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-[13px] font-semibold truncate" style={{ color: "var(--w)" }}>{c.name}</p>
+              <p className="text-[13px] font-semibold truncate inline-flex items-center gap-0.5" style={{ color: "var(--w)" }}>
+                {c.name}
+                <VerifiedBadge verified={!!c.verified} size="xs" />
+              </p>
               <span className="text-[9.5px] flex-shrink-0" style={{ color: "var(--w3)" }}>{fmtTime(c.lastAt, lang)}</span>
             </div>
             <p className="text-[11px] truncate flex items-center gap-1 mt-0.5"

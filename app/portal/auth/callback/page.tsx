@@ -5,11 +5,33 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { Suspense } from "react";
 import { Spinner } from "@/components/ui/states";
+import { useLang } from "@/components/LangContext";
+
+// Minimal translations for the auth callback page
+const CB_T = {
+  fr: {
+    invalid: "Le lien est invalide ou a expiré. Veuillez vous inscrire à nouveau.",
+    verifying: "Vérification en cours…",
+    back: "Retour à l'accueil",
+  },
+  en: {
+    invalid: "The link is invalid or has expired. Please sign up again.",
+    verifying: "Verifying…",
+    back: "Back to home",
+  },
+  de: {
+    invalid: "Der Link ist ungültig oder abgelaufen. Bitte erneut registrieren.",
+    verifying: "Wird überprüft…",
+    back: "Zurück zur Startseite",
+  },
+} as const;
 
 function CallbackInner() {
   const router = useRouter();
   const params = useSearchParams();
   const [error, setError] = useState("");
+  const { lang } = useLang();
+  const cbT = CB_T[lang] ?? CB_T.fr;
 
   useEffect(() => {
     // Cleanup tokens are hoisted into the synchronous effect scope so the
@@ -26,7 +48,7 @@ function CallbackInner() {
         const { data: sessionData, error } = await supabase.auth.exchangeCodeForSession(code);
         if (cancelled) return;
         if (error) {
-          setError("Le lien est invalide ou a expiré. Veuillez vous inscrire à nouveau.");
+          setError(cbT.invalid);
           return;
         }
         const user = sessionData?.user;
@@ -58,9 +80,10 @@ function CallbackInner() {
       });
       subscription = sub.data.subscription;
 
+      // Issue 2.2: 30 s — slow mobile connections need longer than 8 s
       timeoutId = setTimeout(() => {
-        if (!cancelled) setError("Le lien est invalide ou a expiré. Veuillez vous inscrire à nouveau.");
-      }, 8000);
+        if (!cancelled) setError(cbT.invalid);
+      }, 30_000);
     })();
 
     return () => {
@@ -68,7 +91,7 @@ function CallbackInner() {
       subscription?.unsubscribe();
       if (timeoutId) clearTimeout(timeoutId);
     };
-  }, [params, router]);
+  }, [params, router, cbT]);
 
   if (error) {
     return (
@@ -80,7 +103,7 @@ function CallbackInner() {
           <p className="text-[13.5px] mb-6" style={{ color: "rgba(238,236,234,0.55)" }}>{error}</p>
           <a href="/portal" className="text-sm underline underline-offset-4"
             style={{ color: "var(--gold, #c9a240)" }}>
-            Retour à l&apos;accueil
+            {cbT.back}
           </a>
         </div>
       </main>
@@ -95,7 +118,7 @@ function CallbackInner() {
           style={{ color: "var(--gold, #c9a240)" }}>Borivon</p>
         <div className="flex justify-center"><Spinner size="lg" /></div>
         <p className="mt-4 text-[12.5px]" style={{ color: "rgba(238,236,234,0.5)" }}>
-          Vérification en cours…
+          {cbT.verifying}
         </p>
       </div>
     </main>

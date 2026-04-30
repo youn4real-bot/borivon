@@ -57,6 +57,15 @@ function sniffMime(buf: Buffer): string | null {
       && buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) {
     return "image/webp";
   }
+  // DOCX / XLSX / PPTX (OOXML): ZIP local-file signature "PK\x03\x04"
+  // All modern Office Open XML formats are ZIP containers.
+  if (buf[0] === 0x50 && buf[1] === 0x4B && buf[2] === 0x03 && buf[3] === 0x04) {
+    return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+  }
+  // DOC / XLS / PPT (OLE2 Compound Document): D0 CF 11 E0
+  if (buf[0] === 0xD0 && buf[1] === 0xCF && buf[2] === 0x11 && buf[3] === 0xE0) {
+    return "application/msword";
+  }
   return null;
 }
 
@@ -817,9 +826,10 @@ export async function POST(req: NextRequest) {
 
   if (!file) return NextResponse.json({ error: "Fichier requis." }, { status: 400 });
 
-  // Passport: PDF only
-  if (fileKey === "id" && file.type !== "application/pdf") {
-    return NextResponse.json({ error: "PDF uniquement pour le passeport." }, { status: 415 });
+  // Passport accepts PDF or images (mobile users photograph their passport)
+  const ALLOWED_ID = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
+  if (fileKey === "id" && !ALLOWED_ID.includes(file.type)) {
+    return NextResponse.json({ error: "Format non autorisé pour le passeport (PDF ou image)." }, { status: 415 });
   }
   if (!ALLOWED_TYPES.includes(file.type)) {
     return NextResponse.json({ error: "Type non autorisé." }, { status: 415 });
@@ -841,6 +851,22 @@ export async function POST(req: NextRequest) {
     if (norm(file.type) !== norm(sniffedType)) {
       return NextResponse.json({ error: "Le contenu du fichier ne correspond pas à son type." }, { status: 415 });
     }
+  }
+
+  // ── Lookup existing Drive file for this slot (for cleanup after re-upload) ──
+  // Only for single-slot doc types (not "other" which accumulates multiple files).
+  let oldDriveFileId: string | null = null;
+  if (fileKey !== "other") {
+    const dbLookup = getServiceSupabase();
+    const { data: existingDoc } = await dbLookup
+      .from("documents")
+      .select("drive_file_id")
+      .eq("user_id", userId)
+      .eq("file_type", fileType)
+      .order("uploaded_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    oldDriveFileId = existingDoc?.drive_file_id ?? null;
   }
 
   // ── Google Drive upload ───────────────────────────────────────────────────────
@@ -886,6 +912,16 @@ export async function POST(req: NextRequest) {
     });
     driveFileId = driveRes.data.id ?? null;
     if (driveFileId) await makeDrivePublic(drive, driveFileId);
+
+    // Delete the previous Drive file for this slot now that the new one is
+    // safely uploaded. Failure is non-fatal — log and continue.
+    if (oldDriveFileId) {
+      try {
+        await drive.files.delete({ fileId: oldDriveFileId, supportsAllDrives: true });
+      } catch (delErr) {
+        console.warn("[upload] Could not delete old Drive file", oldDriveFileId, delErr);
+      }
+    }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("Drive upload error:", msg);

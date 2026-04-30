@@ -136,29 +136,6 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
 }
 
-const MA_CITIES = new Set([
-  "RABAT","SALE","TEMARA","SKHIRAT","BOUZNIKA","MOHAMMEDIA",
-  "CASABLANCA","BERRECHID","SETTAT","BENSLIMANE","MEDIOUNA","NOUACEUR",
-  "FES","MEKNES","IFRANE","AZROU","KHENIFRA","MIDELT","ERRACHIDIA",
-  "MARRAKECH","OUARZAZATE","ZAGORA","TAROUDANT","TIZNIT","ESSAOUIRA","SAFI",
-  "AGADIR","INEZGANE","AIT MELLOUL","BIOUGRA","DRARGA","TAROUDANT",
-  "TANGER","TETOUAN","LARACHE","KSAR EL KEBIR","AL HOCEIMA","CHEFCHAOUEN","FNIDEQ","MARTIL",
-  "OUJDA","NADOR","BERKANE","TAOURIRT","JERADA","GUERCIF","AHFIR",
-  "KENITRA","SIDI KACEM","SIDI SLIMANE","SOUK EL ARBAA","MECHRA BELKSIRI",
-  "EL JADIDA","AZEMMOUR","SAFI","YOUSSOUFIA","BENGUERIR",
-  "KHOURIBGA","BENI MELLAL","FQUIH BEN SALAH","AZILAL","KASBA TADLA",
-  "LAAYOUNE","DAKHLA","BOUJDOUR","SMARA","TAN TAN","ASSA","ZAG",
-  "TAZA","TAOUNATE","GUERCIF","NADOR","DRIOUCH",
-  "KHEMISSET","TIFLET","ROMMANI",
-  "TINGHIR","OUARZAZATE","ZAGORA","KELAAT MGOUNA","SKOURA",
-  "BENI MELLAL","KHOURIBGA","FQUIH BEN SALAH",
-  "GUELMIM","TIZNIT","SIDI IFNI","TARFAYA",
-]);
-
-function normCity(s: string): string {
-  return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase().trim()
-    .replace(/\s+/g, " ");
-}
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -232,7 +209,7 @@ export default function DashboardPage() {
   // Default closed on mobile, irrelevant on desktop (rail is always visible).
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
-  type MsgType = "success" | "errPdfOnly" | "errAllTypes" | "errSize" | "errUpload" | "errNetwork";
+  type MsgType = "success" | "errPdfOnly" | "errAllTypes" | "errSize" | "errUpload" | "errNetwork" | "errDownload";
   type SlotMsg = { key: string; ok: boolean; type: MsgType; label?: string };
 
   // Upload state
@@ -245,6 +222,11 @@ export default function DashboardPage() {
   const xhrRef = useRef<XMLHttpRequest | null>(null);
   const skipTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const slotMsgTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Issue 13.1: tracks which "other" doc to delete AFTER a successful replacement
+  // upload. We also store the slot key so a stale ref can't accidentally delete
+  // a doc when the user uploads to a *different* slot after cancelling a replace.
+  const replaceDocIdRef  = useRef<string | null>(null);
+  const replaceForKeyRef = useRef<string | null>(null);
 
   // Organization invite-code modal — shown until candidate joins an org or
   // explicitly dismisses ("Later"). Dismissal is session-only; resets on next login.
@@ -345,9 +327,13 @@ export default function DashboardPage() {
       if (typeof v === "string") filled[k] = v;
     });
     setPassportModal({ ...filled, sex: normalizeSex(filled.sex, lang) });
-    // Reset confirmation flags — re-opening doesn't auto-confirm. The candidate
-    // can review again, edit if needed, and re-confirm to save.
-    setConfirmedFields(new Set());
+    // Issue 6.2: auto-confirm fields that already have saved values so the
+    // candidate doesn't have to re-tick every checkbox just to review their
+    // data. Editing any field un-ticks it (handled in the onChange handler).
+    const preConfirmed = new Set(
+      (Object.keys(filled) as (keyof PassportData)[]).filter(k => filled[k]?.trim())
+    );
+    setConfirmedFields(preConfirmed);
   }, [userId, lang]);
   const [passportHint, setPassportHint] = useState<keyof PassportData | null>(null);
   const addressHintShown = useRef(false);
@@ -383,6 +369,22 @@ export default function DashboardPage() {
   const [infoPassportLoading, setInfoPassportLoading] = useState(false);
   // passport_status from candidate_profiles — drives info button color independently of doc status
   const [passportStatus, setPassportStatus] = useState<string | null>(null);
+
+  // Issue 4.3: live passport status — no page refresh needed when admin approves/rejects
+  useEffect(() => {
+    if (!userId) return;
+    const ch = supabase
+      .channel(`profile-status-${userId}`)
+      .on("postgres_changes",
+        { event: "UPDATE", schema: "public", table: "candidate_profiles", filter: `user_id=eq.${userId}` },
+        (payload) => {
+          const row = payload.new as { passport_status?: string; manually_verified?: boolean };
+          if (row.passport_status !== undefined) setPassportStatus(row.passport_status);
+        },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [userId]);
   const [previewDoc, setPreviewDoc]         = useState<Doc | null>(null);
   const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -458,9 +460,14 @@ export default function DashboardPage() {
   }, [pendingOpenDocId, docs]);
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    // Issue 4.1: wrap getSession in a 12-second timeout so slow mobile
+    // connections don't leave the candidate on the loading screen forever.
+    const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 12_000));
+    Promise.race([supabase.auth.getSession(), timeout]).then(async (result) => {
+      if (!result) { setLoading(false); router.replace("/portal"); return; }
+      const { data: { session } } = result as Awaited<ReturnType<typeof supabase.auth.getSession>>;
       const user = session?.user;
-      if (!user) { router.replace("/portal"); return; }
+      if (!user) { setLoading(false); router.replace("/portal"); return; }
       // Server-side role lookup — avoid exposing the admin email in the bundle.
       try {
         const res = await fetch("/api/portal/me/role", {
@@ -509,11 +516,19 @@ export default function DashboardPage() {
           const list = (orgs ?? []) as { name: string; status: string }[];
           setLinkedOrgs(list);
           const approved = list.filter(o => o.status === "approved");
-          if (approved.length === 0) setOrgModalOpen(true);
+          // Issue 4.2: only open org modal if not permanently dismissed
+          const dismissed = localStorage.getItem("bv-org-dismissed");
+          if (approved.length === 0 && !dismissed) setOrgModalOpen(true);
           setOrgChecked(true);
         })
         .catch(() => setOrgChecked(true));
     });
+
+    // Issue 16.1: keep authToken fresh across token rotations
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.access_token) setAuthToken(session.access_token);
+    });
+    return () => subscription.unsubscribe();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadDocs(uid: string, keepPhase = false) {
@@ -633,6 +648,20 @@ export default function DashboardPage() {
         if (xhr.status >= 200 && xhr.status < 300) {
           setSlotMsgTimed({ key, ok: true, type: "success" });
           if (fileInputRef.current) fileInputRef.current.value = "";
+          // Issue 13.1: delete the OLD "other" doc AFTER the new upload
+          // succeeded — never before, so a failed upload never empties the slot.
+          // Guard by key: only delete if this upload is for the same slot the
+          // replace was initiated from (prevents stale ref from leaking).
+          const oldId     = replaceDocIdRef.current;
+          const oldForKey = replaceForKeyRef.current;
+          replaceDocIdRef.current  = null;
+          replaceForKeyRef.current = null;
+          if (oldId && oldForKey === key) {
+            fetch(`/api/portal/documents/${oldId}`, {
+              method: "DELETE",
+              headers: { Authorization: `Bearer ${authToken}` },
+            }).catch(e => console.error("[replace] cleanup delete failed:", e));
+          }
           loadDocs(userId, true);
           // Passport: show confirmation modal with extracted data
           if (key === "id") {
@@ -644,19 +673,26 @@ export default function DashboardPage() {
             setConfirmedFields(new Set());
           }
         } else {
+          replaceDocIdRef.current = null; replaceForKeyRef.current = null;
           setSlotMsgTimed({ key, ok: false, type: "errUpload" });
         }
       } catch {
+        replaceDocIdRef.current = null; replaceForKeyRef.current = null;
         setSlotMsgTimed({ key, ok: false, type: "errUpload" });
       }
       setUploadingKey(null);
     });
     xhr.addEventListener("error", () => {
       xhrRef.current = null;
+      replaceDocIdRef.current = null; replaceForKeyRef.current = null;
       setSlotMsgTimed({ key, ok: false, type: "errNetwork" });
       setUploadingKey(null);
     });
-    xhr.addEventListener("abort", () => { xhrRef.current = null; setUploadingKey(null); });
+    xhr.addEventListener("abort", () => {
+      xhrRef.current = null;
+      replaceDocIdRef.current = null; replaceForKeyRef.current = null;
+      setUploadingKey(null);
+    });
     xhr.open("POST", "/api/portal/upload");
     if (authToken) xhr.setRequestHeader("Authorization", `Bearer ${authToken}`);
     xhr.send(fd);
@@ -670,6 +706,28 @@ export default function DashboardPage() {
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (file && activeKey) handleFile(file, activeKey);
+  }
+
+  // Issue 13.2: give visible feedback when a download fails (used by both the
+  // per-slot Download button and the "other" sub-row button)
+  function handleDownload(driveFileId: string, fileName: string, slotKey: string) {
+    fetch(`/api/portal/file?id=${driveFileId}`, {
+      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+    })
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.blob();
+      })
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = fileName; a.click();
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+      })
+      .catch(err => {
+        console.error("Download error:", err);
+        setSlotMsgTimed({ key: slotKey, ok: false, type: "errDownload" });
+      });
   }
 
   const onDrop = useCallback((e: React.DragEvent, key: string) => {
@@ -752,7 +810,11 @@ export default function DashboardPage() {
             .then(({ orgs }) => setLinkedOrgs(orgs ?? []))
             .catch(() => {});
         }}
-        onSkip={() => setOrgModalOpen(false)}
+        onSkip={() => {
+          // Issue 4.2: persist dismiss so modal doesn't reappear on next login
+          try { localStorage.setItem("bv-org-dismissed", "1"); } catch { /* private mode */ }
+          setOrgModalOpen(false);
+        }}
       />
     )}
     {/* Document-hint popup — opened by the small blue info circle next to
@@ -1612,7 +1674,9 @@ export default function DashboardPage() {
                            msg.type === "errPdfOnly" ? t.pErrPdfOnly :
                            msg.type === "errAllTypes" ? t.pErrAllTypes :
                            msg.type === "errSize" ? t.pErrSize.replace("{size}", String(MAX_MB)) :
-                           msg.type === "errNetwork" ? t.pErrNetwork : t.pErrUpload}
+                           msg.type === "errNetwork" ? t.pErrNetwork :
+                           msg.type === "errDownload" ? (lang === "fr" ? "Échec du téléchargement — réessayez." : lang === "de" ? "Herunterladen fehlgeschlagen — erneut versuchen." : "Download failed — please try again.") :
+                           t.pErrUpload}
                         </p>
                       )}
 
@@ -1702,19 +1766,7 @@ export default function DashboardPage() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              fetch(`/api/portal/file?id=${doc!.drive_file_id}`, {
-                                headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
-                              })
-                                .then(r => r.blob())
-                                .then(blob => {
-                                  // Revoke after the click handler returns so we don't
-                                  // leak one object URL per download.
-                                  const url = URL.createObjectURL(blob);
-                                  const a = document.createElement("a");
-                                  a.href = url; a.download = doc!.file_name; a.click();
-                                  setTimeout(() => URL.revokeObjectURL(url), 0);
-                                })
-                                .catch(err => console.error("Download error:", err));
+                              handleDownload(doc!.drive_file_id!, doc!.file_name, item.key);
                             }}
                             aria-label={lang === "fr" ? "Télécharger" : lang === "de" ? "Herunterladen" : "Download"}
                             title={lang === "fr" ? "Télécharger" : lang === "de" ? "Herunterladen" : "Download"}
@@ -1770,18 +1822,17 @@ export default function DashboardPage() {
                               {/* Replace (delete + open picker) — only when not approved */}
                               {isClickable && dStatus !== "approved" && (
                                 <button
-                                  onClick={async (e) => {
+                                  onClick={(e) => {
                                     e.stopPropagation();
-                                    try {
-                                      await fetch(`/api/portal/documents/${d.id}`, {
-                                        method: "DELETE",
-                                        headers: { Authorization: `Bearer ${authToken}` },
-                                      });
-                                      if (userId) await loadDocs(userId, true);
-                                      openPicker(item.key);
-                                    } catch (err) {
-                                      console.error("Replace error:", err);
-                                    }
+                                    // Issue 13.1 fix: store the old doc id AND
+                                    // the slot key. The old doc is deleted ONLY
+                                    // after the new upload to THIS slot succeeds.
+                                    // Storing the key prevents a stale ref from
+                                    // deleting the doc if the user cancels and
+                                    // then uploads to a different slot.
+                                    replaceDocIdRef.current  = d.id;
+                                    replaceForKeyRef.current = item.key;
+                                    openPicker(item.key);
                                   }}
                                   aria-label={t.pReplaceBtn} title={t.pReplaceBtn}
                                   className="bv-icon-btn w-8 h-8 flex items-center justify-center rounded-full"
@@ -1793,17 +1844,7 @@ export default function DashboardPage() {
                               {isClickable && (
                                 <button onClick={(e) => {
                                     e.stopPropagation();
-                                    fetch(`/api/portal/file?id=${d.drive_file_id}`, {
-                                      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
-                                    })
-                                      .then(r => r.blob())
-                                      .then(blob => {
-                                        const url = URL.createObjectURL(blob);
-                                        const a = document.createElement("a");
-                                        a.href = url; a.download = d.file_name; a.click();
-                                        setTimeout(() => URL.revokeObjectURL(url), 0);
-                                      })
-                                      .catch(err => console.error("Download error:", err));
+                                    handleDownload(d.drive_file_id!, d.file_name, item.key);
                                   }}
                                   aria-label={lang === "fr" ? "Télécharger" : lang === "de" ? "Herunterladen" : "Download"}
                                   title={lang === "fr" ? "Télécharger" : lang === "de" ? "Herunterladen" : "Download"}
@@ -2075,9 +2116,9 @@ export default function DashboardPage() {
                   }
                   if (f.wordsOnly) {
                     if (/\d/.test(v)) {
+                      // Issue 6.3: only flag digits-in-name, never flag cities by whitelist
+                      // (non-Moroccan candidates have perfectly valid non-Moroccan cities)
                       suspiciousKeys.add(f.key); suspiciousHints[f.key] = "Should contain only letters";
-                    } else if (f.key === "city_of_residence" && !MA_CITIES.has(normCity(v))) {
-                      suspiciousKeys.add(f.key); suspiciousHints[f.key] = "Not a recognized Moroccan city — please verify";
                     }
                   }
                 });

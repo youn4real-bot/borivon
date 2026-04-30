@@ -36,13 +36,21 @@ async function getOrCreateDeletedDataFolder(
   return created.data.id!;
 }
 
+// RFC-4122 UUID v4 pattern — Supabase auth IDs are always this format.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function POST(req: NextRequest) {
   const auth = await requireAdminRole(req);
   if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status });
+  // Sub-admins may NOT delete users — full admin only.
+  if (auth.role !== "admin") return Response.json({ error: "Forbidden" }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));
   const userId: string = body.userId;
   if (!userId) return Response.json({ error: "Missing userId" }, { status: 400 });
+  // Reject anything that is not a well-formed UUID — prevents crafted strings
+  // from reaching the auth table or any downstream Supabase delete call.
+  if (!UUID_RE.test(userId)) return Response.json({ error: "Invalid userId" }, { status: 400 });
 
   const db = getServiceSupabase();
 
@@ -107,24 +115,39 @@ export async function POST(req: NextRequest) {
   }
 
   // ── 2. Delete all Supabase rows ────────────────────────────────────────────
-  // Sequence matters — delete dependents before parents
-  await db.from("sub_admin_assignments").delete().eq("candidate_user_id", userId);
-  await db.from("candidate_organizations").delete().eq("candidate_user_id", userId);
-  await db.from("documents").delete().eq("user_id", userId);
-  await db.from("notifications").delete().eq("user_id", userId);
-  // Messages: delete whole thread AND any messages sent by this user in other threads
-  await db.from("messages").delete().eq("thread_user_id", userId);
-  await db.from("messages").delete().eq("sender_user_id", userId);
-  await db.from("candidate_pipeline").delete().eq("user_id", userId);
-  await db.from("candidate_profiles").delete().eq("user_id", userId);
-  await db.from("candidates").delete().eq("id", userId);
-  await db.from("users").delete().eq("id", userId);
+  // Sequence matters — delete dependents before parents.
+  // Each call checks for errors so a DB failure aborts early rather than
+  // silently leaving orphaned rows or skipping the auth deletion.
+  async function safeDelete(table: string, query: Promise<{ error: { message: string } | null }>) {
+    const { error } = await query;
+    if (error) {
+      console.error(`[delete-user] Failed to delete from ${table}:`, error.message);
+      throw new Error(`DB delete failed on ${table}: ${error.message}`);
+    }
+  }
 
-  if (userEmail) {
-    // admin_notifications keyed by candidate email
-    await db.from("admin_notifications").delete().eq("user_email", userEmail);
-    // sub_admins table keyed by email (covers admin self-delete)
-    await db.from("sub_admins").delete().eq("email", userEmail);
+  try {
+    await safeDelete("sub_admin_assignments", db.from("sub_admin_assignments").delete().eq("candidate_user_id", userId));
+    await safeDelete("candidate_organizations", db.from("candidate_organizations").delete().eq("candidate_user_id", userId));
+    await safeDelete("documents",              db.from("documents").delete().eq("user_id", userId));
+    await safeDelete("notifications",          db.from("notifications").delete().eq("user_id", userId));
+    // Messages: delete whole thread AND any messages sent by this user in other threads
+    await safeDelete("messages (thread)",      db.from("messages").delete().eq("thread_user_id", userId));
+    await safeDelete("messages (sender)",      db.from("messages").delete().eq("sender_user_id", userId));
+    await safeDelete("candidate_pipeline",     db.from("candidate_pipeline").delete().eq("user_id", userId));
+    await safeDelete("candidate_profiles",     db.from("candidate_profiles").delete().eq("user_id", userId));
+    await safeDelete("candidates",             db.from("candidates").delete().eq("id", userId));
+    await safeDelete("users",                  db.from("users").delete().eq("id", userId));
+
+    if (userEmail) {
+      // admin_notifications keyed by candidate email
+      await safeDelete("admin_notifications", db.from("admin_notifications").delete().eq("user_email", userEmail));
+      // sub_admins table keyed by email (covers admin self-delete)
+      await safeDelete("sub_admins",          db.from("sub_admins").delete().eq("email", userEmail));
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return Response.json({ error: "Deletion partially failed: " + msg }, { status: 500 });
   }
 
   // ── 3. Delete from Supabase Auth (must be last) ────────────────────────────

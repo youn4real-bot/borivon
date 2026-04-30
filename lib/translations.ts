@@ -145,6 +145,8 @@ export interface Translation {
   cvb_successTitle: string; cvb_successSub: string;
   cvb_download: string; cvb_send: string; cvb_sending: string; cvb_sent: string;
   cvb_editCV: string;
+  cvb_keepEditing: string; cvb_preview: string; cvb_submitCV: string;
+  cvb_confirmTitle: string; cvb_confirmMsg: string;
   cvb_gapModalTitle: string; cvb_gapModalSub: string;
   cvb_gapAfter: string; cvb_gapAddBtn: string; cvb_gapIgnoreBtn: string;
   cvb_month: string; cvb_year: string; cvb_remove: string;
@@ -379,6 +381,8 @@ export const translations: Record<Lang, Translation> = {
     cvb_successTitle: "Lebenslauf généré avec succès\u00a0!", cvb_successSub: "Téléchargez votre CV ou envoyez-le directement dans votre dossier.",
     cvb_download: "Télécharger le PDF", cvb_send: "Envoyer dans mon dossier", cvb_sending: "Envoi…", cvb_sent: "Envoyé dans votre dossier",
     cvb_editCV: "Modifier le CV",
+    cvb_keepEditing: "Continuer à modifier", cvb_preview: "Aperçu PDF", cvb_submitCV: "Soumettre mon CV",
+    cvb_confirmTitle: "Tout est correct ?", cvb_confirmMsg: "Assurez-vous que toutes vos informations sont exactes. Une erreur peut entraîner le rejet de votre candidature et vous obliger à recommencer depuis le début.",
     cvb_gapModalTitle: "Interruptions détectées dans votre parcours", cvb_gapModalSub: "Le CV allemand doit couvrir toutes les périodes sans lacune. Les périodes suivantes ne sont pas couvertes :",
     cvb_gapAfter: "Après :", cvb_gapAddBtn: "Ajouter les périodes manquantes", cvb_gapIgnoreBtn: "Ignorer et générer",
     cvb_month: "Mois", cvb_year: "Année", cvb_remove: "Supprimer",
@@ -600,6 +604,8 @@ export const translations: Record<Lang, Translation> = {
     cvb_successTitle: "Lebenslauf generated successfully!", cvb_successSub: "Download your CV or send it directly to your file.",
     cvb_download: "Download PDF", cvb_send: "Send to my file", cvb_sending: "Sending…", cvb_sent: "Sent to your file",
     cvb_editCV: "Edit the CV",
+    cvb_keepEditing: "Keep editing", cvb_preview: "Preview PDF", cvb_submitCV: "Submit my CV",
+    cvb_confirmTitle: "Is everything correct?", cvb_confirmMsg: "Make sure all your information is accurate. Having something incorrect may get your application rejected and you would have to start all over again.",
     cvb_gapModalTitle: "Gaps detected in your career", cvb_gapModalSub: "The German CV must cover all periods without gaps. The following periods are not covered:",
     cvb_gapAfter: "After:", cvb_gapAddBtn: "Add the missing periods", cvb_gapIgnoreBtn: "Ignore and generate",
     cvb_month: "Month", cvb_year: "Year", cvb_remove: "Remove",
@@ -821,6 +827,8 @@ export const translations: Record<Lang, Translation> = {
     cvb_successTitle: "Lebenslauf erfolgreich erstellt!", cvb_successSub: "Laden Sie Ihren Lebenslauf herunter oder senden Sie ihn direkt in Ihre Akte.",
     cvb_download: "PDF herunterladen", cvb_send: "In meine Akte senden", cvb_sending: "Wird gesendet…", cvb_sent: "In Ihre Akte gesendet",
     cvb_editCV: "Lebenslauf bearbeiten",
+    cvb_keepEditing: "Weiter bearbeiten", cvb_preview: "PDF-Vorschau", cvb_submitCV: "Lebenslauf einreichen",
+    cvb_confirmTitle: "Alles korrekt?", cvb_confirmMsg: "Stellen Sie sicher, dass alle Ihre Angaben korrekt sind. Fehlerhafte Informationen können zur Ablehnung Ihrer Bewerbung führen und Sie müssten von vorne beginnen.",
     cvb_gapModalTitle: "Lücken im Werdegang erkannt", cvb_gapModalSub: "Der Lebenslauf muss alle Zeiträume lückenlos abdecken. Folgende Zeiträume fehlen:",
     cvb_gapAfter: "Nach:", cvb_gapAddBtn: "Fehlende Zeiträume hinzufügen", cvb_gapIgnoreBtn: "Ignorieren und generieren",
     cvb_month: "Monat", cvb_year: "Jahr", cvb_remove: "Entfernen",

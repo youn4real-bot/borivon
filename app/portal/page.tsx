@@ -62,35 +62,45 @@ export default function PortalPage() {
       if (password !== confirmPassword) { setError(t.pErrPasswordMatch); return; }
       if (!consent)             { setError(t.pConsentRequired); return; }
       if (!dataConsent)         { setError(t.pDataConsentRequired); return; }
-      // Cloudflare Turnstile verification temporarily disabled
-      // if (SITE_KEY && !turnstileToken) {
-      //   setError("Veuillez compléter la vérification Cloudflare avant de continuer.");
-      //   return;
-      // }
+      if (SITE_KEY && !turnstileToken) {
+        setError(
+          lang === "de" ? "Bitte schließen Sie die Cloudflare-Überprüfung ab." :
+          lang === "en" ? "Please complete the Cloudflare verification." :
+          "Veuillez compléter la vérification Cloudflare avant de continuer."
+        );
+        return;
+      }
     }
     setLoading(true);
 
-    // Cloudflare Turnstile verification temporarily disabled
-    // if (mode === "register" && SITE_KEY && turnstileToken) {
-    //   try {
-    //     const res  = await fetch("/api/portal/verify-turnstile", {
-    //       method: "POST",
-    //       headers: { "Content-Type": "application/json" },
-    //       body: JSON.stringify({ token: turnstileToken }),
-    //     });
-    //     const data = await res.json();
-    //     if (!data.success) {
-    //       setError("Vérification de sécurité échouée. Veuillez réessayer.");
-    //       setTurnstileToken(null);
-    //       setLoading(false);
-    //       return;
-    //     }
-    //   } catch {
-    //     setError("Erreur réseau lors de la vérification. Veuillez réessayer.");
-    //     setLoading(false);
-    //     return;
-    //   }
-    // }
+    if (mode === "register" && SITE_KEY && turnstileToken) {
+      try {
+        const res = await fetch("/api/portal/verify-turnstile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: turnstileToken }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+          setError(
+            lang === "de" ? "Sicherheitsprüfung fehlgeschlagen. Bitte erneut versuchen." :
+            lang === "en" ? "Security check failed. Please try again." :
+            "Vérification de sécurité échouée. Veuillez réessayer."
+          );
+          setTurnstileToken(null);
+          setLoading(false);
+          return;
+        }
+      } catch {
+        setError(
+          lang === "de" ? "Netzwerkfehler bei der Überprüfung. Bitte erneut versuchen." :
+          lang === "en" ? "Network error during verification. Please try again." :
+          "Erreur réseau lors de la vérification. Veuillez réessayer."
+        );
+        setLoading(false);
+        return;
+      }
+    }
 
     if (mode === "register") {
       const { error: err } = await supabase.auth.signUp({
@@ -254,8 +264,8 @@ export default function PortalPage() {
               </div>
             )}
 
-            {/* Turnstile — register only (temporarily disabled) */}
-            {false && SITE_KEY && mode === "register" && (
+            {/* Turnstile — register only */}
+            {SITE_KEY && mode === "register" && (
               <div className="flex justify-center pt-1">
                 <div
                   className="cf-turnstile"

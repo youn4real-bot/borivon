@@ -14,6 +14,8 @@ registerPdfFonts();
 // Per-user rate limit: 12 renders / 60 s
 const RL_MAX = 12;
 const RL_WINDOW_MS = 60_000;
+// Max accepted POST body: 2 MB (photo data URI ≈ 160 KB; full payload well under 1 MB)
+const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const rl = new Map<string, number[]>();
 function rateLimited(userId: string): boolean {
   const now = Date.now();
@@ -79,7 +81,11 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const data: CVData = await req.json();
+    const rawBody = await req.text();
+    if (rawBody.length > MAX_BODY_BYTES) {
+      return Response.json({ error: "Payload too large" }, { status: 413 });
+    }
+    const data: CVData = JSON.parse(rawBody);
     const brand = await resolveBrand(auth.userId);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

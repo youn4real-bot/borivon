@@ -8,11 +8,22 @@ export async function GET(req: NextRequest) {
 
   const db = getServiceSupabase();
 
-  const [{ data: { users: authUsers } }, { data: profiles }, { data: subAdmins }] = await Promise.all([
-    db.auth.admin.listUsers({ perPage: 1000, page: 1 }),
+  // Paginate auth users — listUsers returns at most perPage per call.
+  // Loop until a page comes back short (no more users) or we hit the safety
+  // cap of 50 pages (50 000 users) to avoid runaway loops.
+  const PER_PAGE = 1000;
+  const allAuthUsers: Awaited<ReturnType<typeof db.auth.admin.listUsers>>["data"]["users"] = [];
+  for (let page = 1; page <= 50; page++) {
+    const { data: { users: batch } } = await db.auth.admin.listUsers({ perPage: PER_PAGE, page });
+    allAuthUsers.push(...(batch ?? []));
+    if ((batch ?? []).length < PER_PAGE) break;
+  }
+
+  const [{ data: profiles }, { data: subAdmins }] = await Promise.all([
     db.from("candidate_profiles").select("user_id, first_name, last_name"),
     db.from("sub_admins").select("email"),
   ]);
+  const authUsers = allAuthUsers;
 
   const profileMap = Object.fromEntries((profiles ?? []).map(p => [p.user_id, p]));
   const adminEmails = new Set((subAdmins ?? []).map((s: { email: string }) => s.email.toLowerCase()));

@@ -102,8 +102,28 @@ export async function GET(req: NextRequest) {
     }
   }));
 
+  // Fetch verified status + profile photo for all candidates in one batch query
+  const profileMap: Record<string, { verified: boolean; photoUrl: string | null }> = {};
+  if (userIds.length > 0) {
+    const { data: profiles } = await db
+      .from("candidate_profiles")
+      .select("user_id, manually_verified, profile_photo")
+      .in("user_id", userIds);
+    for (const p of (profiles ?? [])) {
+      profileMap[p.user_id] = {
+        verified: !!p.manually_verified,
+        photoUrl: (p as { profile_photo?: string | null }).profile_photo ?? null,
+      };
+    }
+  }
+
   const conversations = Object.values(threads)
-    .map(t => ({ ...t, ...userMap[t.threadUserId] }))
+    .map(t => ({
+      ...t,
+      ...userMap[t.threadUserId],
+      verified: !!profileMap[t.threadUserId]?.verified,
+      photoUrl: profileMap[t.threadUserId]?.photoUrl ?? null,
+    }))
     .sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
 
   return NextResponse.json({ conversations });

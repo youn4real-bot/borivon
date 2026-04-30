@@ -5,8 +5,82 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { Bell, Paperclip, CheckCircle2, XCircle, User } from "@/components/PortalIcons";
-import { X as XIcon } from "lucide-react";
+
 import { Spinner } from "@/components/ui/states";
+import { useLang } from "@/components/LangContext";
+
+// ── Minimal bell-specific translations ─────────────────────────────────────────
+const BELL_T = {
+  fr: {
+    title: "Notifications",
+    activity: "Activité",
+    allTab: "Tous",
+    unreadTab: "Non lus",
+    allCaughtUp: "Tout vu",
+    noNotifs: "Pas encore de notifications",
+    noNotifsHint: "Vous serez notifié de toute activité ici",
+    noUnread: "Aucune notification non lue",
+    noUnreadActivity: "Aucune activité non lue",
+    justNow: "À l'instant",
+    verified: "🎉 Vous êtes vérifié !",
+    verifiedNext: "Prochaine étape : téléchargez votre **Lebenslauf** pour continuer.",
+    approved: "a été approuvé",
+    rejected: "a été refusé",
+    goToDashboard: "Voir le tableau de bord →",
+    tapToReview: "Appuyer pour voir →",
+    justSignedUp: "vient de s'inscrire",
+    uploadedDoc: "a téléversé un document",
+    viewCandidate: "Voir le candidat →",
+    quickReview: "Révision rapide →",
+    waiting48h: (n: number) => `${n} candidat${n !== 1 ? "s" : ""} en attente > 48 h`,
+  },
+  en: {
+    title: "Notifications",
+    activity: "Activity",
+    allTab: "All",
+    unreadTab: "Unread",
+    allCaughtUp: "All caught up",
+    noNotifs: "No notifications yet",
+    noNotifsHint: "You'll be notified of any activity here",
+    noUnread: "No unread notifications",
+    noUnreadActivity: "No unread activity",
+    justNow: "Just now",
+    verified: "🎉 You're verified!",
+    verifiedNext: "Next step: upload your **Lebenslauf** to continue.",
+    approved: "has been approved",
+    rejected: "has been rejected",
+    goToDashboard: "Go to dashboard →",
+    tapToReview: "Tap to review →",
+    justSignedUp: "just signed up",
+    uploadedDoc: "uploaded a document",
+    viewCandidate: "View candidate →",
+    quickReview: "Quick review →",
+    waiting48h: (n: number) => `${n} candidate${n !== 1 ? "s" : ""} waiting > 48 hours`,
+  },
+  de: {
+    title: "Benachrichtigungen",
+    activity: "Aktivität",
+    allTab: "Alle",
+    unreadTab: "Ungelesen",
+    allCaughtUp: "Alles gelesen",
+    noNotifs: "Noch keine Benachrichtigungen",
+    noNotifsHint: "Sie werden über jede Aktivität hier benachrichtigt",
+    noUnread: "Keine ungelesenen Benachrichtigungen",
+    noUnreadActivity: "Keine ungelesene Aktivität",
+    justNow: "Gerade eben",
+    verified: "🎉 Ihr Profil ist verifiziert!",
+    verifiedNext: "Nächster Schritt: Laden Sie Ihren **Lebenslauf** hoch.",
+    approved: "wurde genehmigt",
+    rejected: "wurde abgelehnt",
+    goToDashboard: "Zum Dashboard →",
+    tapToReview: "Tippen zum Überprüfen →",
+    justSignedUp: "hat sich gerade registriert",
+    uploadedDoc: "hat ein Dokument hochgeladen",
+    viewCandidate: "Kandidaten anzeigen →",
+    quickReview: "Schnellprüfung →",
+    waiting48h: (n: number) => `${n} Kandidat${n !== 1 ? "en" : ""} wartet seit > 48 Stunden`,
+  },
+} as const;
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type CandidateNotif = {
@@ -33,13 +107,13 @@ type AdminNotif = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function relTime(iso: string) {
+function relTime(iso: string, justNow: string) {
   const diff = Date.now() - new Date(iso).getTime();
   const h = diff / 3_600_000;
   const d = diff / 86_400_000;
-  if (h < 1)  return "Just now";
-  if (h < 24) return `${Math.floor(h)}h ago`;
-  if (d < 7)  return `${Math.floor(d)}d ago`;
+  if (h < 1)  return justNow;
+  if (h < 24) return `${Math.floor(h)}h`;
+  if (d < 7)  return `${Math.floor(d)}d`;
   return new Date(iso).toLocaleDateString(undefined, { day: "2-digit", month: "short" });
 }
 
@@ -71,26 +145,27 @@ function BellButton({ unread, open, onClick }: { unread: number; open: boolean; 
   );
 }
 
-function EmptyState({ msg }: { msg?: string }) {
+function EmptyState({ msg, hint }: { msg?: string; hint?: string }) {
   return (
     <div className="py-12 text-center">
       <span className="mx-auto mb-3 flex items-center justify-center w-11 h-11 rounded-full"
         style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)", color: "var(--gold)" }}>
         <Bell size={20} strokeWidth={1.6} />
       </span>
-      <p className="text-xs font-medium" style={{ color: "var(--w2)" }}>{msg ?? "No notifications yet"}</p>
-      <p className="text-[11px] mt-1" style={{ color: "var(--w3)" }}>You&apos;ll be notified of any activity here</p>
+      <p className="text-xs font-medium" style={{ color: "var(--w2)" }}>{msg}</p>
+      {hint && <p className="text-[11px] mt-1" style={{ color: "var(--w3)" }}>{hint}</p>}
     </div>
   );
 }
 
 // ── Dropdown shell with All/Unread tabs ───────────────────────────────────────
 
-function NotifDropdown({ label, total, unread, tab, onTabChange, onClose, children }: {
+function NotifDropdown({ label, total, unread, tab, onTabChange, onClose, children, allTab, unreadTab, allCaughtUp }: {
   label: string; total: number; unread: number;
   tab: "all" | "unread"; onTabChange: (t: "all" | "unread") => void;
   onClose: () => void;
   children: React.ReactNode;
+  allTab: string; unreadTab: string; allCaughtUp: string;
 }) {
   const isMobile = typeof window !== "undefined" && window.matchMedia("(max-width: 639.98px)").matches;
 
@@ -100,7 +175,7 @@ function NotifDropdown({ label, total, unread, tab, onTabChange, onClose, childr
         <p className="text-sm font-semibold" style={{ color: "var(--w)" }}>{label}</p>
         {unread === 0 && total > 0 && (
           <span className="inline-flex items-center gap-1 text-[10px]" style={{ color: "var(--w3)" }}>
-            <CheckCircle2 size={10} strokeWidth={1.8} /> All caught up
+            <CheckCircle2 size={10} strokeWidth={1.8} /> {allCaughtUp}
           </span>
         )}
       </div>
@@ -113,7 +188,7 @@ function NotifDropdown({ label, total, unread, tab, onTabChange, onClose, childr
               color:      tab === t ? "#1a1a1a"    : "var(--w3)",
               border:     tab === t ? "none"        : "1px solid var(--border)",
             }}>
-            {t === "all" ? `All${total ? ` (${total})` : ""}` : `Unread${unread ? ` (${unread})` : ""}`}
+            {t === "all" ? `${allTab}${total ? ` (${total})` : ""}` : `${unreadTab}${unread ? ` (${unread})` : ""}`}
           </button>
         ))}
       </div>
@@ -161,6 +236,8 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
   const [tab, setTab]       = useState<"all" | "unread">("all");
   const ref    = useRef<HTMLDivElement>(null);
   const router = useRouter();
+  const { lang } = useLang();
+  const bt = BELL_T[lang] ?? BELL_T.fr;
 
   const fetch_ = useCallback(async () => {
     const { data } = await supabase
@@ -209,6 +286,8 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
 
   const unread    = notifs.filter(n => !n.read).length;
   const displayed = tab === "unread" ? notifs.filter(n => !n.read) : notifs;
+  // Issue 14.1: show a spinner on the tapped notification while resolving the doc
+  const [pendingNotifId, setPendingNotifId] = useState<string | null>(null);
 
   function toggle() { setOpen(o => !o); }
 
@@ -219,12 +298,14 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
   }
 
   async function handleClick(n: CandidateNotif) {
+    if (pendingNotifId) return; // prevent double-tap
     markOneRead(n);
     setOpen(false);
 
     let docId = n.doc_id ?? null;
 
     if (!docId) {
+      setPendingNotifId(n.id);
       try {
         const res = await fetch(`/api/portal/notifications/${encodeURIComponent(n.id)}/doc`, {
           headers: { Authorization: `Bearer ${accessToken}` },
@@ -235,6 +316,8 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
         }
       } catch (e) {
         console.error("[notif click] doc lookup failed:", e);
+      } finally {
+        setPendingNotifId(null);
       }
     }
 
@@ -250,9 +333,10 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
     <div ref={ref} className="relative">
       <BellButton unread={unread} open={open} onClick={toggle} />
       {open && (
-        <NotifDropdown label="Notifications" total={notifs.length} unread={unread} tab={tab} onTabChange={setTab} onClose={() => setOpen(false)}>
+        <NotifDropdown label={bt.title} total={notifs.length} unread={unread} tab={tab} onTabChange={setTab} onClose={() => setOpen(false)}
+          allTab={bt.allTab} unreadTab={bt.unreadTab} allCaughtUp={bt.allCaughtUp}>
           {displayed.length === 0 ? (
-            <EmptyState msg={tab === "unread" ? "No unread notifications" : undefined} />
+            <EmptyState msg={tab === "unread" ? bt.noUnread : bt.noNotifs} hint={tab === "unread" ? undefined : bt.noNotifsHint} />
           ) : displayed.map((n, i) => {
             const verified = n.action === "verified";
             const approved = n.action === "approved";
@@ -261,6 +345,8 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
               : approved
               ? { bg: "rgba(52,199,89,0.12)", color: "#34c759", border: "1.5px solid rgba(52,199,89,0.25)" }
               : { bg: "rgba(224,82,82,0.12)", color: "#e05252", border: "1.5px solid rgba(224,82,82,0.25)" };
+            // Parse "**Lebenslauf**" bold markers in verifiedNext
+            const verifiedNextParts = bt.verifiedNext.split(/\*\*(.*?)\*\*/g);
             return (
               <div key={n.id}>
                 {i > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
@@ -270,27 +356,29 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
                     background: n.read ? "transparent" : "rgba(212,175,55,0.08)",
                     borderLeft: n.read ? "2px solid transparent" : "2px solid rgba(212,175,55,0.5)",
                     borderTop: "none", borderRight: "none", borderBottom: "none",
-                    cursor: "pointer",
+                    cursor: pendingNotifId === n.id ? "wait" : "pointer",
+                    opacity: pendingNotifId === n.id ? 0.7 : 1,
                   }}
+                  disabled={pendingNotifId !== null}
                   onClick={() => handleClick(n)}>
                   <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
                     style={{ background: iconSt.bg, color: iconSt.color, border: iconSt.border }}>
-                    {verified ? <CheckCircle2 size={15} strokeWidth={1.8} /> : approved ? <CheckCircle2 size={15} strokeWidth={1.8} /> : <XCircle size={15} strokeWidth={1.8} />}
+                    {pendingNotifId === n.id ? <Spinner size="xs" /> : verified ? <CheckCircle2 size={15} strokeWidth={1.8} /> : approved ? <CheckCircle2 size={15} strokeWidth={1.8} /> : <XCircle size={15} strokeWidth={1.8} />}
                   </div>
                   <div className="flex-1 min-w-0">
                     {verified ? (
                       <>
                         <p className="text-xs font-semibold leading-snug" style={{ color: "var(--gold)" }}>
-                          🎉 You&apos;re verified!
+                          {bt.verified}
                         </p>
                         <p className="text-[11px] mt-1 leading-snug" style={{ color: "var(--w2)" }}>
-                          Next step: upload your <span className="font-semibold">Lebenslauf</span> to continue your application.
+                          {verifiedNextParts.map((p, i) => i % 2 === 1 ? <strong key={i}>{p}</strong> : p)}
                         </p>
                       </>
                     ) : (
                       <p className="text-xs leading-snug" style={{ color: "var(--w)" }}>
                         <span className="font-semibold">{n.doc_type}</span>
-                        {approved ? " has been approved" : " has been rejected"}
+                        {" "}{approved ? bt.approved : bt.rejected}
                       </p>
                     )}
                     {!verified && n.feedback && (
@@ -304,10 +392,10 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
                       </p>
                     )}
                     <p className="text-[10px] mt-1.5 flex items-center gap-1" style={{ color: "var(--w3)" }}>
-                      {relTime(n.created_at)}
+                      {relTime(n.created_at, bt.justNow)}
                       <span style={{ color: "var(--border)" }}>·</span>
                       <span style={{ color: verified ? "var(--gold)" : approved ? "#34c759" : "#e05252" }}>
-                        {verified ? "Go to dashboard →" : "Tap to review →"}
+                        {verified ? bt.goToDashboard : bt.tapToReview}
                       </span>
                     </p>
                   </div>
@@ -460,17 +548,18 @@ function AdminBell({ accessToken }: { accessToken: string }) {
       <div ref={ref} className="relative">
         <BellButton unread={unread} open={open} onClick={toggle} />
         {open && (
-          <NotifDropdown label="Activity" total={notifs.length} unread={unread} tab={tab} onTabChange={setTab} onClose={() => setOpen(false)}>
+          <NotifDropdown label="Activity" total={notifs.length} unread={unread} tab={tab} onTabChange={setTab} onClose={() => setOpen(false)}
+            allTab="All" unreadTab="Unread" allCaughtUp="All caught up">
             {/* Overdue banner — shows count of unread items >48h old */}
             {overdueCount > 0 && (
               <div className="mx-3 mt-3 mb-1 px-3 py-2 inline-flex items-center gap-2 text-[11.5px] font-semibold tracking-tight"
                 style={{ background: "rgba(224,82,82,0.08)", color: "#e05252", border: "1px solid rgba(224,82,82,0.22)", borderRadius: "var(--r-sm)" }}>
                 <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#e05252", animation: "pls 2s ease-in-out infinite" }} />
-                {overdueCount} candidate{overdueCount !== 1 ? "s" : ""} waiting &gt; 48 hours
+                {BELL_T.en.waiting48h(overdueCount)}
               </div>
             )}
             {displayed.length === 0 ? (
-              <EmptyState msg={tab === "unread" ? "No unread activity" : undefined} />
+              <EmptyState msg={tab === "unread" ? "No unread activity" : "No activity yet"} />
             ) : displayed.map((n, i) => {
               const isSignup = n.type === "signup";
               const iconSt = isSignup
@@ -496,7 +585,7 @@ function AdminBell({ accessToken }: { accessToken: string }) {
                       {isSignup ? (
                         <>
                           <p className="text-xs leading-snug" style={{ color: "var(--w)" }}>
-                            <span className="font-semibold">{n.user_name}</span> just signed up
+                            <span className="font-semibold">{n.user_name}</span> {BELL_T.en.justSignedUp}
                           </p>
                           {n.user_email && (
                             <p className="text-[11px] mt-0.5 truncate" style={{ color: "var(--w3)" }}>{n.user_email}</p>
@@ -505,7 +594,7 @@ function AdminBell({ accessToken }: { accessToken: string }) {
                       ) : (
                         <>
                           <p className="text-xs leading-snug" style={{ color: "var(--w)" }}>
-                            <span className="font-semibold">{n.user_name}</span> uploaded a document
+                            <span className="font-semibold">{n.user_name}</span> {BELL_T.en.uploadedDoc}
                           </p>
                           {n.doc_type && (
                             <p className="text-[11px] mt-0.5 px-2 py-1 rounded-lg leading-snug"
@@ -516,10 +605,10 @@ function AdminBell({ accessToken }: { accessToken: string }) {
                         </>
                       )}
                       <p className="text-[10px] mt-1.5 flex items-center gap-1" style={{ color: "var(--w3)" }}>
-                        {relTime(n.created_at)}
+                        {relTime(n.created_at, BELL_T.en.justNow)}
                         <span style={{ color: "var(--border)" }}>·</span>
                         <span style={{ color: "var(--gold)" }}>
-                          {isSignup ? "View candidate →" : "Quick review →"}
+                          {isSignup ? BELL_T.en.viewCandidate : BELL_T.en.quickReview}
                         </span>
                       </p>
                     </div>

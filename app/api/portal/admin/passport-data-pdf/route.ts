@@ -1,18 +1,12 @@
 import { NextRequest } from "next/server";
-import path from "path";
 import React from "react";
-import { renderToBuffer, Font } from "@react-pdf/renderer";
+import { renderToBuffer } from "@react-pdf/renderer";
 import { PassportDataDocument } from "@/components/PassportDataDocument";
 import type { PassportDataPdfGroup } from "@/components/PassportDataDocument";
 import { requireAdminRole } from "@/lib/admin-auth";
+import { registerPdfFonts } from "@/lib/pdf-fonts";
 
-Font.register({
-  family: "Lato",
-  fonts: [
-    { src: path.join(process.cwd(), "public", "fonts", "Lato-Regular.ttf"), fontWeight: 400 },
-    { src: path.join(process.cwd(), "public", "fonts", "Lato-Bold.ttf"),    fontWeight: 700 },
-  ],
-});
+registerPdfFonts();
 
 export async function POST(req: NextRequest) {
   const auth = await requireAdminRole(req);

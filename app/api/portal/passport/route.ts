@@ -58,16 +58,33 @@ export async function POST(req: NextRequest) {
   if (authErr || !user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
   const body = await req.json();
-  const {
-    first_name, last_name, dob, sex,
-    nationality,
-    city_of_birth, country_of_birth,
-    passport_no, passport_expiry,
-    issuing_authority, issue_date,
-    address_street, address_number, address_postal,
-    city_of_residence, country_of_residence,
-    marital_status, children_ages,
-  } = body;
+
+  // Truncate every free-text field before touching the DB.
+  // Postgres text columns have no length limit — without this an authenticated
+  // candidate could store arbitrarily large strings in their own profile row.
+  const cap = (v: unknown, max: number): string | null => {
+    if (typeof v !== "string") return null;
+    return v.slice(0, max) || null;
+  };
+
+  const first_name        = cap(body.first_name,        100);
+  const last_name         = cap(body.last_name,         100);
+  const dob               = cap(body.dob,                20);
+  const sex               = cap(body.sex,                 2);
+  const nationality       = cap(body.nationality,       100);
+  const city_of_birth     = cap(body.city_of_birth,     100);
+  const country_of_birth  = cap(body.country_of_birth,  100);
+  const passport_no       = cap(body.passport_no,        20);
+  const passport_expiry   = cap(body.passport_expiry,    20);
+  const issuing_authority = cap(body.issuing_authority, 200);
+  const issue_date        = cap(body.issue_date,         20);
+  const address_street    = cap(body.address_street,    200);
+  const address_number    = cap(body.address_number,     20);
+  const address_postal    = cap(body.address_postal,     20);
+  const city_of_residence   = cap(body.city_of_residence,   100);
+  const country_of_residence = cap(body.country_of_residence, 100);
+  const marital_status    = cap(body.marital_status,    200);
+  const children_ages     = cap(body.children_ages,     200);
 
   // Convert ISO code or display name → German adjective for nationality
   const natKey = nationality?.trim().toUpperCase() ?? "";
@@ -107,13 +124,42 @@ export async function POST(req: NextRequest) {
     country_of_residence: country_of_residence || null,
     marital_status:       marital_status || null,
     children_ages:        children_ages  || null,
-    // Mark as pending admin review whenever candidate re-submits passport data
-    passport_status:     "pending",
     updated_at:          new Date().toISOString(),
   };
 
+  // Issue 6.1: only reset to "pending" when identity fields actually change.
+  // If the passport is "approved" and only address / contact fields changed,
+  // keep it approved — the admin already validated the identity data.
   const db = getServiceSupabase();
-  const { error } = await db.from("candidate_profiles").upsert(profilePayload, { onConflict: "user_id" });
+  const { data: existing } = await db
+    .from("candidate_profiles")
+    .select("first_name,last_name,dob,sex,nationality,passport_no,passport_expiry,passport_status")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  const IDENTITY_FIELDS = ["first_name","last_name","dob","sex","nationality","passport_no","passport_expiry"] as const;
+  const identityChanged = existing?.passport_status === "approved"
+    ? IDENTITY_FIELDS.some(k => {
+        const oldVal = (existing as Record<string,string|null>)[k] ?? null;
+        const newMap: Record<string, string|null> = {
+          first_name: first_name || null,
+          last_name: last_name || null,
+          dob: toIso(dob),
+          sex: canonicalSex,
+          nationality: nationality || null,
+          passport_no: passport_no || null,
+          passport_expiry: toIso(passport_expiry),
+        };
+        return (newMap[k] ?? null) !== (oldVal ?? null);
+      })
+    : true; // never approved → always set pending
+
+  const passportStatusToSave = identityChanged ? "pending" : (existing?.passport_status ?? "pending");
+
+  const { error } = await db.from("candidate_profiles").upsert(
+    { ...profilePayload, passport_status: passportStatusToSave },
+    { onConflict: "user_id" }
+  );
 
   if (error) {
     console.error("Profile upsert error:", error.message);

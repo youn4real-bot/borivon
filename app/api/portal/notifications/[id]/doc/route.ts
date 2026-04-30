@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceSupabase } from "@/lib/supabase";
+import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 
 /**
  * Resolve the document a candidate notification points at.
@@ -17,8 +17,8 @@ export async function GET(
   const token = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
   if (!token) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  const { data: { user }, error: authErr } = await getAnonVerifyClient().auth.getUser(token);
   const db = getServiceSupabase();
-  const { data: { user }, error: authErr } = await db.auth.getUser(token);
   if (authErr || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await ctx.params;

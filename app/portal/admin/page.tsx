@@ -17,6 +17,7 @@ import {
 import { X as XIcon, RotateCcw, Download, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2 } from "lucide-react";
 import { Spinner, PageLoader, EmptyState } from "@/components/ui/states";
 import { CandidateStagePreview, type JourneyMode } from "@/components/JourneyView";
+import { VerifiedBadge } from "@/components/VerifiedBadge";
 
 // ── File key → all possible translated labels ─────────────────────────────────
 const FILE_KEY_ALL_LABELS: Record<string, Set<string>> = (() => {
@@ -1260,7 +1261,10 @@ export default function AdminPage() {
                 );
               })()}
               <div className="flex-1 min-w-0">
-                <h1 className="text-[20px] font-semibold tracking-[-0.015em] truncate" style={{ color: "var(--w)" }}>{user.name}</h1>
+                <h1 className="text-[20px] font-semibold tracking-[-0.015em] inline-flex items-center gap-1 max-w-full" style={{ color: "var(--w)" }}>
+                  <span className="truncate">{user.name}</span>
+                  <VerifiedBadge verified={!!profiles[selectedUser]?.manually_verified} size="sm" />
+                </h1>
                 <p className="text-[12.5px] mt-1 truncate" style={{ color: "var(--w3)" }}>{user.email}</p>
               </div>
               <div className="flex items-center gap-2 flex-wrap flex-shrink-0">
@@ -2303,7 +2307,10 @@ export default function AdminPage() {
                       </span>
 
                       <div className="flex-1 min-w-0">
-                        <p className="text-[13.5px] font-semibold truncate" style={{ color: "var(--w)" }}>{user.name}</p>
+                        <p className="text-[13.5px] font-semibold truncate inline-flex items-center gap-0.5" style={{ color: "var(--w)" }}>
+                          {user.name}
+                          <VerifiedBadge verified={!!profiles[uid]?.manually_verified} size="xs" />
+                        </p>
                         <p className="text-[11.5px] truncate mt-0.5" style={{ color: "var(--w3)" }}>
                           {user.email}
                           {(candidateOrgs[uid] ?? []).map(o => (
@@ -2416,7 +2423,10 @@ export default function AdminPage() {
                           {user.name.charAt(0).toUpperCase()}
                         </span>
                         <div className="flex-1 min-w-0">
-                          <p className="text-[12.5px] font-medium truncate tracking-tight" style={{ color: "var(--w)" }}>{user.name}</p>
+                          <p className="text-[12.5px] font-medium truncate tracking-tight inline-flex items-center gap-0.5" style={{ color: "var(--w)" }}>
+                            {user.name}
+                            <VerifiedBadge verified={!!profiles[uid]?.manually_verified} size="xs" />
+                          </p>
                           <p className="text-[11px] truncate mt-0.5" style={{ color: "var(--w3)" }}>{user.email}</p>
                         </div>
                         <div className="flex items-center gap-3 flex-shrink-0">

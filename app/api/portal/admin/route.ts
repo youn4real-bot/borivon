@@ -299,14 +299,18 @@ export async function PATCH(req: NextRequest) {
   }
 
   const db = getServiceSupabase();
-  const { error } = await db
+  const { data: updatedRows, error } = await db
     .from("candidate_profiles")
     .update(cleanProfile)
-    .eq("user_id", userId);
+    .eq("user_id", userId)
+    .select("user_id");
 
   if (error) {
     console.error("[admin PATCH] update profile failed:", error);
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  }
+  if (!updatedRows || updatedRows.length === 0) {
+    return NextResponse.json({ error: "Profile not found" }, { status: 404 });
   }
 
   // Notify candidate when passport data is rejected
@@ -329,6 +333,13 @@ export async function PATCH(req: NextRequest) {
       feedback: (cleanProfile.passport_feedback as string | null) ?? null,
       read:     false,
     });
+
+    // Revoke blue-tick — manually_verified is intentionally outside
+    // ALLOWED_PROFILE_FIELDS so we update it directly here.
+    await db
+      .from("candidate_profiles")
+      .update({ manually_verified: false })
+      .eq("user_id", userId);
   }
 
   // Auto blue-tick: passport data just approved — check if file is also approved

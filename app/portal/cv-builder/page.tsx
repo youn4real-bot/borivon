@@ -153,12 +153,13 @@ function detectSmartGaps(workEntries: WorkEntry[], eduEntries: EduEntry[]): Smar
   // 1. Find nursing training end — the key reference
   const nursing = eduEntries.find(e => e.type === "nursing");
   if (!nursing || !nursing.start.year) return [];
-  // If nursing is still in progress (no end set), no gap check
-  if (!nursing.end) return [];
+  // If nursing is still in progress treat today as the effective end so the
+  // covered-set is correctly built; gapCheckStart will exceed todayNum and
+  // the function returns [] naturally (no post-nursing gaps possible yet).
+  const nursingEnd: MonthYear = nursing.end ?? todayMY();
 
   const nursingStartY = parseInt(nursing.start.year);
   const nursingStart: MonthYear = { month: nursing.start.month || "09", year: nursing.start.year };
-  const nursingEnd: MonthYear   = nursing.end;
   const nursingStartNum = toNum(nursingStart);
   const nursingEndNum   = toNum(nursingEnd);
 
@@ -1897,9 +1898,9 @@ export default function CVBuilderPage() {
     if (!userId) return;
     const { data } = await supabase
       .from("candidate_profiles")
-      .select("first_name,last_name,dob,nationality,city_of_birth,country_of_birth,country_of_residence,address_street,address_number,address_postal,city_of_residence,marital_status,children_ages")
+      .select("first_name,last_name,dob,nationality,city_of_birth,country_of_birth,country_of_residence,address_street,address_number,address_postal,city_of_residence,phone,marital_status,children_ages")
       .eq("user_id", userId)
-      .single();
+      .maybeSingle();
     if (data) applyProfile(data);
   }
 
@@ -1980,15 +1981,16 @@ export default function CVBuilderPage() {
               const isApproved = status === "approved";
               const isRejected = status === "rejected";
               if (isRejected) {
-                merged.firstName      = "";
-                merged.lastName       = "";
-                merged.birthDate      = "";
-                merged.birthPlace     = "";
-                merged.countryOfBirth = "";
-                merged.nationality    = "";
-                merged.city           = "";
-                merged.postalCode     = "";
-                merged.address        = "";
+                merged.firstName         = "";
+                merged.lastName          = "";
+                merged.birthDate         = "";
+                merged.birthPlace        = "";
+                merged.countryOfBirth    = "";
+                merged.nationality       = "";
+                merged.city              = "";
+                merged.postalCode        = "";
+                merged.address           = "";
+                merged.countryOfResidence = "";
               } else {
                 const pickPP = (drafted: string | undefined, fromPassport: string) =>
                   isApproved && fromPassport ? fromPassport : (drafted || fromPassport);
@@ -2220,11 +2222,14 @@ export default function CVBuilderPage() {
     if (!cvData.nationality?.trim())  errors.add("nationality");
     if (!cvData.email?.trim())        errors.add("email");
     if (!cvData.address?.trim())      errors.add("address");
-    if (!cvData.postalCode?.trim())   errors.add("postalCode");
-    if (!cvData.city?.trim())         errors.add("city");
+    if (!cvData.postalCode?.trim())        errors.add("postalCode");
+    if (!cvData.city?.trim())              errors.add("city");
+    if (!cvData.countryOfBirth?.trim())    errors.add("countryOfBirth");
+    if (!cvData.countryOfResidence?.trim()) errors.add("countryOfResidence");
     const _phoneDigits = (cvData.phone ?? "").replace(/\D/g, "");
     const _isMorocco   = (cvData.phone ?? "").trimStart().startsWith("+212");
-    if (_isMorocco ? _phoneDigits.length < 12 : (_phoneDigits.length === 0 || _phoneDigits.length > 15)) errors.add("phone");
+    // ITU E.164: 7-15 digits. Morocco with country code: min 12 digits.
+    if (_isMorocco ? _phoneDigits.length < 12 : (_phoneDigits.length < 7 || _phoneDigits.length > 15)) errors.add("phone");
     if (!cvData.maritalStatus?.trim()) errors.add("maritalStatus");
 
     // 2. Photo
@@ -2248,7 +2253,8 @@ export default function CVBuilderPage() {
       if (!w.location.trim())  errors.add(`work_${w.id}_location`);
       if (!w.start.month || !w.start.year) errors.add(`work_${w.id}_start`);
       if (w.end !== null && (!w.end || !w.end.month || !w.end.year)) errors.add(`work_${w.id}_end`);
-      // Departments required only for position 1; optional for position 2+
+      // Title + departments required only for position 1; optional for position 2+
+      if (nonGapCount === 0 && !w.title?.trim()) errors.add(`work_${w.id}_title`);
       if (nonGapCount === 0 && w.departments.length === 0) errors.add(`work_${w.id}_departments`);
       nonGapCount++;
     }
@@ -2383,6 +2389,55 @@ export default function CVBuilderPage() {
 
   // ─── Render ───────────────────────────────────────────────────────────────
   if (loading) return <PageLoader />;
+
+  // Issue 9.1: Gate — require approved passport before CV Builder is usable.
+  // "null" means never submitted; "pending"/"rejected" = not yet approved.
+  // We show a soft gate with a clear message and a back button — not a hard
+  // redirect — so the user understands why they can't access the builder yet.
+  if (passportStatus !== "approved") {
+    const gateTitle =
+      passportStatus === null
+        ? (lang === "de" ? "Reisepass erforderlich" : lang === "en" ? "Passport required" : "Passeport requis")
+        : passportStatus === "pending"
+        ? (lang === "de" ? "Passport wird geprüft" : lang === "en" ? "Passport under review" : "Passeport en cours d'examen")
+        : (lang === "de" ? "Passeport abgelehnt" : lang === "en" ? "Passport rejected" : "Passeport refusé");
+    const gateBody =
+      passportStatus === null
+        ? (lang === "de"
+            ? "Laden Sie zuerst Ihren Reisepass hoch. Sobald er genehmigt ist, können Sie Ihren Lebenslauf erstellen."
+            : lang === "en"
+            ? "Please upload your passport first. Once it's approved you can build your CV."
+            : "Veuillez d'abord téléverser votre passeport. Une fois approuvé, vous pourrez créer votre Lebenslauf.")
+        : passportStatus === "pending"
+        ? (lang === "de"
+            ? "Ihr Reisepass wird gerade von unserem Team geprüft. Sobald er genehmigt ist, schalten wir den Lebenslauf-Generator frei."
+            : lang === "en"
+            ? "Your passport is currently under review. Once our team approves it you'll be able to build your CV."
+            : "Votre passeport est en cours d'examen par notre équipe. Dès son approbation, vous pourrez générer votre Lebenslauf.")
+        : (lang === "de"
+            ? "Ihr Reisepass wurde abgelehnt. Bitte laden Sie einen aktualisierten Reisepass hoch, um fortzufahren."
+            : lang === "en"
+            ? "Your passport was rejected. Please upload an updated passport to continue."
+            : "Votre passeport a été refusé. Veuillez téléverser un passeport mis à jour pour continuer.");
+    return (
+      <main className="min-h-screen flex items-center justify-center px-4" style={{ background: "var(--bg)" }}>
+        <div className="w-full max-w-sm text-center">
+          <div className="mx-auto mb-4 w-14 h-14 flex items-center justify-center rounded-2xl"
+            style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
+            <Lock size={24} strokeWidth={1.6} style={{ color: "var(--gold)" }} />
+          </div>
+          <p className="text-base font-semibold mb-2" style={{ color: "var(--w)" }}>{gateTitle}</p>
+          <p className="text-[13px] leading-relaxed mb-6" style={{ color: "var(--w3)" }}>{gateBody}</p>
+          <button onClick={() => router.push("/portal/dashboard")}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm"
+            style={{ background: "var(--gold)", color: "#1a1a1a" }}>
+            <ArrowLeft size={14} strokeWidth={2} />
+            {lang === "de" ? "Zurück zum Portal" : lang === "en" ? "Back to portal" : "Retour au portail"}
+          </button>
+        </div>
+      </main>
+    );
+  }
 
   const hasErrors = validationErrors.size > 0;
 
@@ -3018,14 +3073,15 @@ export default function CVBuilderPage() {
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                     <div className="sm:col-span-2">
-                      <Label>{t.cvb_jobTitle}</Label>
+                      <Label required={idx === 0}>{t.cvb_jobTitle}</Label>
                       {idx === 0 ? (
                         // Position 1 is the mandatory nursing internship — title
                         // is fixed in German (gendered: -in for women, -ant for
                         // men). Pulled from passport data, locked from edits.
                         <div
                           className="w-full flex items-center px-4 py-3.5 text-[15px] font-medium"
-                          style={{ background: "var(--bg2)", border: "none", color: "var(--w)", borderRadius: "12px", cursor: "default" }}>
+                          style={{ background: "var(--bg2)", border: "none", color: "var(--w)", borderRadius: "12px", cursor: "default",
+                            ...(validationErrors.has(`work_${entry.id}_title`) ? { outline: "1px solid #e05252", outlineOffset: "2px" } : {}) }}>
                           <span className="flex-1">
                             {entry.title || (sex === "F" ? "Pflegepraktikantin" : "Pflegepraktikant")}
                           </span>
@@ -3318,7 +3374,7 @@ export default function CVBuilderPage() {
             </div>
             <div className="sm:col-span-2">
               <Label required>{t.cvb_hobbies}</Label>
-              <div style={validationErrors.has("hobbies") ? { outline: "1px solid #e05252", outlineOffset: "2px", borderRadius: "12px" } : {}}>
+              <div className="rounded-xl p-1" style={validationErrors.has("hobbies") ? { outline: "1px solid #e05252", outlineOffset: "2px" } : {}}>
                 <HobbiesField value={cvData.hobbies} onChange={v => set("hobbies", v)} />
               </div>
             </div>
