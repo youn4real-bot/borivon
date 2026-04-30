@@ -16,6 +16,11 @@ const nextConfig: NextConfig = {
       : false,
   },
   serverExternalPackages: ["@react-pdf/renderer"],
+  // Ensure font/logo files used by the PDF generator are included in the
+  // serverless function bundle — Vercel's file tracer misses dynamic path.join refs.
+  outputFileTracingIncludes: {
+    "/api/portal/cv/generate": ["./public/fonts/**", "./public/logos/**"],
+  },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   webpack: (config: any) => {
     config.resolve.alias.canvas = false;
