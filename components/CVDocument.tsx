@@ -1,6 +1,6 @@
 /**
  * CVDocument.tsx — @react-pdf/renderer component (server-side only).
- * Generates a professional German Lebenslauf with Lato font and clean layout.
+ * Premium minimalist German Lebenslauf using Lexend font.
  * Do NOT add "use client" here.
  */
 import React from "react";
@@ -12,25 +12,19 @@ import {
   StyleSheet,
   Image,
 } from "@react-pdf/renderer";
+import path from "path";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface MonthYear { month: string; year: string }
 
-/** Country (German name) where the employer is based — shown on the CV.
-   Stored on every WorkEntry so each position can be in a different country. */
 export interface WorkEntry {
   id: string;
   isGap: boolean;
   title: string;
   employer: string;
   location: string;
-  /** Country (German name, e.g. "Marokko") — defaults to Marokko on new entries. */
   country?: string;
-  /** Additional internship sites — only used by the mandatory Position-1
-      nursing internship (Praktikum). Most nurses train across several
-      hospitals/cities in the same period; each site has its own
-      establishment/city/country and shows up as an extra line on the CV. */
   additionalSites?: { employer: string; location: string; country?: string }[];
   departments: string[];
   start: MonthYear;
@@ -47,14 +41,8 @@ export interface EduEntry {
   end: MonthYear | null;
   degree: string;
   nursingStatus: "complete" | "year1" | "year2" | "year3";
-  /** Official date the diploma was issued (different from training end date,
-      since the diploma usually arrives months after training ends). */
   diplomaIssued?: MonthYear;
-  /** Abitur specialization track (German term used on the CV).
-      Moroccan baccalaureate has 10 main tracks (PC, SVT, Math, Économie, …). */
   abiturFocus?: string;
-  /** Country where the institution is based (German country name).
-      Used for Abitur and any other education entry where it matters. */
   country?: string;
 }
 
@@ -64,15 +52,11 @@ export interface CVData {
   lastName: string;
   birthDate: string;
   birthPlace: string;
-  /** Country of birth (German country name, e.g. "Marokko"). Extracted from passport. */
   countryOfBirth?: string;
-  /** Country of residence (German country name). Defaults to Marokko. */
   countryOfResidence?: string;
   nationality: string;
-  /** Additional nationalities (German country names, e.g. "Frankreich").
-      Up to 4 — total of 5 with the primary `nationality`. */
   additionalNationalities?: string[];
-  maritalStatus: string;       // e.g. "ledig" | "verheiratet, 2 Kinder (14, 8)"
+  maritalStatus: string;
   address: string;
   postalCode: string;
   city: string;
@@ -85,6 +69,14 @@ export interface CVData {
   edvCustomInputs: string[];
   driverLicense: string;
   hobbies: string;
+}
+
+/** Branding injected by the generate API — defaults to Borivon when absent. */
+export interface CVBrand {
+  /** Absolute path to a logo image in public/logos/ — if absent, Borivon text logo renders. */
+  logoPath?: string;
+  /** Lines for the footer. Borivon default is ["contact@borivon.com"]. */
+  footerLines?: string[];
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -110,197 +102,204 @@ function nursingLabel(status: string, degree: string): string {
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 
-const NAVY  = "#1a3a5c";
-const GOLD  = "#c8a94a";
-const TEXT  = "#1c1c1c";
-const MUTED = "#606060";
-const RULE  = "#dedede";
-const GOLD_LIGHT = "#f5edda";
+const DARK    = "#1C1C1E";
+const NAVY    = "#1a3a5c";
+const GOLD    = "#C9A84C";
+const MUTED   = "#6B7280";
+const DIVIDER = "#E2E6EA";
+const FOOTER_COLOR = "#9CA3AF";
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const s = StyleSheet.create({
   page: {
-    fontFamily: "Lato",
-    fontSize: 9.5,
-    color: TEXT,
-    paddingTop: 40,
-    paddingBottom: 48,
-    paddingLeft: 48,
-    paddingRight: 48,
-    lineHeight: 1.5,
-  },
-
-  // ── Header ──
-  headerRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 0,
-  },
-  headerLeft: { flex: 1, paddingRight: 12 },
-  headerBadge: {
-    fontSize: 8,
-    fontFamily: "Lato",
-    fontWeight: 700,
-    letterSpacing: 2.5,
-    color: GOLD,
-    textTransform: "uppercase",
-    marginBottom: 4,
-  },
-  headerName: {
-    fontSize: 22,
-    fontFamily: "Lato",
-    fontWeight: 700,
-    color: NAVY,
-    lineHeight: 1.15,
-    marginBottom: 6,
-  },
-  headerContact: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-  },
-  headerContactItem: {
-    fontSize: 8.5,
-    color: MUTED,
-    marginRight: 14,
-    marginBottom: 2,
-  },
-  headerRule: {
-    height: 2,
-    backgroundColor: NAVY,
-    marginTop: 10,
-    marginBottom: 14,
-  },
-  photo: {
-    // Square so border-radius produces a perfect circle. The image saved by
-    // PhotoCropModal is already 600×600, so no awkward squishing here.
-    width: 80,
-    height: 80,
-    objectFit: "cover",
-    borderRadius: 40,
-  },
-
-  // ── Section ──
-  section: { marginBottom: 10 },
-  sectionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 7,
-    paddingBottom: 4,
-    borderBottomWidth: 1.5,
-    borderBottomColor: NAVY,
-  },
-  sectionTitle: {
-    fontSize: 8.5,
-    fontFamily: "Lato",
-    fontWeight: 700,
-    color: NAVY,
-    letterSpacing: 1.8,
-    textTransform: "uppercase",
-  },
-
-  // ── Personal data ──
-  pdGrid: { flexDirection: "row", flexWrap: "wrap" },
-  pdItem: { width: "50%", marginBottom: 3, flexDirection: "row" },
-  pdItemFull: { width: "100%", marginBottom: 3, flexDirection: "row" },
-  pdLabel: { fontSize: 8.5, color: MUTED, width: 90, fontFamily: "Lato" },
-  pdValue: { fontSize: 9, color: TEXT, flex: 1, fontFamily: "Lato" },
-
-  // ── Timeline entries ──
-  entry: { marginBottom: 7, flexDirection: "row" },
-  entryDate: {
-    fontSize: 8.5,
-    color: MUTED,
-    width: 90,
-    paddingTop: 1,
-    fontFamily: "Lato",
-  },
-  entryRight: { flex: 1 },
-  entryTitle: {
-    fontSize: 9.5,
-    fontFamily: "Lato",
-    fontWeight: 700,
-    color: TEXT,
-    marginBottom: 1.5,
-  },
-  entrySubtitle: { fontSize: 9, color: MUTED, marginBottom: 1.5, fontFamily: "Lato" },
-  entryDept: {
-    fontSize: 8.5,
-    color: GOLD,
-    fontFamily: "Lato",
-    marginTop: 1,
-  },
-  entryGap: {
+    fontFamily: "Lexend",
     fontSize: 9,
-    color: MUTED,
-    fontFamily: "Lato",
-  },
-  entryGapReason: {
-    fontSize: 8.5,
-    color: MUTED,
-    fontFamily: "Lato",
+    color: DARK,
+    paddingTop: 36,
+    paddingBottom: 28,
+    paddingLeft: 44,
+    paddingRight: 44,
+    lineHeight: 1.45,
+    backgroundColor: "#FFFFFF",
   },
 
-  // ── Divider ──
-  divRule: { height: 0.5, backgroundColor: RULE, marginBottom: 9, marginTop: 1 },
-
-  // ── Languages ──
-  langRow: { flexDirection: "row", flexWrap: "wrap" },
-  langItem: {
-    marginRight: 20,
-    marginBottom: 3,
+  // ── Logo banner ──
+  logoBanner: {
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
+  },
+  logoImage: {
+    height: 54,
+    objectFit: "contain",
+  },
+  logoTextRow: {
     flexDirection: "row",
     alignItems: "baseline",
   },
-  langName: { fontSize: 9.5, fontFamily: "Lato", fontWeight: 700, marginRight: 4 },
-  langLevel: { fontSize: 9, color: MUTED, fontFamily: "Lato" },
+  logoText: {
+    fontFamily: "DMSerifItalic",
+    fontSize: 22,
+    color: DARK,
+  },
+  logoGold: {
+    fontFamily: "DMSerifItalic",
+    fontSize: 22,
+    color: GOLD,
+  },
+
+  // ── Header rule ──
+  headerRule: {
+    height: 1.5,
+    backgroundColor: NAVY,
+    marginBottom: 11,
+  },
+
+  // ── Name + photo row ──
+  nameRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 10,
+  },
+  nameLeft: {
+    flex: 1,
+    paddingRight: 14,
+  },
+  lebenslaufLabel: {
+    fontSize: 7,
+    fontWeight: 600,
+    color: GOLD,
+    letterSpacing: 2.2,
+    textTransform: "uppercase",
+    marginBottom: 3,
+  },
+  candidateName: {
+    fontSize: 20,
+    fontWeight: 700,
+    color: DARK,
+    lineHeight: 1.15,
+    marginBottom: 5,
+  },
+  contactRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+  },
+  contactItem: {
+    fontSize: 8,
+    color: MUTED,
+    marginRight: 14,
+    marginBottom: 1.5,
+  },
+  photo: {
+    width: 76,
+    height: 76,
+    borderRadius: 4,
+    objectFit: "cover",
+  },
+
+  // ── Divider ──
+  divider: {
+    height: 0.5,
+    backgroundColor: DIVIDER,
+    marginTop: 5,
+    marginBottom: 7,
+  },
+
+  // ── Section ──
+  section: { marginBottom: 6 },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 5,
+    paddingBottom: 3,
+    borderBottomWidth: 1,
+    borderBottomColor: NAVY,
+  },
+  accentBar: {
+    width: 2.5,
+    height: 9,
+    backgroundColor: GOLD,
+    borderRadius: 1,
+    marginRight: 5,
+  },
+  sectionTitle: {
+    fontSize: 7.5,
+    fontWeight: 700,
+    color: NAVY,
+    letterSpacing: 1.6,
+    textTransform: "uppercase",
+  },
+
+  // ── Personal data grid ──
+  pdGrid: { flexDirection: "row", flexWrap: "wrap" },
+  pdItem: { width: "50%", marginBottom: 2.5, flexDirection: "row" },
+  pdItemFull: { width: "100%", marginBottom: 2.5, flexDirection: "row" },
+  pdLabel: { fontSize: 8, color: MUTED, width: 84 },
+  pdValue: { fontSize: 8.5, color: DARK, flex: 1 },
+
+  // ── Timeline entries ──
+  entry: { marginBottom: 5.5, flexDirection: "row" },
+  entryDate: { fontSize: 8, color: MUTED, width: 72, paddingTop: 1 },
+  entryRight: { flex: 1 },
+  entryTitle: { fontSize: 9, fontWeight: 700, color: DARK, marginBottom: 1 },
+  entrySubtitle: { fontSize: 8, color: MUTED, marginBottom: 1 },
+  entryDept: { fontSize: 8, color: GOLD, marginTop: 1 },
+  entryGap: { fontSize: 8.5, color: MUTED },
+  entryGapReason: { fontSize: 8, color: MUTED },
+
+  // ── Languages ──
+  langRow: { flexDirection: "row", flexWrap: "wrap" },
+  langItem: { marginRight: 18, marginBottom: 2.5, flexDirection: "row", alignItems: "baseline" },
+  langName: { fontSize: 9, fontWeight: 700, marginRight: 3 },
+  langLevel: { fontSize: 8, color: MUTED },
 
   // ── EDV chips ──
   edvRow: { flexDirection: "row", flexWrap: "wrap" },
   edvChip: {
-    fontSize: 8.5,
-    color: TEXT,
-    marginRight: 5,
-    marginBottom: 4,
+    fontSize: 8,
+    color: DARK,
+    marginRight: 4,
+    marginBottom: 3,
     paddingHorizontal: 6,
     paddingVertical: 2.5,
-    borderWidth: 0.75,
-    borderColor: RULE,
+    borderWidth: 0.5,
+    borderColor: DIVIDER,
     borderRadius: 3,
-    backgroundColor: "#f9f9f9",
-    fontFamily: "Lato",
+    backgroundColor: "#F9FAFB",
   },
 
   // ── Sonstiges ──
   miscRow: { flexDirection: "row", flexWrap: "wrap" },
-  miscItem: {
-    marginRight: 20,
-    marginBottom: 3,
+  miscItem: { marginRight: 20, marginBottom: 2.5, flexDirection: "row" },
+  miscLabel: { fontSize: 8, color: MUTED, width: 84 },
+  miscValue: { fontSize: 8.5, color: DARK, flex: 1 },
+
+  // ── Signature / date area ──
+  sigArea: {
+    marginTop: 22,
     flexDirection: "row",
+    justifyContent: "space-between",
   },
-  miscLabel: { fontSize: 8.5, color: MUTED, width: 90, fontFamily: "Lato" },
-  miscValue: { fontSize: 9, color: TEXT, flex: 1, fontFamily: "Lato" },
+  sigSlot: { width: 115 },
+  sigSpace: { height: 38 },
+  sigLine: { height: 0.5, backgroundColor: MUTED, marginBottom: 3 },
+  sigLabel: { fontSize: 7.5, color: MUTED },
 
   // ── Footer ──
   footer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 24,
-    paddingTop: 10,
+    marginTop: 14,
+    paddingTop: 8,
     borderTopWidth: 0.5,
-    borderTopColor: RULE,
+    borderTopColor: DIVIDER,
+    alignItems: "center",
   },
-  footerLine: { width: 130, height: 0.5, backgroundColor: RULE, marginBottom: 3 },
-  footerLabel: { fontSize: 7.5, color: MUTED, fontFamily: "Lato" },
-
-  // ── Gold accent bar ──
-  accentBar: {
-    width: 3,
-    height: 11,
-    backgroundColor: GOLD,
-    borderRadius: 1.5,
-    marginRight: 6,
+  footerLine: {
+    fontSize: 7.5,
+    color: FOOTER_COLOR,
+    textAlign: "center",
+    lineHeight: 1.55,
   },
 });
 
@@ -350,14 +349,10 @@ function WorkRow({ entry }: { entry: WorkEntry }) {
         ) : null}
         {(entry.additionalSites ?? []).map((site, i) => {
           const line = [site.employer, site.location, site.country].filter(Boolean).join(" · ");
-          return line ? (
-            <Text key={i} style={s.entrySubtitle}>{line}</Text>
-          ) : null;
+          return line ? <Text key={i} style={s.entrySubtitle}>{line}</Text> : null;
         })}
         {entry.departments.length > 0 ? (
-          <Text style={s.entryDept}>
-            {entry.departments.join("  ·  ")}
-          </Text>
+          <Text style={s.entryDept}>{entry.departments.join("  ·  ")}</Text>
         ) : null}
       </View>
     </View>
@@ -374,7 +369,7 @@ function EduRow({ entry }: { entry: EduEntry }) {
       <Text style={s.entryDate}>{dr}</Text>
       <View style={s.entryRight}>
         {label ? <Text style={s.entryTitle}>{label}</Text> : null}
-        {entry.type === "abitur" && entry.abiturFocus && entry.abiturFocus.trim() ? (
+        {entry.type === "abitur" && entry.abiturFocus?.trim() ? (
           <Text style={s.entrySubtitle}>Schwerpunkt: {entry.abiturFocus.trim()}</Text>
         ) : null}
         {(entry.institution || entry.location || entry.country) ? (
@@ -393,10 +388,13 @@ function EduRow({ entry }: { entry: EduEntry }) {
 
 // ─── Main document ────────────────────────────────────────────────────────────
 
-export function CVDocument({ data }: { data: CVData }) {
+export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
   const fullName = [data.firstName, data.lastName].filter(Boolean).join(" ");
 
-  // Sort work: newest first (undated entries at end)
+  // Effective branding — fall back to Borivon defaults
+  const footerLines = brand?.footerLines?.length ? brand.footerLines : ["contact@borivon.com"];
+
+  // Sort work: newest first
   const datedWork = [...data.workEntries]
     .filter(e => e.start.month && e.start.year)
     .sort((a, b) =>
@@ -416,66 +414,92 @@ export function CVDocument({ data }: { data: CVData }) {
   const undatedEdu = data.eduEntries.filter(e => !datedEdu.find(d => d.id === e.id));
   const allEdu = [...datedEdu, ...undatedEdu];
 
-  const allEdv = [...data.edvSelected, ...data.edvCustomInputs.filter(Boolean)];
+  const allEdv      = [...data.edvSelected, ...data.edvCustomInputs.filter(Boolean)];
   const activeLangs = data.langs.filter(l => l.name && l.level);
 
+  // Build contact line items (plain text, no emojis — keeps PDF clean and printable)
   const contactItems: string[] = [];
-  if (data.phone) contactItems.push(`📞 ${data.phone}`);
-  if (data.email) contactItems.push(`✉ ${data.email}`);
+  if (data.phone) contactItems.push(data.phone);
+  if (data.email) contactItems.push(data.email);
   const addrParts = [data.address, [data.postalCode, data.city].filter(Boolean).join(" ")].filter(Boolean);
-  if (addrParts.length) contactItems.push(`⌂ ${addrParts.join(", ")}`);
+  if (addrParts.length) contactItems.push(addrParts.join(", "));
+
+  // Full address string for personal data section
+  const fullAddress = [data.address, [data.postalCode, data.city].filter(Boolean).join(" "), data.countryOfResidence]
+    .filter(Boolean).join(", ");
+
+  // Nationalities (primary + additional)
+  const allNationalities = [data.nationality, ...(data.additionalNationalities ?? [])].filter(Boolean);
 
   return (
     <Document title={`Lebenslauf – ${fullName}`} author="Borivon" language="de">
       <Page size="A4" style={s.page} wrap>
 
-        {/* ── Header ── */}
-        <View style={s.headerRow}>
-          <View style={s.headerLeft}>
-            <Text style={s.headerBadge}>Lebenslauf</Text>
-            <Text style={s.headerName}>{fullName || "Vorname Nachname"}</Text>
-            <View style={s.headerContact}>
-              {contactItems.map((c, i) => (
-                <Text key={i} style={s.headerContactItem}>{c}</Text>
+        {/* ── 1. LOGO BANNER ── */}
+        <View style={s.logoBanner}>
+          {brand?.logoPath ? (
+            <Image src={brand.logoPath} style={s.logoImage} />
+          ) : (
+            <View style={s.logoTextRow}>
+              <Text style={s.logoText}>Borivon</Text>
+              <Text style={s.logoGold}>.</Text>
+            </View>
+          )}
+        </View>
+
+        {/* ── 2. NAVY RULE ── */}
+        <View style={s.headerRule} />
+
+        {/* ── 3. NAME + CONTACT + PHOTO ── */}
+        <View style={s.nameRow}>
+          <View style={s.nameLeft}>
+            <Text style={s.lebenslaufLabel}>Lebenslauf</Text>
+            <Text style={s.candidateName}>{fullName || "Vorname Nachname"}</Text>
+            <View style={s.contactRow}>
+              {contactItems.map((item, i) => (
+                <Text key={i} style={s.contactItem}>{item}</Text>
               ))}
             </View>
           </View>
           {data.photo ? <Image src={data.photo} style={s.photo} /> : null}
         </View>
-        <View style={s.headerRule} />
 
-        {/* ── Persönliche Daten ── */}
+        <View style={s.divider} />
+
+        {/* ── 4. PERSÖNLICHE DATEN ── */}
         <View style={s.section}>
           <SectionHead title="Persönliche Daten" />
           <View style={s.pdGrid}>
-            <PDItem label="Geburtsdatum" value={data.birthDate} />
-            <PDItem label="Geburtsort"   value={data.birthPlace} />
-            {data.nationality    ? <PDItem label="Staatsangehörig." value={data.nationality}    /> : null}
-            {data.maritalStatus  ? <PDItem label="Familienstand"    value={data.maritalStatus}  /> : null}
+            <PDItem label="Geburtsdatum"    value={data.birthDate} />
+            <PDItem label="Geburtsort"      value={data.birthPlace} />
+            {data.countryOfBirth     ? <PDItem label="Geburtsland"      value={data.countryOfBirth} /> : null}
+            {allNationalities.length ? <PDItem label="Staatsangehörig." value={allNationalities.join(", ")} /> : null}
+            {data.maritalStatus      ? <PDItem label="Familienstand"    value={data.maritalStatus} /> : null}
+            {fullAddress             ? <PDItem label="Adresse"          value={fullAddress} full /> : null}
           </View>
         </View>
 
-        <View style={s.divRule} />
+        <View style={s.divider} />
 
-        {/* ── Berufserfahrung ── */}
+        {/* ── 5. BERUFSERFAHRUNG ── */}
         {allWork.length > 0 && (
           <View style={s.section}>
             <SectionHead title="Berufserfahrung" />
             {allWork.map(e => <WorkRow key={e.id} entry={e} />)}
           </View>
         )}
-        {allWork.length > 0 && <View style={s.divRule} />}
+        {allWork.length > 0 && <View style={s.divider} />}
 
-        {/* ── Bildungsweg ── */}
+        {/* ── 6. BILDUNGSWEG ── */}
         {allEdu.length > 0 && (
           <View style={s.section}>
             <SectionHead title="Bildungsweg" />
             {allEdu.map(e => <EduRow key={e.id} entry={e} />)}
           </View>
         )}
-        {allEdu.length > 0 && <View style={s.divRule} />}
+        {allEdu.length > 0 && <View style={s.divider} />}
 
-        {/* ── Sprachkenntnisse ── */}
+        {/* ── 7. SPRACHKENNTNISSE ── */}
         {activeLangs.length > 0 && (
           <View style={s.section}>
             <SectionHead title="Sprachkenntnisse" />
@@ -489,9 +513,9 @@ export function CVDocument({ data }: { data: CVData }) {
             </View>
           </View>
         )}
-        {activeLangs.length > 0 && <View style={s.divRule} />}
+        {activeLangs.length > 0 && <View style={s.divider} />}
 
-        {/* ── EDV-Kenntnisse ── */}
+        {/* ── 8. EDV-KENNTNISSE ── */}
         {allEdv.length > 0 && (
           <View style={s.section}>
             <SectionHead title="EDV-Kenntnisse" />
@@ -502,9 +526,9 @@ export function CVDocument({ data }: { data: CVData }) {
             </View>
           </View>
         )}
-        {allEdv.length > 0 && <View style={s.divRule} />}
+        {allEdv.length > 0 && <View style={s.divider} />}
 
-        {/* ── Sonstiges ── */}
+        {/* ── 9. SONSTIGES ── */}
         {(data.driverLicense === "B" || data.hobbies) && (
           <View style={s.section}>
             <SectionHead title="Sonstiges" />
@@ -525,16 +549,25 @@ export function CVDocument({ data }: { data: CVData }) {
           </View>
         )}
 
-        {/* ── Signature footer ── */}
+        {/* ── 10. SIGNATURE / DATE AREA ── */}
+        <View style={s.sigArea}>
+          <View style={s.sigSlot}>
+            <View style={s.sigSpace} />
+            <View style={s.sigLine} />
+            <Text style={s.sigLabel}>Ort, Datum</Text>
+          </View>
+          <View style={s.sigSlot}>
+            <View style={s.sigSpace} />
+            <View style={s.sigLine} />
+            <Text style={s.sigLabel}>Unterschrift</Text>
+          </View>
+        </View>
+
+        {/* ── 11. FOOTER ── */}
         <View style={s.footer}>
-          <View>
-            <View style={s.footerLine} />
-            <Text style={s.footerLabel}>Ort, Datum</Text>
-          </View>
-          <View>
-            <View style={s.footerLine} />
-            <Text style={s.footerLabel}>Unterschrift</Text>
-          </View>
+          {footerLines.map((line, i) => (
+            <Text key={i} style={s.footerLine}>{line}</Text>
+          ))}
         </View>
 
       </Page>

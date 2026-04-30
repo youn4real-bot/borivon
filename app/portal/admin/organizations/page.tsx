@@ -6,13 +6,14 @@ import { supabase } from "@/lib/supabase";
 import { ArrowLeft, Building2, Trash2, Copy, Check, ChevronDown, Plus, UserPlus, X as XIcon, AlertCircle, RefreshCw, MessageSquare, Crown, User as UserIcon } from "lucide-react";
 import { CheckCircle2 } from "@/components/PortalIcons";
 import { PageLoader, EmptyState, Spinner } from "@/components/ui/states";
-import { SessionExpiryWatcher } from "@/components/SessionExpiryWatcher";
 
 type Org = {
   id: string;
   name: string;
   invite_code: string;
   notes: string | null;
+  logo_filename: string | null;
+  footer_text: string | null;
   created_at: string;
   memberCount: number;
   candidateCount: number;
@@ -48,6 +49,12 @@ export default function OrganizationsPage() {
   const [memberEmail, setMemberEmail] = useState<Record<string, string>>({});
   const [memberName,  setMemberName]  = useState<Record<string, string>>({});
   const [memberError, setMemberError] = useState<Record<string, string>>({});
+
+  // CV branding per org — logo filename + footer text
+  const [editLogo,   setEditLogo]   = useState<Record<string, string>>({});
+  const [editFooter, setEditFooter] = useState<Record<string, string>>({});
+  const [brandSaving, setBrandSaving] = useState<Record<string, boolean>>({});
+  const [brandSaved,  setBrandSaved]  = useState<Record<string, boolean>>({});
 
   // "Copy" feedback — `${id}_${kind}` (kind: 'code' | 'msg')
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -237,6 +244,23 @@ If you have questions, reply to this message.`;
     }
   }
 
+  async function saveBranding(orgId: string) {
+    setBrandSaving(p => ({ ...p, [orgId]: true }));
+    setBrandSaved(p => ({ ...p, [orgId]: false }));
+    await fetch(`/api/portal/admin/organizations/${orgId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({
+        logoFilename: editLogo[orgId] ?? "",
+        footerText:   editFooter[orgId] ?? "",
+      }),
+    });
+    await loadData(accessToken);
+    setBrandSaving(p => ({ ...p, [orgId]: false }));
+    setBrandSaved(p => ({ ...p, [orgId]: true }));
+    setTimeout(() => setBrandSaved(p => ({ ...p, [orgId]: false })), 2000);
+  }
+
   async function setMemberRole(orgId: string, email: string, role: "member" | "owner") {
     await fetch(`/api/portal/admin/organizations/${orgId}/members`, {
       method: "PATCH",
@@ -263,7 +287,6 @@ If you have questions, reply to this message.`;
 
   return (
     <>
-      <SessionExpiryWatcher />
       <main className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "calc(61px + 2rem)" }}>
         <div className="max-w-[760px] mx-auto px-4 pt-8 pb-16">
 
@@ -422,7 +445,13 @@ If you have questions, reply to this message.`;
                       </button>
                       <button onClick={async () => {
                           if (isExpanded) { setExpandedOrgId(null); }
-                          else            { setExpandedOrgId(org.id); await loadOrgDetails(org.id); }
+                          else {
+                            setExpandedOrgId(org.id);
+                            // Seed branding edit fields from current org values
+                            setEditLogo(p => ({ ...p, [org.id]: org.logo_filename ?? "" }));
+                            setEditFooter(p => ({ ...p, [org.id]: org.footer_text ?? "" }));
+                            await loadOrgDetails(org.id);
+                          }
                         }}
                         className="text-[12px] font-medium px-3 py-1.5 transition-colors"
                         style={{ background: isExpanded ? "var(--gdim)" : "var(--bg2)", color: isExpanded ? "var(--gold)" : "var(--w2)",
@@ -496,6 +525,46 @@ If you have questions, reply to this message.`;
                               ))}
                             </div>
                           )}
+                        </div>
+
+                        {/* CV Branding section */}
+                        <div className="px-5 py-4" style={{ borderBottom: "1px solid var(--border)" }}>
+                          <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-1" style={{ color: "var(--w3)" }}>CV Branding</p>
+                          <p className="text-[11px] mb-3" style={{ color: "var(--w3)" }}>
+                            Candidates linked to this org get this logo and footer on their generated CV.
+                          </p>
+                          <div className="space-y-3">
+                            <div>
+                              <label className="block text-[10px] font-medium uppercase tracking-wide mb-1.5" style={{ color: "var(--w3)" }}>
+                                Logo filename (in public/logos/)
+                              </label>
+                              <input type="text"
+                                value={editLogo[org.id] ?? ""}
+                                onChange={e => setEditLogo(p => ({ ...p, [org.id]: e.target.value }))}
+                                placeholder="calmaroi-yellow.png"
+                                className={inputCls} style={inputSt} />
+                            </div>
+                            <div>
+                              <label className="block text-[10px] font-medium uppercase tracking-wide mb-1.5" style={{ color: "var(--w3)" }}>
+                                Footer text (one line per row)
+                              </label>
+                              <textarea
+                                value={editFooter[org.id] ?? ""}
+                                onChange={e => setEditFooter(p => ({ ...p, [org.id]: e.target.value }))}
+                                placeholder={"Calmaroí GmbH · Römerstraße 15\n63450 Hanau\nwww.calmaroi.de"}
+                                rows={3}
+                                className={inputCls + " resize-none"}
+                                style={{ ...inputSt, lineHeight: "1.6" }} />
+                            </div>
+                            <button onClick={() => saveBranding(org.id)} disabled={brandSaving[org.id]}
+                              className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-4 py-2 transition-all disabled:opacity-50"
+                              style={brandSaved[org.id]
+                                ? { background: "rgba(52,199,89,0.12)", color: "#34c759", border: "1px solid rgba(52,199,89,0.3)", borderRadius: "var(--r-sm)" }
+                                : { background: "var(--gold)", color: "#131312", border: "none", borderRadius: "var(--r-sm)" }}>
+                              {brandSaving[org.id] ? <Spinner size="xs" color="#131312" /> : brandSaved[org.id] ? <Check size={12} strokeWidth={2} /> : null}
+                              {brandSaving[org.id] ? "Saving…" : brandSaved[org.id] ? "Saved" : "Save branding"}
+                            </button>
+                          </div>
                         </div>
 
                         {/* Candidates section */}

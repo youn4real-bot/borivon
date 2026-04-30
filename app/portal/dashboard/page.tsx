@@ -23,7 +23,6 @@ import { DocxViewer } from "@/components/DocxViewer";
 import { ZoomPanRotateViewer } from "@/components/ZoomPanRotateViewer";
 import { Spinner, PageLoader, AutosaveIndicator } from "@/components/ui/states";
 import { JourneyView } from "@/components/JourneyView";
-import { SessionExpiryWatcher } from "@/components/SessionExpiryWatcher";
 import { OrgCodeModal } from "@/components/OrgCodeModal";
 import { useMobileMenu } from "@/components/MobileMenuContext";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
@@ -740,7 +739,6 @@ export default function DashboardPage() {
   // ── WIZARD ─────────────────────────────────────────────────────────────────
   return (
     <>
-    <SessionExpiryWatcher />
     {orgChecked && orgModalOpen && authToken && (
       <OrgCodeModal
         accessToken={authToken}
@@ -1643,7 +1641,7 @@ export default function DashboardPage() {
                             primary "Build my CV" CTA in gold. */}
                         {!uploaded && (item.key === "cv" || item.key === "cv_de") && (
                           <button
-                            onClick={(e) => { e.stopPropagation(); window.open("/portal/cv-builder", "_blank"); }}
+                            onClick={(e) => { e.stopPropagation(); router.push("/portal/cv-builder"); }}
                             className="text-xs font-semibold transition-all hover:opacity-90 hover:-translate-y-0.5 px-3 py-1.5 inline-flex items-center gap-1.5"
                             style={{ background: "var(--gold)", color: "#1a1a1a", borderRadius: "var(--r-sm)", boxShadow: "0 4px 12px rgba(212,175,55,0.25)" }}>
                             <Sparkles size={12} strokeWidth={2} /> {t.pCVBuilderBtn}

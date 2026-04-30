@@ -32,12 +32,12 @@ export async function GET(req: NextRequest) {
   const db = getServiceSupabase();
 
   const [{ data: orgs }, { data: members }, { data: links }] = await Promise.all([
-    db.from("organizations").select("id, name, invite_code, notes, created_at").order("created_at", { ascending: true }),
+    db.from("organizations").select("id, name, invite_code, notes, logo_filename, footer_text, created_at").order("created_at", { ascending: true }),
     db.from("organization_members").select("org_id, sub_admin_email, role"),
     db.from("candidate_organizations").select("org_id, status"),
   ]);
 
-  type OrgRow = { id: string; name: string; invite_code: string; notes: string | null; created_at: string };
+  type OrgRow = { id: string; name: string; invite_code: string; notes: string | null; logo_filename: string | null; footer_text: string | null; created_at: string };
   type MemberRow = { org_id: string; sub_admin_email: string; role: string };
   type LinkRow = { org_id: string; status: string };
 

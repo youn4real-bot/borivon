@@ -17,7 +17,6 @@ import {
 import { X as XIcon, RotateCcw, Download, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2 } from "lucide-react";
 import { Spinner, PageLoader, EmptyState } from "@/components/ui/states";
 import { CandidateStagePreview, type JourneyMode } from "@/components/JourneyView";
-import { SessionExpiryWatcher } from "@/components/SessionExpiryWatcher";
 
 // ── File key → all possible translated labels ─────────────────────────────────
 const FILE_KEY_ALL_LABELS: Record<string, Set<string>> = (() => {
@@ -811,8 +810,6 @@ export default function AdminPage() {
 
     return (
       <>
-        <SessionExpiryWatcher />
-
         {/* ── Error toast (auto-dismisses) ── */}
         {adminToast && (
           <div
@@ -852,6 +849,13 @@ export default function AdminPage() {
           const pstColor = pst === "approved" ? "#34c759"                : pst === "rejected" ? "#e05252"               : "var(--gold)";
           const pstBdr   = pst === "approved" ? "rgba(52,199,89,0.3)"   : pst === "rejected" ? "rgba(224,82,82,0.3)"   : "rgba(212,175,55,0.35)";
           const pstLabel = pst === "approved" ? "Approved" : pst === "rejected" ? "Rejected" : pst === "pending" ? "Pending review" : "Not submitted";
+
+          // Guard: all filled fields must be confirmed before approving
+          const filledFieldLabels = passportDisplayGroups.flatMap(g =>
+            g.fields.filter(f => f.value && f.value !== "—" && f.value.trim() !== "").map(f => f.label)
+          );
+          const allFilledConfirmed = filledFieldLabels.length > 0 && filledFieldLabels.every(lbl => adminConfirmedFields.has(lbl));
+          const unconfirmedCount   = filledFieldLabels.filter(lbl => !adminConfirmedFields.has(lbl)).length;
 
           // Editable fields config for this modal — labels translated per active language
           const L = lang === "fr"
@@ -1040,7 +1044,28 @@ export default function AdminPage() {
                     </div>
                   ) : (
                     /* ── Read-only mode — uses pre-computed passportDisplayGroups ── */
-                    passportDisplayGroups.map((group, gi) => (
+                    <>
+                    {pst !== "approved" && (
+                      <div className="mb-3 px-1 space-y-1">
+                        <p className="text-[10px]" style={{ color: "#e08a00" }}>
+                          Compare each field against the passport document.
+                        </p>
+                        <div className="flex items-center gap-1.5">
+                          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                            <rect x="1" y="1" width="14" height="14" rx="3" stroke="#f59e0b" strokeWidth="1.5"/>
+                          </svg>
+                          <span style={{ color: "#aaa", fontSize: 9 }}>→</span>
+                          <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                            <rect width="16" height="16" rx="3.5" fill="#22c55e"/>
+                            <path d="M4.5 8l2.5 2.5 4.5-4.5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                          <p className="text-[10px]" style={{ color: "#e08a00" }}>
+                            Tick every box to confirm, then Approve.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                    {passportDisplayGroups.map((group, gi) => (
                       <div key={group.title} className={gi > 0 ? "mt-4" : ""}>
                         <p className="text-[10px] font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--w3)" }}>{group.title}</p>
                         <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
@@ -1099,7 +1124,8 @@ export default function AdminPage() {
                         </div>
                         {gi < passportDisplayGroups.length - 1 && <div className="mt-3" style={{ height: 1, background: "var(--border)" }} />}
                       </div>
-                    ))
+                    ))}
+                    </>
                   )}
                 </div>
 
@@ -1127,7 +1153,8 @@ export default function AdminPage() {
                       <>
                         <button
                           onClick={() => reviewPassport("approved")}
-                          disabled={passportInfoSaving}
+                          disabled={passportInfoSaving || !allFilledConfirmed}
+                          title={!allFilledConfirmed ? `${unconfirmedCount} field${unconfirmedCount !== 1 ? "s" : ""} not yet reviewed` : ""}
                           className="flex-1 py-2 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80 disabled:opacity-40 inline-flex items-center justify-center gap-1.5"
                           style={{ background: "rgba(52,199,89,0.12)", color: "#34c759" }}>
                           {passportInfoSaving ? "…" : <><CheckCircle2 size={13} strokeWidth={1.8} /> Approve</>}
@@ -1205,12 +1232,6 @@ export default function AdminPage() {
                     </button>
                   );
                 })()}
-                <button
-                  onClick={() => { setDeleteCandidateInput(""); setDeleteCandidateConfirm(true); }}
-                  className="inline-flex items-center gap-1.5 text-[11px] font-medium px-3 py-1.5 rounded-full transition-opacity hover:opacity-80"
-                  style={{ background: "rgba(255,59,48,0.08)", color: "#ff3b30", border: "1px solid rgba(255,59,48,0.2)" }}>
-                  <Trash2 size={11} strokeWidth={1.8} /> Delete
-                </button>
               </div>
             </div>
 
@@ -2095,7 +2116,6 @@ export default function AdminPage() {
   // ── CANDIDATE LIST VIEW ───────────────────────────────────────────────────────
   return (
     <>
-      <SessionExpiryWatcher />
       {previewDoc && (
           <AdminDocPreviewModal
             doc={previewDoc}

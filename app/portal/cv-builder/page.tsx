@@ -15,6 +15,7 @@
 
 import * as React from "react";
 import { useState, useRef, useEffect, ChangeEvent } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
@@ -27,8 +28,8 @@ import {
 import { Upload, FilePen, Ban, Check, Plus, X as XIcon, ArrowLeft, Info, Download, Lock, Briefcase, Smartphone, Car, BookOpen, Dumbbell, Plane, Music } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { PageLoader, Spinner, AutosaveIndicator } from "@/components/ui/states";
-import { SessionExpiryWatcher } from "@/components/SessionExpiryWatcher";
 import { PhotoCropModal } from "@/components/PhotoCropModal";
+import { PdfViewer } from "@/components/PdfViewer";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -105,7 +106,8 @@ const LANG_LEVEL_DETAILS: Record<string, { short: string; de: string; en: string
   B2:            { short: "B2",     de: "B2 — Gute Mittelstufe",  en: "B2 — Upper-intermediate", fr: "B2 — Intermédiaire+" },
   B1:            { short: "B1",     de: "B1 — Mittelstufe",       en: "B1 — Intermediate",       fr: "B1 — Intermédiaire" },
   A2:            { short: "A2",     de: "A2 — Grundlagen",        en: "A2 — Elementary",         fr: "A2 — Élémentaire" },
-  A1:            { short: "A1",     de: "A1 — Anfänger",          en: "A1 — Beginner",           fr: "A1 — Débutant" },
+  A1:              { short: "A1",    de: "A1 — Anfänger",          en: "A1 — Beginner",           fr: "A1 — Débutant" },
+  Grundkenntnisse: { short: "Grund", de: "Grundkenntnisse",        en: "Basic Knowledge",         fr: "Notions de base" },
 };
 
 // Required fields for validation
@@ -314,13 +316,11 @@ function Label({ children }: { children: React.ReactNode; required?: boolean }) 
 
 function Input({ value, onChange, placeholder, type = "text", className = "", hasError = false, onBlur, lettersOnly, numericOnly }: {
   value: string; onChange: (v: string) => void; placeholder?: string; type?: string; className?: string; hasError?: boolean;
-  /** Optional caller-supplied blur handler (e.g. for inline validation). */
   onBlur?: () => void;
-  /** Letters + spaces + apostrophe + hyphen only (for names/cities). */
   lettersOnly?: boolean;
-  /** Digits only — also sets numeric mobile keyboard. */
   numericOnly?: boolean;
 }) {
+  const [focused, setFocused] = useState(false);
   function clean(raw: string): string {
     if (lettersOnly) return raw.replace(/[0-9]/g, "");
     if (numericOnly) return raw.replace(/\D/g, "");
@@ -336,15 +336,12 @@ function Input({ value, onChange, placeholder, type = "text", className = "", ha
       className={`w-full px-4 py-3.5 text-[15px] font-medium outline-none transition-all ${className}`}
       style={{
         background: "var(--bg2)",
-        border: `1px solid ${hasError ? "#e05252" : "transparent"}`,
+        border: `1px solid ${hasError ? "#e05252" : focused ? "var(--gold)" : "transparent"}`,
         color: "var(--w)",
         borderRadius: "12px",
       }}
-      onFocus={e => (e.currentTarget.style.borderColor = hasError ? "#e05252" : "var(--gold)")}
-      onBlur={e => {
-        e.currentTarget.style.borderColor = hasError ? "#e05252" : "transparent";
-        onBlur?.();
-      }}
+      onFocus={() => setFocused(true)}
+      onBlur={() => { setFocused(false); onBlur?.(); }}
     />
   );
 }
@@ -355,6 +352,7 @@ function DateInput({ value, onChange, hasError, onBlur }: {
   value: string; onChange: (v: string) => void; hasError?: boolean; onBlur?: () => void;
 }) {
   const { lang } = useLang();
+  const [focused, setFocused] = useState(false);
   const ph = lang === "de" ? "TT.MM.JJJJ" : lang === "fr" ? "JJ.MM.AAAA" : "DD.MM.YYYY";
   function format(raw: string): string {
     const d = raw.replace(/\D/g, "").slice(0, 8);
@@ -373,15 +371,12 @@ function DateInput({ value, onChange, hasError, onBlur }: {
       className="w-full px-4 py-3.5 text-[15px] font-medium outline-none transition-all"
       style={{
         background: "var(--bg2)",
-        border: `1px solid ${hasError ? "#e05252" : "transparent"}`,
+        border: `1px solid ${hasError ? "#e05252" : focused ? "var(--gold)" : "transparent"}`,
         color: "var(--w)",
         borderRadius: "12px",
       }}
-      onFocus={e => (e.currentTarget.style.borderColor = hasError ? "#e05252" : "var(--gold)")}
-      onBlur={e => {
-        e.currentTarget.style.borderColor = hasError ? "#e05252" : "transparent";
-        onBlur?.();
-      }}
+      onFocus={() => setFocused(true)}
+      onBlur={() => { setFocused(false); onBlur?.(); }}
     />
   );
 }
@@ -571,7 +566,7 @@ function CountryFlag({ iso, size = 22 }: { iso: string; size?: number }) {
   );
 }
 
-function PhoneInput({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function PhoneInput({ value, onChange, hasError = false }: { value: string; onChange: (v: string) => void; hasError?: boolean }) {
   const { lang } = useLang();
   // Localize the names + sort alphabetically by current language (A-Z).
   const sortedCountries = COUNTRY_CODES
@@ -649,9 +644,9 @@ function PhoneInput({ value, onChange }: { value: string; onChange: (v: string) 
         onChange={e => setNum(e.target.value)}
         placeholder={isMorocco ? "600 000 000" : ""}
         className="flex-1 w-full px-4 py-3.5 text-[15px] font-medium outline-none transition-all"
-        style={{ background: "var(--bg2)", border: "1px solid transparent", color: "var(--w)", borderRadius: "12px" }}
+        style={{ background: "var(--bg2)", border: `1px solid ${hasError ? "#e05252" : "transparent"}`, color: "var(--w)", borderRadius: "12px" }}
         onFocus={e => (e.currentTarget.style.borderColor = "var(--gold)")}
-        onBlur={e => (e.currentTarget.style.borderColor = "transparent")}
+        onBlur={e => (e.currentTarget.style.borderColor = hasError ? "#e05252" : "transparent")}
       />
       {open && (
         <>
@@ -1350,9 +1345,10 @@ function NationalityPicker({ value, onChange, titleOverride }: {
    When status is "complete" (diploma obtained), an extra month/year picker
    appears for the official diploma issuance date — distinct from training
    end date (training usually ends in June, diploma issues Oct–Jan). */
-function NursingStatusField({ entry, updateEdu }: {
+function NursingStatusField({ entry, updateEdu, diplomaHasError = false }: {
   entry: EduEntry;
   updateEdu: (id: string, patch: Partial<EduEntry>) => void;
+  diplomaHasError?: boolean;
 }) {
   const { t, lang } = useLang();
   const [open, setOpen] = useState(false);
@@ -1412,6 +1408,7 @@ function NursingStatusField({ entry, updateEdu }: {
             value={entry.diplomaIssued ?? { month: "", year: "" }}
             onChange={v => updateEdu(entry.id, { diplomaIssued: v })}
             lang={lang}
+            hasError={diplomaHasError}
           />
         </div>
       )}
@@ -1560,19 +1557,20 @@ function PassportLockPopup({ open, onClose, passportStatus }: {
   );
 }
 
-function SectionCard({ id, title, kind, children, action }: {
-  id?: string; title: string; kind: SectionKind; children: React.ReactNode; action?: React.ReactNode;
+function SectionCard({ id, title, kind, children, action, forceOpen = false }: {
+  id?: string; title: string; kind: SectionKind; children: React.ReactNode; action?: React.ReactNode; forceOpen?: boolean;
 }) {
   // Collapsible — open by default. User can collapse sections they're done with
   // to focus on what's left. Especially useful on mobile where the form is long.
   const [open, setOpen] = useState(true);
+  const isOpen = forceOpen || open;
   return (
     <div id={id} className="mb-4 transition-all overflow-hidden"
       style={{ background: "var(--card)", border: "none", borderRadius: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-      <div className={`flex items-center justify-between gap-3 px-6 ${open ? "pt-6 mb-6" : "py-5"}`}>
+      <div className={`flex items-center justify-between gap-3 px-6 ${isOpen ? "pt-6 mb-6" : "py-5"}`}>
         <button
           onClick={() => setOpen(o => !o)}
-          aria-expanded={open}
+          aria-expanded={isOpen}
           className="flex items-center gap-3 text-left flex-1 min-w-0"
           style={{ background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
           <span className="flex items-center justify-center w-9 h-9 flex-shrink-0"
@@ -1581,16 +1579,16 @@ function SectionCard({ id, title, kind, children, action }: {
           </span>
           <h2 className="text-[15px] font-semibold tracking-[-0.01em] flex-1 min-w-0" style={{ color: "var(--w)" }}>{title}</h2>
           <span className="flex items-center justify-center w-7 h-7 flex-shrink-0 transition-transform"
-            style={{ color: "var(--w3)", transform: open ? "rotate(180deg)" : "rotate(0deg)" }}
+            style={{ color: "var(--w3)", transform: isOpen ? "rotate(180deg)" : "rotate(0deg)" }}
             aria-hidden="true">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="6 9 12 15 18 9"/>
             </svg>
           </span>
         </button>
-        {action && open && <div className="flex-shrink-0">{action}</div>}
+        {action && isOpen && <div className="flex-shrink-0">{action}</div>}
       </div>
-      {open && <div className="px-6 pb-6">{children}</div>}
+      {isOpen && <div className="px-6 pb-6">{children}</div>}
     </div>
   );
 }
@@ -1615,12 +1613,95 @@ function RemoveBtn({ onClick, label }: { onClick: () => void; label: string }) {
   );
 }
 
+// ─── Validation error → human-readable label ────────────────────────────────
+
+function getValidationErrorLabels(errors: Set<string>, lang: string): string[] {
+  const L = lang === "fr" ? {
+    photo:"Photo de profil", firstName:"Prénom", lastName:"Nom de famille",
+    birthDate:"Date de naissance", birthPlace:"Ville de naissance",
+    email:"Email", phone:"Téléphone", address:"Adresse", postalCode:"Code postal",
+    city:"Ville de résidence", nationality:"Nationalité",
+    countryOfBirth:"Pays de naissance", countryOfResidence:"Pays de résidence",
+    eduInstitution:"Établissement (formation)", eduLocation:"Ville (formation)",
+    eduStart:"Début (formation)", eduEnd:"Fin (formation)", eduDiploma:"Date du diplôme",
+    workEmployer:"Employeur", workLocation:"Ville (expérience)",
+    workStart:"Début (expérience)", workEnd:"Fin (expérience)",
+    workDepts:"Département de soins (expérience)",
+    langLevel:"Niveau de langue", edvSelected:"Compétences informatiques (EDV)",
+    driverLicense:"Permis de conduire", hobbies:"Loisirs / Intérêts",
+    maritalStatus:"État civil",
+  } : lang === "de" ? {
+    photo:"Profilfoto", firstName:"Vorname", lastName:"Nachname",
+    birthDate:"Geburtsdatum", birthPlace:"Geburtsort",
+    email:"E-Mail", phone:"Telefonnummer", address:"Adresse", postalCode:"Postleitzahl",
+    city:"Wohnort", nationality:"Staatsangehörigkeit",
+    countryOfBirth:"Geburtsland", countryOfResidence:"Wohnland",
+    eduInstitution:"Schule / Einrichtung", eduLocation:"Ort (Ausbildung)",
+    eduStart:"Beginn (Ausbildung)", eduEnd:"Ende (Ausbildung)", eduDiploma:"Diplomdatum",
+    workEmployer:"Arbeitgeber", workLocation:"Ort (Arbeit)",
+    workStart:"Beginn (Arbeit)", workEnd:"Ende (Arbeit)",
+    workDepts:"Fachbereiche (Arbeit)",
+    langLevel:"Sprachniveau", edvSelected:"EDV-Kenntnisse",
+    driverLicense:"Führerschein", hobbies:"Hobbys",
+    maritalStatus:"Familienstand",
+  } : {
+    photo:"Profile photo", firstName:"First name", lastName:"Last name",
+    birthDate:"Date of birth", birthPlace:"City of birth",
+    email:"Email", phone:"Phone number", address:"Address", postalCode:"Postal code",
+    city:"City of residence", nationality:"Nationality",
+    countryOfBirth:"Country of birth", countryOfResidence:"Country of residence",
+    eduInstitution:"Educational institution", eduLocation:"Location (education)",
+    eduStart:"Start date (education)", eduEnd:"End date (education)", eduDiploma:"Diploma date",
+    workEmployer:"Employer", workLocation:"Location (work)",
+    workStart:"Start date (work)", workEnd:"End date (work)",
+    workDepts:"Departments (work)",
+    langLevel:"Language level", edvSelected:"IT skills (EDV)",
+    driverLicense:"Driver's license", hobbies:"Hobbies",
+    maritalStatus:"Marital status",
+  };
+  const seen = new Set<string>();
+  const labels: string[] = [];
+  function add(lbl: string) { if (!seen.has(lbl)) { seen.add(lbl); labels.push(lbl); } }
+  for (const key of errors) {
+    if (key === "photo")               { add(L.photo); continue; }
+    if (key === "firstName")           { add(L.firstName); continue; }
+    if (key === "lastName")            { add(L.lastName); continue; }
+    if (key === "birthDate")           { add(L.birthDate); continue; }
+    if (key === "birthPlace")          { add(L.birthPlace); continue; }
+    if (key === "email")               { add(L.email); continue; }
+    if (key === "phone")               { add(L.phone); continue; }
+    if (key === "address")             { add(L.address); continue; }
+    if (key === "postalCode")          { add(L.postalCode); continue; }
+    if (key === "city")                { add(L.city); continue; }
+    if (key === "nationality")         { add(L.nationality); continue; }
+    if (key === "countryOfBirth")      { add(L.countryOfBirth); continue; }
+    if (key === "countryOfResidence")  { add(L.countryOfResidence); continue; }
+    if (key.startsWith("edu_") && key.endsWith("_institution")) { add(L.eduInstitution); continue; }
+    if (key.startsWith("edu_") && key.endsWith("_location"))    { add(L.eduLocation); continue; }
+    if (key.startsWith("edu_") && key.endsWith("_start"))       { add(L.eduStart); continue; }
+    if (key.startsWith("edu_") && key.endsWith("_end"))         { add(L.eduEnd); continue; }
+    if (key.startsWith("edu_") && key.endsWith("_diplomaIssued")) { add(L.eduDiploma); continue; }
+    if (key.startsWith("work_") && key.endsWith("_employer"))   { add(L.workEmployer); continue; }
+    if (key.startsWith("work_") && key.endsWith("_location"))   { add(L.workLocation); continue; }
+    if (key.startsWith("work_") && key.endsWith("_start"))      { add(L.workStart); continue; }
+    if (key.startsWith("work_") && key.endsWith("_end"))        { add(L.workEnd); continue; }
+    if (key.startsWith("work_") && key.endsWith("_departments")){ add(L.workDepts); continue; }
+    if (key.startsWith("lang_") && key.endsWith("_level"))      { add(L.langLevel); continue; }
+    if (key === "edvSelected")         { add(L.edvSelected); continue; }
+    if (key === "driverLicense")       { add(L.driverLicense); continue; }
+    if (key === "hobbies")             { add(L.hobbies); continue; }
+    if (key === "maritalStatus")       { add(L.maritalStatus); continue; }
+  }
+  return labels;
+}
+
 // ─── Main page ───────────────────────────────────────────────────────────────
 
 export default function CVBuilderPage() {
   const router = useRouter();
   const { t, lang } = useLang();
   const photoRef = useRef<HTMLInputElement>(null);
+  const serverSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [userId, setUserId]   = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1653,10 +1734,12 @@ export default function CVBuilderPage() {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const [uploading, setUploading]   = useState(false);
-  const [uploaded, setUploaded]     = useState(false);
-  const [uploadErr, setUploadErr]   = useState("");
-  const [genError, setGenError]     = useState("");
+  const [uploading, setUploading]       = useState(false);
+  const [uploaded, setUploaded]         = useState(false);
+  const [uploadErr, setUploadErr]       = useState("");
+  const [genError, setGenError]         = useState("");
+  const [showCvPreview, setShowCvPreview]         = useState(false);
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const [edvInput, setEdvInput]     = useState("");
   const [authToken, setAuthToken]   = useState("");
 
@@ -1719,18 +1802,56 @@ export default function CVBuilderPage() {
   // ── Draft key (per user) ──────────────────────────────────────────────────
   const draftKey = userId ? `bv-cv-draft-${userId}` : null;
 
-  // ── Auto-save draft to localStorage on every cvData change ────────────────
+  // ── Auto-save draft (localStorage immediately + server after 2.5 s) ─────────
   useEffect(() => {
-    if (!draftKey) return;
+    if (!draftKey || !userId || !authToken) return;
+    const { photo, ...rest } = cvData;
+    void photo;
+    // 1. Always write to localStorage for instant in-tab cache
     try {
-      // Exclude photo to keep localStorage size small
-      const { photo, ...rest } = cvData;
-      void photo; // suppress unused var warning
       localStorage.setItem(draftKey, JSON.stringify(rest));
-      setSavedAt(new Date());
       setSaveError(false);
-    } catch { setSaveError(true); /* quota exceeded — surface to user */ }
+    } catch { setSaveError(true); }
+    // 2. Debounce the server write — fire 2.5 s after the last change
+    if (serverSaveTimer.current) clearTimeout(serverSaveTimer.current);
+    serverSaveTimer.current = setTimeout(() => {
+      fetch("/api/portal/me/cv-draft", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify(rest),
+      })
+        .then(r => { if (r.ok) setSavedAt(new Date()); else setSaveError(true); })
+        .catch(() => setSaveError(true));
+    }, 2500);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cvData, draftKey]);
+
+  // ── Flush pending save immediately on tab hide / page unload ──────────────
+  useEffect(() => {
+    if (!authToken) return;
+    const flush = () => {
+      if (serverSaveTimer.current) {
+        clearTimeout(serverSaveTimer.current);
+        serverSaveTimer.current = null;
+      }
+      const { photo, ...rest } = cvData;
+      void photo;
+      // keepalive: true survives tab close / navigation
+      fetch("/api/portal/me/cv-draft", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify(rest),
+        keepalive: true,
+      }).catch(() => { /* best-effort */ });
+    };
+    window.addEventListener("visibilitychange", flush);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.removeEventListener("visibilitychange", flush);
+      window.removeEventListener("pagehide", flush);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authToken, cvData]);
 
   // ── Apply profile data (used by auto-fill button and on first load) ────────
   function applyProfile(profile: {
@@ -1817,8 +1938,22 @@ export default function CVBuilderPage() {
         });
       }
 
-      // 2. Restore saved draft if exists, then fill any empty slots from passport
-      const savedRaw = localStorage.getItem(`bv-cv-draft-${uid}`);
+      // 2. Restore saved draft — server wins over localStorage, localStorage is fallback
+      const serverDraft = await fetch("/api/portal/me/cv-draft", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+        .then(r => r.ok ? r.json() : null)
+        .catch(() => null) as { draft: Partial<CVData> | null; photo: string | null } | null;
+
+      // Restore profile photo from server if available
+      if (serverDraft?.photo) {
+        setCvData(d => ({ ...d, photo: serverDraft.photo ?? null }));
+      }
+
+      const savedRaw = serverDraft?.draft
+        ? JSON.stringify(serverDraft.draft)
+        : localStorage.getItem(`bv-cv-draft-${uid}`);
+
       if (savedRaw) {
         try {
           const parsed = JSON.parse(savedRaw) as Partial<CVData>;
@@ -1899,17 +2034,6 @@ export default function CVBuilderPage() {
     }
   }
 
-  /** Inline validation — called from required inputs on blur.
-   *  If the field is empty, mark it as an error so the red ring shows immediately
-   *  (instead of waiting for the user to click Generate). */
-  function validateField(key: string, value: string) {
-    if (!value || !value.trim()) {
-      setValidationErrors(prev => {
-        if (prev.has(key)) return prev;
-        const n = new Set(prev); n.add(key); return n;
-      });
-    }
-  }
   function updateWork(id: string, patch: Partial<WorkEntry>) {
     setCvData(d => ({ ...d, workEntries: d.workEntries.map(e => e.id === id ? { ...e, ...patch } : e) }));
     if (validationErrors.size > 0) {
@@ -1952,6 +2076,7 @@ export default function CVBuilderPage() {
   function commitCroppedPhoto(croppedDataUrl: string) {
     setCvData(d => ({ ...d, photo: croppedDataUrl }));
     setPendingPhotoSrc(null);
+    setValidationErrors(prev => { const n = new Set(prev); n.delete("photo"); return n; });
     shrinkAndSaveProfilePhoto(croppedDataUrl).catch(err => {
       console.warn("[cv-builder] profile photo save failed:", err);
     });
@@ -2034,44 +2159,60 @@ export default function CVBuilderPage() {
   // ── EDV ───────────────────────────────────────────────────────────────────
   function toggleEdv(skill: string) {
     setCvData(d => ({ ...d, edvSelected: d.edvSelected.includes(skill) ? d.edvSelected.filter(s => s !== skill) : [...d.edvSelected, skill] }));
+    setValidationErrors(prev => { const n = new Set(prev); n.delete("edvSelected"); return n; });
   }
   function addEdvCustom() {
     const v = edvInput.trim();
     if (!v) return;
     setCvData(d => ({ ...d, edvCustomInputs: [...d.edvCustomInputs, v] }));
+    setValidationErrors(prev => { const n = new Set(prev); n.delete("edvSelected"); return n; });
     setEdvInput("");
   }
   function removeEdvCustom(i: number) { setCvData(d => ({ ...d, edvCustomInputs: d.edvCustomInputs.filter((_, idx) => idx !== i) })); }
 
-  // ── Validate ──────────────────────────────────────────────────────────────
-  function validate(): boolean {
-    // 0. Passport must be APPROVED before any CV generation.
-    if (passportStatus !== "approved") {
-      const msg = passportStatus === "pending"
-        ? (lang === "de" ? "Ihr Reisepass wird noch geprüft. Sobald er genehmigt ist, können Sie den Lebenslauf erstellen."
-        :  lang === "en" ? "Your passport is still under review. Once it's approved you'll be able to generate the CV."
-        :                  "Votre passeport est en cours d'examen. Une fois validé, vous pourrez générer le CV.")
-        : passportStatus === "rejected"
-        ? (lang === "de" ? "Ihr Reisepass wurde abgelehnt. Bitte laden Sie ihn im Dashboard erneut hoch."
-        :  lang === "en" ? "Your passport was rejected. Please re-upload it in the dashboard."
-        :                  "Votre passeport a été refusé. Veuillez le téléverser à nouveau dans le tableau de bord.")
-        : (lang === "de" ? "Bitte laden Sie zuerst Ihren Reisepass im Dashboard hoch."
-        :  lang === "en" ? "Please upload your passport in the dashboard first."
-        :                  "Veuillez d'abord téléverser votre passeport dans le tableau de bord.");
-      setGenError(msg);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      return false;
+  // ── Scroll to the first section that has validation errors ───────────────
+  function scrollToFirstError(errors: Set<string>) {
+    const checks: { keys: string[]; id: string }[] = [
+      { keys: ["photo"], id: "photo-section" },
+      { keys: ["firstName","lastName","birthDate","birthPlace","countryOfBirth","nationality","address","postalCode","city","countryOfResidence","phone","email","maritalStatus"], id: "personal-section" },
+      { keys: ["edu_"],          id: "education-section" },
+      { keys: ["work_"],         id: "work-section" },
+      { keys: ["lang_"],         id: "lang-section" },
+      { keys: ["edvSelected"],   id: "skills-section" },
+      { keys: ["driverLicense","hobbies"], id: "other-section" },
+    ];
+    for (const { keys, id } of checks) {
+      const hit = [...errors].some(e => keys.some(k => e === k || e.startsWith(k)));
+      if (!hit) continue;
+      const el = document.getElementById(id);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+        setTimeout(() => window.scrollBy({ top: -80, behavior: "smooth" }), 320);
+      }
+      return;
     }
+  }
 
+  // ── Validate ──────────────────────────────────────────────────────────────
+  function validate(): Set<string> {
     // Collect ALL missing required field keys so every invalid input shows a
     // red border simultaneously — the user sees exactly what's missing at a
     // glance instead of fixing one thing and re-submitting.
     const errors = new Set<string>();
 
-    // 1. Personal data (passport-locked fields)
+    // 1. Personal data
     for (const f of REQUIRED_FIELDS) {
       if (!(cvData[f] as string)?.trim()) errors.add(f as string);
     }
+    if (!cvData.nationality?.trim())  errors.add("nationality");
+    if (!cvData.email?.trim())        errors.add("email");
+    if (!cvData.address?.trim())      errors.add("address");
+    if (!cvData.postalCode?.trim())   errors.add("postalCode");
+    if (!cvData.city?.trim())         errors.add("city");
+    const _phoneDigits = (cvData.phone ?? "").replace(/\D/g, "");
+    const _isMorocco   = (cvData.phone ?? "").trimStart().startsWith("+212");
+    if (_isMorocco ? _phoneDigits.length < 12 : (_phoneDigits.length === 0 || _phoneDigits.length > 15)) errors.add("phone");
+    if (!cvData.maritalStatus?.trim()) errors.add("maritalStatus");
 
     // 2. Photo
     if (!cvData.photo) errors.add("photo");
@@ -2083,7 +2224,7 @@ export default function CVBuilderPage() {
       if (!e.start.month || !e.start.year) errors.add(`edu_${e.id}_start`);
       const isNursingInProgress = e.type === "nursing" && e.nursingStatus !== "complete";
       if (!isNursingInProgress && (!e.end || !e.end.month || !e.end.year)) errors.add(`edu_${e.id}_end`);
-      if (e.type === "nursing" && e.nursingStatus === "complete" && !(e.diplomaIssued?.month && e.diplomaIssued?.year)) errors.add(`edu_${e.id}_diploma`);
+      if (e.type === "nursing" && e.nursingStatus === "complete" && !(e.diplomaIssued?.month && e.diplomaIssued?.year)) errors.add(`edu_${e.id}_diplomaIssued`);
     }
 
     // 4. Work entries
@@ -2092,17 +2233,18 @@ export default function CVBuilderPage() {
       if (!w.employer.trim())  errors.add(`work_${w.id}_employer`);
       if (!w.location.trim())  errors.add(`work_${w.id}_location`);
       if (!w.start.month || !w.start.year) errors.add(`work_${w.id}_start`);
-      if (!w.end || !w.end.month || !w.end.year) errors.add(`work_${w.id}_end`);
+      if (w.end !== null && (!w.end || !w.end.month || !w.end.year)) errors.add(`work_${w.id}_end`);
       if (w.departments.length === 0) errors.add(`work_${w.id}_departments`);
     }
 
-    // 5. Languages — every entry must have a level
+    // 5. Languages — "" means "not included" (valid); only flag a custom slot
+    //    (index ≥ 4) that has a name filled in but no level chosen.
     cvData.langs.forEach((l, i) => {
-      if (!l.level) errors.add(`lang_${i}_level`);
+      if (i >= 4 && l.name?.trim() && !l.level) errors.add(`lang_${i}_level`);
     });
 
     // 6. IT Skills
-    if (cvData.edvSelected.length === 0) errors.add("edvSelected");
+    if (cvData.edvSelected.length === 0 && cvData.edvCustomInputs.length === 0) errors.add("edvSelected");
 
     // 7. Driver license
     if (cvData.driverLicense === "unset") errors.add("driverLicense");
@@ -2118,16 +2260,40 @@ export default function CVBuilderPage() {
       : lang === "en" ? "Please fill in all required fields highlighted in red."
       :                 "Veuillez remplir tous les champs obligatoires surlignés en rouge."
       );
-      return false;
     }
-    return true;
+    return errors;
   }
 
   // ── Generate ──────────────────────────────────────────────────────────────
   async function handleGenerate() {
     setGenError("");
     setShowGapPanel(false);
-    if (!validate()) return;
+
+    // Passport must be APPROVED before any CV generation.
+    if (passportStatus !== "approved") {
+      const msg = passportStatus === "pending"
+        ? (lang === "de" ? "Ihr Reisepass wird noch geprüft. Sobald er genehmigt ist, können Sie den Lebenslauf erstellen."
+        :  lang === "en" ? "Your passport is still under review. Once it's approved you'll be able to generate the CV."
+        :                  "Votre passeport est en cours d'examen. Une fois validé, vous pourrez générer le CV.")
+        : passportStatus === "rejected"
+        ? (lang === "de" ? "Ihr Reisepass wurde abgelehnt. Bitte laden Sie ihn im Dashboard erneut hoch."
+        :  lang === "en" ? "Your passport was rejected. Please re-upload it in the dashboard."
+        :                  "Votre passeport a été refusé. Veuillez le téléverser à nouveau dans le tableau de bord.")
+        : (lang === "de" ? "Bitte laden Sie zuerst Ihren Reisepass im Dashboard hoch."
+        :  lang === "en" ? "Please upload your passport in the dashboard first."
+        :                  "Veuillez d'abord téléverser votre passeport dans le tableau de bord.");
+      setGenError(msg);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+
+    const errors = validate();
+    if (errors.size > 0) {
+      // Wait one tick for React to apply the new validationErrors state (red borders),
+      // then scroll the page to the first section that has a missing field.
+      setTimeout(() => scrollToFirstError(errors), 80);
+      return;
+    }
     const detectedGaps = detectSmartGaps(cvData.workEntries, cvData.eduEntries);
     if (detectedGaps.length > 0) {
       setSmartGaps(detectedGaps);
@@ -2206,7 +2372,6 @@ export default function CVBuilderPage() {
 
   return (
     <>
-    <SessionExpiryWatcher />
     {/* Photo crop modal — opens whenever a candidate picks a new photo, so
         they can frame their face inside the circle before it lands on
         the CV + their profile avatar. */}
@@ -2261,7 +2426,8 @@ export default function CVBuilderPage() {
         </div>
 
         {/* ── 1. Photo ── */}
-        <SectionCard title={t.cvb_photoSection} kind="photo">
+        <SectionCard id="photo-section" title={t.cvb_photoSection} kind="photo"
+          forceOpen={validationErrors.has("photo")}>
           {/* Compact visual guide — premium line icons matching site style */}
           <div className="grid grid-cols-2 gap-2 mb-4">
             <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl"
@@ -2337,6 +2503,7 @@ export default function CVBuilderPage() {
           id="personal-section"
           title={t.cvb_personalSection}
           kind="personal"
+          forceOpen={["firstName","lastName","birthDate","birthPlace","nationality","email","address","postalCode","city","phone","maritalStatus"].some(k => validationErrors.has(k))}
         >
           {autoFillDone && (
             <div className="mb-3 px-3 py-2 rounded-lg text-xs" style={{ background: "rgba(52,199,89,0.1)", color: "#34c759", border: "1px solid rgba(52,199,89,0.3)" }}>
@@ -2391,6 +2558,7 @@ export default function CVBuilderPage() {
                   return iso2 ? { iso2 } : undefined;
                 })()}
                 onLockedClick={showLocked} passportStatus={passportStatus}
+                hasError={validationErrors.has("nationality")}
               />
             </div>
             {/* Additional nationalities — only available once the passport
@@ -2450,16 +2618,16 @@ export default function CVBuilderPage() {
             {/* Address (left) | Postal code (right) */}
             <div>
               <Label>{t.cvb_address}</Label>
-              <LockedField value={cvData.address} onLockedClick={showLocked} passportStatus={passportStatus} />
+              <LockedField value={cvData.address} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("address")} />
             </div>
             <div>
               <Label>{t.cvb_postalCode}</Label>
-              <LockedField value={cvData.postalCode} onLockedClick={showLocked} passportStatus={passportStatus} />
+              <LockedField value={cvData.postalCode} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("postalCode")} />
             </div>
             {/* City of residence (left) | Country of residence (right) */}
             <div>
               <Label>{lang === "de" ? "Wohnort" : lang === "en" ? "City of residence" : "Ville de résidence"}</Label>
-              <LockedField value={cvData.city} onLockedClick={showLocked} passportStatus={passportStatus} />
+              <LockedField value={cvData.city} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("city")} />
             </div>
             <div>
               <Label>{lang === "de" ? "Wohnsitzland" : lang === "en" ? "Country of residence" : "Pays de résidence"}</Label>
@@ -2480,15 +2648,15 @@ export default function CVBuilderPage() {
             {/* Phone (left) | Email (right) */}
             <div>
               <Label>{t.cvb_phone}</Label>
-              <PhoneInput value={cvData.phone} onChange={v => set("phone", v)} />
+              <PhoneInput value={cvData.phone} onChange={v => set("phone", v)} hasError={validationErrors.has("phone")} />
             </div>
             <div>
               <Label>E-Mail</Label>
-              <Input value={cvData.email} onChange={v => set("email", v)} type="email" />
+              <Input value={cvData.email} onChange={v => set("email", v)} type="email" hasError={validationErrors.has("email")} />
             </div>
             <div className="sm:col-span-2">
               <Label required>{lang === "de" ? "Familienstand" : lang === "en" ? "Marital status" : "État civil"}</Label>
-              <div className="grid grid-cols-2 gap-2 mt-1">
+              <div className="grid grid-cols-2 gap-2 mt-1" style={validationErrors.has("maritalStatus") ? { outline: "1px solid #e05252", outlineOffset: "3px", borderRadius: "14px" } : {}}>
                 {(["ledig","verheiratet","geschieden","verwitwet"] as const).map(opt => {
                   const { base } = parseMaritalStatus(cvData.maritalStatus);
                   const active = base === opt;
@@ -2632,7 +2800,8 @@ export default function CVBuilderPage() {
         </SectionCard>
 
         {/* ── 3. Education ── */}
-        <SectionCard title={t.cvb_eduSection} kind="education">
+        <SectionCard id="education-section" title={t.cvb_eduSection} kind="education"
+          forceOpen={[...validationErrors].some(k => k.startsWith("edu_"))}>
           {cvData.eduEntries.map((entry, idx) => {
             const isFixed = entry.id === "edu-abitur" || entry.id === "edu-nursing";
             return (
@@ -2656,7 +2825,8 @@ export default function CVBuilderPage() {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                   {entry.type === "nursing" && (
-                    <NursingStatusField entry={entry} updateEdu={updateEdu} />
+                    <NursingStatusField entry={entry} updateEdu={updateEdu}
+                      diplomaHasError={validationErrors.has(`edu_${entry.id}_diplomaIssued`)} />
                   )}
                   <div className="sm:col-span-2">
                     <Label required>{t.cvb_degreeLabel}</Label>
@@ -2784,7 +2954,8 @@ export default function CVBuilderPage() {
         </SectionCard>
 
         {/* ── 4. Work ── */}
-        <SectionCard id="work-section" title={t.cvb_workSection} kind="work">
+        <SectionCard id="work-section" title={t.cvb_workSection} kind="work"
+          forceOpen={[...validationErrors].some(k => k.startsWith("work_"))}>
           {cvData.workEntries.map((entry, idx) => {
             const jobNum = idx + 1 - cvData.workEntries.slice(0, idx).filter(e => e.isGap).length;
             return (
@@ -2991,7 +3162,8 @@ export default function CVBuilderPage() {
         </SectionCard>
 
         {/* ── 5. Languages ── */}
-        <SectionCard title={t.cvb_langSection} kind="languages">
+        <SectionCard id="lang-section" title={t.cvb_langSection} kind="languages"
+          forceOpen={[...validationErrors].some(k => k.startsWith("lang_"))}>
           <div className="space-y-3">
             {cvData.langs.map((l, i) => (
               <div key={i}>
@@ -3045,7 +3217,8 @@ export default function CVBuilderPage() {
         </SectionCard>
 
         {/* ── 6. EDV ── */}
-        <SectionCard title={t.cvb_edvSection} kind="skills">
+        <SectionCard id="skills-section" title={t.cvb_edvSection} kind="skills"
+          forceOpen={validationErrors.has("edvSelected")}>
           <div className="flex flex-wrap gap-2 rounded-xl p-1" style={validationErrors.has("edvSelected") ? { outline: "1px solid #e05252", outlineOffset: "2px" } : {}}>
             {EDV_DEFAULTS.map(s => {
               const selected = cvData.edvSelected.includes(s.de);
@@ -3083,7 +3256,8 @@ export default function CVBuilderPage() {
         </SectionCard>
 
         {/* ── 7. Sonstiges ── */}
-        <SectionCard id="other-section" title={t.cvb_otherSection} kind="other">
+        <SectionCard id="other-section" title={t.cvb_otherSection} kind="other"
+          forceOpen={validationErrors.has("driverLicense") || validationErrors.has("hobbies")}>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <div>
               <Label>
@@ -3141,7 +3315,22 @@ export default function CVBuilderPage() {
                 <><Spinner size="sm" color="#131312" /> {t.cvb_generating}</>
               ) : <><FileText size={15} strokeWidth={1.8} /> {t.cvb_generateBtn}</>}
             </button>
-            {genError && <p className="mt-3 text-[12.5px] inline-flex items-center gap-1.5" style={{ color: "#e05252" }}><AlertTriangle size={12} strokeWidth={1.8} /> {genError}</p>}
+            {genError && (
+              <div className="mt-3 rounded-xl px-4 py-3 text-left" style={{ background: "rgba(224,82,82,0.08)", border: "1px solid rgba(224,82,82,0.22)" }}>
+                <p className="text-[12px] font-semibold flex items-center gap-1.5 mb-1.5" style={{ color: "#e05252" }}>
+                  <AlertTriangle size={12} strokeWidth={1.8} /> {genError}
+                </p>
+                {validationErrors.size > 0 && (
+                  <ul className="space-y-0.5 pl-1">
+                    {getValidationErrorLabels(validationErrors, lang).map(lbl => (
+                      <li key={lbl} className="text-[11.5px] flex items-center gap-1.5" style={{ color: "#e05252" }}>
+                        <span className="w-1 h-1 rounded-full flex-shrink-0" style={{ background: "#e05252" }} />{lbl}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
           </div>
         ) : (
           <div className="p-7 text-center"
@@ -3152,30 +3341,36 @@ export default function CVBuilderPage() {
             </span>
             <p className="text-[16px] font-semibold tracking-[-0.01em] mb-1.5" style={{ color: "var(--w)" }}>{t.cvb_successTitle}</p>
             <p className="text-[12.5px] mb-6" style={{ color: "var(--w3)" }}>{t.cvb_successSub}</p>
-            <div className="flex gap-2.5 justify-center flex-wrap">
-              <button onClick={handleDownload}
-                className="inline-flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold tracking-tight transition-opacity hover:opacity-90"
-                style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-md)", boxShadow: "var(--shadow-sm)" }}>
-                <Download size={14} strokeWidth={1.8} /> {t.cvb_download}
-              </button>
-              {!uploaded ? (
-                <button onClick={handleUpload} disabled={uploading}
-                  className="bv-row-hover inline-flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold tracking-tight disabled:opacity-50"
-                  style={{ color: "var(--w)" }}>
-                  {uploading ? t.cvb_sending : <><Upload size={14} strokeWidth={1.8} /> {t.cvb_send}</>}
+
+            {uploaded ? (
+              <span className="inline-flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold tracking-tight"
+                style={{ background: "rgba(52,199,89,0.10)", color: "#34c759", border: "1px solid rgba(52,199,89,0.28)", borderRadius: "var(--r-md)" }}>
+                <CheckCircle2 size={14} strokeWidth={1.8} /> {t.cvb_sent}
+              </span>
+            ) : (
+              <div className="flex flex-col items-center gap-3">
+                {/* Keep Editing — big primary */}
+                <button onClick={() => { setPdfUrl(null); setPdfBlob(null); setUploaded(false); }}
+                  className="inline-flex items-center gap-2 px-8 py-4 text-[14px] font-semibold tracking-tight transition-all hover:opacity-90 hover:-translate-y-0.5 active:scale-[0.98] w-full sm:w-auto justify-center"
+                  style={{ background: "var(--gold)", color: "#131312", borderRadius: "16px", boxShadow: "0 6px 20px rgba(212,175,55,0.28)" }}>
+                  <FilePen size={15} strokeWidth={1.8} /> {t.cvb_keepEditing}
                 </button>
-              ) : (
-                <span className="inline-flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold tracking-tight"
-                  style={{ background: "rgba(52,199,89,0.10)", color: "#34c759", border: "1px solid rgba(52,199,89,0.28)", borderRadius: "var(--r-md)" }}>
-                  <CheckCircle2 size={14} strokeWidth={1.8} /> {t.cvb_sent}
-                </span>
-              )}
-              <button onClick={() => { setPdfUrl(null); setPdfBlob(null); setUploaded(false); }}
-                className="bv-row-hover px-5 py-2.5 text-[13px] font-medium"
-                style={{ color: "var(--w3)" }}>
-                {t.cvb_editCV}
-              </button>
-            </div>
+                <div className="flex gap-2.5 justify-center flex-wrap mt-1">
+                  {/* Preview */}
+                  <button onClick={() => setShowCvPreview(true)}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold tracking-tight transition-opacity hover:opacity-90"
+                    style={{ background: "var(--card2)", color: "var(--w)", border: "1px solid var(--border)", borderRadius: "var(--r-md)" }}>
+                    <FileText size={14} strokeWidth={1.8} /> {t.cvb_preview}
+                  </button>
+                  {/* Submit */}
+                  <button onClick={() => setShowSubmitConfirm(true)} disabled={uploading}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold tracking-tight transition-opacity hover:opacity-90 disabled:opacity-50"
+                    style={{ background: "rgba(52,199,89,0.12)", color: "#34c759", border: "1px solid rgba(52,199,89,0.28)", borderRadius: "var(--r-md)" }}>
+                    <Upload size={14} strokeWidth={1.8} /> {uploading ? t.cvb_sending : t.cvb_submitCV}
+                  </button>
+                </div>
+              </div>
+            )}
             {uploadErr && <p className="mt-3 text-[12.5px] inline-flex items-center gap-1.5 justify-center" style={{ color: "#e05252" }}><AlertTriangle size={12} strokeWidth={1.8} /> {uploadErr}</p>}
           </div>
         )}
@@ -3210,7 +3405,15 @@ export default function CVBuilderPage() {
               {lang === "fr" ? "Exemples de titres à utiliser" : lang === "de" ? "Beispiel-Einträge" : "Example entries"}
             </p>
             <div className="flex flex-wrap gap-1.5">
-              {[
+              {(lang === "fr" ? [
+                "Apprentissage de l'allemand",
+                "Cours de langue B2 / C1",
+                "Recherche d'emploi en Allemagne",
+                "Travail à temps partiel",
+                "Stage en soins infirmiers",
+                "Phase de candidature",
+                "Garde familiale",
+              ] : lang === "de" ? [
                 "Deutsch lernen",
                 "Sprachkurs B2 / C1",
                 "Jobsuche in Deutschland",
@@ -3218,7 +3421,15 @@ export default function CVBuilderPage() {
                 "Pflegepraktikum",
                 "Bewerbungsphase",
                 "Familienbetreuung",
-              ].map(ex => (
+              ] : [
+                "Learning German",
+                "Language course B2 / C1",
+                "Job search in Germany",
+                "Part-time work",
+                "Nursing internship",
+                "Application phase",
+                "Family care",
+              ]).map(ex => (
                 <span key={ex}
                   className="text-[12px] px-3 py-1.5 rounded-full font-medium"
                   style={{ background: "var(--bg2)", color: "var(--w2)", border: "none" }}>
@@ -3238,7 +3449,12 @@ export default function CVBuilderPage() {
                   <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "#e05252" }} />
                   <div className="min-w-0">
                     <p className="text-[12.5px] font-semibold tracking-tight" style={{ color: "#e05252" }}>
-                      {fmtMY(g.gapStart)} → {fmtMY(g.gapEnd)}
+                      {fmtMY(g.gapStart)} → {(() => {
+                        const today = todayMY();
+                        const isToday = g.gapEnd.year === today.year && g.gapEnd.month === today.month;
+                        if (isToday) return lang === "fr" ? "aujourd'hui" : lang === "de" ? "heute" : "today";
+                        return fmtMY(g.gapEnd);
+                      })()}
                     </p>
                     <p className="text-[11px] mt-0.5" style={{ color: "var(--w3)" }}>
                       {g.monthCount}{" "}
@@ -3269,6 +3485,96 @@ export default function CVBuilderPage() {
         </div>
       )}
     </main>
+
+    {/* ── CV PDF Preview modal ── */}
+    {showCvPreview && pdfUrl && typeof document !== "undefined" && createPortal(
+      <div className="fixed inset-0 z-[800] flex items-center justify-center p-4"
+        style={{ background: "rgba(0,0,0,0.72)" }}
+        onClick={() => setShowCvPreview(false)}>
+        <div className="w-full max-w-4xl flex flex-col overflow-hidden"
+          style={{
+            background: "var(--card)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r-2xl)",
+            boxShadow: "var(--shadow-lg)",
+            height: "88vh",
+            maxHeight: "88vh",
+            animation: "bvFadeRise 0.22s var(--ease-out)",
+          }}
+          onClick={e => e.stopPropagation()}>
+          {/* Header */}
+          <div className="flex items-center justify-between px-5 py-3.5 flex-shrink-0"
+            style={{ borderBottom: "1px solid var(--border)" }}>
+            <p className="text-[13.5px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>
+              {t.cvb_preview}
+            </p>
+            <div className="flex items-center gap-2">
+              <a href={pdfUrl}
+                download={`lebenslauf_${[cvData.firstName, cvData.lastName].filter(Boolean).join("_").toLowerCase() || "cv"}.pdf`}
+                className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center"
+                style={{ color: "var(--w2)" }}
+                title="Download">
+                <Download size={14} strokeWidth={1.8} />
+              </a>
+              <button onClick={() => setShowCvPreview(false)}
+                className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center"
+                style={{ color: "var(--w2)" }}>
+                <XIcon size={16} strokeWidth={1.8} />
+              </button>
+            </div>
+          </div>
+          {/* PDF viewer */}
+          <div className="flex-1 min-h-0">
+            <PdfViewer src={pdfUrl} />
+          </div>
+        </div>
+      </div>,
+      document.body
+    )}
+
+    {/* ── Submit confirmation modal ── */}
+    {showSubmitConfirm && typeof document !== "undefined" && createPortal(
+      <div className="fixed inset-0 z-[800] flex items-center justify-center p-4"
+        style={{ background: "rgba(0,0,0,0.72)" }}
+        onClick={() => setShowSubmitConfirm(false)}>
+        <div className="w-full max-w-md p-7 flex flex-col items-center text-center"
+          style={{
+            background: "var(--card)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r-2xl)",
+            boxShadow: "var(--shadow-lg)",
+            animation: "bvFadeRise 0.22s var(--ease-out)",
+          }}
+          onClick={e => e.stopPropagation()}>
+          <span className="mb-4 flex items-center justify-center w-12 h-12 rounded-full"
+            style={{ background: "rgba(224,176,0,0.12)", color: "var(--gold)" }}>
+            <AlertTriangle size={22} strokeWidth={1.6} />
+          </span>
+          <p className="text-[16px] font-semibold tracking-[-0.01em] mb-2" style={{ color: "var(--w)" }}>
+            {t.cvb_confirmTitle}
+          </p>
+          <p className="text-[13px] leading-relaxed mb-7" style={{ color: "var(--w3)" }}>
+            {t.cvb_confirmMsg}
+          </p>
+          {/* Keep Editing — big */}
+          <button onClick={() => setShowSubmitConfirm(false)}
+            className="inline-flex items-center gap-2 px-8 py-4 text-[14px] font-semibold tracking-tight transition-all hover:opacity-90 hover:-translate-y-0.5 active:scale-[0.98] w-full justify-center mb-3"
+            style={{ background: "var(--gold)", color: "#131312", borderRadius: "16px", boxShadow: "0 6px 20px rgba(212,175,55,0.28)" }}>
+            <FilePen size={15} strokeWidth={1.8} /> {t.cvb_keepEditing}
+          </button>
+          {/* Submit — smaller */}
+          <button onClick={async () => {
+            setShowSubmitConfirm(false);
+            await handleUpload();
+          }} disabled={uploading}
+            className="inline-flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold tracking-tight transition-opacity hover:opacity-90 disabled:opacity-50"
+            style={{ background: "rgba(52,199,89,0.12)", color: "#34c759", border: "1px solid rgba(52,199,89,0.28)", borderRadius: "var(--r-md)" }}>
+            <Upload size={14} strokeWidth={1.8} /> {uploading ? t.cvb_sending : t.cvb_submitCV}
+          </button>
+        </div>
+      </div>,
+      document.body
+    )}
     </>
   );
 }

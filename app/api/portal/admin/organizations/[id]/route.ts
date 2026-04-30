@@ -32,6 +32,12 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     if (!code) return NextResponse.json({ error: "Code cannot be empty" }, { status: 400 });
     updates.invite_code = code;
   }
+  if (typeof body?.logoFilename === "string") {
+    updates.logo_filename = body.logoFilename.trim().slice(0, 200) || null;
+  }
+  if (typeof body?.footerText === "string") {
+    updates.footer_text = body.footerText.trim().slice(0, 500) || null;
+  }
 
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: "Nothing to update" }, { status: 400 });

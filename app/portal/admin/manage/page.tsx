@@ -6,7 +6,6 @@ import { supabase } from "@/lib/supabase";
 import { CheckCircle2 } from "@/components/PortalIcons";
 import { ArrowLeft, Trash2, Users, Copy, ChevronDown } from "lucide-react";
 import { PageLoader, EmptyState } from "@/components/ui/states";
-import { SessionExpiryWatcher } from "@/components/SessionExpiryWatcher";
 
 type SubAdmin = { id: string; email: string; name: string; label: string; created_at: string };
 type Assignment = { sub_admin_email: string; candidate_user_id: string };
@@ -150,7 +149,6 @@ export default function ManageAdminsPage() {
 
   return (
     <>
-    <SessionExpiryWatcher />
     <main className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "calc(61px + 2rem)" }}>
       <div className="max-w-[680px] mx-auto px-4 pt-8 pb-16">
 
