@@ -240,11 +240,13 @@ const s = StyleSheet.create({
     flex: 1,
   },
   photo: {
-    width: 78,
-    height: 78,
-    borderRadius: 4,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
     objectFit: "cover",
     flexShrink: 0,
+    marginTop: -6,
+    marginRight: 8,
   },
 
   // ── Divider ────────────────────────────────────────────────────────────────
