@@ -1740,6 +1740,7 @@ export default function CVBuilderPage() {
     nationality?: string | null;
     city_of_birth?: string | null;
     country_of_birth?: string | null;
+    country_of_residence?: string | null;
     address_street?: string | null;
     address_number?: string | null;
     address_postal?: string | null;
@@ -1750,17 +1751,18 @@ export default function CVBuilderPage() {
   }) {
     setCvData(prev => ({
       ...prev,
-      firstName:      profile.first_name  || prev.firstName,
-      lastName:       profile.last_name   || prev.lastName,
-      birthDate:      isoToDDMMYYYY(profile.dob ?? null) || prev.birthDate,
-      birthPlace:     profile.city_of_birth || prev.birthPlace,
-      countryOfBirth: toNatDe(profile.country_of_birth) || prev.countryOfBirth,
-      nationality:    toNatDe(profile.nationality) || prev.nationality,
-      maritalStatus:  computeFamilienstand(profile.marital_status, profile.children_ages) || prev.maritalStatus,
-      address:        [profile.address_street, profile.address_number].filter(Boolean).join(" ") || prev.address,
-      postalCode:     profile.address_postal      || prev.postalCode,
-      city:           profile.city_of_residence   || prev.city,
-      phone:          profile.phone               || prev.phone,
+      firstName:           profile.first_name  || prev.firstName,
+      lastName:            profile.last_name   || prev.lastName,
+      birthDate:           isoToDDMMYYYY(profile.dob ?? null) || prev.birthDate,
+      birthPlace:          profile.city_of_birth || prev.birthPlace,
+      countryOfBirth:      toNatDe(profile.country_of_birth) || prev.countryOfBirth,
+      nationality:         toNatDe(profile.nationality) || prev.nationality,
+      maritalStatus:       computeFamilienstand(profile.marital_status, profile.children_ages) || prev.maritalStatus,
+      address:             [profile.address_street, profile.address_number].filter(Boolean).join(" ") || prev.address,
+      postalCode:          profile.address_postal      || prev.postalCode,
+      city:                profile.city_of_residence   || prev.city,
+      countryOfResidence:  toNatDe(profile.country_of_residence) || prev.countryOfResidence,
+      phone:               profile.phone               || prev.phone,
     }));
     setAutoFillDone(true);
     setTimeout(() => setAutoFillDone(false), 4000);
@@ -1771,7 +1773,7 @@ export default function CVBuilderPage() {
     if (!userId) return;
     const { data } = await supabase
       .from("candidate_profiles")
-      .select("first_name,last_name,dob,nationality,city_of_birth,address_street,address_number,address_postal,city_of_residence,marital_status,children_ages")
+      .select("first_name,last_name,dob,nationality,city_of_birth,country_of_birth,country_of_residence,address_street,address_number,address_postal,city_of_residence,marital_status,children_ages")
       .eq("user_id", userId)
       .single();
     if (data) applyProfile(data);
@@ -1789,7 +1791,7 @@ export default function CVBuilderPage() {
       // 1. Always fetch passport profile (needed to fill empty draft slots too)
       const { data: profile } = await supabase
         .from("candidate_profiles")
-        .select("first_name,last_name,dob,sex,nationality,city_of_birth,country_of_birth,address_street,address_number,address_postal,city_of_residence,marital_status,children_ages,passport_status")
+        .select("first_name,last_name,dob,sex,nationality,city_of_birth,country_of_birth,country_of_residence,address_street,address_number,address_postal,city_of_residence,marital_status,children_ages,passport_status")
         .eq("user_id", uid)
         .single();
       // Passport status drives the lock state — pending/approved/rejected
@@ -1867,9 +1869,10 @@ export default function CVBuilderPage() {
                 merged.birthPlace     = pickPP(merged.birthPlace,                                   profile.city_of_birth     || "");
                 merged.countryOfBirth = pickPP(merged.countryOfBirth ?? "",                         toNatDe(profile.country_of_birth));
                 merged.nationality    = pickPP(merged.nationality,                                  toNatDe(profile.nationality));
-                merged.city           = pickPP(merged.city,                                         profile.city_of_residence || "");
-                merged.postalCode     = pickPP(merged.postalCode,                                   profile.address_postal    || "");
-                merged.address        = pickPP(merged.address,                                      [profile.address_street, profile.address_number].filter(Boolean).join(" ") || "");
+                merged.city              = pickPP(merged.city,                                         profile.city_of_residence || "");
+                merged.countryOfResidence = pickPP(merged.countryOfResidence ?? "",                  toNatDe(profile.country_of_residence));
+                merged.postalCode        = pickPP(merged.postalCode,                                 profile.address_postal    || "");
+                merged.address           = pickPP(merged.address,                                    [profile.address_street, profile.address_number].filter(Boolean).join(" ") || "");
               }
               if (!merged.maritalStatus) merged.maritalStatus = computeFamilienstand(profile.marital_status, profile.children_ages);
             }

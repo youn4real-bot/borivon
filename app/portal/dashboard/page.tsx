@@ -391,15 +391,13 @@ export default function DashboardPage() {
   // once docs have loaded (handles both same-page and fresh-navigation cases).
   const [pendingOpenDocId, setPendingOpenDocId] = useState<string | null>(null);
 
-  // Auto-open passport-data modal whenever the candidate previews a passport
-  // that isn't yet fully approved. Mirrors admin-side behaviour: doc preview
-  // on the left (laptop) / top (phone), data form on the right / below. Once
-  // approved this stops triggering and the data form is accessible only via
-  // the "Passport data" header button.
+  // Auto-open passport-data modal only during the first-time submission flow
+  // (passportStatus is null = never submitted). Once submitted (pending /
+  // approved / rejected) the candidate can open it manually via the button.
   useEffect(() => {
     if (!previewDoc) return;
     if (!/pass/i.test(previewDoc.file_type)) return;
-    if (previewDoc.status === "approved" && passportStatus === "approved") return;
+    if (passportStatus) return; // already submitted — don't auto-open
     if (passportModal) return; // already open
     reopenPassportData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -895,8 +893,10 @@ export default function DashboardPage() {
       // alongside this preview (laptop: side-by-side, phone: stacked) — same
       // rule the admin side uses.
       const isPassportDoc = /pass/i.test(previewDoc.file_type);
-      const verificationPhase = isPassportDoc
-        && (previewDoc.status !== "approved" || passportStatus !== "approved");
+      // Side-by-side only during first-time submission (no status yet).
+      // Once submitted (pending / approved / rejected) the doc viewer
+      // shows full-screen with zoom/rotation; data opens as standalone popup.
+      const verificationPhase = isPassportDoc && !passportStatus;
       return (
       <div className={`fixed inset-x-0 z-[700] flex justify-center p-4 bv-cand-preview-outer ${verificationPhase && passportModal ? "bv-side-preview-cand" : "top-[58px] bottom-0 items-center"}`}
         style={{ background: verificationPhase && passportModal ? "rgba(0,0,0,0.45)" : "rgba(0,0,0,0.72)",
@@ -1947,15 +1947,16 @@ export default function DashboardPage() {
         // is showing an unapproved passport, dock to the right half on
         // laptop and to the bottom half on phone (so passport is above,
         // data below — never overlapping).
+        // Dock to the side only during first-time submission (no status yet).
         const splitWithPreview = !!previewDoc
           && /pass/i.test(previewDoc.file_type)
-          && (previewDoc.status !== "approved" || passportStatus !== "approved");
+          && !passportStatus;
         return (
         <div className={`fixed inset-x-0 z-[750] flex justify-center p-4 bv-passport-modal-outer ${splitWithPreview ? "bv-side-data-cand" : "top-[58px] bottom-0 items-center"}`}
           style={{ background: splitWithPreview ? "transparent" : "rgba(0,0,0,0.45)",
                    backdropFilter: splitWithPreview ? undefined : "blur(8px)",
                    pointerEvents: splitWithPreview ? "none" : "auto" }}
-          onClick={(isPassportApproved || isPassportPending) && !splitWithPreview ? (e) => { if (e.target === e.currentTarget) setPassportModal(null); } : undefined}>
+          onClick={!splitWithPreview ? (e) => { if (e.target === e.currentTarget) setPassportModal(null); } : undefined}>
           {/* Phone: leave clearance for the bottom action bar so the modal
               never slides behind it. Laptop: top-[58px] above already
               creates the small gap below the navbar. */}
