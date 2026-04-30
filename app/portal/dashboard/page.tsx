@@ -1932,6 +1932,7 @@ export default function DashboardPage() {
       {/* ── Passport confirmation modal ─────────────────────────────────────── */}
       {passportModal && (() => {
         const isPassportApproved = passportStatus === "approved";
+        const isPassportPending  = passportStatus === "pending";
         // Compute whether all filled fields have been confirmed by the user
         const _allFieldKeys: (keyof PassportData)[] = [
           "last_name","first_name","dob","sex","nationality","city_of_birth","country_of_birth",
@@ -1954,7 +1955,7 @@ export default function DashboardPage() {
           style={{ background: splitWithPreview ? "transparent" : "rgba(0,0,0,0.45)",
                    backdropFilter: splitWithPreview ? undefined : "blur(8px)",
                    pointerEvents: splitWithPreview ? "none" : "auto" }}
-          onClick={isPassportApproved && !splitWithPreview ? (e) => { if (e.target === e.currentTarget) setPassportModal(null); } : undefined}>
+          onClick={(isPassportApproved || isPassportPending) && !splitWithPreview ? (e) => { if (e.target === e.currentTarget) setPassportModal(null); } : undefined}>
           {/* Phone: leave clearance for the bottom action bar so the modal
               never slides behind it. Laptop: top-[58px] above already
               creates the small gap below the navbar. */}
@@ -2006,7 +2007,19 @@ export default function DashboardPage() {
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full"
                       style={{ background: "rgba(52,199,89,0.12)", color: "#34c759", border: "1px solid rgba(52,199,89,0.25)" }}>
-                      <CheckCircle2 size={11} strokeWidth={1.8} /> Approved
+                      <CheckCircle2 size={11} strokeWidth={1.8} /> {lang === "de" ? "Genehmigt" : lang === "fr" ? "Approuvé" : "Approved"}
+                    </span>
+                    <button onClick={() => setPassportModal(null)}
+                      className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full"
+                      style={{ color: "var(--w3)" }}>
+                      <XIcon size={14} strokeWidth={1.8} />
+                    </button>
+                  </div>
+                ) : isPassportPending ? (
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full"
+                      style={{ background: "rgba(201,162,64,0.12)", color: "#c9a240", border: "1px solid rgba(201,162,64,0.25)" }}>
+                      {lang === "de" ? "In Prüfung" : lang === "fr" ? "En attente" : "Pending review"}
                     </span>
                     <button onClick={() => setPassportModal(null)}
                       className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full"
@@ -2092,8 +2105,8 @@ export default function DashboardPage() {
                   </svg>
                 );
 
-                // ── Read-only view (passport fully approved) ─────────────────────
-                if (isPassportApproved) {
+                // ── Read-only view (approved or pending) ─────────────────────────
+                if (isPassportApproved || isPassportPending) {
                   return (
                     <div className="grid grid-cols-2 gap-x-4 gap-y-3">
                       {fields.map(f => {
@@ -2320,6 +2333,10 @@ export default function DashboardPage() {
                   <Download size={14} strokeWidth={1.8} />
                   {lang === "fr" ? "Télécharger les données" : lang === "de" ? "Daten herunterladen" : "Download data"}
                 </button>
+              ) : isPassportPending ? (
+                <p className="text-[11.5px] py-2 text-center font-medium" style={{ color: "#c9a240" }}>
+                  {lang === "de" ? "Eingereicht — wird geprüft" : lang === "fr" ? "Soumis — en cours de vérification" : "Submitted — under review"}
+                </p>
               ) : (
                 <>
                   {allConfirmed && (
