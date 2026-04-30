@@ -111,9 +111,9 @@ const MUTED        = "#6B7280";
 const DIVIDER      = "#E2E6EA";
 const FOOTER_COLOR = "#9CA3AF";
 
-// Fixed header height: paddingTop(18) + logo(46) + gap(8) + rule(1.5) + bottom gap(6)
+// Fixed header height: paddingTop(18) + logo(46) + gap(8) + bottom gap(8)
 const HEADER_H = 80;
-// Fixed footer height: borderTop(0.5) + paddingTop(6) + text(~9) + paddingBottom(11)
+// Fixed footer height: paddingTop(6) + text(~9) + paddingBottom(11)
 const FOOTER_H = 30;
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
@@ -164,19 +164,12 @@ const s = StyleSheet.create({
     fontSize: 22,
     color: GOLD,
   },
-  headerRule: {
-    height: 1.5,
-    backgroundColor: NAVY,
-  },
-
   // ── Fixed footer — repeats on every page ──────────────────────────────────
   fixedFooter: {
     position: "absolute",
     bottom: 0,
     left: 44,
     right: 44,
-    borderTopWidth: 0.5,
-    borderTopColor: DIVIDER,
     paddingTop: 6,
     paddingBottom: 11,
     alignItems: "center",
@@ -200,14 +193,12 @@ const s = StyleSheet.create({
   },
 
   // ── Section ────────────────────────────────────────────────────────────────
-  section: { marginBottom: 7 },
+  section: { marginBottom: 14 },
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 6,
     paddingBottom: 3,
-    borderBottomWidth: 1,
-    borderBottomColor: NAVY,
   },
   accentBar: {
     width: 2.5,
@@ -266,7 +257,7 @@ const s = StyleSheet.create({
 
   // ── Timeline entries ───────────────────────────────────────────────────────
   entry: { marginBottom: 6, flexDirection: "row" },
-  entryDate: { fontSize: 8, color: MUTED, width: 80, paddingTop: 1, flexShrink: 0 },
+  entryDate: { fontSize: 8, color: MUTED, width: 105, paddingTop: 1, flexShrink: 0 },
   entryRight: { flex: 1 },
   entryTitle: { fontSize: 9, fontWeight: 700, color: DARK, marginBottom: 1.5 },
   entrySubtitle: { fontSize: 8, color: MUTED, marginBottom: 1 },
@@ -448,7 +439,6 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
               </View>
             )}
           </View>
-          <View style={s.headerRule} />
         </View>
 
         {/* ── FIXED FOOTER — contact line, every page ── */}
@@ -469,8 +459,7 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
               <PDRow label="Vorname"           value={data.firstName} />
               <PDRow label="Nachname"          value={data.lastName} />
               <PDRow label="Geburtsdatum"      value={data.birthDate} />
-              <PDRow label="Geburtsort"        value={data.birthPlace} />
-              {data.countryOfBirth     ? <PDRow label="Geburtsland"       value={data.countryOfBirth} /> : null}
+              <PDRow label="Geburtsort"        value={[data.birthPlace, data.countryOfBirth].filter(Boolean).join(", ")} />
               {allNationalities.length ? <PDRow label="Staatsangehörigkeit" value={allNationalities.join(", ")} /> : null}
               {data.maritalStatus      ? <PDRow label="Familienstand"     value={data.maritalStatus} /> : null}
               {fullAddress             ? <PDRow label="Adresse"           value={fullAddress} /> : null}
@@ -481,8 +470,6 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
           </View>
         </View>
 
-        <View style={s.divider} />
-
         {/* ── BERUFSERFAHRUNG ── */}
         {allWork.length > 0 && (
           <View style={s.section}>
@@ -490,7 +477,6 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
             {allWork.map(e => <WorkRow key={e.id} entry={e} />)}
           </View>
         )}
-        {allWork.length > 0 && <View style={s.divider} />}
 
         {/* ── BILDUNGSWEG ── */}
         {allEdu.length > 0 && (
@@ -499,7 +485,6 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
             {allEdu.map(e => <EduRow key={e.id} entry={e} />)}
           </View>
         )}
-        {allEdu.length > 0 && <View style={s.divider} />}
 
         {/* ── SPRACHKENNTNISSE ── */}
         {activeLangs.length > 0 && (
@@ -515,7 +500,6 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
             </View>
           </View>
         )}
-        {activeLangs.length > 0 && <View style={s.divider} />}
 
         {/* ── EDV-KENNTNISSE ── */}
         {allEdv.length > 0 && (
@@ -528,7 +512,6 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
             </View>
           </View>
         )}
-        {allEdv.length > 0 && <View style={s.divider} />}
 
         {/* ── SONSTIGES ── */}
         {(data.driverLicense === "B" || data.hobbies) && (
