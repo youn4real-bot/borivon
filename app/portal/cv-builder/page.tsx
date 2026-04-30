@@ -1804,7 +1804,9 @@ export default function CVBuilderPage() {
 
   // ── Auto-save draft (localStorage immediately + server after 2.5 s) ─────────
   useEffect(() => {
-    if (!draftKey || !userId || !authToken) return;
+    // Never save during initial load — draft hasn't been restored yet, so cvData
+    // is still the empty default state and would overwrite the saved draft.
+    if (!draftKey || !userId || !authToken || loading) return;
     const { photo, ...rest } = cvData;
     void photo;
     // 1. Always write to localStorage for instant in-tab cache
@@ -1824,11 +1826,12 @@ export default function CVBuilderPage() {
         .catch(() => setSaveError(true));
     }, 2500);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cvData, draftKey]);
+  }, [cvData, draftKey, loading]);
 
   // ── Flush pending save immediately on tab hide / page unload ──────────────
   useEffect(() => {
-    if (!authToken) return;
+    // Same guard: don't register the flush handler until the draft is restored.
+    if (!authToken || loading) return;
     const flush = () => {
       if (serverSaveTimer.current) {
         clearTimeout(serverSaveTimer.current);
@@ -1851,7 +1854,7 @@ export default function CVBuilderPage() {
       window.removeEventListener("pagehide", flush);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authToken, cvData]);
+  }, [authToken, cvData, loading]);
 
   // ── Apply profile data (used by auto-fill button and on first load) ────────
   function applyProfile(profile: {
