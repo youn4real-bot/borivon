@@ -3,9 +3,8 @@ import path from "path";
 import React from "react";
 import { renderToBuffer, Font } from "@react-pdf/renderer";
 import { PassportDataDocument } from "@/components/PassportDataDocument";
-import type { PassportDataPdfFields } from "@/components/PassportDataDocument";
+import type { PassportDataPdfGroup } from "@/components/PassportDataDocument";
 import { requireAdminRole } from "@/lib/admin-auth";
-import { getServiceSupabase } from "@/lib/supabase";
 
 Font.register({
   family: "Lato",
@@ -15,36 +14,34 @@ Font.register({
   ],
 });
 
-export async function GET(req: NextRequest) {
+export async function POST(req: NextRequest) {
   const auth = await requireAdminRole(req);
   if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status });
 
-  const userId = req.nextUrl.searchParams.get("userId");
-  if (!userId) return Response.json({ error: "Missing userId" }, { status: 400 });
-
-  const db = getServiceSupabase();
-  const { data: profile } = await db
-    .from("candidate_profiles")
-    .select("first_name, last_name, dob, sex, nationality, city_of_birth, country_of_birth, passport_no, passport_expiry, issuing_authority, issue_date, address_street, address_number, address_postal, city_of_residence, country_of_residence, marital_status, children_ages, passport_status")
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (!profile || profile.passport_status !== "approved") {
-    return Response.json({ error: "Passport data not approved" }, { status: 403 });
+  let groups: PassportDataPdfGroup[];
+  let filename: string;
+  let docTitle: string | undefined;
+  let docSubtitle: string | undefined;
+  try {
+    const body = await req.json();
+    groups = body.groups;
+    filename = body.filename ?? "passport_data.pdf";
+    docTitle = body.docTitle;
+    docSubtitle = body.docSubtitle;
+    if (!Array.isArray(groups)) throw new Error("invalid");
+  } catch {
+    return Response.json({ error: "Invalid body" }, { status: 400 });
   }
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const element = React.createElement(PassportDataDocument, { p: profile as PassportDataPdfFields }) as any;
+    const element = React.createElement(PassportDataDocument, { groups, docTitle, docSubtitle }) as any;
     const buffer = await renderToBuffer(element);
     const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
-
-    const name = [profile.first_name, profile.last_name].filter(Boolean).join("_").toLowerCase() || "passport_data";
-
     return new Response(arrayBuffer, {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="${name}_passport_data.pdf"`,
+        "Content-Disposition": `attachment; filename="${filename}"`,
       },
     });
   } catch (err: unknown) {

@@ -718,6 +718,54 @@ export default function AdminPage() {
     const nat_info = (v: string | null) => natToLangAdmin(v, lang).toUpperCase();
     const sex_info = p_info?.sex === "M" ? (lang==="fr"?"MASCULIN":lang==="de"?"MÄNNLICH":"MALE") : p_info?.sex === "F" ? (lang==="fr"?"FÉMININ":lang==="de"?"WEIBLICH":"FEMALE") : (p_info?.sex ?? "—").toUpperCase();
 
+    // Pre-computed display groups — used by read-only view AND the download button
+    const passportDisplayGroups = (() => {
+      if (!p_info) return [];
+      const G = lang==="fr"
+        ? { personal:"Personnel",passport:"Passeport",address:"Adresse",
+            ln:"Nom de famille",fn:"Prénom",dob:"Date de naissance",sex:"Sexe",nat:"Nationalité",cob:"Ville de naissance",cntob:"Pays de naissance",
+            pno:"N° passeport",isd:"Date d'émission",exp:"Date d'expiration",iss:"Autorité émettrice",
+            str:"Rue",num:"N°",post:"Code postal",cres:"Ville de résidence",cntres:"Pays de résidence",
+            marital: "Situation familiale" }
+        : lang==="de"
+        ? { personal:"Persönlich",passport:"Reisepass",address:"Adresse",
+            ln:"Nachname",fn:"Vorname",dob:"Geburtsdatum",sex:"Geschlecht",nat:"Staatsangehörigkeit",cob:"Geburtsort",cntob:"Geburtsland",
+            pno:"Reisepassnummer",isd:"Ausstellungsdatum",exp:"Ablaufdatum",iss:"Ausstellungsbehörde",
+            str:"Straße",num:"Hausnummer",post:"Postleitzahl",cres:"Wohnort",cntres:"Wohnland",
+            marital: "Familienstand" }
+        : { personal:"Personal",passport:"Passport",address:"Address",
+            ln:"Last name",fn:"First name",dob:"Date of birth",sex:"Sex",nat:"Nationality",cob:"City of birth",cntob:"Country of birth",
+            pno:"Passport No",isd:"Issue date",exp:"Expiry",iss:"Issuing authority",
+            str:"Street",num:"Number",post:"Postal code",cres:"City of residence",cntres:"Country of residence",
+            marital: "Marital status" };
+      const familienstand_info = computeFamilienstandAdmin(p_info.marital_status, p_info.children_ages).toUpperCase();
+      return [
+        { title: G.personal, fields: [
+          { label: G.ln,    value: up_info(p_info.last_name) },
+          { label: G.fn,    value: up_info(p_info.first_name) },
+          { label: G.dob,   value: fmt_info(p_info.dob) },
+          { label: G.sex,   value: sex_info },
+          { label: G.nat,   value: nat_info(p_info.nationality) },
+          { label: G.cob,   value: up_info(p_info.city_of_birth) },
+          { label: G.cntob, value: nat_info(p_info.country_of_birth) },
+          ...(p_info.marital_status ? [{ label: G.marital, value: familienstand_info }] : []),
+        ]},
+        { title: G.passport, fields: [
+          { label: G.pno, value: (p_info.passport_no ?? "—").toUpperCase() },
+          { label: G.isd, value: fmt_info(p_info.issue_date) },
+          { label: G.exp, value: fmt_info(p_info.passport_expiry) },
+          { label: G.iss, value: up_info(p_info.issuing_authority) },
+        ]},
+        { title: G.address, fields: [
+          { label: G.str,    value: up_info(p_info.address_street) },
+          { label: G.num,    value: p_info.address_number ?? "—" },
+          { label: G.post,   value: p_info.address_postal ?? "—" },
+          { label: G.cres,   value: up_info(p_info.city_of_residence) },
+          { label: G.cntres, value: nat_info(p_info.country_of_residence) },
+        ]},
+      ];
+    })();
+
     /** Normalize stored nationality / country value to its ISO code for the dropdown */
     function toIsoCodeAdmin(v: string | null | undefined): string {
       if (!v) return "";
@@ -960,49 +1008,8 @@ export default function AdminPage() {
                       ))}
                     </div>
                   ) : (
-                    /* ── Read-only mode — ALL CAPS values, translated labels ── */
-                    (() => {
-                      const G = lang==="fr"
-                        ? { personal:"Personnel",passport:"Passeport",address:"Adresse",
-                            ln:"Nom de famille",fn:"Prénom",dob:"Date de naissance",sex:"Sexe",nat:"Nationalité",cob:"Ville de naissance",cntob:"Pays de naissance",
-                            pno:"N° passeport",isd:"Date d'émission",exp:"Date d'expiration",iss:"Autorité émettrice",
-                            str:"Rue",num:"N°",post:"Code postal",cres:"Ville de résidence",cntres:"Pays de résidence" }
-                        : lang==="de"
-                        ? { personal:"Persönlich",passport:"Reisepass",address:"Adresse",
-                            ln:"Nachname",fn:"Vorname",dob:"Geburtsdatum",sex:"Geschlecht",nat:"Staatsangehörigkeit",cob:"Geburtsort",cntob:"Geburtsland",
-                            pno:"Reisepassnummer",isd:"Ausstellungsdatum",exp:"Ablaufdatum",iss:"Ausstellungsbehörde",
-                            str:"Straße",num:"Hausnummer",post:"Postleitzahl",cres:"Wohnort",cntres:"Wohnland" }
-                        : { personal:"Personal",passport:"Passport",address:"Address",
-                            ln:"Last name",fn:"First name",dob:"Date of birth",sex:"Sex",nat:"Nationality",cob:"City of birth",cntob:"Country of birth",
-                            pno:"Passport No",isd:"Issue date",exp:"Expiry",iss:"Issuing authority",
-                            str:"Street",num:"Number",post:"Postal code",cres:"City of residence",cntres:"Country of residence" };
-                      const familienstand_info = computeFamilienstandAdmin(p_info.marital_status, p_info.children_ages).toUpperCase();
-                      return [
-                        { title: G.personal, fields: [
-                          { label: G.ln,    value: up_info(p_info.last_name) },
-                          { label: G.fn,    value: up_info(p_info.first_name) },
-                          { label: G.dob,   value: fmt_info(p_info.dob) },
-                          { label: G.sex,   value: sex_info },
-                          { label: G.nat,   value: nat_info(p_info.nationality) },
-                          { label: G.cob,   value: up_info(p_info.city_of_birth) },
-                          { label: G.cntob, value: nat_info(p_info.country_of_birth) },
-                          ...(p_info.marital_status ? [{ label: lang==="fr"?"Situation familiale":lang==="de"?"Familienstand":"Marital Status", value: familienstand_info }] : []),
-                        ]},
-                        { title: G.passport, fields: [
-                          { label: G.pno, value: (p_info.passport_no ?? "—").toUpperCase() },
-                          { label: G.isd, value: fmt_info(p_info.issue_date) },
-                          { label: G.exp, value: fmt_info(p_info.passport_expiry), warn: !!(p_info.passport_expiry && new Date(p_info.passport_expiry) < new Date()) },
-                          { label: G.iss, value: up_info(p_info.issuing_authority) },
-                        ]},
-                        { title: G.address, fields: [
-                          { label: G.str,    value: up_info(p_info.address_street) },
-                          { label: G.num,    value: p_info.address_number ?? "—" },
-                          { label: G.post,   value: p_info.address_postal ?? "—" },
-                          { label: G.cres,   value: up_info(p_info.city_of_residence) },
-                          { label: G.cntres, value: nat_info(p_info.country_of_residence) },
-                        ]},
-                      ];
-                    })().map((group, gi) => (
+                    /* ── Read-only mode — uses pre-computed passportDisplayGroups ── */
+                    passportDisplayGroups.map((group, gi) => (
                       <div key={group.title} className={gi > 0 ? "mt-4" : ""}>
                         <p className="text-[10px] font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--w3)" }}>{group.title}</p>
                         <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
@@ -1059,7 +1066,7 @@ export default function AdminPage() {
                             );
                           })}
                         </div>
-                        {gi < 2 && <div className="mt-3" style={{ height: 1, background: "var(--border)" }} />}
+                        {gi < passportDisplayGroups.length - 1 && <div className="mt-3" style={{ height: 1, background: "var(--border)" }} />}
                       </div>
                     ))
                   )}
@@ -1108,15 +1115,19 @@ export default function AdminPage() {
                           if (!selectedUser) return;
                           setPassportDataPdfDl(true);
                           try {
-                            const res = await fetch(`/api/portal/admin/passport-data-pdf?userId=${selectedUser}`, {
-                              headers: { Authorization: `Bearer ${accessToken}` },
+                            const cp = profiles[selectedUser];
+                            const fn = [cp?.first_name, cp?.last_name].filter(Boolean).join("_").toLowerCase() || "passport_data";
+                            const docTitle = lang==="fr" ? "Données du passeport" : lang==="de" ? "Reispassdaten" : "Passport Data";
+                            const docSubtitle = lang==="fr" ? "Informations de passeport extraites et confirmées" : lang==="de" ? "Extrahierte und bestätigte Reisepassdaten" : "Extracted and confirmed passport information";
+                            const res = await fetch("/api/portal/admin/passport-data-pdf", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                              body: JSON.stringify({ groups: passportDisplayGroups, filename: `${fn}_passport_data.pdf`, docTitle, docSubtitle }),
                             });
                             if (!res.ok) throw new Error("Failed");
                             const blob = await res.blob();
                             const url = URL.createObjectURL(blob);
                             const a = document.createElement("a");
-                            const p = profiles[selectedUser];
-                            const fn = [p?.first_name, p?.last_name].filter(Boolean).join("_").toLowerCase() || "passport_data";
                             a.href = url; a.download = `${fn}_passport_data.pdf`; a.click(); URL.revokeObjectURL(url);
                           } catch (e) { console.error(e); }
                           setPassportDataPdfDl(false);

@@ -2250,14 +2250,69 @@ export default function DashboardPage() {
                 <button
                   onClick={async () => {
                     try {
+                      // Build groups from the exact values currently displayed
+                      const resolveOpt = (f: typeof fields[0], val: string) => {
+                        if (!f.opts) return val;
+                        return f.opts.find(o => o.v === val)?.l ?? val;
+                      };
+                      const fv = (key: keyof PassportData) => {
+                        const raw = passportModal?.[key] ?? "";
+                        const fd = fields.find(f => f.key === key);
+                        return (fd && raw) ? resolveOpt(fd, raw) : (raw || "—");
+                      };
+                      const G = lang === "fr"
+                        ? { personal:"Personnel", passport:"Passeport", address:"Adresse",
+                            ln:"Nom de famille", fn:"Prénom", dob:"Date de naissance", sex:"Sexe",
+                            nat:"Nationalité", cob:"Ville de naissance", cntob:"Pays de naissance",
+                            pno:"N° passeport", isd:"Date d'émission", exp:"Date d'expiration", iss:"Autorité émettrice",
+                            str:"Rue", num:"N°", post:"Code postal", cres:"Ville de résidence", cntres:"Pays de résidence" }
+                        : lang === "de"
+                        ? { personal:"Persönlich", passport:"Reisepass", address:"Adresse",
+                            ln:"Nachname", fn:"Vorname", dob:"Geburtsdatum", sex:"Geschlecht",
+                            nat:"Staatsangehörigkeit", cob:"Geburtsort", cntob:"Geburtsland",
+                            pno:"Reisepassnummer", isd:"Ausstellungsdatum", exp:"Ablaufdatum", iss:"Ausstellungsbehörde",
+                            str:"Straße", num:"Hausnummer", post:"Postleitzahl", cres:"Wohnort", cntres:"Wohnland" }
+                        : { personal:"Personal", passport:"Passport", address:"Address",
+                            ln:"Last name", fn:"First name", dob:"Date of birth", sex:"Sex",
+                            nat:"Nationality", cob:"City of birth", cntob:"Country of birth",
+                            pno:"Passport No", isd:"Issue date", exp:"Expiry", iss:"Issuing authority",
+                            str:"Street", num:"Number", post:"Postal code", cres:"City of residence", cntres:"Country of residence" };
+                      const pdfGroups = [
+                        { title: G.personal, fields: [
+                          { label: G.ln,    value: fv("last_name") },
+                          { label: G.fn,    value: fv("first_name") },
+                          { label: G.dob,   value: fv("dob") },
+                          { label: G.sex,   value: fv("sex") },
+                          { label: G.nat,   value: fv("nationality") },
+                          { label: G.cob,   value: fv("city_of_birth") },
+                          { label: G.cntob, value: fv("country_of_birth") },
+                        ]},
+                        { title: G.passport, fields: [
+                          { label: G.pno, value: fv("passport_no") },
+                          { label: G.isd, value: fv("issue_date") },
+                          { label: G.exp, value: fv("passport_expiry") },
+                          { label: G.iss, value: fv("issuing_authority") },
+                        ]},
+                        { title: G.address, fields: [
+                          { label: G.str,    value: fv("address_street") },
+                          { label: G.num,    value: fv("address_number") },
+                          { label: G.post,   value: fv("address_postal") },
+                          { label: G.cres,   value: fv("city_of_residence") },
+                          { label: G.cntres, value: fv("country_of_residence") },
+                        ]},
+                      ];
+                      const docTitle = lang === "fr" ? "Données du passeport" : lang === "de" ? "Reisepassdaten" : "Passport Data";
+                      const docSubtitle = lang === "fr" ? "Informations de passeport extraites et confirmées" : lang === "de" ? "Extrahierte und bestätigte Reisepassdaten" : "Extracted and confirmed passport information";
+                      const fn = [passportModal?.first_name, passportModal?.last_name].filter(Boolean).join("_").toLowerCase() || "passport_data";
                       const res = await fetch("/api/portal/me/passport-data-pdf", {
-                        headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
+                        body: JSON.stringify({ groups: pdfGroups, filename: `${fn}_passport_data.pdf`, docTitle, docSubtitle }),
                       });
                       if (!res.ok) { alert("Could not generate PDF — please try again."); return; }
                       const blob = await res.blob();
                       const url = URL.createObjectURL(blob);
                       const a = document.createElement("a");
-                      const fn = [passportModal?.first_name, passportModal?.last_name].filter(Boolean).join("_").toLowerCase() || "passport_data";
                       a.href = url; a.download = `${fn}_passport_data.pdf`; a.click();
                       setTimeout(() => URL.revokeObjectURL(url), 0);
                     } catch { alert("Download failed — please try again."); }
