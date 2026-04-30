@@ -872,15 +872,16 @@ export default function AdminPage() {
                     <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--gold)" }}>
                       <IdCard size={13} strokeWidth={1.8} className="inline mr-1.5 -mt-0.5" /> Passport data
                     </p>
-                    {/* Status badge */}
-                    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold tracking-wide uppercase"
-                      style={{ background: pstBg, color: pstColor, border: `1px solid ${pstBdr}` }}>
-                      {pst === "approved" ? <CheckCircle2 size={10} strokeWidth={2} />
-                        : pst === "rejected" ? <XCircle size={10} strokeWidth={2} />
-                        : pst === "pending"  ? <span className="w-1.5 h-1.5 rounded-full" style={{ background: "currentColor" }} />
-                        : null}
-                      {pstLabel}
-                    </span>
+                    {/* Status badge — hidden when approved */}
+                    {pst !== "approved" && (
+                      <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold tracking-wide uppercase"
+                        style={{ background: pstBg, color: pstColor, border: `1px solid ${pstBdr}` }}>
+                        {pst === "rejected" ? <XCircle size={10} strokeWidth={2} />
+                          : pst === "pending"  ? <span className="w-1.5 h-1.5 rounded-full" style={{ background: "currentColor" }} />
+                          : null}
+                        {pstLabel}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-1.5">
                     {/* Edit toggle */}
@@ -1004,9 +1005,15 @@ export default function AdminPage() {
                         <p className="text-[10px] font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--w3)" }}>{group.title}</p>
                         <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
                           {group.fields.map(f => {
+                            if (pst === "approved") {
+                              return (
+                                <div key={f.label} className="min-w-0">
+                                  <p className="text-[10px]" style={{ color: "var(--w3)" }}>{f.label}</p>
+                                  <p className="text-xs font-semibold" style={{ color: "var(--w)" }}>{f.value}</p>
+                                </div>
+                              );
+                            }
                             // Per-field review checkbox — empty/orange/green
-                            // exactly like the candidate's data form. Clicking
-                            // toggles the green tick. Empty fields stay gray.
                             const filled = !!(f.value && f.value !== "—" && f.value.trim() !== "");
                             const fieldKey = f.label;
                             const confirmed = adminConfirmedFields.has(fieldKey);
@@ -1076,11 +1083,11 @@ export default function AdminPage() {
                           Cancel
                         </button>
                       </>
-                    ) : (
+                    ) : pst !== "approved" ? (
                       <>
                         <button
                           onClick={() => reviewPassport("approved")}
-                          disabled={passportInfoSaving || pst === "approved"}
+                          disabled={passportInfoSaving}
                           className="flex-1 py-2 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80 disabled:opacity-40 inline-flex items-center justify-center gap-1.5"
                           style={{ background: "rgba(52,199,89,0.12)", color: "#34c759" }}>
                           {passportInfoSaving ? "…" : <><CheckCircle2 size={13} strokeWidth={1.8} /> Approve</>}
@@ -1093,7 +1100,7 @@ export default function AdminPage() {
                           {passportInfoSaving ? "…" : <><XCircle size={13} strokeWidth={1.8} /> Reject</>}
                         </button>
                       </>
-                    )}
+                    ) : null}
                   </div>
                 )}
               </div>
@@ -1573,9 +1580,9 @@ export default function AdminPage() {
                                           <div className="fixed inset-0 z-10" onClick={() => setRevokeMenu(null)} />
                                           <div className="absolute left-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
                                             style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
-                                            <button onClick={() => { reviewPassport("pending", passportDataFeedback); setRevokeMenu(null); }}
+                                            <button onClick={() => { reviewPassport("rejected"); setRevokeMenu(null); }}
                                               className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
-                                              style={{ color: "var(--gold)" }}><RotateCcw size={11} strokeWidth={1.8} /> Revoke to pending</button>
+                                              style={{ color: "#e05252" }}><RotateCcw size={11} strokeWidth={1.8} /> Revoke</button>
                                             <div style={{ height: 1, background: "var(--border)" }} />
                                             <button onClick={() => { setRevokeMenu(null); openRejectModal({ kind: "passport", label: item.label, initialFeedback: passportDataFeedback }); }}
                                               className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
@@ -1792,11 +1799,11 @@ export default function AdminPage() {
                                                     <div className="absolute right-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
                                                       style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
                                                       <button
-                                                        onClick={() => { review(d.id, "pending"); setRevokeMenu(null); }}
+                                                        onClick={() => { review(d.id, "rejected"); setRevokeMenu(null); }}
                                                         disabled={saving[d.id]}
                                                         className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium disabled:opacity-40 inline-flex items-center gap-1.5"
-                                                        style={{ color: "var(--gold)" }}>
-                                                        <RotateCcw size={11} strokeWidth={1.8} /> Revoke to pending
+                                                        style={{ color: "#e05252" }}>
+                                                        <RotateCcw size={11} strokeWidth={1.8} /> Revoke
                                                       </button>
                                                       <div style={{ height: 1, background: "var(--border)" }} />
                                                       <button
@@ -1866,11 +1873,11 @@ export default function AdminPage() {
                                           <div className="absolute right-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
                                             style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
                                             <button
-                                              onClick={(e) => { e.stopPropagation(); review(doc.id, "pending"); setRevokeMenu(null); }}
+                                              onClick={(e) => { e.stopPropagation(); review(doc.id, "rejected"); setRevokeMenu(null); }}
                                               disabled={saving[doc.id]}
                                               className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium disabled:opacity-40 inline-flex items-center gap-1.5"
-                                              style={{ color: "var(--gold)" }}>
-                                              <RotateCcw size={11} strokeWidth={1.8} /> Revoke to pending
+                                              style={{ color: "#e05252" }}>
+                                              <RotateCcw size={11} strokeWidth={1.8} /> Revoke
                                             </button>
                                             <div style={{ height: 1, background: "var(--border)" }} />
                                             <button
