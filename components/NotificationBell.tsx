@@ -210,13 +210,16 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
   const unread    = notifs.filter(n => !n.read).length;
   const displayed = tab === "unread" ? notifs.filter(n => !n.read) : notifs;
 
-  function toggle() {
-    const next = !open;
-    setOpen(next);
-    if (next && unread > 0) markAllRead();
+  function toggle() { setOpen(o => !o); }
+
+  async function markOneRead(n: CandidateNotif) {
+    if (n.read) return;
+    setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x));
+    supabase.from("notifications").update({ read: true }).eq("id", n.id).then(() => {});
   }
 
   async function handleClick(n: CandidateNotif) {
+    markOneRead(n);
     setOpen(false);
 
     let docId = n.doc_id ?? null;
@@ -263,7 +266,12 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
                 {i > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
                 <button
                   className="bv-row-hover w-full text-left px-4 py-3 flex items-start gap-3"
-                  style={{ background: n.read ? "transparent" : "rgba(212,175,55,0.04)", border: "none", cursor: "pointer" }}
+                  style={{
+                    background: n.read ? "transparent" : "rgba(212,175,55,0.08)",
+                    borderLeft: n.read ? "2px solid transparent" : "2px solid rgba(212,175,55,0.5)",
+                    borderTop: "none", borderRight: "none", borderBottom: "none",
+                    cursor: "pointer",
+                  }}
                   onClick={() => handleClick(n)}>
                   <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
                     style={{ background: iconSt.bg, color: iconSt.color, border: iconSt.border }}>
@@ -386,13 +394,20 @@ function AdminBell({ accessToken }: { accessToken: string }) {
   const overdueCount = sorted.filter(n => !n.read && ageHours(n) >= 48).length;
   const displayed = tab === "unread" ? sorted.filter(n => !n.read) : sorted;
 
-  function toggle() {
-    const next = !open;
-    setOpen(next);
-    if (next && unread > 0) markAllRead();
+  function toggle() { setOpen(o => !o); }
+
+  async function markOneRead(n: AdminNotif) {
+    if (n.read) return;
+    setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, read: true } : x));
+    fetch("/api/portal/admin/notifications", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ ids: [n.id] }),
+    }).catch(() => {});
   }
 
   async function handleClick(n: AdminNotif) {
+    markOneRead(n);
     setOpen(false);
 
     // Signup → navigate to admin candidate view
@@ -466,7 +481,12 @@ function AdminBell({ accessToken }: { accessToken: string }) {
                   {i > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
                   <button
                     className="w-full text-left px-4 py-3 flex items-start gap-3 transition-colors hover:bg-[rgba(255,255,255,0.03)]"
-                    style={{ background: n.read ? "transparent" : "rgba(212,175,55,0.04)", border: "none", cursor: "pointer" }}
+                    style={{
+                      background: n.read ? "transparent" : "rgba(212,175,55,0.08)",
+                      borderLeft: n.read ? "2px solid transparent" : "2px solid rgba(212,175,55,0.5)",
+                      borderTop: "none", borderRight: "none", borderBottom: "none",
+                      cursor: "pointer",
+                    }}
                     onClick={() => handleClick(n)}>
                     <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
                       style={{ background: iconSt.bg, border: iconSt.border, color: iconSt.color }}>
