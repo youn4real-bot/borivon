@@ -513,36 +513,42 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
           </View>
         )}
 
-        {/* ── SONSTIGES ── */}
-        {(data.driverLicense === "B" || data.hobbies) && (
-          <View style={s.section}>
-            <SectionHead title="Sonstiges" />
-            {data.driverLicense === "B" ? (
-              <View style={s.miscRow}>
-                <Text style={s.miscLabel}>Führerschein</Text>
-                <Text style={s.miscValue}>Klasse B</Text>
-              </View>
-            ) : null}
-            {data.hobbies ? (
-              <View style={s.miscRow}>
-                <Text style={s.miscLabel}>Interessen</Text>
-                <Text style={s.miscValue}>{data.hobbies}</Text>
-              </View>
-            ) : null}
-          </View>
-        )}
+        {/* ── SONSTIGES + UNTERSCHRIFT — kept together with wrap={false} ──
+            This guarantees the signature never lands on a page alone.
+            If both don't fit at the bottom of the current page, react-pdf
+            moves the whole block to the next page so it starts with the
+            "Sonstiges" section header. ── */}
+        <View wrap={false}>
+          {(data.driverLicense === "B" || data.hobbies) && (
+            <View style={s.section}>
+              <SectionHead title="Sonstiges" />
+              {data.driverLicense === "B" ? (
+                <View style={s.miscRow}>
+                  <Text style={s.miscLabel}>Führerschein</Text>
+                  <Text style={s.miscValue}>Klasse B</Text>
+                </View>
+              ) : null}
+              {data.hobbies ? (
+                <View style={s.miscRow}>
+                  <Text style={s.miscLabel}>Interessen</Text>
+                  <Text style={s.miscValue}>{data.hobbies}</Text>
+                </View>
+              ) : null}
+            </View>
+          )}
 
-        {/* ── UNTERSCHRIFT / DATUM ── */}
-        <View style={s.sigArea}>
-          <View style={s.sigSlot}>
-            <View style={s.sigSpace} />
-            <View style={s.sigLine} />
-            <Text style={s.sigLabel}>Ort, Datum</Text>
-          </View>
-          <View style={s.sigSlot}>
-            <View style={s.sigSpace} />
-            <View style={s.sigLine} />
-            <Text style={s.sigLabel}>Unterschrift</Text>
+          {/* ── UNTERSCHRIFT / DATUM ── */}
+          <View style={s.sigArea}>
+            <View style={s.sigSlot}>
+              <View style={s.sigSpace} />
+              <View style={s.sigLine} />
+              <Text style={s.sigLabel}>Ort, Datum</Text>
+            </View>
+            <View style={s.sigSlot}>
+              <View style={s.sigSpace} />
+              <View style={s.sigLine} />
+              <Text style={s.sigLabel}>Unterschrift</Text>
+            </View>
           </View>
         </View>
 
