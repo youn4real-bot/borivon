@@ -277,7 +277,7 @@ function makeCVData(email = ""): CVData {
     ],
     eduEntries: [
       { id: "edu-abitur",  type: "abitur",  institution: "", location: "", start: { month: "09", year: "" }, end: { month: "06", year: "" }, degree: "Abitur", nursingStatus: "complete", country: "Marokko" },
-      { id: "edu-nursing", type: "nursing", institution: "", location: "", start: { month: "", year: "" }, end: null, degree: "Abschluss in der Krankenpflege", nursingStatus: "year2", country: "Marokko" },
+      { id: "edu-nursing", type: "nursing", institution: "", location: "", start: { month: "09", year: "" }, end: { month: "06", year: "" }, degree: "Abschluss in der Krankenpflege", nursingStatus: "year2", country: "Marokko" },
     ],
     langs: [
       { name: "Arabisch",    level: "Muttersprache" },
@@ -2910,7 +2910,9 @@ export default function CVBuilderPage() {
                     />
                   </div>
                   <MonthYearPicker
-                    label={t.cvb_begin}
+                    label={entry.type === "nursing"
+                      ? (lang === "de" ? "Beginn Pflegeausbildung" : lang === "en" ? "Start nursing training" : "Début formation infirmière")
+                      : t.cvb_begin}
                     value={entry.start}
                     hasError={validationErrors.has(`edu_${entry.id}_start`)}
                     onChange={v => {
@@ -2935,7 +2937,9 @@ export default function CVBuilderPage() {
                     required
                   />
                   <MonthYearPicker
-                    label={t.cvb_end}
+                    label={entry.type === "nursing"
+                      ? (lang === "de" ? "Ende Pflegeausbildung" : lang === "en" ? "End nursing training" : "Fin formation infirmière")
+                      : t.cvb_end}
                     value={entry.end ?? { month: "", year: "" }}
                     hasError={validationErrors.has(`edu_${entry.id}_end`)}
                     onChange={v => updateEdu(entry.id, { end: v })}
