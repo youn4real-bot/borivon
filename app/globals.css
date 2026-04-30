@@ -508,6 +508,12 @@ textarea:focus {
   to   { transform: translateX(0); }
 }
 
+/* Slide-in from the right — used by admin slide-over panels. */
+@keyframes bvSlideInRight {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+
 @keyframes bvSlideUp {
   from { transform: translateY(100%); opacity: 0.5; }
   to   { transform: translateY(0);    opacity: 1; }

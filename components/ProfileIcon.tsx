@@ -8,6 +8,7 @@ import { buildProfileSlug, ADMIN_PROFILE_SLUG } from "@/lib/profile-slug";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { OrgCodeModal } from "@/components/OrgCodeModal";
 import { ProfilePopup } from "@/components/ProfilePopup";
+import { AdminUsersPanel } from "@/components/AdminUsersPanel";
 
 type UserInfo = {
   name: string;
@@ -29,6 +30,7 @@ export function ProfileIcon() {
   const [deleteConfirm, setDeleteConfirm] = useState(false);
   const [deleteInput, setDeleteInput] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [usersPanelOpen, setUsersPanelOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
@@ -276,17 +278,19 @@ export function ProfileIcon() {
               </button>
               {user.isAdmin && (
                 <button
-                  onClick={() => { setOpen(false); setDeleteInput(""); setDeleteConfirm(true); }}
+                  onClick={() => { setOpen(false); setUsersPanelOpen(true); }}
                   className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
-                  style={{ color: "var(--w3)", borderRadius: "var(--r-sm)" }}
-                  onMouseEnter={e => { e.currentTarget.style.background = "rgba(224,82,82,0.06)"; e.currentTarget.style.color = "#e05252"; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--w3)"; }}
+                  style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "var(--bg2)"; e.currentTarget.style.color = "var(--w)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--w2)"; }}
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-                    <path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                    <circle cx="9" cy="7" r="4"/>
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                    <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
                   </svg>
-                  Delete my account
+                  Users
                 </button>
               )}
             </div>
@@ -341,6 +345,11 @@ export function ProfileIcon() {
           flow. Stays inside the website, no navigation, works on phone + laptop. */}
       {profilePopupSlug && (
         <ProfilePopup slug={profilePopupSlug} onClose={() => setProfilePopupSlug(null)} />
+      )}
+
+      {/* Admin users slide-over */}
+      {usersPanelOpen && accessToken && (
+        <AdminUsersPanel accessToken={accessToken} onClose={() => setUsersPanelOpen(false)} />
       )}
 
       {/* Delete account confirmation modal */}
