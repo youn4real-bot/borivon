@@ -1928,18 +1928,9 @@ export default function CVBuilderPage() {
         const sx = String(profile.sex).toUpperCase();
         if (sx === "M" || sx === "F") setSex(sx);
       }
-      // Force-set the mandatory internship's job title to the gendered
-      // German term as soon as we know the candidate's sex. Saved value
-      // always stays the German term — the CV PDF reads correctly.
-      if (profile?.sex) {
-        const title = String(profile.sex).toUpperCase() === "F" ? "Pflegepraktikantin" : "Pflegepraktikant";
-        setCvData(d => {
-          if (!d.workEntries.length) return d;
-          const next = [...d.workEntries];
-          next[0] = { ...next[0], title };
-          return { ...d, workEntries: next };
-        });
-      }
+      // NOTE: gendered title (Pflegepraktikant/in) is applied INSIDE the
+      // draft-merge setCvData below, not here — so the draft's stored
+      // workEntries can never overwrite it.
 
       // 2. Restore saved draft — server wins over localStorage, localStorage is fallback
       const serverDraft = await fetch("/api/portal/me/cv-draft", {
@@ -2014,6 +2005,15 @@ export default function CVBuilderPage() {
               }
               if (!merged.maritalStatus) merged.maritalStatus = computeFamilienstand(profile.marital_status, profile.children_ages);
             }
+            // Always enforce the sex-based internship title as the very last
+            // step — this guarantees the draft's stored title (possibly empty
+            // or wrong gender from an older session) can never win.
+            if (profile?.sex && merged.workEntries.length > 0) {
+              const genderedTitle = String(profile.sex).toUpperCase() === "F" ? "Pflegepraktikantin" : "Pflegepraktikant";
+              const wEntries = [...merged.workEntries];
+              wEntries[0] = { ...wEntries[0], title: genderedTitle };
+              merged.workEntries = wEntries;
+            }
             return merged;
           });
         } catch { /* invalid JSON */ }
@@ -2021,6 +2021,16 @@ export default function CVBuilderPage() {
         // No draft — auto-fill from passport profile
         setCvData(d => ({ ...d, email: session.user.email ?? "" }));
         if (profile) applyProfile(profile);
+        // Apply gendered title (applyProfile doesn't touch workEntries)
+        if (profile?.sex) {
+          const genderedTitle = String(profile.sex).toUpperCase() === "F" ? "Pflegepraktikantin" : "Pflegepraktikant";
+          setCvData(d => {
+            if (!d.workEntries.length) return d;
+            const next = [...d.workEntries];
+            next[0] = { ...next[0], title: genderedTitle };
+            return { ...d, workEntries: next };
+          });
+        }
       }
 
       setLoading(false);
