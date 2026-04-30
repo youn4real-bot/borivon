@@ -242,6 +242,7 @@ const s = StyleSheet.create({
   photo: {
     width: 88,
     height: 88,
+    borderRadius: 44,
     objectFit: "cover",
     flexShrink: 0,
     marginTop: -6,
