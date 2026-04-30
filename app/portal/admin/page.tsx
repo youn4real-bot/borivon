@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { translations } from "@/lib/translations";
@@ -13,7 +14,7 @@ import {
   Lock, Unlock, IdCard, FileText, Folder, FilePen, Save, Eye,
   CheckCircle2, XCircle, AlertTriangle, PartyPopper,
 } from "@/components/PortalIcons";
-import { X as XIcon, RotateCcw, Download, ArrowLeft, MoreHorizontal, ChevronDown, Search } from "lucide-react";
+import { X as XIcon, RotateCcw, Download, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2 } from "lucide-react";
 import { Spinner, PageLoader, EmptyState } from "@/components/ui/states";
 import { CandidateStagePreview, type JourneyMode } from "@/components/JourneyView";
 import { SessionExpiryWatcher } from "@/components/SessionExpiryWatcher";
@@ -223,6 +224,10 @@ export default function AdminPage() {
   const [passportPdfDl, setPassportPdfDl] = useState(false);
   // Passport DATA PDF download state (passport info modal)
   const [passportDataPdfDl, setPassportDataPdfDl] = useState(false);
+  // Delete candidate confirmation
+  const [deleteCandidateConfirm, setDeleteCandidateConfirm] = useState(false);
+  const [deleteCandidateInput, setDeleteCandidateInput] = useState("");
+  const [deletingCandidate, setDeletingCandidate] = useState(false);
   // Passport Data row feedback
   const [passportDataFeedback, setPassportDataFeedback] = useState("");
   // Transient error toast (auto-dismisses after 4 s)
@@ -766,6 +771,32 @@ export default function AdminPage() {
       ];
     })();
 
+    async function deleteCandidate() {
+      if (!selectedUser || deleteCandidateInput !== "DELETE") return;
+      setDeletingCandidate(true);
+      try {
+        const res = await fetch("/api/portal/admin/delete-user", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({ userId: selectedUser }),
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          showError(j.error ?? "Failed to delete candidate");
+          return;
+        }
+        // Remove from local state
+        setUsers(prev => { const n = { ...prev }; delete n[selectedUser]; return n; });
+        setDocs(prev => prev.filter(d => d.user_id !== selectedUser));
+        setDocHistory(prev => prev.filter(d => d.user_id !== selectedUser));
+        setProfiles(prev => { const n = { ...prev }; delete n[selectedUser]; return n; });
+        setDeleteCandidateConfirm(false);
+        setSelectedUser(null);
+      } finally {
+        setDeletingCandidate(false);
+      }
+    }
+
     /** Normalize stored nationality / country value to its ISO code for the dropdown */
     function toIsoCodeAdmin(v: string | null | undefined): string {
       if (!v) return "";
@@ -1162,17 +1193,25 @@ export default function AdminPage() {
                 style={{ color: "var(--w2)" }}>
                 <ArrowLeft size={15} strokeWidth={1.8} />
               </button>
-              {(() => {
-                const historyForUser = docHistory.filter(d => d.user_id === selectedUser);
-                if (historyForUser.length === 0) return null;
-                return (
-                  <button onClick={() => setShowHistory(v => !v)}
-                    className="ml-auto inline-flex items-center gap-1.5 text-[11px] font-medium px-3 py-1.5 rounded-full transition-opacity hover:opacity-80 flex-shrink-0"
-                    style={{ background: showHistory ? "rgba(212,175,55,0.12)" : "var(--bg2)", color: showHistory ? "var(--gold)" : "var(--w3)", border: `1px solid ${showHistory ? "rgba(212,175,55,0.3)" : "var(--border)"}` }}>
-                    <Folder size={11} strokeWidth={1.8} /> {historyForUser.length} old
-                  </button>
-                );
-              })()}
+              <div className="ml-auto flex items-center gap-2 flex-shrink-0">
+                {(() => {
+                  const historyForUser = docHistory.filter(d => d.user_id === selectedUser);
+                  if (historyForUser.length === 0) return null;
+                  return (
+                    <button onClick={() => setShowHistory(v => !v)}
+                      className="inline-flex items-center gap-1.5 text-[11px] font-medium px-3 py-1.5 rounded-full transition-opacity hover:opacity-80"
+                      style={{ background: showHistory ? "rgba(212,175,55,0.12)" : "var(--bg2)", color: showHistory ? "var(--gold)" : "var(--w3)", border: `1px solid ${showHistory ? "rgba(212,175,55,0.3)" : "var(--border)"}` }}>
+                      <Folder size={11} strokeWidth={1.8} /> {historyForUser.length} old
+                    </button>
+                  );
+                })()}
+                <button
+                  onClick={() => { setDeleteCandidateInput(""); setDeleteCandidateConfirm(true); }}
+                  className="inline-flex items-center gap-1.5 text-[11px] font-medium px-3 py-1.5 rounded-full transition-opacity hover:opacity-80"
+                  style={{ background: "rgba(255,59,48,0.08)", color: "#ff3b30", border: "1px solid rgba(255,59,48,0.2)" }}>
+                  <Trash2 size={11} strokeWidth={1.8} /> Delete
+                </button>
+              </div>
             </div>
 
             <div className="mb-8 px-5 py-5 flex items-center gap-4 flex-wrap"
@@ -1996,6 +2035,59 @@ export default function AdminPage() {
 
           </div>
         </main>
+
+        {/* ── Delete candidate confirmation modal ── */}
+        {deleteCandidateConfirm && typeof window !== "undefined" && createPortal(
+          <>
+            <div className="fixed inset-0 z-[1400] bg-black/40 backdrop-blur-sm" onClick={() => !deletingCandidate && setDeleteCandidateConfirm(false)} />
+            <div className="fixed inset-0 z-[1401] flex items-center justify-center p-4">
+              <div className="w-full max-w-sm rounded-2xl p-6 flex flex-col gap-4"
+                style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }}>
+                <div className="flex flex-col items-center gap-2 text-center">
+                  <div className="w-12 h-12 rounded-full flex items-center justify-center mb-1"
+                    style={{ background: "rgba(255,59,48,0.1)" }}>
+                    <Trash2 size={22} strokeWidth={1.6} style={{ color: "#ff3b30" }} />
+                  </div>
+                  <p className="text-[15px] font-semibold" style={{ color: "var(--w)" }}>Delete candidate?</p>
+                  <p className="text-[12.5px] leading-relaxed" style={{ color: "var(--w3)" }}>
+                    This will permanently remove all data for <strong style={{ color: "var(--w)" }}>{users[selectedUser]?.name ?? selectedUser}</strong> — documents, passport data, messages, and their account. Drive files will be archived.
+                  </p>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <p className="text-[11.5px] text-center" style={{ color: "var(--w3)" }}>Type <strong>DELETE</strong> to confirm</p>
+                  <input
+                    value={deleteCandidateInput}
+                    onChange={e => setDeleteCandidateInput(e.target.value)}
+                    placeholder="DELETE"
+                    autoFocus
+                    className="w-full text-center rounded-xl px-3 py-2.5 text-[13px] outline-none"
+                    style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)" }}
+                    onKeyDown={e => { if (e.key === "Enter" && deleteCandidateInput === "DELETE") deleteCandidate(); }}
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => !deletingCandidate && setDeleteCandidateConfirm(false)}
+                    className="flex-1 rounded-xl py-2.5 text-[13px] font-medium transition-opacity hover:opacity-70"
+                    style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
+                    Cancel
+                  </button>
+                  <button
+                    onClick={deleteCandidate}
+                    disabled={deleteCandidateInput !== "DELETE" || deletingCandidate}
+                    className="flex-1 rounded-xl py-2.5 text-[13px] font-semibold transition-opacity"
+                    style={{
+                      background: deleteCandidateInput === "DELETE" && !deletingCandidate ? "#ff3b30" : "rgba(255,59,48,0.3)",
+                      color: "#fff", cursor: deleteCandidateInput !== "DELETE" || deletingCandidate ? "not-allowed" : "pointer",
+                    }}>
+                    {deletingCandidate ? "Deleting…" : "Delete"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>,
+          document.body,
+        )}
       </>
     );
   }

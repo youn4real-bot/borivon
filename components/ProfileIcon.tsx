@@ -26,6 +26,9 @@ export function ProfileIcon() {
   const [accessToken, setAccessToken] = useState<string>("");
   const [orgModalOpen, setOrgModalOpen] = useState(false);
   const [profilePopupSlug, setProfilePopupSlug] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState(false);
+  const [deleteInput, setDeleteInput] = useState("");
+  const [deleting, setDeleting] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
@@ -124,6 +127,30 @@ export function ProfileIcon() {
     } catch { /* private mode — ignore */ }
     await supabase.auth.signOut();
     router.replace("/portal");
+  }
+
+  async function deleteAccount() {
+    if (!accessToken) return;
+    setDeleting(true);
+    try {
+      const { data: { user: me } } = await supabase.auth.getUser();
+      if (!me) return;
+      const res = await fetch("/api/portal/admin/delete-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ userId: me.id }),
+      });
+      if (!res.ok) { const { error } = await res.json().catch(() => ({})); alert(error ?? "Delete failed"); return; }
+      // Clear local state then sign out
+      try {
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+          const k = localStorage.key(i); if (k) localStorage.removeItem(k);
+        }
+      } catch { /* ignore */ }
+      await supabase.auth.signOut();
+      router.replace("/portal");
+    } catch { alert("Delete failed — please try again."); }
+    finally { setDeleting(false); setDeleteConfirm(false); setDeleteInput(""); }
   }
 
   if (!user) return null;
@@ -247,6 +274,21 @@ export function ProfileIcon() {
                 </svg>
                 Sign out
               </button>
+              {user.isAdmin && (
+                <button
+                  onClick={() => { setOpen(false); setDeleteInput(""); setDeleteConfirm(true); }}
+                  className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
+                  style={{ color: "var(--w3)", borderRadius: "var(--r-sm)" }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "rgba(224,82,82,0.06)"; e.currentTarget.style.color = "#e05252"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--w3)"; }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                    <path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+                  </svg>
+                  Delete my account
+                </button>
+              )}
             </div>
           </>
         );
@@ -299,6 +341,59 @@ export function ProfileIcon() {
           flow. Stays inside the website, no navigation, works on phone + laptop. */}
       {profilePopupSlug && (
         <ProfilePopup slug={profilePopupSlug} onClose={() => setProfilePopupSlug(null)} />
+      )}
+
+      {/* Delete account confirmation modal */}
+      {deleteConfirm && typeof document !== "undefined" && createPortal(
+        <>
+          <div className="fixed inset-0 z-[1400]" style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)" }}
+            onClick={() => { if (!deleting) { setDeleteConfirm(false); setDeleteInput(""); } }} />
+          <div className="fixed inset-0 z-[1401] flex items-center justify-center p-4">
+            <div className="w-full max-w-sm rounded-2xl p-6" style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)" }}>
+              <div className="w-10 h-10 rounded-full flex items-center justify-center mx-auto mb-4"
+                style={{ background: "rgba(224,82,82,0.12)", border: "1px solid rgba(224,82,82,0.3)" }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e05252" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                  <path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+                </svg>
+              </div>
+              <p className="text-[14px] font-semibold text-center mb-1" style={{ color: "var(--w)" }}>Delete your account?</p>
+              <p className="text-[12px] text-center mb-5" style={{ color: "var(--w3)" }}>
+                All your data will be permanently removed. Files are archived in Google Drive.<br />
+                This cannot be undone.
+              </p>
+              <p className="text-[11px] mb-2 font-medium" style={{ color: "var(--w3)" }}>
+                Type <span className="font-bold" style={{ color: "var(--w)" }}>DELETE</span> to confirm
+              </p>
+              <input
+                autoFocus
+                value={deleteInput}
+                onChange={e => setDeleteInput(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && deleteInput === "DELETE") deleteAccount(); }}
+                placeholder="DELETE"
+                className="w-full rounded-xl px-3 py-2 text-[13px] outline-none mb-4"
+                style={{ background: "var(--bg2)", border: `1px solid ${deleteInput === "DELETE" ? "#e05252" : "var(--border)"}`, color: "var(--w)" }}
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setDeleteConfirm(false); setDeleteInput(""); }}
+                  disabled={deleting}
+                  className="flex-1 py-2 rounded-xl text-[12px] font-medium"
+                  style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
+                  Cancel
+                </button>
+                <button
+                  onClick={deleteAccount}
+                  disabled={deleteInput !== "DELETE" || deleting}
+                  className="flex-1 py-2 rounded-xl text-[12px] font-semibold transition-opacity disabled:opacity-40"
+                  style={{ background: "rgba(224,82,82,0.15)", color: "#e05252", border: "1px solid rgba(224,82,82,0.35)" }}>
+                  {deleting ? "Deleting…" : "Delete account"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </>,
+        document.body,
       )}
     </div>
   );
