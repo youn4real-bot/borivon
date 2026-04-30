@@ -88,7 +88,8 @@ export async function POST(req: NextRequest) {
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error("CV generation error:", msg);
-    return Response.json({ error: "Internal error" }, { status: 500 });
+    const stack = err instanceof Error ? err.stack : undefined;
+    console.error("CV generation error:", msg, stack);
+    return Response.json({ error: msg }, { status: 500 });
   }
 }
