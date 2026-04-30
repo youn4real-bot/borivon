@@ -104,11 +104,16 @@ export function OnboardingTour({ userId, lang = "en" }: { userId: string | null;
 
   return (
     <div
-      className="fixed inset-0 z-[1100] flex items-end sm:items-center justify-center p-0 sm:p-4"
-      style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(10px)", animation: "bvFadeRise 0.32s var(--ease-out)" }}
+      className="fixed inset-x-0 bottom-0 top-[58px] z-[700] flex items-end sm:items-center justify-center p-2 sm:p-4 bv-tour-outer"
+      style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(10px)", animation: "bvFadeRise 0.32s var(--ease-out)" }}
       role="dialog"
       aria-modal="true"
     >
+      <style>{`
+        @media (max-width: 639.98px) {
+          .bv-tour-outer { padding-bottom: calc(0.5rem + 72px) !important; }
+        }
+      `}</style>
       <div className="w-full max-w-[460px] overflow-hidden"
         style={{
           background: "var(--card)",

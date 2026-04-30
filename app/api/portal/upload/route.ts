@@ -4,7 +4,20 @@ import { createClient } from "@supabase/supabase-js";
 import { google } from "googleapis";
 import { JWT } from "google-auth-library";
 import { makeDrivePublic } from "@/lib/passport-pdf";
+import { natToLang } from "@/lib/countries";
 import { PassThrough } from "stream";
+
+/**
+ * Normalize any country value (ISO 3166-1 alpha-3 like "MAR", or a name in
+ * any language) to the canonical German display name (e.g. "Marokko").
+ * Storing the German name everywhere lets the dashboard / public profile /
+ * admin views translate to the viewer's language via natToLang(value, lang)
+ * without ever leaking a raw 3-letter code to the UI.
+ */
+function normalizeCountry(value: string | null | undefined): string {
+  if (!value) return "";
+  return natToLang(value, "de") || "";
+}
 
 const ALLOWED_TYPES = [
   "application/pdf",
@@ -836,9 +849,33 @@ export async function POST(req: NextRequest) {
   try {
     const drive = getDriveClient();
     const folderName = firstName && lastName ? `${firstName.trim()} ${lastName.trim()}` : userId;
-    const folderId = await getOrCreateFolder(drive, folderName, ROOT_FOLDER_ID);
+    const candidateFolderId = await getOrCreateFolder(drive, folderName, ROOT_FOLDER_ID);
     const ext = file.name.split(".").pop() ?? "bin";
-    structuredName = buildFileName(firstName, lastName, fileKey, ext);
+
+    // For the "other" multi-doc slot we (a) put files in a "sonstiges"
+    // subfolder under the candidate's main folder, and (b) name them with
+    // an incrementing index (sonstiges_1, sonstiges_2, …) so admin Drive
+    // browsing stays tidy and no two files clash.
+    let folderId = candidateFolderId;
+    if (fileKey === "other") {
+      folderId = await getOrCreateFolder(drive, "sonstiges", candidateFolderId);
+      // Determine the next index by counting existing "other" docs for this
+      // user. Both DB rows and the Drive folder are kept in sync at upload
+      // time, so document count is a reliable next-index source.
+      const dbForCount = getServiceSupabase();
+      const { count: priorCount } = await dbForCount
+        .from("documents")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .eq("file_type", fileType);
+      const idx = (priorCount ?? 0) + 1;
+      const fn = (firstName.trim().toLowerCase().replace(/\s+/g, "_") || "kandidat");
+      const ln = (lastName.trim().toLowerCase().replace(/\s+/g, "_")  || "unbekannt");
+      structuredName = `${fn}_${ln}_sonstiges_${idx}.${ext}`;
+    } else {
+      structuredName = buildFileName(firstName, lastName, fileKey, ext);
+    }
+
     const stream = new PassThrough();
     stream.end(buffer);
     const driveRes = await drive.files.create({
@@ -869,9 +906,25 @@ export async function POST(req: NextRequest) {
 
   // Admin notification — `user_email` MUST be populated so the click-through
   // (`/api/portal/admin/notifications/<id>/doc`) can resolve the user_id.
-  // Used to be hardcoded to "" which broke every notification's preview popup.
-  const fullName = [firstName.trim(), lastName.trim()].filter(Boolean).join(" ") || "Unknown";
+  // Name resolution priority — fall back layer by layer so the admin never
+  // sees "Unknown" when ANY of the standard name fields are populated:
+  //   1. candidate_profiles.first_name + last_name (passport-OCR populated)
+  //   2. auth.users.user_metadata.full_name (set at signup)
+  //   3. auth.users.user_metadata.first_name + last_name
+  //   4. email local-part (e.g. "saad.tahari" from "saad.tahari@gmail.com")
+  //   5. Literal "Unknown" (only if everything else is empty)
+  const meta = user.user_metadata as Record<string, unknown> | undefined;
+  const metaFull  = typeof meta?.full_name  === "string" ? meta.full_name.trim()  : "";
+  const metaFirst = typeof meta?.first_name === "string" ? meta.first_name.trim() : "";
+  const metaLast  = typeof meta?.last_name  === "string" ? meta.last_name.trim()  : "";
   const userEmail = (user.email ?? "").toLowerCase();
+  const emailLocal = userEmail.split("@")[0]?.replace(/[._-]+/g, " ").trim();
+  const fullName =
+    [firstName.trim(), lastName.trim()].filter(Boolean).join(" ") ||
+    metaFull ||
+    [metaFirst, metaLast].filter(Boolean).join(" ") ||
+    emailLocal ||
+    "Unknown";
   await db.from("admin_notifications").insert({
     type: "upload", user_name: fullName, user_email: userEmail,
     doc_type: fileType, doc_name: structuredName,
@@ -899,12 +952,15 @@ export async function POST(req: NextRequest) {
           last_name:         azure.last_name,
           dob:               azure.dob,
           sex:               azure.sex,
-          nationality:       azure.nationality,
+          // Nationality + country_of_birth are normalized to German names so
+          // every downstream view (modal, dashboard, public profile, admin)
+          // gets clean text — never a raw "MAR" / "DEU" / etc.
+          nationality:       normalizeCountry(azure.nationality)       || azure.nationality,
           passport_no:       azure.passport_no,
           passport_expiry:   azure.passport_expiry,
           issue_date:        azure.issue_date  || vizData.issue_date,
           city_of_birth:     azure.city_of_birth    || vizData.city_of_birth,
-          country_of_birth:  azure.country_of_birth || vizData.country_of_birth,
+          country_of_birth:  normalizeCountry(azure.country_of_birth || vizData.country_of_birth),
           issuing_authority: vizData.issuing_authority,
           address_street:    vizData.address_street,
           address_number:    "",
@@ -954,8 +1010,11 @@ export async function POST(req: NextRequest) {
         if (mrzData) {
           passportData = {
             ...mrzData,
+            // Normalize ISO codes from MRZ to German country names —
+            // see normalizeCountry above.
+            nationality:       normalizeCountry(mrzData.nationality)       || mrzData.nationality,
             city_of_birth:     vizData.city_of_birth,
-            country_of_birth:  vizData.country_of_birth,
+            country_of_birth:  normalizeCountry(vizData.country_of_birth),
             issuing_authority: vizData.issuing_authority,
             issue_date:        vizData.issue_date,
             address_street:    vizData.address_street,
@@ -970,7 +1029,7 @@ export async function POST(req: NextRequest) {
             first_name:        "", last_name: "", dob: "", sex: "", nationality: "",
             passport_no:       "", passport_expiry: "",
             city_of_birth:     vizData.city_of_birth,
-            country_of_birth:  vizData.country_of_birth,
+            country_of_birth:  normalizeCountry(vizData.country_of_birth),
             issuing_authority: vizData.issuing_authority,
             issue_date:        vizData.issue_date,
             address_street:    vizData.address_street,

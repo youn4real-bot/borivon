@@ -167,10 +167,18 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
 
   return (
     <div
-      className="fixed inset-0 z-[1000] flex items-end sm:items-center justify-center sm:p-4"
-      style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
+      className="fixed inset-x-0 bottom-0 top-[58px] z-[700] flex items-end sm:items-center justify-center sm:p-4 bv-auth-modal-outer"
+      style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
       onClick={onClose}
     >
+      {/* Mobile: keep clearance for the bottom action bar so the modal never
+          slides behind the lang/theme/profile cluster. Desktop: navbar above
+          stays visible (bug button + nav). */}
+      <style>{`
+        @media (max-width: 639.98px) {
+          .bv-auth-modal-outer { padding-bottom: calc(0.5rem + 72px) !important; }
+        }
+      `}</style>
       <div
         className="w-full sm:max-w-[420px] rounded-[22px] flex flex-col"
         style={{
@@ -178,7 +186,7 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
           border: "1px solid var(--border)",
           boxShadow: "var(--shadow-lg)",
           animation: "bvFadeRise .28s var(--ease-out)",
-          maxHeight: "88dvh",
+          maxHeight: "calc(100dvh - 58px - 1.5rem)",
         }}
         onClick={e => e.stopPropagation()}
       >

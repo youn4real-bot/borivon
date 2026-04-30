@@ -6,6 +6,8 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { buildProfileSlug, ADMIN_PROFILE_SLUG } from "@/lib/profile-slug";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
+import { OrgCodeModal } from "@/components/OrgCodeModal";
+import { ProfilePopup } from "@/components/ProfilePopup";
 
 type UserInfo = {
   name: string;
@@ -14,11 +16,16 @@ type UserInfo = {
   isAdmin: boolean;
   /** Slug for the candidate's public profile page (only set for non-admins). */
   profileSlug: string | null;
+  /** Profile photo (data URL) — set when candidate has uploaded one in the CV builder. */
+  photo: string | null;
 };
 
 export function ProfileIcon() {
   const [user, setUser] = useState<UserInfo | null>(null);
   const [open, setOpen] = useState(false);
+  const [accessToken, setAccessToken] = useState<string>("");
+  const [orgModalOpen, setOrgModalOpen] = useState(false);
+  const [profilePopupSlug, setProfilePopupSlug] = useState<string | null>(null);
   const ref = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
@@ -26,7 +33,8 @@ export function ProfileIcon() {
     let cancelled = false;
     const apply = async (session: { user: { id?: string; email?: string; user_metadata?: { full_name?: string; first_name?: string; last_name?: string } } | null; access_token?: string } | null) => {
       const u = session?.user ?? null;
-      if (!u) { if (!cancelled) { setUser(null); setOpen(false); } return; }
+      if (!u) { if (!cancelled) { setUser(null); setOpen(false); setAccessToken(""); } return; }
+      if (!cancelled) setAccessToken(session?.access_token ?? "");
       const name = u.user_metadata?.full_name ?? u.email ?? "";
       const parts = name.trim().split(/\s+/);
       const initials = parts.length >= 2
@@ -59,11 +67,36 @@ export function ProfileIcon() {
           profileSlug = buildProfileSlug(metaFirst, ln, u.id);
         }
       }
-      if (!cancelled) setUser({ name, email: u.email ?? "", initials, isAdmin, profileSlug });
+      // Fetch the candidate's profile photo (set when they upload one in
+      // the CV builder). Admins don't have one — skip the call for them.
+      let photo: string | null = null;
+      if (!isAdmin && session?.access_token) {
+        try {
+          const res = await fetch("/api/portal/me/profile-photo", {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          });
+          const j = await res.json().catch(() => ({}));
+          if (typeof j?.photo === "string") photo = j.photo;
+        } catch { /* offline — show initials */ }
+      }
+      if (!cancelled) setUser({ name, email: u.email ?? "", initials, isAdmin, profileSlug, photo });
     };
     supabase.auth.getSession().then(({ data: { session } }) => apply(session));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => apply(session));
     return () => { cancelled = true; subscription.unsubscribe(); };
+  }, []);
+
+  // Live photo updates — the CV builder dispatches this event after a photo
+  // upload OR removal, so the navbar avatar swaps in the new image (or reverts
+  // to initials) without waiting for a page reload or doc approval.
+  useEffect(() => {
+    const onChange = (e: Event) => {
+      const ce = e as CustomEvent<{ photo: string | null }>;
+      const photo = ce.detail?.photo ?? null;
+      setUser(prev => (prev ? { ...prev, photo } : prev));
+    };
+    window.addEventListener("bv-profile-photo-changed", onChange);
+    return () => window.removeEventListener("bv-profile-photo-changed", onChange);
   }, []);
 
   useEffect(() => {
@@ -100,17 +133,17 @@ export function ProfileIcon() {
       <button
         onClick={() => setOpen((o) => !o)}
         aria-label="Profile"
-        className="w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-semibold tracking-wider cursor-pointer hover:scale-110 active:scale-95 transition-transform flex-shrink-0"
+        className="w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-semibold tracking-wider cursor-pointer hover:scale-110 active:scale-95 transition-transform flex-shrink-0 overflow-hidden"
         style={{
-          // Borderless minimalist avatar — soft gold tint when closed,
-          // solid gold when open. The circle IS the visual identity, no
-          // outline needed.
-          background: open ? "var(--gold)" : "var(--gdim)",
+          background: user.photo ? "transparent" : (open ? "var(--gold)" : "var(--gdim)"),
           color: open ? "#131312" : "var(--gold)",
           border: "none",
         }}
       >
-        {user.initials}
+        {user.photo ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={user.photo} alt={user.name} className="w-full h-full object-cover" />
+        ) : user.initials}
       </button>
 
       {open && (() => {
@@ -120,10 +153,17 @@ export function ProfileIcon() {
           <>
             {/* User info */}
             <div className="px-4 py-4" style={{ borderBottom: "1px solid var(--border)" }}>
-              <div className="w-11 h-11 rounded-full flex items-center justify-center text-[13px] font-semibold tracking-wider mx-auto mb-2.5"
-                style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                {user.initials}
-              </div>
+              {user.photo ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={user.photo} alt={user.name}
+                  className="w-11 h-11 rounded-full object-cover mx-auto mb-2.5"
+                  style={{ border: "1px solid var(--border-gold)" }} />
+              ) : (
+                <div className="w-11 h-11 rounded-full flex items-center justify-center text-[13px] font-semibold tracking-wider mx-auto mb-2.5"
+                  style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                  {user.initials}
+                </div>
+              )}
               <p className="text-[13px] font-semibold text-center truncate inline-flex items-center justify-center gap-0.5 w-full" style={{ color: "var(--w)" }}>
                 {user.name}
                 {user.isAdmin && <VerifiedBadge verified size="xs" isAdmin />}
@@ -133,23 +173,38 @@ export function ProfileIcon() {
             {/* Actions */}
             <div className="p-1.5 flex flex-col gap-0.5">
               {user.isAdmin && (
-                <button
-                  onClick={() => { setOpen(false); router.push("/portal/admin/manage"); }}
-                  className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
-                  style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
-                  onMouseEnter={e => { e.currentTarget.style.background = "var(--bg2)"; e.currentTarget.style.color = "var(--w)"; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--w2)"; }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
-                    <path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-                  </svg>
-                  Manage admins
-                </button>
+                <>
+                  <button
+                    onClick={() => { setOpen(false); router.push("/portal/admin/organizations"); }}
+                    className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
+                    style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
+                    onMouseEnter={e => { e.currentTarget.style.background = "var(--bg2)"; e.currentTarget.style.color = "var(--w)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--w2)"; }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/>
+                      <path d="M9 9v.01"/><path d="M9 12v.01"/><path d="M9 15v.01"/><path d="M9 18v.01"/>
+                    </svg>
+                    Organizations
+                  </button>
+                  <button
+                    onClick={() => { setOpen(false); router.push("/portal/admin/manage"); }}
+                    className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
+                    style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
+                    onMouseEnter={e => { e.currentTarget.style.background = "var(--bg2)"; e.currentTarget.style.color = "var(--w)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--w2)"; }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                      <path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                    </svg>
+                    Manage admins
+                  </button>
+                </>
               )}
               {user.profileSlug && (
                 <button
-                  onClick={() => { setOpen(false); window.open(`/${user.profileSlug}`, "_blank"); }}
+                  onClick={() => { setOpen(false); setProfilePopupSlug(user.profileSlug); }}
                   className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
                   style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
                   onMouseEnter={e => { e.currentTarget.style.background = "var(--bg2)"; e.currentTarget.style.color = "var(--w)"; }}
@@ -159,6 +214,24 @@ export function ProfileIcon() {
                     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
                   </svg>
                   My profile
+                </button>
+              )}
+              {/* Candidates can re-open the invite-code modal at any time —
+                  useful if they hit "Later" the first time, or want to add a
+                  second organization later. Hidden for the admin. */}
+              {!user.isAdmin && (
+                <button
+                  onClick={() => { setOpen(false); setOrgModalOpen(true); }}
+                  className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
+                  style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "var(--bg2)"; e.currentTarget.style.color = "var(--w)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--w2)"; }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/>
+                    <path d="M9 9v.01"/><path d="M9 12v.01"/><path d="M9 15v.01"/><path d="M9 18v.01"/>
+                  </svg>
+                  Join organization
                 </button>
               )}
               <button
@@ -210,6 +283,23 @@ export function ProfileIcon() {
           </div>
         );
       })()}
+
+      {/* Org-code modal — triggered from "Join organization" in the dropdown.
+          Mounted here (not in dashboard) so candidates can open it from any
+          portal page. */}
+      {orgModalOpen && accessToken && (
+        <OrgCodeModal
+          accessToken={accessToken}
+          onJoined={() => setOrgModalOpen(false)}
+          onSkip={() => setOrgModalOpen(false)}
+        />
+      )}
+
+      {/* In-app profile popup — replaces the old "open public page in new tab"
+          flow. Stays inside the website, no navigation, works on phone + laptop. */}
+      {profilePopupSlug && (
+        <ProfilePopup slug={profilePopupSlug} onClose={() => setProfilePopupSlug(null)} />
+      )}
     </div>
   );
 }

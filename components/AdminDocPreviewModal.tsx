@@ -6,6 +6,8 @@ import { CheckCircle2, XCircle } from "@/components/PortalIcons";
 import { X as XIcon, Download } from "lucide-react";
 import { AdminRejectModal } from "@/components/AdminRejectModal";
 import { PdfViewer } from "@/components/PdfViewer";
+import { DocxViewer } from "@/components/DocxViewer";
+import { ZoomPanRotateViewer } from "@/components/ZoomPanRotateViewer";
 import { Spinner } from "@/components/ui/states";
 
 type Doc = {
@@ -21,12 +23,21 @@ type Doc = {
 
 export function AdminDocPreviewModal({
   doc, accessToken, onClose, onUpdated, noPreviewText = "Preview not available",
+  onShowPassportData, sideBySide = false,
 }: {
   doc: Doc;
   accessToken: string;
   onClose: () => void;
   onUpdated?: (doc: Doc) => void;
   noPreviewText?: string;
+  /** When set AND the doc is a passport, a "Passport data" button appears
+   *  in the header next to Download. Clicking it triggers this callback —
+   *  the parent owns the passport-data popup state. */
+  onShowPassportData?: () => void;
+  /** Verification-phase split layout: this preview hugs the LEFT half on
+   *  laptop so the passport-data popup can sit on the right. On mobile we
+   *  ignore it and just stack vertically with the data popup below. */
+  sideBySide?: boolean;
 }) {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -118,11 +129,16 @@ export function AdminDocPreviewModal({
   if (typeof document === "undefined") return null;
 
   return createPortal(
-   <div className="fixed inset-x-0 bottom-0 top-[58px] z-[700] flex items-center justify-center p-4 bv-doc-preview-outer"
-      style={{ background: "rgba(0,0,0,0.72)" }}
+   <div className={`fixed inset-x-0 z-[700] flex justify-center p-4 bv-doc-preview-outer ${sideBySide ? "bv-side-preview" : "top-[58px] bottom-0 items-center"}`}
+      style={{ background: sideBySide ? "rgba(0,0,0,0.45)" : "rgba(0,0,0,0.72)",
+               backdropFilter: sideBySide ? "blur(8px)" : undefined,
+               ...(sideBySide ? {} : {}) }}
       onClick={() => { if (!submitting) onClose(); }}>
-      {/* On mobile the bottom action bar sits ~72px above the screen edge —
-          shrink the card so it never slides behind it. Desktop unchanged. */}
+      {/* Side-by-side mode (passport verification phase):
+            Laptop → preview hugs the LEFT half centered, gap on the right
+                     so the data form sits in the right half with breathing room
+            Phone  → preview takes the TOP half; data form lives in the bottom
+                     half (no overlapping, can be seen at a glance) */}
       <style>{`
         @media (max-width: 639.98px) {
           .bv-doc-preview-outer { padding-bottom: calc(1rem + 72px) !important; }
@@ -130,9 +146,38 @@ export function AdminDocPreviewModal({
             height: calc(100dvh - 58px - 1rem - 72px - 1rem) !important;
             max-height: calc(100dvh - 58px - 1rem - 72px - 1rem) !important;
           }
+          .bv-side-preview {
+            top: 58px !important;
+            bottom: calc(50dvh + 0.25rem) !important;
+            padding-bottom: 0.25rem !important;
+            align-items: center !important;
+          }
+          .bv-side-preview .bv-doc-preview-card {
+            height: 100% !important;
+            max-height: 100% !important;
+          }
+        }
+        @media (min-width: 640px) {
+          .bv-side-preview {
+            top: 58px;
+            bottom: 0;
+            align-items: center;
+            /* Hug the centerline: card right-edge sits at 50vw exactly,
+               so the data form can sit flush against it on the other side.
+               No mid-screen gap. */
+            justify-content: flex-end !important;
+            padding-right: 50vw;
+            padding-left: 1rem;
+          }
+          /* Passport pages are wider than tall, so the preview card never
+             needs to fill the full vertical space — cap it at ~620px and
+             let the data form extend taller next to it if needed. */
+          .bv-side-preview .bv-doc-preview-card {
+            max-height: 620px;
+          }
         }
       `}</style>
-      <div className="bv-doc-preview-card w-full max-w-4xl overflow-hidden flex flex-col"
+      <div className={`bv-doc-preview-card w-full overflow-hidden flex flex-col ${sideBySide ? "sm:max-w-[560px]" : "max-w-4xl"}`}
         style={{
           background: "var(--card)",
           border: "1px solid var(--border)",
@@ -157,6 +202,28 @@ export function AdminDocPreviewModal({
                 style={{ background: "rgba(224,82,82,0.1)", color: "#e05252", border: "1px solid rgba(224,82,82,0.25)" }}>
                 {actionError}
               </span>
+            )}
+            {/* "Passport data" button — only when the doc is a passport AND
+                 the parent has provided a handler. Replaces the old standalone
+                 "Passport Data" row in the doc list. */}
+            {onShowPassportData && /pass/i.test(doc.file_type) && (
+              <button
+                type="button"
+                onClick={onShowPassportData}
+                title="Passport data"
+                aria-label="Passport data"
+                className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-2.5 h-8 rounded-full transition-colors"
+                style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="16" rx="2"/>
+                  <circle cx="9" cy="10" r="2"/>
+                  <line x1="14" y1="9" x2="18" y2="9"/>
+                  <line x1="14" y1="13" x2="18" y2="13"/>
+                  <line x1="6" y1="16" x2="18" y2="16"/>
+                </svg>
+                Passport data
+              </button>
             )}
             {blobUrl && (
               <a
@@ -202,17 +269,42 @@ export function AdminDocPreviewModal({
           </div>
         </div>
 
-        {/* ── Body ── Custom PDF.js viewer (same engine as Drive, but in our DOM) */}
+        {/* ── Body ── PDF / image / "download to view" fallback */}
         <div className="flex-1" style={{ minHeight: 0, position: "relative" }}>
-          {blobUrl
-            ? <PdfViewer src={blobUrl} />
-            : doc.drive_file_id
-              ? <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#525659" }}>
-                  <Spinner size="md" />
-                </div>
-              : <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <p className="text-sm" style={{ color: "var(--w3)" }}>{noPreviewText}</p>
-                </div>}
+          {blobUrl ? (() => {
+            const ext = (doc.file_name.split(".").pop() ?? "").toLowerCase();
+            if (ext === "pdf") return <PdfViewer src={blobUrl} />;
+            if (ext === "docx") return <DocxViewer src={blobUrl} fileName={doc.file_name} />;
+            if (["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext)) {
+              return (
+                <ZoomPanRotateViewer>
+                  { /* eslint-disable-next-line @next/next/no-img-element */ }
+                  <img src={blobUrl} alt={doc.file_name}
+                    draggable={false}
+                    style={{ maxWidth: "90vw", maxHeight: "85vh", objectFit: "contain", userSelect: "none", pointerEvents: "none" }} />
+                </ZoomPanRotateViewer>
+              );
+            }
+            return (
+              <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#525659", color: "#fff", padding: "1rem", textAlign: "center" }}>
+                <p className="text-[14px] font-semibold mb-2">Preview not available for .{ext}</p>
+                <p className="text-[12.5px] opacity-80 mb-4">Download the file to open it in your default app.</p>
+                <a href={blobUrl} download={doc.file_name}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-[13px] font-semibold"
+                  style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)" }}>
+                  <Download size={13} strokeWidth={1.8} /> Download
+                </a>
+              </div>
+            );
+          })() : doc.drive_file_id ? (
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#525659" }}>
+              <Spinner size="md" />
+            </div>
+          ) : (
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <p className="text-sm" style={{ color: "var(--w3)" }}>{noPreviewText}</p>
+            </div>
+          )}
         </div>
 
       </div>

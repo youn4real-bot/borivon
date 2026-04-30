@@ -7,23 +7,11 @@ import { supabase } from "@/lib/supabase";
 import { Bell, Paperclip, CheckCircle2, XCircle, User } from "@/components/PortalIcons";
 import { X as XIcon } from "lucide-react";
 import { Spinner } from "@/components/ui/states";
-import { AdminDocPreviewModal } from "@/components/AdminDocPreviewModal";
-
 // ── Types ─────────────────────────────────────────────────────────────────────
-
-type Doc = {
-  id: string;
-  user_id: string;
-  file_name: string;
-  file_type: string;
-  uploaded_at: string;
-  status: string;
-  feedback: string | null;
-  drive_file_id: string | null;
-};
 
 type CandidateNotif = {
   id: string;
+  doc_id: string | null;
   doc_name: string;
   doc_type: string;
   action: "approved" | "rejected";
@@ -41,11 +29,6 @@ type AdminNotif = {
   doc_name: string | null;
   read: boolean;
   created_at: string;
-};
-
-type ReviewState = {
-  doc: Doc | null;
-  loading: boolean;
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -172,7 +155,7 @@ function NotifDropdown({ label, total, unread, tab, onTabChange, onClose, childr
 
 // ── Candidate bell ────────────────────────────────────────────────────────────
 
-function CandidateBell({ userId }: { userId: string }) {
+function CandidateBell({ userId, accessToken }: { userId: string; accessToken: string }) {
   const [notifs, setNotifs] = useState<CandidateNotif[]>([]);
   const [open, setOpen]     = useState(false);
   const [tab, setTab]       = useState<"all" | "unread">("all");
@@ -182,7 +165,7 @@ function CandidateBell({ userId }: { userId: string }) {
   const fetch_ = useCallback(async () => {
     const { data } = await supabase
       .from("notifications")
-      .select("id, doc_name, doc_type, action, feedback, read, created_at")
+      .select("id, doc_id, doc_name, doc_type, action, feedback, read, created_at")
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(30);
@@ -233,12 +216,31 @@ function CandidateBell({ userId }: { userId: string }) {
     if (next && unread > 0) markAllRead();
   }
 
-  function handleClick(n: CandidateNotif) {
+  async function handleClick(n: CandidateNotif) {
     setOpen(false);
-    // Dispatch custom event so the dashboard can react even when already on that page
-    window.dispatchEvent(new CustomEvent("bv-nav-doc", { detail: n.doc_type }));
-    // Also push URL so navigation works when coming from another page
-    router.push(`/portal/dashboard?nav_doc=${encodeURIComponent(n.doc_type)}`);
+
+    let docId = n.doc_id ?? null;
+
+    if (!docId) {
+      try {
+        const res = await fetch(`/api/portal/notifications/${encodeURIComponent(n.id)}/doc`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (res.ok) {
+          const { doc } = await res.json();
+          if (doc?.id) docId = doc.id;
+        }
+      } catch (e) {
+        console.error("[notif click] doc lookup failed:", e);
+      }
+    }
+
+    router.push(`/portal/dashboard${docId ? `?nav_doc_id=${encodeURIComponent(docId)}` : ""}`);
+    if (docId) {
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("bv-nav-doc", { detail: { docId } }));
+      }, 30);
+    }
   }
 
   return (
@@ -304,7 +306,6 @@ function AdminBell({ accessToken }: { accessToken: string }) {
   const [notifs, setNotifs]   = useState<AdminNotif[]>([]);
   const [open, setOpen]       = useState(false);
   const [tab, setTab]         = useState<"all" | "unread">("all");
-  const [review, setReview]   = useState<ReviewState | null>(null);
   const ref    = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
@@ -326,7 +327,7 @@ function AdminBell({ accessToken }: { accessToken: string }) {
       if (window.matchMedia("(max-width: 639.98px)").matches) return;
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
-    const key  = (e: KeyboardEvent) => { if (e.key === "Escape") { setOpen(false); setReview(null); } };
+    const key  = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     document.addEventListener("mousedown", down);
     document.addEventListener("keydown", key);
     return () => { document.removeEventListener("mousedown", down); document.removeEventListener("keydown", key); };
@@ -381,67 +382,50 @@ function AdminBell({ accessToken }: { accessToken: string }) {
     // Signup → navigate to admin candidate view
     if (n.type === "signup") {
       router.push(`/portal/admin?nav_email=${encodeURIComponent(n.user_email)}`);
+      // Also dispatch in case admin is already on the page (router.push
+      // doesn't re-run the URL-param effect on the same route).
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("bv-admin-deep-link", {
+          detail: { email: n.user_email, docId: null },
+        }));
+      }, 30);
       return;
     }
 
-    // Upload → open the same preview modal admin sees when clicking a doc row
-    setReview({ doc: null, loading: true });
-
+    // Upload → resolve the doc, navigate AND dispatch event. The admin page
+    // listens for the event and opens the same preview popup the admin gets
+    // from a normal row click. URL is also updated so a refresh works.
     try {
-      // Server resolves the doc — no client-side dedup mismatches.
       const res = await fetch(`/api/portal/admin/notifications/${encodeURIComponent(n.id)}/doc`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
-      if (!res.ok) {
-        console.warn("[notif click] doc lookup failed:", res.status, n);
-        setReview({ doc: null, loading: false });
-        return;
+      if (res.ok) {
+        const { doc } = await res.json();
+        if (doc?.id && doc?.user_id) {
+          const email = n.user_email || "";
+          router.push(`/portal/admin?nav_email=${encodeURIComponent(email)}&nav_doc_id=${encodeURIComponent(doc.id)}`);
+          setTimeout(() => {
+            window.dispatchEvent(new CustomEvent("bv-admin-deep-link", {
+              detail: { email, docId: doc.id, userId: doc.user_id, fileType: doc.file_type },
+            }));
+          }, 30);
+          return;
+        }
       }
-      const json = await res.json();
-      setReview({ doc: json.doc ?? null, loading: false });
     } catch (e) {
-      console.error("[notif click] failed:", e);
-      setReview(null);
+      console.error("[notif click] doc lookup failed:", e);
     }
+    // Fallback: at least navigate to the candidate
+    router.push(`/portal/admin?nav_email=${encodeURIComponent(n.user_email || "")}`);
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent("bv-admin-deep-link", {
+        detail: { email: n.user_email, docId: null },
+      }));
+    }, 30);
   }
 
   return (
     <>
-      {/* Same preview modal as the admin page row click */}
-      {review?.doc && (
-        <AdminDocPreviewModal
-          doc={review.doc}
-          accessToken={accessToken}
-          onClose={() => setReview(null)}
-          onUpdated={() => { fetch_(); }}
-        />
-      )}
-      {review && review.loading && !review.doc && typeof document !== "undefined" && createPortal(
-        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[700] flex items-center justify-center"
-          style={{ background: "rgba(0,0,0,0.4)", backdropFilter: "blur(4px)" }}
-          onClick={() => setReview(null)}>
-          <Spinner size="md" />
-        </div>,
-        document.body,
-      )}
-      {review && !review.loading && !review.doc && typeof document !== "undefined" && createPortal(
-        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[700] flex items-center justify-center p-4"
-          style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}
-          onClick={() => setReview(null)}>
-          <div className="max-w-sm p-6 text-center"
-            style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-lg)", boxShadow: "var(--shadow-lg)" }}
-            onClick={e => e.stopPropagation()}>
-            <p className="text-[14px] font-semibold mb-2" style={{ color: "var(--w)" }}>Document not found</p>
-            <p className="text-[12px]" style={{ color: "var(--w3)" }}>The candidate may have replaced or removed it. Open the candidate's panel to see all their docs.</p>
-            <button onClick={() => setReview(null)} className="mt-4 px-4 py-1.5 rounded-full text-[12px] font-semibold"
-              style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }}>
-              Close
-            </button>
-          </div>
-        </div>,
-        document.body,
-      )}
-
       <div ref={ref} className="relative">
         <BellButton unread={unread} open={open} onClick={toggle} />
         {open && (
@@ -523,7 +507,7 @@ export function NotificationBell() {
   const [state, setState] = useState<
     | { kind: "loading" }
     | { kind: "admin";     accessToken: string }
-    | { kind: "candidate"; userId: string }
+    | { kind: "candidate"; userId: string; accessToken: string }
     | { kind: "none" }
   >({ kind: "loading" });
 
@@ -544,7 +528,7 @@ export function NotificationBell() {
       } catch { /* offline */ }
       if (cancelled) return;
       if (role === "admin") setState({ kind: "admin", accessToken: session?.access_token ?? "" });
-      else                  setState({ kind: "candidate", userId: user.id });
+      else                  setState({ kind: "candidate", userId: user.id, accessToken: session?.access_token ?? "" });
     };
     supabase.auth.getSession().then(({ data: { session } }) => apply(session));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => apply(session));
@@ -553,5 +537,5 @@ export function NotificationBell() {
 
   if (state.kind === "loading" || state.kind === "none") return null;
   if (state.kind === "admin")     return <AdminBell accessToken={state.accessToken} />;
-  return <CandidateBell userId={state.userId} />;
+  return <CandidateBell userId={state.userId} accessToken={state.accessToken} />;
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceSupabase } from "@/lib/supabase";
+import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
 
 // Called client-side from /portal/auth/callback after a new user signs up.
@@ -10,13 +10,9 @@ export async function POST(req: NextRequest) {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   // Pull display name from verified user metadata; never trust the body
-  const url  = process.env.NEXT_PUBLIC_SUPABASE_URL  ?? "";
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
   let displayName = auth.email;
   try {
-    const { createClient } = await import("@supabase/supabase-js");
-    const supa = createClient(url, anon, { auth: { persistSession: false, autoRefreshToken: false } });
-    const { data } = await supa.auth.getUser(auth.jwt);
+    const { data } = await getAnonVerifyClient().auth.getUser(auth.jwt);
     const fullName = data?.user?.user_metadata?.full_name;
     if (typeof fullName === "string" && fullName.trim()) displayName = fullName.trim().slice(0, 200);
   } catch { /* fall back to email */ }

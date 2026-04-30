@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { getServiceSupabase } from "@/lib/supabase";
+import { VERIFICATION_FILE_TYPES } from "@/lib/constants";
 
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
 
@@ -21,14 +21,11 @@ export async function GET(req: NextRequest) {
   if (!token) {
     return NextResponse.json({ authenticated: false, verified: false, isAdmin: false });
   }
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-  const sk  = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
-  const admin = createClient(url, sk);
-
+  const db = getServiceSupabase();
   let userId = "";
   let userEmail = "";
   try {
-    const { data, error } = await admin.auth.getUser(token);
+    const { data, error } = await db.auth.getUser(token);
     if (error || !data?.user) {
       return NextResponse.json({ authenticated: false, verified: false, isAdmin: false });
     }
@@ -43,13 +40,22 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ authenticated: true, verified: true, isAdmin: true });
   }
 
-  // Verification = passport approved + Lebenslauf approved
-  const db = getServiceSupabase();
+  // 1) Manual override — admin can grant the blue tick directly.
+  const { data: profile } = await db
+    .from("candidate_profiles")
+    .select("manually_verified")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (profile && (profile as { manually_verified?: boolean }).manually_verified) {
+    return NextResponse.json({ authenticated: true, verified: true, isAdmin: false });
+  }
+
+  // 2) Doc-based: passport approved + Lebenslauf approved
   const { data: docs } = await db
     .from("documents")
     .select("file_type,status")
     .eq("user_id", userId)
-    .in("file_type", ["Passport", "Reisepass", "Passeport", "Lebenslauf (DE)", "Lebenslauf"])
+    .in("file_type", VERIFICATION_FILE_TYPES)
     .eq("status", "approved");
 
   const hasPassport = (docs ?? []).some(d => /pass/i.test(d.file_type));

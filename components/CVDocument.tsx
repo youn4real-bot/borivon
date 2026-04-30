@@ -173,10 +173,12 @@ const s = StyleSheet.create({
     marginBottom: 14,
   },
   photo: {
-    width: 72,
-    height: 90,
+    // Square so border-radius produces a perfect circle. The image saved by
+    // PhotoCropModal is already 600×600, so no awkward squishing here.
+    width: 80,
+    height: 80,
     objectFit: "cover",
-    borderRadius: 4,
+    borderRadius: 40,
   },
 
   // ── Section ──

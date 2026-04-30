@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { getServiceSupabase } from "@/lib/supabase";
 import { buildProfileSlug, parseProfileSlug, ADMIN_PROFILE_SLUG } from "@/lib/profile-slug";
+import { VERIFICATION_FILE_TYPES } from "@/lib/constants";
 
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
 
@@ -27,10 +27,8 @@ export async function GET(
   const parsed = isAdminSlug ? null : parseProfileSlug(slug);
   if (!parsed && !isAdminSlug) return NextResponse.json({ error: "not_found" }, { status: 404 });
 
+  // Single service-role client for all operations (DB queries + auth admin API)
   const db = getServiceSupabase();
-  const url  = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-  const sk   = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
-  const adminClient = createClient(url, sk);
 
   // Special case: the admin's vanity slug → resolve via ADMIN_EMAIL.
   let isAdminUser = false;
@@ -42,6 +40,7 @@ export async function GET(
     city_of_residence: string | null;
     country_of_residence: string | null;
     nationality: string | null;
+    profile_photo: string | null;
   } | null = null;
 
   if (isAdminSlug) {
@@ -50,7 +49,7 @@ export async function GET(
       try {
         let page = 1;
         while (page <= 50) {
-          const { data: usersList } = await adminClient.auth.admin.listUsers({ perPage: 200, page });
+          const { data: usersList } = await db.auth.admin.listUsers({ perPage: 200, page });
           const list = usersList?.users ?? [];
           if (list.length === 0) break;
           const u = list.find(u => (u.email ?? "").toLowerCase() === ADMIN_EMAIL);
@@ -62,6 +61,7 @@ export async function GET(
               city_of_residence: null,
               country_of_residence: null,
               nationality: null,
+              profile_photo: null,
             };
             isAdminUser = true;
             break;
@@ -78,7 +78,7 @@ export async function GET(
     // a public-profile bot probing random slugs can't melt the DB this way.
     const { data: profiles } = await db
       .from("candidate_profiles")
-      .select("user_id,first_name,last_name,city_of_residence,country_of_residence,nationality")
+      .select("user_id,first_name,last_name,city_of_residence,country_of_residence,nationality,profile_photo")
       .ilike("first_name", `${parsed.firstName.replace(/_/g, "\\_").replace(/%/g, "\\%")}%`);
 
     match = (profiles ?? []).find(p =>
@@ -91,7 +91,7 @@ export async function GET(
     try {
       let page = 1;
       while (page <= 50) {
-        const { data: usersList } = await adminClient.auth.admin.listUsers({ perPage: 200, page });
+        const { data: usersList } = await db.auth.admin.listUsers({ perPage: 200, page });
         const list = usersList?.users ?? [];
         if (list.length === 0) break;
         const u = list.find(u => {
@@ -100,6 +100,13 @@ export async function GET(
           return buildProfileSlug(fn, ln, u.id) === slugLower;
         });
         if (u) {
+          // Try to fetch profile_photo from candidate_profiles even without
+          // a name match (the legacy listUsers fallback path).
+          const { data: prof } = await db
+            .from("candidate_profiles")
+            .select("profile_photo")
+            .eq("user_id", u.id)
+            .maybeSingle();
           match = {
             user_id: u.id,
             first_name: (u.user_metadata?.first_name as string) ?? null,
@@ -107,6 +114,7 @@ export async function GET(
             city_of_residence: null,
             country_of_residence: null,
             nationality: null,
+            profile_photo: (prof as { profile_photo?: string | null } | null)?.profile_photo ?? null,
           };
           break;
         }
@@ -133,7 +141,7 @@ export async function GET(
   } else {
     // Detect "this match IS the admin" even when slug isn't /borivon
     try {
-      const { data } = await adminClient.auth.admin.getUserById(match.user_id);
+      const { data } = await db.auth.admin.getUserById(match.user_id);
       if (ADMIN_EMAIL && (data?.user?.email ?? "").toLowerCase() === ADMIN_EMAIL) {
         verified = true;
         isAdminUser = true;
@@ -141,11 +149,22 @@ export async function GET(
     } catch { /* ignore */ }
 
     if (!verified) {
+      // Manual override — admin can grant the blue tick directly
+      const { data: prof } = await db
+        .from("candidate_profiles")
+        .select("manually_verified")
+        .eq("user_id", match.user_id)
+        .maybeSingle();
+      if (prof && (prof as { manually_verified?: boolean }).manually_verified) {
+        verified = true;
+      }
+    }
+    if (!verified) {
       const { data: docs } = await db
         .from("documents")
         .select("file_type,status")
         .eq("user_id", match.user_id)
-        .in("file_type", ["Passport", "Reisepass", "Passeport", "Lebenslauf (DE)", "Lebenslauf"])
+        .in("file_type", VERIFICATION_FILE_TYPES)
         .eq("status", "approved");
       const hasApprovedPassport = (docs ?? []).some(d => /pass/i.test(d.file_type));
       const hasApprovedCV       = (docs ?? []).some(d => /lebenslauf|cv/i.test(d.file_type));
@@ -158,7 +177,7 @@ export async function GET(
   let avatarInitial = (match.first_name ?? "?").charAt(0).toUpperCase();
   let displayName   = [match.first_name, match.last_name].filter(Boolean).join(" ");
   try {
-    const { data } = await adminClient.auth.admin.getUserById(match.user_id);
+    const { data } = await db.auth.admin.getUserById(match.user_id);
     if (data?.user?.user_metadata?.full_name) {
       displayName = String(data.user.user_metadata.full_name).slice(0, 200);
       avatarInitial = displayName.charAt(0).toUpperCase();
@@ -174,6 +193,7 @@ export async function GET(
       slug: isAdminUser ? ADMIN_PROFILE_SLUG : slug,
       name: isAdminUser ? "Borivon" : displayName,
       initial: isAdminUser ? "B" : avatarInitial,
+      photoUrl: isAdminUser ? null : (match.profile_photo ?? null),
       cityOfResidence: match.city_of_residence ?? null,
       countryOfResidence: match.country_of_residence ?? null,
       nationality: match.nationality ?? null,

@@ -1,20 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
-import { createClient } from "@supabase/supabase-js";
 import { LABEL_TO_FILE_KEY } from "@/lib/fileKeys";
-import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
-
-// Allowlist of profile columns sub-admins / admins are permitted to update via PATCH.
-// Anything outside this list is silently dropped, preventing mass-assignment.
-const ALLOWED_PROFILE_FIELDS = new Set<string>([
-  "first_name", "last_name", "dob", "sex", "nationality",
-  "passport_no", "passport_expiry", "city_of_birth", "country_of_birth",
-  "issuing_authority", "issue_date",
-  "address_street", "address_number", "address_postal",
-  "city_of_residence", "country_of_residence",
-  "passport_status", "passport_feedback",
-  "marital_status", "children_ages",
-]);
+import { requireAdminRole, canActOnCandidate, getVisibleCandidateIds } from "@/lib/admin-auth";
+import { DOC_STATUSES, ALLOWED_PROFILE_FIELDS } from "@/lib/constants";
 
 // GET — fetch candidates + their docs (filtered for sub-admins)
 export async function GET(req: NextRequest) {
@@ -34,13 +22,9 @@ export async function GET(req: NextRequest) {
     if (error) { console.error("[admin GET] documents query failed:", error); return NextResponse.json({ error: "Internal error" }, { status: 500 }); }
     docs = data ?? [];
   } else {
-    // Sub-admin — only assigned candidates
-    const { data: assignments } = await db
-      .from("sub_admin_assignments")
-      .select("candidate_user_id")
-      .eq("sub_admin_email", token);
-
-    const assignedIds = (assignments ?? []).map((a: { candidate_user_id: string }) => a.candidate_user_id);
+    // Sub-admin — only candidates they have access to.
+    // Combines direct assignments AND organization membership.
+    const assignedIds = await getVisibleCandidateIds(token);
 
     if (assignedIds.length === 0) {
       return NextResponse.json({ docs: [], users: {}, role });
@@ -56,11 +40,8 @@ export async function GET(req: NextRequest) {
     docs = data ?? [];
   }
 
-  // Fetch user metadata
-  const adminClient = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
-    process.env.SUPABASE_SERVICE_ROLE_KEY ?? ""
-  );
+  // Fetch user metadata (reuse the same service-role client)
+  const adminClient = getServiceSupabase();
 
   const userIds = [...new Set(docs.map((d: { user_id: string }) => d.user_id))];
   const users: Record<string, { email: string; name: string }> = {};
@@ -83,7 +64,7 @@ export async function GET(req: NextRequest) {
   // Fetch passport profiles (all fields)
   const { data: profileRows } = await db
     .from("candidate_profiles")
-    .select("user_id, first_name, last_name, dob, sex, nationality, passport_no, passport_expiry, city_of_birth, country_of_birth, issuing_authority, issue_date, address_street, address_number, address_postal, city_of_residence, country_of_residence, passport_status, passport_feedback, marital_status, children_ages")
+    .select("user_id, first_name, last_name, dob, sex, nationality, passport_no, passport_expiry, city_of_birth, country_of_birth, issuing_authority, issue_date, address_street, address_number, address_postal, city_of_residence, country_of_residence, passport_status, passport_feedback, marital_status, children_ages, manually_verified, profile_photo")
     .in("user_id", userIds);
   const profiles: Record<string, {
     first_name: string | null; last_name: string | null;
@@ -98,6 +79,8 @@ export async function GET(req: NextRequest) {
     passport_feedback: string | null;
     marital_status: string | null;
     children_ages: string | null;
+    manually_verified: boolean | null;
+    profile_photo: string | null;
   }> = {};
   for (const p of profileRows ?? []) {
     profiles[p.user_id] = p;
@@ -106,17 +89,52 @@ export async function GET(req: NextRequest) {
   // ── Deduplicate: per (user_id, fileKey) keep only the most-recent doc ─────────
   // Docs are already sorted uploaded_at DESC so first occurrence = latest version.
   // Older versions go into docHistory so admin can view upload trail.
+  // EXCEPTION: "other" (Sonstiges) is a multi-doc slot — every upload is a
+  // distinct peer file, so all of them stay in activeDocs.
   const seen = new Set<string>();
   const activeDocs: typeof docs = [];
   const docHistory: typeof docs = [];
   for (const d of docs) {
-    const fk   = LABEL_TO_FILE_KEY[(d as { file_type: string }).file_type] ?? (d as { file_type: string }).file_type;
-    const slot = `${(d as { user_id: string }).user_id}:${fk}`;
+    const fileType = (d as { file_type: string }).file_type;
+    const fk   = LABEL_TO_FILE_KEY[fileType] ?? fileType;
+    const userId = (d as { user_id: string }).user_id;
+    if (fk === "other") {
+      activeDocs.push(d);
+      continue;
+    }
+    const slot = `${userId}:${fk}`;
     if (!seen.has(slot)) { seen.add(slot); activeDocs.push(d); }
     else                  docHistory.push(d);
   }
 
-  return NextResponse.json({ docs: activeDocs, docHistory, users, profiles, role });
+  // Org links per candidate (only approved links — pending links shouldn't
+  // surface as "this candidate belongs to X" in the admin candidate list)
+  const candidateOrgs: Record<string, { id: string; name: string }[]> = {};
+  if (userIds.length > 0) {
+    const { data: orgLinks } = await db
+      .from("candidate_organizations")
+      .select("candidate_user_id, org_id")
+      .eq("status", "approved")
+      .in("candidate_user_id", userIds);
+    type LinkRow = { candidate_user_id: string; org_id: string };
+    const linkRows = (orgLinks ?? []) as LinkRow[];
+    const orgIds = [...new Set(linkRows.map(l => l.org_id))];
+    type OrgRow = { id: string; name: string };
+    let orgs: OrgRow[] = [];
+    if (orgIds.length > 0) {
+      const { data } = await db.from("organizations").select("id, name").in("id", orgIds);
+      orgs = (data ?? []) as OrgRow[];
+    }
+    const orgById: Record<string, OrgRow> = {};
+    for (const o of orgs) orgById[o.id] = o;
+    for (const l of linkRows) {
+      const o = orgById[l.org_id];
+      if (!o) continue;
+      (candidateOrgs[l.candidate_user_id] ??= []).push(o);
+    }
+  }
+
+  return NextResponse.json({ docs: activeDocs, docHistory, users, profiles, candidateOrgs, role });
 }
 
 // POST — update status + feedback, then notify candidate
@@ -131,7 +149,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Bad request" }, { status: 400 });
   }
   // Allow only known status values
-  if (!["approved", "rejected", "pending"].includes(status)) {
+  if (!(DOC_STATUSES as readonly string[]).includes(status)) {
     return NextResponse.json({ error: "Bad request" }, { status: 400 });
   }
 

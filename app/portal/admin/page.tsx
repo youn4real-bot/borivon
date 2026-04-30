@@ -83,6 +83,8 @@ type CandidateProfile = {
   passport_feedback: string | null;
   marital_status: string | null;
   children_ages: string | null;
+  manually_verified: boolean | null;
+  profile_photo: string | null;
 };
 
 type AdminPipeline = {
@@ -165,6 +167,9 @@ export default function AdminPage() {
   const [docs, setDocs]             = useState<Doc[]>([]);
   const [users, setUsers]           = useState<Record<string, UserInfo>>({});
   const [profiles, setProfiles]     = useState<Record<string, CandidateProfile>>({});
+  // Approved org links per candidate (filled from /api/portal/admin response).
+  // Used to render a small "Calmaroi" tag under each candidate's email.
+  const [candidateOrgs, setCandidateOrgs] = useState<Record<string, { id: string; name: string }[]>>({});
   const [loading, setLoading]       = useState(true);
   const [feedbacks, setFeedbacks]     = useState<Record<string, string>>({});
   const [dirtyFeedbacks, setDirtyFeedbacks] = useState<Set<string>>(new Set());
@@ -186,10 +191,30 @@ export default function AdminPage() {
   const [profileSaved, setProfileSaved]         = useState(false);
   const [activePipelineStage, setActivePipelineStage] = useState<string | null>(null);
   const [showPassportInfo, setShowPassportInfo] = useState(false);
+  // Auto-open passport data alongside the doc preview during the verification
+  // phase. Once both the doc AND the data are approved, this stops triggering
+  // and the data popup is opened only via the explicit "Passport data" button.
+  React.useEffect(() => {
+    if (!previewDoc) {
+      setShowPassportInfo(false);
+      return;
+    }
+    if (!/pass/i.test(previewDoc.file_type)) return;
+    const docApproved  = previewDoc.status === "approved";
+    const dataApproved = profiles[previewDoc.user_id]?.passport_status === "approved";
+    if (!docApproved || !dataApproved) {
+      setShowPassportInfo(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewDoc?.id]);
   // Modal-specific edit/review states (separate from the profile-card edit mode)
   const [passportInfoEditMode, setPassportInfoEditMode] = useState(false);
   const [passportInfoEdits, setPassportInfoEdits]       = useState<Partial<CandidateProfile>>({});
   const [passportInfoSaving, setPassportInfoSaving]     = useState(false);
+  // Admin-side per-field review checklist — same UX as candidate's confirmation
+  // boxes (orange ring → green tick). The admin clicks each field to mark it as
+  // reviewed; once all populated fields are ticked, an "Approve" hint highlights.
+  const [adminConfirmedFields, setAdminConfirmedFields] = useState<Set<string>>(new Set());
   const [docHistory, setDocHistory] = useState<Doc[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   // Which doc id has the revoke/reject context menu open (null = none)
@@ -219,14 +244,23 @@ export default function AdminPage() {
         setDocHistory(json.docHistory ?? []);
         setUsers(json.users ?? {});
         setProfiles(json.profiles ?? {});
+        setCandidateOrgs(json.candidateOrgs ?? {});
         const fb: Record<string, string> = {};
         for (const d of json.docs ?? []) fb[d.id] = d.feedback ?? "";
         setFeedbacks(fb);
 
-        // Deep-link from notification: auto-select candidate + phase
-        const params   = new URLSearchParams(window.location.search);
-        const navEmail = params.get("nav_email");
-        const navDoc   = params.get("nav_doc");
+        // Deep-link from notification:
+        //   - nav_email      → auto-select that candidate
+        //   - nav_doc        → jump to the doc's phase (file_type-based)
+        //   - nav_doc_id     → ALSO open that exact doc in the preview modal
+        //                      (uses the page's main `previewDoc` state so the
+        //                      auto-side-by-side / passport-data button etc.
+        //                      all behave like a normal row click — never
+        //                      a separate orphan modal)
+        const params    = new URLSearchParams(window.location.search);
+        const navEmail  = params.get("nav_email");
+        const navDoc    = params.get("nav_doc");
+        const navDocId  = params.get("nav_doc_id");
         if (navEmail) {
           const uid = Object.keys(json.users ?? {}).find(
             (id: string) => ((json.users[id]?.email as string) ?? "").toLowerCase() === navEmail.toLowerCase()
@@ -234,6 +268,17 @@ export default function AdminPage() {
           if (uid) {
             setSelectedUser(uid);
             if (navDoc) setActivePhase(getPhaseIdx(navDoc));
+            if (navDocId) {
+              // Try to find the doc in the freshly-loaded list
+              type AnyDoc = { id: string; user_id: string; file_type: string };
+              const all = [...((json.docs ?? []) as AnyDoc[]), ...((json.docHistory ?? []) as AnyDoc[])];
+              const doc = all.find(d => d.id === navDocId);
+              if (doc) {
+                setActivePhase(getPhaseIdx(doc.file_type));
+                // Open the preview after the candidate panel has had a tick to render
+                setTimeout(() => setPreviewDoc(doc as Doc), 50);
+              }
+            }
           }
           window.history.replaceState({}, "", window.location.pathname);
         }
@@ -245,6 +290,37 @@ export default function AdminPage() {
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Listen for notification deep-link events. Fires when AdminBell.handleClick
+  // dispatches `bv-admin-deep-link` — handles the case where the admin is
+  // already on /portal/admin and router.push doesn't re-run the URL-param
+  // effect above. Picks the user, jumps to the right phase, and opens the
+  // doc preview using the SAME state as a normal row click.
+  useEffect(() => {
+    function onDeepLink(e: Event) {
+      const ce = e as CustomEvent<{ email?: string; docId?: string | null; userId?: string; fileType?: string }>;
+      const detail = ce.detail || {};
+      // Resolve user id — prefer explicit userId, else lookup by email
+      let uid = detail.userId;
+      if (!uid && detail.email) {
+        uid = Object.keys(users).find(
+          id => ((users[id]?.email as string) ?? "").toLowerCase() === (detail.email ?? "").toLowerCase()
+        );
+      }
+      if (!uid) return;
+      setSelectedUser(uid);
+      if (!detail.docId) return;
+      const all = [...docs, ...docHistory];
+      const doc = all.find(d => d.id === detail.docId);
+      if (doc) {
+        setActivePhase(getPhaseIdx(doc.file_type));
+        // Small delay so the candidate panel mounts first
+        setTimeout(() => setPreviewDoc(doc), 80);
+      }
+    }
+    window.addEventListener("bv-admin-deep-link", onDeepLink);
+    return () => window.removeEventListener("bv-admin-deep-link", onDeepLink);
+  }, [users, docs, docHistory]);
+
   // Reset dirty + passport + pipeline stage when switching candidates
   useEffect(() => {
     setDirtyFeedbacks(new Set());
@@ -254,6 +330,7 @@ export default function AdminPage() {
     setRevokeMenu(null);
     setPassportEdits({});
     setActivePipelineStage(null);
+    setAdminConfirmedFields(new Set());
   }, [selectedUser]);
 
   // Load pipeline whenever a candidate is selected
@@ -349,6 +426,40 @@ export default function AdminPage() {
       showError("Failed to update passport status — please try again.");
     } finally {
       setPassportInfoSaving(false);
+    }
+  }
+
+  /** Toggle the manual verified-tick override for the currently-selected candidate. */
+  async function toggleManualVerify() {
+    if (!selectedUser) return;
+    const current = !!profiles[selectedUser]?.manually_verified;
+    const next = !current;
+    // Optimistic update — flip immediately so the badge reflects the click
+    setProfiles(prev => ({
+      ...prev,
+      [selectedUser]: { ...prev[selectedUser], manually_verified: next },
+    }));
+    try {
+      const res = await fetch("/api/portal/admin/verify-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ userId: selectedUser, verified: next }),
+      });
+      if (!res.ok) {
+        // Revert on failure
+        setProfiles(prev => ({
+          ...prev,
+          [selectedUser]: { ...prev[selectedUser], manually_verified: current },
+        }));
+        showError("Could not update verification — please try again.");
+      }
+    } catch (err) {
+      console.error("toggleManualVerify error:", err);
+      setProfiles(prev => ({
+        ...prev,
+        [selectedUser]: { ...prev[selectedUser], manually_verified: current },
+      }));
+      showError("Network error — please try again.");
     }
   }
 
@@ -514,7 +625,9 @@ export default function AdminPage() {
     const PHASE_ITEMS: { title: string; shortTitle: string; kind: PhaseKind; items: { key: string; label: string; optional?: boolean }[] }[] = [
       { title: t.pWizardPhase1, shortTitle: t.pSideID,      kind: "id", items: [
         { key: "id",               label: t.pTypeID },
-        { key: "passport_data_pdf",label: "Passport Data" },
+        // "Passport Data" is no longer a standalone row. The extracted
+        // passport data lives behind a "Passport data" button inside the
+        // passport doc preview modal — see AdminDocPreviewModal.
         // The Lebenslauf (German CV) lives here, not in Translations — it's
         // the candidate's primary CV document, generated by the CV builder
         // and uploaded as fileKey "cv_de".
@@ -639,9 +752,15 @@ export default function AdminPage() {
           <AdminDocPreviewModal
             doc={previewDoc}
             accessToken={accessToken}
-            onClose={() => setPreviewDoc(null)}
+            onClose={() => { setPreviewDoc(null); setShowPassportInfo(false); }}
             noPreviewText={t.aNoPreview}
             onUpdated={(d) => setDocs(prev => prev.map(x => x.id === d.id ? { ...x, status: d.status, feedback: d.feedback } : x))}
+            onShowPassportData={() => setShowPassportInfo(true)}
+            sideBySide={
+              /pass/i.test(previewDoc.file_type)
+              && (previewDoc.status !== "approved" || (profiles[previewDoc.user_id]?.passport_status !== "approved"))
+              && showPassportInfo
+            }
           />
         )}
 
@@ -685,15 +804,64 @@ export default function AdminPage() {
             return v ?? "";
           }
 
+          // ── Side-by-side layout rule ──
+          // When the passport DOC is also being previewed AND it's not yet
+          // approved, we treat this as the "verification" phase and lay the
+          // two modals out together: doc preview on the left, data form on
+          // the right (laptop). On mobile they stack — doc on top, data
+          // below. Once approved, the data popup goes back to a centered
+          // standalone (only ever opened via the "Passport data" button).
+          const isVerificationPhase = !!previewDoc
+            && /pass/i.test(previewDoc.file_type)
+            && (previewDoc.status !== "approved" || (p_info?.passport_status !== "approved"));
+
           return (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
-              style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
+            <div className={`fixed inset-x-0 z-[750] flex justify-center p-4 bv-passport-info-outer ${isVerificationPhase ? "bv-side-data" : "top-[58px] bottom-0 items-center"}`}
+              style={{
+                background: isVerificationPhase ? "transparent" : "rgba(0,0,0,0.45)",
+                backdropFilter: isVerificationPhase ? undefined : "blur(8px)",
+                animation: "bvFadeRise .22s var(--ease-out)",
+                pointerEvents: isVerificationPhase ? "none" : "auto",
+              }}
               onClick={() => { setShowPassportInfo(false); setPassportInfoEditMode(false); setPassportInfoEdits({}); }}>
-              <div className="w-full max-w-md overflow-hidden flex flex-col"
+              {/* Side-by-side rule:
+                    Laptop → data form sits in the RIGHT half, centered
+                    Phone  → data form takes the BOTTOM half (passport above) */}
+              <style>{`
+                @media (max-width: 639.98px) {
+                  .bv-passport-info-outer { padding-bottom: calc(1rem + 72px) !important; }
+                  .bv-side-data {
+                    top: calc(58px + 50dvh - 0.25rem) !important;
+                    bottom: 0 !important;
+                    padding-top: 0.25rem !important;
+                    align-items: center !important;
+                  }
+                  .bv-side-data .bv-passport-info-card {
+                    max-height: 100% !important;
+                  }
+                }
+                @media (min-width: 640px) {
+                  .bv-side-data {
+                    top: 58px;
+                    bottom: 0;
+                    align-items: center;
+                    /* Hug the centerline: card left-edge sits at 50vw,
+                       no gap between this and the preview on the left. */
+                    justify-content: flex-start !important;
+                    padding-left: 50vw;
+                    padding-right: 1rem;
+                  }
+                }
+              `}</style>
+              <div className={`bv-passport-info-card w-full overflow-hidden flex flex-col ${isVerificationPhase ? "sm:max-w-[440px]" : "max-w-md"}`}
                 style={{
-                  background: "var(--card)", border: "1px solid var(--border)",
-                  borderRadius: "var(--r-2xl)", boxShadow: "var(--shadow-lg)",
-                  maxHeight: "90vh", animation: "bvFadeRise .28s var(--ease-out)",
+                  background: "var(--card)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--r-2xl)",
+                  boxShadow: "var(--shadow-lg)",
+                  maxHeight: "calc(100% - 0.5rem)",
+                  animation: "bvFadeRise .28s var(--ease-out)",
+                  pointerEvents: "auto",
                 }}
                 onClick={e => e.stopPropagation()}>
 
@@ -835,14 +1003,52 @@ export default function AdminPage() {
                       <div key={group.title} className={gi > 0 ? "mt-4" : ""}>
                         <p className="text-[10px] font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--w3)" }}>{group.title}</p>
                         <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
-                          {group.fields.map(f => (
-                            <div key={f.label}>
-                              <p className="text-[10px]" style={{ color: "var(--w3)" }}>{f.label}</p>
-                              <p className="text-xs font-semibold" style={{ color: "warn" in f && f.warn ? "#e05252" : "var(--w)" }}>
-                                {f.value}{"warn" in f && f.warn ? <AlertTriangle size={11} strokeWidth={1.8} className="inline ml-1 -mt-0.5" /> : ""}
-                              </p>
-                            </div>
-                          ))}
+                          {group.fields.map(f => {
+                            // Per-field review checkbox — empty/orange/green
+                            // exactly like the candidate's data form. Clicking
+                            // toggles the green tick. Empty fields stay gray.
+                            const filled = !!(f.value && f.value !== "—" && f.value.trim() !== "");
+                            const fieldKey = f.label;
+                            const confirmed = adminConfirmedFields.has(fieldKey);
+                            return (
+                              <div key={f.label} className="flex items-start gap-2">
+                                <button type="button"
+                                  onClick={() => {
+                                    if (!filled) return;
+                                    setAdminConfirmedFields(prev => {
+                                      const n = new Set(prev);
+                                      if (n.has(fieldKey)) n.delete(fieldKey); else n.add(fieldKey);
+                                      return n;
+                                    });
+                                  }}
+                                  title={!filled ? "" : confirmed ? "Reviewed — click to undo" : "Click to mark as reviewed"}
+                                  className="flex-shrink-0 mt-3 transition-all"
+                                  style={{ cursor: filled ? "pointer" : "default" }}>
+                                  {!filled ? (
+                                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                      <rect x="1" y="1" width="14" height="14" rx="3" stroke="var(--border2)" strokeWidth="1.5"/>
+                                    </svg>
+                                  ) : confirmed ? (
+                                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                      <rect width="16" height="16" rx="3.5" fill="#22c55e"/>
+                                      <path d="M4.5 8l2.5 2.5 4.5-4.5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                                    </svg>
+                                  ) : (
+                                    <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                                      <rect x="1" y="1" width="14" height="14" rx="3" stroke="#f59e0b" strokeWidth="1.5"/>
+                                      <path d="M4.5 8l2.5 2.5 4.5-4.5" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" strokeOpacity="0.35"/>
+                                    </svg>
+                                  )}
+                                </button>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[10px]" style={{ color: "var(--w3)" }}>{f.label}</p>
+                                  <p className="text-xs font-semibold" style={{ color: "warn" in f && f.warn ? "#e05252" : "var(--w)" }}>
+                                    {f.value}{"warn" in f && f.warn ? <AlertTriangle size={11} strokeWidth={1.8} className="inline ml-1 -mt-0.5" /> : ""}
+                                  </p>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                         {gi < 2 && <div className="mt-3" style={{ height: 1, background: "var(--border)" }} />}
                       </div>
@@ -898,45 +1104,95 @@ export default function AdminPage() {
         <main className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "calc(61px + 2rem)" }}>
           <div className="max-w-[780px] mx-auto px-4 pt-8 pb-16">
 
-            {/* Back + candidate header */}
-            <div className="flex items-center gap-3 mb-8">
+            {/* ── Back + premium candidate header ──
+                Top-of-detail hero: round photo (or initial) on the left, name
+                + email centered, status pills + actions clustered on the
+                right. Sits on a CV-builder-style card surface (20px rounded,
+                soft 1px shadow). */}
+            <div className="flex items-center gap-3 mb-4">
               <button onClick={() => { setSelectedUser(null); }}
+                aria-label="Back"
                 className="bv-icon-btn w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
                 style={{ color: "var(--w2)" }}>
-                ←
+                <ArrowLeft size={15} strokeWidth={1.8} />
               </button>
-              <div className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
-                style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                {user.name.charAt(0).toUpperCase()}
-              </div>
-              <div className="flex-1 min-w-0">
-                <h1 className="text-base font-semibold" style={{ color: "var(--w)" }}>{user.name}</h1>
-                <p className="text-xs mt-0.5 truncate" style={{ color: "var(--w3)" }}>{user.email}</p>
-              </div>
-              {pendingDocs.length > 0 && (
-                <span className="text-xs px-2.5 py-1 rounded-full font-semibold flex-shrink-0"
-                  style={{ background: "rgba(201,162,64,0.12)", color: "#c9a240", border: "1px solid rgba(201,162,64,0.25)" }}>
-                  {pendingDocs.length} {t.aPending}
-                </span>
-              )}
-              {pendingDocs.length === 0 && (
-                <span className="inline-flex items-center gap-1.5 text-[10.5px] px-2.5 py-1 rounded-full font-semibold tracking-wide uppercase flex-shrink-0"
-                  style={{ background: "rgba(52,199,89,0.10)", color: "#34c759", border: "1px solid rgba(52,199,89,0.25)" }}>
-                  <CheckCircle2 size={11} strokeWidth={1.8} /> {t.aDone}
-                </span>
-              )}
-              {/* Upload history button — top right */}
               {(() => {
                 const historyForUser = docHistory.filter(d => d.user_id === selectedUser);
                 if (historyForUser.length === 0) return null;
                 return (
                   <button onClick={() => setShowHistory(v => !v)}
-                    className="text-[10px] px-2 py-1 rounded-lg flex items-center gap-1.5 transition-opacity hover:opacity-80 flex-shrink-0"
+                    className="ml-auto inline-flex items-center gap-1.5 text-[11px] font-medium px-3 py-1.5 rounded-full transition-opacity hover:opacity-80 flex-shrink-0"
                     style={{ background: showHistory ? "rgba(212,175,55,0.12)" : "var(--bg2)", color: showHistory ? "var(--gold)" : "var(--w3)", border: `1px solid ${showHistory ? "rgba(212,175,55,0.3)" : "var(--border)"}` }}>
-                    <Folder size={10} strokeWidth={1.8} /> {historyForUser.length} old
+                    <Folder size={11} strokeWidth={1.8} /> {historyForUser.length} old
                   </button>
                 );
               })()}
+            </div>
+
+            <div className="mb-8 px-5 py-5 flex items-center gap-4 flex-wrap"
+              style={{
+                background: "var(--card)",
+                borderRadius: "20px",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+              }}>
+              {/* Photo or initial — same circular avatar language as the public profile */}
+              {(() => {
+                const photo = selectedUser ? profiles[selectedUser]?.profile_photo : null;
+                if (photo) {
+                  return (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={photo} alt={user.name}
+                      className="w-14 h-14 rounded-full object-cover flex-shrink-0"
+                      style={{ border: "1px solid var(--border-gold)" }} />
+                  );
+                }
+                return (
+                  <div className="w-14 h-14 rounded-full flex items-center justify-center text-[18px] font-bold flex-shrink-0"
+                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                    {user.name.charAt(0).toUpperCase()}
+                  </div>
+                );
+              })()}
+              <div className="flex-1 min-w-0">
+                <h1 className="text-[20px] font-semibold tracking-[-0.015em] truncate" style={{ color: "var(--w)" }}>{user.name}</h1>
+                <p className="text-[12.5px] mt-1 truncate" style={{ color: "var(--w3)" }}>{user.email}</p>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap flex-shrink-0">
+                {pendingDocs.length > 0 ? (
+                  <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-full"
+                    style={{ background: "rgba(201,162,64,0.12)", color: "#c9a240", border: "1px solid rgba(201,162,64,0.25)" }}>
+                    {pendingDocs.length} {t.aPending}
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 text-[10.5px] px-3 py-1.5 rounded-full font-semibold tracking-wide uppercase"
+                    style={{ background: "rgba(52,199,89,0.10)", color: "#34c759", border: "1px solid rgba(52,199,89,0.25)" }}>
+                    <CheckCircle2 size={11} strokeWidth={1.8} /> {t.aDone}
+                  </span>
+                )}
+                {/* Manual verification override — only the ultimate admin */}
+                {(() => {
+                  const isManual = !!profiles[selectedUser ?? ""]?.manually_verified;
+                  return (
+                    <button
+                      onClick={toggleManualVerify}
+                      title={isManual
+                        ? "Manually verified — click to revoke the blue tick"
+                        : "Grant the blue verified tick (overrides document checks)"}
+                      aria-label="Toggle manual verification"
+                      className="inline-flex items-center gap-1.5 text-[10.5px] px-3 py-1.5 rounded-full font-semibold tracking-wide uppercase transition-colors">
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill={isManual ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+                        style={{ color: isManual ? "#1da1f2" : "var(--w3)" }}>
+                        <path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4L12 14.3l-4.8 2.5.9-5.4L4.2 7.7l5.4-.8L12 2z"/>
+                      </svg>
+                      <span style={isManual
+                        ? { color: "#1da1f2" }
+                        : { color: "var(--w3)" }}>
+                        {isManual ? "Verified" : "Verify"}
+                      </span>
+                    </button>
+                  );
+                })()}
+              </div>
             </div>
 
             {/* Always two-column: sidebar + content */}
@@ -1234,29 +1490,40 @@ export default function AdminPage() {
                   </div>
                 ) : (
                 <div key={`phase-${activePhase}`} className="bv-enter">
-                  {/* Phase header — refined hierarchy */}
-                  <div className="flex items-center gap-3 mb-5">
-                    <span className="flex items-center justify-center w-9 h-9 flex-shrink-0"
-                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-md)" }}>
-                      <PhaseIcon kind={PHASE_ITEMS[activePhase].kind} size={17} />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--w3)" }}>Phase {activePhase + 1}</p>
-                      <h2 className="text-[20px] font-semibold tracking-[-0.015em] leading-tight" style={{ color: "var(--w)" }}>
-                        {PHASE_ITEMS[activePhase].title}
-                      </h2>
+                  {/* Premium phase card — same surface language as the CV
+                      builder: 20px rounded, var(--card) background, soft 1px
+                      shadow. Phase header lives inside; doc rows below stay
+                      borderless with thin dividers between them. */}
+                  <div className="overflow-hidden"
+                    style={{
+                      background: "var(--card)",
+                      borderRadius: "20px",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+                    }}>
+                    {/* Phase header */}
+                    <div className="flex items-center gap-3 px-6 pt-6 pb-3">
+                      <span className="flex items-center justify-center w-9 h-9 flex-shrink-0"
+                        style={{ background: "var(--gdim)", color: "var(--gold)", borderRadius: "12px" }}>
+                        <PhaseIcon kind={PHASE_ITEMS[activePhase].kind} size={15} />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--w3)" }}>Phase {activePhase + 1}</p>
+                        <h2 className="text-[18px] font-semibold tracking-[-0.015em] leading-tight" style={{ color: "var(--w)" }}>
+                          {PHASE_ITEMS[activePhase].title}
+                        </h2>
+                      </div>
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium flex-shrink-0"
+                        style={{ color: pendingDocs.length > 0 ? "var(--gold)" : "#34c759" }}>
+                        {pendingDocs.length > 0
+                          ? <><span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--gold)" }} />{pendingDocs.length} pending</>
+                          : <><CheckCircle2 size={12} strokeWidth={1.8} /> All reviewed</>}
+                      </span>
                     </div>
-                  </div>
-                  <p className="text-[12.5px] mb-5 inline-flex items-center gap-1.5" style={{ color: pendingDocs.length > 0 ? "var(--gold)" : "var(--w3)" }}>
-                    {pendingDocs.length > 0
-                      ? <><span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--gold)" }} />{pendingDocs.length} document{pendingDocs.length !== 1 ? "s" : ""} pending review</>
-                      : <><CheckCircle2 size={12} strokeWidth={1.8} style={{ color: "#34c759" }} /> All documents reviewed</>}
-                  </p>
 
-                  {/* Doc slots — borderless row list, mirrors the candidate
-                      portal's minimalist treatment (Mercury-style). No outer
-                      card, just thin dividers between rows. */}
-                  <div className="overflow-hidden mb-4">
+                    <div className="h-px mx-6" style={{ background: "var(--border)" }} />
+
+                    {/* Doc slots — borderless rows inside the card */}
+                    <div className="px-2 py-2">
                     {currentItems.map((item, idx) => {
                       // ── Special full render for Passport Data PDF ────────────────────────────
                       if (item.key === "passport_data_pdf") {
@@ -1460,23 +1727,37 @@ export default function AdminPage() {
                                         d.status === "approved" ? { bg: "rgba(52,199,89,0.1)",  txt: "#34c759", bdr: "rgba(52,199,89,0.25)" }
                                       : d.status === "rejected"  ? { bg: "rgba(224,82,82,0.1)",  txt: "#e05252", bdr: "rgba(224,82,82,0.25)" }
                                       :                           { bg: "rgba(201,162,64,0.1)", txt: "#c9a240", bdr: "rgba(201,162,64,0.3)" };
+                                      const dClickable = !!d.drive_file_id;
                                       return (
-                                        <div key={d.id} className="rounded-xl px-3 py-2.5"
+                                        <div key={d.id}
+                                          onClick={dClickable ? () => setPreviewDoc(d) : undefined}
+                                          className={`rounded-xl px-3 py-2.5${dClickable ? " bv-row-hover cursor-pointer" : ""}`}
                                           style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
                                           <div className="flex items-center gap-1.5">
-                                            <p className="text-xs font-medium truncate flex-1" style={{ color: "var(--w2)" }}>{d.file_name}</p>
                                             <span className="inline-flex items-center justify-center w-5 h-5 rounded-full flex-shrink-0"
                                               style={{ background: dsc.bg, color: dsc.txt, border: `1px solid ${dsc.bdr}` }}>
                                               {d.status === "approved" ? <CheckCircle2 size={11} strokeWidth={1.8} />
                                                 : d.status === "rejected" ? <XCircle size={11} strokeWidth={1.8} />
                                                 : <span className="w-1 h-1 rounded-full" style={{ background: "currentColor" }} />}
                                             </span>
+                                            <div className="flex-1 min-w-0">
+                                              <p className="text-xs font-medium truncate" style={{ color: "var(--w2)" }}>{d.file_name}</p>
+                                              <p className="text-[10.5px] mt-0.5 truncate" style={{ color: "var(--w3)" }}>
+                                                <span className="font-semibold" style={{ color: dsc.txt }}>
+                                                  {d.status === "approved" ? "Approved" : d.status === "rejected" ? "Rejected" : "Pending"}
+                                                </span>
+                                                <span className="mx-1"> · </span>
+                                                {ta.label}
+                                              </p>
+                                            </div>
+                                            {/* Download — always shown (parity with top-level peer rows) */}
                                             {d.drive_file_id && (
-                                              <button onClick={() => setPreviewDoc(d)}
-                                                aria-label="Preview"
-                                                className="bv-icon-btn w-6 h-6 flex items-center justify-center rounded-full flex-shrink-0 bv-touch"
-                                                style={{ color: "var(--w3)" }}>
-                                                <Eye size={11} strokeWidth={1.8} />
+                                              <button
+                                                onClick={(e) => { e.stopPropagation(); downloadDoc(d); }}
+                                                title={t.aDownload} aria-label={t.aDownload}
+                                                className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0"
+                                                style={{ color: "var(--w2)" }}>
+                                                <Download size={12} strokeWidth={1.8} />
                                               </button>
                                             )}
                                             {d.status === "pending" && (
@@ -1500,7 +1781,7 @@ export default function AdminPage() {
                                             {d.status === "approved" && (
                                               <div className="relative flex-shrink-0">
                                                 <button
-                                                  onClick={() => setRevokeMenu(prev => prev === d.id ? null : d.id)}
+                                                  onClick={(e) => { e.stopPropagation(); setRevokeMenu(prev => prev === d.id ? null : d.id); }}
                                                   title="Revoke approval" aria-label="More actions"
                                                   className="bv-icon-btn w-6 h-6 flex items-center justify-center rounded-full bv-touch"
                                                   style={{ color: "var(--w2)" }}
@@ -1531,11 +1812,8 @@ export default function AdminPage() {
                                               </div>
                                             )}
                                           </div>
-                                          {d.status !== "approved" && (
-                                            <p className="text-[10px] mt-0.5" style={{ color: "var(--w3)" }}>{ta.label}</p>
-                                          )}
                                           {d.status === "rejected" && d.feedback && (
-                                            <p className="text-[11px] mt-1" style={{ color: "#e05252" }}>“{d.feedback}”</p>
+                                            <p className="text-[11px] mt-1.5" style={{ color: "#e05252" }}>“{d.feedback}”</p>
                                           )}
                                         </div>
                                       );
@@ -1615,6 +1893,7 @@ export default function AdminPage() {
                         </div>
                       );
                     })}
+                    </div>
                   </div>
 
                   {/* Upload history section — shown when 📁 history button clicked */}
@@ -1683,9 +1962,15 @@ export default function AdminPage() {
           <AdminDocPreviewModal
             doc={previewDoc}
             accessToken={accessToken}
-            onClose={() => setPreviewDoc(null)}
+            onClose={() => { setPreviewDoc(null); setShowPassportInfo(false); }}
             noPreviewText={t.aNoPreview}
             onUpdated={(d) => setDocs(prev => prev.map(x => x.id === d.id ? { ...x, status: d.status, feedback: d.feedback } : x))}
+            onShowPassportData={() => setShowPassportInfo(true)}
+            sideBySide={
+              /pass/i.test(previewDoc.file_type)
+              && (previewDoc.status !== "approved" || (profiles[previewDoc.user_id]?.passport_status !== "approved"))
+              && showPassportInfo
+            }
           />
         )}
       <main className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "calc(61px + 2rem)" }}>
@@ -1712,14 +1997,19 @@ export default function AdminPage() {
             return (
               <div className="grid grid-cols-3 gap-3 mb-8">
                 {[
-                  { label: "Candidates", value: totalCandidates, color: "var(--gold)", bg: "rgba(201,162,64,0.08)" },
-                  { label: "Pending docs", value: totalPending,   color: "#ff9500",    bg: "rgba(255,149,0,0.08)" },
-                  { label: "Fully approved", value: fullyApproved, color: "#34c759",  bg: "rgba(52,199,89,0.08)" },
+                  { label: "Candidates",    value: totalCandidates, color: "var(--gold)" },
+                  { label: "Pending docs",  value: totalPending,    color: "#ff9500" },
+                  { label: "Fully approved", value: fullyApproved,  color: "#34c759" },
                 ].map(s => (
-                  <div key={s.label} className="px-4 py-3 text-center"
-                    style={{ background: s.bg, borderRadius: "var(--r-lg)" }}>
-                    <p className="text-[22px] font-semibold tracking-[-0.02em] tabular-nums" style={{ color: s.color }}>{s.value}</p>
-                    <p className="text-[10.5px] mt-1 font-medium uppercase tracking-wide" style={{ color: "var(--w3)" }}>{s.label}</p>
+                  <div key={s.label} className="px-5 py-5 text-center transition-all hover:-translate-y-0.5"
+                    style={{
+                      background: "var(--card)",
+                      borderRadius: "20px",
+                      border: "none",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+                    }}>
+                    <p className="text-[28px] font-semibold tracking-[-0.02em] tabular-nums leading-none" style={{ color: s.color }}>{s.value}</p>
+                    <p className="text-[10.5px] mt-2.5 font-medium uppercase tracking-[0.14em]" style={{ color: "var(--w3)" }}>{s.label}</p>
                   </div>
                 ))}
               </div>
@@ -1738,18 +2028,24 @@ export default function AdminPage() {
             const pendingCount = pendingUserIds.length;
             return (
               <div className="mb-4 space-y-3">
-                {/* Search */}
+                {/* Search — CV-builder field styling */}
                 <div className="relative">
                   <Search size={14} strokeWidth={1.8}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                    className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none"
                     style={{ color: "var(--w3)" }} />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
                     placeholder="Search candidates by name or email…"
-                    className="w-full pl-9 pr-9 py-2.5 text-[13px] outline-none transition-colors focus:border-[var(--gold)]"
-                    style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: "var(--r-sm)" }} />
+                    className="w-full pl-10 pr-10 py-3 text-[13px] outline-none transition-colors focus:border-[var(--gold)]"
+                    style={{
+                      background: "var(--card)",
+                      border: "none",
+                      color: "var(--w)",
+                      borderRadius: "14px",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+                    }} />
                   {searchQuery && (
                     <button onClick={() => setSearchQuery("")} aria-label="Clear search"
                       className="bv-icon-btn absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded-full"
@@ -1850,7 +2146,16 @@ export default function AdminPage() {
 
                       <div className="flex-1 min-w-0">
                         <p className="text-[13.5px] font-semibold truncate" style={{ color: "var(--w)" }}>{user.name}</p>
-                        <p className="text-[11.5px] truncate mt-0.5" style={{ color: "var(--w3)" }}>{user.email}</p>
+                        <p className="text-[11.5px] truncate mt-0.5" style={{ color: "var(--w3)" }}>
+                          {user.email}
+                          {(candidateOrgs[uid] ?? []).map(o => (
+                            <span key={o.id}
+                              className="ml-2 inline-block text-[10px] font-semibold uppercase tracking-wider px-1.5 py-px"
+                              style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-sm)" }}>
+                              {o.name}
+                            </span>
+                          ))}
+                        </p>
                       </div>
 
                       {/* Time-since label — quiet text only, no chip */}

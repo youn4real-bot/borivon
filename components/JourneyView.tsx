@@ -90,7 +90,15 @@ function blockerHint(b: Blocker, lang: "fr"|"en"|"de"): string {
   return m[b][lang] ?? m[b].en;
 }
 
-const cardSt: React.CSSProperties = { background: "var(--card)", border: "1px solid var(--border)" };
+// Premium-feel surface — same language as CV builder's SectionCard:
+// 20px rounded, var(--card) background, soft 1px shadow (no hard border).
+// All journey stages share this so locked / scheduled / passed / failed
+// states all read as one consistent surface family.
+const cardSt: React.CSSProperties = {
+  background: "var(--card)",
+  borderRadius: "20px",
+  boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+};
 
 // Reusable hero icon — quiet circle, gold tint, line icon inside.
 function HeroIcon({

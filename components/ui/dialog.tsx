@@ -30,10 +30,13 @@ export function Dialog({ open, onClose, title, eyebrow, children, className }: D
 
   return (
     <div
-      // On mobile: items-end (bottom sheet), with 96 px bottom padding so the card
-      // clears the Android soft-nav bar. On desktop: centred as normal.
-      className="fixed inset-0 z-[1000] flex items-end sm:items-center justify-center px-3 pt-[68px] pb-[96px] sm:p-4"
-      style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
+      // Always sits BELOW the navbar (top: 58px) and above the mobile bottom
+      // action bar — so the bug button / language switcher / profile icons
+      // remain reachable while a dialog is open. Z-700 keeps it under the
+      // floating bug button (z-1201). Lighter dim than before to match the
+      // rest of the site's popup language.
+      className="fixed inset-x-0 bottom-0 top-[58px] z-[700] flex items-end sm:items-center justify-center px-3 pb-[96px] sm:p-4"
+      style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div

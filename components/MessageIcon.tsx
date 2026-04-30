@@ -577,28 +577,38 @@ function ThreadModal({
     : (lang === "fr" ? "Agrandir" : lang === "de" ? "Vergrößern" : "Expand");
 
   const node = (
-    <div className="fixed inset-0 z-[1200] flex items-center justify-center sm:p-4"
+    <div className="fixed inset-x-0 bottom-0 top-[58px] sm:top-0 z-[1200] flex items-center justify-center p-2 sm:p-4 bv-thread-modal-outer"
       style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
       onClick={onClose}>
-      <div className={`w-full overflow-hidden flex flex-col sm:rounded-2xl ${expanded ? "sm:max-w-3xl" : "sm:max-w-lg"}`}
+      {/* Mobile only: leave space for the bottom action bar so the modal
+          becomes a true popup (navbar visible above, action bar visible
+          below). The X button in the header naturally lands directly
+          below the floating bug button in the navbar. */}
+      <style>{`
+        @media (max-width: 639.98px) {
+          .bv-thread-modal-outer { padding-bottom: calc(0.5rem + 72px) !important; }
+          .bv-thread-modal-card  {
+            height: calc(100dvh - 58px - 0.5rem - 72px - 0.5rem) !important;
+            max-height: calc(100dvh - 58px - 0.5rem - 72px - 0.5rem) !important;
+          }
+        }
+      `}</style>
+      <div className={`bv-thread-modal-card w-full overflow-hidden flex flex-col rounded-2xl ${expanded ? "sm:max-w-3xl" : "sm:max-w-lg"}`}
         style={{
           background: "var(--card)", border: "1px solid var(--border)",
           boxShadow: "var(--shadow-lg)",
           animation: "bvFadeRise .28s var(--ease-out)",
           transition: "max-width 200ms var(--ease), height 200ms var(--ease)",
         }}
-        // Mobile: full-screen sheet — no popup framing, takes the whole
-        // viewport. Desktop: compact (~600px) or expanded (~820px) card.
-        // The CSS class above handles desktop sizing; the inline style
-        // below applies mobile-first full-height, then media queries override.
+        // Mobile: rounded popup that respects the top navbar AND the bottom
+        // mobile action bar — height comes from the CSS rule above.
+        // Desktop: compact (~600px) or expanded (~820px) centered card.
         ref={el => {
           if (!el) return;
-          // Force height per breakpoint via inline style so Tailwind compile
-          // order can never break the layout (lesson learned earlier).
           const isMobile = window.matchMedia("(max-width: 639.98px)").matches;
           if (isMobile) {
-            el.style.height = "100dvh";
-            el.style.borderRadius = "0";
+            // Height handled via .bv-thread-modal-card CSS rule
+            el.style.borderRadius = "var(--r-2xl)";
           } else {
             el.style.height = expanded ? "min(92vh, 820px)" : "min(75vh, 600px)";
             el.style.borderRadius = "var(--r-2xl)";

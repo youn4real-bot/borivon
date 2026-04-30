@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import { getServiceSupabase } from "@/lib/supabase";
+import { getServiceSupabase, getAuthSchemaClient } from "@/lib/supabase";
 import { requireAdminRole } from "@/lib/admin-auth";
 
 /**
@@ -37,10 +36,7 @@ export async function GET(
 
   // 2. Resolve user_id from email. We try direct schema query first (fast,
   //    reliable). Fall back to listUsers pagination if that fails.
-  const adminClient = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
-    process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
-  );
+  const adminClient = getServiceSupabase();
 
   const targetEmail = (notif.user_email ?? "").trim().toLowerCase();
   let userId = "";
@@ -70,11 +66,7 @@ export async function GET(
   // (a) Direct query against auth.users via a service-role client scoped
   //     to the auth schema. Far more reliable than paginating listUsers.
   try {
-    const authDb = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
-      process.env.SUPABASE_SERVICE_ROLE_KEY ?? "",
-      { db: { schema: "auth" } },
-    );
+    const authDb = getAuthSchemaClient();
     const { data, error } = await authDb
       .from("users")
       .select("id, email")

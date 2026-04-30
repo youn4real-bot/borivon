@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getServiceSupabase } from "@/lib/supabase";
-import { createClient } from "@supabase/supabase-js";
+import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { uploadPassportPdfToDrive } from "@/lib/passport-pdf";
 
 // DD.MM.YYYY → YYYY-MM-DD for Postgres date columns
@@ -55,11 +54,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
   const jwt = authHeader.slice(7);
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? ""
-  );
-  const { data: { user }, error: authErr } = await supabase.auth.getUser(jwt);
+  const { data: { user }, error: authErr } = await getAnonVerifyClient().auth.getUser(jwt);
   if (authErr || !user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
   const body = await req.json();

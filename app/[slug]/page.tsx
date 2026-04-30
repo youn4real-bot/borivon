@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter, notFound } from "next/navigation";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { useLang } from "@/components/LangContext";
-import { COUNTRY_MAP } from "@/lib/countries";
+import { natToLang } from "@/lib/countries";
 import { RESERVED_SLUGS } from "@/lib/profile-slug";
 import { supabase } from "@/lib/supabase";
 
@@ -12,6 +12,7 @@ type ProfileResp = {
   slug: string;
   name: string;
   initial: string;
+  photoUrl: string | null;
   cityOfResidence: string | null;
   countryOfResidence: string | null;
   nationality: string | null;
@@ -78,10 +79,13 @@ export default function PublicProfilePage() {
     return () => { cancelled = true; };
   }, [slug]);
 
-  function localizeCountry(de: string | null): string | null {
-    if (!de) return null;
-    const found = Object.values(COUNTRY_MAP).find(c => c.de === de);
-    return found ? (found[lang as "fr"|"en"|"de"] ?? found.de) : de;
+  // Resolve any stored country value (ISO code like MAR/DEU, or a name in
+  // any language, or a legacy adjective) into the country name in the
+  // viewer's UI language. Never let a 3-letter code leak through.
+  function localizeCountry(value: string | null): string | null {
+    if (!value) return null;
+    const out = natToLang(value, lang as "fr" | "en" | "de");
+    return out || null;
   }
 
   if (loading) {
@@ -122,10 +126,18 @@ export default function PublicProfilePage() {
         <div className="px-8 py-10 text-center"
           style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.08)" }}>
 
-          <div className="mx-auto w-24 h-24 rounded-full flex items-center justify-center text-[36px] font-semibold mb-5"
-            style={{ background: "var(--gdim)", color: "var(--gold)" }}>
-            {profile.initial}
-          </div>
+          {/* Avatar — photo from CV builder if uploaded, otherwise initial */}
+          {profile.photoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={profile.photoUrl} alt={profile.name}
+              className="mx-auto w-24 h-24 rounded-full object-cover mb-5"
+              style={{ border: "1px solid var(--border)" }} />
+          ) : (
+            <div className="mx-auto w-24 h-24 rounded-full flex items-center justify-center text-[36px] font-semibold mb-5"
+              style={{ background: "var(--gdim)", color: "var(--gold)" }}>
+              {profile.initial}
+            </div>
+          )}
 
           {/* Name dead-center; badge sits to the right via absolute positioning
               so it never shifts the name off-center. */}
@@ -148,74 +160,54 @@ export default function PublicProfilePage() {
             </p>
           )}
 
-          {profile.isAdmin ? (
-            // Single Message button — popup decides next step based on viewer.
-            // Admin viewing own profile gets nothing. Block-level + mt-6 so it
-            // sits visually separated below the name (not inline with it).
-            !viewerStatus?.isAdmin && (
-              <div className="mt-6">
-                <button
-                  onClick={() => {
-                    if (!viewerStatus?.authenticated) { setPopup("register"); return; }
-                    if (!viewerStatus.verified)       { setPopup("verify");   return; }
-                    router.push("/portal/dashboard");
-                  }}
-                  className="inline-flex items-center gap-2 px-6 py-2.5 text-[13px] font-semibold tracking-tight transition-opacity hover:opacity-90"
-                  style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)", boxShadow: "var(--shadow-sm)" }}>
-                  {lang === "de" ? "Nachricht" : lang === "en" ? "Message" : "Message"}
-                </button>
-              </div>
-            )
-          ) : profile.verified ? (
-            <div className="inline-flex items-center gap-1.5 text-[11px] font-medium px-3 py-1.5 rounded-full"
-              style={{ background: "var(--bg2)", color: "var(--w3)" }}>
-              <span className="font-[family-name:var(--font-dm-serif)] italic"
-                style={{ color: "var(--w2)" }}>Borivon<span style={{ color: "var(--gold)" }}>.</span></span>
-              ·
-              <span>{lang === "de" ? "Verifiziertes Pflegeprofil" : lang === "en" ? "Verified nursing profile" : "Profil infirmier vérifié"}</span>
+          {/* Verification badge — always centered on its own row so it never
+              collides with the name. */}
+          {profile.isAdmin ? null : profile.verified ? (
+            <div className="mt-3 flex justify-center">
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium px-3 py-1.5 rounded-full"
+                style={{ background: "var(--bg2)", color: "var(--w3)" }}>
+                <span className="font-[family-name:var(--font-dm-serif)] italic"
+                  style={{ color: "var(--w2)" }}>Borivon<span style={{ color: "var(--gold)" }}>.</span></span>
+                ·
+                <span>{lang === "de" ? "Verifiziertes Profil" : lang === "en" ? "Verified profile" : "Profil vérifié"}</span>
+              </span>
             </div>
           ) : (
-            <div className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-full"
-              style={{ background: "rgba(224,82,82,0.12)", color: "#e05252" }}>
-              <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full"
-                style={{ background: "rgba(224,82,82,0.25)" }}>
-                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                </svg>
+            <div className="mt-3 flex justify-center">
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-full"
+                style={{ background: "rgba(224,82,82,0.12)", color: "#e05252" }}>
+                <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full"
+                  style={{ background: "rgba(224,82,82,0.25)" }}>
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </span>
+                {lang === "de" ? "Nicht verifiziert" : lang === "en" ? "Not verified" : "Non vérifié"}
               </span>
-              {lang === "de" ? "Nicht verifiziert" : lang === "en" ? "Not verified" : "Non vérifié"}
             </div>
           )}
 
-          {/* Universal Message CTA — every profile gets one. Routes to the
-              candidate-portal chat (the only DM endpoint we have today).
-              When the viewer can't message yet, we explain why. */}
-          {!profile.isAdmin && viewerStatus && !viewerStatus.isAdmin && (
-            <div className="mt-5">
-              {!viewerStatus.authenticated ? (
-                <button onClick={() => router.push(`/portal?next=${encodeURIComponent(`/${slug}`)}`)}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold tracking-tight transition-opacity hover:opacity-90"
-                  style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)", boxShadow: "var(--shadow-sm)" }}>
-                  {lang === "de" ? "Anmelden zum Schreiben" : lang === "en" ? "Sign in to message" : "Se connecter pour envoyer un message"}
-                </button>
-              ) : (
-                <button onClick={() => router.push("/portal/dashboard")}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold tracking-tight transition-opacity hover:opacity-90"
-                  style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)", boxShadow: "var(--shadow-sm)" }}>
-                  {lang === "de" ? "Nachricht senden" : lang === "en" ? "Message" : "Envoyer un message"}
-                </button>
-              )}
+          {/* Message button — admin profile only. Candidate profiles do not
+              have a Message button (would let candidates DM each other or
+              themselves, which isn't a flow we support). */}
+          {profile.isAdmin && !viewerStatus?.isAdmin && (
+            <div className="mt-6">
+              <button
+                onClick={() => {
+                  if (!viewerStatus?.authenticated) { setPopup("register"); return; }
+                  if (!viewerStatus.verified)       { setPopup("verify");   return; }
+                  router.push("/portal/dashboard");
+                }}
+                className="inline-flex items-center gap-2 px-6 py-2.5 text-[13px] font-semibold tracking-tight transition-opacity hover:opacity-90"
+                style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)", boxShadow: "var(--shadow-sm)" }}>
+                {lang === "de" ? "Nachricht" : lang === "en" ? "Message" : "Message"}
+              </button>
             </div>
           )}
+
         </div>
 
-        {/* URL footer — shown only for candidate profiles (admin's slug
-            is the public vanity "borivon", no need to repeat it). */}
-        {!profile.isAdmin && (
-          <p className="text-center text-[11.5px] mt-4" style={{ color: "var(--w3)" }}>
-            borivon.com/{profile.slug}
-          </p>
-        )}
+        {/* URL footer hidden by request — will return later. */}
       </div>
 
       {/* ── Message-CTA popups ───────────────────────────────────────────── */}

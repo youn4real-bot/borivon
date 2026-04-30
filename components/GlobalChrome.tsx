@@ -47,7 +47,11 @@ export function GlobalChrome({ children }: { children: React.ReactNode }) {
           <div className={isPortal ? "pb-[100px] sm:pb-0" : ""}>
             {children}
           </div>
-          {isPortal && <BugReportButton />}
+          {/* Bug-report button is global now — shows on every page (public
+              profiles, marketing site, portal). The component itself returns
+              null for anonymous visitors, so it only surfaces once the user
+              has signed in. */}
+          <BugReportButton />
         </MobileMenuProvider>
       </LangProvider>
     </ThemeProvider>

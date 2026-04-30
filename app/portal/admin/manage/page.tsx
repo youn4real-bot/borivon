@@ -141,7 +141,12 @@ export default function ManageAdminsPage() {
   if (loading) return <PageLoader />;
 
   const inputCls = "w-full px-3 py-2.5 text-[13px] outline-none transition-colors focus:border-[var(--gold)]";
-  const inputSt: React.CSSProperties = { background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: "var(--r-sm)" };
+  const inputSt: React.CSSProperties = {
+    background: "var(--bg2)",
+    border: "1px solid transparent",
+    color: "var(--w)",
+    borderRadius: "12px",
+  };
 
   return (
     <>
@@ -166,7 +171,7 @@ export default function ManageAdminsPage() {
 
         {/* Add new sub-admin — quieter section card */}
         <div className="p-5 mb-6"
-          style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-xl)" }}>
+          style={{ background: "var(--card)", border: "none", borderRadius: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
           <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-4" style={{ color: "var(--w3)" }}>Add an admin</p>
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-3">
@@ -217,7 +222,12 @@ export default function ManageAdminsPage() {
             sub="Add your first agent above and assign them specific candidates."
           />
         ) : (
-          <div style={{ borderTop: "1px solid var(--border)" }}>
+          <div className="overflow-hidden"
+            style={{
+              background: "var(--card)",
+              borderRadius: "20px",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+            }}>
             {subAdmins.map(sa => {
               const assigned = assignments.filter(a => a.sub_admin_email === sa.email).map(a => a.candidate_user_id);
               const isExpanded = expandedEmail === sa.email;

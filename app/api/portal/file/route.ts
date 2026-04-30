@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
-import { createClient } from "@supabase/supabase-js";
-import { getServiceSupabase } from "@/lib/supabase";
+import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { requireAdminRole } from "@/lib/admin-auth";
 
 function getDriveClient() {
@@ -54,13 +53,8 @@ async function isAuthorised(req: NextRequest, fileId: string): Promise<boolean> 
   if (!authHeader?.startsWith("Bearer ")) return false;
   const jwt = authHeader.slice(7);
 
-  // Verify JWT with Supabase (uses anon key — validates signature server-side)
-  const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
-    { auth: { persistSession: false, autoRefreshToken: false } }
-  );
-  const { data: { user }, error } = await supabase.auth.getUser(jwt);
+  // Verify JWT with the cached anon client (validates signature server-side)
+  const { data: { user }, error } = await getAnonVerifyClient().auth.getUser(jwt);
   if (error || !user) return false;
 
   // Check this file ID actually belongs to this user in the documents table

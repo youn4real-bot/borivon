@@ -11,8 +11,7 @@
  */
 
 import { NextRequest } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import { getServiceSupabase } from "@/lib/supabase";
+import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 
 export type AdminRole = "admin" | "sub_admin";
 
@@ -40,13 +39,8 @@ export async function requireAdminRole(req: NextRequest): Promise<AdminAuthResul
   const jwt = m[1].trim();
   if (!jwt) return { ok: false, status: 401, error: "Empty token" };
 
-  // Verify the JWT against Supabase
-  const url  = process.env.NEXT_PUBLIC_SUPABASE_URL  ?? "";
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
-  if (!url || !anon) return { ok: false, status: 401, error: "Auth not configured" };
-
-  const supa = createClient(url, anon, { auth: { persistSession: false, autoRefreshToken: false } });
-  const { data, error } = await supa.auth.getUser(jwt);
+  // Verify the JWT against Supabase using the cached anon client
+  const { data, error } = await getAnonVerifyClient().auth.getUser(jwt);
   if (error || !data?.user) return { ok: false, status: 401, error: "Invalid token" };
 
   const email = (data.user.email ?? "").trim().toLowerCase();
@@ -69,8 +63,9 @@ export async function requireAdminRole(req: NextRequest): Promise<AdminAuthResul
 
 /**
  * Verify the (sub-)admin is allowed to act on a given candidate's data.
- * Full admins: always allowed. Sub-admins: only if assigned via
- * `sub_admin_assignments`.
+ * Full admins: always allowed. Sub-admins are allowed if EITHER:
+ *   (a) they have a direct row in `sub_admin_assignments` (legacy assignment), OR
+ *   (b) they are a member of an organization the candidate is APPROVED-linked to.
  *
  * Returns true on allow, false on deny. Callers translate false → 403.
  */
@@ -78,13 +73,72 @@ export async function canActOnCandidate(role: AdminRole, subAdminEmail: string, 
   if (role === "admin") return true;
   if (!candidateUserId) return false;
   const db = getServiceSupabase();
-  const { data } = await db
+
+  // (a) Direct assignment
+  const { data: direct } = await db
     .from("sub_admin_assignments")
     .select("candidate_user_id")
     .eq("sub_admin_email", subAdminEmail)
     .eq("candidate_user_id", candidateUserId)
     .maybeSingle();
-  return !!data;
+  if (direct) return true;
+
+  // (b) Org-based access — sub-admin shares an approved org with the candidate
+  const { data: myOrgsData } = await db
+    .from("organization_members")
+    .select("org_id")
+    .eq("sub_admin_email", subAdminEmail);
+  type OrgIdRow = { org_id: string };
+  const myOrgs = ((myOrgsData ?? []) as OrgIdRow[]).map(r => r.org_id);
+  if (myOrgs.length === 0) return false;
+
+  const { data: candOrg } = await db
+    .from("candidate_organizations")
+    .select("org_id")
+    .eq("candidate_user_id", candidateUserId)
+    .eq("status", "approved")
+    .in("org_id", myOrgs)
+    .maybeSingle();
+  return !!candOrg;
+}
+
+/**
+ * Returns the list of candidate user_ids a sub-admin can see.
+ * Combines direct assignments AND org-based access.
+ *
+ * Used by the admin GET to scope the document/profile listing.
+ */
+export async function getVisibleCandidateIds(subAdminEmail: string): Promise<string[]> {
+  const db = getServiceSupabase();
+
+  // Direct assignments
+  const { data: assignmentsData } = await db
+    .from("sub_admin_assignments")
+    .select("candidate_user_id")
+    .eq("sub_admin_email", subAdminEmail);
+  type AssignmentRow = { candidate_user_id: string };
+  const direct = ((assignmentsData ?? []) as AssignmentRow[]).map(a => a.candidate_user_id);
+
+  // Org-based: candidates approved-linked to any of this sub-admin's orgs
+  const { data: myOrgsData } = await db
+    .from("organization_members")
+    .select("org_id")
+    .eq("sub_admin_email", subAdminEmail);
+  type OrgIdRow = { org_id: string };
+  const myOrgs = ((myOrgsData ?? []) as OrgIdRow[]).map(r => r.org_id);
+
+  let viaOrg: string[] = [];
+  if (myOrgs.length > 0) {
+    const { data: linksData } = await db
+      .from("candidate_organizations")
+      .select("candidate_user_id")
+      .eq("status", "approved")
+      .in("org_id", myOrgs);
+    type LinkRow = { candidate_user_id: string };
+    viaOrg = ((linksData ?? []) as LinkRow[]).map(l => l.candidate_user_id);
+  }
+
+  return [...new Set([...direct, ...viaOrg])];
 }
 
 /**
@@ -101,12 +155,8 @@ export async function requireUser(req: NextRequest): Promise<
   const jwt = m[1].trim();
   if (!jwt) return { ok: false, status: 401, error: "Empty token" };
 
-  const url  = process.env.NEXT_PUBLIC_SUPABASE_URL  ?? "";
-  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
-  if (!url || !anon) return { ok: false, status: 401, error: "Auth not configured" };
-
-  const supa = createClient(url, anon, { auth: { persistSession: false, autoRefreshToken: false } });
-  const { data, error } = await supa.auth.getUser(jwt);
+  // Verify the JWT using the cached anon client
+  const { data, error } = await getAnonVerifyClient().auth.getUser(jwt);
   if (error || !data?.user) return { ok: false, status: 401, error: "Invalid token" };
 
   return {

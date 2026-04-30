@@ -28,6 +28,7 @@ import { Upload, FilePen, Ban, Check, Plus, X as XIcon, ArrowLeft, Info, Downloa
 import type { LucideIcon } from "lucide-react";
 import { PageLoader, Spinner, AutosaveIndicator } from "@/components/ui/states";
 import { SessionExpiryWatcher } from "@/components/SessionExpiryWatcher";
+import { PhotoCropModal } from "@/components/PhotoCropModal";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -458,10 +459,10 @@ function PickerPopup({ open, title, options, selectedValue, onPick, onClose }: {
   );
 }
 
-function MonthYearPicker({ value, onChange, label, allowNull = false, isPresent = false, onPresentToggle, lang, required = false }: {
+function MonthYearPicker({ value, onChange, label, allowNull = false, isPresent = false, onPresentToggle, lang, required = false, hasError = false }: {
   value: MonthYear; onChange: (v: MonthYear) => void; label: string;
   allowNull?: boolean; isPresent?: boolean; onPresentToggle?: () => void; lang: string;
-  required?: boolean;
+  required?: boolean; hasError?: boolean;
 }) {
   const months = MONTHS[lang] ?? MONTHS.fr;
   const { t } = useLang();
@@ -473,7 +474,7 @@ function MonthYearPicker({ value, onChange, label, allowNull = false, isPresent 
 
   const buttonStyle: React.CSSProperties = {
     background: "var(--bg2)",
-    border: "1px solid transparent",
+    border: `1px solid ${hasError ? "#e05252" : "transparent"}`,
     color: "var(--w)",
     borderRadius: "12px",
   };
@@ -696,9 +697,10 @@ function PhoneInput({ value, onChange }: { value: string; onChange: (v: string) 
 
 /* LangLevelButton — compact level selector. The closed pill shows just the
    short code (A1…C2 / "Native"); the popup shows the full CEFR description. */
-function LangLevelButton({ level, onChange }: {
+function LangLevelButton({ level, onChange, hasError = false }: {
   level: string;
   onChange: (v: string) => void;
+  hasError?: boolean;
 }) {
   const { lang, t } = useLang();
   const [open, setOpen] = useState(false);
@@ -721,7 +723,7 @@ function LangLevelButton({ level, onChange }: {
     <>
       <button type="button" onClick={() => setOpen(true)}
         className="flex items-center justify-center px-4 py-2.5 text-[13px] font-semibold outline-none cursor-pointer transition-all hover:opacity-100"
-        style={{ background: "rgba(255,255,255,0.06)", border: "none", color: detail ? "var(--w)" : "var(--w3)", borderRadius: "10px", minWidth: "84px", opacity: 0.95, flexShrink: 0 }}>
+        style={{ background: "rgba(255,255,255,0.06)", border: `1px solid ${hasError ? "#e05252" : "transparent"}`, color: detail ? "var(--w)" : "var(--w3)", borderRadius: "10px", minWidth: "84px", opacity: 0.95, flexShrink: 0 }}>
         {shortLabel}
       </button>
       <PickerPopup
@@ -1427,12 +1429,13 @@ function NursingStatusField({ entry, updateEdu }: {
      pending    → small "Pending" pill (passport submitted, admin reviewing)
      rejected   → small "Rejected" pill
      approved   → green ✓ checkmark — data is verified, lock conceptually lifted */
-function LockedField({ value, placeholder, onLockedClick, displayFlag, passportStatus }: {
+function LockedField({ value, placeholder, onLockedClick, displayFlag, passportStatus, hasError }: {
   value: string;
   placeholder?: string;
   onLockedClick: () => void;
   displayFlag?: { iso2: string };
   passportStatus: null | "pending" | "approved" | "rejected";
+  hasError?: boolean;
 }) {
   const { lang } = useLang();
   const indicator = (() => {
@@ -1467,7 +1470,7 @@ function LockedField({ value, placeholder, onLockedClick, displayFlag, passportS
   return (
     <button type="button" onClick={onLockedClick}
       className="w-full flex items-center gap-3 px-4 py-3.5 text-[15px] font-medium outline-none cursor-pointer transition-all hover:opacity-90"
-      style={{ background: "var(--bg2)", border: "1px solid transparent", color: value ? "var(--w)" : "var(--w3)", borderRadius: "12px", textAlign: "left" }}>
+      style={{ background: "var(--bg2)", border: `1px solid ${hasError ? "#e05252" : "transparent"}`, color: value ? "var(--w)" : "var(--w3)", borderRadius: "12px", textAlign: "left" }}>
       {displayFlag && <CountryFlag iso={displayFlag.iso2} size={20} />}
       <span className="flex-1 truncate">{value || placeholder || "—"}</span>
       {indicator}
@@ -1625,6 +1628,10 @@ export default function CVBuilderPage() {
 
   const [smartGaps, setSmartGaps]       = useState<SmartGap[]>([]);
   const [showGapPanel, setShowGapPanel] = useState(false);
+  // Photo crop pipeline — when a candidate picks a photo we stage the raw
+  // data URL here, open the crop modal, and only commit to cvData.photo
+  // (and the server-side avatar) once they hit Save.
+  const [pendingPhotoSrc, setPendingPhotoSrc] = useState<string | null>(null);
 
   const [generating, setGenerating] = useState(false);
   const [pdfBlob, setPdfBlob]       = useState<Blob | null>(null);
@@ -1902,20 +1909,91 @@ export default function CVBuilderPage() {
   }
   function updateWork(id: string, patch: Partial<WorkEntry>) {
     setCvData(d => ({ ...d, workEntries: d.workEntries.map(e => e.id === id ? { ...e, ...patch } : e) }));
+    if (validationErrors.size > 0) {
+      setValidationErrors(prev => {
+        const n = new Set(prev);
+        for (const k of Object.keys(patch)) n.delete(`work_${id}_${k}`);
+        return n;
+      });
+    }
   }
   function updateEdu(id: string, patch: Partial<EduEntry>) {
     setCvData(d => ({ ...d, eduEntries: d.eduEntries.map(e => e.id === id ? { ...e, ...patch } : e) }));
+    if (validationErrors.size > 0) {
+      setValidationErrors(prev => {
+        const n = new Set(prev);
+        for (const k of Object.keys(patch)) n.delete(`edu_${id}_${k}`);
+        return n;
+      });
+    }
   }
 
   // ── Photo ─────────────────────────────────────────────────────────────────
+  // Stage the picked image so the crop modal can open. Nothing is committed
+  // (CV photo, server-side avatar) until the candidate hits Save in the modal.
   function handlePhoto(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
+    // Reset the input so picking the same file twice still re-triggers onChange
+    if (e.target) e.target.value = "";
     if (!file) return;
     if (!file.type.startsWith("image/")) { alert(t.cvb_photoErrType); return; }
     if (file.size > 5 * 1024 * 1024)    { alert(t.cvb_photoErrSize); return; }
     const reader = new FileReader();
-    reader.onload = ev => setCvData(d => ({ ...d, photo: ev.target?.result as string }));
+    reader.onload = ev => setPendingPhotoSrc(ev.target?.result as string);
     reader.readAsDataURL(file);
+  }
+
+  // Called from PhotoCropModal once the user has framed the circle. The
+  // returned data URL is already a 600×600 JPEG — we save it as both the
+  // CV photo (rendered round in the PDF too) and the profile avatar.
+  function commitCroppedPhoto(croppedDataUrl: string) {
+    setCvData(d => ({ ...d, photo: croppedDataUrl }));
+    setPendingPhotoSrc(null);
+    shrinkAndSaveProfilePhoto(croppedDataUrl).catch(err => {
+      console.warn("[cv-builder] profile photo save failed:", err);
+    });
+  }
+
+  /** Resize an image data URL to a 400px-max JPEG, broadcast the new photo
+   *  to anything that's rendering an avatar (ProfileIcon listens), and POST
+   *  it as the candidate's profile photo on the server. The broadcast fires
+   *  IMMEDIATELY (before the network round-trip) so the navbar avatar swaps
+   *  in the new photo with zero perceptible delay. */
+  async function shrinkAndSaveProfilePhoto(dataUrl: string) {
+    if (!authToken) return;
+    const small = await new Promise<string>((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        const maxSide = 400;
+        const ratio = img.width > img.height
+          ? maxSide / img.width
+          : maxSide / img.height;
+        const scale = Math.min(1, ratio);
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement("canvas");
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { resolve(dataUrl); return; }
+        ctx.drawImage(img, 0, 0, w, h);
+        resolve(canvas.toDataURL("image/jpeg", 0.85));
+      };
+      img.onerror = reject;
+      img.src = dataUrl;
+    });
+    // 1. Tell every avatar in the page (ProfileIcon) to refresh now —
+    //    independent of any approval status. This is the candidate's
+    //    photo: no admin gate, no waiting for passport / Lebenslauf.
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("bv-profile-photo-changed", { detail: { photo: small } }));
+    }
+    // 2. Persist to candidate_profiles.profile_photo so it sticks across
+    //    sessions and shows up on the public profile + popup.
+    await fetch("/api/portal/me/profile-photo", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ photo: small }),
+    });
   }
 
   // ── Work ──────────────────────────────────────────────────────────────────
@@ -1964,19 +2042,7 @@ export default function CVBuilderPage() {
 
   // ── Validate ──────────────────────────────────────────────────────────────
   function validate(): boolean {
-    // Comprehensive validation: photo + personal data + each education entry
-    // (institution/city/country/start) + each work entry (job title/employer/
-    // city/start/dept) + every language having a niveau + at least one IT
-    // skill selected + driver license decision + hobbies + nursing diploma
-    // issue date when status is "complete". On the first missing field, scroll
-    // the user to that section so they can fill it in.
-
-    type Issue = { sectionId: string; message: string };
-    const issues: Issue[] = [];
-
-    // 0. Passport must be APPROVED before any CV generation. This is the
-    // explicit gate the operator wants — extracted-but-unverified passport
-    // data shouldn't make it onto a CV destined for a German hospital.
+    // 0. Passport must be APPROVED before any CV generation.
     if (passportStatus !== "approved") {
       const msg = passportStatus === "pending"
         ? (lang === "de" ? "Ihr Reisepass wird noch geprüft. Sobald er genehmigt ist, können Sie den Lebenslauf erstellen."
@@ -1990,120 +2056,65 @@ export default function CVBuilderPage() {
         :  lang === "en" ? "Please upload your passport in the dashboard first."
         :                  "Veuillez d'abord téléverser votre passeport dans le tableau de bord.");
       setGenError(msg);
-      // Scroll up so the user sees the error.
       window.scrollTo({ top: 0, behavior: "smooth" });
       return false;
     }
 
-    const missingPersonal = new Set(
-      REQUIRED_FIELDS.filter(f => !(cvData[f] as string)?.trim())
-    );
-    setValidationErrors(missingPersonal);
+    // Collect ALL missing required field keys so every invalid input shows a
+    // red border simultaneously — the user sees exactly what's missing at a
+    // glance instead of fixing one thing and re-submitting.
+    const errors = new Set<string>();
 
-    // 1. Photo
-    if (!cvData.photo) {
-      issues.push({
-        sectionId: "personal-section", // photo lives just above personal data
-        message: lang === "de" ? "Bitte ein professionelles Foto hochladen."
-              : lang === "en" ? "Please upload a professional photo."
-              : "Veuillez téléverser une photo professionnelle.",
-      });
+    // 1. Personal data (passport-locked fields)
+    for (const f of REQUIRED_FIELDS) {
+      if (!(cvData[f] as string)?.trim()) errors.add(f as string);
     }
 
-    // 2. Personal data
-    if (missingPersonal.size > 0) {
-      issues.push({
-        sectionId: "personal-section",
-        message: lang === "de" ? "Bitte alle persönlichen Daten ausfüllen."
-              : lang === "en" ? "Please fill in all personal data."
-              : "Veuillez remplir toutes les données personnelles.",
-      });
-    }
+    // 2. Photo
+    if (!cvData.photo) errors.add("photo");
 
-    // 3. Education entries — must have institution, city, country, start year
+    // 3. Education entries
     for (const e of cvData.eduEntries) {
-      const okStart = e.start.month && e.start.year;
-      // Nursing in-progress allows a null end (Currently); otherwise need both
+      if (!e.institution.trim()) errors.add(`edu_${e.id}_institution`);
+      if (!e.location.trim())    errors.add(`edu_${e.id}_location`);
+      if (!e.start.month || !e.start.year) errors.add(`edu_${e.id}_start`);
       const isNursingInProgress = e.type === "nursing" && e.nursingStatus !== "complete";
-      const okEnd = isNursingInProgress ? true : (!!e.end && !!e.end.month && !!e.end.year);
-      const okDiploma = e.type === "nursing" && e.nursingStatus === "complete"
-        ? !!(e.diplomaIssued?.month && e.diplomaIssued?.year)
-        : true;
-      if (!e.institution.trim() || !e.location.trim() || !(e.country?.trim()) || !okStart || !okEnd || !okDiploma) {
-        issues.push({
-          sectionId: "personal-section", // closest scroll target
-          message: lang === "de" ? "Bitte alle Bildungsangaben vollständig ausfüllen."
-                : lang === "en" ? "Please complete all education entries."
-                : "Veuillez compléter toutes les entrées de formation.",
-        });
-        break;
-      }
+      if (!isNursingInProgress && (!e.end || !e.end.month || !e.end.year)) errors.add(`edu_${e.id}_end`);
+      if (e.type === "nursing" && e.nursingStatus === "complete" && !(e.diplomaIssued?.month && e.diplomaIssued?.year)) errors.add(`edu_${e.id}_diploma`);
     }
 
-    // 4. Work entries — at least the first (mandatory internship). Required
-    //    fields per non-gap entry: title, employer, city, start, departments.
+    // 4. Work entries
     for (const w of cvData.workEntries) {
       if (w.isGap) continue;
-      const okStart = w.start.month && w.start.year;
-      const okEnd = !!w.end && !!w.end.month && !!w.end.year;
-      if (!w.title.trim() || !w.employer.trim() || !w.location.trim() || !okStart || !okEnd || w.departments.length === 0) {
-        issues.push({
-          sectionId: "work-section",
-          message: lang === "de" ? "Bitte alle Berufserfahrungen vollständig ausfüllen."
-                : lang === "en" ? "Please complete all work experience entries."
-                : "Veuillez compléter toutes les expériences professionnelles.",
-        });
-        break;
-      }
+      if (!w.employer.trim())  errors.add(`work_${w.id}_employer`);
+      if (!w.location.trim())  errors.add(`work_${w.id}_location`);
+      if (!w.start.month || !w.start.year) errors.add(`work_${w.id}_start`);
+      if (!w.end || !w.end.month || !w.end.year) errors.add(`work_${w.id}_end`);
+      if (w.departments.length === 0) errors.add(`work_${w.id}_departments`);
     }
 
-    // 5. Languages — every entry must have a level set
-    for (const l of cvData.langs) {
-      if (!l.level) {
-        issues.push({
-          sectionId: "personal-section", // languages section is below; scrolling here is fine
-          message: lang === "de" ? "Bitte für jede Sprache ein Niveau wählen."
-                : lang === "en" ? "Please choose a level for each language."
-                : "Veuillez choisir un niveau pour chaque langue.",
-        });
-        break;
-      }
-    }
+    // 5. Languages — every entry must have a level
+    cvData.langs.forEach((l, i) => {
+      if (!l.level) errors.add(`lang_${i}_level`);
+    });
 
-    // 6. IT Skills — at least one selected
-    if (cvData.edvSelected.length === 0) {
-      issues.push({
-        sectionId: "personal-section",
-        message: lang === "de" ? "Bitte mindestens eine EDV-Kenntnis auswählen."
-              : lang === "en" ? "Please select at least one IT skill."
-              : "Veuillez sélectionner au moins une compétence informatique.",
-      });
-    }
+    // 6. IT Skills
+    if (cvData.edvSelected.length === 0) errors.add("edvSelected");
 
-    // 7. Driver license — must explicitly pick Yes or No
-    if (cvData.driverLicense === "unset") {
-      issues.push({
-        sectionId: "other-section",
-        message: lang === "de" ? "Bitte beantworten Sie die Frage zum Führerschein."
-              : lang === "en" ? "Please answer the driver's license question."
-              : "Veuillez répondre à la question sur le permis de conduire.",
-      });
-    }
+    // 7. Driver license
+    if (cvData.driverLicense === "unset") errors.add("driverLicense");
 
-    // 8. Hobbies — must have at least one item
-    if (!cvData.hobbies.trim()) {
-      issues.push({
-        sectionId: "other-section",
-        message: lang === "de" ? "Bitte mindestens ein Hobby angeben."
-              : lang === "en" ? "Please add at least one hobby."
-              : "Veuillez indiquer au moins un loisir.",
-      });
-    }
+    // 8. Hobbies
+    if (!cvData.hobbies.trim()) errors.add("hobbies");
 
-    if (issues.length > 0) {
-      const first = issues[0];
-      setGenError(first.message);
-      document.getElementById(first.sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setValidationErrors(errors);
+
+    if (errors.size > 0) {
+      setGenError(
+        lang === "de" ? "Bitte alle rot markierten Pflichtfelder ausfüllen."
+      : lang === "en" ? "Please fill in all required fields highlighted in red."
+      :                 "Veuillez remplir tous les champs obligatoires surlignés en rouge."
+      );
       return false;
     }
     return true;
@@ -2193,6 +2204,16 @@ export default function CVBuilderPage() {
   return (
     <>
     <SessionExpiryWatcher />
+    {/* Photo crop modal — opens whenever a candidate picks a new photo, so
+        they can frame their face inside the circle before it lands on
+        the CV + their profile avatar. */}
+    {pendingPhotoSrc && (
+      <PhotoCropModal
+        src={pendingPhotoSrc}
+        onSave={commitCroppedPhoto}
+        onCancel={() => setPendingPhotoSrc(null)}
+      />
+    )}
     <PassportLockPopup open={lockedPopupOpen} onClose={() => setLockedPopupOpen(false)} passportStatus={passportStatus} />
     <InternshipInfoPopup open={internshipInfoOpen} onClose={() => setInternshipInfoOpen(false)} />
     <AbiturInfoPopup open={abiturInfoOpen} onClose={() => setAbiturInfoOpen(false)} />
@@ -2263,14 +2284,14 @@ export default function CVBuilderPage() {
           <div className="flex flex-col items-center gap-3">
             <button onClick={() => photoRef.current?.click()}
               aria-label={cvData.photo ? t.cvb_changePhoto : t.cvb_choosePhoto}
-              className="relative w-44 h-52 flex flex-col items-center justify-center gap-2.5 transition-all hover:-translate-y-0.5 hover:opacity-95"
-              style={{ background: cvData.photo ? "transparent" : "var(--bg2)", border: "none", borderRadius: "16px", cursor: "pointer", overflow: "hidden" }}>
+              className="relative w-44 h-44 flex flex-col items-center justify-center gap-2.5 transition-all hover:-translate-y-0.5 hover:opacity-95"
+              style={{ background: cvData.photo ? "transparent" : "var(--bg2)", border: validationErrors.has("photo") ? "2px solid #e05252" : "none", borderRadius: "9999px", cursor: "pointer", overflow: "hidden" }}>
               {cvData.photo ? (
                 <>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={cvData.photo} alt="Photo" className="absolute inset-0 w-full h-full object-cover"
-                    style={{ borderRadius: "16px" }} />
-                  <span className="absolute bottom-2 right-2 px-2 py-1 text-[10.5px] font-semibold tracking-tight"
+                    style={{ borderRadius: "9999px" }} />
+                  <span className="absolute bottom-2 left-1/2 -translate-x-1/2 px-2 py-1 text-[10.5px] font-semibold tracking-tight whitespace-nowrap"
                     style={{ background: "rgba(0,0,0,0.55)", color: "#fff", borderRadius: "8px", backdropFilter: "blur(8px)" }}>
                     {t.cvb_changePhoto}
                   </span>
@@ -2285,7 +2306,22 @@ export default function CVBuilderPage() {
               )}
             </button>
             {cvData.photo && (
-              <button onClick={() => setCvData(d => ({ ...d, photo: null }))}
+              <button onClick={() => {
+                  setCvData(d => ({ ...d, photo: null }));
+                  // Mirror the removal to the server-side avatar + notify the
+                  // ProfileIcon so the navbar avatar reverts to initials
+                  // immediately, no page reload required.
+                  if (typeof window !== "undefined") {
+                    window.dispatchEvent(new CustomEvent("bv-profile-photo-changed", { detail: { photo: null } }));
+                  }
+                  if (authToken) {
+                    fetch("/api/portal/me/profile-photo", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+                      body: JSON.stringify({ photo: null }),
+                    }).catch(err => console.warn("[cv-builder] photo clear failed:", err));
+                  }
+                }}
                 className="text-[11.5px] font-medium transition-opacity hover:opacity-70" style={{ color: "#e05252", background: "transparent", border: "none" }}>
                 {t.cvb_removePhoto}
               </button>
@@ -2304,28 +2340,22 @@ export default function CVBuilderPage() {
               {t.cvb_autoFillDone}
             </div>
           )}
-          {hasErrors && (
-            <div className="mb-4 inline-flex items-center gap-2 px-3 py-2 text-[12px]"
-              style={{ background: "rgba(224,82,82,0.08)", color: "#e05252", border: "1px solid rgba(224,82,82,0.24)", borderRadius: "var(--r-sm)" }}>
-              <AlertTriangle size={13} strokeWidth={1.8} /> {t.cvb_requiredFields}
-            </div>
-          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <div>
               <Label required>{t.cvb_firstName}</Label>
-              <LockedField value={cvData.firstName} onLockedClick={showLocked} passportStatus={passportStatus} />
+              <LockedField value={cvData.firstName} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("firstName")} />
             </div>
             <div>
               <Label required>{t.cvb_lastName}</Label>
-              <LockedField value={cvData.lastName} onLockedClick={showLocked} passportStatus={passportStatus} />
+              <LockedField value={cvData.lastName} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("lastName")} />
             </div>
             <div>
               <Label required>{t.cvb_birthDate}</Label>
-              <LockedField value={cvData.birthDate} onLockedClick={showLocked} passportStatus={passportStatus} />
+              <LockedField value={cvData.birthDate} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("birthDate")} />
             </div>
             <div>
               <Label required>{t.cvb_birthPlace}</Label>
-              <LockedField value={cvData.birthPlace} onLockedClick={showLocked} passportStatus={passportStatus} />
+              <LockedField value={cvData.birthPlace} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("birthPlace")} />
             </div>
             {/* Country of birth (left) | Nationality (right) */}
             <div>
@@ -2680,6 +2710,7 @@ export default function CVBuilderPage() {
                   <div className="sm:col-span-2">
                     <Label required>{t.cvb_institution}</Label>
                     <Input value={entry.institution} onChange={v => updateEdu(entry.id, { institution: v })}
+                      hasError={validationErrors.has(`edu_${entry.id}_institution`)}
                       placeholder={
                         entry.type === "abitur"
                           ? (lang === "de" ? "Gymnasium ABC..." : lang === "en" ? "High school ABC..." : "Lycée ABC...")
@@ -2691,7 +2722,7 @@ export default function CVBuilderPage() {
                   </div>
                   <div>
                     <Label required>{t.cvb_city}</Label>
-                    <Input value={entry.location} onChange={v => updateEdu(entry.id, { location: v })} lettersOnly />
+                    <Input value={entry.location} onChange={v => updateEdu(entry.id, { location: v })} lettersOnly hasError={validationErrors.has(`edu_${entry.id}_location`)} />
                   </div>
                   {/* Country picker — sits next to City in the same row on desktop. */}
                   <div>
@@ -2705,6 +2736,7 @@ export default function CVBuilderPage() {
                   <MonthYearPicker
                     label={t.cvb_begin}
                     value={entry.start}
+                    hasError={validationErrors.has(`edu_${entry.id}_start`)}
                     onChange={v => {
                       if (entry.type === "nursing") {
                         // Suggest sensible defaults when the user picks a year
@@ -2729,6 +2761,7 @@ export default function CVBuilderPage() {
                   <MonthYearPicker
                     label={t.cvb_end}
                     value={entry.end ?? { month: "", year: "" }}
+                    hasError={validationErrors.has(`edu_${entry.id}_end`)}
                     onChange={v => updateEdu(entry.id, { end: v })}
                     // "Currently" checkbox only makes sense while training is in
                     // progress (year1–year3). Once status is "complete" the
@@ -2811,12 +2844,12 @@ export default function CVBuilderPage() {
                     {/* Establishment full width */}
                     <div className="sm:col-span-2">
                       <Label>{t.cvb_employer}</Label>
-                      <Input value={entry.employer} onChange={v => updateWork(entry.id, { employer: v })} />
+                      <Input value={entry.employer} onChange={v => updateWork(entry.id, { employer: v })} hasError={validationErrors.has(`work_${entry.id}_employer`)} />
                     </div>
                     {/* City (left) | Country (right) */}
                     <div>
                       <Label>{t.cvb_location}</Label>
-                      <Input value={entry.location} onChange={v => updateWork(entry.id, { location: v })} lettersOnly />
+                      <Input value={entry.location} onChange={v => updateWork(entry.id, { location: v })} lettersOnly hasError={validationErrors.has(`work_${entry.id}_location`)} />
                     </div>
                     <div>
                       <Label>{lang === "de" ? "Land" : lang === "en" ? "Country" : "Pays"}</Label>
@@ -2896,13 +2929,13 @@ export default function CVBuilderPage() {
                         </button>
                       </div>
                     )}
-                    <MonthYearPicker label={`${t.cvb_startDate} *`} value={entry.start} onChange={v => updateWork(entry.id, { start: v })} lang={lang} required />
+                    <MonthYearPicker label={`${t.cvb_startDate} *`} value={entry.start} onChange={v => updateWork(entry.id, { start: v })} lang={lang} required hasError={validationErrors.has(`work_${entry.id}_start`)} />
                     <MonthYearPicker label={t.cvb_endDate} value={entry.end ?? { month: "", year: "" }}
                       onChange={v => updateWork(entry.id, { end: v })} allowNull isPresent={!entry.end}
-                      onPresentToggle={() => updateWork(entry.id, { end: entry.end ? null : { month: "", year: "" } })} lang={lang} required />
+                      onPresentToggle={() => updateWork(entry.id, { end: entry.end ? null : { month: "", year: "" } })} lang={lang} required hasError={validationErrors.has(`work_${entry.id}_end`)} />
                     <div className="sm:col-span-2">
                       <Label required>{t.cvb_deptLabel}</Label>
-                      <div className="flex flex-wrap gap-2 mt-2">
+                      <div className="flex flex-wrap gap-2 mt-2 rounded-xl p-1" style={validationErrors.has(`work_${entry.id}_departments`) ? { outline: "1px solid #e05252", outlineOffset: "2px" } : {}}>
                         {NURSING_DEPTS.map(dept => {
                           const selected = entry.departments.includes(dept.de);
                           return (
@@ -2992,6 +3025,7 @@ export default function CVBuilderPage() {
                   <LangLevelButton
                     level={l.level}
                     onChange={lv => { const ls = [...cvData.langs]; ls[i] = { ...ls[i], level: lv }; set("langs", ls); }}
+                    hasError={validationErrors.has(`lang_${i}_level`)}
                   />
                 </div>
                 {/* Small inline "× Remove" link sits BELOW the row, matching the
@@ -3009,7 +3043,7 @@ export default function CVBuilderPage() {
 
         {/* ── 6. EDV ── */}
         <SectionCard title={t.cvb_edvSection} kind="skills">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap gap-2 rounded-xl p-1" style={validationErrors.has("edvSelected") ? { outline: "1px solid #e05252", outlineOffset: "2px" } : {}}>
             {EDV_DEFAULTS.map(s => {
               const selected = cvData.edvSelected.includes(s.de);
               const label    = s[lang as "fr"|"en"|"de"] ?? s.de;
@@ -3058,7 +3092,7 @@ export default function CVBuilderPage() {
                   </span>
                 </span>
               </Label>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-2 gap-3 rounded-xl" style={validationErrors.has("driverLicense") ? { outline: "1px solid #e05252", outlineOffset: "2px" } : {}}>
                 <button type="button"
                   onClick={() => set("driverLicense", "B")}
                   className="flex flex-col items-center justify-center gap-2 py-4 rounded-xl transition-all"
@@ -3087,7 +3121,9 @@ export default function CVBuilderPage() {
             </div>
             <div className="sm:col-span-2">
               <Label required>{t.cvb_hobbies}</Label>
-              <HobbiesField value={cvData.hobbies} onChange={v => set("hobbies", v)} />
+              <div style={validationErrors.has("hobbies") ? { outline: "1px solid #e05252", outlineOffset: "2px", borderRadius: "12px" } : {}}>
+                <HobbiesField value={cvData.hobbies} onChange={v => set("hobbies", v)} />
+              </div>
             </div>
           </div>
         </SectionCard>

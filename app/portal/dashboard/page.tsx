@@ -19,9 +19,12 @@ import {
 } from "@/components/PortalIcons";
 import { X as XIcon, Download, Upload, RefreshCw, Info } from "lucide-react";
 import { PdfViewer } from "@/components/PdfViewer";
+import { DocxViewer } from "@/components/DocxViewer";
+import { ZoomPanRotateViewer } from "@/components/ZoomPanRotateViewer";
 import { Spinner, PageLoader, AutosaveIndicator } from "@/components/ui/states";
 import { JourneyView } from "@/components/JourneyView";
 import { SessionExpiryWatcher } from "@/components/SessionExpiryWatcher";
+import { OrgCodeModal } from "@/components/OrgCodeModal";
 import { useMobileMenu } from "@/components/MobileMenuContext";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { buildProfileSlug } from "@/lib/profile-slug";
@@ -244,6 +247,14 @@ export default function DashboardPage() {
   const skipTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const slotMsgTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Organization invite-code modal — shown until candidate joins an org or
+  // explicitly dismisses ("Later"). Dismissal is session-only; resets on next login.
+  const [orgModalOpen, setOrgModalOpen] = useState(false);
+  const [orgChecked, setOrgChecked]     = useState(false);
+  // Names of orgs this candidate is linked to (any status) — shown as a small
+  // badge below the welcome line so they always know which partner is following them.
+  const [linkedOrgs, setLinkedOrgs]     = useState<{ name: string; status: string }[]>([]);
+
   // Wire the bottom-bar hamburger ↔ home toggle. The Navbar reads this and
   // renders an icon as the first item in the mobile bottom action bar.
   const mobileMenu = useMobileMenu();
@@ -312,6 +323,33 @@ export default function DashboardPage() {
   const [passportModal, setPassportModal] = useState<PassportData | null>(null);
   const [passportSaving, setPassportSaving] = useState(false);
   const [confirmedFields, setConfirmedFields] = useState<Set<keyof PassportData>>(new Set());
+
+  /**
+   * Re-open the passport-data modal AFTER first confirmation, populated from
+   * whatever the candidate already saved in candidate_profiles. Used by the
+   * "Passport data" button in the doc preview popup AND by the auto-open
+   * effect that fires while the passport is still in the verification phase.
+   */
+  const reopenPassportData = useCallback(async () => {
+    if (!userId) return;
+    const { data } = await supabase
+      .from("candidate_profiles")
+      .select("first_name, last_name, dob, sex, nationality, city_of_birth, country_of_birth, passport_no, passport_expiry, issuing_authority, issue_date, address_street, address_number, address_postal, city_of_residence, country_of_residence, marital_status, children_ages")
+      .eq("user_id", userId)
+      .maybeSingle();
+    type ProfileRow = Partial<PassportData>;
+    const p = (data ?? {}) as ProfileRow;
+    const blank: PassportData = { first_name: "", last_name: "", dob: "", sex: "", nationality: "", city_of_birth: "", country_of_birth: "", passport_no: "", passport_expiry: "", issuing_authority: "", issue_date: "", address_street: "", address_number: "", address_postal: "", city_of_residence: "", country_of_residence: "", marital_status: "", children_ages: "" };
+    const filled: PassportData = { ...blank };
+    (Object.keys(blank) as (keyof PassportData)[]).forEach(k => {
+      const v = p[k];
+      if (typeof v === "string") filled[k] = v;
+    });
+    setPassportModal({ ...filled, sex: normalizeSex(filled.sex, lang) });
+    // Reset confirmation flags — re-opening doesn't auto-confirm. The candidate
+    // can review again, edit if needed, and re-confirm to save.
+    setConfirmedFields(new Set());
+  }, [userId, lang]);
   const [passportHint, setPassportHint] = useState<keyof PassportData | null>(null);
   const addressHintShown = useRef(false);
   const postalHintShown = useRef(false);
@@ -346,34 +384,38 @@ export default function DashboardPage() {
   const [infoPassportLoading, setInfoPassportLoading] = useState(false);
   // passport_status from candidate_profiles — drives info button color independently of doc status
   const [passportStatus, setPassportStatus] = useState<string | null>(null);
-  const [highlightKey, setHighlightKey] = useState<string | null>(null);
-  const lastAppliedNavDoc = useRef<string | null>(null);
   const [previewDoc, setPreviewDoc]         = useState<Doc | null>(null);
   const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  // Set when a notification click carries a doc_id — resolved to a preview
+  // once docs have loaded (handles both same-page and fresh-navigation cases).
+  const [pendingOpenDocId, setPendingOpenDocId] = useState<string | null>(null);
+
+  // Auto-open passport-data modal whenever the candidate previews a passport
+  // that isn't yet fully approved. Mirrors admin-side behaviour: doc preview
+  // on the left (laptop) / top (phone), data form on the right / below. Once
+  // approved this stops triggering and the data form is accessible only via
+  // the "Passport data" header button.
+  useEffect(() => {
+    if (!previewDoc) return;
+    if (!/pass/i.test(previewDoc.file_type)) return;
+    if (previewDoc.status === "approved" && passportStatus === "approved") return;
+    if (passportModal) return; // already open
+    reopenPassportData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewDoc?.id, passportStatus]);
 
   // Deep-link from notification: listens for 'bv-nav-doc' custom events
   // dispatched by the CandidateBell. Works for both initial-load (URL param)
   // and same-page navigation (user already on dashboard).
   useEffect(() => {
-    function applyNavDoc(navDoc: string) {
-      if (!navDoc || navDoc === lastAppliedNavDoc.current) return;
-      lastAppliedNavDoc.current = navDoc;
-      for (const [fileKey, labels] of Object.entries(FILE_KEY_ALL_LABELS)) {
-        if (labels.has(navDoc)) {
-          setPhase(FILE_KEY_PHASE[fileKey] ?? 0);
-          setHighlightKey(fileKey);
-          setViewMode("docs");
-          setTimeout(() => setHighlightKey(null), 5000);
-          break;
-        }
-      }
+    function applyNavDoc(detail: { docId: string | null }) {
+      if (detail?.docId) setPendingOpenDocId(detail.docId);
       window.history.replaceState({}, "", window.location.pathname);
     }
 
-    // Handle same-page navigation event from bell
     function onNavDocEvent(e: Event) {
-      applyNavDoc((e as CustomEvent<string>).detail);
+      applyNavDoc((e as CustomEvent<{ docId: string | null }>).detail);
     }
     window.addEventListener("bv-nav-doc", onNavDocEvent);
     return () => window.removeEventListener("bv-nav-doc", onNavDocEvent);
@@ -407,6 +449,16 @@ export default function DashboardPage() {
   function handlePreview(doc: Doc) {
     setPreviewDoc(doc);
   }
+
+  // When a notification carried a doc_id, open its preview as soon as docs are loaded.
+  useEffect(() => {
+    if (!pendingOpenDocId || docs.length === 0) return;
+    const doc = docs.find(d => d.id === pendingOpenDocId);
+    if (doc) {
+      setPendingOpenDocId(null);
+      setPreviewDoc(doc);
+    }
+  }, [pendingOpenDocId, docs]);
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -450,6 +502,20 @@ export default function DashboardPage() {
         .then(r => r.json())
         .then(({ pipeline: p }) => setPipeline(p ?? null))
         .catch(err => console.error("Pipeline fetch error:", err));
+
+      // Org check — show invite-code modal if candidate has no approved org yet
+      fetch(`/api/portal/me/organizations`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      })
+        .then(r => r.json())
+        .then(({ orgs }) => {
+          const list = (orgs ?? []) as { name: string; status: string }[];
+          setLinkedOrgs(list);
+          const approved = list.filter(o => o.status === "approved");
+          if (approved.length === 0) setOrgModalOpen(true);
+          setOrgChecked(true);
+        })
+        .catch(() => setOrgChecked(true));
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -464,9 +530,12 @@ export default function DashboardPage() {
       if (error) console.error("loadDocs error:", error.message);
       // Deduplicate: only keep the latest doc per file slot (fileKey).
       // Docs are sorted DESC so first occurrence per fileKey = latest version.
+      // EXCEPTION: "other" (Sonstiges) is a multi-doc slot — every uploaded
+      // file is a peer, so we keep them all.
       const seenKeys = new Set<string>();
       fetched = (data ?? []).filter(d => {
         const fk = LABEL_TO_FILE_KEY[d.file_type] ?? d.file_type;
+        if (fk === "other") return true; // multi-doc slot — never dedupe
         if (seenKeys.has(fk)) return false;
         seenKeys.add(fk);
         return true;
@@ -493,19 +562,11 @@ export default function DashboardPage() {
       setPhase(firstIncomplete === -1 ? 0 : firstIncomplete);
       setMode("wizard");
 
-      // Deep-link from notification: jump to the phase + highlight the specific doc
+      // Deep-link from notification: open doc preview directly
       if (!keepPhase) {
-        const navDoc = new URLSearchParams(window.location.search).get("nav_doc");
-        if (navDoc) {
-          for (const [fileKey, labels] of Object.entries(FILE_KEY_ALL_LABELS)) {
-            if (labels.has(navDoc)) {
-              setPhase(FILE_KEY_PHASE[fileKey] ?? 0);
-              // Highlight the specific doc slot for 4 seconds
-              setHighlightKey(fileKey);
-              setTimeout(() => setHighlightKey(null), 4000);
-              break;
-            }
-          }
+        const navDocId = new URLSearchParams(window.location.search).get("nav_doc_id");
+        if (navDocId) {
+          setPendingOpenDocId(navDocId);
           window.history.replaceState({}, "", window.location.pathname);
         }
       }
@@ -682,6 +743,22 @@ export default function DashboardPage() {
   return (
     <>
     <SessionExpiryWatcher />
+    {orgChecked && orgModalOpen && authToken && (
+      <OrgCodeModal
+        accessToken={authToken}
+        onJoined={() => {
+          setOrgModalOpen(false);
+          // Refresh linked orgs so the badge appears immediately
+          fetch(`/api/portal/me/organizations`, {
+            headers: { Authorization: `Bearer ${authToken}` },
+          })
+            .then(r => r.json())
+            .then(({ orgs }) => setLinkedOrgs(orgs ?? []))
+            .catch(() => {});
+        }}
+        onSkip={() => setOrgModalOpen(false)}
+      />
+    )}
     {/* Document-hint popup — opened by the small blue info circle next to
         each document row. Shows the "What is this?" explanation in the
         candidate's UI language. Identical look to the CV-builder popups
@@ -812,15 +889,61 @@ export default function DashboardPage() {
     })()}
 
     {/* Doc preview modal */}
-    {previewDoc && (
-      <div className="fixed inset-x-0 bottom-0 top-[58px] z-[700] flex items-center justify-center p-4"
-        style={{ background: "rgba(0,0,0,0.72)" }}
+    {previewDoc && (() => {
+      // Verification phase = the previewed doc IS a passport AND it isn't
+      // fully approved yet. While that's true, the data form auto-opens
+      // alongside this preview (laptop: side-by-side, phone: stacked) — same
+      // rule the admin side uses.
+      const isPassportDoc = /pass/i.test(previewDoc.file_type);
+      const verificationPhase = isPassportDoc
+        && (previewDoc.status !== "approved" || passportStatus !== "approved");
+      return (
+      <div className={`fixed inset-x-0 z-[700] flex justify-center p-4 bv-cand-preview-outer ${verificationPhase && passportModal ? "bv-side-preview-cand" : "top-[58px] bottom-0 items-center"}`}
+        style={{ background: verificationPhase && passportModal ? "rgba(0,0,0,0.45)" : "rgba(0,0,0,0.72)",
+                 backdropFilter: verificationPhase && passportModal ? "blur(8px)" : undefined }}
         onClick={() => setPreviewDoc(null)}>
-        <div className="w-full max-w-3xl overflow-hidden flex flex-col"
+        {/* Mobile only: leave clearance for the bottom action bar so the
+            PDF popup never slides behind it. */}
+        <style>{`
+          @media (max-width: 639.98px) {
+            .bv-cand-preview-outer { padding-bottom: calc(1rem + 72px) !important; }
+            .bv-cand-preview-card  {
+              height: calc(100dvh - 58px - 1rem - 72px - 1rem) !important;
+              max-height: calc(100dvh - 58px - 1rem - 72px - 1rem) !important;
+            }
+            .bv-side-preview-cand {
+              top: 58px !important;
+              bottom: calc(50dvh + 0.25rem) !important;
+              padding-bottom: 0.25rem !important;
+              align-items: center !important;
+            }
+            .bv-side-preview-cand .bv-cand-preview-card {
+              height: 100% !important;
+              max-height: 100% !important;
+            }
+          }
+          @media (min-width: 640px) {
+            .bv-side-preview-cand {
+              top: 58px;
+              bottom: 0;
+              align-items: center;
+              justify-content: flex-end !important;
+              padding-right: 50vw;
+              padding-left: 1rem;
+            }
+            .bv-side-preview-cand .bv-cand-preview-card {
+              max-height: 620px !important;
+              height: auto !important;
+            }
+          }
+        `}</style>
+        <div className={`bv-cand-preview-card w-full overflow-hidden flex flex-col ${verificationPhase && passportModal ? "sm:max-w-[560px]" : "max-w-3xl"}`}
           style={{
             background: "var(--card)", border: "1px solid var(--border)",
             borderRadius: "var(--r-2xl)", boxShadow: "var(--shadow-lg)",
-            height: "88vh", maxHeight: "88vh",
+            height: verificationPhase && passportModal ? "auto" : "88vh",
+            maxHeight: verificationPhase && passportModal ? "620px" : "88vh",
+            minHeight: verificationPhase && passportModal ? "420px" : undefined,
             animation: "bvFadeRise .28s var(--ease-out)",
           }}
           onClick={e => e.stopPropagation()}>
@@ -831,6 +954,29 @@ export default function DashboardPage() {
               <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-0.5" style={{ color: "var(--w3)" }}>{previewDoc.file_type}</p>
               <p className="text-[13.5px] font-semibold truncate tracking-tight" style={{ color: "var(--w)" }}>{previewDoc.file_name}</p>
             </div>
+            {/* "Passport data" button — only on passport docs. Re-opens the
+                same data form they confirmed at upload, populated from
+                whatever they already saved. Always available; auto-opens
+                during the verification phase via the effect below. */}
+            {isPassportDoc && (
+              <button
+                type="button"
+                onClick={() => { reopenPassportData(); }}
+                title={lang === "de" ? "Passdaten" : lang === "fr" ? "Données du passeport" : "Passport data"}
+                aria-label="Passport data"
+                className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-2.5 h-8 rounded-full transition-colors"
+                style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                  strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <rect x="3" y="4" width="18" height="16" rx="2"/>
+                  <circle cx="9" cy="10" r="2"/>
+                  <line x1="14" y1="9" x2="18" y2="9"/>
+                  <line x1="14" y1="13" x2="18" y2="13"/>
+                  <line x1="6" y1="16" x2="18" y2="16"/>
+                </svg>
+                {lang === "de" ? "Passdaten" : lang === "fr" ? "Données" : "Passport data"}
+              </button>
+            )}
             {previewBlobUrl && (
               <a
                 href={previewBlobUrl}
@@ -846,18 +992,43 @@ export default function DashboardPage() {
               <XIcon size={14} strokeWidth={1.8} />
             </button>
           </div>
-          {/* Preview — custom PDF.js viewer (same engine as Drive) */}
+          {/* Preview — PDF, image, or fallback download. */}
           <div className="flex-1" style={{ minHeight: 0, position: "relative" }}>
-            {previewLoading || !previewBlobUrl
-              ? <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#525659" }}>
-                  <Spinner size="md" />
+            {previewLoading || !previewBlobUrl ? (
+              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#525659" }}>
+                <Spinner size="md" />
+              </div>
+            ) : (() => {
+              const ext = (previewDoc.file_name.split(".").pop() ?? "").toLowerCase();
+              if (ext === "pdf") return <PdfViewer src={previewBlobUrl} />;
+              if (ext === "docx") return <DocxViewer src={previewBlobUrl} fileName={previewDoc.file_name} />;
+              if (["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext)) {
+                return (
+                  <ZoomPanRotateViewer>
+                    { /* eslint-disable-next-line @next/next/no-img-element */ }
+                    <img src={previewBlobUrl} alt={previewDoc.file_name}
+                      draggable={false}
+                      style={{ maxWidth: "90vw", maxHeight: "85vh", objectFit: "contain", userSelect: "none", pointerEvents: "none" }} />
+                  </ZoomPanRotateViewer>
+                );
+              }
+              return (
+                <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#525659", color: "#fff", padding: "1rem", textAlign: "center" }}>
+                  <p className="text-[14px] font-semibold mb-2">Preview not available for .{ext}</p>
+                  <p className="text-[12.5px] opacity-80 mb-4">Download the file to open it in your default app.</p>
+                  <a href={previewBlobUrl} download={previewDoc.file_name}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-[13px] font-semibold"
+                    style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)" }}>
+                    <Download size={13} strokeWidth={1.8} /> Download
+                  </a>
                 </div>
-              : <PdfViewer src={previewBlobUrl} />
-            }
+              );
+            })()}
           </div>
         </div>
       </div>
-    )}
+      );
+    })()}
     <main className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "calc(61px + 2rem)" }}>
       <div className="max-w-[780px] mx-auto px-4 pt-8 pb-16">
 
@@ -876,17 +1047,47 @@ export default function DashboardPage() {
             <p className="text-[13.5px] mt-1.5" style={{ color: "var(--w3)" }}>
               {isReturn ? t.pWelcomeBackSub : t.pDashSpace}
             </p>
+            {linkedOrgs.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {linkedOrgs.map(o => (
+                  <span key={o.name}
+                    className="inline-flex items-center gap-1 text-[10.5px] font-semibold uppercase tracking-[0.1em] px-2 py-0.5"
+                    title={o.status === "approved"
+                      ? `${lang === "de" ? "Verbunden mit" : lang === "en" ? "Linked with" : "Lié avec"} ${o.name}`
+                      : `${lang === "de" ? "Anfrage an" : lang === "en" ? "Request to" : "Demande à"} ${o.name} — ${lang === "de" ? "wartet auf Genehmigung" : lang === "en" ? "pending approval" : "en attente d'approbation"}`}
+                    style={{
+                      background:   o.status === "approved" ? "var(--gdim)"          : "rgba(224,200,82,0.10)",
+                      color:        o.status === "approved" ? "var(--gold)"          : "#e5b94f",
+                      border: `1px solid ${o.status === "approved" ? "var(--border-gold)" : "rgba(224,200,82,0.30)"}`,
+                      borderRadius: "var(--r-sm)",
+                    }}>
+                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/>
+                    </svg>
+                    {o.name}
+                    {o.status === "pending" && <span style={{ opacity: 0.7 }}>· {lang === "de" ? "ausstehend" : lang === "en" ? "pending" : "en attente"}</span>}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
-          <p className="text-xs" style={{ color: "var(--gold)" }}>
-            {doneCount}/{totalCount} · {pct}%
-          </p>
+          {/* Progress indicator (2/21 · 10%) intentionally removed —
+              will be redesigned in a future phase. Keep doneCount /
+              totalCount / pct in the local state in case other places
+              start consuming them again. */}
         </div>
 
         {/* Verified-profile panel — appears once the candidate has the blue
-            check. Shows their permanent public URL with a copy button. */}
+            check. Shows their permanent public URL with a copy button.
+            Premium card surface (matches CV builder), with the blue accent
+            held to the badge + URL color so the card itself stays neutral. */}
         {isVerified && profileSlug && (
-          <div className="mb-6 p-4 rounded-2xl flex items-center gap-3"
-            style={{ background: "rgba(29,161,242,0.10)" }}>
+          <div className="mb-6 px-5 py-4 flex items-center gap-3"
+            style={{
+              background: "var(--card)",
+              borderRadius: "20px",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+            }}>
             <VerifiedBadge verified={true} size="md" />
             <div className="flex-1 min-w-0">
               <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>
@@ -1159,41 +1360,77 @@ export default function DashboardPage() {
                 gold icon in the left rail, that's enough context. */}
             {viewMode === "docs" && <div key={`docs-phase-${phase}`} className="bv-enter">
 
-            {/* Compact notice strip */}
-            <div className="flex flex-col gap-1.5 mb-5">
-              {/* Scan quality — always shown */}
-              <p className="text-[11px] flex items-center gap-1.5" style={{ color: "#e05252" }}>
-                <AlertTriangle size={11} strokeWidth={1.8} /> {t.pScanQualityShort}
-              </p>
-              {/* Originals only — nursing phase */}
-              {phase === 1 && (
-                <p className="text-[11px] flex items-center gap-1.5" style={{ color: "var(--gold)" }}>
-                  <Paperclip size={11} strokeWidth={1.8} /> {t.pOriginalsOnlyShort}
+            {/* Premium phase card — mirrors the admin candidate-detail panel
+                so both sides share one visual language. Header inside the
+                card (gold icon + "Phase N" eyebrow + title + pending count),
+                notice strip below the divider, then borderless doc rows. */}
+            <div className="overflow-hidden mb-4"
+              style={{
+                background: "var(--card)",
+                borderRadius: "20px",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+              }}>
+
+              {/* Phase header */}
+              {(() => {
+                const pending = currentPhase.items.reduce((n, i) => {
+                  const list = getDocAll(i.key);
+                  return n + list.filter(d => d.status === "pending").length;
+                }, 0);
+                return (
+                  <div className="flex items-center gap-3 px-6 pt-6 pb-3">
+                    <span className="flex items-center justify-center w-9 h-9 flex-shrink-0"
+                      style={{ background: "var(--gdim)", color: "var(--gold)", borderRadius: "12px" }}>
+                      <PhaseIcon kind={currentPhase.kind} size={15} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--w3)" }}>
+                        {lang === "de" ? "Phase" : lang === "en" ? "Phase" : "Phase"} {phase + 1}
+                      </p>
+                      <h2 className="text-[18px] font-semibold tracking-[-0.015em] leading-tight" style={{ color: "var(--w)" }}>
+                        {currentPhase.title}
+                      </h2>
+                    </div>
+                    {pending > 0 && (
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium flex-shrink-0"
+                        style={{ color: "var(--gold)" }}>
+                        <span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--gold)" }} />
+                        {pending} {lang === "de" ? "in Prüfung" : lang === "en" ? "pending" : "en attente"}
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
+
+              <div className="h-px mx-6" style={{ background: "var(--border)" }} />
+
+              {/* Notice strip — scan quality + phase-specific tips */}
+              <div className="flex flex-col gap-1.5 px-6 pt-4 pb-2">
+                <p className="text-[11px] flex items-center gap-1.5" style={{ color: "#e05252" }}>
+                  <AlertTriangle size={11} strokeWidth={1.8} /> {t.pScanQualityShort}
                 </p>
-              )}
-              {/* Translation sources — translations phase */}
-              {currentPhase.isTranslations && (
-                <div className="text-[11px] flex flex-col gap-0.5" style={{ color: "var(--gold)" }}>
-                  <span className="flex items-center gap-1.5"><Languages size={11} strokeWidth={1.8} /> {t.pTranslationsShort}</span>
-                  <a href="https://rabat.diplo.de/resource/blob/2417070/461b64d35650206a0f64ffb772feee9f/uebersetzer-liste-data.pdf"
-                    target="_blank" rel="noreferrer" className="underline ml-5" style={{ color: "var(--gold)" }}>
-                    {t.pTransTooltipMoroccoLink}
-                  </a>
-                  <a href="https://www.justiz-dolmetscher.de/Recherche/de/Suchen"
-                    target="_blank" rel="noreferrer" className="underline ml-5" style={{ color: "var(--gold)" }}>
-                    {t.pTransTooltipGermanyLink}
-                  </a>
-                </div>
-              )}
-            </div>
+                {phase === 1 && (
+                  <p className="text-[11px] flex items-center gap-1.5" style={{ color: "var(--gold)" }}>
+                    <Paperclip size={11} strokeWidth={1.8} /> {t.pOriginalsOnlyShort}
+                  </p>
+                )}
+                {currentPhase.isTranslations && (
+                  <div className="text-[11px] flex flex-col gap-0.5" style={{ color: "var(--gold)" }}>
+                    <span className="flex items-center gap-1.5"><Languages size={11} strokeWidth={1.8} /> {t.pTranslationsShort}</span>
+                    <a href="https://rabat.diplo.de/resource/blob/2417070/461b64d35650206a0f64ffb772feee9f/uebersetzer-liste-data.pdf"
+                      target="_blank" rel="noreferrer" className="underline ml-5" style={{ color: "var(--gold)" }}>
+                      {t.pTransTooltipMoroccoLink}
+                    </a>
+                    <a href="https://www.justiz-dolmetscher.de/Recherche/de/Suchen"
+                      target="_blank" rel="noreferrer" className="underline ml-5" style={{ color: "var(--gold)" }}>
+                      {t.pTransTooltipGermanyLink}
+                    </a>
+                  </div>
+                )}
+              </div>
 
-
-            {/* Doc slots — borderless list. No card framing, no box. Each
-                row is just text + a divider underneath, like a settings page
-                in iOS. Row dimensions stay consistent whether the doc is
-                uploaded, pending, or empty (any state-specific UI like the
-                rejection panel renders below the row inline). */}
-            <div className="overflow-hidden mb-4">
+              {/* Doc rows — borderless minimalist list */}
+              <div className="px-3 pb-2">
           {currentPhase.items.map((item, idx) => {
             const isOther     = OTHER_KEYS.includes(item.key);
             const allOtherDocs = isOther ? getDocAll(item.key) : [];
@@ -1212,7 +1449,6 @@ export default function DashboardPage() {
             const isDragOver  = dragOverKey === item.key;
             const msg         = slotMsg?.key === item.key ? slotMsg : null;
             const fileLabel   = isOther ? "PDF / IMG / DOCX" : "PDF";
-            const isHighlighted = highlightKey === item.key;
 
             // Whole-row click previews the doc when one is uploaded — saves
             // space vs a dedicated Eye icon. Inner buttons (Replace, Download,
@@ -1229,7 +1465,7 @@ export default function DashboardPage() {
                   onDragLeave={() => setDragOverKey(null)}
                   onDrop={(e) => onDrop(e, item.key)}
                   onClick={rowOnClick}
-                  className={`px-2 py-3 transition-all duration-500${isHighlighted ? " bv-doc-highlight" : ""}${rowClickable ? " bv-row-hover cursor-pointer" : ""}`}
+                  className={`px-2 py-3 transition-all duration-500${rowClickable ? " bv-row-hover cursor-pointer" : ""}`}
                   style={{
                     minHeight: 60,
                     ...(isDragOver ? { background: "var(--gdim)" } : null),
@@ -1310,31 +1546,14 @@ export default function DashboardPage() {
                         </div>
                       )}
 
-                      {/* ── "other" key: list every uploaded file ── */}
+                      {/* ── "other" key: count summary on the parent row ──
+                          Each individual doc renders as its own peer-style
+                          row UNDER this header (see below). The header just
+                          shows how many files are uploaded so far. */}
                       {isOther && allOtherDocs.length > 0 && !isUploading && (
-                        <div className="mt-2 space-y-1.5">
-                          {allOtherDocs.map(d => {
-                            const dsc = statusColor(d.status ?? "pending");
-                            return (
-                              <div key={d.id}>
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-xs truncate max-w-[160px]" style={{ color: "var(--w2)" }}>{d.file_name}</span>
-                                  <span className="text-xs px-2 py-0.5 rounded-full font-medium"
-                                    style={{ background: dsc.bg, color: dsc.text, border: `1px solid ${dsc.border}` }}>
-                                    {statusLabel(d.status ?? "pending")}
-                                  </span>
-                                  <span className="text-xs" style={{ color: "var(--w3)" }}>{fmtDate(d.uploaded_at)}</span>
-                                </div>
-                                {d.status === "rejected" && d.feedback && (
-                                  <p className="mt-0.5 text-xs px-2 py-1 rounded-lg"
-                                    style={{ background: "rgba(224,82,82,0.07)", color: "#e05252", border: "1px solid rgba(224,82,82,0.15)" }}>
-                                    {d.feedback}
-                                  </p>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
+                        <p className="text-[11px] mt-0.5" style={{ color: "var(--w3)" }}>
+                          {allOtherDocs.length} / 5 {lang === "de" ? "Dateien hochgeladen" : lang === "en" ? "files uploaded" : "fichier(s) téléversé(s)"}
+                        </p>
                       )}
 
                       {/* ── Single-doc status + date (non-other) ──
@@ -1508,10 +1727,108 @@ export default function DashboardPage() {
                     )}
                   </div>
                 </div>
+                {/* ── Child rows for the "other" multi-doc slot ──
+                    Each uploaded file is rendered as a self-contained rounded
+                    card (same nested look the admin panel uses), indented
+                    slightly so the parent-child relationship reads at a glance.
+                    Whole-card click previews; Replace + Download icons live
+                    on the right and ALWAYS show (download is permanent like
+                    the peer doc rows). */}
+                {isOther && allOtherDocs.length > 0 && (
+                  <div className="px-2 pb-3 pt-1 space-y-2" style={{ paddingLeft: "3rem" }}>
+                    {allOtherDocs.map(d => {
+                      const dStatus = d.status ?? "pending";
+                      const dsc = statusColor(dStatus);
+                      const sym = dStatus === "approved" ? <CheckCircle2 size={14} strokeWidth={1.8} />
+                                : dStatus === "rejected" ? <XCircle size={14} strokeWidth={1.8} />
+                                :                          <span className="w-1.5 h-1.5 rounded-full" style={{ background: "currentColor" }} />;
+                      const isClickable = !!d.drive_file_id;
+                      return (
+                        <div key={`${item.key}_${d.id}`}
+                          onClick={isClickable ? () => handlePreview(d) : undefined}
+                          className={`rounded-xl px-3 py-2.5 transition-colors${isClickable ? " bv-row-hover cursor-pointer" : ""}`}
+                          style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+                          <div className="flex items-center gap-3">
+                            <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
+                              style={{ background: dsc.bg, color: dsc.text, border: `1px solid ${dsc.border}` }}>
+                              {sym}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[13px] font-semibold tracking-tight truncate" style={{ color: "var(--w)" }}>
+                                {d.file_name}
+                              </p>
+                              <p className="text-[11px] mt-0.5 truncate" style={{ color: "var(--w3)" }}>
+                                <span className="font-semibold" style={{ color: dsc.text }}>
+                                  {statusLabel(dStatus)}
+                                </span>
+                                <span className="mx-1.5">·</span>
+                                {fmtDate(d.uploaded_at)}
+                              </p>
+                            </div>
+                            {/* Action buttons — always present, just like top-level peer rows */}
+                            <div className="flex items-center gap-1 flex-shrink-0">
+                              {/* Replace (delete + open picker) — only when not approved */}
+                              {isClickable && dStatus !== "approved" && (
+                                <button
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    try {
+                                      await fetch(`/api/portal/documents/${d.id}`, {
+                                        method: "DELETE",
+                                        headers: { Authorization: `Bearer ${authToken}` },
+                                      });
+                                      if (userId) await loadDocs(userId, true);
+                                      openPicker(item.key);
+                                    } catch (err) {
+                                      console.error("Replace error:", err);
+                                    }
+                                  }}
+                                  aria-label={t.pReplaceBtn} title={t.pReplaceBtn}
+                                  className="bv-icon-btn w-8 h-8 flex items-center justify-center rounded-full"
+                                  style={{ color: "var(--w2)" }}>
+                                  <RefreshCw size={13} strokeWidth={1.8} />
+                                </button>
+                              )}
+                              {/* Download — always shown */}
+                              {isClickable && (
+                                <button onClick={(e) => {
+                                    e.stopPropagation();
+                                    fetch(`/api/portal/file?id=${d.drive_file_id}`, {
+                                      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+                                    })
+                                      .then(r => r.blob())
+                                      .then(blob => {
+                                        const url = URL.createObjectURL(blob);
+                                        const a = document.createElement("a");
+                                        a.href = url; a.download = d.file_name; a.click();
+                                        setTimeout(() => URL.revokeObjectURL(url), 0);
+                                      })
+                                      .catch(err => console.error("Download error:", err));
+                                  }}
+                                  aria-label={lang === "fr" ? "Télécharger" : lang === "de" ? "Herunterladen" : "Download"}
+                                  title={lang === "fr" ? "Télécharger" : lang === "de" ? "Herunterladen" : "Download"}
+                                  className="bv-icon-btn w-8 h-8 flex items-center justify-center rounded-full"
+                                  style={{ color: "var(--w2)" }}>
+                                  <Download size={13} strokeWidth={1.8} />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                          {dStatus === "rejected" && d.feedback && (
+                            <p className="mt-2 text-[11.5px] leading-relaxed" style={{ color: "#e05252" }}>
+                              “{d.feedback}”
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             );
           })}
-        </div>
+              </div>
+            </div>
 
 
         {/* Navigation — Back + Next only */}
@@ -1622,14 +1939,54 @@ export default function DashboardPage() {
           const v = passportModal[k]; return !!(v && v !== "—" && v.trim() !== "");
         };
         const allConfirmed = _allFieldKeys.filter(_isFilled).every(k => confirmedFields.has(k));
+        // Side-by-side rule: when this modal is open WHILE the doc preview
+        // is showing an unapproved passport, dock to the right half on
+        // laptop and to the bottom half on phone (so passport is above,
+        // data below — never overlapping).
+        const splitWithPreview = !!previewDoc
+          && /pass/i.test(previewDoc.file_type)
+          && (previewDoc.status !== "approved" || passportStatus !== "approved");
         return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4"
-          style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}>
-          <div className="w-full max-w-lg flex flex-col"
+        <div className={`fixed inset-x-0 z-[750] flex justify-center p-4 bv-passport-modal-outer ${splitWithPreview ? "bv-side-data-cand" : "top-[58px] bottom-0 items-center"}`}
+          style={{ background: splitWithPreview ? "transparent" : "rgba(0,0,0,0.45)",
+                   backdropFilter: splitWithPreview ? undefined : "blur(8px)",
+                   pointerEvents: splitWithPreview ? "none" : "auto" }}>
+          {/* Phone: leave clearance for the bottom action bar so the modal
+              never slides behind it. Laptop: top-[58px] above already
+              creates the small gap below the navbar. */}
+          <style>{`
+            @media (max-width: 639.98px) {
+              .bv-passport-modal-outer { padding-bottom: calc(1rem + 72px) !important; }
+              .bv-passport-modal-card  {
+                max-height: calc(100dvh - 58px - 1rem - 72px - 1rem) !important;
+              }
+              .bv-side-data-cand {
+                top: calc(58px + 50dvh - 0.25rem) !important;
+                bottom: 0 !important;
+                padding-top: 0.25rem !important;
+                align-items: center !important;
+              }
+              .bv-side-data-cand .bv-passport-modal-card {
+                max-height: 100% !important;
+              }
+            }
+            @media (min-width: 640px) {
+              .bv-side-data-cand {
+                top: 58px;
+                bottom: 0;
+                align-items: center;
+                justify-content: flex-start !important;
+                padding-left: 50vw;
+                padding-right: 1rem;
+              }
+            }
+          `}</style>
+          <div className={`bv-passport-modal-card w-full flex flex-col ${splitWithPreview ? "sm:max-w-[440px]" : "max-w-lg"}`}
             style={{
               background: "var(--card)", border: "1px solid var(--border)",
               borderRadius: "var(--r-2xl)", boxShadow: "var(--shadow-lg)",
               maxHeight: "88vh", animation: "bvFadeRise .28s var(--ease-out)",
+              pointerEvents: "auto",
             }}>
             {/* Header */}
             <div className="px-5 py-4 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
@@ -1901,7 +2258,7 @@ export default function DashboardPage() {
 
       {/* Passport field hint — issuing authority */}
       {passportHint === "issuing_authority" && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4"
+        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[820] flex items-center justify-center p-4"
           style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}
           onClick={() => setPassportHint(null)}>
           <div className="w-full max-w-md overflow-hidden"
@@ -1962,7 +2319,7 @@ export default function DashboardPage() {
 
       {/* Passport field hint — address */}
       {passportHint === "address_street" && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4"
+        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[820] flex items-center justify-center p-4"
           style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}
           onClick={() => setPassportHint(null)}>
           <div className="w-full max-w-md overflow-hidden flex flex-col"
@@ -2114,7 +2471,7 @@ export default function DashboardPage() {
 
       {/* Passport field hint — postal code */}
       {passportHint === "address_postal" && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4"
+        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[820] flex items-center justify-center p-4"
           style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}
           onClick={() => setPassportHint(null)}>
           <div className="w-full max-w-md overflow-hidden"
