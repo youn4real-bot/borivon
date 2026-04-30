@@ -43,27 +43,27 @@ export async function GET(req: NextRequest) {
   // 1) Manual override — admin can grant the blue tick directly.
   const { data: profile } = await db
     .from("candidate_profiles")
-    .select("manually_verified")
+    .select("manually_verified, passport_status")
     .eq("user_id", userId)
-    .maybeSingle();
-  if (profile && (profile as { manually_verified?: boolean }).manually_verified) {
+    .maybeSingle() as { data: { manually_verified?: boolean | null; passport_status?: string | null } | null };
+  if (profile?.manually_verified) {
     return NextResponse.json({ authenticated: true, verified: true, isAdmin: false });
   }
 
-  // 2) Doc-based: passport approved + Lebenslauf approved
+  // 2) Doc-based: passport file approved + passport data (passport_status) approved
   const { data: docs } = await db
     .from("documents")
     .select("file_type,status")
     .eq("user_id", userId)
-    .in("file_type", VERIFICATION_FILE_TYPES)
+    .ilike("file_type", "%pass%")
     .eq("status", "approved");
 
-  const hasPassport = (docs ?? []).some(d => /pass/i.test(d.file_type));
-  const hasCV       = (docs ?? []).some(d => /lebenslauf|cv/i.test(d.file_type));
+  const hasPassportDoc = (docs ?? []).length > 0;
+  const hasPassportData = profile?.passport_status === "approved";
 
   return NextResponse.json({
     authenticated: true,
-    verified: hasPassport && hasCV,
+    verified: hasPassportDoc && hasPassportData,
     isAdmin: false,
   });
 }

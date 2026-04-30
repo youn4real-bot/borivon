@@ -191,10 +191,66 @@ export async function POST(req: NextRequest) {
         feedback: typeof feedback === "string" ? feedback : null,
         read:     false,
       });
+
+      // Auto blue-tick: passport file just approved — check if data is also approved
+      if (status === "approved" && /pass/i.test(doc.file_type)) {
+        await maybeGrantVerified(db, doc.user_id);
+      }
     }
   }
 
   return NextResponse.json({ success: true });
+}
+
+/** Send a one-time "verified" notification and mark manually_verified when
+ *  both the passport document AND passport_status are approved. */
+async function maybeGrantVerified(
+  db: ReturnType<typeof getServiceSupabase>,
+  userId: string,
+) {
+  // Check passport_status
+  const { data: profile } = await db
+    .from("candidate_profiles")
+    .select("passport_status, manually_verified")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (profile?.passport_status !== "approved") return;
+  if (profile?.manually_verified) return; // already verified
+
+  // Check passport doc approved
+  const { data: passDocs } = await db
+    .from("documents")
+    .select("status")
+    .eq("user_id", userId)
+    .ilike("file_type", "%pass%")
+    .eq("status", "approved")
+    .limit(1);
+  if (!passDocs?.length) return;
+
+  // Grant verified
+  await db
+    .from("candidate_profiles")
+    .update({ manually_verified: true })
+    .eq("user_id", userId);
+
+  // Send one-time "verified" notification (skip if already sent)
+  const { data: existing } = await db
+    .from("notifications")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("action", "verified")
+    .limit(1);
+  if (existing?.length) return;
+
+  await db.from("notifications").insert({
+    user_id:  userId,
+    doc_id:   null,
+    doc_name: "Verifizierung",
+    doc_type: "Passport",
+    action:   "verified",
+    feedback: null,
+    read:     false,
+  });
 }
 
 // PATCH — update candidate profile fields (admin or assigned sub-admin)
@@ -234,5 +290,35 @@ export async function PATCH(req: NextRequest) {
     console.error("[admin PATCH] update profile failed:", error);
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
+
+  const newPassportStatus = cleanProfile.passport_status as string | undefined;
+
+  // Notify candidate when passport data is rejected
+  if (newPassportStatus === "rejected") {
+    // Find the passport doc to link the notification to it
+    const { data: passDocs } = await db
+      .from("documents")
+      .select("id, file_name, file_type")
+      .eq("user_id", userId)
+      .ilike("file_type", "%pass%")
+      .order("uploaded_at", { ascending: false })
+      .limit(1);
+    const passDoc = passDocs?.[0];
+    await db.from("notifications").insert({
+      user_id:  userId,
+      doc_id:   passDoc?.id ?? null,
+      doc_name: passDoc?.file_name ?? "Passport",
+      doc_type: passDoc?.file_type ?? "Passport",
+      action:   "rejected",
+      feedback: (cleanProfile.passport_feedback as string | null) ?? null,
+      read:     false,
+    });
+  }
+
+  // Auto blue-tick: passport data just approved — check if file is also approved
+  if (newPassportStatus === "approved") {
+    await maybeGrantVerified(db, userId);
+  }
+
   return NextResponse.json({ success: true });
 }

@@ -14,7 +14,7 @@ type CandidateNotif = {
   doc_id: string | null;
   doc_name: string;
   doc_type: string;
-  action: "approved" | "rejected";
+  action: "approved" | "rejected" | "verified";
   feedback: string | null;
   read: boolean;
   created_at: string;
@@ -251,8 +251,11 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
           {displayed.length === 0 ? (
             <EmptyState msg={tab === "unread" ? "No unread notifications" : undefined} />
           ) : displayed.map((n, i) => {
+            const verified = n.action === "verified";
             const approved = n.action === "approved";
-            const iconSt = approved
+            const iconSt = verified
+              ? { bg: "rgba(212,175,55,0.15)", color: "var(--gold)", border: "1.5px solid rgba(212,175,55,0.35)" }
+              : approved
               ? { bg: "rgba(52,199,89,0.12)", color: "#34c759", border: "1.5px solid rgba(52,199,89,0.25)" }
               : { bg: "rgba(224,82,82,0.12)", color: "#e05252", border: "1.5px solid rgba(224,82,82,0.25)" };
             return (
@@ -264,14 +267,25 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
                   onClick={() => handleClick(n)}>
                   <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
                     style={{ background: iconSt.bg, color: iconSt.color, border: iconSt.border }}>
-                    {approved ? <CheckCircle2 size={15} strokeWidth={1.8} /> : <XCircle size={15} strokeWidth={1.8} />}
+                    {verified ? <CheckCircle2 size={15} strokeWidth={1.8} /> : approved ? <CheckCircle2 size={15} strokeWidth={1.8} /> : <XCircle size={15} strokeWidth={1.8} />}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs leading-snug" style={{ color: "var(--w)" }}>
-                      <span className="font-semibold">{n.doc_type}</span>
-                      {approved ? " has been approved" : " has been rejected"}
-                    </p>
-                    {n.feedback && (
+                    {verified ? (
+                      <>
+                        <p className="text-xs font-semibold leading-snug" style={{ color: "var(--gold)" }}>
+                          🎉 You&apos;re verified!
+                        </p>
+                        <p className="text-[11px] mt-1 leading-snug" style={{ color: "var(--w2)" }}>
+                          Next step: upload your <span className="font-semibold">Lebenslauf</span> to continue your application.
+                        </p>
+                      </>
+                    ) : (
+                      <p className="text-xs leading-snug" style={{ color: "var(--w)" }}>
+                        <span className="font-semibold">{n.doc_type}</span>
+                        {approved ? " has been approved" : " has been rejected"}
+                      </p>
+                    )}
+                    {!verified && n.feedback && (
                       <p className="text-[11px] mt-1.5 px-2 py-1.5 rounded-lg leading-snug"
                         style={{
                           background: approved ? "rgba(52,199,89,0.07)" : "rgba(224,82,82,0.07)",
@@ -284,7 +298,9 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
                     <p className="text-[10px] mt-1.5 flex items-center gap-1" style={{ color: "var(--w3)" }}>
                       {relTime(n.created_at)}
                       <span style={{ color: "var(--border)" }}>·</span>
-                      <span style={{ color: approved ? "#34c759" : "#e05252" }}>Tap to review →</span>
+                      <span style={{ color: verified ? "var(--gold)" : approved ? "#34c759" : "#e05252" }}>
+                        {verified ? "Go to dashboard →" : "Tap to review →"}
+                      </span>
                     </p>
                   </div>
                   {!n.read && (
