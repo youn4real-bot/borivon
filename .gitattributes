@@ -1,0 +1,11 @@
+# Treat font and image files as binary — prevents git line-ending conversion from corrupting them
+*.ttf  binary
+*.otf  binary
+*.woff binary
+*.woff2 binary
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.svg  text
