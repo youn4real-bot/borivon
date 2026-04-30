@@ -72,9 +72,9 @@ export function ProfileIcon() {
           profileSlug = buildProfileSlug(metaFirst, ln, u.id);
         }
       }
-      // Fetch the candidate's profile photo (set when they upload one in
-      // the CV builder). Admins don't have one — skip the call for them.
-      let photo: string | null = null;
+      // Admins always use the Borivon favicon as their permanent avatar.
+      // Candidates use their CV-builder profile photo if uploaded.
+      let photo: string | null = isAdmin ? "/favicon.png" : null;
       if (!isAdmin && session?.access_token) {
         try {
           const res = await fetch("/api/portal/me/profile-photo", {
