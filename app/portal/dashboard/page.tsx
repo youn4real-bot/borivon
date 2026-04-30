@@ -1570,8 +1570,10 @@ export default function DashboardPage() {
                         </p>
                       )}
 
-                      {/* Rejection panel (non-other) — structured "What to fix" with re-upload CTA */}
-                      {!isOther && uploaded && doc!.status === "rejected" && (
+                      {/* Rejection panel (non-other) — structured "What to fix" with re-upload CTA.
+                          Also shown when passport data (passport_status) was rejected — candidate
+                          must re-upload the full passport. */}
+                      {!isOther && uploaded && (doc!.status === "rejected" || (item.key === "id" && passportStatus === "rejected")) && (
                         <div className="mt-2.5 overflow-hidden"
                           style={{
                             background: "rgba(224,82,82,0.06)",
@@ -1929,6 +1931,7 @@ export default function DashboardPage() {
 
       {/* ── Passport confirmation modal ─────────────────────────────────────── */}
       {passportModal && (() => {
+        const isPassportApproved = passportStatus === "approved";
         // Compute whether all filled fields have been confirmed by the user
         const _allFieldKeys: (keyof PassportData)[] = [
           "last_name","first_name","dob","sex","nationality","city_of_birth","country_of_birth",
@@ -1950,7 +1953,8 @@ export default function DashboardPage() {
         <div className={`fixed inset-x-0 z-[750] flex justify-center p-4 bv-passport-modal-outer ${splitWithPreview ? "bv-side-data-cand" : "top-[58px] bottom-0 items-center"}`}
           style={{ background: splitWithPreview ? "transparent" : "rgba(0,0,0,0.45)",
                    backdropFilter: splitWithPreview ? undefined : "blur(8px)",
-                   pointerEvents: splitWithPreview ? "none" : "auto" }}>
+                   pointerEvents: splitWithPreview ? "none" : "auto" }}
+          onClick={isPassportApproved && !splitWithPreview ? (e) => { if (e.target === e.currentTarget) setPassportModal(null); } : undefined}>
           {/* Phone: leave clearance for the bottom action bar so the modal
               never slides behind it. Laptop: top-[58px] above already
               creates the small gap below the navbar. */}
@@ -1998,7 +2002,21 @@ export default function DashboardPage() {
                   </p>
                   <p className="text-[12.5px]" style={{ color: "var(--w3)" }}>{t.pPassportSubtitle}</p>
                 </div>
-                <AutosaveIndicator savedAt={passportSavedAt} error={passportSaveError} className="flex-shrink-0 mt-0.5" />
+                {isPassportApproved ? (
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full"
+                      style={{ background: "rgba(52,199,89,0.12)", color: "#34c759", border: "1px solid rgba(52,199,89,0.25)" }}>
+                      <CheckCircle2 size={11} strokeWidth={1.8} /> Approved
+                    </span>
+                    <button onClick={() => setPassportModal(null)}
+                      className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full"
+                      style={{ color: "var(--w3)" }}>
+                      <XIcon size={14} strokeWidth={1.8} />
+                    </button>
+                  </div>
+                ) : (
+                  <AutosaveIndicator savedAt={passportSavedAt} error={passportSaveError} className="flex-shrink-0 mt-0.5" />
+                )}
               </div>
             </div>
             {/* Fields — 2-column grid, scrollable */}
@@ -2073,6 +2091,24 @@ export default function DashboardPage() {
                     <path d="M4.5 8l2.5 2.5 4.5-4.5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                 );
+
+                // ── Read-only view (passport fully approved) ─────────────────────
+                if (isPassportApproved) {
+                  return (
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                      {fields.map(f => {
+                        const val = passportModal[f.key];
+                        const display = (!val || val === "—" || val.trim() === "") ? "—" : val;
+                        return (
+                          <div key={f.key} className={f.wide ? "col-span-2" : ""}>
+                            <p className="text-[9.5px] font-semibold uppercase tracking-[0.1em] mb-0.5" style={{ color: "var(--w3)" }}>{f.label}</p>
+                            <p className="text-[12.5px] font-medium" style={{ color: display === "—" ? "var(--w3)" : "var(--w)" }}>{display}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                }
 
                 return (
                   <>
@@ -2210,46 +2246,71 @@ export default function DashboardPage() {
             </div>
             {/* Action */}
             <div className="px-5 pb-4 pt-3 flex-shrink-0" style={{ borderTop: "1px solid var(--border)" }}>
-              {allConfirmed && (
-                <p className="text-[10px] mb-2.5 py-1.5 rounded-lg font-medium text-center" style={{ color: "#22c55e", background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.2)" }}>
-                  {t.pPassportThanks}
-                </p>
-              )}
-              <button
-                disabled={passportSaving || !allConfirmed}
-                onClick={async () => {
-                  setPassportSaving(true);
-                  try {
-                    const res = await fetch("/api/portal/passport", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
-                      body: JSON.stringify(passportModal),
-                    });
-                    if (!res.ok) {
-                      const err = await res.json().catch(() => ({}));
+              {isPassportApproved ? (
+                <button
+                  onClick={async () => {
+                    try {
+                      const res = await fetch("/api/portal/me/passport-data-pdf", {
+                        headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+                      });
+                      if (!res.ok) { alert("Could not generate PDF — please try again."); return; }
+                      const blob = await res.blob();
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      const fn = [passportModal?.first_name, passportModal?.last_name].filter(Boolean).join("_").toLowerCase() || "passport_data";
+                      a.href = url; a.download = `${fn}_passport_data.pdf`; a.click();
+                      setTimeout(() => URL.revokeObjectURL(url), 0);
+                    } catch { alert("Download failed — please try again."); }
+                  }}
+                  className="w-full py-2.5 rounded-xl font-semibold text-sm inline-flex items-center justify-center gap-2 transition-opacity hover:opacity-90"
+                  style={{ background: "var(--gold)", color: "#1a1a1a" }}>
+                  <Download size={14} strokeWidth={1.8} />
+                  {lang === "fr" ? "Télécharger les données" : lang === "de" ? "Daten herunterladen" : "Download data"}
+                </button>
+              ) : (
+                <>
+                  {allConfirmed && (
+                    <p className="text-[10px] mb-2.5 py-1.5 rounded-lg font-medium text-center" style={{ color: "#22c55e", background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.2)" }}>
+                      {t.pPassportThanks}
+                    </p>
+                  )}
+                  <button
+                    disabled={passportSaving || !allConfirmed}
+                    onClick={async () => {
+                      setPassportSaving(true);
+                      try {
+                        const res = await fetch("/api/portal/passport", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
+                          body: JSON.stringify(passportModal),
+                        });
+                        if (!res.ok) {
+                          const err = await res.json().catch(() => ({}));
+                          setPassportSaving(false);
+                          alert(err.error ?? "Failed to save passport data. Please try again.");
+                          return;
+                        }
+                      } catch {
+                        setPassportSaving(false);
+                        alert("Network error — please check your connection and try again.");
+                        return;
+                      }
                       setPassportSaving(false);
-                      alert(err.error ?? "Failed to save passport data. Please try again.");
-                      return;
-                    }
-                  } catch {
-                    setPassportSaving(false);
-                    alert("Network error — please check your connection and try again.");
-                    return;
-                  }
-                  setPassportSaving(false);
-                  setPassportModal(null);
-                  addressHintShown.current = false;
-                  postalHintShown.current = false;
-                  authorityHintShown.current = false;
-                  // Button turns yellow immediately after submission
-                  setPassportStatus("pending");
-                }}
-                className="w-full py-2.5 rounded-xl font-semibold text-sm transition-opacity hover:opacity-90 disabled:opacity-50"
-                style={{ background: "var(--gold)", color: "#1a1a1a" }}>
-                {passportSaving ? "…" : allConfirmed
-                  ? (lang === "fr" ? "Envoyer" : lang === "de" ? "Absenden" : "Submit")
-                  : t.pPassportConfirm}
-              </button>
+                      setPassportModal(null);
+                      addressHintShown.current = false;
+                      postalHintShown.current = false;
+                      authorityHintShown.current = false;
+                      // Button turns yellow immediately after submission
+                      setPassportStatus("pending");
+                    }}
+                    className="w-full py-2.5 rounded-xl font-semibold text-sm transition-opacity hover:opacity-90 disabled:opacity-50"
+                    style={{ background: "var(--gold)", color: "#1a1a1a" }}>
+                    {passportSaving ? "…" : allConfirmed
+                      ? (lang === "fr" ? "Envoyer" : lang === "de" ? "Absenden" : "Submit")
+                      : t.pPassportConfirm}
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
