@@ -2301,10 +2301,17 @@ export default function AdminPage() {
                       onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openPanel(); } }}
                       className="bv-row-hover px-3 py-3 flex items-center gap-3 cursor-pointer transition-colors outline-none">
 
-                      <span className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
-                        style={{ background: "var(--gdim)", color: "var(--gold)" }}>
-                        {user.name.charAt(0).toUpperCase()}
-                      </span>
+                      {profiles[uid]?.profile_photo ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={profiles[uid].profile_photo!} alt={user.name}
+                          className="w-9 h-9 rounded-full object-cover flex-shrink-0"
+                          style={{ border: "1px solid var(--border-gold)" }} />
+                      ) : (
+                        <span className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
+                          style={{ background: "var(--gdim)", color: "var(--gold)" }}>
+                          {user.name.charAt(0).toUpperCase()}
+                        </span>
+                      )}
 
                       <div className="flex-1 min-w-0">
                         <p className="text-[13.5px] font-semibold truncate inline-flex items-center gap-0.5" style={{ color: "var(--w)" }}>
@@ -2418,10 +2425,17 @@ export default function AdminPage() {
                         onClick={() => { setSelectedUser(uid); setActivePhase(0); setPassportDataFeedback(profiles[uid]?.passport_feedback ?? ""); }}
                         className="bv-row-hover w-full text-left px-3 py-3 flex items-center gap-3 transition-colors outline-none"
                         style={{ borderBottom: "1px solid var(--border)", opacity: 0.75 }}>
-                        <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
-                          style={{ background: "var(--bg2)", color: "var(--w3)" }}>
-                          {user.name.charAt(0).toUpperCase()}
-                        </span>
+                        {profiles[uid]?.profile_photo ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={profiles[uid].profile_photo!} alt={user.name}
+                            className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+                            style={{ border: "1px solid var(--border)" }} />
+                        ) : (
+                          <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+                            style={{ background: "var(--bg2)", color: "var(--w3)" }}>
+                            {user.name.charAt(0).toUpperCase()}
+                          </span>
+                        )}
                         <div className="flex-1 min-w-0">
                           <p className="text-[12.5px] font-medium truncate tracking-tight inline-flex items-center gap-0.5" style={{ color: "var(--w)" }}>
                             {user.name}
