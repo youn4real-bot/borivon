@@ -280,6 +280,24 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "No valid fields" }, { status: 400 });
   }
 
+  const newPassportStatus = cleanProfile.passport_status as string | undefined;
+
+  // When rejecting the passport, wipe all OCR-extracted fields in the same
+  // atomic update — so the DB never holds stale rejected data that could
+  // accidentally surface in the CV builder or admin panel.
+  if (newPassportStatus === "rejected") {
+    const OCR_FIELDS = [
+      "first_name", "last_name", "dob", "sex",
+      "nationality", "passport_no", "passport_expiry",
+      "city_of_birth", "country_of_birth",
+      "issuing_authority", "issue_date",
+      "address_street", "address_number", "address_postal",
+      "city_of_residence", "country_of_residence",
+      "marital_status", "children_ages",
+    ] as const;
+    for (const f of OCR_FIELDS) cleanProfile[f] = null;
+  }
+
   const db = getServiceSupabase();
   const { error } = await db
     .from("candidate_profiles")
@@ -290,8 +308,6 @@ export async function PATCH(req: NextRequest) {
     console.error("[admin PATCH] update profile failed:", error);
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
-
-  const newPassportStatus = cleanProfile.passport_status as string | undefined;
 
   // Notify candidate when passport data is rejected
   if (newPassportStatus === "rejected") {
