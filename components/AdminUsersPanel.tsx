@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { supabase } from "@/lib/supabase";
 
 type UserEntry = {
   id: string;
@@ -45,6 +46,9 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
     setDeleting(true);
     setDeleteError("");
     try {
+      const { data: { user: me } } = await supabase.auth.getUser();
+      const isSelf = me?.id === deleteTarget.id;
+
       const res = await fetch("/api/portal/admin/delete-user", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
@@ -55,6 +59,19 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
         setDeleteError(j.error ?? "Delete failed");
         return;
       }
+
+      if (isSelf) {
+        // Auth user is gone — clear storage and redirect to login
+        try {
+          for (let i = localStorage.length - 1; i >= 0; i--) {
+            const k = localStorage.key(i); if (k) localStorage.removeItem(k);
+          }
+        } catch { /* ignore */ }
+        await supabase.auth.signOut();
+        window.location.replace("/portal");
+        return;
+      }
+
       setUsers(prev => prev.filter(u => u.id !== deleteTarget.id));
       setDeleteTarget(null);
       setDeleteInput("");
