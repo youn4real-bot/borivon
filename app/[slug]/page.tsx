@@ -147,7 +147,7 @@ export default function PublicProfilePage() {
             </h1>
             {profile.verified && (
               <span className="absolute" style={{ left: "100%", top: "50%", transform: "translateY(-50%)" }}>
-                <VerifiedBadge verified size="md" isAdmin={profile.isAdmin}
+                <VerifiedBadge verified size="md" isAdmin={profile.isAdmin} color={profile.isAdmin ? "black" : "gold"}
                   title={lang === "de" ? "Verifiziert von Borivon" : lang === "en" ? "Verified by Borivon" : "Vérifié par Borivon"} />
               </span>
             )}

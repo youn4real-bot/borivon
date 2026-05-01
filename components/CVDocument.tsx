@@ -113,8 +113,9 @@ const FOOTER_COLOR = "#9CA3AF";
 
 // Fixed header height: paddingTop(18) + logo(46) + gap(8) + bottom gap(8)
 const HEADER_H = 80;
-// Fixed footer height: paddingTop(6) + text(~9) + paddingBottom(11)
-const FOOTER_H = 30;
+// Fixed footer height: paddingTop(6) + 3 lines × ~12 + paddingBottom(11)
+// Sized to fit up to 3 stacked footer lines (org branding: name / address / web).
+const FOOTER_H = 56;
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 

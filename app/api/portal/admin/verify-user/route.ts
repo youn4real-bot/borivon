@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole } from "@/lib/admin-auth";
+import { sendVerifiedEmail } from "@/lib/email";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -18,8 +19,12 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export async function POST(req: NextRequest) {
   const auth = await requireAdminRole(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
-  // Hard-block sub-admins — only the ultimate admin can grant the blue tick
-  if (auth.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  // Hard-block everyone except the supreme admin (ADMIN_EMAIL).
+  // Sub-admins, org-admins — nobody else can ever grant or revoke the blue tick.
+  const supremeEmail = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
+  if (auth.role !== "admin" || auth.email !== supremeEmail) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const body     = await req.json().catch(() => ({}));
   const userId   = typeof body?.userId   === "string"  ? body.userId.trim() : "";
@@ -42,5 +47,37 @@ export async function POST(req: NextRequest) {
     console.error("[verify-user] update failed:", error);
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
+
+  // When granting the blue tick manually, send a one-time "verified"
+  // notification (skip if already sent, and skip when revoking).
+  if (verified) {
+    const { data: existing } = await db
+      .from("notifications")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("action", "verified")
+      .limit(1);
+
+    if (!existing?.length) {
+      await db.from("notifications").insert({
+        user_id:  userId,
+        doc_id:   null,
+        doc_name: "Verifizierung",
+        doc_type: "Passport",
+        action:   "verified",
+        feedback: null,
+        read:     false,
+      });
+
+      // Fire verified email (fire-and-forget)
+      db.auth.admin.getUserById(userId).then(({ data }) => {
+        const email = data?.user?.email;
+        if (!email) return;
+        const firstName = (data?.user?.user_metadata?.full_name ?? "").split(" ")[0];
+        sendVerifiedEmail(email, firstName);
+      }).catch(() => {});
+    }
+  }
+
   return NextResponse.json({ success: true, manually_verified: verified });
 }

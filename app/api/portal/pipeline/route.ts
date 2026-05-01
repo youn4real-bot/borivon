@@ -72,13 +72,16 @@ export async function PATCH(req: NextRequest) {
   }
 
   // Notify candidate when interview result is set
+  // Map "passed" → "approved" and "failed" → "rejected" to match the bell's
+  // supported action values ("approved" | "rejected" | "verified" | "placed").
   if (fields.interview_status === "passed" || fields.interview_status === "failed") {
+    const notifAction = fields.interview_status === "passed" ? "approved" : "rejected";
     await db.from("notifications").insert({
       user_id: userId,
       doc_id: null,
       doc_name: "Interview",
-      doc_type: "interview_result",
-      action: fields.interview_status,
+      doc_type: "Interview",
+      action: notifAction,
       feedback: null,
       read: false,
     }).select(); // ignore error if notifications table has constraints

@@ -33,7 +33,13 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
     updates.invite_code = code;
   }
   if (typeof body?.logoFilename === "string") {
-    updates.logo_filename = body.logoFilename.trim().slice(0, 200) || null;
+    const v = body.logoFilename.trim();
+    if (v.startsWith("data:")) {
+      // Data-URL uploaded via admin panel — allow up to 300 KB (base64-encoded)
+      updates.logo_filename = v.length <= 307_200 ? v : null;
+    } else {
+      updates.logo_filename = v.slice(0, 200) || null;
+    }
   }
   if (typeof body?.footerText === "string") {
     updates.footer_text = body.footerText.trim().slice(0, 500) || null;

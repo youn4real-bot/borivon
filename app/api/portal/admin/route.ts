@@ -3,6 +3,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { LABEL_TO_FILE_KEY } from "@/lib/fileKeys";
 import { requireAdminRole, canActOnCandidate, getVisibleCandidateIds } from "@/lib/admin-auth";
 import { DOC_STATUSES, ALLOWED_PROFILE_FIELDS } from "@/lib/constants";
+import { sendDocApprovedEmail, sendDocRejectedEmail, sendVerifiedEmail } from "@/lib/email";
 
 // GET — fetch candidates + their docs (filtered for sub-admins)
 export async function GET(req: NextRequest) {
@@ -61,10 +62,12 @@ export async function GET(req: NextRequest) {
     }
   }));
 
-  // Fetch passport profiles (all fields)
+  // Fetch passport profiles (all fields).
+  // payment_tier was added in supabase/payments.sql — if not yet migrated it will
+  // simply be absent from the rows; the UI falls back to null gracefully.
   const { data: profileRows } = await db
     .from("candidate_profiles")
-    .select("user_id, first_name, last_name, dob, sex, nationality, passport_no, passport_expiry, city_of_birth, country_of_birth, issuing_authority, issue_date, address_street, address_number, address_postal, city_of_residence, country_of_residence, passport_status, passport_feedback, marital_status, children_ages, manually_verified, profile_photo")
+    .select("user_id, first_name, last_name, dob, sex, nationality, passport_no, passport_expiry, city_of_birth, country_of_birth, issuing_authority, issue_date, address_street, address_number, address_postal, city_of_residence, country_of_residence, passport_status, passport_feedback, marital_status, children_ages, manually_verified, profile_photo, payment_tier")
     .in("user_id", userIds);
   const profiles: Record<string, {
     first_name: string | null; last_name: string | null;
@@ -81,6 +84,7 @@ export async function GET(req: NextRequest) {
     children_ages: string | null;
     manually_verified: boolean | null;
     profile_photo: string | null;
+    payment_tier: string | null;
   }> = {};
   for (const p of profileRows ?? []) {
     profiles[p.user_id] = p;
@@ -192,6 +196,14 @@ export async function POST(req: NextRequest) {
         read:     false,
       });
 
+      // Fire transactional email (fire-and-forget)
+      db.auth.admin.getUserById(doc.user_id).then(({ data }) => {
+        const email = data?.user?.email;
+        if (!email) return;
+        if (status === "approved") sendDocApprovedEmail(email, doc.file_type);
+        else sendDocRejectedEmail(email, doc.file_type, typeof feedback === "string" ? feedback : null);
+      }).catch(() => {});
+
       // Auto blue-tick: passport file just approved — check if data is also approved
       if (status === "approved" && /pass/i.test(doc.file_type)) {
         await maybeGrantVerified(db, doc.user_id);
@@ -227,11 +239,14 @@ async function maybeGrantVerified(
     .limit(1);
   if (!passDocs?.length) return;
 
-  // Grant verified
+  // Grant verified + mark placement-ready in one update
   await db
     .from("candidate_profiles")
-    .update({ manually_verified: true })
+    .update({ manually_verified: true, placement_ready: true })
     .eq("user_id", userId);
+
+  // Trigger match suggestions for this newly-ready candidate (fire-and-forget)
+  maybeCreateMatches(db, userId).catch(e => console.warn("[maybeCreateMatches]", e));
 
   // Send one-time "verified" notification (skip if already sent)
   const { data: existing } = await db
@@ -251,6 +266,62 @@ async function maybeGrantVerified(
     feedback: null,
     read:     false,
   });
+
+  // Fire verified email (fire-and-forget)
+  db.auth.admin.getUserById(userId).then(({ data }) => {
+    const email = data?.user?.email;
+    if (!email) return;
+    const firstName = (data?.user?.user_metadata?.full_name ?? "").split(" ")[0];
+    sendVerifiedEmail(email, firstName);
+  }).catch(() => {});
+}
+
+/** When a candidate becomes placement_ready, cross-check all active org
+ *  requirements and insert a suggested_matches row for each new match. */
+async function maybeCreateMatches(
+  db: ReturnType<typeof getServiceSupabase>,
+  userId: string,
+) {
+  // All orgs with at least one active requirement
+  const { data: reqs } = await db
+    .from("org_requirements")
+    .select("id, org_id")
+    .eq("active", true);
+  if (!reqs?.length) return;
+
+  // Deduplicate: one suggestion per org (use the first/oldest active req)
+  const orgToReqId: Record<string, string> = {};
+  for (const r of (reqs as { id: string; org_id: string }[]).reverse()) {
+    orgToReqId[r.org_id] = r.id;
+  }
+
+  // Skip orgs where the candidate is already linked
+  const { data: linked } = await db
+    .from("candidate_organizations")
+    .select("org_id")
+    .eq("candidate_user_id", userId)
+    .in("status", ["approved", "pending"]);
+  const linkedIds = new Set(((linked ?? []) as { org_id: string }[]).map(l => l.org_id));
+
+  // Skip orgs that already have a suggested_matches row for this candidate
+  const { data: existing } = await db
+    .from("suggested_matches")
+    .select("org_id")
+    .eq("candidate_user_id", userId);
+  const suggestedIds = new Set(((existing ?? []) as { org_id: string }[]).map(s => s.org_id));
+
+  const toInsert = Object.entries(orgToReqId)
+    .filter(([orgId]) => !linkedIds.has(orgId) && !suggestedIds.has(orgId))
+    .map(([orgId, reqId]) => ({
+      candidate_user_id: userId,
+      org_id:            orgId,
+      requirement_id:    reqId,
+      status:            "pending",
+    }));
+
+  if (toInsert.length > 0) {
+    await db.from("suggested_matches").insert(toInsert);
+  }
 }
 
 // PATCH — update candidate profile fields (admin or assigned sub-admin)
@@ -333,6 +404,13 @@ export async function PATCH(req: NextRequest) {
       feedback: (cleanProfile.passport_feedback as string | null) ?? null,
       read:     false,
     });
+
+    // Fire rejection email (fire-and-forget)
+    db.auth.admin.getUserById(userId).then(({ data }) => {
+      const email = data?.user?.email;
+      if (!email) return;
+      sendDocRejectedEmail(email, passDoc?.file_type ?? "Passport", (cleanProfile.passport_feedback as string | null) ?? null);
+    }).catch(() => {});
 
     // Revoke blue-tick — manually_verified is intentionally outside
     // ALLOWED_PROFILE_FIELDS so we update it directly here.

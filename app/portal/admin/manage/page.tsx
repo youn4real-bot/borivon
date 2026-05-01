@@ -6,6 +6,88 @@ import { supabase } from "@/lib/supabase";
 import { CheckCircle2 } from "@/components/PortalIcons";
 import { ArrowLeft, Trash2, Users, Copy, ChevronDown } from "lucide-react";
 import { PageLoader, EmptyState } from "@/components/ui/states";
+import { useLang } from "@/components/LangContext";
+
+const t = {
+  en: {
+    pageTitle: "Manage admins",
+    pageDesc: "Assign agents access to specific candidates",
+    addSection: "Add an admin",
+    emailLabel: "Email *",
+    nameLabel: "Name",
+    roleLabelField: "Role / label",
+    emailPlaceholder: "agent@agency.com",
+    namePlaceholder: "Sarah M.",
+    rolePlaceholder: "e.g. Recruitment Agency — Morocco",
+    addError: "Could not add admin. Try again.",
+    adding: "Adding…",
+    addAdmin: "Add admin",
+    noAdmins: "No admins added yet",
+    noAdminsSub: "Add your first agent above and assign them specific candidates.",
+    candidates: (n: number) => `${n} candidate${n !== 1 ? "s" : ""}`,
+    close: "Close",
+    assign: "Assign",
+    assigned: "Assigned",
+    mirrorDesc: "Mirror another admin's assignments to save time",
+    copyFrom: "Copy from…",
+    copying: "Copying…",
+    alreadyShares: "Already shares all candidates",
+    newCandidates: (n: number, total: number) => `+${n} new candidate${n !== 1 ? "s" : ""} (${total} total)`,
+    noCandidates: "No candidates yet.",
+  },
+  fr: {
+    pageTitle: "Gérer les admins",
+    pageDesc: "Attribuer aux agents l'accès à des candidats spécifiques",
+    addSection: "Ajouter un admin",
+    emailLabel: "E-mail *",
+    nameLabel: "Nom",
+    roleLabelField: "Rôle / étiquette",
+    emailPlaceholder: "agent@agence.com",
+    namePlaceholder: "Sarah M.",
+    rolePlaceholder: "ex. Agence de recrutement — Maroc",
+    addError: "Impossible d'ajouter l'admin. Réessayez.",
+    adding: "Ajout…",
+    addAdmin: "Ajouter l'admin",
+    noAdmins: "Aucun admin ajouté",
+    noAdminsSub: "Ajoutez votre premier agent ci-dessus et assignez-lui des candidats.",
+    candidates: (n: number) => `${n} candidat${n !== 1 ? "s" : ""}`,
+    close: "Fermer",
+    assign: "Assigner",
+    assigned: "Assigné",
+    mirrorDesc: "Copier les assignations d'un autre admin pour gagner du temps",
+    copyFrom: "Copier depuis…",
+    copying: "Copie…",
+    alreadyShares: "Partage déjà tous les candidats",
+    newCandidates: (n: number, total: number) => `+${n} nouveau${n !== 1 ? "x" : ""} candidat${n !== 1 ? "s" : ""} (${total} au total)`,
+    noCandidates: "Aucun candidat pour l'instant.",
+  },
+  de: {
+    pageTitle: "Admins verwalten",
+    pageDesc: "Agenten Zugang zu bestimmten Kandidaten geben",
+    addSection: "Admin hinzufügen",
+    emailLabel: "E-Mail *",
+    nameLabel: "Name",
+    roleLabelField: "Rolle / Bezeichnung",
+    emailPlaceholder: "agent@agentur.com",
+    namePlaceholder: "Sarah M.",
+    rolePlaceholder: "z. B. Rekrutierungsagentur — Marokko",
+    addError: "Admin konnte nicht hinzugefügt werden. Erneut versuchen.",
+    adding: "Hinzufügen…",
+    addAdmin: "Admin hinzufügen",
+    noAdmins: "Noch keine Admins hinzugefügt",
+    noAdminsSub: "Fügen Sie oben Ihren ersten Agenten hinzu und weisen Sie ihm Kandidaten zu.",
+    candidates: (n: number) => `${n} Kandidat${n !== 1 ? "en" : ""}`,
+    close: "Schließen",
+    assign: "Zuweisen",
+    assigned: "Zugewiesen",
+    mirrorDesc: "Zuweisungen eines anderen Admins spiegeln, um Zeit zu sparen",
+    copyFrom: "Kopieren von…",
+    copying: "Kopiere…",
+    alreadyShares: "Teilt bereits alle Kandidaten",
+    newCandidates: (n: number, total: number) => `+${n} neue${n !== 1 ? "" : "r"} Kandidat${n !== 1 ? "en" : ""} (${total} gesamt)`,
+    noCandidates: "Noch keine Kandidaten.",
+  },
+};
 
 type SubAdmin = { id: string; email: string; name: string; label: string; created_at: string };
 type Assignment = { sub_admin_email: string; candidate_user_id: string };
@@ -13,6 +95,8 @@ type Candidate = { userId: string; name: string; email: string };
 
 export default function ManageAdminsPage() {
   const router = useRouter();
+  const { lang } = useLang();
+  const T = t[lang as keyof typeof t] ?? t.en;
   const [accessToken, setAccessToken] = useState("");
   const [subAdmins, setSubAdmins]   = useState<SubAdmin[]>([]);
   const [assignments, setAssignments] = useState<Assignment[]>([]);
@@ -69,14 +153,14 @@ export default function ManageAdminsPage() {
   }
 
   async function addSubAdmin() {
-    if (!newEmail.trim()) { setAddError("Email is required."); return; }
+    if (!newEmail.trim()) { setAddError(T.emailLabel.replace(" *", "") + " is required."); return; }
     setAdding(true); setAddError("");
     const res = await fetch("/api/portal/admin/sub-admins", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ email: newEmail.trim(), name: newName.trim(), label: newLabel.trim() }),
     });
-    if (!res.ok) { setAddError("Could not add admin. Try again."); setAdding(false); return; }
+    if (!res.ok) { setAddError(T.addError); setAdding(false); return; }
     setNewEmail(""); setNewName(""); setNewLabel("");
     await loadData(accessToken);
     setAdding(false);
@@ -160,9 +244,9 @@ export default function ManageAdminsPage() {
             <ArrowLeft size={15} strokeWidth={1.8} />
           </button>
           <div>
-            <h1 className="text-[20px] font-semibold tracking-[-0.015em]" style={{ color: "var(--w)" }}>Manage admins</h1>
+            <h1 className="text-[20px] font-semibold tracking-[-0.015em]" style={{ color: "var(--w)" }}>{T.pageTitle}</h1>
             <p className="text-[12.5px] mt-1" style={{ color: "var(--w3)" }}>
-              Assign agents access to specific candidates
+              {T.pageDesc}
             </p>
           </div>
         </div>
@@ -170,31 +254,31 @@ export default function ManageAdminsPage() {
         {/* Add new sub-admin — quieter section card */}
         <div className="p-5 mb-6"
           style={{ background: "var(--card)", border: "none", borderRadius: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-          <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-4" style={{ color: "var(--w3)" }}>Add an admin</p>
+          <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-4" style={{ color: "var(--w3)" }}>{T.addSection}</p>
           <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-[10px] font-medium uppercase tracking-wide mb-1.5" style={{ color: "var(--w3)" }}>Email *</label>
+                <label className="block text-[10px] font-medium uppercase tracking-wide mb-1.5" style={{ color: "var(--w3)" }}>{T.emailLabel}</label>
                 <input
                   type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)}
-                  placeholder="agent@agency.com"
+                  placeholder={T.emailPlaceholder}
                   className={inputCls} style={inputSt}
                 />
               </div>
               <div>
-                <label className="block text-[10px] font-medium uppercase tracking-wide mb-1.5" style={{ color: "var(--w3)" }}>Name</label>
+                <label className="block text-[10px] font-medium uppercase tracking-wide mb-1.5" style={{ color: "var(--w3)" }}>{T.nameLabel}</label>
                 <input
                   type="text" value={newName} onChange={e => setNewName(e.target.value)}
-                  placeholder="Sarah M."
+                  placeholder={T.namePlaceholder}
                   className={inputCls} style={inputSt}
                 />
               </div>
             </div>
             <div>
-              <label className="block text-[10px] font-medium uppercase tracking-wide mb-1.5" style={{ color: "var(--w3)" }}>Role / label</label>
+              <label className="block text-[10px] font-medium uppercase tracking-wide mb-1.5" style={{ color: "var(--w3)" }}>{T.roleLabelField}</label>
               <input
                 type="text" value={newLabel} onChange={e => setNewLabel(e.target.value)}
-                placeholder="e.g. Recruitment Agency — Morocco"
+                placeholder={T.rolePlaceholder}
                 className={inputCls} style={inputSt}
               />
             </div>
@@ -207,7 +291,7 @@ export default function ManageAdminsPage() {
             <button onClick={addSubAdmin} disabled={adding}
               className="w-full py-2.5 text-[13px] font-semibold tracking-tight transition-opacity disabled:opacity-50"
               style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-md)", boxShadow: "var(--shadow-sm)" }}>
-              {adding ? "Adding…" : "Add admin"}
+              {adding ? T.adding : T.addAdmin}
             </button>
           </div>
         </div>
@@ -216,8 +300,8 @@ export default function ManageAdminsPage() {
         {subAdmins.length === 0 ? (
           <EmptyState
             Icon={Users}
-            title="No admins added yet"
-            sub="Add your first agent above and assign them specific candidates."
+            title={T.noAdmins}
+            sub={T.noAdminsSub}
           />
         ) : (
           <div className="overflow-hidden"
@@ -250,13 +334,13 @@ export default function ManageAdminsPage() {
                     <div className="flex items-center gap-2 flex-shrink-0">
                       <span className="text-[10.5px] font-semibold tracking-wide px-2 py-0.5 rounded-full"
                         style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
-                        {assigned.length} candidate{assigned.length !== 1 ? "s" : ""}
+                        {T.candidates(assigned.length)}
                       </span>
                       <button
                         onClick={() => setExpandedEmail(isExpanded ? null : sa.email)}
                         className="text-[12px] font-medium px-3 py-1.5 transition-colors"
                         style={{ background: isExpanded ? "var(--gdim)" : "var(--bg2)", color: isExpanded ? "var(--gold)" : "var(--w2)", border: `1px solid ${isExpanded ? "var(--border-gold)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
-                        {isExpanded ? "Close" : "Assign"}
+                        {isExpanded ? T.close : T.assign}
                       </button>
                       <button onClick={() => removeSubAdmin(sa.email)} aria-label="Remove"
                         className="bv-icon-btn bv-icon-btn--reject w-7 h-7 rounded-full flex items-center justify-center">
@@ -273,7 +357,7 @@ export default function ManageAdminsPage() {
                         <div className="px-5 py-3 flex items-center justify-between gap-3 relative"
                           style={{ borderBottom: "1px solid var(--border)" }}>
                           <p className="text-[11.5px]" style={{ color: "var(--w3)" }}>
-                            Mirror another admin&apos;s assignments to save time
+                            {T.mirrorDesc}
                           </p>
                           <div className="relative">
                             <button
@@ -281,7 +365,7 @@ export default function ManageAdminsPage() {
                               className="inline-flex items-center gap-1.5 text-[11.5px] font-medium px-2.5 py-1.5 transition-colors"
                               style={{ background: copyOpenFor === sa.email ? "var(--gdim)" : "var(--card)", color: copyOpenFor === sa.email ? "var(--gold)" : "var(--w2)", border: `1px solid ${copyOpenFor === sa.email ? "var(--border-gold)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
                               <Copy size={11} strokeWidth={1.8} />
-                              Copy from…
+                              {T.copyFrom}
                               <ChevronDown size={10} strokeWidth={2} style={{ transform: copyOpenFor === sa.email ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 200ms" }} />
                             </button>
                             {copyOpenFor === sa.email && (
@@ -302,9 +386,9 @@ export default function ManageAdminsPage() {
                                         className="bv-row-hover w-full text-left px-3 py-2.5 disabled:opacity-40">
                                         <p className="text-[12.5px] font-medium" style={{ color: "var(--w)" }}>{other.name || other.email}</p>
                                         <p className="text-[10.5px] mt-0.5" style={{ color: "var(--w3)" }}>
-                                          {copyingFrom === other.email ? "Copying…"
-                                            : newOnes === 0 ? "Already shares all candidates"
-                                            : `+${newOnes} new candidate${newOnes !== 1 ? "s" : ""} (${otherCount} total)`}
+                                          {copyingFrom === other.email ? T.copying
+                                            : newOnes === 0 ? T.alreadyShares
+                                            : T.newCandidates(newOnes, otherCount)}
                                         </p>
                                       </button>
                                     );
@@ -316,7 +400,7 @@ export default function ManageAdminsPage() {
                         </div>
                       )}
                       {candidates.length === 0 ? (
-                        <p className="px-5 py-4 text-[12px]" style={{ color: "var(--w3)" }}>No candidates yet.</p>
+                        <p className="px-5 py-4 text-[12px]" style={{ color: "var(--w3)" }}>{T.noCandidates}</p>
                       ) : candidates.map((c, ci) => {
                         const isAssigned = assigned.includes(c.userId);
                         return (
@@ -338,7 +422,7 @@ export default function ManageAdminsPage() {
                                   ? { background: "rgba(52,199,89,0.12)", color: "#34c759", border: "1px solid rgba(52,199,89,0.3)", borderRadius: "var(--r-sm)" }
                                   : { background: "var(--card)", color: "var(--w2)", border: "1px solid var(--border)", borderRadius: "var(--r-sm)" }
                                 }>
-                                {isAssigned ? <><CheckCircle2 size={11} strokeWidth={1.8} /> Assigned</> : "Assign"}
+                                {isAssigned ? <><CheckCircle2 size={11} strokeWidth={1.8} /> {T.assigned}</> : T.assign}
                               </button>
                             </div>
                           </div>

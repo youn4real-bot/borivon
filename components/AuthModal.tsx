@@ -40,6 +40,10 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
   const [resetSent, setResetSent]             = useState(false);
   const [consent, setConsent]                 = useState(false);
   const [dataConsent, setDataConsent]         = useState(false);
+  // Invite code — mandatory for registration
+  const [inviteCode, setInviteCode]           = useState("");
+  const [inviteStatus, setInviteStatus]       = useState<"idle" | "checking" | "valid" | "invalid">("idle");
+  const [inviteOrgName, setInviteOrgName]     = useState("");
 
   // Close on Escape
   useEffect(() => {
@@ -58,8 +62,30 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
       setShowPassword(false); setShowConfirm(false);
       setError(""); setCheckEmail(false); setResetSent(false);
       setConsent(false); setDataConsent(false); setLoading(false);
+      setInviteCode(""); setInviteStatus("idle"); setInviteOrgName("");
     }
   }, [open]);
+
+  // Validate invite code on blur — debounced so it doesn't fire on every keystroke
+  async function validateInviteCode(code: string) {
+    const trimmed = code.trim().toUpperCase().replace(/[\s-]+/g, "");
+    if (!trimmed) { setInviteStatus("idle"); setInviteOrgName(""); return; }
+    setInviteStatus("checking");
+    try {
+      const res = await fetch(`/api/portal/invite/${encodeURIComponent(trimmed)}`);
+      if (res.ok) {
+        const json = await res.json();
+        setInviteOrgName(json.org?.name ?? "");
+        setInviteStatus("valid");
+      } else {
+        setInviteStatus("invalid");
+        setInviteOrgName("");
+      }
+    } catch {
+      setInviteStatus("invalid");
+      setInviteOrgName("");
+    }
+  }
 
   // Lock body scroll
   useEffect(() => {
@@ -73,6 +99,7 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
     setFirstName(""); setLastName(""); setEmail(""); setPassword(""); setConfirmPassword("");
     setShowPassword(false); setShowConfirm(false);
     setConsent(false); setDataConsent(false);
+    setInviteCode(""); setInviteStatus("idle"); setInviteOrgName("");
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -103,17 +130,50 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
       if (password !== confirmPassword) { setError(t.pErrPasswordMatch); return; }
       if (!consent)     { setError(t.pConsentRequired); return; }
       if (!dataConsent) { setError(t.pDataConsentRequired); return; }
+      // Invite code is mandatory — validate before creating account
+      const trimmedCode = inviteCode.trim().toUpperCase().replace(/[\s-]+/g, "");
+      if (!trimmedCode) {
+        setError(lang === "de" ? "Bitte geben Sie Ihren Einladungscode ein." : lang === "en" ? "Please enter your invitation code." : "Veuillez saisir votre code d'invitation.");
+        return;
+      }
+      if (inviteStatus === "invalid") {
+        setError(lang === "de" ? "Ungültiger Einladungscode." : lang === "en" ? "Invalid invitation code." : "Code d'invitation invalide.");
+        return;
+      }
+      // If status is idle (user didn't blur) — validate now
+      if (inviteStatus === "idle" || inviteStatus === "checking") {
+        setLoading(true);
+        try {
+          const res = await fetch(`/api/portal/invite/${encodeURIComponent(trimmedCode)}`);
+          if (!res.ok) {
+            setError(lang === "de" ? "Ungültiger Einladungscode." : lang === "en" ? "Invalid invitation code." : "Code d'invitation invalide.");
+            setInviteStatus("invalid");
+            setLoading(false);
+            return;
+          }
+          const json = await res.json();
+          setInviteOrgName(json.org?.name ?? "");
+          setInviteStatus("valid");
+        } catch {
+          setError(lang === "de" ? "Verbindungsfehler — bitte erneut versuchen." : "Connection error — please try again.");
+          setLoading(false);
+          return;
+        }
+        setLoading(false);
+      }
     }
 
     setLoading(true);
 
     if (mode === "register") {
+      const finalCode = inviteCode.trim().toUpperCase().replace(/[\s-]+/g, "");
       const { error: err } = await supabase.auth.signUp({
         email: email.trim().toLowerCase(), password,
         options: {
           data: {
             first_name: firstName.trim(), last_name: lastName.trim(),
             full_name: `${firstName.trim()} ${lastName.trim()}`,
+            invite_code: finalCode,
           },
           emailRedirectTo: `${window.location.origin}/portal/auth/callback`,
         },
@@ -255,6 +315,58 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
                     <input type="text" value={lastName} onChange={e => setLastName(e.target.value)}
                       placeholder={t.pLastName} autoComplete="family-name"
                       style={fieldStyle} onFocus={focusGold} onBlur={blurReset} />
+                    {/* Invite code — mandatory */}
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={inviteCode}
+                        onChange={e => {
+                          const v = e.target.value.toUpperCase();
+                          setInviteCode(v);
+                          setInviteStatus("idle");
+                          setInviteOrgName("");
+                        }}
+                        onBlur={() => validateInviteCode(inviteCode)}
+                        placeholder={
+                          lang === "de" ? "Einladungscode *" :
+                          lang === "en" ? "Invitation code *" :
+                          "Code d'invitation *"
+                        }
+                        autoComplete="off"
+                        style={{
+                          ...fieldStyle,
+                          fontFamily: "monospace",
+                          letterSpacing: "0.06em",
+                          textTransform: "uppercase",
+                          paddingRight: "40px",
+                          borderColor: inviteStatus === "valid" ? "rgba(52,199,89,0.6)" : inviteStatus === "invalid" ? "rgba(224,82,82,0.6)" : "transparent",
+                        }}
+                        onFocus={e => (e.currentTarget.style.borderColor = inviteStatus === "valid" ? "rgba(52,199,89,0.6)" : inviteStatus === "invalid" ? "rgba(224,82,82,0.6)" : "var(--gold)")}
+                      />
+                      {/* Status indicator */}
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center">
+                        {inviteStatus === "checking" && (
+                          <svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--w3)" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeOpacity=".25"/><path d="M12 2a10 10 0 0 1 10 10" /></svg>
+                        )}
+                        {inviteStatus === "valid" && (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#34c759" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                        )}
+                        {inviteStatus === "invalid" && (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#e05252" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        )}
+                      </span>
+                    </div>
+                    {/* Feedback line below invite code */}
+                    {inviteStatus === "valid" && inviteOrgName && (
+                      <p className="text-[11.5px] -mt-1 px-1" style={{ color: "#34c759" }}>
+                        ✓ {lang === "de" ? `Einladung von ${inviteOrgName} akzeptiert` : lang === "en" ? `Invitation from ${inviteOrgName} accepted` : `Invitation de ${inviteOrgName} acceptée`}
+                      </p>
+                    )}
+                    {inviteStatus === "invalid" && (
+                      <p className="text-[11.5px] -mt-1 px-1" style={{ color: "#e05252" }}>
+                        {lang === "de" ? "Ungültiger Code — bitte prüfen" : lang === "en" ? "Invalid code — please check" : "Code invalide — veuillez vérifier"}
+                      </p>
+                    )}
                   </>
                 )}
 

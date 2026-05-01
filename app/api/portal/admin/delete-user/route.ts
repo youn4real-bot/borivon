@@ -136,8 +136,6 @@ export async function POST(req: NextRequest) {
     await safeDelete("messages (sender)",      db.from("messages").delete().eq("sender_user_id", userId));
     await safeDelete("candidate_pipeline",     db.from("candidate_pipeline").delete().eq("user_id", userId));
     await safeDelete("candidate_profiles",     db.from("candidate_profiles").delete().eq("user_id", userId));
-    await safeDelete("candidates",             db.from("candidates").delete().eq("id", userId));
-    await safeDelete("users",                  db.from("users").delete().eq("id", userId));
 
     if (userEmail) {
       // admin_notifications keyed by candidate email

@@ -251,7 +251,7 @@ function StageContent({ mode, p, t, lang = "en" }: { mode: JourneyMode; p: Journ
           </p>
           <p className="text-xs mb-5 leading-relaxed" style={{ color: "var(--w3)" }}>{t.pRecognitionSub}</p>
           {[
-            { label: "Beschleunigtes Fachkräfteverfahren (BFV)", items: recogDocs.bfv, color: "#4a90d9" },
+            { label: "Beschleunigtes Fachkräfteverfahren (BFV)", items: recogDocs.bfv, color: "var(--info)" },
             { label: "Standard Recognition", items: recogDocs.standard, color: "var(--gold)" },
             { label: "UKSH — Specific Documents", items: recogDocs.uksh, color: "#a78bfa" },
           ].map(group => (

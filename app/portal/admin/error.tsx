@@ -9,6 +9,7 @@
  */
 
 import { useEffect } from "react";
+import { useLang } from "@/components/LangContext";
 
 export default function AdminError({
   error,
@@ -17,6 +18,11 @@ export default function AdminError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  const { lang } = useLang();
+  const tryAgain = lang === "fr" ? "Réessayer" : lang === "de" ? "Erneut versuchen" : "Try again";
+  const backToDash = lang === "fr" ? "Retour au tableau de bord" : lang === "de" ? "Zurück zum Dashboard" : "Back to dashboard";
+  const errorLabel = lang === "fr" ? "Erreur page admin" : lang === "de" ? "Admin-Seiten-Fehler" : "Admin page error";
+
   useEffect(() => {
     // Log to browser console in case a power user has it open.
     // eslint-disable-next-line no-console
@@ -29,7 +35,7 @@ export default function AdminError({
         style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
         <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] mb-2"
           style={{ color: "#e05252" }}>
-          Admin page error
+          {errorLabel}
         </p>
         <h1 className="text-base font-semibold mb-3" style={{ color: "var(--w)" }}>
           {error.message || "An unknown error occurred"}
@@ -49,12 +55,12 @@ export default function AdminError({
           <button onClick={reset}
             className="text-[12.5px] font-semibold px-4 py-2 rounded-lg transition-opacity hover:opacity-90"
             style={{ background: "var(--gold)", color: "#131312" }}>
-            Try again
+            {tryAgain}
           </button>
           <a href="/portal/dashboard"
             className="text-[12.5px] font-medium px-4 py-2 rounded-lg transition-colors"
             style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
-            Back to dashboard
+            {backToDash}
           </a>
         </div>
       </div>

@@ -42,32 +42,43 @@ async function resolveBrand(userId: string): Promise<CVBrand> {
 
   const { data: org } = await db
     .from("organizations")
-    .select("logo_filename, footer_text")
+    .select("name, logo_filename, footer_text")
     .eq("id", link.org_id)
     .single();
 
-  if (!org?.logo_filename && !org?.footer_text) return {};
+  if (!org) return {};
 
   const brand: CVBrand = {};
 
   if (org.logo_filename) {
-    const logoPath = path.join(process.cwd(), "public", "logos", org.logo_filename);
-    if (fs.existsSync(logoPath)) {
-      const ext = path.extname(org.logo_filename).toLowerCase();
-      const mime =
-        ext === ".png"  ? "image/png"  :
-        ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" :
-        ext === ".webp" ? "image/webp"  :
-        ext === ".svg"  ? "image/svg+xml" :
-        "image/png";
-      const b64 = fs.readFileSync(logoPath).toString("base64");
-      brand.logoSrc = `data:${mime};base64,${b64}`;
+    if (org.logo_filename.startsWith("data:")) {
+      // Uploaded via admin panel — use the data URL directly
+      brand.logoSrc = org.logo_filename;
+    } else {
+      // Legacy: filename in public/logos/
+      const logoPath = path.join(process.cwd(), "public", "logos", org.logo_filename);
+      if (fs.existsSync(logoPath)) {
+        const ext = path.extname(org.logo_filename).toLowerCase();
+        const mime =
+          ext === ".png"  ? "image/png"  :
+          ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" :
+          ext === ".webp" ? "image/webp"  :
+          ext === ".svg"  ? "image/svg+xml" :
+          "image/png";
+        const b64 = fs.readFileSync(logoPath).toString("base64");
+        brand.logoSrc = `data:${mime};base64,${b64}`;
+      }
     }
   }
 
   if (org.footer_text) {
+    // Admin-configured footer takes precedence — split on newlines so each
+    // becomes its own centered footer line on every PDF page.
     brand.footerLines = org.footer_text.split("\n").map((l: string) => l.trim()).filter(Boolean);
   }
+  // No fallback — if the supreme admin hasn't configured a footer for this
+  // org yet, the CV uses the default Borivon contact line. Configure per-org
+  // branding at /portal/admin/organizations → expand org → Branding tab.
 
   return brand;
 }

@@ -36,6 +36,28 @@ export function Navbar({ rightExtra }: { rightExtra?: ReactNode }) {
   const current = LANGS.find((l) => l.code === lang) ?? LANGS[0];
   const others   = LANGS.filter((l) => l.code !== lang);
 
+  const navT = {
+    en: {
+      switchToLight: "Switch to light mode",
+      switchToDark: "Switch to dark mode",
+      closeMenu: "Close menu",
+      openMenu: "Open menu",
+    },
+    fr: {
+      switchToLight: "Passer en mode clair",
+      switchToDark: "Passer en mode sombre",
+      closeMenu: "Fermer le menu",
+      openMenu: "Ouvrir le menu",
+    },
+    de: {
+      switchToLight: "Zum Hellmodus wechseln",
+      switchToDark: "Zum Dunkelmodus wechseln",
+      closeMenu: "Menü schließen",
+      openMenu: "Menü öffnen",
+    },
+  };
+  const NT = navT[lang] ?? navT.en;
+
   // Close on Escape. Outside-click is handled by the portal-rendered backdrop
   // (we can't use the document mousedown trick because the dropdown lives
   // outside `langRef` once portaled).
@@ -55,7 +77,7 @@ export function Navbar({ rightExtra }: { rightExtra?: ReactNode }) {
       {/* Theme Toggle */}
       <button
         onClick={toggleTheme}
-        aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+        aria-label={theme === "dark" ? NT.switchToLight : NT.switchToDark}
         style={{
           background: "transparent",
           border: "none",
@@ -213,7 +235,7 @@ export function Navbar({ rightExtra }: { rightExtra?: ReactNode }) {
         {menuConfig && (
           <button
             onClick={menuConfig.toggle}
-            aria-label={menuConfig.label ?? (menuConfig.isOpen ? "Close menu" : "Open menu")}
+            aria-label={menuConfig.label ?? (menuConfig.isOpen ? NT.closeMenu : NT.openMenu)}
             className="bv-mobile-menu-toggle flex items-center justify-center w-9 h-9 cursor-pointer hover:scale-110 active:scale-95"
             style={{
               background: "transparent",

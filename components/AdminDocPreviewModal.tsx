@@ -9,6 +9,52 @@ import { PdfViewer } from "@/components/PdfViewer";
 import { DocxViewer } from "@/components/DocxViewer";
 import { ZoomPanRotateViewer } from "@/components/ZoomPanRotateViewer";
 import { Spinner } from "@/components/ui/states";
+import { useLang } from "@/components/LangContext";
+
+const dm = {
+  en: {
+    passportData: "Passport data",
+    download: "Download",
+    approved: "Approved",
+    rejected: "Rejected",
+    reject: "Reject",
+    approve: "Approve",
+    close: "Close",
+    previewUnavailable: (ext: string) => `Preview not available for .${ext}`,
+    downloadToOpen: "Download the file to open it in your default app.",
+    failApprove: "Failed to approve — please try again.",
+    netError: "Network error — please try again.",
+    failReject: "Failed to reject — please try again.",
+  },
+  fr: {
+    passportData: "Données passeport",
+    download: "Télécharger",
+    approved: "Approuvé",
+    rejected: "Refusé",
+    reject: "Refuser",
+    approve: "Approuver",
+    close: "Fermer",
+    previewUnavailable: (ext: string) => `Aperçu non disponible pour .${ext}`,
+    downloadToOpen: "Téléchargez le fichier pour l'ouvrir dans votre application.",
+    failApprove: "Échec de l'approbation — veuillez réessayer.",
+    netError: "Erreur réseau — veuillez réessayer.",
+    failReject: "Échec du refus — veuillez réessayer.",
+  },
+  de: {
+    passportData: "Passdaten",
+    download: "Herunterladen",
+    approved: "Genehmigt",
+    rejected: "Abgelehnt",
+    reject: "Ablehnen",
+    approve: "Genehmigen",
+    close: "Schließen",
+    previewUnavailable: (ext: string) => `Vorschau für .${ext} nicht verfügbar`,
+    downloadToOpen: "Laden Sie die Datei herunter, um sie in Ihrer Standard-App zu öffnen.",
+    failApprove: "Genehmigung fehlgeschlagen — bitte erneut versuchen.",
+    netError: "Netzwerkfehler — bitte erneut versuchen.",
+    failReject: "Ablehnung fehlgeschlagen — bitte erneut versuchen.",
+  },
+};
 
 type Doc = {
   id: string;
@@ -39,6 +85,9 @@ export function AdminDocPreviewModal({
    *  ignore it and just stack vertically with the data popup below. */
   sideBySide?: boolean;
 }) {
+  const { lang } = useLang();
+  const dt = dm[lang as keyof typeof dm] ?? dm.en;
+
   const [rejectOpen, setRejectOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [savedAs, setSavedAs]       = useState<"approved" | "rejected" | null>(null);
@@ -77,10 +126,10 @@ export function AdminDocPreviewModal({
         onUpdated?.({ ...doc, status: "approved", feedback: null });
         setTimeout(onClose, 700);
       } else {
-        setActionError("Failed to approve — please try again.");
+        setActionError(dt.failApprove);
       }
     } catch {
-      setActionError("Network error — please try again.");
+      setActionError(dt.netError);
     } finally {
       setSubmitting(false);
     }
@@ -97,7 +146,7 @@ export function AdminDocPreviewModal({
         body: JSON.stringify({ docId: doc.id, status: "rejected", feedback: fb }),
       });
       if (!res.ok) {
-        setActionError("Failed to reject — please try again.");
+        setActionError(dt.failReject);
         return;
       }
       if (shot) {
@@ -210,8 +259,8 @@ export function AdminDocPreviewModal({
               <button
                 type="button"
                 onClick={onShowPassportData}
-                title="Passport data"
-                aria-label="Passport data"
+                title={dt.passportData}
+                aria-label={dt.passportData}
                 className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-2.5 h-8 rounded-full transition-colors"
                 style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -222,14 +271,14 @@ export function AdminDocPreviewModal({
                   <line x1="14" y1="13" x2="18" y2="13"/>
                   <line x1="6" y1="16" x2="18" y2="16"/>
                 </svg>
-                Passport data
+                {dt.passportData}
               </button>
             )}
             {blobUrl && (
               <a
                 href={blobUrl}
                 download={doc.file_name}
-                title="Download" aria-label="Download"
+                title={dt.download} aria-label={dt.download}
                 className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center"
                 style={{ color: "var(--w2)" }}>
                 <Download size={14} strokeWidth={1.8} />
@@ -243,19 +292,19 @@ export function AdminDocPreviewModal({
                   border: `1px solid ${savedAs === "approved" ? "rgba(52,199,89,0.3)" : "rgba(224,82,82,0.28)"}`,
                 }}>
                 {savedAs === "approved"
-                  ? <><CheckCircle2 size={13} strokeWidth={1.8} /> Approved</>
-                  : <><XCircle size={13} strokeWidth={1.8} /> Rejected</>}
+                  ? <><CheckCircle2 size={13} strokeWidth={1.8} /> {dt.approved}</>
+                  : <><XCircle size={13} strokeWidth={1.8} /> {dt.rejected}</>}
               </span>
             )}
             {canReview && (
               <>
                 <button onClick={() => setRejectOpen(true)} disabled={submitting}
-                  title="Reject" aria-label="Reject"
+                  title={dt.reject} aria-label={dt.reject}
                   className="bv-icon-btn bv-icon-btn--reject w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-40">
                   <XCircle size={15} strokeWidth={1.8} />
                 </button>
                 <button onClick={approve} disabled={submitting}
-                  title="Approve" aria-label="Approve"
+                  title={dt.approve} aria-label={dt.approve}
                   className="bv-icon-btn bv-icon-btn--approve w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-40">
                   <CheckCircle2 size={15} strokeWidth={1.8} />
                 </button>
@@ -287,12 +336,12 @@ export function AdminDocPreviewModal({
             }
             return (
               <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#525659", color: "#fff", padding: "1rem", textAlign: "center" }}>
-                <p className="text-[14px] font-semibold mb-2">Preview not available for .{ext}</p>
-                <p className="text-[12.5px] opacity-80 mb-4">Download the file to open it in your default app.</p>
+                <p className="text-[14px] font-semibold mb-2">{dt.previewUnavailable(ext)}</p>
+                <p className="text-[12.5px] opacity-80 mb-4">{dt.downloadToOpen}</p>
                 <a href={blobUrl} download={doc.file_name}
                   className="inline-flex items-center gap-2 px-4 py-2 text-[13px] font-semibold"
                   style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)" }}>
-                  <Download size={13} strokeWidth={1.8} /> Download
+                  <Download size={13} strokeWidth={1.8} /> {dt.download}
                 </a>
               </div>
             );

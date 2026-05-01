@@ -19,7 +19,7 @@ import { createPortal } from "react-dom";
 // 40 confetti pieces with deterministic colours / sizes / positions so SSR
 // doesn't flicker. Each piece has its own animation-delay / duration / path.
 const PIECES = Array.from({ length: 40 }, (_, i) => {
-  const colours = ["#c9a240", "#f0c850", "#fff", "#e8d5a3", "#a07820", "#ffd700", "#fffacd", "#daa520"];
+  const colours = ["#c9a240", "#d4af37", "#fff", "#e8cc6e", "#a07830", "#f0dfa0", "#fffbe6", "#c9a240"];
   const shapes  = ["circle", "rect", "rect"];
   return {
     id: i,
@@ -156,35 +156,39 @@ function CelebrationPortal({ userId, lang, onDismiss }: Props) {
         className="w-full max-w-sm text-center px-8 py-10 rounded-3xl relative"
         style={{
           background: "var(--card)",
-          border: "1px solid var(--border-gold)",
-          boxShadow: "0 24px 64px rgba(0,0,0,0.5), 0 0 0 1px rgba(201,162,64,0.2)",
+          border: "1px solid rgba(212,175,55,0.35)",
+          boxShadow: "0 24px 64px rgba(0,0,0,0.5), 0 0 0 1px rgba(212,175,55,0.2)",
           animation: "bvCardRise 0.55s 0.1s var(--ease-out) both",
         }}
         // Stop backdrop click from closing when tapping the card itself
         onClick={e => e.stopPropagation()}
       >
-        {/* Verified checkmark */}
+        {/* Gold starburst badge */}
         <div
-          className="mx-auto mb-5 w-20 h-20 rounded-full flex items-center justify-center"
-          style={{
-            background: "var(--gdim)",
-            border: "2px solid var(--gold)",
-            boxShadow: "0 0 32px rgba(201,162,64,0.35)",
-            animation: "bvCheckPop 0.6s 0.3s var(--ease-out) both",
-          }}
+          className="mx-auto mb-5 flex items-center justify-center"
+          style={{ animation: "bvCheckPop 0.6s 0.3s var(--ease-out) both" }}
         >
-          {/* Gold checkmark SVG */}
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none"
-            stroke="var(--gold)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M20 6L9 17l-5-5" />
+          <svg width="80" height="80" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
+            <path
+              d="M19.998 3.094 14.638 0l-2.972 5.15H5.432v6.354L0 14.64 3.094 20 0 25.359l5.432 3.137v6.355h6.234L14.638 40l5.36-3.094L25.358 40l2.978-5.149h6.227v-6.355L40 25.359 36.905 20 40 14.64l-5.438-3.135V5.15h-6.227L25.358 0l-5.36 3.094Z"
+              fill="#c9a240"
+            />
+            <path
+              d="m13 19.5 4.5 4 7-7"
+              stroke="#FFFFFF"
+              strokeWidth="3.2"
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         </div>
 
-        {/* Title with shimmer effect */}
+        {/* Title with gold shimmer */}
         <h2
           className="text-[22px] font-semibold mb-3 tracking-tight"
           style={{
-            background: "linear-gradient(90deg, var(--gold) 0%, #fff8dc 40%, var(--gold) 60%, #c9a240 100%)",
+            background: "linear-gradient(90deg, #c9a240 0%, #f0dfa0 40%, #c9a240 60%, #a07830 100%)",
             backgroundSize: "200% auto",
             WebkitBackgroundClip: "text",
             WebkitTextFillColor: "transparent",
@@ -209,7 +213,7 @@ function CelebrationPortal({ userId, lang, onDismiss }: Props) {
             background: "var(--gold)",
             color: "#131312",
             border: "none",
-            boxShadow: "0 4px 14px rgba(201,162,64,0.3)",
+            boxShadow: "0 4px 14px rgba(201,162,64,0.35)",
           }}
         >
           {t.btn}

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import dynamic from "next/dynamic";
@@ -28,6 +28,7 @@ import { useMobileMenu } from "@/components/MobileMenuContext";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { buildProfileSlug } from "@/lib/profile-slug";
 import { VerifiedCelebration } from "@/components/VerifiedCelebration";
+import { MatchedCelebration } from "@/components/MatchedCelebration";
 
 // Onboarding tour is shown at most once per user (gated by a localStorage
 // flag). Lazy-load so returning users don't pay for it.
@@ -200,6 +201,9 @@ export default function DashboardPage() {
   const [authToken, setAuthToken]   = useState("");
   const [firstName, setFirstName]   = useState("");
   const [lastName, setLastName]     = useState("");
+  // Track which decided-doc IDs the candidate has already opened (seen).
+  // Badge disappears once they click the document row.
+  const [seenDocIds, setSeenDocIds] = useState<Set<string>>(new Set());
   const [userName, setUserName]     = useState("");
   const [docs, setDocs]           = useState<Doc[]>([]);
   const [loading, setLoading]     = useState(true);
@@ -233,9 +237,23 @@ export default function DashboardPage() {
   // explicitly dismisses ("Later"). Dismissal is session-only; resets on next login.
   const [orgModalOpen, setOrgModalOpen] = useState(false);
   const [orgChecked, setOrgChecked]     = useState(false);
-  // Names of orgs this candidate is linked to (any status) — shown as a small
-  // badge below the welcome line so they always know which partner is following them.
-  const [linkedOrgs, setLinkedOrgs]     = useState<{ name: string; status: string }[]>([]);
+  // Orgs this candidate is approved-linked to — shown as partner cards on
+  // the dashboard. Rejected entries are filtered out. Polled every 30 s so
+  // admin-initiated placements appear without a page reload.
+  const [linkedOrgs, setLinkedOrgs] = useState<{ id: string; name: string; status: string }[]>([]);
+  // Celebration modal — shown once per (user, orgId) on first detection of an approved match
+  const [celebrateOrg, setCelebrateOrg] = useState<{ id: string; name: string } | null>(null);
+
+  // Payment tier — gates journey/pipeline access
+  const [paymentTier, setPaymentTier] = useState<string | null>(null);
+  const [profileLoaded, setProfileLoaded] = useState(false);
+  // Upgrade modal — shown when candidate tries a Kandidat-tier feature
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [upgradeLoading, setUpgradeLoading] = useState(false);
+  // Payment success toast — shown when user returns from Stripe checkout
+  const [paymentToast, setPaymentToast] = useState<{ plan: string } | null>(null);
+  // Helper: does the user have at least the Kandidat plan?
+  const hasKandidat = paymentTier === "kandidat";
 
   // Wire the bottom-bar hamburger ↔ home toggle. The Navbar reads this and
   // renders an icon as the first item in the mobile bottom action bar.
@@ -372,6 +390,52 @@ export default function DashboardPage() {
   const [passportStatus, setPassportStatus] = useState<string | null>(null);
   const [showCelebration, setShowCelebration] = useState(false);
 
+  // Poll org placement every 30 s + on focus so admin-initiated placements
+  // appear without a page reload. Uses authToken (available after login).
+  useEffect(() => {
+    if (!authToken) return;
+    const refresh = () => {
+      fetch("/api/portal/me/organizations", { headers: { Authorization: `Bearer ${authToken}` } })
+        .then(r => r.ok ? r.json() : null)
+        .then(j => {
+          if (!j?.orgs) return;
+          const list = (j.orgs as { id: string; name: string; status: string }[])
+            .filter(o => o.status !== "rejected");
+          setLinkedOrgs(prev => {
+            // Check if a NEW approved org appeared — show a subtle notification
+            const prevIds = new Set(prev.filter(o => o.status === "approved").map(o => o.id));
+            const newOrg = list.find(o => o.status === "approved" && !prevIds.has(o.id));
+            if (newOrg) {
+              // Dispatch event so any listeners (future notifications) can react
+              window.dispatchEvent(new CustomEvent("bv-org-placed", { detail: { name: newOrg.name } }));
+              // Show the celebration modal once per (user, orgId)
+              try {
+                const key = `bv-celebrated-orgs-${userId}`;
+                const seen = JSON.parse(localStorage.getItem(key) ?? "[]") as string[];
+                if (!seen.includes(newOrg.id)) {
+                  setCelebrateOrg({ id: newOrg.id, name: newOrg.name });
+                }
+              } catch {
+                setCelebrateOrg({ id: newOrg.id, name: newOrg.name });
+              }
+            }
+            return list;
+          });
+        })
+        .catch(() => {});
+    };
+    const t = setInterval(refresh, 30_000);
+    const onFocus = () => refresh();
+    const onVis   = () => { if (document.visibilityState === "visible") refresh(); };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [authToken]);
+
   // Issue 4.3: live passport status — no page refresh needed when admin approves/rejects
   useEffect(() => {
     if (!userId) return;
@@ -380,10 +444,14 @@ export default function DashboardPage() {
       .on("postgres_changes",
         { event: "UPDATE", schema: "public", table: "candidate_profiles", filter: `user_id=eq.${userId}` },
         (payload) => {
-          const row = payload.new as { passport_status?: string; manually_verified?: boolean };
+          const row = payload.new as { passport_status?: string; manually_verified?: boolean; payment_tier?: string | null };
           if (row.passport_status !== undefined) setPassportStatus(row.passport_status);
+          // Pick up payment_tier changes pushed by the Stripe webhook (no page refresh needed).
+          if (row.payment_tier !== undefined) setPaymentTier(row.payment_tier ?? null);
           // Fire celebration the instant admin flips manually_verified to true.
           if (row.manually_verified === true) {
+            // Notify the navbar ProfileIcon so the badge appears immediately.
+            window.dispatchEvent(new CustomEvent("bv-verified-changed"));
             try {
               if (!localStorage.getItem(`bv-verified-celebrated-${userId}`)) {
                 setShowCelebration(true);
@@ -455,7 +523,25 @@ export default function DashboardPage() {
     };
   }, [previewDoc?.drive_file_id]);
 
+  // Load seen-doc IDs from localStorage whenever userId becomes available.
+  useEffect(() => {
+    if (!userId) return;
+    try {
+      const raw = localStorage.getItem(`bv-seen-docs-${userId}`);
+      if (raw) setSeenDocIds(new Set(JSON.parse(raw) as string[]));
+    } catch { /* private mode / corrupt JSON */ }
+  }, [userId]);
+
   function handlePreview(doc: Doc) {
+    // Mark this doc as seen so its badge clears immediately.
+    if (userId && (doc.status === "approved" || doc.status === "rejected")) {
+      setSeenDocIds(prev => {
+        const next = new Set(prev);
+        next.add(doc.id);
+        try { localStorage.setItem(`bv-seen-docs-${userId}`, JSON.stringify([...next])); } catch { /* private mode */ }
+        return next;
+      });
+    }
     setPreviewDoc(doc);
   }
 
@@ -484,13 +570,32 @@ export default function DashboardPage() {
           headers: { Authorization: `Bearer ${session?.access_token ?? ""}` },
         });
         const { role } = await res.json().catch(() => ({ role: null }));
-        if (role === "admin") { router.replace("/portal/admin"); return; }
+        if (role === "admin" || role === "sub_admin") { router.replace("/portal/admin"); return; }
+        if (role === "org_member") { router.replace("/portal/org/dashboard"); return; }
       } catch { /* offline — continue as candidate */ }
       setUserId(user.id);
       setAuthToken(session?.access_token ?? "");
       setFirstName(user.user_metadata?.first_name ?? "");
       setLastName(user.user_metadata?.last_name ?? "");
       setUserName(user.user_metadata?.full_name ?? user.email ?? "");
+
+      // Auto-redeem invite code stored in user metadata at registration time.
+      // Fires once per session; safe to re-run (server ignores already-used codes).
+      const storedCode = user.user_metadata?.invite_code as string | undefined;
+      if (storedCode && session?.access_token) {
+        const redeemKey = `bv-invite-redeemed-${user.id}`;
+        if (!localStorage.getItem(redeemKey)) {
+          fetch(`/api/portal/invite/${encodeURIComponent(storedCode)}`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          })
+            .then(r => r.json())
+            .then(() => {
+              try { localStorage.setItem(redeemKey, "1"); } catch { /* private mode */ }
+            })
+            .catch(() => {/* ignore errors — will retry on next login */});
+        }
+      }
       // Restore unconfirmed passport modal if user refreshed before submitting
       const pendingRaw = localStorage.getItem(`bv-passport-pending-${user.id}`);
       if (pendingRaw) {
@@ -502,23 +607,31 @@ export default function DashboardPage() {
       }
       loadDocs(user.id);
       // Load passport_status for info-button color
-      supabase
-        .from("candidate_profiles")
-        .select("passport_status, manually_verified")
-        .eq("user_id", user.id)
-        .maybeSingle()
-        .then(({ data }) => {
+      // Load profile — passport status + payment tier + verified flag
+      (async () => {
+        try {
+          const { data } = await supabase
+            .from("candidate_profiles")
+            .select("passport_status, manually_verified, payment_tier")
+            .eq("user_id", user.id)
+            .maybeSingle();
           setPassportStatus(data?.passport_status ?? null);
+          setPaymentTier((data as { payment_tier?: string | null } | null)?.payment_tier ?? null);
           // Show celebration if verified and not yet celebrated this session.
           if (data?.manually_verified) {
             const uid = user.id;
+            // Notify the navbar ProfileIcon to show the badge.
+            window.dispatchEvent(new CustomEvent("bv-verified-changed"));
             try {
               if (!localStorage.getItem(`bv-verified-celebrated-${uid}`)) {
                 setShowCelebration(true);
               }
             } catch { /* private mode */ }
           }
-        });
+        } catch { /* ignore */ } finally {
+          setProfileLoaded(true); // guard: ensure plan gate renders after profile load
+        }
+      })();
       // Load pipeline — JWT-authenticated
       const token = session?.access_token ?? "";
       fetch(`/api/portal/pipeline/me`, {
@@ -534,12 +647,12 @@ export default function DashboardPage() {
       })
         .then(r => r.json())
         .then(({ orgs }) => {
-          const list = (orgs ?? []) as { name: string; status: string }[];
+          // Filter out rejected rows — candidates should never see those.
+          const list = ((orgs ?? []) as { id: string; name: string; status: string }[])
+            .filter(o => o.status !== "rejected");
           setLinkedOrgs(list);
           const approved = list.filter(o => o.status === "approved");
-          // Issue 4.2: only open org modal if not permanently dismissed
-          const dismissed = localStorage.getItem("bv-org-dismissed");
-          if (approved.length === 0 && !dismissed) setOrgModalOpen(true);
+          // Org assignment is now admin-controlled (via invite) — don't auto-pop the code modal
           setOrgChecked(true);
         })
         .catch(() => setOrgChecked(true));
@@ -583,6 +696,19 @@ export default function DashboardPage() {
     // Post-upload refresh: only update docs, never touch mode/phase
     if (keepPhase) return;
 
+    // Stripe return — handle regardless of whether the user has docs yet
+    const searchParams = new URLSearchParams(window.location.search);
+    const paymentParam = searchParams.get("payment");
+    const planParam    = searchParams.get("plan");
+    if (paymentParam === "success" && planParam) {
+      setPaymentTier(planParam);
+      setPaymentToast({ plan: planParam });
+      setTimeout(() => setPaymentToast(null), 6000);
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (paymentParam === "cancelled") {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+
     if (fetched.length > 0) {
       setIsReturn(true);
       // Only required (non-optional) items count toward phase completion
@@ -596,12 +722,10 @@ export default function DashboardPage() {
       setMode("wizard");
 
       // Deep-link from notification: open doc preview directly
-      if (!keepPhase) {
-        const navDocId = new URLSearchParams(window.location.search).get("nav_doc_id");
-        if (navDocId) {
-          setPendingOpenDocId(navDocId);
-          window.history.replaceState({}, "", window.location.pathname);
-        }
+      const navDocId = new URLSearchParams(window.location.search).get("nav_doc_id");
+      if (navDocId) {
+        setPendingOpenDocId(navDocId);
+        window.history.replaceState({}, "", window.location.pathname);
       }
     }
   }
@@ -751,6 +875,30 @@ export default function DashboardPage() {
       });
   }
 
+  async function handleUpgradeToKandidat() {
+    setUpgradeLoading(true);
+    try {
+      const res = await fetch("/api/portal/stripe/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
+        body: JSON.stringify({ plan: "kandidat" }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (json.url) {
+        window.location.href = json.url;
+      } else {
+        // Stripe not configured — show contact info
+        alert(lang === "de" ? "Bitte kontaktieren Sie uns, um Ihr Konto auf Kandidat zu upgraden." : lang === "en" ? "Please contact us to upgrade to the Kandidat plan." : "Veuillez nous contacter pour passer au plan Kandidat.");
+        setUpgradeOpen(false);
+      }
+    } catch {
+      alert(lang === "de" ? "Upgrade momentan nicht verfügbar. Bitte kontaktieren Sie uns." : "Upgrade not available right now. Please contact us.");
+      setUpgradeOpen(false);
+    } finally {
+      setUpgradeLoading(false);
+    }
+  }
+
   const onDrop = useCallback((e: React.DragEvent, key: string) => {
     e.preventDefault();
     setDragOverKey(null);
@@ -805,8 +953,8 @@ export default function DashboardPage() {
   const phaseComplete = requiredItems.every(i => !!getDoc(i.key));
 
   const statusColor = (s: string) =>
-    s === "approved" ? { bg: "rgba(52,199,89,0.12)", text: "#34c759", border: "rgba(52,199,89,0.25)" } :
-    s === "rejected"  ? { bg: "rgba(224,82,82,0.12)", text: "#e05252", border: "rgba(224,82,82,0.25)" } :
+    s === "approved" ? { bg: "var(--success-bg)", text: "var(--success)", border: "var(--success-border)" } :
+    s === "rejected"  ? { bg: "var(--danger-bg)", text: "var(--danger)", border: "var(--danger-bg)" } :
     { bg: "rgba(255,200,0,0.1)", text: "#c9a240", border: "rgba(201,162,64,0.2)" };
 
   const statusLabel = (s: string) =>
@@ -828,7 +976,9 @@ export default function DashboardPage() {
             headers: { Authorization: `Bearer ${authToken}` },
           })
             .then(r => r.json())
-            .then(({ orgs }) => setLinkedOrgs(orgs ?? []))
+            .then(({ orgs }) => setLinkedOrgs(
+              ((orgs ?? []) as { id: string; name: string; status: string }[]).filter(o => o.status !== "rejected")
+            ))
             .catch(() => {});
         }}
         onSkip={() => {
@@ -837,6 +987,80 @@ export default function DashboardPage() {
           setOrgModalOpen(false);
         }}
       />
+    )}
+    {/* Kandidat upgrade modal — shown when free/Starter user tries a gated feature */}
+    {upgradeOpen && (
+      <>
+        <div className="fixed inset-0 z-[1200]"
+          style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", animation: "bvFadeRise 0.2s var(--ease-out)", cursor: "pointer" }}
+          onClick={() => setUpgradeOpen(false)} />
+        <div className="fixed inset-0 z-[1201] flex items-end sm:items-center justify-center p-4 pointer-events-none">
+          <div className="w-full max-w-[380px] max-h-[90dvh] overflow-y-auto flex flex-col pointer-events-auto"
+            style={{ background: "var(--card)", borderRadius: "24px", boxShadow: "0 24px 64px rgba(0,0,0,0.4)", animation: "bvFadeRise 0.26s var(--ease-out)" }}>
+            {/* Header */}
+            <div className="px-6 pt-7 pb-1 text-center">
+              <span className="mx-auto mb-4 flex items-center justify-center w-14 h-14 rounded-full"
+                style={{ background: "rgba(212,175,55,0.12)", border: "1px solid rgba(212,175,55,0.35)" }}>
+                <PhaseIcon kind="flight" size={24} style={{ color: "var(--gold)" }} />
+              </span>
+              <h3 className="text-[18px] font-semibold tracking-tight mb-2" style={{ color: "var(--w)" }}>
+                {lang === "de" ? "Kandidat-Plan erforderlich" : lang === "en" ? "Kandidat Plan Required" : "Plan Kandidat requis"}
+              </h3>
+              <p className="text-[13px] leading-relaxed mb-1" style={{ color: "var(--w2)" }}>
+                {lang === "de"
+                  ? "Das Interview-Tracking, die Anerkennung, Visum & Flug-Updates gehören zum Kandidat-Plan."
+                  : lang === "en"
+                  ? "Interview tracking, recognition, visa & flight updates are included in the Kandidat plan."
+                  : "Le suivi des entretiens, la reconnaissance, le visa et les vols font partie du plan Kandidat."}
+              </p>
+            </div>
+            {/* Price box */}
+            <div className="mx-6 my-5 px-4 py-3 rounded-2xl flex items-center gap-3"
+              style={{ background: "rgba(212,175,55,0.08)", border: "1px solid rgba(212,175,55,0.25)" }}>
+              <span className="text-[13px] font-semibold flex-1" style={{ color: "var(--gold)" }}>
+                ★ {lang === "de" ? "Kandidat-Plan" : "Kandidat Plan"}
+              </span>
+              <span className="text-[20px] font-bold tracking-tight" style={{ color: "var(--w)" }}>€99</span>
+              <span className="text-[11px]" style={{ color: "var(--w3)" }}>
+                {lang === "de" ? "einmalig" : lang === "en" ? "one-time" : "paiement unique"}
+              </span>
+            </div>
+            {/* Features */}
+            <div className="px-6 pb-2 space-y-2">
+              {[
+                lang === "de" ? "📋 Interview-Vorbereitung & Termin" : lang === "en" ? "📋 Interview scheduling & preparation" : "📋 Planification et préparation d'entretien",
+                lang === "de" ? "📄 Anerkennungs-Tracking" : lang === "en" ? "📄 Recognition tracking" : "📄 Suivi de reconnaissance",
+                lang === "de" ? "🏛️ Botschafts-Vorbereitung" : lang === "en" ? "🏛️ Embassy preparation" : "🏛️ Préparation ambassade",
+                lang === "de" ? "🛂 Visum-Status-Updates" : lang === "en" ? "🛂 Visa status updates" : "🛂 Mises à jour du statut de visa",
+                lang === "de" ? "✈️ Flugbuchungs-Info" : lang === "en" ? "✈️ Flight booking info" : "✈️ Informations de vol",
+              ].map((f, i) => (
+                <div key={i} className="flex items-center gap-2 text-[12.5px]" style={{ color: "var(--w2)" }}>
+                  <CheckCircle2 size={13} strokeWidth={2} color="#34c759" />
+                  <span>{f}</span>
+                </div>
+              ))}
+            </div>
+            {/* CTAs */}
+            <div className="p-5 pt-4 flex flex-col gap-2">
+              <button
+                onClick={handleUpgradeToKandidat}
+                disabled={upgradeLoading}
+                className="w-full py-3 rounded-xl text-[14px] font-semibold tracking-tight transition-all hover:opacity-90"
+                style={{ background: "var(--gold)", color: "#131312", cursor: upgradeLoading ? "wait" : "pointer" }}>
+                {upgradeLoading
+                  ? (lang === "de" ? "Bitte warten…" : lang === "en" ? "Please wait…" : "Veuillez patienter…")
+                  : (lang === "de" ? "Jetzt upgraden — €99" : lang === "en" ? "Upgrade now — €99" : "Passer au Kandidat — 99€")}
+              </button>
+              <button
+                onClick={() => setUpgradeOpen(false)}
+                className="w-full py-2 text-[13px]"
+                style={{ color: "var(--w3)", cursor: "pointer", background: "none", border: "none" }}>
+                {lang === "de" ? "Später" : lang === "en" ? "Maybe later" : "Plus tard"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </>
     )}
     {/* Document-hint popup — opened by the small blue info circle next to
         each document row. Shows the "What is this?" explanation in the
@@ -852,7 +1076,7 @@ export default function DashboardPage() {
             style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
             <div className="px-6 pt-6 pb-2 text-center">
               <span className="mx-auto mb-3 flex items-center justify-center w-12 h-12 rounded-full"
-                style={{ background: "rgba(74,144,217,0.15)", color: "#4a90d9" }}>
+                style={{ background: "var(--info-bg)", color: "var(--info)" }}>
                 <Info size={20} strokeWidth={1.8} />
               </span>
               <h3 className="text-[16px] font-semibold mb-3" style={{ color: "var(--w)" }}>{docHintOpen.title}</h3>
@@ -952,7 +1176,7 @@ export default function DashboardPage() {
                     {group.fields.map(f => (
                       <div key={f.label}>
                         <p className="text-[10px] font-medium uppercase tracking-wide" style={{ color: "var(--w3)" }}>{f.label}</p>
-                        <p className="text-[12px] font-semibold mt-0.5" style={{ color: "warn" in f && f.warn ? "#e05252" : "var(--w)" }}>
+                        <p className="text-[12px] font-semibold mt-0.5" style={{ color: "warn" in f && f.warn ? "var(--danger)" : "var(--w)" }}>
                           {f.value}{"warn" in f && f.warn ? <AlertTriangle size={11} strokeWidth={1.8} className="inline ml-1 -mt-0.5" /> : ""}
                         </p>
                       </div>
@@ -1128,25 +1352,20 @@ export default function DashboardPage() {
             <p className="text-[13.5px] mt-1.5" style={{ color: "var(--w3)" }}>
               {isReturn ? t.pWelcomeBackSub : t.pDashSpace}
             </p>
-            {linkedOrgs.length > 0 && (
+            {linkedOrgs.filter(o => o.status === "pending").length > 0 && (
               <div className="mt-2 flex flex-wrap items-center gap-1.5">
-                {linkedOrgs.map(o => (
-                  <span key={o.name}
+                {linkedOrgs.filter(o => o.status === "pending").map(o => (
+                  <span key={o.id}
                     className="inline-flex items-center gap-1 text-[10.5px] font-semibold uppercase tracking-[0.1em] px-2 py-0.5"
-                    title={o.status === "approved"
-                      ? `${lang === "de" ? "Verbunden mit" : lang === "en" ? "Linked with" : "Lié avec"} ${o.name}`
-                      : `${lang === "de" ? "Anfrage an" : lang === "en" ? "Request to" : "Demande à"} ${o.name} — ${lang === "de" ? "wartet auf Genehmigung" : lang === "en" ? "pending approval" : "en attente d'approbation"}`}
+                    title={`${lang === "de" ? "Anfrage an" : lang === "en" ? "Request to" : "Demande à"} ${o.name} — ${lang === "de" ? "wartet auf Genehmigung" : lang === "en" ? "pending approval" : "en attente d'approbation"}`}
                     style={{
-                      background:   o.status === "approved" ? "var(--gdim)"          : "rgba(224,200,82,0.10)",
-                      color:        o.status === "approved" ? "var(--gold)"          : "#e5b94f",
-                      border: `1px solid ${o.status === "approved" ? "var(--border-gold)" : "rgba(224,200,82,0.30)"}`,
-                      borderRadius: "var(--r-sm)",
+                      background: "rgba(224,200,82,0.10)", color: "#e5b94f",
+                      border: "1px solid rgba(224,200,82,0.30)", borderRadius: "var(--r-sm)",
                     }}>
                     <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/>
                     </svg>
-                    {o.name}
-                    {o.status === "pending" && <span style={{ opacity: 0.7 }}>· {lang === "de" ? "ausstehend" : lang === "en" ? "pending" : "en attente"}</span>}
+                    {o.name} · {lang === "de" ? "ausstehend" : lang === "en" ? "pending" : "en attente"}
                   </span>
                 ))}
               </div>
@@ -1189,6 +1408,41 @@ export default function DashboardPage() {
           </div>
         )}
 
+        {/* ── Partner Organization cards ──
+            Shown for every approved org the candidate is placed in.
+            Admin-initiated placements appear here within ~30 s of being set. */}
+        {linkedOrgs.filter(o => o.status === "approved").map(org => (
+          <div key={org.id} className="mb-4 px-5 py-4 flex items-center gap-3"
+            style={{
+              background: "var(--card)",
+              borderRadius: "20px",
+              border: "1px solid var(--border-gold)",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+            }}>
+            {/* Building icon */}
+            <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+              style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/>
+                <path d="M9 9v.01"/><path d="M9 12v.01"/><path d="M9 15v.01"/><path d="M9 18v.01"/>
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[13.5px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>
+                {org.name}
+              </p>
+              <p className="text-[12px] mt-0.5" style={{ color: "var(--w3)" }}>
+                {lang === "de" ? "Ihr Partner-Unternehmen" : lang === "en" ? "Your partner organization" : "Votre organisation partenaire"}
+              </p>
+            </div>
+            <span className="text-[10px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full flex-shrink-0"
+              style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+              {lang === "de" ? "Verbunden" : lang === "en" ? "Matched" : "Associé"}
+            </span>
+          </div>
+        ))}
+
+
         {/* Two-column: sidebar stepper + main content */}
         <div className="flex gap-4 sm:gap-6 items-start">
 
@@ -1206,22 +1460,22 @@ export default function DashboardPage() {
               const lineColor    = "var(--border)";
 
               // Candidate-side badge: count docs the ADMIN has acted on
-              // (approved OR rejected). Pending docs sit waiting for review
-              // and aren't actionable for the candidate, so we don't surface
-              // them here — the badge means "there's news for you in this
-              // phase". Admin sidebar still uses pending count (different
-              // audience).
+              // (approved OR rejected) that the candidate hasn't opened yet.
+              // Once the candidate clicks the doc row the ID is saved to
+              // localStorage and the badge count drops to zero.
               const decidedCnt = ph.items.reduce((n, it) => {
                 const list = getDocAll(it.key);
                 if (list.length === 0) return n;
-                return n + list.filter(d => d.status === "approved" || d.status === "rejected").length;
+                return n + list.filter(d =>
+                  (d.status === "approved" || d.status === "rejected") && !seenDocIds.has(d.id)
+                ).length;
               }, 0);
               const rejectedCnt = ph.items.reduce((n, it) => {
                 const list = getDocAll(it.key);
                 if (list.length === 0) return n;
-                return n + list.filter(d => d.status === "rejected").length;
+                return n + list.filter(d => d.status === "rejected" && !seenDocIds.has(d.id)).length;
               }, 0);
-              const badgeColor = rejectedCnt > 0 ? "#e05252" : "var(--gold)";
+              const badgeColor = rejectedCnt > 0 ? "var(--danger)" : "var(--gold)";
 
               return (
                 <div key={i} className="flex flex-col items-center">
@@ -1276,11 +1530,12 @@ export default function DashboardPage() {
                 <div key={js.key} className="flex flex-col items-center">
                   <button
                     onClick={() => {
+                      if (!hasKandidat) { setUpgradeOpen(true); return; }
                       if (unlocked) { setViewMode(js.key); window.scrollTo({ top: 0, behavior: "smooth" }); }
                     }}
                     title={unlocked ? stageLabel : t.pJourneyLocked}
                     className={`w-full flex flex-col items-center gap-1.5 py-1 transition-all duration-200${unlocked ? " bv-row-hover" : ""}`}
-                    style={{ cursor: unlocked ? "pointer" : "default", opacity: unlocked ? 1 : 0.32 }}
+                    style={{ cursor: "pointer", opacity: unlocked ? 1 : 0.45, WebkitTapHighlightColor: "transparent" }}
                   >
                     <span
                       className="relative flex items-center justify-center w-9 h-9 rounded-full leading-none select-none transition-all duration-300"
@@ -1333,20 +1588,21 @@ export default function DashboardPage() {
                 onClick={e => e.stopPropagation()}>
                 {PHASES.map((ph, i) => {
                   const isActive = i === phase && viewMode === "docs";
-                  // Same logic as the desktop sidebar: count only docs the
-                  // admin has acted on (approved or rejected). Red when any
-                  // rejection sits inside the phase, gold otherwise.
+                  // Same logic as desktop sidebar: count only docs the admin
+                  // has acted on AND the candidate hasn't opened yet.
                   const decidedCnt = ph.items.reduce((n, it) => {
                     const list = getDocAll(it.key);
                     if (list.length === 0) return n;
-                    return n + list.filter(d => d.status === "approved" || d.status === "rejected").length;
+                    return n + list.filter(d =>
+                      (d.status === "approved" || d.status === "rejected") && !seenDocIds.has(d.id)
+                    ).length;
                   }, 0);
                   const rejectedCnt = ph.items.reduce((n, it) => {
                     const list = getDocAll(it.key);
                     if (list.length === 0) return n;
-                    return n + list.filter(d => d.status === "rejected").length;
+                    return n + list.filter(d => d.status === "rejected" && !seenDocIds.has(d.id)).length;
                   }, 0);
-                  const badgeColor = rejectedCnt > 0 ? "#e05252" : "var(--gold)";
+                  const badgeColor = rejectedCnt > 0 ? "var(--danger)" : "var(--gold)";
                   return (
                     <div key={i} className="flex flex-col items-center w-full">
                       <button
@@ -1395,7 +1651,7 @@ export default function DashboardPage() {
                         }}
                         title={unlocked ? stageLabel : t.pJourneyLocked}
                         className={`w-full flex flex-col items-center gap-1.5 py-1 transition-all duration-200${unlocked ? " bv-row-hover" : ""}`}
-                        style={{ cursor: unlocked ? "pointer" : "default", opacity: unlocked ? 1 : 0.32 }}>
+                        style={{ cursor: "pointer", opacity: unlocked ? 1 : 0.45, WebkitTapHighlightColor: "transparent" }}>
                         <span
                           className="relative flex items-center justify-center w-9 h-9 rounded-full leading-none select-none transition-all duration-300"
                           style={{
@@ -1431,7 +1687,13 @@ export default function DashboardPage() {
           <div className="flex-1 min-w-0">
 
             {/* ── Journey stage views ── */}
-            {viewMode !== "docs" && (
+            {viewMode !== "docs" && profileLoaded && !hasKandidat && (() => {
+              // Fallback guard: non-Kandidat users can't reach journey views.
+              // Use setTimeout to avoid calling setState during render.
+              setTimeout(() => setViewMode("docs"), 0);
+              return null;
+            })()}
+            {viewMode !== "docs" && (!profileLoaded || hasKandidat) && (
               <JourneyView mode={viewMode} pipeline={pipeline} t={t} lang={lang} onBack={() => { setViewMode("docs"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
             )}
 
@@ -1440,6 +1702,109 @@ export default function DashboardPage() {
                 for minimalism — the active phase is already indicated by the
                 gold icon in the left rail, that's enough context. */}
             {viewMode === "docs" && <div key={`docs-phase-${phase}`} className="bv-enter">
+
+            {/* ── Pipeline progress banner ───────────────────────────────────
+                Always visible when pipeline data exists (even if all locked).
+                Compact horizontal stepper — shows candidates where they stand
+                in the overall journey, clickable per-stage. */}
+            {(() => {
+              const p = pipeline;
+              type StepKey = "interview" | "recognition" | "embassy" | "visa" | "flight";
+              const steps: { key: StepKey; label: string; kind: PhaseKind }[] = [
+                { key: "interview",   label: t.pJourneyInterview,   kind: "interview"   as PhaseKind },
+                { key: "recognition", label: t.pJourneyRecognition, kind: "recognition" as PhaseKind },
+                { key: "embassy",     label: t.pJourneyEmbassy,     kind: "embassy"     as PhaseKind },
+                { key: "visa",        label: t.pJourneyVisa,        kind: "visa"        as PhaseKind },
+                { key: "flight",      label: t.pJourneyFlight,      kind: "flight"      as PhaseKind },
+              ];
+              const isDone = (k: StepKey): boolean => {
+                if (!p) return false;
+                if (k === "interview")   return p.interview_status === "passed";
+                if (k === "recognition") return p.embassy_unlocked;
+                if (k === "embassy")     return !!(p.visa_granted || p.visa_date);
+                if (k === "visa")        return !!(p.flight_date);
+                if (k === "flight")      return false; // no "done" state — flight is the final
+                return false;
+              };
+              const isActive = (k: StepKey): boolean => {
+                if (!p) return false;
+                return isJourneyUnlocked(k, p) && !isDone(k);
+              };
+              const isUnlocked = (k: StepKey): boolean => isJourneyUnlocked(k, p);
+              // Only render if at least one stage is active or done
+              const anyProgress = steps.some(s => isDone(s.key) || isActive(s.key));
+              if (!anyProgress) return null;
+              return (
+                <div className="mb-4 overflow-hidden"
+                  style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+                  {/* Header */}
+                  <div className="px-5 pt-4 pb-3 flex items-center gap-2 border-b" style={{ borderColor: "var(--border)" }}>
+                    <span className="flex items-center justify-center w-7 h-7 rounded-lg flex-shrink-0"
+                      style={{ background: "var(--gdim)" }}>
+                      <PhaseIcon kind="flight" size={13} style={{ color: "var(--gold)" }} />
+                    </span>
+                    <span className="text-[12px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>
+                      {lang === "de" ? "Dein Fortschritt" : lang === "en" ? "Your Journey" : "Votre parcours"}
+                    </span>
+                  </div>
+                  {/* Steps */}
+                  <div className="flex items-stretch px-3 py-3 gap-0.5 overflow-x-auto">
+                    {steps.map((s, si) => {
+                      const done    = isDone(s.key);
+                      const active  = isActive(s.key);
+                      const locked  = !isUnlocked(s.key);
+                      const color   = done ? "#34c759" : active ? "var(--gold)" : "var(--w3)";
+                      const bg      = done ? "rgba(52,199,89,0.1)" : active ? "var(--gdim)" : "var(--bg2)";
+                      const border  = done ? "rgba(52,199,89,0.28)" : active ? "rgba(212,175,55,0.35)" : "var(--border)";
+                      return (
+                        <div key={s.key} className="flex items-center flex-1 min-w-0">
+                          <button
+                            onClick={() => {
+                              if (!hasKandidat) { setUpgradeOpen(true); return; }
+                              if (!locked) {
+                                setViewMode(s.key as ViewMode);
+                                window.scrollTo({ top: 0, behavior: "smooth" });
+                              }
+                            }}
+                            title={locked ? t.pJourneyLocked : s.label}
+                            className="flex-1 min-w-0 flex flex-col items-center gap-1.5 px-2 py-2 rounded-xl transition-all duration-150"
+                            style={{
+                              background: bg,
+                              border: `1px solid ${border}`,
+                              cursor: locked ? "default" : "pointer",
+                              opacity: locked ? 0.38 : 1,
+                            }}>
+                            <span className="relative flex items-center justify-center w-8 h-8 rounded-full"
+                              style={{ background: done ? "rgba(52,199,89,0.15)" : active ? "rgba(212,175,55,0.15)" : "var(--bg2)" }}>
+                              {done ? (
+                                <CheckCircle2 size={16} strokeWidth={1.8} color="#34c759" />
+                              ) : (
+                                <PhaseIcon kind={s.kind} size={14} style={{ color }} />
+                              )}
+                              {locked && !done && (
+                                <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center w-3.5 h-3.5 rounded-full"
+                                  style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+                                  <Lock size={7} strokeWidth={2.2} style={{ color: "var(--w3)" }} />
+                                </span>
+                              )}
+                            </span>
+                            <span className="text-[9px] font-medium text-center leading-tight w-full truncate px-1"
+                              style={{ color }}>
+                              {s.label}
+                            </span>
+                          </button>
+                          {si < steps.length - 1 && (
+                            <div className="flex-shrink-0 w-3 flex items-center justify-center">
+                              <div className="w-2 h-px" style={{ background: "var(--border)" }} />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Premium phase card — mirrors the admin candidate-detail panel
                 so both sides share one visual language. Header inside the
@@ -1487,7 +1852,7 @@ export default function DashboardPage() {
 
               {/* Notice strip — scan quality + phase-specific tips */}
               <div className="flex flex-col gap-1.5 px-6 pt-4 pb-2">
-                <p className="text-[11px] flex items-center gap-1.5" style={{ color: "#e05252" }}>
+                <p className="text-[11px] flex items-center gap-1.5" style={{ color: "var(--danger)" }}>
                   <AlertTriangle size={11} strokeWidth={1.8} /> {t.pScanQualityShort}
                 </p>
                 {phase === 1 && (
@@ -1601,7 +1966,7 @@ export default function DashboardPage() {
                             aria-label={t.pWhatIsThis}
                             title={t.pWhatIsThis}
                             className="inline-flex items-center justify-center w-5 h-5 rounded-full transition-opacity hover:opacity-80"
-                            style={{ background: "rgba(74,144,217,0.18)", color: "#4a90d9", border: "none", cursor: "pointer" }}>
+                            style={{ background: "var(--info-bg)", color: "var(--info)", border: "none", cursor: "pointer" }}>
                             <Info size={11} strokeWidth={2.2} />
                           </button>
                         )}
@@ -1657,14 +2022,14 @@ export default function DashboardPage() {
                       {!isOther && uploaded && (doc!.status === "rejected" || (item.key === "id" && passportStatus === "rejected")) && (
                         <div className="mt-2.5 overflow-hidden"
                           style={{
-                            background: "rgba(224,82,82,0.06)",
-                            border: "1px solid rgba(224,82,82,0.22)",
+                            background: "var(--danger-bg)",
+                            border: "1px solid var(--danger-bg)",
                             borderLeft: "3px solid #e05252",
                             borderRadius: "var(--r-md)",
                           }}>
                           <div className="px-3 py-2.5">
                             <p className="text-[10px] font-semibold uppercase tracking-[0.12em] inline-flex items-center gap-1.5 mb-1.5"
-                              style={{ color: "#e05252" }}>
+                              style={{ color: "var(--danger)" }}>
                               <AlertTriangle size={11} strokeWidth={1.8} />
                               {lang === "fr" ? "Action requise" : lang === "de" ? "Aktion erforderlich" : "Action needed"}
                             </p>
@@ -1673,7 +2038,7 @@ export default function DashboardPage() {
                             </p>
                             {doc!.feedback && (
                               <p className="text-[12px] leading-relaxed mb-3 pl-2.5"
-                                style={{ color: "var(--w2)", borderLeft: "2px solid rgba(224,82,82,0.32)" }}>
+                                style={{ color: "var(--w2)", borderLeft: "2px solid var(--danger-bg)" }}>
                                 {doc!.feedback}
                               </p>
                             )}
@@ -1690,7 +2055,7 @@ export default function DashboardPage() {
 
                       {/* Slot message */}
                       {msg && (
-                        <p className="mt-1.5 text-xs" style={{ color: msg.ok ? "#34c759" : "#e05252" }}>
+                        <p className="mt-1.5 text-xs" style={{ color: msg.ok ? "var(--success)" : "var(--danger)" }}>
                           {msg.type === "success" ? t.pUploadSuccess.replace("{label}", ALL_ITEMS.find(i => i.key === msg.key)?.label ?? "") :
                            msg.type === "errPdfOnly" ? t.pErrPdfOnly :
                            msg.type === "errAllTypes" ? t.pErrAllTypes :
@@ -1877,7 +2242,7 @@ export default function DashboardPage() {
                             </div>
                           </div>
                           {dStatus === "rejected" && d.feedback && (
-                            <p className="mt-2 text-[11.5px] leading-relaxed" style={{ color: "#e05252" }}>
+                            <p className="mt-2 text-[11.5px] leading-relaxed" style={{ color: "var(--danger)" }}>
                               “{d.feedback}”
                             </p>
                           )}
@@ -1907,7 +2272,7 @@ export default function DashboardPage() {
               <button
                 onClick={() => { setViewMode("interview"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
                 className="flex-1 py-3 rounded-xl font-semibold text-sm transition-opacity hover:opacity-90"
-                style={{ background: "#34c759", color: "#fff" }}>
+                style={{ background: "var(--success)", color: "#fff" }}>
                 {t.pWizardNext}
               </button>
             ) : (
@@ -1920,7 +2285,7 @@ export default function DashboardPage() {
             <button onClick={goNextPhase}
               className="flex-1 py-3 font-semibold text-[13.5px] tracking-tight transition-opacity hover:opacity-90"
               style={{
-                background: phaseComplete ? "#34c759" : "var(--gold)",
+                background: phaseComplete ? "var(--success)" : "var(--gold)",
                 color: "#131312",
                 borderRadius: "var(--r-md)",
                 boxShadow: "var(--shadow-sm)",
@@ -1979,7 +2344,7 @@ export default function DashboardPage() {
                 {tipPopup.isWorkCert && (
                   <button onClick={() => { setTipPopup(null); setShowWorkGuide(true); }}
                     className="bv-row-hover text-xs px-3 py-1.5"
-                    style={{ color: "#4a90d9" }}>
+                    style={{ color: "var(--info)" }}>
                     {t.pGuideBtn}
                   </button>
                 )}
@@ -2067,7 +2432,7 @@ export default function DashboardPage() {
                 {isPassportApproved ? (
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full"
-                      style={{ background: "rgba(52,199,89,0.12)", color: "#34c759", border: "1px solid rgba(52,199,89,0.25)" }}>
+                      style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
                       <CheckCircle2 size={11} strokeWidth={1.8} /> {lang === "de" ? "Genehmigt" : lang === "fr" ? "Approuvé" : "Approved"}
                     </span>
                     <button onClick={() => setPassportModal(null)}
@@ -2226,7 +2591,7 @@ export default function DashboardPage() {
                     {fields.map(f => {
                       const missing    = missingKeys.has(f.key);
                       const suspicious = !missing && suspiciousKeys.has(f.key);
-                      const borderColor = missing ? "#e05252" : suspicious ? "#f59e0b" : "var(--border2)";
+                      const borderColor = missing ? "var(--danger)" : suspicious ? "#f59e0b" : "var(--border2)";
                       const inputStyle = { background: "var(--bg2)", border: `1px solid ${borderColor}`, color: "var(--w)" };
                       const filled     = !missing;
                       // address_number is optional — allow confirming even when empty
@@ -2237,14 +2602,14 @@ export default function DashboardPage() {
                         <div className="flex items-center justify-between mb-1">
                           <label className="text-[10px] font-medium" style={labelStyle}>
                             {f.label}
-                            <span className="ml-1" style={{ color: "#e05252" }}>*</span>
+                            <span className="ml-1" style={{ color: "var(--danger)" }}>*</span>
                             {f.manual && <FilePen size={10} strokeWidth={1.8} className="inline ml-1 opacity-40" />}
                           </label>
                           {f.key === "issuing_authority" && (
                             <button type="button"
                               onClick={() => setPassportHint("issuing_authority")}
                               className="text-[9px] underline underline-offset-2 transition-opacity hover:opacity-70 flex-shrink-0"
-                              style={{ color: "#4a90d9" }}>
+                              style={{ color: "var(--info)" }}>
                               {t.pWhatIsThis}
                             </button>
                           )}
@@ -2252,7 +2617,7 @@ export default function DashboardPage() {
                             <button type="button"
                               onClick={() => setPassportHint("address_street")}
                               className="text-[9px] underline underline-offset-2 transition-opacity hover:opacity-70 flex-shrink-0"
-                              style={{ color: "#4a90d9" }}>
+                              style={{ color: "var(--info)" }}>
                               {t.pAddrHintBtn}
                             </button>
                           )}
@@ -2260,7 +2625,7 @@ export default function DashboardPage() {
                             <button type="button"
                               onClick={() => setPassportHint("address_postal")}
                               className="text-[9px] underline underline-offset-2 transition-opacity hover:opacity-70 flex-shrink-0"
-                              style={{ color: "#4a90d9" }}>
+                              style={{ color: "var(--info)" }}>
                               {t.pPostalHintBtn}
                             </button>
                           )}
@@ -2514,9 +2879,9 @@ export default function DashboardPage() {
               </p>
               <div className="space-y-2">
                 <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
-                  style={{ background: "rgba(224,82,82,0.08)", border: "1px solid rgba(224,82,82,0.2)" }}>
-                  <XCircle size={16} strokeWidth={1.8} className="flex-shrink-0" style={{ color: "#e05252" }} />
-                  <span className="text-sm font-mono" style={{ color: "#e05252" }}>Laayoune</span>
+                  style={{ background: "var(--danger-bg)", border: "1px solid var(--danger-border)" }}>
+                  <XCircle size={16} strokeWidth={1.8} className="flex-shrink-0" style={{ color: "var(--danger)" }} />
+                  <span className="text-sm font-mono" style={{ color: "var(--danger)" }}>Laayoune</span>
                 </div>
                 <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
                   style={{ background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.2)" }}>
@@ -2559,7 +2924,7 @@ export default function DashboardPage() {
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0"
-                    style={{ background: "#4a90d9", color: "#fff" }}>1</span>
+                    style={{ background: "var(--info)", color: "#fff" }}>1</span>
                   <p className="text-xs font-semibold" style={{ color: "var(--w)" }}>
                     {lang === "fr" ? "Langue du passeport — pas de traduction"
                       : lang === "de" ? "Reisepasssprache — nicht übersetzen"
@@ -2574,9 +2939,9 @@ export default function DashboardPage() {
                 {/* ❌ / ✅ side by side */}
                 <div className="grid grid-cols-2 gap-2 pl-7">
                   <div className="rounded-lg px-2 py-1.5 space-y-0.5"
-                    style={{ background: "rgba(224,82,82,0.07)", border: "1px solid rgba(224,82,82,0.2)" }}>
-                    <p className="text-[8px] font-semibold flex items-center justify-center gap-1" style={{ color: "#e05252" }}><XCircle size={9} strokeWidth={2} /> {lang === "fr" ? "Traduit" : lang === "de" ? "Übersetzt" : "Translated"}</p>
-                    <p className="text-[9px] font-mono break-all" style={{ color: "#e05252" }}>HAY MOHAMMADI HAUPTSTRASSE IMM 7 ETG 3 N 12</p>
+                    style={{ background: "var(--danger-bg)", border: "1px solid var(--danger-border)" }}>
+                    <p className="text-[8px] font-semibold flex items-center justify-center gap-1" style={{ color: "var(--danger)" }}><XCircle size={9} strokeWidth={2} /> {lang === "fr" ? "Traduit" : lang === "de" ? "Übersetzt" : "Translated"}</p>
+                    <p className="text-[9px] font-mono break-all" style={{ color: "var(--danger)" }}>HAY MOHAMMADI HAUPTSTRASSE IMM 7 ETG 3 N 12</p>
                   </div>
                   <div className="rounded-lg px-2 py-1.5 space-y-0.5"
                     style={{ background: "rgba(34,197,94,0.07)", border: "1px solid rgba(34,197,94,0.2)" }}>
@@ -2592,7 +2957,7 @@ export default function DashboardPage() {
               <div className="space-y-2">
                 <div className="flex items-center gap-2">
                   <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0"
-                    style={{ background: "#4a90d9", color: "#fff" }}>2</span>
+                    style={{ background: "var(--info)", color: "#fff" }}>2</span>
                   <p className="text-xs font-semibold" style={{ color: "var(--w)" }}>
                     {lang === "fr" ? "Vérifiez l'ordre — réorganisez si besoin"
                       : lang === "de" ? "Reihenfolge prüfen — bei Bedarf umordnen"
@@ -2607,8 +2972,8 @@ export default function DashboardPage() {
 
                 {/* ❌ Scrambled */}
                 <div className="px-2.5 py-2 rounded-xl space-y-1.5 pl-7"
-                  style={{ background: "rgba(224,82,82,0.07)", border: "1px solid rgba(224,82,82,0.2)" }}>
-                  <p className="text-[8px] font-semibold flex items-center gap-1" style={{ color: "#e05252" }}>
+                  style={{ background: "var(--danger-bg)", border: "1px solid var(--danger-border)" }}>
+                  <p className="text-[8px] font-semibold flex items-center gap-1" style={{ color: "var(--danger)" }}>
                     <XCircle size={9} strokeWidth={2} /> {lang === "fr" ? "Sur le passeport — mélangé" : lang === "de" ? "Im Reisepass — gemischt" : "On passport — scrambled"}
                   </p>
                   <div className="flex flex-wrap gap-1.5 items-end">
@@ -2617,8 +2982,8 @@ export default function DashboardPage() {
                       <span className="text-[7px] font-bold" style={{ color: "#a855f7" }}>Hausnr.</span>
                     </div>
                     <div className="flex flex-col items-center gap-0.5">
-                      <span className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded" style={{ background: "rgba(74,144,217,0.15)", color: "#4a90d9" }}>RUE IBN BATTOUTA</span>
-                      <span className="text-[7px] font-bold" style={{ color: "#4a90d9" }}>{lang === "fr" ? "Rue" : lang === "de" ? "Straße" : "Street"}</span>
+                      <span className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded" style={{ background: "var(--info-bg)", color: "var(--info)" }}>RUE IBN BATTOUTA</span>
+                      <span className="text-[7px] font-bold" style={{ color: "var(--info)" }}>{lang === "fr" ? "Rue" : lang === "de" ? "Straße" : "Street"}</span>
                     </div>
                     <div className="flex flex-col items-center gap-0.5">
                       <span className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded" style={{ background: "rgba(249,115,22,0.15)", color: "#f97316" }}>IMM 7</span>
@@ -2638,7 +3003,7 @@ export default function DashboardPage() {
                 {/* Arrow — compact inline */}
                 <div className="flex items-center justify-center gap-1.5">
                   <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
-                  <span className="text-[9px] font-semibold px-2" style={{ color: "#4a90d9" }}>
+                  <span className="text-[9px] font-semibold px-2" style={{ color: "var(--info)" }}>
                     ↓ {lang === "fr" ? "réorganiser" : lang === "de" ? "umordnen" : "rearrange"}
                   </span>
                   <div style={{ flex: 1, height: 1, background: "var(--border)" }} />
@@ -2655,7 +3020,7 @@ export default function DashboardPage() {
                       <p className="text-[9px]" style={{ color: "var(--w3)" }}>{lang === "fr" ? "Adresse" : lang === "de" ? "Adresse" : "Address"}</p>
                       <div className="flex flex-wrap gap-1">
                         <span className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded-md inline-flex items-center gap-0.5" style={{ background: "rgba(234,179,8,0.15)", color: "#ca8a04" }}><span style={{fontSize:7,fontWeight:900}}>①</span>HAY MOHAMMADI</span>
-                        <span className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded-md inline-flex items-center gap-0.5" style={{ background: "rgba(74,144,217,0.15)", color: "#4a90d9" }}><span style={{fontSize:7,fontWeight:900}}>②</span>RUE IBN BATTOUTA</span>
+                        <span className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded-md inline-flex items-center gap-0.5" style={{ background: "var(--info-bg)", color: "var(--info)" }}><span style={{fontSize:7,fontWeight:900}}>②</span>RUE IBN BATTOUTA</span>
                         <span className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded-md inline-flex items-center gap-0.5" style={{ background: "rgba(249,115,22,0.15)", color: "#f97316" }}><span style={{fontSize:7,fontWeight:900}}>③</span>IMM 7</span>
                         <span className="text-[9px] font-mono font-semibold px-1.5 py-0.5 rounded-md inline-flex items-center gap-0.5" style={{ background: "rgba(16,185,129,0.15)", color: "#10b981" }}><span style={{fontSize:7,fontWeight:900}}>④</span>ETG 3</span>
                       </div>
@@ -2668,7 +3033,7 @@ export default function DashboardPage() {
                   {/* Legend */}
                   <div className="flex flex-wrap gap-x-3 gap-y-1">
                     <div className="flex items-center gap-1"><span className="text-[7px] font-bold" style={{ color: "#ca8a04" }}>①</span><span className="text-[8px]" style={{ color: "var(--w3)" }}>{lang === "fr" ? "Quartier" : lang === "de" ? "Viertel" : "District"}</span></div>
-                    <div className="flex items-center gap-1"><span className="text-[7px] font-bold" style={{ color: "#4a90d9" }}>②</span><span className="text-[8px]" style={{ color: "var(--w3)" }}>{lang === "fr" ? "Rue" : lang === "de" ? "Straße" : "Street"}</span></div>
+                    <div className="flex items-center gap-1"><span className="text-[7px] font-bold" style={{ color: "var(--info)" }}>②</span><span className="text-[8px]" style={{ color: "var(--w3)" }}>{lang === "fr" ? "Rue" : lang === "de" ? "Straße" : "Street"}</span></div>
                     <div className="flex items-center gap-1"><span className="text-[7px] font-bold" style={{ color: "#f97316" }}>③</span><span className="text-[8px]" style={{ color: "var(--w3)" }}>{lang === "fr" ? "Bâtiment" : lang === "de" ? "Gebäude" : "Building"}</span></div>
                     <div className="flex items-center gap-1"><span className="text-[7px] font-bold" style={{ color: "#10b981" }}>④</span><span className="text-[8px]" style={{ color: "var(--w3)" }}>{lang === "fr" ? "Étage (si applicable)" : lang === "de" ? "Etage (optional)" : "Floor (if any)"}</span></div>
                     <div className="flex items-center gap-1"><span className="text-[7px] font-bold" style={{ color: "#a855f7" }}>⑤</span><span className="text-[8px]" style={{ color: "var(--w3)" }}>Hausnr.</span></div>
@@ -2714,7 +3079,7 @@ export default function DashboardPage() {
                 {/* Step 1 — open website (special: clickable link row) */}
                 <a href="https://www.codepostal.ma/search.aspx" target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-opacity hover:opacity-80 no-underline"
-                  style={{ background: "#4a90d9", border: "1px solid #3a7bc8", textDecoration: "none" }}>
+                  style={{ background: "var(--info)", border: "1px solid rgba(91,154,224,0.6)", textDecoration: "none" }}>
                   <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0"
                     style={{ background: "rgba(255,255,255,0.25)", color: "#fff" }}>1</span>
                   <p className="text-xs font-semibold flex-1" style={{ color: "#fff" }}>
@@ -2761,7 +3126,7 @@ export default function DashboardPage() {
                   <div key={i} className="flex items-start gap-3 px-3 py-2.5 rounded-xl"
                     style={{ background: i === 4 ? "rgba(34,197,94,0.07)" : "var(--bg2)", border: `1px solid ${i === 4 ? "rgba(34,197,94,0.2)" : "var(--border)"}` }}>
                     <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5"
-                      style={{ background: i === 4 ? "#22c55e" : "#4a90d9", color: "#fff" }}>{step.n}</span>
+                      style={{ background: i === 4 ? "#22c55e" : "var(--info)", color: "#fff" }}>{step.n}</span>
                     <p className="text-xs leading-relaxed" style={{ color: i === 4 ? "#22c55e" : "var(--w2)", fontWeight: i === 4 ? 600 : 400 }}>
                       {lang === "fr" ? step.fr : lang === "de" ? step.de : step.en}
                     </p>
@@ -2810,7 +3175,7 @@ export default function DashboardPage() {
                       <button
                         onClick={() => { setShowWorkGuide(false); setExampleUrl(DEMANDE_EXAMPLE_URL); }}
                         className="bv-row-hover mt-2 ml-7 text-xs px-2.5 py-1 inline-flex items-center gap-1.5"
-                        style={{ color: "#4a90d9" }}>
+                        style={{ color: "var(--info)" }}>
                         <FileText size={11} strokeWidth={1.8} /> {t.pGuideWorkDemandeBtn}
                       </button>
                     )}
@@ -2820,7 +3185,7 @@ export default function DashboardPage() {
 
               {/* Notes */}
               <div className="rounded-xl px-4 py-3 text-xs"
-                style={{ background: "rgba(224,82,82,0.07)", border: "1px solid rgba(224,82,82,0.2)", color: "#e05252" }}>
+                style={{ background: "var(--danger-bg)", border: "1px solid var(--danger-border)", color: "var(--danger)" }}>
                 <B text={t.pGuideWorkLegalNote} />
               </div>
               <div className="rounded-xl px-4 py-3 text-xs"
@@ -2872,6 +3237,51 @@ export default function DashboardPage() {
         onDismiss={() => setShowCelebration(false)}
       />
     )}
+
+    {/* ── Org-match celebration — shown once per (user, orgId) ── */}
+    {celebrateOrg && userId && (
+      <MatchedCelebration
+        userId={userId}
+        orgId={celebrateOrg.id}
+        orgName={celebrateOrg.name}
+        lang={lang as "fr" | "en" | "de"}
+        onDismiss={() => setCelebrateOrg(null)}
+      />
+    )}
+
+    {/* ── Payment success toast — shown 6 s after returning from Stripe ── */}
+    {paymentToast && (
+      <div
+        className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[1500] flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-xl"
+        style={{
+          background: "var(--card)",
+          border: "1px solid rgba(212,175,55,0.4)",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.35)",
+          animation: "bvFadeRise 0.3s var(--ease-out)",
+          maxWidth: "calc(100vw - 2rem)",
+          whiteSpace: "nowrap",
+        }}
+      >
+        <span style={{ fontSize: 20 }}>🎉</span>
+        <div>
+          <p className="text-[13.5px] font-semibold" style={{ color: "var(--gold)" }}>
+            {paymentToast.plan === "kandidat"
+              ? (lang === "de" ? "Willkommen im Kandidat-Plan!" : lang === "en" ? "Welcome to Kandidat plan!" : "Bienvenue dans le plan Kandidat !")
+              : (lang === "de" ? "Starter-Plan aktiviert!" : lang === "en" ? "Starter plan activated!" : "Plan Starter activé !")}
+          </p>
+          <p className="text-[11.5px] mt-0.5" style={{ color: "var(--w3)" }}>
+            {lang === "de" ? "Ihre Zahlung wurde bestätigt." : lang === "en" ? "Your payment has been confirmed." : "Votre paiement a été confirmé."}
+          </p>
+        </div>
+        <button onClick={() => setPaymentToast(null)}
+          className="ml-2 w-6 h-6 flex items-center justify-center rounded-full flex-shrink-0"
+          style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
+          <XIcon size={11} strokeWidth={2} />
+        </button>
+      </div>
+    )}
     </>
   );
 }
+
+

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "@/lib/supabase";
+import { useLang } from "@/components/LangContext";
 
 type UserEntry = {
   id: string;
@@ -17,7 +18,69 @@ type Props = {
   onClose: () => void;
 };
 
+const t = {
+  en: {
+    users: "Users",
+    searchPlaceholder: "Search name or email…",
+    loading: "Loading…",
+    noUsers: "No users found",
+    noName: "(no name)",
+    roleAdmin: "Admin",
+    roleCandidate: "Candidate",
+    deleteTitle: (name: string) => `Delete ${name}?`,
+    deleteBody: `All data is permanently removed. Drive files are archived in “Deleted Data”. This cannot be undone.`,
+    typeToConfirm: "DELETE",
+    typeToConfirmLabel: "Type",
+    typeToConfirmSuffix: "to confirm",
+    cancel: "Cancel",
+    deleting: "Deleting…",
+    delete: "Delete",
+    deleteFailed: "Delete failed",
+    deleteFailedRetry: "Delete failed — please try again.",
+  },
+  fr: {
+    users: "Utilisateurs",
+    searchPlaceholder: "Rechercher nom ou e-mail…",
+    loading: "Chargement…",
+    noUsers: "Aucun utilisateur trouvé",
+    noName: "(sans nom)",
+    roleAdmin: "Admin",
+    roleCandidate: "Candidat",
+    deleteTitle: (name: string) => `Supprimer ${name} ?`,
+    deleteBody: `Toutes les données sont définitivement supprimées. Les fichiers Drive sont archivés dans « Données supprimées ». Cela ne peut pas être annulé.`,
+    typeToConfirm: "SUPPRIMER",
+    typeToConfirmLabel: "Tapez",
+    typeToConfirmSuffix: "pour confirmer",
+    cancel: "Annuler",
+    deleting: "Suppression…",
+    delete: "Supprimer",
+    deleteFailed: "Suppression échouée",
+    deleteFailedRetry: "Suppression échouée — veuillez réessayer.",
+  },
+  de: {
+    users: "Benutzer",
+    searchPlaceholder: "Name oder E-Mail suchen…",
+    loading: "Wird geladen…",
+    noUsers: "Keine Benutzer gefunden",
+    noName: "(kein Name)",
+    roleAdmin: "Admin",
+    roleCandidate: "Kandidat",
+    deleteTitle: (name: string) => `${name} löschen?`,
+    deleteBody: `Alle Daten werden dauerhaft gelöscht. Drive-Dateien werden in „Gelöschte Daten“ archiviert. Dies kann nicht rückgängig gemacht werden.`,
+    typeToConfirm: "LÖSCHEN",
+    typeToConfirmLabel: "Geben Sie",
+    typeToConfirmSuffix: "zur Bestätigung ein",
+    cancel: "Abbrechen",
+    deleting: "Wird gelöscht…",
+    delete: "Löschen",
+    deleteFailed: "Löschen fehlgeschlagen",
+    deleteFailedRetry: "Löschen fehlgeschlagen — bitte erneut versuchen.",
+  },
+};
+
 export function AdminUsersPanel({ accessToken, onClose }: Props) {
+  const { lang } = useLang();
+  const T = t[lang] ?? t.en;
   const [users, setUsers] = useState<UserEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -25,8 +88,13 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
   const [deleteInput, setDeleteInput] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+  const [myId, setMyId] = useState("");
 
   useEffect(() => {
+    // Get current user's ID so we can hide the delete button on their own row
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) setMyId(user.id);
+    });
     fetch("/api/portal/admin/users", {
       headers: { Authorization: `Bearer ${accessToken}` },
     })
@@ -56,7 +124,7 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        setDeleteError(j.error ?? "Delete failed");
+        setDeleteError(j.error ?? T.deleteFailed);
         return;
       }
 
@@ -76,7 +144,7 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
       setDeleteTarget(null);
       setDeleteInput("");
     } catch {
-      setDeleteError("Delete failed — please try again.");
+      setDeleteError(T.deleteFailedRetry);
     } finally {
       setDeleting(false);
     }
@@ -113,7 +181,7 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
             <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
           </svg>
           <p className="text-[14px] font-semibold flex-1" style={{ color: "var(--w)" }}>
-            Users {!loading && <span style={{ color: "var(--w3)", fontWeight: 400 }}>({users.length})</span>}
+            {T.users} {!loading && <span style={{ color: "var(--w3)", fontWeight: 400 }}>({users.length})</span>}
           </p>
           <button
             onClick={onClose}
@@ -135,7 +203,7 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
             <input
               value={search}
               onChange={e => setSearch(e.target.value)}
-              placeholder="Search name or email…"
+              placeholder={T.searchPlaceholder}
               className="w-full rounded-xl pl-8 pr-3 py-2 text-[12.5px] outline-none"
               style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)" }}
             />
@@ -145,9 +213,9 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
         {/* User list */}
         <div className="flex-1 overflow-y-auto">
           {loading ? (
-            <div className="flex items-center justify-center py-16 text-[12.5px]" style={{ color: "var(--w3)" }}>Loading…</div>
+            <div className="flex items-center justify-center py-16 text-[12.5px]" style={{ color: "var(--w3)" }}>{T.loading}</div>
           ) : filtered.length === 0 ? (
-            <div className="flex items-center justify-center py-16 text-[12.5px]" style={{ color: "var(--w3)" }}>No users found</div>
+            <div className="flex items-center justify-center py-16 text-[12.5px]" style={{ color: "var(--w3)" }}>{T.noUsers}</div>
           ) : (
             filtered.map(u => (
               <div
@@ -166,7 +234,7 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
                 {/* Name + email */}
                 <div className="flex-1 min-w-0">
                   <p className="text-[12.5px] font-medium truncate" style={{ color: "var(--w)" }}>
-                    {u.name || <span style={{ color: "var(--w3)" }}>(no name)</span>}
+                    {u.name || <span style={{ color: "var(--w3)" }}>{T.noName}</span>}
                   </p>
                   <p className="text-[11px] truncate mt-0.5" style={{ color: "var(--w3)" }}>{u.email}</p>
                 </div>
@@ -180,30 +248,32 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
                     border: `1px solid ${u.role === "admin" ? "rgba(201,162,64,0.25)" : "var(--border)"}`,
                   }}
                 >
-                  {u.role === "admin" ? "Admin" : "Candidate"}
+                  {u.role === "admin" ? T.roleAdmin : T.roleCandidate}
                 </span>
 
-                {/* Delete button */}
-                <button
-                  onClick={() => { setDeleteTarget(u); setDeleteInput(""); setDeleteError(""); }}
-                  className="w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0 transition-colors"
-                  style={{ color: "var(--w3)" }}
-                  onMouseEnter={e => {
-                    (e.currentTarget as HTMLElement).style.background = "rgba(255,59,48,0.1)";
-                    (e.currentTarget as HTMLElement).style.color = "#ff3b30";
-                  }}
-                  onMouseLeave={e => {
-                    (e.currentTarget as HTMLElement).style.background = "transparent";
-                    (e.currentTarget as HTMLElement).style.color = "var(--w3)";
-                  }}
-                  aria-label={`Delete ${u.name || u.email}`}
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <polyline points="3 6 5 6 21 6"/>
-                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
-                    <path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
-                  </svg>
-                </button>
+                {/* Delete button — hidden for own account */}
+                {u.id !== myId && (
+                  <button
+                    onClick={() => { setDeleteTarget(u); setDeleteInput(""); setDeleteError(""); }}
+                    className="w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0 transition-colors"
+                    style={{ color: "var(--w3)" }}
+                    onMouseEnter={e => {
+                      (e.currentTarget as HTMLElement).style.background = "rgba(255,59,48,0.1)";
+                      (e.currentTarget as HTMLElement).style.color = "#ff3b30";
+                    }}
+                    onMouseLeave={e => {
+                      (e.currentTarget as HTMLElement).style.background = "transparent";
+                      (e.currentTarget as HTMLElement).style.color = "var(--w3)";
+                    }}
+                    aria-label={`Delete ${u.name || u.email}`}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="3 6 5 6 21 6"/>
+                      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                      <path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+                    </svg>
+                  </button>
+                )}
               </div>
             ))
           )}
@@ -232,10 +302,10 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
                   </svg>
                 </div>
                 <p className="text-[14px] font-semibold" style={{ color: "var(--w)" }}>
-                  Delete {deleteTarget.name || deleteTarget.email}?
+                  {T.deleteTitle(deleteTarget.name || deleteTarget.email)}
                 </p>
                 <p className="text-[12px] leading-relaxed" style={{ color: "var(--w3)" }}>
-                  All data is permanently removed. Drive files are archived in &ldquo;Deleted Data&rdquo;. This cannot be undone.
+                  {T.deleteBody}
                 </p>
                 {deleteError && (
                   <p className="text-[11.5px] font-medium" style={{ color: "#ff3b30" }}>{deleteError}</p>
@@ -244,18 +314,18 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
 
               <div className="flex flex-col gap-1.5">
                 <p className="text-[11.5px] text-center" style={{ color: "var(--w3)" }}>
-                  Type <strong style={{ color: "var(--w)" }}>DELETE</strong> to confirm
+                  {T.typeToConfirmLabel} <strong style={{ color: "var(--w)" }}>{T.typeToConfirm}</strong> {T.typeToConfirmSuffix}
                 </p>
                 <input
                   value={deleteInput}
                   onChange={e => setDeleteInput(e.target.value)}
-                  onKeyDown={e => { if (e.key === "Enter" && deleteInput === "DELETE") deleteUser(); }}
-                  placeholder="DELETE"
+                  onKeyDown={e => { if (e.key === "Enter" && deleteInput === T.typeToConfirm) deleteUser(); }}
+                  placeholder={T.typeToConfirm}
                   autoFocus
                   className="w-full text-center rounded-xl px-3 py-2.5 text-[13px] outline-none"
                   style={{
                     background: "var(--bg2)",
-                    border: `1px solid ${deleteInput === "DELETE" ? "rgba(255,59,48,0.5)" : "var(--border)"}`,
+                    border: `1px solid ${deleteInput === T.typeToConfirm ? "rgba(255,59,48,0.5)" : "var(--border)"}`,
                     color: "var(--w)",
                   }}
                 />
@@ -267,19 +337,19 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
                   className="flex-1 rounded-xl py-2.5 text-[13px] font-medium transition-opacity hover:opacity-70"
                   style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}
                 >
-                  Cancel
+                  {T.cancel}
                 </button>
                 <button
                   onClick={deleteUser}
-                  disabled={deleteInput !== "DELETE" || deleting}
+                  disabled={deleteInput !== T.typeToConfirm || deleting}
                   className="flex-1 rounded-xl py-2.5 text-[13px] font-semibold"
                   style={{
-                    background: deleteInput === "DELETE" && !deleting ? "#ff3b30" : "rgba(255,59,48,0.25)",
+                    background: deleteInput === T.typeToConfirm && !deleting ? "#ff3b30" : "rgba(255,59,48,0.25)",
                     color: "#fff",
-                    cursor: deleteInput !== "DELETE" || deleting ? "not-allowed" : "pointer",
+                    cursor: deleteInput !== T.typeToConfirm || deleting ? "not-allowed" : "pointer",
                   }}
                 >
-                  {deleting ? "Deleting…" : "Delete"}
+                  {deleting ? T.deleting : T.delete}
                 </button>
               </div>
             </div>

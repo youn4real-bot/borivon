@@ -3,24 +3,21 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole } from "@/lib/admin-auth";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
-function generateInviteCode(len = 8): string {
-  let s = "";
-  for (let i = 0; i < len; i++) {
-    s += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
-  }
-  return s;
+/** Generates a random 8-char code using unambiguous characters (no 0/O/1/I). */
+function generateCode(len = 8): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  return Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
 }
 
 /**
- * POST — generate a fresh invite code for an organization.
- * Used when the previous code has leaked and needs to be invalidated.
+ * POST /api/portal/admin/organizations/[id]/regenerate-code
  *
- * Existing candidate links are NOT affected — they were created with the
- * old code but persist as direct user_id ↔ org_id rows.
+ * Generates a new unique invite code for the given organization.
+ * The old code stops working immediately. Existing candidate/member links
+ * are unaffected — only future joins require the new code.
  *
- * Returns: { invite_code: string }
+ * 200 { success: true, invite_code: string }
  */
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const auth = await requireAdminRole(req);
@@ -28,23 +25,33 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (auth.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const { id } = await ctx.params;
-  if (!UUID_RE.test(id)) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+  if (!UUID_RE.test(id)) return NextResponse.json({ error: "Invalid org id" }, { status: 400 });
 
   const db = getServiceSupabase();
 
-  // Try up to 5 times to find a non-colliding code
-  let newCode = "";
-  for (let i = 0; i < 5; i++) {
-    const candidate = generateInviteCode(8);
-    const { data: clash } = await db.from("organizations").select("id").eq("invite_code", candidate).maybeSingle();
-    if (!clash) { newCode = candidate; break; }
-  }
-  if (!newCode) return NextResponse.json({ error: "Could not generate code" }, { status: 500 });
+  // Retry up to 5 times in case of unique-constraint collision (extremely rare).
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const newCode = generateCode();
+    const { error } = await db
+      .from("organizations")
+      .update({ invite_code: newCode })
+      .eq("id", id);
 
-  const { error } = await db.from("organizations").update({ invite_code: newCode }).eq("id", id);
-  if (error) {
-    console.error("[regenerate-code] failed:", error);
-    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+    if (!error) {
+      return NextResponse.json({ success: true, invite_code: newCode });
+    }
+
+    // If it is NOT a uniqueness error, bail immediately.
+    const msg = (error.message ?? "").toLowerCase();
+    if (!msg.includes("unique") && !msg.includes("duplicate")) {
+      console.error("[regenerate-code] update failed:", error);
+      return NextResponse.json({ error: "Internal error" }, { status: 500 });
+    }
+    // Unique collision — loop and try a fresh code.
   }
-  return NextResponse.json({ invite_code: newCode });
+
+  return NextResponse.json(
+    { error: "Could not generate a unique code — please try again." },
+    { status: 500 },
+  );
 }

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
@@ -14,7 +14,7 @@ import {
   Lock, Unlock, IdCard, FileText, Folder, FilePen, Save, Eye,
   CheckCircle2, XCircle, AlertTriangle, PartyPopper,
 } from "@/components/PortalIcons";
-import { X as XIcon, RotateCcw, Download, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2 } from "lucide-react";
+import { X as XIcon, RotateCcw, Download, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2 } from "lucide-react";
 import { Spinner, PageLoader, EmptyState } from "@/components/ui/states";
 import { CandidateStagePreview, type JourneyMode } from "@/components/JourneyView";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
@@ -60,6 +60,8 @@ function getPhaseIdx(fileType: string): number {
   return ADMIN_PHASES.length - 1;
 }
 
+type OrgBasic = { id: string; name: string };
+
 type Doc = {
   id: string;
   user_id: string;
@@ -86,6 +88,7 @@ type CandidateProfile = {
   children_ages: string | null;
   manually_verified: boolean | null;
   profile_photo: string | null;
+  payment_tier: string | null;
 };
 
 type AdminPipeline = {
@@ -148,13 +151,34 @@ function computeFamilienstandAdmin(marital_status: string | null, children_ages:
   return `${marital_status}, ${kindStr} (${sorted.join(", ")})`;
 }
 
-function timeAgo(iso: string) {
+function timeAgo(iso: string, lang?: string) {
   const diff = Date.now() - new Date(iso).getTime();
   const h = diff / 3_600_000;
   const d = diff / 86_400_000;
-  if (h < 48) return { isNew: true,  label: h < 1 ? "Just now" : `${Math.floor(h)}h ago` };
-  if (d < 7)  return { isNew: false, label: `${Math.floor(d)}d ago` };
+  const justNow = lang === "fr" ? "À l'instant" : lang === "de" ? "Gerade eben" : "Just now";
+  const hAgo = (n: number) => lang === "fr" ? `il y a ${n}h` : lang === "de" ? `vor ${n}h` : `${n}h ago`;
+  const dAgo = (n: number) => lang === "fr" ? `il y a ${n}j` : lang === "de" ? `vor ${n}d` : `${n}d ago`;
+  if (h < 48) return { isNew: true,  label: h < 1 ? justNow : hAgo(Math.floor(h)) };
+  if (d < 7)  return { isNew: false, label: dAgo(Math.floor(d)) };
   return           { isNew: false, label: fmtDate(iso) };
+}
+
+// ── Payment tier badge ────────────────────────────────────────────────────────
+function PaymentBadge({ tier }: { tier: string | null | undefined }) {
+  if (!tier) return null;
+  const isKandidat = tier === "kandidat";
+  return (
+    <span
+      className="inline-flex items-center text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ml-1 flex-shrink-0"
+      style={{
+        background: isKandidat ? "rgba(212,175,55,0.15)" : "var(--info-bg)",
+        color:      isKandidat ? "var(--gold)"           : "var(--info)",
+        border:     isKandidat ? "1px solid rgba(212,175,55,0.4)" : "1px solid var(--info-border)",
+      }}
+    >
+      {isKandidat ? "★ Kandidat" : "Starter"}
+    </span>
+  );
 }
 
 // ── Preview modal moved to components/AdminDocPreviewModal.tsx ────────────────
@@ -165,6 +189,52 @@ export default function AdminPage() {
   const { lang } = useLang();
   const t = translations[lang];
   const [accessToken, setAccessToken] = useState("");
+  /** Supabase auth user ID of the currently logged-in admin */
+  const [currentUserId, setCurrentUserId] = useState("");
+  /** true only for the supreme admin (ADMIN_EMAIL) — org/sub-admins cannot grant/revoke the blue tick */
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  /** Candidate invite generation state */
+  const [inviteGenerating, setInviteGenerating] = useState(false);
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [inviteCopied, setInviteCopied] = useState(false);
+  /** All orgs in the system — used for the "Place with org" dropdown */
+  const [allOrgs, setAllOrgs] = useState<OrgBasic[]>([]);
+  /** Currently selected org in the placement dropdown */
+  const [placementOrgId, setPlacementOrgId] = useState("");
+  /** In-flight placement request */
+  const [placing, setPlacing] = useState(false);
+
+  // ── Org needs panel ─────────────────────────────────────────────────────────
+  type OrgNeed = {
+    id: string;
+    orgId: string;
+    orgName: string;
+    facilityType: string;
+    slots: number;
+    bundesland: string | null;
+    city: string | null;
+    startDate: string | null;
+    notes: string | null;
+    createdAt: string;
+  };
+  const [orgNeeds, setOrgNeeds]       = useState<OrgNeed[]>([]);
+  /** needId → userId being assigned */
+  const [needAssign, setNeedAssign]   = useState<Record<string, string>>({});
+  const [needPlacing, setNeedPlacing] = useState<Record<string, boolean>>({});
+
+  // ── Suggested matches inbox ──────────────────────────────────────────────────
+  type SuggestedMatch = {
+    id: string;
+    candidateUserId: string;
+    candidateName: string;
+    candidateEmail: string;
+    orgId: string;
+    orgName: string;
+    requirement: { specialty: string | null; slots: number; location: string | null; start_date: string | null } | null;
+    suggestedAt: string;
+  };
+  const [suggestedMatches, setSuggestedMatches] = useState<SuggestedMatch[]>([]);
+  const [matchDeciding, setMatchDeciding] = useState<Record<string, boolean>>({});
   const [docs, setDocs]             = useState<Doc[]>([]);
   const [users, setUsers]           = useState<Record<string, UserInfo>>({});
   const [profiles, setProfiles]     = useState<Record<string, CandidateProfile>>({});
@@ -243,6 +313,24 @@ export default function AdminPage() {
       if (!session?.user) { router.replace("/portal"); return; }
       const token = session.access_token ?? "";
       setAccessToken(token);
+      setCurrentUserId(session.user.id);
+      // Check supreme-admin status + fetch org list in parallel with main data.
+      fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.ok ? r.json() : null)
+        .then(j => { if (j?.isSuperAdmin) setIsSuperAdmin(true); })
+        .catch(() => {});
+      fetch("/api/portal/admin/organizations", { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.ok ? r.json() : null)
+        .then(j => { if (j?.orgs) setAllOrgs(j.orgs); })
+        .catch(() => {});
+      fetch("/api/portal/admin/suggested-matches", { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.ok ? r.json() : null)
+        .then(j => { if (j?.matches) setSuggestedMatches(j.matches); })
+        .catch(() => {});
+      fetch("/api/portal/admin/org-needs", { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.ok ? r.json() : null)
+        .then(j => { if (j?.needs) setOrgNeeds(j.needs); })
+        .catch(() => {});
       try {
         const res = await fetch("/api/portal/admin", { headers: { Authorization: `Bearer ${token}` } });
         if (res.status === 401 || res.status === 403) { router.replace("/portal/dashboard"); return; }
@@ -436,6 +524,98 @@ export default function AdminPage() {
     }
   }
 
+  /** Push the selected candidate into an org (admin-initiated placement). */
+  async function placeWithOrg(orgId: string) {
+    if (!selectedUser || !orgId) return;
+    setPlacing(true);
+    try {
+      const res = await fetch(`/api/portal/admin/organizations/${orgId}/candidates`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ candidateUserId: selectedUser, status: "approved" }),
+      });
+      if (res.ok) {
+        const org = allOrgs.find(o => o.id === orgId);
+        if (org) {
+          // Optimistic update — no need to re-fetch the whole admin payload.
+          setCandidateOrgs(prev => ({
+            ...prev,
+            [selectedUser]: [
+              ...(prev[selectedUser] ?? []).filter(o => o.id !== orgId),
+              { id: org.id, name: org.name },
+            ],
+          }));
+        }
+        setPlacementOrgId("");
+      }
+    } finally {
+      setPlacing(false);
+    }
+  }
+
+  /** Assign a candidate to an org need directly from the org-needs panel. */
+  async function assignNeedCandidate(need: { id: string; orgId: string }, userId: string) {
+    if (!userId) return;
+    setNeedPlacing(p => ({ ...p, [need.id]: true }));
+    try {
+      const res = await fetch(`/api/portal/admin/organizations/${need.orgId}/candidates`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ candidateUserId: userId, status: "approved" }),
+      });
+      if (res.ok) {
+        const org = allOrgs.find(o => o.id === need.orgId);
+        if (org) {
+          setCandidateOrgs(prev => ({
+            ...prev,
+            [userId]: [...(prev[userId] ?? []).filter(o => o.id !== need.orgId), { id: org.id, name: org.name }],
+          }));
+        }
+        setNeedAssign(p => ({ ...p, [need.id]: "" }));
+      }
+    } finally {
+      setNeedPlacing(p => ({ ...p, [need.id]: false }));
+    }
+  }
+
+  /** Remove a candidate from an org. */
+  async function removeFromOrg(orgId: string) {
+    if (!selectedUser) return;
+    await fetch(`/api/portal/admin/organizations/${orgId}/candidates`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ candidateUserId: selectedUser }),
+    });
+    // Optimistic removal.
+    setCandidateOrgs(prev => ({
+      ...prev,
+      [selectedUser]: (prev[selectedUser] ?? []).filter(o => o.id !== orgId),
+    }));
+  }
+
+  async function decideMatch(matchId: string, action: "accepted" | "skipped") {
+    setMatchDeciding(p => ({ ...p, [matchId]: true }));
+    const res = await fetch("/api/portal/admin/suggested-matches", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ matchId, action }),
+    });
+    if (res.ok) {
+      setSuggestedMatches(prev => prev.filter(m => m.id !== matchId));
+      // If accepted, refresh candidateOrgs map so the org tag appears under the candidate
+      if (action === "accepted") {
+        const m = suggestedMatches.find(x => x.id === matchId);
+        if (m) {
+          setCandidateOrgs(prev => ({
+            ...prev,
+            [m.candidateUserId]: [...(prev[m.candidateUserId] ?? []).filter(o => o.id !== m.orgId), { id: m.orgId, name: m.orgName }],
+          }));
+        }
+      }
+    }
+    setMatchDeciding(p => ({ ...p, [matchId]: false }));
+  }
+
   /** Toggle the manual verified-tick override for the currently-selected candidate. */
   async function toggleManualVerify() {
     if (!selectedUser) return;
@@ -540,7 +720,8 @@ export default function AdminPage() {
     }
     if (shot && selectedUser) {
       try {
-        const msgBody = text.trim() ? text.trim() : `Rejected: ${rejectTarget.label}`;
+        const rejectedLabel = lang === "fr" ? "Refusé" : lang === "de" ? "Abgelehnt" : "Rejected";
+        const msgBody = text.trim() ? text.trim() : `${rejectedLabel}: ${rejectTarget.label}`;
         await fetch("/api/portal/admin/messages", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
@@ -817,8 +998,8 @@ export default function AdminPage() {
             style={{
               position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
               zIndex: 9999, pointerEvents: "none",
-              background: "rgba(224,82,82,0.12)", color: "#e05252",
-              border: "1px solid rgba(224,82,82,0.3)", borderRadius: 10,
+              background: "var(--danger-bg)", color: "var(--danger)",
+              border: "1px solid var(--danger-border)", borderRadius: 10,
               padding: "10px 16px", fontSize: 12.5, fontWeight: 600,
               boxShadow: "0 4px 20px rgba(0,0,0,0.25)",
               animation: "bvFadeRise 0.2s var(--ease-out)",
@@ -846,10 +1027,16 @@ export default function AdminPage() {
         {/* Passport Info Modal — with approve / reject / edit */}
         {showPassportInfo && (() => {
           const pst = p_info?.passport_status ?? null;
-          const pstBg    = pst === "approved" ? "rgba(52,199,89,0.12)"   : pst === "rejected" ? "rgba(224,82,82,0.12)"  : "rgba(212,175,55,0.12)";
-          const pstColor = pst === "approved" ? "#34c759"                : pst === "rejected" ? "#e05252"               : "var(--gold)";
-          const pstBdr   = pst === "approved" ? "rgba(52,199,89,0.3)"   : pst === "rejected" ? "rgba(224,82,82,0.3)"   : "rgba(212,175,55,0.35)";
-          const pstLabel = pst === "approved" ? "Approved" : pst === "rejected" ? "Rejected" : pst === "pending" ? "Pending review" : "Not submitted";
+          const pstBg    = pst === "approved" ? "var(--success-bg)"   : pst === "rejected" ? "var(--danger-bg)"  : "rgba(212,175,55,0.12)";
+          const pstColor = pst === "approved" ? "var(--success)"                : pst === "rejected" ? "var(--danger)"               : "var(--gold)";
+          const pstBdr   = pst === "approved" ? "var(--success-border)"   : pst === "rejected" ? "var(--danger-border)"   : "rgba(212,175,55,0.35)";
+          const pstLabel = pst === "approved"
+            ? (lang === "fr" ? "Approuvé" : lang === "de" ? "Genehmigt" : "Approved")
+            : pst === "rejected"
+            ? (lang === "fr" ? "Refusé" : lang === "de" ? "Abgelehnt" : "Rejected")
+            : pst === "pending"
+            ? (lang === "fr" ? "En cours de vérification" : lang === "de" ? "In Prüfung" : "Pending review")
+            : (lang === "fr" ? "Non soumis" : lang === "de" ? "Nicht eingereicht" : "Not submitted");
 
           // Guard: all filled fields must be confirmed before approving
           const filledFieldLabels = passportDisplayGroups.flatMap(g =>
@@ -956,7 +1143,7 @@ export default function AdminPage() {
                   style={{ borderBottom: "1px solid var(--border-gold)", background: "rgba(212,175,55,0.06)" }}>
                   <div className="flex items-center gap-2">
                     <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--gold)" }}>
-                      <IdCard size={13} strokeWidth={1.8} className="inline mr-1.5 -mt-0.5" /> Passport data
+                      <IdCard size={13} strokeWidth={1.8} className="inline mr-1.5 -mt-0.5" /> {lang === "fr" ? "Données du passeport" : lang === "de" ? "Reisepassdaten" : "Passport data"}
                     </p>
                     {/* Status badge — hidden when approved */}
                     {pst !== "approved" && (
@@ -981,7 +1168,7 @@ export default function AdminPage() {
                           }
                         }}
                         className="h-7 px-2 rounded-lg flex items-center gap-1.5 text-xs transition-opacity hover:opacity-70"
-                        style={{ background: passportInfoEditMode ? "rgba(74,144,217,0.15)" : "var(--bg2)", color: passportInfoEditMode ? "#4a90d9" : "var(--w3)", border: `1px solid ${passportInfoEditMode ? "rgba(74,144,217,0.4)" : "var(--border)"}` }}>
+                        style={{ background: passportInfoEditMode ? "var(--info-bg)" : "var(--bg2)", color: passportInfoEditMode ? "var(--info)" : "var(--w3)", border: `1px solid ${passportInfoEditMode ? "var(--info-border)" : "var(--border)"}` }}>
                         <FilePen size={11} strokeWidth={1.8} /> {passportInfoEditMode ? "Editing" : "Edit"}
                       </button>
                     )}
@@ -1001,8 +1188,8 @@ export default function AdminPage() {
                         style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)", color: "var(--gold)" }}>
                         <IdCard size={22} strokeWidth={1.6} />
                       </span>
-                      <p className="text-sm font-medium" style={{ color: "var(--w2)" }}>No passport data yet</p>
-                      <p className="text-xs mt-1" style={{ color: "var(--w3)" }}>Data will appear once the candidate confirms their passport details</p>
+                      <p className="text-sm font-medium" style={{ color: "var(--w2)" }}>{lang === "fr" ? "Pas encore de données de passeport" : lang === "de" ? "Noch keine Reisepassdaten" : "No passport data yet"}</p>
+                      <p className="text-xs mt-1" style={{ color: "var(--w3)" }}>{lang === "fr" ? "Les données apparaîtront une fois que le candidat aura confirmé ses informations." : lang === "de" ? "Daten erscheinen, sobald der Kandidat seine Reisepassdaten bestätigt hat." : "Data will appear once the candidate confirms their passport details"}</p>
                     </div>
                   ) : passportInfoEditMode ? (
                     /* ── Edit mode ── */
@@ -1049,7 +1236,7 @@ export default function AdminPage() {
                     {pst !== "approved" && (
                       <div className="mb-3 px-1 space-y-1">
                         <p className="text-[10px]" style={{ color: "#e08a00" }}>
-                          Compare each field against the passport document.
+                          {lang === "fr" ? "Comparez chaque champ avec le document passeport." : lang === "de" ? "Vergleichen Sie jedes Feld mit dem Reisepassdokument." : "Compare each field against the passport document."}
                         </p>
                         <div className="flex items-center gap-1.5">
                           <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
@@ -1061,7 +1248,7 @@ export default function AdminPage() {
                             <path d="M4.5 8l2.5 2.5 4.5-4.5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
                           </svg>
                           <p className="text-[10px]" style={{ color: "#e08a00" }}>
-                            Tick every box to confirm, then Approve.
+                            {lang === "fr" ? "Cochez toutes les cases pour confirmer, puis Approuver." : lang === "de" ? "Aktivieren Sie alle Kästchen zur Bestätigung, dann Genehmigen." : "Tick every box to confirm, then Approve."}
                           </p>
                         </div>
                       </div>
@@ -1115,7 +1302,7 @@ export default function AdminPage() {
                                 </button>
                                 <div className="flex-1 min-w-0">
                                   <p className="text-[10px]" style={{ color: "var(--w3)" }}>{f.label}</p>
-                                  <p className="text-xs font-semibold" style={{ color: "warn" in f && f.warn ? "#e05252" : "var(--w)" }}>
+                                  <p className="text-xs font-semibold" style={{ color: "warn" in f && f.warn ? "var(--danger)" : "var(--w)" }}>
                                     {f.value}{"warn" in f && f.warn ? <AlertTriangle size={11} strokeWidth={1.8} className="inline ml-1 -mt-0.5" /> : ""}
                                   </p>
                                 </div>
@@ -1140,7 +1327,7 @@ export default function AdminPage() {
                           onClick={savePassportInfo}
                           disabled={passportInfoSaving || Object.keys(passportInfoEdits).length === 0}
                           className="flex-1 py-2 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80 disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
-                          style={{ background: "rgba(74,144,217,0.15)", color: "#4a90d9" }}>
+                          style={{ background: "var(--info-bg)", color: "var(--info)" }}>
                           {passportInfoSaving ? "Saving…" : <><Save size={12} strokeWidth={1.8} /> Save changes</>}
                         </button>
                         <button
@@ -1157,14 +1344,14 @@ export default function AdminPage() {
                           disabled={passportInfoSaving || !allFilledConfirmed}
                           title={!allFilledConfirmed ? `${unconfirmedCount} field${unconfirmedCount !== 1 ? "s" : ""} not yet reviewed` : ""}
                           className="flex-1 py-2 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80 disabled:opacity-40 inline-flex items-center justify-center gap-1.5"
-                          style={{ background: "rgba(52,199,89,0.12)", color: "#34c759" }}>
+                          style={{ background: "var(--success-bg)", color: "var(--success)" }}>
                           {passportInfoSaving ? "…" : <><CheckCircle2 size={13} strokeWidth={1.8} /> Approve</>}
                         </button>
                         <button
                           onClick={() => reviewPassport("rejected")}
                           disabled={passportInfoSaving || pst === "rejected"}
                           className="flex-1 py-2 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80 disabled:opacity-40 inline-flex items-center justify-center gap-1.5"
-                          style={{ background: "rgba(224,82,82,0.1)", color: "#e05252" }}>
+                          style={{ background: "var(--danger-bg)", color: "var(--danger)" }}>
                           {passportInfoSaving ? "…" : <><XCircle size={13} strokeWidth={1.8} /> Reject</>}
                         </button>
                       </>
@@ -1261,42 +1448,51 @@ export default function AdminPage() {
                 );
               })()}
               <div className="flex-1 min-w-0">
-                <h1 className="text-[20px] font-semibold tracking-[-0.015em] inline-flex items-center gap-1 max-w-full" style={{ color: "var(--w)" }}>
+                <h1 className="text-[20px] font-semibold tracking-[-0.015em] inline-flex items-center gap-1.5 flex-wrap max-w-full" style={{ color: "var(--w)" }}>
                   <span className="truncate">{user.name}</span>
-                  <VerifiedBadge verified={!!profiles[selectedUser]?.manually_verified} size="sm" />
+                  <VerifiedBadge verified={!!profiles[selectedUser]?.manually_verified} size="sm" color="gold" />
+                  <PaymentBadge tier={profiles[selectedUser]?.payment_tier} />
+                  {/* Org tags inline next to the gold tick — minimalist, no × */}
+                  {(candidateOrgs[selectedUser] ?? []).map(org => (
+                    <span key={org.id}
+                      className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-0.5 rounded-full align-middle"
+                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                      <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/>
+                      </svg>
+                      {org.name}
+                    </span>
+                  ))}
                 </h1>
                 <p className="text-[12.5px] mt-1 truncate" style={{ color: "var(--w3)" }}>{user.email}</p>
               </div>
               <div className="flex items-center gap-2 flex-wrap flex-shrink-0">
-                {pendingDocs.length > 0 ? (
+                {pendingDocs.length > 0 && (
                   <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-full"
                     style={{ background: "rgba(201,162,64,0.12)", color: "#c9a240", border: "1px solid rgba(201,162,64,0.25)" }}>
                     {pendingDocs.length} {t.aPending}
                   </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 text-[10.5px] px-3 py-1.5 rounded-full font-semibold tracking-wide uppercase"
-                    style={{ background: "rgba(52,199,89,0.10)", color: "#34c759", border: "1px solid rgba(52,199,89,0.25)" }}>
-                    <CheckCircle2 size={11} strokeWidth={1.8} /> {t.aDone}
-                  </span>
                 )}
-                {/* Manual verification override — only the ultimate admin */}
-                {(() => {
+                {/* Manual verification override — only the supreme admin (isSuperAdmin) */}
+                {isSuperAdmin && (() => {
                   const isManual = !!profiles[selectedUser ?? ""]?.manually_verified;
                   return (
                     <button
                       onClick={toggleManualVerify}
                       title={isManual
-                        ? "Manually verified — click to revoke the blue tick"
-                        : "Grant the blue verified tick (overrides document checks)"}
+                        ? "Manually verified — click to revoke the gold tick"
+                        : "Grant the gold verified tick (overrides document checks)"}
                       aria-label="Toggle manual verification"
-                      className="inline-flex items-center gap-1.5 text-[10.5px] px-3 py-1.5 rounded-full font-semibold tracking-wide uppercase transition-colors">
-                      <svg width="11" height="11" viewBox="0 0 24 24" fill={isManual ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
-                        style={{ color: isManual ? "#1da1f2" : "var(--w3)" }}>
-                        <path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4L12 14.3l-4.8 2.5.9-5.4L4.2 7.7l5.4-.8L12 2z"/>
+                      className="inline-flex items-center gap-1.5 text-[10.5px] px-3 py-1.5 rounded-full font-semibold tracking-wide uppercase transition-colors"
+                      style={isManual
+                        ? { background: "rgba(201,162,64,0.12)", border: "1px solid rgba(201,162,64,0.3)" }
+                        : { background: "transparent", border: "1px solid var(--border)" }}>
+                      <svg width="11" height="11" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                        <path d="M19.998 3.094 14.638 0l-2.972 5.15H5.432v6.354L0 14.64 3.094 20 0 25.359l5.432 3.137v6.355h6.234L14.638 40l5.36-3.094L25.358 40l2.978-5.149h6.227v-6.355L40 25.359 36.905 20 40 14.64l-5.438-3.135V5.15h-6.227L25.358 0l-5.36 3.094Z"
+                          fill={isManual ? "#c9a240" : "none"} stroke={isManual ? "none" : "var(--w3)"} strokeWidth="2" />
+                        <path d="m13 19.5 4.5 4 7-7" stroke={isManual ? "#fff" : "transparent"} strokeWidth="3.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
-                      <span style={isManual
-                        ? { color: "#1da1f2" }
-                        : { color: "var(--w3)" }}>
+                      <span style={isManual ? { color: "var(--gold)" } : { color: "var(--w3)" }}>
                         {isManual ? "Verified" : "Verify"}
                       </span>
                     </button>
@@ -1304,6 +1500,38 @@ export default function AdminPage() {
                 })()}
               </div>
             </div>
+
+            {/* ── Org Placement dropdown ── */}
+            {allOrgs.length > 0 && (() => {
+              const placedIds = new Set((candidateOrgs[selectedUser] ?? []).map(o => o.id));
+              const available = allOrgs.filter(o => !placedIds.has(o.id));
+              if (available.length === 0) return null;
+              return (
+                <div className="inline-flex items-center gap-1.5 mb-4 px-1">
+                  <select
+                    value={placementOrgId}
+                    onChange={e => setPlacementOrgId(e.target.value)}
+                    className="text-[11px] px-2 py-1 outline-none"
+                    style={{
+                      background: "var(--bg2)", color: "var(--w2)",
+                      border: "1px solid var(--border)", borderRadius: "var(--r-sm)",
+                      height: 28,
+                    }}>
+                    <option value="">Place with org…</option>
+                    {available.map(o => (
+                      <option key={o.id} value={o.id}>{o.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => placeWithOrg(placementOrgId)}
+                    disabled={!placementOrgId || placing}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 transition-all disabled:opacity-40"
+                    style={{ background: "var(--gold)", color: "#131312", border: "none", borderRadius: "var(--r-sm)", height: 28 }}>
+                    {placing ? "…" : "Place"}
+                  </button>
+                </div>
+              );
+            })()}
 
             {/* Always two-column: sidebar + content */}
             <div className="flex gap-4 sm:gap-6 items-start">
@@ -1368,7 +1596,7 @@ export default function AdminPage() {
                           style={{
                             background: "transparent",
                             border: "none",
-                            color: isSel ? "var(--gold)" : js.active ? "#34c759" : "var(--w3)",
+                            color: isSel ? "var(--gold)" : js.active ? "var(--success)" : "var(--w3)",
                             transform: isSel ? "scale(1.08)" : "scale(1)",
                             transition: "color 0.2s, transform 0.15s",
                           }}>
@@ -1381,7 +1609,7 @@ export default function AdminPage() {
                           )}
                         </span>
                         <span className="text-[9px] text-center leading-tight font-medium"
-                          style={{ color: isSel ? "var(--gold)" : js.active ? "#34c759" : "var(--w3)" }}>
+                          style={{ color: isSel ? "var(--gold)" : js.active ? "var(--success)" : "var(--w3)" }}>
                           {js.label}
                         </span>
                       </button>
@@ -1417,9 +1645,9 @@ export default function AdminPage() {
                       <button onClick={savePipeline} disabled={pipelineSaving || !pipelineLoaded}
                         className="inline-flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold transition-all disabled:opacity-40"
                         style={{
-                          background: pipelineSaved ? "rgba(52,199,89,0.15)" : "var(--gold)",
-                          color: pipelineSaved ? "#34c759" : "#131312",
-                          border: pipelineSaved ? "1px solid rgba(52,199,89,0.32)" : "1px solid var(--gold)",
+                          background: pipelineSaved ? "var(--success-border)" : "var(--gold)",
+                          color: pipelineSaved ? "var(--success)" : "#131312",
+                          border: pipelineSaved ? "1px solid var(--success-border)" : "1px solid var(--gold)",
                           borderRadius: "var(--r-sm)",
                           boxShadow: pipelineSaved ? "none" : "var(--shadow-sm)",
                         }}>
@@ -1427,20 +1655,20 @@ export default function AdminPage() {
                       </button>
                     </div>
                     {activePipelineStage === "docs" && (() => { const on = pipeline.docs_approved; return (
-                      <div className="flex items-center gap-3 px-4 py-3.5" style={{ background: "var(--card)", border: `1px solid ${on ? "rgba(52,199,89,0.3)" : "var(--border)"}`, borderRadius: "var(--r-lg)" }}>
+                      <div className="flex items-center gap-3 px-4 py-3.5" style={{ background: "var(--card)", border: `1px solid ${on ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-lg)" }}>
                         <span className="flex items-center justify-center w-9 h-9 flex-shrink-0"
                           style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-md)" }}>
                           <Folder size={16} strokeWidth={1.7} />
                         </span>
                         <div className="flex-1 min-w-0">
                           <p className="text-[13px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>Documents</p>
-                          <p className="text-[11.5px] mt-0.5 inline-flex items-center gap-1" style={{ color: on ? "#34c759" : "var(--w3)" }}>
+                          <p className="text-[11.5px] mt-0.5 inline-flex items-center gap-1" style={{ color: on ? "var(--success)" : "var(--w3)" }}>
                             {on ? <><CheckCircle2 size={11} strokeWidth={2} /> Next step unlocked</> : "Next button locked for candidate"}
                           </p>
                         </div>
                         <button onClick={() => setPipeline(p => ({ ...p, docs_approved: !on }))}
                           className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-3 py-1.5 flex-shrink-0 transition-all"
-                          style={{ background: on ? "rgba(52,199,89,0.12)" : "var(--bg2)", color: on ? "#34c759" : "var(--w2)", border: `1px solid ${on ? "rgba(52,199,89,0.3)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
+                          style={{ background: on ? "var(--success-bg)" : "var(--bg2)", color: on ? "var(--success)" : "var(--w2)", border: `1px solid ${on ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
                           {on ? <><Lock size={11} strokeWidth={1.8} /> Lock</> : <><Unlock size={11} strokeWidth={1.8} /> Unlock</>}
                         </button>
                       </div>
@@ -1454,7 +1682,7 @@ export default function AdminPage() {
                           </span>
                           <div className="flex-1 min-w-0">
                             <p className="text-[13px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>{t.pJourneyInterview}</p>
-                            <p className="text-[11.5px] mt-0.5 inline-flex items-center gap-1" style={{ color: pipeline.interview_status === "passed" ? "#34c759" : pipeline.interview_status === "failed" ? "#e05252" : pipeline.interview_link ? "var(--gold)" : "var(--w3)" }}>
+                            <p className="text-[11.5px] mt-0.5 inline-flex items-center gap-1" style={{ color: pipeline.interview_status === "passed" ? "var(--success)" : pipeline.interview_status === "failed" ? "var(--danger)" : pipeline.interview_link ? "var(--gold)" : "var(--w3)" }}>
                               {pipeline.interview_status === "passed" ? <><CheckCircle2 size={11} strokeWidth={2} /> Passed</>
                                 : pipeline.interview_status === "failed" ? <><XCircle size={11} strokeWidth={2} /> Failed</>
                                 : pipeline.interview_link ? "Scheduled" : "Not scheduled yet"}
@@ -1465,7 +1693,7 @@ export default function AdminPage() {
                               <button key={s} onClick={() => setPipeline(p => ({ ...p, interview_status: s }))}
                                 title={s} aria-label={s}
                                 className="w-7 h-7 flex items-center justify-center font-semibold transition-all"
-                                style={{ background: pipeline.interview_status === s ? s === "passed" ? "rgba(52,199,89,0.18)" : s === "failed" ? "rgba(224,82,82,0.12)" : "rgba(201,162,64,0.12)" : "var(--bg2)", color: pipeline.interview_status === s ? s === "passed" ? "#34c759" : s === "failed" ? "#e05252" : "var(--gold)" : "var(--w3)", border: `1px solid ${pipeline.interview_status === s ? s === "passed" ? "rgba(52,199,89,0.3)" : s === "failed" ? "rgba(224,82,82,0.25)" : "rgba(201,162,64,0.3)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
+                                style={{ background: pipeline.interview_status === s ? s === "passed" ? "var(--success-border)" : s === "failed" ? "var(--danger-bg)" : "rgba(201,162,64,0.12)" : "var(--bg2)", color: pipeline.interview_status === s ? s === "passed" ? "var(--success)" : s === "failed" ? "var(--danger)" : "var(--gold)" : "var(--w3)", border: `1px solid ${pipeline.interview_status === s ? s === "passed" ? "var(--success-border)" : s === "failed" ? "var(--danger-bg)" : "rgba(201,162,64,0.3)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
                                 {s === "passed" ? <CheckCircle2 size={13} strokeWidth={1.8} /> : s === "failed" ? <XCircle size={13} strokeWidth={1.8} /> : <RotateCcw size={12} strokeWidth={1.8} />}
                               </button>
                             ))}
@@ -1484,45 +1712,45 @@ export default function AdminPage() {
                       </div>
                     )}
                     {activePipelineStage === "recognition" && (() => { const on = pipeline.recognition_unlocked; return (
-                      <div className="flex items-center gap-3 px-4 py-3.5" style={{ background: "var(--card)", border: `1px solid ${on ? "rgba(52,199,89,0.3)" : "var(--border)"}`, borderRadius: "var(--r-lg)" }}>
+                      <div className="flex items-center gap-3 px-4 py-3.5" style={{ background: "var(--card)", border: `1px solid ${on ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-lg)" }}>
                         <span className="flex items-center justify-center w-9 h-9 flex-shrink-0"
                           style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-md)" }}>
                           <PhaseIcon kind="recognition" size={16} />
                         </span>
                         <div className="flex-1 min-w-0">
                           <p className="text-[13px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>{t.pJourneyRecognition}</p>
-                          <p className="text-[11.5px] mt-0.5 inline-flex items-center gap-1" style={{ color: on ? "#34c759" : "var(--w3)" }}>
+                          <p className="text-[11.5px] mt-0.5 inline-flex items-center gap-1" style={{ color: on ? "var(--success)" : "var(--w3)" }}>
                             {on ? <><CheckCircle2 size={11} strokeWidth={2} /> Unlocked</> : "Locked"}
                           </p>
                         </div>
                         <button onClick={() => setPipeline(p => ({ ...p, recognition_unlocked: !on }))}
                           className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-3 py-1.5 flex-shrink-0 transition-all"
-                          style={{ background: on ? "rgba(52,199,89,0.12)" : "var(--bg2)", color: on ? "#34c759" : "var(--w2)", border: `1px solid ${on ? "rgba(52,199,89,0.3)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
+                          style={{ background: on ? "var(--success-bg)" : "var(--bg2)", color: on ? "var(--success)" : "var(--w2)", border: `1px solid ${on ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
                           {on ? <><Lock size={11} strokeWidth={1.8} /> Lock</> : <><Unlock size={11} strokeWidth={1.8} /> Unlock</>}
                         </button>
                       </div>
                     ); })()}
                     {activePipelineStage === "embassy" && (() => { const on = pipeline.embassy_unlocked; return (
-                      <div className="flex items-center gap-3 px-4 py-3.5" style={{ background: "var(--card)", border: `1px solid ${on ? "rgba(52,199,89,0.3)" : "var(--border)"}`, borderRadius: "var(--r-lg)" }}>
+                      <div className="flex items-center gap-3 px-4 py-3.5" style={{ background: "var(--card)", border: `1px solid ${on ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-lg)" }}>
                         <span className="flex items-center justify-center w-9 h-9 flex-shrink-0"
                           style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-md)" }}>
                           <PhaseIcon kind="embassy" size={16} />
                         </span>
                         <div className="flex-1 min-w-0">
                           <p className="text-[13px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>{t.pJourneyEmbassy}</p>
-                          <p className="text-[11.5px] mt-0.5 inline-flex items-center gap-1" style={{ color: on ? "#34c759" : "var(--w3)" }}>
+                          <p className="text-[11.5px] mt-0.5 inline-flex items-center gap-1" style={{ color: on ? "var(--success)" : "var(--w3)" }}>
                             {on ? <><CheckCircle2 size={11} strokeWidth={2} /> Unlocked</> : "Locked"}
                           </p>
                         </div>
                         <button onClick={() => setPipeline(p => ({ ...p, embassy_unlocked: !on }))}
                           className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-3 py-1.5 flex-shrink-0 transition-all"
-                          style={{ background: on ? "rgba(52,199,89,0.12)" : "var(--bg2)", color: on ? "#34c759" : "var(--w2)", border: `1px solid ${on ? "rgba(52,199,89,0.3)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
+                          style={{ background: on ? "var(--success-bg)" : "var(--bg2)", color: on ? "var(--success)" : "var(--w2)", border: `1px solid ${on ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
                           {on ? <><Lock size={11} strokeWidth={1.8} /> Lock</> : <><Unlock size={11} strokeWidth={1.8} /> Unlock</>}
                         </button>
                       </div>
                     ); })()}
                     {activePipelineStage === "visa" && (
-                      <div className="overflow-hidden" style={{ background: "var(--card)", border: `1px solid ${pipeline.visa_granted ? "rgba(52,199,89,0.3)" : "var(--border)"}`, borderRadius: "var(--r-lg)" }}>
+                      <div className="overflow-hidden" style={{ background: "var(--card)", border: `1px solid ${pipeline.visa_granted ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-lg)" }}>
                         <div className="flex items-center gap-3 px-4 py-3.5">
                           <span className="flex items-center justify-center w-9 h-9 flex-shrink-0"
                             style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-md)" }}>
@@ -1530,13 +1758,13 @@ export default function AdminPage() {
                           </span>
                           <div className="flex-1 min-w-0">
                             <p className="text-[13px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>{t.pJourneyVisa}</p>
-                            <p className="text-[11.5px] mt-0.5 inline-flex items-center gap-1" style={{ color: pipeline.visa_granted ? "#34c759" : "var(--w3)" }}>
+                            <p className="text-[11.5px] mt-0.5 inline-flex items-center gap-1" style={{ color: pipeline.visa_granted ? "var(--success)" : "var(--w3)" }}>
                               {pipeline.visa_granted ? <><CheckCircle2 size={11} strokeWidth={2} /> Granted</> : "Not granted yet"}
                             </p>
                           </div>
                           <button onClick={() => setPipeline(p => ({ ...p, visa_granted: !p.visa_granted }))}
                             className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-3 py-1.5 flex-shrink-0 transition-all"
-                            style={{ background: pipeline.visa_granted ? "rgba(52,199,89,0.12)" : "var(--bg2)", color: pipeline.visa_granted ? "#34c759" : "var(--w2)", border: `1px solid ${pipeline.visa_granted ? "rgba(52,199,89,0.3)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
+                            style={{ background: pipeline.visa_granted ? "var(--success-bg)" : "var(--bg2)", color: pipeline.visa_granted ? "var(--success)" : "var(--w2)", border: `1px solid ${pipeline.visa_granted ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
                             {pipeline.visa_granted
                               ? <><XCircle size={11} strokeWidth={1.8} /> Revoke</>
                               : <><CheckCircle2 size={11} strokeWidth={1.8} /> Grant</>}
@@ -1623,7 +1851,7 @@ export default function AdminPage() {
                         </h2>
                       </div>
                       <span className="inline-flex items-center gap-1.5 text-[11px] font-medium flex-shrink-0"
-                        style={{ color: pendingDocs.length > 0 ? "var(--gold)" : "#34c759" }}>
+                        style={{ color: pendingDocs.length > 0 ? "var(--gold)" : "var(--success)" }}>
                         {pendingDocs.length > 0
                           ? <><span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--gold)" }} />{pendingDocs.length} pending</>
                           : <><CheckCircle2 size={12} strokeWidth={1.8} /> All reviewed</>}
@@ -1641,8 +1869,8 @@ export default function AdminPage() {
                         const pst = p?.passport_status ?? null;
                         const hasData = !!pst;
                         const cSt = !hasData ? "empty" : pst === "approved" ? "approved" : pst === "rejected" ? "rejected" : "pending";
-                        const sc2 = cSt === "approved" ? { bg: "rgba(52,199,89,0.10)",  txt: "#34c759", bdr: "1px solid rgba(52,199,89,0.28)" }
-                                  : cSt === "rejected"  ? { bg: "rgba(224,82,82,0.08)",  txt: "#e05252", bdr: "1px solid rgba(224,82,82,0.24)" }
+                        const sc2 = cSt === "approved" ? { bg: "var(--success-border)",  txt: "var(--success)", bdr: "1px solid var(--success-border)" }
+                                  : cSt === "rejected"  ? { bg: "var(--danger-bg)",  txt: "var(--danger)", bdr: "1px solid var(--danger-bg)" }
                                   : cSt === "pending"   ? { bg: "rgba(201,162,64,0.10)", txt: "#c9a240", bdr: "1px solid rgba(201,162,64,0.30)" }
                                   :                       { bg: "var(--bg2)",             txt: "var(--w3)", bdr: "1px solid var(--border)" };
                         const cSymEl = cSt === "approved" ? <CheckCircle2 size={14} strokeWidth={1.8} />
@@ -1665,9 +1893,9 @@ export default function AdminPage() {
                                 {/* Content */}
                                 <div className="flex-1 min-w-0">
                                   <p className="text-[13.5px] font-medium tracking-tight" style={{ color: "var(--w)" }}>{item.label}</p>
-                                  {!hasData && <p className="text-[11.5px] mt-0.5" style={{ color: "var(--w3)" }}>Not submitted yet</p>}
+                                  {!hasData && <p className="text-[11.5px] mt-0.5" style={{ color: "var(--w3)" }}>{lang === "fr" ? "Non soumis" : lang === "de" ? "Nicht eingereicht" : "Not submitted yet"}</p>}
                                   {hasData && cSt === "rejected" && passportDataFeedback && (
-                                    <p className="text-[11px] mt-1" style={{ color: "#e05252" }}>“{passportDataFeedback}”</p>
+                                    <p className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>“{passportDataFeedback}”</p>
                                   )}
                                   {/* Approved: revoke ⋯ menu */}
                                   {hasData && cSt === "approved" && (
@@ -1683,13 +1911,9 @@ export default function AdminPage() {
                                           <div className="fixed inset-0 z-10" onClick={() => setRevokeMenu(null)} />
                                           <div className="absolute left-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
                                             style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
-                                            <button onClick={() => { reviewPassport("rejected"); setRevokeMenu(null); }}
-                                              className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
-                                              style={{ color: "#e05252" }}><RotateCcw size={11} strokeWidth={1.8} /> Revoke</button>
-                                            <div style={{ height: 1, background: "var(--border)" }} />
                                             <button onClick={() => { setRevokeMenu(null); openRejectModal({ kind: "passport", label: item.label, initialFeedback: passportDataFeedback }); }}
                                               className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
-                                              style={{ color: "#e05252" }}><XCircle size={11} strokeWidth={1.8} /> Reject</button>
+                                              style={{ color: "var(--danger)" }}><RotateCcw size={11} strokeWidth={1.8} /> Revoke</button>
                                           </div>
                                         </>
                                       )}
@@ -1765,8 +1989,8 @@ export default function AdminPage() {
                         : doc!.status;
 
                       const sc =
-                        circleStatus === "approved" ? { bg: "rgba(52,199,89,0.10)",  txt: "#34c759", bdr: "1px solid rgba(52,199,89,0.28)" }
-                      : circleStatus === "rejected"  ? { bg: "rgba(224,82,82,0.08)",  txt: "#e05252", bdr: "1px solid rgba(224,82,82,0.24)" }
+                        circleStatus === "approved" ? { bg: "var(--success-border)",  txt: "var(--success)", bdr: "1px solid var(--success-border)" }
+                      : circleStatus === "rejected"  ? { bg: "var(--danger-bg)",  txt: "var(--danger)", bdr: "1px solid var(--danger-bg)" }
                       : circleStatus === "pending"   ? { bg: "rgba(201,162,64,0.10)", txt: "#c9a240", bdr: "1px solid rgba(201,162,64,0.30)" }
                       :                               { bg: "var(--bg2)",             txt: "var(--w3)", bdr: "1px solid var(--border)" };
 
@@ -1810,19 +2034,19 @@ export default function AdminPage() {
 
                                 {/* Not submitted */}
                                 {!submitted && (
-                                  <p className="text-xs mt-0.5" style={{ color: "var(--w3)" }}>Not submitted yet</p>
+                                  <p className="text-xs mt-0.5" style={{ color: "var(--w3)" }}>{lang === "fr" ? "Non soumis" : lang === "de" ? "Nicht eingereicht" : "Not submitted yet"}</p>
                                 )}
 
                                 {/* Single-doc slot */}
                                 {!isMulti && doc && (() => {
-                                  const ta = timeAgo(doc.uploaded_at);
+                                  const ta = timeAgo(doc.uploaded_at, lang);
                                   return (
                                     <>
                                       <div className="flex items-center gap-2 mt-1 flex-wrap">
                                         <span className="text-xs" style={{ color: "var(--w3)" }}>{ta.label}</span>
                                       </div>
                                       {doc.status === "rejected" && doc.feedback && (
-                                        <p className="text-[11px] mt-1" style={{ color: "#e05252" }}>“{doc.feedback}”</p>
+                                        <p className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>“{doc.feedback}”</p>
                                       )}
                                     </>
                                   );
@@ -1832,10 +2056,10 @@ export default function AdminPage() {
                                 {isMulti && itemDocs.length > 0 && (
                                   <div className="mt-2 space-y-2">
                                     {itemDocs.map(d => {
-                                      const ta = timeAgo(d.uploaded_at);
+                                      const ta = timeAgo(d.uploaded_at, lang);
                                       const dsc =
-                                        d.status === "approved" ? { bg: "rgba(52,199,89,0.1)",  txt: "#34c759", bdr: "rgba(52,199,89,0.25)" }
-                                      : d.status === "rejected"  ? { bg: "rgba(224,82,82,0.1)",  txt: "#e05252", bdr: "rgba(224,82,82,0.25)" }
+                                        d.status === "approved" ? { bg: "var(--success-bg)",  txt: "var(--success)", bdr: "var(--success-border)" }
+                                      : d.status === "rejected"  ? { bg: "var(--danger-bg)",  txt: "var(--danger)", bdr: "var(--danger-bg)" }
                                       :                           { bg: "rgba(201,162,64,0.1)", txt: "#c9a240", bdr: "rgba(201,162,64,0.3)" };
                                       const dClickable = !!d.drive_file_id;
                                       return (
@@ -1854,7 +2078,7 @@ export default function AdminPage() {
                                               <p className="text-xs font-medium truncate" style={{ color: "var(--w2)" }}>{d.file_name}</p>
                                               <p className="text-[10.5px] mt-0.5 truncate" style={{ color: "var(--w3)" }}>
                                                 <span className="font-semibold" style={{ color: dsc.txt }}>
-                                                  {d.status === "approved" ? "Approved" : d.status === "rejected" ? "Rejected" : "Pending"}
+                                                  {d.status === "approved" ? (lang === "fr" ? "Approuvé" : lang === "de" ? "Genehmigt" : "Approved") : d.status === "rejected" ? (lang === "fr" ? "Refusé" : lang === "de" ? "Abgelehnt" : "Rejected") : (lang === "fr" ? "En attente" : lang === "de" ? "Ausstehend" : "Pending")}
                                                 </span>
                                                 <span className="mx-1"> · </span>
                                                 {ta.label}
@@ -1902,19 +2126,11 @@ export default function AdminPage() {
                                                     <div className="absolute right-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
                                                       style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
                                                       <button
-                                                        onClick={() => { review(d.id, "rejected"); setRevokeMenu(null); }}
-                                                        disabled={saving[d.id]}
-                                                        className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium disabled:opacity-40 inline-flex items-center gap-1.5"
-                                                        style={{ color: "#e05252" }}>
-                                                        <RotateCcw size={11} strokeWidth={1.8} /> Revoke
-                                                      </button>
-                                                      <div style={{ height: 1, background: "var(--border)" }} />
-                                                      <button
                                                         onClick={() => { setRevokeMenu(null); openRejectModal({ kind: "doc", docId: d.id, label: d.file_name, initialFeedback: d.feedback ?? "" }); }}
                                                         disabled={saving[d.id]}
                                                         className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium disabled:opacity-40 inline-flex items-center gap-1.5"
-                                                        style={{ color: "#e05252" }}>
-                                                        <XCircle size={11} strokeWidth={1.8} /> Reject
+                                                        style={{ color: "var(--danger)" }}>
+                                                        <RotateCcw size={11} strokeWidth={1.8} /> Revoke
                                                       </button>
                                                     </div>
                                                   </>
@@ -1923,7 +2139,7 @@ export default function AdminPage() {
                                             )}
                                           </div>
                                           {d.status === "rejected" && d.feedback && (
-                                            <p className="text-[11px] mt-1.5" style={{ color: "#e05252" }}>“{d.feedback}”</p>
+                                            <p className="text-[11px] mt-1.5" style={{ color: "var(--danger)" }}>“{d.feedback}”</p>
                                           )}
                                         </div>
                                       );
@@ -1976,19 +2192,11 @@ export default function AdminPage() {
                                           <div className="absolute right-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
                                             style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
                                             <button
-                                              onClick={(e) => { e.stopPropagation(); review(doc.id, "rejected"); setRevokeMenu(null); }}
-                                              disabled={saving[doc.id]}
-                                              className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium disabled:opacity-40 inline-flex items-center gap-1.5"
-                                              style={{ color: "#e05252" }}>
-                                              <RotateCcw size={11} strokeWidth={1.8} /> Revoke
-                                            </button>
-                                            <div style={{ height: 1, background: "var(--border)" }} />
-                                            <button
                                               onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); openRejectModal({ kind: "doc", docId: doc.id, label: item.label, initialFeedback: doc.feedback ?? "" }); }}
                                               disabled={saving[doc.id]}
                                               className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium disabled:opacity-40 inline-flex items-center gap-1.5"
-                                              style={{ color: "#e05252" }}>
-                                              <XCircle size={11} strokeWidth={1.8} /> Reject
+                                              style={{ color: "var(--danger)" }}>
+                                              <RotateCcw size={11} strokeWidth={1.8} /> Revoke
                                             </button>
                                           </div>
                                         </>
@@ -2021,8 +2229,8 @@ export default function AdminPage() {
                         </div>
                         {historyForUser.map((d, idx) => {
                           const st = d.status;
-                          const stBg = st === "approved" ? "rgba(52,199,89,0.1)" : st === "rejected" ? "rgba(224,82,82,0.1)" : "rgba(201,162,64,0.1)";
-                          const stCl = st === "approved" ? "#34c759" : st === "rejected" ? "#e05252" : "#c9a240";
+                          const stBg = st === "approved" ? "var(--success-bg)" : st === "rejected" ? "var(--danger-bg)" : "rgba(201,162,64,0.1)";
+                          const stCl = st === "approved" ? "var(--success)" : st === "rejected" ? "var(--danger)" : "#c9a240";
                           return (
                             <div key={d.id}>
                               {idx > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
@@ -2150,6 +2358,61 @@ export default function AdminPage() {
             </p>
           </div>
 
+          {/* ── Quick Candidate Invite ── supreme admin only ── */}
+          {isSuperAdmin && (
+            <div className="mb-6 px-5 py-4 flex items-center gap-3 flex-wrap"
+              style={{ background: "var(--card)", borderRadius: "16px", border: "1px solid var(--border)", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+              <div className="flex-1 min-w-0">
+                <p className="text-[12.5px] font-semibold" style={{ color: "var(--w)" }}>Invite a candidate</p>
+                <p className="text-[11px] mt-0.5" style={{ color: "var(--w3)" }}>Single-use link — one person, platform access only</p>
+              </div>
+              {inviteUrl ? (
+                <>
+                  <input readOnly value={inviteUrl}
+                    className="flex-1 text-[11px] px-3 py-1.5 rounded-lg outline-none min-w-0"
+                    style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)", fontFamily: "monospace" }}
+                    onClick={e => (e.target as HTMLInputElement).select()}
+                  />
+                  <button
+                    onClick={async () => {
+                      await navigator.clipboard.writeText(inviteUrl).catch(() => {});
+                      setInviteCopied(true);
+                      setTimeout(() => setInviteCopied(false), 2500);
+                    }}
+                    className="flex-shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-opacity hover:opacity-80"
+                    style={{ background: inviteCopied ? "rgba(52,199,89,0.15)" : "var(--gdim)", color: inviteCopied ? "var(--success)" : "var(--gold)", border: `1px solid ${inviteCopied ? "var(--success)" : "var(--border-gold)"}` }}>
+                    {inviteCopied ? "✓ Copied" : "Copy"}
+                  </button>
+                  <button
+                    onClick={() => setInviteUrl(null)}
+                    className="flex-shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-opacity hover:opacity-80"
+                    style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
+                    New
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={async () => {
+                    setInviteGenerating(true);
+                    try {
+                      const res = await fetch("/api/portal/admin/invite-candidate", {
+                        method: "POST",
+                        headers: { Authorization: `Bearer ${accessToken}` },
+                      });
+                      const j = await res.json();
+                      if (j.url) setInviteUrl(j.url);
+                    } catch { /* ignore */ }
+                    setInviteGenerating(false);
+                  }}
+                  disabled={inviteGenerating}
+                  className="flex-shrink-0 px-4 py-2 rounded-xl text-[11.5px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-50"
+                  style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                  {inviteGenerating ? "Generating…" : "Generate Invite"}
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Stats bar */}
           {Object.keys(grouped).length > 0 && (() => {
             const totalCandidates = Object.keys(grouped).length;
@@ -2161,7 +2424,7 @@ export default function AdminPage() {
                 {[
                   { label: "Candidates",    value: totalCandidates, color: "var(--gold)" },
                   { label: "Pending docs",  value: totalPending,    color: "#ff9500" },
-                  { label: "Fully approved", value: fullyApproved,  color: "#34c759" },
+                  { label: "Fully approved", value: fullyApproved,  color: "var(--success)" },
                 ].map(s => (
                   <div key={s.label} className="px-5 py-5 text-center transition-all hover:-translate-y-0.5"
                     style={{
@@ -2177,6 +2440,121 @@ export default function AdminPage() {
               </div>
             );
           })()}
+
+          {/* ── Org needs panel ──────────────────────────────────────────── */}
+          {orgNeeds.length > 0 && (
+            <div className="mb-6 p-5"
+              style={{ background: "var(--card)", borderRadius: "20px", border: "1px solid var(--border)", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+              <div className="flex items-center gap-2 mb-3">
+                <Building2 size={13} strokeWidth={1.8} style={{ color: "var(--gold)", flexShrink: 0 }} />
+                <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--gold)" }}>
+                  Org needs · {orgNeeds.length}
+                </p>
+              </div>
+              <div className="space-y-2">
+                {orgNeeds.map(need => {
+                  const alreadyPlaced = Object.values(candidateOrgs)
+                    .flat()
+                    .some(o => o.id === need.orgId);
+                  return (
+                    <div key={need.id} className="p-3 rounded-xl"
+                      style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+                      <div className="flex items-start gap-2 mb-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[12.5px] font-semibold" style={{ color: "var(--w)" }}>{need.orgName}</p>
+                          <p className="text-[11px] mt-0.5" style={{ color: "var(--w3)" }}>
+                            {need.facilityType}
+                            <span className="mx-1.5 opacity-40">·</span>
+                            {need.slots} slot{need.slots !== 1 ? "s" : ""}
+                            {need.bundesland && <><span className="mx-1.5 opacity-40">·</span>{need.bundesland}</>}
+                            {need.city && <><span className="mx-1.5 opacity-40">·</span>{need.city}</>}
+                          </p>
+                        </div>
+                        {alreadyPlaced && (
+                          <span className="text-[9.5px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
+                            style={{ background: "rgba(52,199,89,0.1)", color: "#34c759", border: "1px solid rgba(52,199,89,0.2)" }}>
+                            ✓ placed
+                          </span>
+                        )}
+                      </div>
+                      {/* Assign candidate dropdown */}
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={needAssign[need.id] ?? ""}
+                          onChange={e => setNeedAssign(p => ({ ...p, [need.id]: e.target.value }))}
+                          className="flex-1 text-[11px] px-2 py-1.5 outline-none"
+                          style={{ background: "var(--bg)", color: "var(--w2)", border: "1px solid var(--border)", borderRadius: "8px", minWidth: 0 }}>
+                          <option value="">Assign candidate…</option>
+                          {Object.entries(users).map(([uid, u]) => {
+                            const alreadyLinked = (candidateOrgs[uid] ?? []).some(o => o.id === need.orgId);
+                            return (
+                              <option key={uid} value={uid} disabled={alreadyLinked}>
+                                {u.name || u.email}{alreadyLinked ? " (linked)" : ""}
+                              </option>
+                            );
+                          })}
+                        </select>
+                        <button
+                          onClick={() => assignNeedCandidate(need, needAssign[need.id] ?? "")}
+                          disabled={!needAssign[need.id] || !!needPlacing[need.id]}
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-3 py-1.5 flex-shrink-0 transition-all disabled:opacity-40"
+                          style={{ background: "var(--gold)", color: "#131312", border: "none", borderRadius: "8px" }}>
+                          {needPlacing[need.id] ? "…" : "Link →"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ── Suggested matches inbox ──────────────────────────────────── */}
+          {suggestedMatches.length > 0 && (
+            <div className="mb-6 p-5"
+              style={{ background: "var(--card)", borderRadius: "20px", border: "1px solid var(--info-border)", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+              <div className="flex items-center gap-2 mb-3">
+                <svg width="13" height="13" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
+                  <path d="M19.998 3.094 14.638 0l-2.972 5.15H5.432v6.354L0 14.64 3.094 20 0 25.359l5.432 3.137v6.355h6.234L14.638 40l5.36-3.094L25.358 40l2.978-5.149h6.227v-6.355L40 25.359 36.905 20 40 14.64l-5.438-3.135V5.15h-6.227L25.358 0l-5.36 3.094Z" fill="var(--info)"/>
+                </svg>
+                <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--info)" }}>
+                  Suggested matches · {suggestedMatches.length}
+                </p>
+              </div>
+              <div className="space-y-2">
+                {suggestedMatches.map(m => (
+                  <div key={m.id} className="p-3 flex items-center gap-3"
+                    style={{ background: "var(--bg2)", borderRadius: "var(--r-md)", border: "1px solid var(--border)" }}>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12.5px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>{m.candidateName}</p>
+                      <p className="text-[11px] mt-0.5" style={{ color: "var(--w3)" }}>
+                        → <span style={{ color: "var(--w2)" }}>{m.orgName}</span>
+                        {m.requirement && (
+                          <>
+                            {m.requirement.specialty && <span> · {m.requirement.specialty}</span>}
+                            {m.requirement.location  && <span> · {m.requirement.location}</span>}
+                            <span> · {m.requirement.slots} slot{m.requirement.slots !== 1 ? "s" : ""}</span>
+                            {m.requirement.start_date && <span> · from {m.requirement.start_date}</span>}
+                          </>
+                        )}
+                      </p>
+                    </div>
+                    <button onClick={() => decideMatch(m.id, "accepted")} disabled={!!matchDeciding[m.id]}
+                      title="Accept — links candidate to org"
+                      className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-3 py-1.5 transition-all disabled:opacity-50"
+                      style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)", borderRadius: "var(--r-sm)" }}>
+                      {matchDeciding[m.id] ? <Spinner size="xs" color="var(--success)" /> : "✓ Accept"}
+                    </button>
+                    <button onClick={() => decideMatch(m.id, "skipped")} disabled={!!matchDeciding[m.id]}
+                      title="Skip — removes from inbox"
+                      className="bv-icon-btn bv-icon-btn--reject w-8 h-8 rounded-full flex items-center justify-center disabled:opacity-40">
+                      <XIcon size={12} strokeWidth={1.8} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Search + filter row — works on the full candidate list (pending + archived combined) */}
           {(pendingUserIds.length + archivedUserIds.length) > 0 && (() => {
@@ -2288,7 +2666,7 @@ export default function AdminPage() {
                 const mostRecent = pendingDocs
                   .reduce((latest, d) => new Date(d.uploaded_at) > new Date(latest) ? d.uploaded_at : latest,
                     allDocs[0].uploaded_at);
-                const ta = timeAgo(mostRecent);
+                const ta = timeAgo(mostRecent, lang);
                 const isExpanded = expandedRow === uid;
                 const openPanel = () => { setSelectedUser(uid); setActivePhase(0); setPassportDataFeedback(profiles[uid]?.passport_feedback ?? ""); };
 
@@ -2314,9 +2692,10 @@ export default function AdminPage() {
                       )}
 
                       <div className="flex-1 min-w-0">
-                        <p className="text-[13.5px] font-semibold truncate inline-flex items-center gap-0.5" style={{ color: "var(--w)" }}>
+                        <p className="text-[13.5px] font-semibold truncate inline-flex items-center gap-0.5 flex-wrap" style={{ color: "var(--w)" }}>
                           {user.name}
-                          <VerifiedBadge verified={!!profiles[uid]?.manually_verified} size="xs" />
+                          <VerifiedBadge verified={!!profiles[uid]?.manually_verified} size="xs" color="gold" />
+                          <PaymentBadge tier={profiles[uid]?.payment_tier} />
                         </p>
                         <p className="text-[11.5px] truncate mt-0.5" style={{ color: "var(--w3)" }}>
                           {user.email}
@@ -2338,7 +2717,7 @@ export default function AdminPage() {
                       {/* Status — colored text only, no chip */}
                       {isClear ? (
                         <span className="inline-flex items-center gap-1 text-[11.5px] font-semibold flex-shrink-0"
-                          style={{ color: "#34c759" }}>
+                          style={{ color: "var(--success)" }}>
                           <CheckCircle2 size={12} strokeWidth={2.2} /> All clear
                         </span>
                       ) : (
@@ -2376,7 +2755,7 @@ export default function AdminPage() {
                         </p>
                         <div className="space-y-1">
                           {pendingDocs.slice(0, 8).map(d => {
-                            const dta = timeAgo(d.uploaded_at);
+                            const dta = timeAgo(d.uploaded_at, lang);
                             return (
                               <div key={d.id} className="flex items-center gap-3 px-3 py-2 rounded-lg"
                                 style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
@@ -2437,22 +2816,23 @@ export default function AdminPage() {
                           </span>
                         )}
                         <div className="flex-1 min-w-0">
-                          <p className="text-[12.5px] font-medium truncate tracking-tight inline-flex items-center gap-0.5" style={{ color: "var(--w)" }}>
+                          <p className="text-[12.5px] font-medium truncate tracking-tight inline-flex items-center gap-0.5 flex-wrap" style={{ color: "var(--w)" }}>
                             {user.name}
-                            <VerifiedBadge verified={!!profiles[uid]?.manually_verified} size="xs" />
+                            <VerifiedBadge verified={!!profiles[uid]?.manually_verified} size="xs" color="gold" />
+                            <PaymentBadge tier={profiles[uid]?.payment_tier} />
                           </p>
                           <p className="text-[11px] truncate mt-0.5" style={{ color: "var(--w3)" }}>{user.email}</p>
                         </div>
                         <div className="flex items-center gap-3 flex-shrink-0">
                           {approvedCnt > 0 && (
                             <span className="inline-flex items-center gap-1 text-[11px] font-semibold"
-                              style={{ color: "#34c759" }}>
+                              style={{ color: "var(--success)" }}>
                               <CheckCircle2 size={11} strokeWidth={2} /> {approvedCnt}
                             </span>
                           )}
                           {rejectedCnt > 0 && (
                             <span className="inline-flex items-center gap-1 text-[11px] font-semibold"
-                              style={{ color: "#e05252" }}>
+                              style={{ color: "var(--danger)" }}>
                               <XCircle size={11} strokeWidth={2} /> {rejectedCnt}
                             </span>
                           )}
@@ -2479,3 +2859,5 @@ export default function AdminPage() {
     </>
   );
 }
+
+

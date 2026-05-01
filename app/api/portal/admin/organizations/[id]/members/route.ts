@@ -38,13 +38,19 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   const saByEmail: Record<string, SubAdminRow> = {};
   for (const s of subAdmins) saByEmail[s.email] = s;
 
-  const members = memberRows.map(r => ({
-    email: r.sub_admin_email,
-    role:  r.role,
-    created_at: r.created_at,
-    name:  saByEmail[r.sub_admin_email]?.name  ?? "",
-    label: saByEmail[r.sub_admin_email]?.label ?? "",
-  }));
+  // Never expose the supreme admin as a "member" — they may appear in
+  // organization_members for technical reasons but should not be shown here.
+  const adminEmail = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
+
+  const members = memberRows
+    .filter(r => r.sub_admin_email !== adminEmail)
+    .map(r => ({
+      email: r.sub_admin_email,
+      role:  r.role,
+      created_at: r.created_at,
+      name:  saByEmail[r.sub_admin_email]?.name  ?? "",
+      label: saByEmail[r.sub_admin_email]?.label ?? "",
+    }));
 
   return NextResponse.json({ members });
 }

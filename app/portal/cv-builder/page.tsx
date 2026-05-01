@@ -865,7 +865,7 @@ function InternshipInfoPopup({ open, onClose }: { open: boolean; onClose: () => 
           style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
           <div className="px-6 pt-6 pb-2 text-center">
             <span className="mx-auto mb-3 flex items-center justify-center w-12 h-12 rounded-full"
-              style={{ background: "rgba(74,144,217,0.15)", color: "#4a90d9" }}>
+              style={{ background: "var(--info-bg)", color: "var(--info)" }}>
               <Info size={20} strokeWidth={1.8} />
             </span>
             <h3 className="text-[16px] font-semibold mb-4" style={{ color: "var(--w)" }}>{title}</h3>
@@ -1050,7 +1050,7 @@ function AbiturInfoPopup({ open, onClose }: { open: boolean; onClose: () => void
           style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
           <div className="px-6 pt-6 pb-2 text-center">
             <span className="mx-auto mb-3 flex items-center justify-center w-12 h-12 rounded-full"
-              style={{ background: "rgba(74,144,217,0.15)", color: "#4a90d9" }}>
+              style={{ background: "var(--info-bg)", color: "var(--info)" }}>
               <Info size={20} strokeWidth={1.8} />
             </span>
             <h3 className="text-[16px] font-semibold mb-4" style={{ color: "var(--w)" }}>{title}</h3>
@@ -2124,19 +2124,24 @@ export default function CVBuilderPage() {
       img.onerror = reject;
       img.src = dataUrl;
     });
-    // 1. Tell every avatar in the page (ProfileIcon) to refresh now —
-    //    independent of any approval status. This is the candidate's
-    //    photo: no admin gate, no waiting for passport / Lebenslauf.
+    // 1. Broadcast base64 immediately so the navbar avatar updates at once
+    //    (no wait for the network round-trip to Storage).
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("bv-profile-photo-changed", { detail: { photo: small } }));
     }
-    // 2. Persist to candidate_profiles.profile_photo so it sticks across
-    //    sessions and shows up on the public profile + popup.
-    await fetch("/api/portal/me/profile-photo", {
+    // 2. Persist to Supabase Storage (profile_photo stores the public URL).
+    const res = await fetch("/api/portal/me/profile-photo", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
       body: JSON.stringify({ photo: small }),
     });
+    // 3. Re-broadcast with the Storage URL so subsequent renders use the CDN URL.
+    if (res.ok) {
+      const json = await res.json().catch(() => ({}));
+      if (json.photo && typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("bv-profile-photo-changed", { detail: { photo: json.photo } }));
+      }
+    }
   }
 
   // ── Work ──────────────────────────────────────────────────────────────────
@@ -2471,7 +2476,7 @@ export default function CVBuilderPage() {
         onClose={() => setExtraNatPickerOpen(false)}
       />
     )}
-    <main className="min-h-screen pt-[72px] pb-16 px-4" style={{ background: "var(--bg)" }}>
+    <main className="bv-page-bottom min-h-screen pt-[72px] pb-16 px-4" style={{ background: "var(--bg)" }}>
       <div className="max-w-2xl mx-auto bv-enter-soft">
 
         {/* Header — refined hierarchy */}
@@ -2887,7 +2892,7 @@ export default function CVBuilderPage() {
                       <button type="button" onClick={() => setAbiturInfoOpen(true)}
                         aria-label="Info"
                         className="inline-flex items-center justify-center w-5 h-5 rounded-full transition-opacity hover:opacity-80"
-                        style={{ background: "rgba(74,144,217,0.18)", color: "#4a90d9", border: "none", cursor: "pointer" }}>
+                        style={{ background: "var(--info-bg)", color: "var(--info)", border: "none", cursor: "pointer" }}>
                         <Info size={11} strokeWidth={2.2} />
                       </button>
                     )}
@@ -3047,7 +3052,7 @@ export default function CVBuilderPage() {
                       <button type="button" onClick={() => setInternshipInfoOpen(true)}
                         aria-label="Info"
                         className="inline-flex items-center justify-center w-5 h-5 rounded-full transition-opacity hover:opacity-80"
-                        style={{ background: "rgba(74,144,217,0.18)", color: "#4a90d9", border: "none", cursor: "pointer" }}>
+                        style={{ background: "var(--info-bg)", color: "var(--info)", border: "none", cursor: "pointer" }}>
                         <Info size={11} strokeWidth={2.2} />
                       </button>
                     )}
@@ -3555,7 +3560,7 @@ export default function CVBuilderPage() {
               setTimeout(() => document.getElementById("work-section")?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
             }}
             className="w-full inline-flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-opacity hover:opacity-80"
-            style={{ background: "rgba(74,144,217,0.12)", color: "#4a90d9" }}>
+            style={{ background: "var(--info-bg)", color: "var(--info)" }}>
             <FilePen size={14} strokeWidth={1.8} /> {lang === "fr" ? "Aller compléter l'expérience" : lang === "de" ? "Berufserfahrung ergänzen" : "Go fill in experience"}
           </button>
         </div>
@@ -3564,10 +3569,20 @@ export default function CVBuilderPage() {
 
     {/* ── CV PDF Preview modal ── */}
     {showCvPreview && pdfUrl && typeof document !== "undefined" && createPortal(
-      <div className="fixed inset-0 z-[800] flex items-center justify-center p-4"
-        style={{ background: "rgba(0,0,0,0.72)" }}
+      <div className="fixed inset-x-0 z-[800] flex items-center justify-center p-4 bv-cvprev-outer"
+        style={{ background: "rgba(0,0,0,0.72)", top: "58px", bottom: 0 }}
         onClick={() => setShowCvPreview(false)}>
-        <div className="w-full max-w-4xl flex flex-col overflow-hidden"
+        {/* Mobile: leave clearance for the bottom action bar (same as Reisepass preview) */}
+        <style>{`
+          @media (max-width: 639.98px) {
+            .bv-cvprev-outer { padding-bottom: calc(1rem + 72px) !important; }
+            .bv-cvprev-card  {
+              height: calc(100dvh - 58px - 1rem - 72px - 1rem) !important;
+              max-height: calc(100dvh - 58px - 1rem - 72px - 1rem) !important;
+            }
+          }
+        `}</style>
+        <div className="bv-cvprev-card w-full max-w-3xl flex flex-col overflow-hidden"
           style={{
             background: "var(--card)",
             border: "1px solid var(--border)",

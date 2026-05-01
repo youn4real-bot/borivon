@@ -47,11 +47,9 @@ export function GlobalChrome({ children }: { children: React.ReactNode }) {
           <div className={isPortal ? "pb-[100px] sm:pb-0" : ""}>
             {children}
           </div>
-          {/* Bug-report button is global now — shows on every page (public
-              profiles, marketing site, portal). The component itself returns
-              null for anonymous visitors, so it only surfaces once the user
-              has signed in. */}
-          <BugReportButton />
+          {/* Bug-report button: portal-only. Public/marketing pages never render
+              it so a stale cached session can't leak after logout. */}
+          {isPortal && <BugReportButton />}
         </MobileMenuProvider>
       </LangProvider>
     </ThemeProvider>

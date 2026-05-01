@@ -75,7 +75,10 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * DELETE — reject a pending request (removes the link entirely).
+ * DELETE — reject a pending request.
+ * Writes status='rejected' (audit trail) instead of hard-deleting the row.
+ * Rejected rows are excluded from the pending inbox (filtered by status='pending')
+ * and treated as "not linked" in the org candidates panel.
  * Body: { candidateUserId: string, orgId: string }
  */
 export async function DELETE(req: NextRequest) {
@@ -90,8 +93,10 @@ export async function DELETE(req: NextRequest) {
   if (!UUID_RE.test(orgId))           return NextResponse.json({ error: "Invalid org id" },       { status: 400 });
 
   const db = getServiceSupabase();
+  // Mark as rejected — preserves the audit trail of who applied to which org.
+  // The pending inbox filters by status='pending' so this row disappears from the inbox.
   await db.from("candidate_organizations")
-    .delete()
+    .update({ status: "rejected" })
     .eq("candidate_user_id", candidateUserId)
     .eq("org_id", orgId)
     .eq("status", "pending");

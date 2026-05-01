@@ -31,7 +31,11 @@ export async function GET(req: NextRequest) {
 
   const users = (authUsers ?? []).map(u => {
     const p = profileMap[u.id];
-    const name = [p?.first_name, p?.last_name].filter(Boolean).join(" ") || "";
+    // Prefer profile DB name → fall back to auth user_metadata set at signup
+    const profileName = [p?.first_name, p?.last_name].filter(Boolean).join(" ");
+    const metaName = (u.user_metadata?.full_name as string | undefined)?.trim()
+      || [u.user_metadata?.first_name, u.user_metadata?.last_name].filter(Boolean).join(" ");
+    const name = profileName || metaName || "";
     const role = adminEmails.has((u.email ?? "").toLowerCase()) ? "admin" : "candidate";
     return { id: u.id, email: u.email ?? "", name, role, createdAt: u.created_at };
   });

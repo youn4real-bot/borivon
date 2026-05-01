@@ -51,6 +51,8 @@ type AdminConversation = {
   unread: number;
   verified?: boolean;
   photoUrl?: string | null;
+  paymentTier?: string | null;
+  isOrgMember?: boolean;
 };
 
 type ViewState =
@@ -241,7 +243,7 @@ function MessageBubble({ msg, mine, lang, showAvatar, senderInitial, senderAvata
           {isBug && (
             <p className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.14em] mb-1"
               style={{ color: mine ? "rgba(19,19,18,0.7)" : "#e05252" }}>
-              <Bug size={10} strokeWidth={2.2} /> Bug report
+              <Bug size={10} strokeWidth={2.2} /> {lang === "fr" ? "Rapport de bug" : lang === "de" ? "Fehlerbericht" : "Bug report"}
             </p>
           )}
           {/* Attachment first, caption below — matches WhatsApp/Telegram convention. */}
@@ -482,7 +484,7 @@ function ComposeBar({
 function ThreadModal({
   title, subtitle, msgs, mineRole, scrollRef, onSend, onClose, lang,
   otherInitial, otherName, ownInitial, ownName, verifiedOther, isAdminOther,
-  otherAvatarUrl, ownAvatarUrl,
+  otherAvatarUrl, ownAvatarUrl, otherBadgeColor,
 }: {
   title: string;
   subtitle?: string;
@@ -500,6 +502,8 @@ function ThreadModal({
   isAdminOther?: boolean;
   /** Actual photo URL for the other party (candidate photo or admin logo) */
   otherAvatarUrl?: string | null;
+  /** Override badge color for the other party (e.g. "red" for org admins) */
+  otherBadgeColor?: "gold" | "red" | "black" | "blue";
   /** Actual photo URL for the current user (candidate photo or admin logo) */
   ownAvatarUrl?: string | null;
 }) {
@@ -641,7 +645,7 @@ function ThreadModal({
           <div className="flex-1 min-w-0">
             <p className="text-[14px] font-semibold tracking-tight truncate inline-flex items-center gap-0.5" style={{ color: "var(--w)" }}>
               {title}
-              {verifiedOther && <VerifiedBadge verified size="xs" isAdmin={!!isAdminOther} />}
+              {verifiedOther && <VerifiedBadge verified size="xs" isAdmin={!!isAdminOther} color={otherBadgeColor ?? (isAdminOther ? "black" : "gold")} />}
             </p>
             {subtitle && <p className="text-[11px] truncate" style={{ color: "var(--w3)" }}>{subtitle}</p>}
           </div>
@@ -864,8 +868,7 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
   }
 
   const title = lang === "fr" ? "Messages" : lang === "de" ? "Nachrichten" : "Messages";
-  const teamName = lang === "fr" ? "Équipe Borivon" : lang === "de" ? "Borivon-Team" : "Borivon team";
-  const teamSubtitle = lang === "fr" ? "Support & questions" : lang === "de" ? "Support & Fragen" : "Support & questions";
+  const teamName = lang === "fr" ? "Équipe Borivon" : lang === "de" ? "Borivon Team" : "Borivon team";
 
   // Build a single fake "conversation" row from the candidate's thread so the
   // list dropdown looks like the admin's. Last message preview = last msg body.
@@ -888,18 +891,14 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
             <div className="overflow-y-auto" style={{ background: "var(--bg)", maxHeight: 460 }}>
               <button onClick={openThread}
                 className="bv-row-hover w-full text-left px-3.5 py-3 flex items-center gap-2.5 transition-colors">
-                <div className="w-9 h-9 rounded-full flex items-center justify-center text-[12.5px] font-bold flex-shrink-0"
-                  style={{
-                    background: unread > 0 ? "var(--gdim)" : "var(--bg2)",
-                    color: unread > 0 ? "var(--gold)" : "var(--w3)",
-                    border: `1px solid ${unread > 0 ? "var(--border-gold)" : "var(--border)"}`,
-                  }}>
-                  B
-                </div>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={ADMIN_LOGO_URL} alt="Borivon"
+                  className="w-9 h-9 rounded-full object-cover flex-shrink-0"
+                  style={{ border: `1px solid ${unread > 0 ? "var(--border-gold)" : "var(--border)"}` }} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-[13px] font-semibold truncate inline-flex items-center" style={{ color: "var(--w)" }}>
-                      {teamName}<VerifiedBadge verified size="xs" title="Borivon" />
+                      {teamName}<VerifiedBadge verified size="xs" title="Borivon" color="black" />
                     </p>
                     {last && <span className="text-[9.5px] flex-shrink-0" style={{ color: "var(--w3)" }}>{fmtTime(lastAt, lang)}</span>}
                   </div>
@@ -909,7 +908,7 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
                       <span className="truncate" style={{ color: "var(--w3)" }}>{startConversation}</span>
                     ) : (
                       <>
-                        {lastSender === "candidate" && <span style={{ color: "var(--w3)", flexShrink: 0 }}>You: </span>}
+                        {lastSender === "candidate" && <span style={{ color: "var(--w3)", flexShrink: 0 }}>{lang === "fr" ? "Vous : " : lang === "de" ? "Sie: " : "You: "}</span>}
                         <span className="truncate">{hasAttachment && !lastBody ? "📎 image" : (lastBody || "—")}</span>
                       </>
                     )}
@@ -928,7 +927,7 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
       </div>
       {threadOpen && (
         <ThreadModal
-          title={teamName} subtitle={teamSubtitle}
+          title={teamName}
           msgs={msgs} mineRole="candidate"
           scrollRef={scrollRef}
           onSend={send}
@@ -1092,9 +1091,25 @@ function AdminInbox({ accessToken }: { accessToken: string }) {
           otherAvatarUrl={activeThread.photoUrl ?? null}
           ownAvatarUrl={ADMIN_LOGO_URL}
           verifiedOther={!!activeThread.verified}
+          otherBadgeColor={activeThread.isOrgMember ? "red" : "gold"}
         />
       )}
     </>
+  );
+}
+
+function MsgPaymentBadge({ tier }: { tier?: string | null }) {
+  if (!tier) return null;
+  const isK = tier === "kandidat";
+  return (
+    <span className="inline-flex items-center text-[8.5px] font-bold uppercase tracking-wider px-1 py-0.5 rounded-full ml-0.5 flex-shrink-0"
+      style={{
+        background: isK ? "rgba(212,175,55,0.15)" : "var(--info-bg)",
+        color:      isK ? "var(--gold)"           : "var(--info)",
+        border:     isK ? "1px solid rgba(212,175,55,0.4)" : "1px solid var(--info-border)",
+      }}>
+      {isK ? "★ K" : "S"}
+    </span>
   );
 }
 
@@ -1117,26 +1132,34 @@ function ConversationList({
           onClick={() => onPick(c)}
           className="bv-row-hover w-full text-left px-3.5 py-3 flex items-center gap-2.5 transition-colors"
           style={{ borderTop: i === 0 ? "none" : "1px solid var(--border)" }}>
-          <div className="w-9 h-9 rounded-full flex items-center justify-center text-[12.5px] font-bold flex-shrink-0"
-            style={{
-              background: c.unread > 0 ? "var(--gdim)" : "var(--bg2)",
-              color: c.unread > 0 ? "var(--gold)" : "var(--w3)",
-              border: `1px solid ${c.unread > 0 ? "var(--border-gold)" : "var(--border)"}`,
-            }}>
-            {(c.name || c.email).charAt(0).toUpperCase()}
-          </div>
+          {c.photoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={c.photoUrl} alt={(c.name || c.email).charAt(0)}
+              className="w-9 h-9 rounded-full object-cover flex-shrink-0"
+              style={{ border: `1px solid ${c.unread > 0 ? "var(--border-gold)" : "var(--border)"}` }} />
+          ) : (
+            <div className="w-9 h-9 rounded-full flex items-center justify-center text-[12.5px] font-bold flex-shrink-0"
+              style={{
+                background: c.unread > 0 ? "var(--gdim)" : "var(--bg2)",
+                color: c.unread > 0 ? "var(--gold)" : "var(--w3)",
+                border: `1px solid ${c.unread > 0 ? "var(--border-gold)" : "var(--border)"}`,
+              }}>
+              {(c.name || c.email).charAt(0).toUpperCase()}
+            </div>
+          )}
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between gap-2">
               <p className="text-[13px] font-semibold truncate inline-flex items-center gap-0.5" style={{ color: "var(--w)" }}>
                 {c.name}
-                <VerifiedBadge verified={!!c.verified} size="xs" />
+                <VerifiedBadge verified={!!c.verified} size="xs" color={c.isOrgMember ? "red" : "gold"} />
+                <MsgPaymentBadge tier={c.paymentTier} />
               </p>
               <span className="text-[9.5px] flex-shrink-0" style={{ color: "var(--w3)" }}>{fmtTime(c.lastAt, lang)}</span>
             </div>
             <p className="text-[11px] truncate flex items-center gap-1 mt-0.5"
               style={{ color: c.unread > 0 ? "var(--w2)" : "var(--w3)", fontWeight: c.unread > 0 ? 500 : 400 }}>
               {c.lastKind === "bug" && <Bug size={10} strokeWidth={2.2} style={{ color: "#e05252", flexShrink: 0 }} />}
-              {c.lastSender === "admin" && <span style={{ color: "var(--w3)", flexShrink: 0 }}>You: </span>}
+              {c.lastSender === "admin" && <span style={{ color: "var(--w3)", flexShrink: 0 }}>{lang === "fr" ? "Vous : " : lang === "de" ? "Sie: " : "You: "}</span>}
               <span className="truncate">{c.hasAttachment && !c.lastBody ? "📎 image" : (c.lastBody || "—")}</span>
             </p>
           </div>

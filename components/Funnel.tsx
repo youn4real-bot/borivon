@@ -581,7 +581,7 @@ export function Funnel() {
             {il.fieldTi}
           </h2>
           <div className="flex flex-col" style={{ gap: SP_CHOICE_GAP }}>
-            <ChoiceRow label={il.pflege}   onClick={() => { setState((s) => ({ ...s, workField: "pflege" }));   goTo("s1pw"); }} />
+            <ChoiceRow label={il.pflege}   onClick={() => { setState((s) => ({ ...s, workField: "pflege" }));   goTo("s2pw"); }} />
             <ChoiceRow label={il.trucking} onClick={() => { setState((s) => ({ ...s, workField: "trucking" })); goTo("s2pw"); }} />
             <ChoiceRow label={il.it}       onClick={() => { setState((s) => ({ ...s, workField: "it" }));       goTo("s2pw"); }} />
             <ChoiceRow label={il.other}    onClick={() => { setState((s) => ({ ...s, workField: "other" }));    goTo("s2pw"); }} />

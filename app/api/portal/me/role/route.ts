@@ -1,20 +1,64 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminRole } from "@/lib/admin-auth";
+import { requireAdminRole, requireUser } from "@/lib/admin-auth";
+import { getServiceSupabase } from "@/lib/supabase";
 
 /**
- * Returns the caller's role for client-side UI gating ("Show admin button?").
- * Auth is the user's verified Supabase JWT; nothing here exposes the admin
- * identity (no NEXT_PUBLIC_ADMIN_EMAIL leak).
+ * Returns the caller's role for client-side routing.
  *
- *   200 { role: "admin" }     — full admin
- *   200 { role: "sub_admin" } — sub-admin
- *   200 { role: null }        — authenticated but no admin role
- *   401                      — no/invalid token
+ *   { role: "admin",      isSuperAdmin: true  }
+ *   { role: "sub_admin",  isSuperAdmin: false }
+ *   { role: "org_member", isSuperAdmin: false, orgId: "...", orgName: "..." }
+ *   { role: null,         isSuperAdmin: false }
  */
 export async function GET(req: NextRequest) {
+  // 1. Check admin first (full admin only — not sub_admin)
   const auth = await requireAdminRole(req);
-  if (auth.ok) return NextResponse.json({ role: auth.role });
-  // 401 means not signed in; 403 means signed in but no admin role
-  if (auth.status === 403) return NextResponse.json({ role: null });
-  return NextResponse.json({ error: auth.error }, { status: auth.status });
+  if (auth.ok && auth.role === "admin") {
+    return NextResponse.json({ role: "admin", isSuperAdmin: true });
+  }
+
+  // 2. Verify user identity (needed for org_member and sub_admin checks)
+  const user = await requireUser(req);
+  if (!user.ok) return NextResponse.json({ error: user.error }, { status: user.status });
+
+  const db = getServiceSupabase();
+
+  // 3. Check org membership BEFORE sub_admin — org members are also added to
+  //    sub_admins (so the admin panel can show their name), but they should be
+  //    routed to the org dashboard, not the admin panel.
+  const { data: membership } = await db
+    .from("organization_members")
+    .select("org_id, role")
+    .eq("sub_admin_email", user.email)
+    .maybeSingle();
+
+  if (membership) {
+    const { data: org } = await db
+      .from("organizations")
+      .select("name")
+      .eq("id", (membership as { org_id: string; role: string }).org_id)
+      .maybeSingle();
+
+    // Ensure org members are always verified — awaited so the write completes
+    // before the response returns (void would be killed by the serverless runtime).
+    await db.from("candidate_profiles").upsert(
+      { user_id: user.userId, manually_verified: true },
+      { onConflict: "user_id" },
+    );
+
+    return NextResponse.json({
+      role:        "org_member",
+      isSuperAdmin: false,
+      orgId:       (membership as { org_id: string }).org_id,
+      orgName:     (org as { name: string } | null)?.name ?? "",
+    });
+  }
+
+  // 4. Sub-admin (agent who manages candidates)
+  if (auth.ok && auth.role === "sub_admin") {
+    return NextResponse.json({ role: "sub_admin", isSuperAdmin: false });
+  }
+
+  // 5. Regular candidate
+  return NextResponse.json({ role: null, isSuperAdmin: false });
 }

@@ -102,28 +102,50 @@ export async function GET(req: NextRequest) {
     }
   }));
 
-  // Fetch verified status + profile photo for all candidates in one batch query
-  const profileMap: Record<string, { verified: boolean; photoUrl: string | null }> = {};
+  // Fetch verified status + profile photo + payment tier for all candidates in one batch query
+  const profileMap: Record<string, { verified: boolean; photoUrl: string | null; paymentTier: string | null }> = {};
   if (userIds.length > 0) {
     const { data: profiles } = await db
       .from("candidate_profiles")
-      .select("user_id, manually_verified, profile_photo")
+      .select("user_id, manually_verified, profile_photo, payment_tier")
       .in("user_id", userIds);
     for (const p of (profiles ?? [])) {
       profileMap[p.user_id] = {
-        verified: !!p.manually_verified,
-        photoUrl: (p as { profile_photo?: string | null }).profile_photo ?? null,
+        verified:    !!p.manually_verified,
+        photoUrl:    (p as { profile_photo?: string | null }).profile_photo ?? null,
+        paymentTier: (p as { payment_tier?: string | null }).payment_tier ?? null,
       };
     }
   }
 
+  // Determine which thread participants are org-admins (members of any organization).
+  // organization_members rows are keyed by sub_admin_email — match by email.
+  const orgAdminEmails = new Set<string>();
+  const allEmails = userIds
+    .map(uid => (userMap[uid]?.email ?? "").trim().toLowerCase())
+    .filter(Boolean);
+  if (allEmails.length > 0) {
+    const { data: members } = await db
+      .from("organization_members")
+      .select("sub_admin_email")
+      .in("sub_admin_email", allEmails);
+    for (const m of (members ?? []) as { sub_admin_email: string }[]) {
+      orgAdminEmails.add((m.sub_admin_email ?? "").trim().toLowerCase());
+    }
+  }
+
   const conversations = Object.values(threads)
-    .map(t => ({
-      ...t,
-      ...userMap[t.threadUserId],
-      verified: !!profileMap[t.threadUserId]?.verified,
-      photoUrl: profileMap[t.threadUserId]?.photoUrl ?? null,
-    }))
+    .map(t => {
+      const email = (userMap[t.threadUserId]?.email ?? "").trim().toLowerCase();
+      return {
+        ...t,
+        ...userMap[t.threadUserId],
+        verified:    !!profileMap[t.threadUserId]?.verified,
+        photoUrl:    profileMap[t.threadUserId]?.photoUrl ?? null,
+        paymentTier: profileMap[t.threadUserId]?.paymentTier ?? null,
+        isOrgMember: orgAdminEmails.has(email),
+      };
+    })
     .sort((a, b) => new Date(b.lastAt).getTime() - new Date(a.lastAt).getTime());
 
   return NextResponse.json({ conversations });

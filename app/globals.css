@@ -73,6 +73,26 @@
   --dur-1: 140ms;
   --dur-2: 220ms;
   --dur-3: 320ms;
+
+  /* ── Font family aliases (design-system canonical names) ─────────────── */
+  --font-sans:    var(--font-dm-sans);
+  --font-display: var(--font-dm-serif);
+
+  /* ── Semantic color tokens ────────────────────────────────────────────── */
+  --success:        #34c759;
+  --success-bg:     rgba(52, 199, 89, 0.10);
+  --success-border: rgba(52, 199, 89, 0.24);
+  --danger:         #e05252;
+  --danger-bg:      rgba(224, 82, 82, 0.08);
+  --danger-border:  rgba(224, 82, 82, 0.22);
+  --info:           #5b9ae0;
+  --info-bg:        rgba(91, 154, 224, 0.12);
+  --info-border:    rgba(91, 154, 224, 0.24);
+
+  /* ── German flag strip colors ─────────────────────────────────────────── */
+  --flag-black: #111111;
+  --flag-red:   #cc0000;
+  --flag-gold:  #ffce00;
 }
 
 .light {
@@ -284,8 +304,24 @@ textarea:focus {
   background: var(--gold);
   color: #131312;
   border: 1px solid var(--gold);
+  box-shadow: var(--shadow-gold-sm);
 }
-.bv-btn-primary:hover:not(:disabled) { background: var(--gold2); border-color: var(--gold2); }
+.bv-btn-primary:hover:not(:disabled) {
+  background: var(--gold2);
+  border-color: var(--gold2);
+  box-shadow: var(--shadow-gold-hover);
+}
+
+.bv-btn-primary-lg {
+  background: var(--gold-gradient);
+  color: #09090a;
+  padding: 0.85rem 1.3rem;
+  font-size: 0.92rem;
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-gold-md);
+  border: none;
+}
+.bv-btn-primary-lg:hover:not(:disabled) { box-shadow: var(--shadow-gold-hover); }
 
 .bv-btn-ghost {
   background: var(--bg2);
@@ -343,6 +379,15 @@ textarea:focus {
 
 /* Section eyebrow label */
 .bv-eyebrow {
+  font-family: var(--font-sans);
+  font-size: clamp(0.58rem, 1.3vw, 0.66rem);
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+.bv-eyebrow-muted {
+  font-family: var(--font-sans);
   font-size: 0.65rem;
   font-weight: 600;
   letter-spacing: 0.12em;
@@ -674,6 +719,237 @@ textarea:focus {
   background-color: var(--bg2);
   animation: bvSkeletonShimmer 1.4s ease-in-out infinite;
 }
+
+/* ────────────────────────────────────────────────────────────────────────
+   DESIGN SYSTEM — additional utility classes from Borivon Design System
+   ──────────────────────────────────────────────────────────────────────── */
+
+/* Typography scale */
+.bv-hero {
+  font-family: var(--font-sans);
+  font-size: clamp(2.2rem, 4.5vw, 3.6rem);
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+  color: var(--w);
+}
+.bv-hero em {
+  font-family: var(--font-display);
+  font-style: italic;
+  color: var(--gold);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+}
+
+.bv-h1 {
+  font-family: var(--font-sans);
+  font-size: clamp(1.6rem, 3.2vw, 2.2rem);
+  font-weight: 500;
+  line-height: 1.12;
+  letter-spacing: -0.022em;
+  color: var(--w);
+}
+
+.bv-h2 {
+  font-family: var(--font-sans);
+  font-size: clamp(1.15rem, 2.4vw, 1.45rem);
+  font-weight: 500;
+  line-height: 1.18;
+  letter-spacing: -0.02em;
+  color: var(--w);
+}
+
+.bv-h3 {
+  font-family: var(--font-sans);
+  font-size: clamp(1rem, 1.8vw, 1.1rem);
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.012em;
+  color: var(--w);
+}
+
+.bv-body {
+  font-family: var(--font-sans);
+  font-size: 0.94rem;
+  font-weight: 400;
+  line-height: 1.7;
+  color: var(--w2);
+}
+.bv-body-lg {
+  font-family: var(--font-sans);
+  font-size: 1.02rem;
+  font-weight: 400;
+  line-height: 1.75;
+  color: var(--w2);
+}
+
+.bv-small {
+  font-family: var(--font-sans);
+  font-size: 0.78rem;
+  font-weight: 400;
+  line-height: 1.55;
+  color: var(--w3);
+}
+
+.bv-wordmark {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  font-size: clamp(1.15rem, 3.5vw, 1.4rem);
+  letter-spacing: -0.01em;
+  color: var(--w);
+  text-decoration: none;
+}
+.bv-wordmark-dot { color: var(--gold); font-style: normal; }
+
+.bv-num {
+  font-family: var(--font-sans);
+  font-feature-settings: "tnum" 1, "lnum" 1;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+/* Status pill with animated live dot */
+.bv-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.42rem 1.1rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  letter-spacing: 0.03em;
+  border: 1px solid var(--border2);
+  background: var(--bg2);
+  color: var(--w3);
+}
+.bv-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--success);
+  flex-shrink: 0;
+  animation: bv-pulse 2s ease-in-out infinite;
+}
+@keyframes bv-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+/* Choice row — funnel signature interaction */
+.bv-choice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.85rem 1rem;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  color: var(--w);
+  font-family: var(--font-sans);
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease);
+}
+.bv-choice:hover {
+  background: var(--gdim);
+  border-color: var(--border-gold);
+  transform: translateX(3px);
+}
+.bv-choice .bv-choice-arrow {
+  color: var(--w3);
+  font-size: 0.82rem;
+  transition: transform var(--dur-1) var(--ease);
+}
+.bv-choice:hover .bv-choice-arrow { transform: translateX(2px); color: var(--gold); }
+
+/* Summary badge — gold-tinted confirmation row */
+.bv-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.55rem 0.8rem;
+  border-radius: var(--r-md);
+  background: var(--gdim);
+  border: 1px solid var(--border-gold);
+  font-size: 0.78rem;
+  color: var(--w2);
+  line-height: 1.5;
+}
+.bv-summary strong { color: var(--gold); font-weight: 600; }
+
+/* German flag strip — fixed at top of every page */
+.bv-flag-strip {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  z-index: 1201;
+  display: flex;
+}
+.bv-flag-strip > div:nth-child(1) { flex: 1; background: var(--flag-black); }
+.bv-flag-strip > div:nth-child(2) { flex: 1; background: var(--flag-red); }
+.bv-flag-strip > div:nth-child(3) { flex: 1; background: var(--flag-gold); }
+
+/* Navbar glass shell */
+.bv-nav {
+  position: fixed;
+  top: 2px; left: 0; right: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 3.5vw;
+  height: 56px;
+  background: var(--nav-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+}
+
+/* Background watermark — giant italic "B" */
+.bv-watermark {
+  position: fixed;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 62vw;
+  line-height: 1;
+  letter-spacing: -0.05em;
+  color: rgba(255, 255, 255, 0.011);
+  pointer-events: none;
+  user-select: none;
+  z-index: 0;
+}
+.light .bv-watermark { color: rgba(0, 0, 0, 0.018); }
+
+/* Ambient gold glow — fixed behind hero */
+.bv-ambient-glow {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(ellipse 80% 60% at 10% 0%,  rgba(201,162,64,0.07) 0%, transparent 65%),
+    radial-gradient(ellipse 60% 70% at 90% 100%, rgba(201,162,64,0.05) 0%, transparent 65%);
+}
+.light .bv-ambient-glow {
+  background:
+    radial-gradient(ellipse 80% 60% at 10% 0%,  rgba(173,139,58,0.05) 0%, transparent 65%),
+    radial-gradient(ellipse 60% 70% at 90% 100%, rgba(173,139,58,0.03) 0%, transparent 65%);
+}
+
+/* Gold top accent line — premium card tops */
+.bv-gold-accent {
+  position: absolute;
+  top: -1px; left: 0; right: 0;
+  height: 2px;
+  opacity: 0.6;
+  background: linear-gradient(to right, transparent, var(--gold), transparent);
+}
+
+/* Step transition entrance */
+.bv-step-enter { animation: bvSlideUp 0.28s var(--ease) both; }
 
 /* Doc slot highlight pulse — triggered when notification deep-links to a slot */
 @keyframes bv-doc-glow {

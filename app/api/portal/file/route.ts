@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
-import { requireAdminRole } from "@/lib/admin-auth";
+import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 
 function getDriveClient() {
   const auth = new google.auth.GoogleAuth({
@@ -32,20 +32,15 @@ async function isAuthorised(req: NextRequest, fileId: string): Promise<boolean> 
   const adminAuth = await requireAdminRole(req);
   if (adminAuth.ok) {
     if (adminAuth.role === "admin") return true;
-    // Sub-admin: file must belong to one of their assigned candidates
+    // Sub-admin / org-admin: file must belong to a candidate they have access
+    // to (direct assignment OR org-based via candidate_organizations).
     const { data: doc } = await db
       .from("documents")
       .select("user_id")
       .eq("drive_file_id", fileId)
       .maybeSingle();
     if (!doc) return false;
-    const { data: assigned } = await db
-      .from("sub_admin_assignments")
-      .select("candidate_user_id")
-      .eq("sub_admin_email", adminAuth.email)
-      .eq("candidate_user_id", doc.user_id)
-      .maybeSingle();
-    return !!assigned;
+    return canActOnCandidate(adminAuth.role, adminAuth.email, doc.user_id);
   }
 
   // ── B) Candidate Bearer token ─────────────────────────────────────────────

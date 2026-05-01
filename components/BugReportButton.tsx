@@ -32,10 +32,20 @@ export function BugReportButton() {
 
   useEffect(() => {
     let mounted = true;
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (mounted) setToken(session?.access_token ?? null);
+    // Use getUser() — does a server-side token check, never returns a stale
+    // localStorage session after the user has signed out.
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!mounted) return;
+      if (!user) { setToken(null); return; }
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (mounted) setToken(session?.access_token ?? null);
+      });
     });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_evt, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((evt, session) => {
+      if (evt === "SIGNED_OUT") {
+        setToken(null); // clear immediately — don't wait for the next render cycle
+        return;
+      }
       setToken(session?.access_token ?? null);
     });
     return () => { mounted = false; subscription.unsubscribe(); };

@@ -62,7 +62,23 @@ function CallbackInner() {
             }).catch(() => {});
           }
         }
-        router.replace("/portal/dashboard");
+        // Auto-redeem pending invite — URL param survives cross-browser email opens
+        const inviteCode = params.get("invite") || (typeof window !== "undefined" ? localStorage.getItem("bv_invite_code") : null);
+        let inviteType: string | null = null;
+        if (inviteCode && accessToken) {
+          try {
+            const invRes = await fetch(`/api/portal/invite/${encodeURIComponent(inviteCode)}`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${accessToken}` },
+            });
+            if (invRes.ok) {
+              const invJson = await invRes.json();
+              inviteType = invJson.type ?? null;
+            }
+          } catch { /* ignore */ }
+          localStorage.removeItem("bv_invite_code");
+        }
+        router.replace(inviteType === "member" ? "/portal/org/dashboard" : "/portal/dashboard");
         return;
       }
 
