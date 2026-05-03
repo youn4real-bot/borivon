@@ -64,6 +64,15 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // 5. Regular candidate
-  return NextResponse.json({ role: null, isSuperAdmin: false });
+  // 5. Regular candidate — also return payment_tier so the navbar can hide
+  //    the upgrade modal entirely for users who already paid for the
+  //    Premium ("kandidat") plan, and hide the cheaper Starter plan from
+  //    users who already have it (or already have Premium).
+  const { data: profile } = await db
+    .from("candidate_profiles")
+    .select("payment_tier")
+    .eq("user_id", user.userId)
+    .maybeSingle();
+  const paymentTier = (profile as { payment_tier?: string | null } | null)?.payment_tier ?? null;
+  return NextResponse.json({ role: "candidate", isSuperAdmin: false, paymentTier });
 }

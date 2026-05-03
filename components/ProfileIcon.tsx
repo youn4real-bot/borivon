@@ -107,6 +107,9 @@ type UserInfo = {
   isSuperAdmin: boolean;
   /** Org name for org_member — shown as "Admin of X" in the profile modal. */
   orgName: string | null;
+  /** Stripe payment tier — null=free, "starter"=€9, "kandidat"=€99 (Premium).
+   *  Used to hide upgrade prompts that the user has already outgrown. */
+  paymentTier: string | null;
 };
 
 export function ProfileIcon() {
@@ -179,6 +182,7 @@ export function ProfileIcon() {
       let isOrgMember = false;
       let isSuperAdmin = false;
       let orgName: string | null = null;
+      let paymentTier: string | null = null;
       try {
         if (session?.access_token) {
           const res = await fetch("/api/portal/me/role", {
@@ -189,6 +193,7 @@ export function ProfileIcon() {
           isOrgMember  = json.role === "org_member";
           isSuperAdmin = json.isSuperAdmin === true;
           if (isOrgMember) orgName = json.orgName ?? null;
+          if (typeof json.paymentTier === "string") paymentTier = json.paymentTier;
         }
       } catch { /* offline — treat as non-admin */ }
       // Build the public profile slug for non-admin candidates so the
@@ -229,7 +234,7 @@ export function ProfileIcon() {
           if (j?.verified === true) verified = true;
         }
       }
-      if (!cancelled) setUser({ name, email: u.email ?? "", initials, isAdmin, isOrgMember, isSuperAdmin, profileSlug, photo, verified, orgName });
+      if (!cancelled) setUser({ name, email: u.email ?? "", initials, isAdmin, isOrgMember, isSuperAdmin, profileSlug, photo, verified, orgName, paymentTier });
     };
     supabase.auth.getSession().then(({ data: { session } }) => apply(session));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => apply(session));
@@ -258,6 +263,22 @@ export function ProfileIcon() {
     };
     window.addEventListener("bv-verified-changed", onVerified);
     return () => window.removeEventListener("bv-verified-changed", onVerified);
+  }, []);
+
+  // Live payment-tier updates — fired by the dashboard when Stripe webhook
+  // updates payment_tier. Lets the navbar hide the upgrade modal / Starter
+  // card the instant the candidate completes checkout.
+  useEffect(() => {
+    const onTier = (e: Event) => {
+      const ce = e as CustomEvent<{ tier: string | null }>;
+      const tier = ce.detail?.tier ?? null;
+      setUser(prev => (prev ? { ...prev, paymentTier: tier } : prev));
+      // If the user just unlocked Premium, close any open upgrade modal so
+      // they don't see "Get Kandidat — €99" right after paying for it.
+      if (tier === "kandidat") setPlanModalOpen(false);
+    };
+    window.addEventListener("bv-payment-tier-changed", onTier);
+    return () => window.removeEventListener("bv-payment-tier-changed", onTier);
   }, []);
 
   useEffect(() => {
@@ -381,6 +402,27 @@ export function ProfileIcon() {
                     </svg>
                   </div>
                 </button>
+              ) : user.paymentTier === "kandidat" ? (
+                // Premium candidates already have everything — show a static
+                // avatar (no upsell click). Removing the upgrade trigger here
+                // means kandidat users never see the €9 / €99 plan modal again.
+                <div
+                  className="relative w-11 h-11 rounded-full mx-auto mb-2.5 overflow-hidden block"
+                  style={{ background: "none", border: "none", padding: 0 }}
+                  title={user.name}
+                >
+                  {user.photo ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={user.photo} alt={user.name}
+                      className="w-full h-full object-cover rounded-full"
+                      style={{ border: "1px solid var(--border-gold)" }} />
+                  ) : (
+                    <div className="w-full h-full rounded-full flex items-center justify-center text-[13px] font-semibold tracking-wider"
+                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                      {user.initials}
+                    </div>
+                  )}
+                </div>
               ) : (
                 <button
                   type="button"
@@ -882,10 +924,14 @@ export function ProfileIcon() {
                 </div>
               )}
 
-              {/* Two plan cards — side by side on desktop, stacked on mobile */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 px-6 pb-6">
+              {/* Plan cards — Starter (€9) is hidden once the user has paid for
+                   anything (since Premium includes everything in Starter). Free
+                   users see both options; "starter" tier sees only the Premium
+                   upgrade. "kandidat" tier never reaches this modal. */}
+              <div className={`grid grid-cols-1 ${user.paymentTier ? "" : "sm:grid-cols-2"} gap-4 px-6 pb-6`}>
 
-                {/* ── Starter ── */}
+                {/* ── Starter ── only shown to free users */}
+                {!user.paymentTier && (
                 <div className="rounded-2xl p-5 flex flex-col"
                   style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
                   <div className="flex items-center justify-between mb-3">
@@ -932,6 +978,7 @@ export function ProfileIcon() {
                       : (lang === "de" ? "Starter wählen — €9" : lang === "en" ? "Get Starter — €9" : "Choisir Starter — 9€")}
                   </button>
                 </div>
+                )}
 
                 {/* ── Kandidat (Premium) ── */}
                 <div className="rounded-2xl p-5 flex flex-col relative overflow-hidden"
