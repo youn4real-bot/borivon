@@ -38,7 +38,7 @@ const T = {
     kandidat:  "Kandidat-Plan aktiviert",
     body_s:    "Ihr Lebenslauf kann jetzt professionell erstellt werden. Viel Erfolg auf Ihrem Weg nach Deutschland!",
     body_k:    "Ihr vollständiger Karriereweg ist jetzt freigeschaltet. Wir begleiten Sie bis nach Deutschland!",
-    hint:      "In Deutschland ankommen — mit uns!",
+    refund:    "Und ja — weiterhin erstattungsfähig, sobald Sie mit uns in Deutschland ankommen",
     btn:       "Los geht's",
   },
   en: {
@@ -47,7 +47,7 @@ const T = {
     kandidat:  "Kandidat Plan activated",
     body_s:    "Your CV can now be professionally generated. Good luck on your journey to Germany!",
     body_k:    "Your full career journey is now unlocked. We'll walk with you all the way to Germany!",
-    hint:      "Land in Germany — with us!",
+    refund:    "And yes — it's still refundable once you land in Germany with us",
     btn:       "Let's go",
   },
   fr: {
@@ -56,7 +56,7 @@ const T = {
     kandidat:  "Plan Kandidat activé",
     body_s:    "Votre CV peut maintenant être généré professionnellement. Bonne chance pour votre parcours vers l'Allemagne !",
     body_k:    "Votre parcours complet est maintenant débloqué. Nous vous accompagnons jusqu'en Allemagne !",
-    hint:      "Arrivez en Allemagne — avec nous !",
+    refund:    "Et oui — toujours remboursable dès votre arrivée en Allemagne avec nous",
     btn:       "C'est parti",
   },
 } as const;
@@ -200,22 +200,19 @@ function CelebrationPortal({ userId, plan, lang, onDismiss }: Props) {
           {isKandidat ? t.body_k : t.body_s}
         </p>
 
-        {/* Refund hint */}
+        {/* Refund line — single sentence (was two redundant lines) */}
         <div className="rounded-xl px-3 py-2 mb-6"
           style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
-          <p className="text-[11.5px] font-semibold inline-flex items-center gap-1.5"
+          <p className="text-[11.5px] font-semibold inline-flex items-start gap-1.5 text-left"
             style={{
               background: "linear-gradient(90deg,var(--gold),#f0dfa0,#c9a240)",
               backgroundSize: "200% auto",
               WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
               animation: "bvWave 2.5s linear infinite",
             }}>
-            <RefreshCcw size={11} strokeWidth={2.2} style={{ color: "#c9a240", flexShrink: 0 }} />
-            {lang === "de" ? "Rückerstattung garantiert — sobald Sie in Deutschland ankommen"
-              : lang === "en" ? "Refundable — once you land in Germany"
-              : "Remboursable — dès votre arrivée en Allemagne"}
+            <RefreshCcw size={11} strokeWidth={2.2} style={{ color: "var(--gold)", flexShrink: 0, marginTop: 2 }} />
+            <span>{t.refund}</span>
           </p>
-          <p className="text-[10.5px] mt-0.5" style={{ color: "var(--gold)", opacity: 0.7 }}>{t.hint}</p>
         </div>
 
         <button
