@@ -20,9 +20,36 @@ import { useLang } from "@/components/LangContext";
  */
 
 const VB_T = {
-  fr: { tooltip: "Vérifié", title: "Compte vérifié", body: "Borivon a vérifié l'identité de cette personne.", adminTitle: "Compte officiel Borivon", adminBody: "Compte officiel de l'équipe Borivon.", close: "Fermer" },
-  en: { tooltip: "Verified", title: "Verified account", body: "Borivon has verified this person's identity.", adminTitle: "Official Borivon account", adminBody: "Official account of the Borivon team.", close: "Close" },
-  de: { tooltip: "Verifiziert", title: "Verifiziertes Konto", body: "Borivon hat die Identität dieser Person verifiziert.", adminTitle: "Offizielles Borivon-Konto", adminBody: "Offizielles Konto des Borivon-Teams.", close: "Schließen" },
+  fr: {
+    tooltip: "Vérifié",
+    title: "Compte vérifié",
+    body: "Borivon a vérifié les qualifications et l'identité de ce candidat.",
+    memberTitle: "Membre vérifié",
+    memberBody: "Ce compte est un membre vérifié d'une organisation partenaire de Borivon.",
+    adminTitle: "Youness Taoufiq",
+    adminBody: "Compte officiel Borivon — Youness Taoufiq.",
+    close: "Fermer",
+  },
+  en: {
+    tooltip: "Verified",
+    title: "Verified account",
+    body: "Borivon has verified this candidate's identity and qualifications.",
+    memberTitle: "Verified organization member",
+    memberBody: "This account is a verified member of a Borivon partner organization.",
+    adminTitle: "Youness Taoufiq",
+    adminBody: "Official Borivon account — Youness Taoufiq.",
+    close: "Close",
+  },
+  de: {
+    tooltip: "Verifiziert",
+    title: "Verifiziertes Konto",
+    body: "Borivon hat die Identität und Qualifikationen dieses Kandidaten verifiziert.",
+    memberTitle: "Verifiziertes Organisationsmitglied",
+    memberBody: "Dieses Konto ist ein verifiziertes Mitglied einer Borivon-Partnerorganisation.",
+    adminTitle: "Youness Taoufiq",
+    adminBody: "Offizielles Borivon-Konto — Youness Taoufiq.",
+    close: "Schließen",
+  },
 } as const;
 
 export function VerifiedBadge({
@@ -52,11 +79,13 @@ export function VerifiedBadge({
 
   return (
     <>
-      <button
-        type="button"
+      <span
+        role="button"
+        tabIndex={0}
         title={title ?? t.tooltip}
         aria-label={title ?? t.tooltip}
         onClick={(e) => { e.stopPropagation(); e.preventDefault(); setOpen(true); }}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); e.preventDefault(); setOpen(true); } }}
         className="inline-flex items-center justify-center align-middle flex-shrink-0 cursor-pointer"
         style={{ width: px, height: px, marginLeft: 4, padding: 0, border: "none", background: "transparent" }}
       >
@@ -83,7 +112,7 @@ export function VerifiedBadge({
             strokeLinejoin="round"
           />
         </svg>
-      </button>
+      </span>
 
       {open && typeof document !== "undefined" && createPortal(
         // z-[1250] — above the message thread modal (z-[1200]) so the popup
@@ -91,7 +120,7 @@ export function VerifiedBadge({
         // sticky navbar is never covered on laptop/desktop. On phones,
         // safe-area-inset-bottom keeps the card above the home indicator.
         <div
-          className="fixed inset-x-0 bottom-0 top-[58px] z-[1250] flex items-center justify-center p-4"
+          className="fixed inset-x-0 bottom-0 top-[58px] z-[1250] flex items-center justify-center p-4 bv-modal-outer"
           style={{
             background: "rgba(0,0,0,0.55)",
             backdropFilter: "blur(8px)",
@@ -120,10 +149,10 @@ export function VerifiedBadge({
             </div>
 
             <p className="text-[15px] font-semibold tracking-tight mb-2" style={{ color: "var(--w)" }}>
-              {isAdmin ? t.adminTitle : t.title}
+              {isAdmin ? t.adminTitle : color === "red" ? t.memberTitle : t.title}
             </p>
             <p className="text-[12.5px] leading-relaxed mb-5" style={{ color: "var(--w3)" }}>
-              {isAdmin ? t.adminBody : t.body}
+              {isAdmin ? t.adminBody : color === "red" ? t.memberBody : t.body}
             </p>
             <button onClick={() => setOpen(false)}
               className="inline-flex items-center px-5 py-1.5 text-[12px] font-semibold rounded-full"

@@ -85,7 +85,7 @@ export function AdminDocPreviewModal({
    *  ignore it and just stack vertically with the data popup below. */
   sideBySide?: boolean;
 }) {
-  const { lang } = useLang();
+  const { lang, t: gT } = useLang();
   const dt = dm[lang as keyof typeof dm] ?? dm.en;
 
   const [rejectOpen, setRejectOpen] = useState(false);
@@ -93,6 +93,12 @@ export function AdminDocPreviewModal({
   const [savedAs, setSavedAs]       = useState<"approved" | "rejected" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [blobUrl, setBlobUrl]       = useState<string | null>(null);
+  // Track the auto-close timeout so we can clear it on unmount — prevents
+  // setState-on-unmounted-component if the user navigates within 700ms.
+  const closeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  React.useEffect(() => () => {
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+  }, []);
 
   // Authenticated fetch via our API → blob URL. Used for both the PdfViewer
   // and the download button (no need to refetch).
@@ -124,7 +130,7 @@ export function AdminDocPreviewModal({
       if (res.ok) {
         setSavedAs("approved");
         onUpdated?.({ ...doc, status: "approved", feedback: null });
-        setTimeout(onClose, 700);
+        closeTimerRef.current = setTimeout(onClose, 700);
       } else {
         setActionError(dt.failApprove);
       }
@@ -136,6 +142,7 @@ export function AdminDocPreviewModal({
   }
 
   async function handleRejectSubmit(text: string, shot: string | null) {
+    if (submitting) return;
     setSubmitting(true);
     setActionError(null);
     try {
@@ -156,7 +163,7 @@ export function AdminDocPreviewModal({
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
             body: JSON.stringify({
               threadUserId: doc.user_id,
-              body: fb || `Rejected: ${doc.file_type}`,
+              body: fb || `${dt.rejected}: ${doc.file_type}`,
               attachment: shot,
             }),
           });
@@ -165,7 +172,7 @@ export function AdminDocPreviewModal({
       setRejectOpen(false);
       setSavedAs("rejected");
       onUpdated?.({ ...doc, status: "rejected", feedback: fb });
-      setTimeout(onClose, 700);
+      closeTimerRef.current = setTimeout(onClose, 700);
     } finally {
       setSubmitting(false);
     }
@@ -178,10 +185,14 @@ export function AdminDocPreviewModal({
   if (typeof document === "undefined") return null;
 
   return createPortal(
-   <div className={`fixed inset-x-0 z-[700] flex justify-center p-4 bv-doc-preview-outer ${sideBySide ? "bv-side-preview" : "top-[58px] bottom-0 items-center"}`}
-      style={{ background: sideBySide ? "rgba(0,0,0,0.45)" : "rgba(0,0,0,0.72)",
-               backdropFilter: sideBySide ? "blur(8px)" : undefined,
-               ...(sideBySide ? {} : {}) }}
+   <div className={`fixed inset-x-0 z-[700] flex justify-center p-2 bv-doc-preview-outer ${sideBySide ? "bv-side-preview" : "items-center"}`}
+      style={{
+        top: "calc(58px + var(--bv-subnav-h, 0px))",
+        paddingTop: "6px",
+        bottom: 0,
+        background: sideBySide ? "rgba(0,0,0,0.45)" : "rgba(0,0,0,0.72)",
+        backdropFilter: sideBySide ? "blur(8px)" : undefined,
+      }}
       onClick={() => { if (!submitting) onClose(); }}>
       {/* Side-by-side mode (passport verification phase):
             Laptop → preview hugs the LEFT half centered, gap on the right
@@ -189,14 +200,23 @@ export function AdminDocPreviewModal({
             Phone  → preview takes the TOP half; data form lives in the bottom
                      half (no overlapping, can be seen at a glance) */}
       <style>{`
+        /* ── Universal PDF popup rule ──
+           Top: sits below header + subnav + 6px gap
+           Bottom mobile: sits above bottom nav (72px) + 6px gap
+           Bottom desktop: 6px gap from viewport edge
+           Card height is derived from available space. */
+        .bv-doc-preview-card {
+          height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 6px - 6px - env(safe-area-inset-bottom, 0px));
+          max-height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 6px - 6px - env(safe-area-inset-bottom, 0px));
+        }
         @media (max-width: 639.98px) {
-          .bv-doc-preview-outer { padding-bottom: calc(1rem + 72px) !important; }
+          .bv-doc-preview-outer { padding-bottom: calc(72px + 6px + env(safe-area-inset-bottom, 0px)) !important; }
           .bv-doc-preview-card  {
-            height: calc(100dvh - 58px - 1rem - 72px - 1rem) !important;
-            max-height: calc(100dvh - 58px - 1rem - 72px - 1rem) !important;
+            height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 6px - 72px - 6px - env(safe-area-inset-bottom, 0px)) !important;
+            max-height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 6px - 72px - 6px - env(safe-area-inset-bottom, 0px)) !important;
           }
           .bv-side-preview {
-            top: 58px !important;
+            top: calc(58px + var(--bv-subnav-h, 0px)) !important;
             bottom: calc(50dvh + 0.25rem) !important;
             padding-bottom: 0.25rem !important;
             align-items: center !important;
@@ -208,19 +228,13 @@ export function AdminDocPreviewModal({
         }
         @media (min-width: 640px) {
           .bv-side-preview {
-            top: 58px;
+            top: calc(58px + var(--bv-subnav-h, 0px));
             bottom: 0;
             align-items: center;
-            /* Hug the centerline: card right-edge sits at 50vw exactly,
-               so the data form can sit flush against it on the other side.
-               No mid-screen gap. */
             justify-content: flex-end !important;
             padding-right: 50vw;
             padding-left: 1rem;
           }
-          /* Passport pages are wider than tall, so the preview card never
-             needs to fill the full vertical space — cap it at ~620px and
-             let the data form extend taller next to it if needed. */
           .bv-side-preview .bv-doc-preview-card {
             max-height: 620px;
           }
@@ -232,8 +246,6 @@ export function AdminDocPreviewModal({
           border: "1px solid var(--border)",
           borderRadius: "var(--r-2xl)",
           boxShadow: "var(--shadow-lg)",
-          height: "88vh",
-          maxHeight: "88vh",
           animation: "bvFadeRise 0.22s var(--ease-out)",
         }}
         onClick={e => e.stopPropagation()}>
@@ -248,7 +260,7 @@ export function AdminDocPreviewModal({
           <div className="flex items-center gap-2 flex-shrink-0">
             {actionError && (
               <span className="text-[11px] font-medium px-2 py-1 rounded-lg"
-                style={{ background: "rgba(224,82,82,0.1)", color: "#e05252", border: "1px solid rgba(224,82,82,0.25)" }}>
+                style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
                 {actionError}
               </span>
             )}
@@ -287,9 +299,9 @@ export function AdminDocPreviewModal({
             {savedAs && (
               <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg"
                 style={{
-                  background: savedAs === "approved" ? "rgba(52,199,89,0.15)" : "rgba(224,82,82,0.12)",
-                  color: savedAs === "approved" ? "#34c759" : "#e05252",
-                  border: `1px solid ${savedAs === "approved" ? "rgba(52,199,89,0.3)" : "rgba(224,82,82,0.28)"}`,
+                  background: savedAs === "approved" ? "var(--success-bg)" : "var(--danger-bg)",
+                  color: savedAs === "approved" ? "var(--success)" : "var(--danger)",
+                  border: `1px solid ${savedAs === "approved" ? "var(--success-border)" : "var(--danger-border)"}`,
                 }}>
                 {savedAs === "approved"
                   ? <><CheckCircle2 size={13} strokeWidth={1.8} /> {dt.approved}</>
@@ -310,8 +322,8 @@ export function AdminDocPreviewModal({
                 </button>
               </>
             )}
-            <button onClick={onClose} aria-label="Close"
-              className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center"
+            <button onClick={onClose} aria-label={gT.miClose} disabled={submitting}
+              className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ color: "var(--w3)" }}>
               <XIcon size={14} strokeWidth={1.8} />
             </button>

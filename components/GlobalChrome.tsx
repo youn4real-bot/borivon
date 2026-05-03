@@ -9,6 +9,27 @@ import { NotificationBell } from "@/components/NotificationBell";
 import { MessageIcon } from "@/components/MessageIcon";
 import { ProfileIcon } from "@/components/ProfileIcon";
 import { BugReportButton } from "@/components/BugReportButton";
+import { useLang } from "@/components/LangContext";
+
+function HomeLoginButton() {
+  const { lang } = useLang();
+  const label = lang === "de" ? "Anmelden" : lang === "fr" ? "Se connecter" : "Log in";
+  return (
+    <button
+      onClick={() => window.dispatchEvent(new CustomEvent("bv:open-auth"))}
+      className="text-[13px] font-semibold px-4 py-1.5 rounded-full transition-all hover:opacity-90 active:scale-[0.97]"
+      style={{
+        background: "var(--gold)",
+        color: "#131312",
+        border: "none",
+        cursor: "pointer",
+        letterSpacing: "-0.01em",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
 
 /**
  * Site-wide chrome — providers + permanent top bar + report-bug button.
@@ -28,18 +49,21 @@ import { BugReportButton } from "@/components/BugReportButton";
 export function GlobalChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "";
   const isPortal = pathname.startsWith("/portal");
+  const isHome   = pathname === "/";
 
   return (
     <ThemeProvider>
       <LangProvider>
         <MobileMenuProvider>
           <Navbar
-            rightExtra={isPortal ? (
+rightExtra={isPortal ? (
               <>
                 <MessageIcon />
                 <NotificationBell />
                 <ProfileIcon />
               </>
+            ) : isHome ? (
+              <HomeLoginButton />
             ) : null}
           />
           {/* 100 px bottom clearance only on portal mobile (where the

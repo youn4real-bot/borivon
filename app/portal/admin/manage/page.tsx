@@ -7,6 +7,7 @@ import { CheckCircle2 } from "@/components/PortalIcons";
 import { ArrowLeft, Trash2, Users, Copy, ChevronDown } from "lucide-react";
 import { PageLoader, EmptyState } from "@/components/ui/states";
 import { useLang } from "@/components/LangContext";
+import { PortalTopNav } from "@/components/PortalTopNav";
 
 const t = {
   en: {
@@ -233,7 +234,8 @@ export default function ManageAdminsPage() {
 
   return (
     <>
-    <main className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "calc(61px + 2rem)" }}>
+    <main className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "58px" }}>
+      <PortalTopNav />
       <div className="max-w-[680px] mx-auto px-4 pt-8 pb-16">
 
         {/* Header — refined */}
@@ -284,7 +286,7 @@ export default function ManageAdminsPage() {
             </div>
             {addError && (
               <p className="text-[12px] px-3 py-2 rounded-lg"
-                style={{ background: "rgba(224,82,82,0.08)", color: "#e05252", border: "1px solid rgba(224,82,82,0.2)" }}>
+                style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
                 {addError}
               </p>
             )}
@@ -419,7 +421,7 @@ export default function ManageAdminsPage() {
                                 onClick={() => toggleAssignment(sa.email, c.userId)}
                                 className="inline-flex items-center gap-1.5 text-[11.5px] px-3 py-1.5 font-semibold transition-all flex-shrink-0"
                                 style={isAssigned
-                                  ? { background: "rgba(52,199,89,0.12)", color: "#34c759", border: "1px solid rgba(52,199,89,0.3)", borderRadius: "var(--r-sm)" }
+                                  ? { background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)", borderRadius: "var(--r-sm)" }
                                   : { background: "var(--card)", color: "var(--w2)", border: "1px solid var(--border)", borderRadius: "var(--r-sm)" }
                                 }>
                                 {isAssigned ? <><CheckCircle2 size={11} strokeWidth={1.8} /> {T.assigned}</> : T.assign}

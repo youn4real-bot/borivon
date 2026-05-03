@@ -38,7 +38,7 @@ type ProfileResp = {
 };
 
 export function ProfilePopup({ slug, onClose }: { slug: string; onClose: () => void }) {
-  const { lang } = useLang();
+  const { lang, t: gT } = useLang();
   const [profile, setProfile] = useState<ProfileResp | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState<string | null>(null);
@@ -105,7 +105,7 @@ export function ProfilePopup({ slug, onClose }: { slug: string; onClose: () => v
         style={{ animation: "bvFadeRise .28s var(--ease-out)" }}>
 
         {/* Close button — floats top-right of the card */}
-        <button onClick={onClose} aria-label="Close"
+        <button onClick={onClose} aria-label={gT.miClose}
           className="absolute -top-2 -right-2 z-10 w-9 h-9 rounded-full flex items-center justify-center transition-opacity hover:opacity-90"
           style={{ background: "var(--card)", color: "var(--w2)",
                    border: "1px solid var(--border)", boxShadow: "var(--shadow-md)" }}>
@@ -186,9 +186,9 @@ export function ProfilePopup({ slug, onClose }: { slug: string; onClose: () => v
             ) : (
               <div className="mt-3 flex justify-center">
                 <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-full"
-                  style={{ background: "rgba(224,82,82,0.12)", color: "#e05252" }}>
+                  style={{ background: "var(--danger-bg)", color: "var(--danger)" }}>
                   <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full"
-                    style={{ background: "rgba(224,82,82,0.25)" }}>
+                    style={{ background: "var(--danger-border)" }}>
                     <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
                     </svg>

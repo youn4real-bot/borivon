@@ -135,7 +135,7 @@ export function OrgCodeModal({
 
           {success ? (
             <div className="text-center py-3">
-              <p className="text-[14px] font-semibold" style={{ color: success.status === "approved" ? "#34c759" : "var(--gold)" }}>
+              <p className="text-[14px] font-semibold" style={{ color: success.status === "approved" ? "var(--success)" : "var(--gold)" }}>
                 ✓ {success.name}
               </p>
               {success.status === "pending" && (
@@ -159,7 +159,7 @@ export function OrgCodeModal({
                          border: "1px solid var(--border)", borderRadius: "var(--r-sm)" }}
               />
               {error && (
-                <p className="mt-2 text-[11.5px] text-center" style={{ color: "#e05252" }}>{error}</p>
+                <p className="mt-2 text-[11.5px] text-center" style={{ color: "var(--danger)" }}>{error}</p>
               )}
             </>
           )}

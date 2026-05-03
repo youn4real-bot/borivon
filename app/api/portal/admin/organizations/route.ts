@@ -27,12 +27,13 @@ function generateInviteCode(len = 8): string {
 export async function GET(req: NextRequest) {
   const auth = await requireAdminRole(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
-  if (auth.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (auth.role !== "admin" && !auth.isAgencyAdmin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const db = getServiceSupabase();
 
+  const orgsBase = db.from("organizations").select("id, name, invite_code, member_invite_code, notes, logo_filename, footer_text, created_at").order("created_at", { ascending: true });
   const [{ data: orgs }, { data: members }, { data: links }] = await Promise.all([
-    db.from("organizations").select("id, name, invite_code, member_invite_code, notes, logo_filename, footer_text, created_at").order("created_at", { ascending: true }),
+    auth.agencyId ? orgsBase.eq("agency_id", auth.agencyId) : orgsBase,
     db.from("organization_members").select("org_id, sub_admin_email, role"),
     db.from("candidate_organizations").select("org_id, status"),
   ]);

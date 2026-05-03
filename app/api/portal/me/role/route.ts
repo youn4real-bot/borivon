@@ -56,7 +56,12 @@ export async function GET(req: NextRequest) {
 
   // 4. Sub-admin (agent who manages candidates)
   if (auth.ok && auth.role === "sub_admin") {
-    return NextResponse.json({ role: "sub_admin", isSuperAdmin: false });
+    return NextResponse.json({
+      role: "sub_admin",
+      isSuperAdmin: false,
+      agencyId: auth.agencyId ?? null,
+      isAgencyAdmin: auth.isAgencyAdmin ?? false,
+    });
   }
 
   // 5. Regular candidate

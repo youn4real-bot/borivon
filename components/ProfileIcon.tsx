@@ -110,7 +110,7 @@ type UserInfo = {
 };
 
 export function ProfileIcon() {
-  const { lang } = useLang();
+  const { lang, t: gT } = useLang();
   const T = t[lang] ?? t.en;
   const [user, setUser] = useState<UserInfo | null>(null);
   const [open, setOpen] = useState(false);
@@ -127,9 +127,27 @@ export function ProfileIcon() {
   const [photoSaving, setPhotoSaving]           = useState(false);
   const [photoSaveMsg, setPhotoSaveMsg]         = useState<"saved" | "error" | null>(null);
   const [photoMenuOpen, setPhotoMenuOpen]       = useState(false);
+  // Plan comparison modal — shown when candidates click their avatar
+  const [planModalOpen, setPlanModalOpen]       = useState(false);
+  const [checkoutPlan, setCheckoutPlan]         = useState<"starter" | "kandidat" | null>(null);
   const orgPhotoInputRef = useRef<HTMLInputElement>(null);
   const ref = useRef<HTMLDivElement>(null);
   const router = useRouter();
+
+  async function handleCheckout(plan: "starter" | "kandidat") {
+    if (!accessToken || checkoutPlan) return;
+    setCheckoutPlan(plan);
+    try {
+      const res = await fetch("/api/portal/stripe/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ plan }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (json.url) { window.location.href = json.url; }
+    } catch { /* ignore */ }
+    setCheckoutPlan(null);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -175,12 +193,11 @@ export function ProfileIcon() {
           profileSlug = buildProfileSlug(metaFirst, ln, u.id);
         }
       }
-      // Admins always use the Borivon favicon as their permanent avatar.
-      // Candidates use their CV-builder profile photo if uploaded.
-      let photo: string | null = isAdmin ? "/favicon.png" : null;
+      // Fetch photo for all user types; admins can upload a real photo.
+      let photo: string | null = null;
       // Org members are always verified (invited and vetted via invite link).
       let verified = isAdmin || isOrgMember;
-      if (!isAdmin && session?.access_token) {
+      if (session?.access_token) {
         // Fetch photo and verification status in parallel
         const [photoRes, verifiedRes] = await Promise.allSettled([
           fetch("/api/portal/me/profile-photo", {
@@ -241,6 +258,17 @@ export function ProfileIcon() {
     return () => { document.removeEventListener("mousedown", down); document.removeEventListener("keydown", key); };
   }, []);
 
+  // Esc closes the plan-comparison modal — but NOT while a Stripe checkout
+  // session is being created (would orphan the redirect).
+  useEffect(() => {
+    if (!planModalOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !checkoutPlan) setPlanModalOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [planModalOpen, checkoutPlan]);
+
   async function signOut() {
     // Wipe per-user localStorage drafts so the next user on a shared device
     // doesn't see (or, after re-login, accidentally restore) stale data.
@@ -287,7 +315,7 @@ export function ProfileIcon() {
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
-        aria-label="Profile"
+        aria-label={gT.profProfileAria}
         className="w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-semibold tracking-wider cursor-pointer hover:scale-110 active:scale-95 transition-transform flex-shrink-0 overflow-hidden"
         style={{
           background: user.photo ? "transparent" : (open ? "var(--gold)" : "var(--gdim)"),
@@ -308,8 +336,8 @@ export function ProfileIcon() {
           <>
             {/* User info */}
             <div className="px-4 py-4" style={{ borderBottom: "1px solid var(--border)" }}>
-              {/* Avatar — candidates can click it to edit their photo */}
-              {!user.isAdmin ? (
+              {/* Avatar — admins and org members can click to edit their photo; candidates see a static avatar */}
+              {user.isOrgMember || user.isAdmin ? (
                 <button
                   type="button"
                   onClick={() => { setOpen(false); setPhotoSaveMsg(null); setOrgProfileOpen(true); }}
@@ -338,17 +366,32 @@ export function ProfileIcon() {
                   </div>
                 </button>
               ) : (
-                user.photo ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={user.photo} alt={user.name}
-                    className="w-11 h-11 rounded-full object-cover mx-auto mb-2.5"
-                    style={{ border: "1px solid var(--border-gold)" }} />
-                ) : (
-                  <div className="w-11 h-11 rounded-full flex items-center justify-center text-[13px] font-semibold tracking-wider mx-auto mb-2.5"
-                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                    {user.initials}
+                <button
+                  type="button"
+                  onClick={() => { setOpen(false); setPlanModalOpen(true); }}
+                  className="relative w-11 h-11 rounded-full mx-auto mb-2.5 overflow-hidden group block cursor-pointer"
+                  style={{ background: "none", border: "none", padding: 0 }}
+                  title={gT.profUpgradePlan}
+                >
+                  {user.photo ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={user.photo} alt={user.name}
+                      className="w-full h-full object-cover rounded-full"
+                      style={{ border: "1px solid var(--border-gold)" }} />
+                  ) : (
+                    <div className="w-full h-full rounded-full flex items-center justify-center text-[13px] font-semibold tracking-wider"
+                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                      {user.initials}
+                    </div>
+                  )}
+                  {/* Star overlay on hover */}
+                  <div className="absolute inset-0 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    style={{ background: "rgba(0,0,0,0.4)" }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="gold" stroke="none" aria-hidden="true">
+                      <polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/>
+                    </svg>
                   </div>
-                )
+                </button>
               )}
               <p className="text-[13px] font-semibold text-center truncate inline-flex items-center justify-center gap-0.5 w-full" style={{ color: "var(--w)" }}>
                 {user.name}
@@ -363,6 +406,18 @@ export function ProfileIcon() {
             <div className="p-1.5 flex flex-col gap-0.5">
               {user.isAdmin && (
                 <>
+                  <button
+                    onClick={() => { setOpen(false); setPhotoSaveMsg(null); setOrgProfileOpen(true); }}
+                    className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
+                    style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
+                    onMouseEnter={e => { e.currentTarget.style.background = "var(--bg2)"; e.currentTarget.style.color = "var(--w)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--w2)"; }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+                    </svg>
+                    {T.myProfile}
+                  </button>
                   <button
                     onClick={() => { setOpen(false); router.push("/portal/admin/organizations"); }}
                     className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
@@ -391,7 +446,7 @@ export function ProfileIcon() {
                   </button>
                 </>
               )}
-              {user.profileSlug && !user.isOrgMember && (
+              {user.profileSlug && !user.isOrgMember && !user.isAdmin && (
                 <button
                   onClick={() => { setOpen(false); setProfilePopupSlug(user.profileSlug); }}
                   className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
@@ -425,8 +480,8 @@ export function ProfileIcon() {
               <button
                 onClick={signOut}
                 className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
-                style={{ color: "#e05252", borderRadius: "var(--r-sm)" }}
-                onMouseEnter={e => { e.currentTarget.style.background = "rgba(224,82,82,0.08)"; }}
+                style={{ color: "var(--danger)", borderRadius: "var(--r-sm)" }}
+                onMouseEnter={e => { e.currentTarget.style.background = "var(--danger-bg)"; }}
                 onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -632,8 +687,8 @@ export function ProfileIcon() {
                           setPhotoSaving(false);
                         }}
                         className="flex items-center gap-2.5 px-4 py-2.5 text-[12.5px] font-medium transition-colors"
-                        style={{ color: "#e05252", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}
-                        onMouseEnter={e => (e.currentTarget.style.background = "rgba(224,82,82,0.08)")}
+                        style={{ color: "var(--danger)", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}
+                        onMouseEnter={e => (e.currentTarget.style.background = "var(--danger-bg)")}
                         onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
                         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                           <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
@@ -648,7 +703,7 @@ export function ProfileIcon() {
                 {/* Name + verified + email */}
                 <p className="text-[15.5px] font-semibold tracking-tight inline-flex items-center gap-1.5" style={{ color: "var(--w)" }}>
                   {user.name}
-                  <VerifiedBadge verified size="xs" isAdmin={user.isSuperAdmin} color={user.isSuperAdmin ? "black" : "red"} />
+                  <VerifiedBadge verified size="xs" isAdmin={user.isSuperAdmin} color={user.isSuperAdmin ? "black" : user.isOrgMember ? "red" : "gold"} />
                 </p>
                 <p className="text-[12px] mt-1" style={{ color: "var(--w3)" }}>{user.email}</p>
 
@@ -722,8 +777,8 @@ export function ProfileIcon() {
           <div className="fixed inset-0 z-[1401] flex items-center justify-center p-4">
             <div className="w-full max-w-sm rounded-2xl p-6" style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)" }}>
               <div className="w-10 h-10 rounded-full flex items-center justify-center mx-auto mb-4"
-                style={{ background: "rgba(224,82,82,0.12)", border: "1px solid rgba(224,82,82,0.3)" }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#e05252" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                style={{ background: "var(--danger-bg)", border: "1px solid var(--danger-border)" }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
                   <path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
                 </svg>
@@ -744,7 +799,7 @@ export function ProfileIcon() {
                 onKeyDown={e => { if (e.key === "Enter" && deleteInput === T.typeToConfirm) deleteAccount(); }}
                 placeholder={T.typeToConfirm}
                 className="w-full rounded-xl px-3 py-2 text-[13px] outline-none mb-4"
-                style={{ background: "var(--bg2)", border: `1px solid ${deleteInput === T.typeToConfirm ? "#e05252" : "var(--border)"}`, color: "var(--w)" }}
+                style={{ background: "var(--bg2)", border: `1px solid ${deleteInput === T.typeToConfirm ? "var(--danger)" : "var(--border)"}`, color: "var(--w)" }}
               />
               <div className="flex gap-2">
                 <button
@@ -758,7 +813,7 @@ export function ProfileIcon() {
                   onClick={deleteAccount}
                   disabled={deleteInput !== T.typeToConfirm || deleting}
                   className="flex-1 py-2 rounded-xl text-[12px] font-semibold transition-opacity disabled:opacity-40"
-                  style={{ background: "rgba(224,82,82,0.15)", color: "#e05252", border: "1px solid rgba(224,82,82,0.35)" }}>
+                  style={{ background: "var(--danger-border)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
                   {deleting ? T.deleting : T.deleteAccount}
                 </button>
               </div>
@@ -767,6 +822,144 @@ export function ProfileIcon() {
         </>,
         document.body,
       )}
+
+      {/* ── Plan comparison modal — shown when candidates click their avatar ─ */}
+      {planModalOpen && typeof document !== "undefined" && createPortal(
+        <>
+          {/* Backdrop — locked while a Stripe checkout is being created so a
+              stray click can't cancel the redirect mid-request. */}
+          <div className="fixed inset-0 z-[1400] bv-modal-outer"
+            style={{ background: "rgba(0,0,0,0.72)", backdropFilter: "blur(8px)" }}
+            onClick={() => { if (!checkoutPlan) setPlanModalOpen(false); }} />
+          <div className="fixed inset-0 z-[1401] flex items-center justify-center p-4 bv-modal-outer">
+            <div className="w-full max-w-[680px] rounded-2xl overflow-hidden"
+              style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 24px 64px rgba(0,0,0,0.45)", animation: "bvFadeRise .22s var(--ease-out)" }}
+              onClick={e => e.stopPropagation()}>
+
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 pt-6 pb-4">
+                <div>
+                  <h2 className="text-[18px] font-bold tracking-tight" style={{ color: "var(--w)" }}>
+                    {lang === "de" ? "Wähle deinen Plan" : lang === "en" ? "Choose your plan" : "Choisissez votre plan"}
+                  </h2>
+                  <p className="text-[12.5px] mt-0.5" style={{ color: "var(--w3)" }}>
+                    {lang === "de" ? "Einmalzahlung — keine Abonnements" : lang === "en" ? "One-time payment — no subscriptions" : "Paiement unique — pas d'abonnement"}
+                  </p>
+                </div>
+                <button onClick={() => setPlanModalOpen(false)} disabled={!!checkoutPlan}
+                  className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={{ background: "var(--bg2)", border: "none", color: "var(--w3)", cursor: "pointer" }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+
+              {/* Two plan cards — side by side on desktop, stacked on mobile */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 px-6 pb-6">
+
+                {/* ── Starter ── */}
+                <div className="rounded-2xl p-5 flex flex-col"
+                  style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: "var(--info)" }}>
+                      Starter
+                    </span>
+                    <span className="text-[10.5px] font-medium px-2 py-0.5 rounded-full"
+                      style={{ background: "var(--info-bg)", color: "var(--info)", border: "1px solid var(--info-border)" }}>
+                      {lang === "de" ? "Empfohlen" : lang === "en" ? "Recommended" : "Recommandé"}
+                    </span>
+                  </div>
+                  <div className="mb-4">
+                    <span className="text-[36px] font-bold tracking-tight" style={{ color: "var(--w)" }}>€9</span>
+                    <span className="text-[12px] ml-1" style={{ color: "var(--w3)" }}>
+                      {lang === "de" ? "einmalig" : lang === "en" ? "one-time" : "unique"}
+                    </span>
+                  </div>
+                  <ul className="flex-1 space-y-2 mb-5">
+                    {[
+                      lang === "de" ? "Professioneller Lebenslauf (PDF)" : lang === "en" ? "Professional CV (PDF)" : "CV professionnel (PDF)",
+                      lang === "de" ? "Deutsches Format & Layout" : lang === "en" ? "German format & layout" : "Format allemand",
+                      lang === "de" ? "Unbegrenzte Neugestaltungen" : lang === "en" ? "Unlimited regenerations" : "Régénérations illimitées",
+                      lang === "de" ? "Blaues Abzeichen" : lang === "en" ? "Blue verified badge" : "Badge bleu vérifié",
+                    ].map(f => (
+                      <li key={f} className="flex items-start gap-2 text-[12.5px]" style={{ color: "var(--w2)" }}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5"><polyline points="20 6 9 17 4 12"/></svg>
+                        {f}
+                      </li>
+                    ))}
+                    <li className="flex items-start gap-2 text-[12px]" style={{ color: "var(--gold)" }}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5"><polyline points="20 6 9 17 4 12"/></svg>
+                      <span className="font-semibold">
+                        {lang === "de" ? "Rückerstattung bei Ankunft in DE" : lang === "en" ? "Refundable when you land in Germany" : "Remboursé à votre arrivée en DE"}
+                      </span>
+                    </li>
+                  </ul>
+                  <button
+                    onClick={() => handleCheckout("starter")}
+                    disabled={!!checkoutPlan}
+                    className="w-full py-3 rounded-xl text-[14px] font-semibold transition-opacity hover:opacity-90 disabled:opacity-50"
+                    style={{ background: "var(--info)", color: "#fff", border: "none", cursor: checkoutPlan ? "wait" : "pointer" }}>
+                    {checkoutPlan === "starter"
+                      ? (lang === "de" ? "Weiterleitung…" : lang === "en" ? "Redirecting…" : "Redirection…")
+                      : (lang === "de" ? "Starter wählen — €9" : lang === "en" ? "Get Starter — €9" : "Choisir Starter — 9€")}
+                  </button>
+                </div>
+
+                {/* ── Kandidat (Premium) ── */}
+                <div className="rounded-2xl p-5 flex flex-col relative overflow-hidden"
+                  style={{ background: "linear-gradient(135deg,var(--gdim),var(--gdim))", border: "1px solid var(--border-gold)" }}>
+                  <div className="absolute top-3 right-3 text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full"
+                    style={{ background: "var(--gold)", color: "#131312" }}>
+                    Premium
+                  </div>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: "var(--gold)" }}>
+                      Kandidat
+                    </span>
+                  </div>
+                  <div className="mb-4">
+                    <span className="text-[36px] font-bold tracking-tight" style={{ color: "var(--w)" }}>€99</span>
+                    <span className="text-[12px] ml-1" style={{ color: "var(--w3)" }}>
+                      {lang === "de" ? "einmalig" : lang === "en" ? "one-time" : "unique"}
+                    </span>
+                  </div>
+                  <ul className="flex-1 space-y-2 mb-5">
+                    {[
+                      lang === "de" ? "Alles im Starter-Plan" : lang === "en" ? "Everything in Starter" : "Tout dans Starter",
+                      lang === "de" ? "Goldenes Premium-Abzeichen ★" : lang === "en" ? "Gold premium badge ★" : "Badge premium doré ★",
+                      lang === "de" ? "Priorität bei Jobvermittlung" : lang === "en" ? "Priority job matching" : "Matching prioritaire",
+                      lang === "de" ? "Direkter Beratungs-Zugang" : lang === "en" ? "Direct counselling access" : "Accès conseil direct",
+                      lang === "de" ? "Vollständige Begleitung nach Deutschland" : lang === "en" ? "Full relocation support to Germany" : "Accompagnement complet vers l'Allemagne",
+                    ].map(f => (
+                      <li key={f} className="flex items-start gap-2 text-[12.5px]" style={{ color: "var(--w2)" }}>
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5"><polyline points="20 6 9 17 4 12"/></svg>
+                        {f}
+                      </li>
+                    ))}
+                    <li className="flex items-start gap-2 text-[12px]" style={{ color: "var(--gold)" }}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5"><polyline points="20 6 9 17 4 12"/></svg>
+                      <span className="font-semibold">
+                        {lang === "de" ? "Rückerstattung bei Ankunft in DE" : lang === "en" ? "Refundable when you land in Germany" : "Remboursé à votre arrivée en DE"}
+                      </span>
+                    </li>
+                  </ul>
+                  <button
+                    onClick={() => handleCheckout("kandidat")}
+                    disabled={!!checkoutPlan}
+                    className="w-full py-3 rounded-xl text-[14px] font-semibold transition-opacity hover:opacity-90 disabled:opacity-50"
+                    style={{ background: "var(--gold)", color: "#131312", border: "none", cursor: checkoutPlan ? "wait" : "pointer" }}>
+                    {checkoutPlan === "kandidat"
+                      ? (lang === "de" ? "Weiterleitung…" : lang === "en" ? "Redirecting…" : "Redirection…")
+                      : (lang === "de" ? "Kandidat wählen — €99" : lang === "en" ? "Get Kandidat — €99" : "Choisir Kandidat — 99€")}
+                  </button>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </>,
+        document.body,
+      )}
+
     </div>
   );
 }

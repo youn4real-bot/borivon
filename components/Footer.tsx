@@ -208,7 +208,7 @@ export function Footer() {
                     fontSize: "14px",
                     padding: "10px 14px",
                     background: "var(--bg2)",
-                    border: `1px solid ${contactError ? "rgba(224,82,82,0.7)" : "var(--border2)"}`,
+                    border: `1px solid ${contactError ? "var(--danger-border)" : "var(--border2)"}`,
                     color: "var(--w)",
                   }}
                 />

@@ -32,7 +32,7 @@ export function AdminRejectModal({
   onCancel: () => void;
   onSubmit: (feedback: string, screenshotDataUrl: string | null) => Promise<void>;
 }) {
-  const { lang } = useLang();
+  const { lang, t: gT } = useLang();
   const t = RM_T[(lang as "fr" | "en" | "de") in RM_T ? (lang as "fr" | "en" | "de") : "en"];
   const [text, setText] = useState(target.initialFeedback ?? "");
   const [shot, setShot] = useState<string | null>(null);
@@ -69,7 +69,7 @@ export function AdminRejectModal({
             <p className="text-[13.5px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>{t.title}</p>
             <p className="text-[11.5px] mt-0.5 truncate" style={{ color: "var(--w3)" }}>{target.label}</p>
           </div>
-          <button onClick={onCancel} disabled={submitting} aria-label="Close"
+          <button onClick={onCancel} disabled={submitting} aria-label={gT.miClose}
             className="bv-icon-btn w-8 h-8 flex items-center justify-center rounded-full disabled:opacity-40"
             style={{ color: "var(--w2)" }}>
             <XIcon size={14} strokeWidth={1.8} />
@@ -118,7 +118,7 @@ export function AdminRejectModal({
           </button>
           <button onClick={handleSubmit} disabled={submitting}
             className="px-3 py-1.5 rounded-lg text-[12px] font-semibold inline-flex items-center gap-1.5 disabled:opacity-40"
-            style={{ background: "rgba(224,82,82,0.12)", color: "#e05252", border: "1px solid rgba(224,82,82,0.28)" }}>
+            style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
             {submitting ? "…" : <><XCircle size={12} strokeWidth={1.8} /> {t.reject}</>}
           </button>
         </div>

@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
 
   const { data: subAdmins } = await db
     .from("sub_admins")
-    .select("id, email, name, label, created_at")
+    .select("id, email, name, label, created_at, agency_id, is_agency_admin")
     .order("created_at", { ascending: true });
 
   const { data: assignments } = await db

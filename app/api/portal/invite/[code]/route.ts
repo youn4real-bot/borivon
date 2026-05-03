@@ -8,6 +8,7 @@ type LookupResult = {
   org: OrgRow;
   type: "candidate" | "member";
   tokenId?: string;
+  agencyId?: string | null;
   alreadyUsed?: boolean;
 };
 
@@ -17,7 +18,7 @@ async function lookupCode(code: string): Promise<LookupResult | null> {
   // 1. Check single-use invite_tokens first
   const { data: token } = await db
     .from("invite_tokens")
-    .select("id, org_id, type, used_by")
+    .select("id, org_id, type, used_by, agency_id")
     .eq("code", code)
     .maybeSingle();
 
@@ -43,6 +44,7 @@ async function lookupCode(code: string): Promise<LookupResult | null> {
       org,
       type: (token as { type: string }).type as "candidate" | "member",
       tokenId: (token as { id: string }).id,
+      agencyId: (token as { agency_id: string | null }).agency_id ?? null,
       alreadyUsed: !!(token as { used_by: string | null }).used_by,
     };
   }
@@ -92,7 +94,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ code: stri
     return NextResponse.json({ error: "already_used" }, { status: 410 });
   }
 
-  const { org, type, tokenId } = result;
+  const { org, type, tokenId, agencyId: inviteAgencyId } = result;
   const db = getServiceSupabase();
 
   if (type === "candidate") {
@@ -100,6 +102,13 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ code: stri
     // Admin manually assigns candidates to orgs later from the admin panel.
     if (tokenId) {
       await db.from("invite_tokens").update({ used_by: auth.userId, used_at: new Date().toISOString() }).eq("id", tokenId);
+    }
+    // Tag candidate with agency_id from the invite token (if any)
+    if (inviteAgencyId) {
+      await db.from("candidate_profiles").upsert(
+        { user_id: auth.userId, agency_id: inviteAgencyId },
+        { onConflict: "user_id" }
+      );
     }
     return NextResponse.json({ org, type, status: "joined" });
   }

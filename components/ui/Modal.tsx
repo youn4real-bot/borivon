@@ -24,6 +24,7 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import { X as XIcon } from "lucide-react";
+import { useLang } from "@/components/LangContext";
 
 export type ModalSize = "sm" | "md" | "lg" | "xl";
 
@@ -44,6 +45,7 @@ export function Modal({
   size = "sm",
   chromeless = false,
   closeOnBackdrop = true,
+  busy = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -55,11 +57,14 @@ export function Modal({
   /** Skip the default header + footer — caller renders its own. Chrome rules still apply. */
   chromeless?: boolean;
   closeOnBackdrop?: boolean;
+  /** When true, Esc / backdrop / X-button are disabled — prevents dismissal mid-submit. */
+  busy?: boolean;
 }) {
-  // Lock body scroll + Esc to close
+  const { t } = useLang();
+  // Lock body scroll + Esc to close (Esc disabled while busy)
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !busy) onClose(); };
     window.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
@@ -67,7 +72,7 @@ export function Modal({
       window.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [open, onClose]);
+  }, [open, onClose, busy]);
 
   if (!open || typeof document === "undefined") return null;
 
@@ -79,7 +84,7 @@ export function Modal({
         backdropFilter: "blur(8px)",
         animation: "bvFadeRise 0.22s var(--ease-out)",
       }}
-      onClick={() => closeOnBackdrop && onClose()}>
+      onClick={() => { if (closeOnBackdrop && !busy) onClose(); }}>
       {/* Mobile: leave clearance for the bottom action bar so the modal
           never slides behind the language / theme / profile cluster. */}
       <style>{`
@@ -116,8 +121,8 @@ export function Modal({
                 </p>
               )}
             </div>
-            <button onClick={onClose} aria-label="Close"
-              className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+            <button onClick={onClose} aria-label={t.miClose} disabled={busy}
+              className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ color: "var(--w3)" }}>
               <XIcon size={14} strokeWidth={1.8} />
             </button>
@@ -165,7 +170,7 @@ export function GoldButton({
         background: "var(--gold)",
         color: "#131312",
         borderRadius: "var(--r-md)",
-        boxShadow: "0 4px 14px rgba(212,175,55,0.30), 0 0 0 1px rgba(212,175,55,0.35)",
+        boxShadow: "0 4px 14px var(--border-gold), 0 0 0 1px var(--border-gold)",
       }}>
       {children}
     </button>

@@ -109,8 +109,8 @@ function HeroIcon({
 }) {
   const tones = {
     neutral: { bg: "var(--gdim)",            color: "var(--gold)", border: "var(--border-gold)" },
-    success: { bg: "rgba(52,199,89,0.10)",   color: "#34c759",     border: "rgba(52,199,89,0.28)" },
-    danger:  { bg: "rgba(224,82,82,0.08)",   color: "#e05252",     border: "rgba(224,82,82,0.22)" },
+    success: { bg: "var(--success-bg)",   color: "var(--success)",     border: "var(--success-border)" },
+    danger:  { bg: "var(--danger-bg)",   color: "var(--danger)",     border: "var(--danger-border)" },
   }[tone];
   return (
     <span className="mx-auto mb-4 flex items-center justify-center w-12 h-12 rounded-full"
@@ -199,18 +199,18 @@ function StageContent({ mode, p, t, lang = "en" }: { mode: JourneyMode; p: Journ
     }
     if (p.interview_status === "passed") {
       return (
-        <div className="rounded-2xl px-5 py-8 text-center" style={{ ...cardSt, border: "1px solid rgba(52,199,89,0.28)" }}>
+        <div className="rounded-2xl px-5 py-8 text-center" style={{ ...cardSt, border: "1px solid var(--success-border)" }}>
           <HeroIcon Icon={PartyPopper} tone="success" />
-          <p className="text-sm font-semibold mb-1" style={{ color: "#34c759" }}>{t.pInterviewPassedTitle}</p>
+          <p className="text-sm font-semibold mb-1" style={{ color: "var(--success)" }}>{t.pInterviewPassedTitle}</p>
           <p className="text-xs leading-relaxed max-w-xs mx-auto" style={{ color: "var(--w2)" }}>{t.pInterviewPassedSub}</p>
         </div>
       );
     }
     if (p.interview_status === "failed") {
       return (
-        <div className="rounded-2xl px-5 py-8 text-center" style={{ ...cardSt, border: "1px solid rgba(224,82,82,0.22)" }}>
+        <div className="rounded-2xl px-5 py-8 text-center" style={{ ...cardSt, border: "1px solid var(--danger-border)" }}>
           <HeroIcon Icon={Mail} tone="danger" />
-          <p className="text-sm font-semibold mb-1" style={{ color: "#e05252" }}>{t.pInterviewFailedTitle}</p>
+          <p className="text-sm font-semibold mb-1" style={{ color: "var(--danger)" }}>{t.pInterviewFailedTitle}</p>
           <p className="text-xs leading-relaxed max-w-xs mx-auto" style={{ color: "var(--w2)" }}>{t.pInterviewFailedSub}</p>
         </div>
       );
@@ -231,7 +231,7 @@ function StageContent({ mode, p, t, lang = "en" }: { mode: JourneyMode; p: Journ
         {p.interview_link && (
           <a href={p.interview_link} target="_blank" rel="noopener noreferrer"
             className="flex items-center justify-center gap-2 w-full py-3 rounded-xl text-sm font-semibold transition-opacity hover:opacity-90"
-            style={{ background: "var(--gold)", color: "#1a1a1a" }}>
+            style={{ background: "var(--gold)", color: "#131312" }}>
             <ExternalLink size={14} strokeWidth={2} /> {t.pInterviewJoinBtn}
           </a>
         )}
@@ -299,9 +299,9 @@ function StageContent({ mode, p, t, lang = "en" }: { mode: JourneyMode; p: Journ
     if (!p?.visa_granted && !p?.visa_date) return lockCard(t.pVisaLockedMsg);
     if (p.visa_granted) {
       return (
-        <div className="rounded-2xl px-5 py-10 text-center" style={{ ...cardSt, border: "1px solid rgba(52,199,89,0.28)" }}>
+        <div className="rounded-2xl px-5 py-10 text-center" style={{ ...cardSt, border: "1px solid var(--success-border)" }}>
           <HeroIcon Icon={PartyPopper} tone="success" />
-          <p className="text-[18px] font-semibold tracking-[-0.015em] mb-2" style={{ color: "#34c759" }}>{t.pVisaGrantedTitle}</p>
+          <p className="text-[18px] font-semibold tracking-[-0.015em] mb-2" style={{ color: "var(--success)" }}>{t.pVisaGrantedTitle}</p>
           <p className="text-xs leading-relaxed max-w-xs mx-auto mb-3" style={{ color: "var(--w2)" }}>{t.pVisaGrantedSub}</p>
           {p.visa_date && (
             <p className="text-xs" style={{ color: "var(--w3)" }}>

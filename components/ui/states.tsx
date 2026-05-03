@@ -10,12 +10,14 @@
  *   <SkeletonRow />                             — composed list row skeleton
  *   <Banner tone="error" Icon={AlertTriangle}>…</Banner>
  *
- * Tone tokens follow the global palette (`var(--gold)`, `#34c759`, `#e05252`).
+ * Tone tokens follow the global palette (`var(--gold)`, `var(--success)`, `var(--danger)`).
  */
 
 import * as React from "react";
 import type { LucideIcon } from "lucide-react";
 import { Loader2, Check, CloudOff } from "lucide-react";
+import { useLang } from "@/components/LangContext";
+import type { Translation, Lang } from "@/lib/translations";
 
 // ── Spinner ────────────────────────────────────────────────────────────────
 type SpinnerSize = "xs" | "sm" | "md" | "lg";
@@ -23,13 +25,14 @@ const SPINNER_SIZES: Record<SpinnerSize, number> = { xs: 12, sm: 16, md: 20, lg:
 
 export function Spinner({ size = "md", className = "", color }: { size?: SpinnerSize; className?: string; color?: string }) {
   const px = SPINNER_SIZES[size];
+  const { t } = useLang();
   return (
     <Loader2
       size={px}
       strokeWidth={1.8}
       className={`animate-spin ${className}`}
       style={{ color: color ?? "var(--gold)" }}
-      aria-label="Loading"
+      aria-label={t.aLoading}
     />
   );
 }
@@ -51,9 +54,9 @@ type Tone = "neutral" | "success" | "danger" | "info";
 
 const TONES: Record<Tone, { bg: string; color: string; border: string }> = {
   neutral: { bg: "var(--gdim)",            color: "var(--gold)", border: "var(--border-gold)" },
-  success: { bg: "rgba(52,199,89,0.10)",   color: "#34c759",     border: "rgba(52,199,89,0.28)" },
-  danger:  { bg: "rgba(224,82,82,0.08)",   color: "#e05252",     border: "rgba(224,82,82,0.22)" },
-  info:    { bg: "rgba(74,144,217,0.08)",  color: "#4a90d9",     border: "rgba(74,144,217,0.22)" },
+  success: { bg: "var(--success-bg)",   color: "var(--success)",     border: "var(--success-border)" },
+  danger:  { bg: "var(--danger-bg)",   color: "var(--danger)",     border: "var(--danger-border)" },
+  info:    { bg: "var(--info-bg)",         color: "var(--info)", border: "var(--info-border)" },
 };
 
 export function EmptyState({
@@ -157,6 +160,7 @@ export function AutosaveIndicator({
   error?: boolean;
   className?: string;
 }) {
+  const { t, lang } = useLang();
   // Tick every 15s to refresh the relative time string (e.g. "just now" → "30s ago")
   const [, setTick] = React.useState(0);
   React.useEffect(() => {
@@ -172,9 +176,9 @@ export function AutosaveIndicator({
   if (error) {
     return (
       <span className={`${baseStyle} ${className}`}
-        style={{ background: "rgba(224,82,82,0.08)", color: "#e05252", border: "1px solid rgba(224,82,82,0.22)" }}>
+        style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
         <CloudOff size={11} strokeWidth={1.8} />
-        Couldn&apos;t save
+        {t.aSaveError}
       </span>
     );
   }
@@ -184,7 +188,7 @@ export function AutosaveIndicator({
       <span className={`${baseStyle} ${className}`}
         style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
         <Loader2 size={11} strokeWidth={2} className="animate-spin" />
-        Saving…
+        {t.aSaving}
       </span>
     );
   }
@@ -192,20 +196,21 @@ export function AutosaveIndicator({
   return (
     <span className={`${baseStyle} ${className}`}
       style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
-      <Check size={11} strokeWidth={2} style={{ color: "#34c759" }} />
-      Saved · {relTime(savedAt!)}
+      <Check size={11} strokeWidth={2} style={{ color: "var(--success)" }} />
+      {t.aSaved} · {relTime(savedAt!, t, lang)}
     </span>
   );
 }
 
-/** "just now" / "30s ago" / "2m ago" / "1h ago" / "yesterday" */
-function relTime(d: Date): string {
+/** Localized relative time helper. */
+function relTime(d: Date, t: Translation, lang: Lang): string {
   const sec = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
-  if (sec < 5)    return "just now";
-  if (sec < 60)   return `${sec}s ago`;
+  if (sec < 5)    return t.aJustNow;
+  if (sec < 60)   return t.aSecAgo.replace("{n}", String(sec));
   const min = Math.floor(sec / 60);
-  if (min < 60)   return `${min}m ago`;
+  if (min < 60)   return t.aMinAgo.replace("{n}", String(min));
   const hr = Math.floor(min / 60);
-  if (hr < 24)    return `${hr}h ago`;
-  return d.toLocaleDateString();
+  if (hr < 24)    return t.aHrAgo.replace("{n}", String(hr));
+  const locale = lang === "fr" ? "fr-FR" : lang === "de" ? "de-DE" : "en-US";
+  return d.toLocaleDateString(locale);
 }

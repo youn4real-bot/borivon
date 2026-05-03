@@ -7,6 +7,7 @@ import { Plus, Minus, X as XIcon, Building2, CheckCircle, Clock, Users, FileText
 import { PageLoader, Spinner } from "@/components/ui/states";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { useLang } from "@/components/LangContext";
+import { PortalTopNav } from "@/components/PortalTopNav";
 
 const t = {
   en: {
@@ -507,7 +508,7 @@ export default function OrgDashboardPage() {
             <button key={ft} type="button" onClick={() => setFacilityType(ft)}
               className="py-2 px-2 text-[12px] font-semibold text-center transition-all"
               style={{
-                background: facilityType === ft ? "rgba(212,175,55,0.15)" : "var(--bg2)",
+                background: facilityType === ft ? "var(--gdim)" : "var(--bg2)",
                 color:      facilityType === ft ? "var(--gold)" : "var(--w2)",
                 border:     `1.5px solid ${facilityType === ft ? "var(--border-gold)" : "var(--border)"}`,
                 borderRadius: "10px",
@@ -599,9 +600,9 @@ export default function OrgDashboardPage() {
               {/* Step number */}
               <span className="w-[18px] h-[18px] rounded-full flex items-center justify-center text-[9px] font-bold flex-shrink-0"
                 style={{
-                  background: row.value ? "rgba(212,175,55,0.15)" : "var(--bg2)",
+                  background: row.value ? "var(--gdim)" : "var(--bg2)",
                   color:      row.value ? "var(--gold)"           : "var(--w3)",
-                  border:     `1px solid ${row.value ? "rgba(212,175,55,0.4)" : "var(--border)"}`,
+                  border:     `1px solid ${row.value ? "var(--border-gold)" : "var(--border)"}`,
                 }}>
                 {row.num}
               </span>
@@ -620,14 +621,16 @@ export default function OrgDashboardPage() {
       <SectionHeader label={T.sectionNotes} />
 
       <div>
-        <input type="text" value={notes} onChange={e => setNotes(e.target.value)}
-          placeholder={T.anySpecificReqs} style={inp} />
+        <input type="text" value={notes} onChange={e => setNotes(e.target.value.slice(0, 300))}
+          maxLength={300} placeholder={T.anySpecificReqs} style={inp} />
       </div>
     </>
   );
 
   return (
-    <main className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "calc(61px + 2rem)", paddingBottom: "4rem" }}>
+    <>
+    <PortalTopNav />
+    <main className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "calc(58px + var(--bv-subnav-h, 44px) + 2rem)", paddingBottom: "4rem" }}>
       <div className="max-w-[720px] mx-auto px-4 pt-8">
 
         {/* Org header */}
@@ -863,12 +866,9 @@ export default function OrgDashboardPage() {
             <div className="space-y-2">
               {candidates.map(c => (
                 <button key={c.userId} type="button"
-                  onClick={() => {
-                    if (!c.email) return;
-                    router.push(`/portal/admin?nav_email=${encodeURIComponent(c.email)}`);
-                  }}
+                  onClick={() => router.push(`/portal/org/candidates/${c.userId}`)}
                   className="w-full flex items-center gap-3.5 px-4 py-3.5 rounded-2xl text-left transition-colors hover:opacity-90"
-                  style={{ background: "var(--card)", border: "1px solid var(--border)", cursor: c.email ? "pointer" : "default" }}>
+                  style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
                   <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden"
                     style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
                     {c.profilePhoto
@@ -904,5 +904,6 @@ export default function OrgDashboardPage() {
 
       </div>
     </main>
+    </>
   );
 }

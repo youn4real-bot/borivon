@@ -15,7 +15,7 @@ const LANGS: { code: Lang; flagSrc: string; label: string }[] = [
   { code: "de", flagSrc: "https://flagcdn.com/de.svg", label: "Deutsch" },
 ];
 
-export function Navbar({ rightExtra }: { rightExtra?: ReactNode }) {
+export function Navbar({ rightExtra, leftExtra }: { rightExtra?: ReactNode; leftExtra?: ReactNode }) {
   const { lang, setLang } = useLang();
   const { theme, toggleTheme } = useTheme();
   const [langOpen, setLangOpen] = useState(false);
@@ -204,14 +204,17 @@ export function Navbar({ rightExtra }: { rightExtra?: ReactNode }) {
           transition: "background var(--dur-3) var(--ease), border-color var(--dur-3) var(--ease)",
         }}
       >
-        <a
-          href="/"
-          className="font-[family-name:var(--font-dm-serif)] italic no-underline hover:opacity-80 transition-opacity"
-          style={{ fontSize: "clamp(1.15rem,3.5vw,1.4rem)", color: "var(--w)" }}
-          aria-label="Borivon — Accueil"
-        >
-          Borivon<span style={{ color: "var(--gold)" }} className="not-italic">.</span>
-        </a>
+        <div className="flex items-center gap-4">
+          <a
+            href="/"
+            className="font-[family-name:var(--font-dm-serif)] italic no-underline hover:opacity-80 transition-opacity"
+            style={{ fontSize: "clamp(1.15rem,3.5vw,1.4rem)", color: "var(--w)" }}
+            aria-label="Borivon — Accueil"
+          >
+            Borivon<span style={{ color: "var(--gold)" }} className="not-italic">.</span>
+          </a>
+          {leftExtra}
+        </div>
         {/* On mobile the actions live in the bottom bar — this slot is empty
             so the brand sits alone at the top. */}
       </nav>

@@ -88,6 +88,9 @@
   --info:           #5b9ae0;
   --info-bg:        rgba(91, 154, 224, 0.12);
   --info-border:    rgba(91, 154, 224, 0.24);
+  --warning:        #d4953a;
+  --warning-bg:     rgba(212, 149, 58, 0.10);
+  --warning-border: rgba(212, 149, 58, 0.24);
 
   /* ── German flag strip colors ─────────────────────────────────────────── */
   --flag-black: #111111;
@@ -964,4 +967,34 @@ textarea:focus {
 }
 .bv-doc-highlight {
   animation: bv-doc-glow 1.1s ease-in-out infinite;
+}
+
+/* ── Portal sub-nav offset ───────────────────────────────────────────────────
+   PortalTopNav sets --bv-subnav-h on <html> when mounted.
+   Every portal modal that starts at top-[58px] automatically shifts down
+   so it never overlaps the Dossier / Community tab bar on mobile.
+   Only applies on mobile (< 640px) where the tab bar is permanently visible;
+   on desktop the modals are centered and unaffected.                        */
+:root { --bv-subnav-h: 0px; }
+
+@media (max-width: 639.98px) {
+  .bv-doc-preview-outer,
+  .bv-side-preview,
+  .bv-side-preview-cand,
+  .bv-passport-info-outer,
+  .bv-side-data,
+  .bv-side-data-cand,
+  .bv-cand-preview-outer,
+  .bv-passport-modal-outer,
+  .bv-thread-modal-outer,
+  .bv-photo-crop-outer,
+  .bv-profile-popup-outer,
+  .bv-org-modal-outer,
+  .bv-tour-outer,
+  .bv-modal-outer,
+  .bv-auth-modal-outer,
+  .bv-cvprev-outer,
+  .bv-sign-modal-outer {
+    top: calc(58px + var(--bv-subnav-h)) !important;
+  }
 }

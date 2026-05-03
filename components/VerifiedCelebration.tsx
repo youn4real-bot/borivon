@@ -43,19 +43,19 @@ type Props = {
 const T = {
   fr: {
     title:  "Félicitations 🎉",
-    body:   "Votre profil est maintenant vérifié par l'équipe Borivon.",
+    body:   "Votre profil a été vérifié par Youness Taoufiq.",
     sub:    "Vous avez accès à toutes les fonctionnalités de la plateforme.",
     btn:    "Continuer",
   },
   en: {
     title:  "Congratulations 🎉",
-    body:   "Your profile has been verified by the Borivon team.",
+    body:   "Your profile has been verified by Youness Taoufiq.",
     sub:    "You now have full access to all platform features.",
     btn:    "Continue",
   },
   de: {
     title:  "Herzlichen Glückwunsch 🎉",
-    body:   "Ihr Profil wurde vom Borivon-Team verifiziert.",
+    body:   "Ihr Profil wurde von Youness Taoufiq verifiziert.",
     sub:    "Sie haben jetzt vollen Zugang zu allen Plattformfunktionen.",
     btn:    "Weiter",
   },
@@ -156,8 +156,8 @@ function CelebrationPortal({ userId, lang, onDismiss }: Props) {
         className="w-full max-w-sm text-center px-8 py-10 rounded-3xl relative"
         style={{
           background: "var(--card)",
-          border: "1px solid rgba(212,175,55,0.35)",
-          boxShadow: "0 24px 64px rgba(0,0,0,0.5), 0 0 0 1px rgba(212,175,55,0.2)",
+          border: "1px solid var(--border-gold)",
+          boxShadow: "0 24px 64px rgba(0,0,0,0.5), 0 0 0 1px var(--gdim)",
           animation: "bvCardRise 0.55s 0.1s var(--ease-out) both",
         }}
         // Stop backdrop click from closing when tapping the card itself
@@ -171,7 +171,7 @@ function CelebrationPortal({ userId, lang, onDismiss }: Props) {
           <svg width="80" height="80" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg">
             <path
               d="M19.998 3.094 14.638 0l-2.972 5.15H5.432v6.354L0 14.64 3.094 20 0 25.359l5.432 3.137v6.355h6.234L14.638 40l5.36-3.094L25.358 40l2.978-5.149h6.227v-6.355L40 25.359 36.905 20 40 14.64l-5.438-3.135V5.15h-6.227L25.358 0l-5.36 3.094Z"
-              fill="#c9a240"
+              fill="var(--gold)"
             />
             <path
               d="m13 19.5 4.5 4 7-7"
@@ -213,7 +213,7 @@ function CelebrationPortal({ userId, lang, onDismiss }: Props) {
             background: "var(--gold)",
             color: "#131312",
             border: "none",
-            boxShadow: "0 4px 14px rgba(201,162,64,0.35)",
+            boxShadow: "0 4px 14px var(--border-gold)",
           }}
         >
           {t.btn}

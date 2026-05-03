@@ -328,7 +328,7 @@ function PortalPageInner() {
                     className="sr-only" />
                   <div className="w-4 h-4 rounded-[4px] flex items-center justify-center transition-all"
                     style={{ background: consent ? "var(--gold)" : "transparent", border: `1.5px solid ${consent ? "var(--gold)" : "var(--border2)"}` }}>
-                    {consent && <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="#1a1a1a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                    {consent && <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="#131312" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                   </div>
                 </div>
                 <span className="text-[11.5px] leading-relaxed" style={{ color: "var(--w3)" }}>
@@ -348,7 +348,7 @@ function PortalPageInner() {
                     className="sr-only" />
                   <div className="w-4 h-4 rounded-[4px] flex items-center justify-center transition-all"
                     style={{ background: dataConsent ? "var(--gold)" : "transparent", border: `1.5px solid ${dataConsent ? "var(--gold)" : "var(--border2)"}` }}>
-                    {dataConsent && <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="#1a1a1a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                    {dataConsent && <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="#131312" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                   </div>
                 </div>
                 <span className="text-[11.5px] leading-relaxed" style={{ color: "var(--w3)" }}>

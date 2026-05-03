@@ -16,7 +16,7 @@ import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 export type AdminRole = "admin" | "sub_admin";
 
 export type AdminAuthResult =
-  | { ok: true;  role: AdminRole; email: string; userId: string }
+  | { ok: true;  role: AdminRole; email: string; userId: string; agencyId: string | null; isAgencyAdmin: boolean }
   | { ok: false; status: 401 | 403; error: string };
 
 function getAdminEmail(): string {
@@ -48,14 +48,18 @@ export async function requireAdminRole(req: NextRequest): Promise<AdminAuthResul
 
   // 1) Full admin?
   if (email === getAdminEmail()) {
-    return { ok: true, role: "admin", email, userId: data.user.id };
+    return { ok: true, role: "admin", email, userId: data.user.id, agencyId: null, isAgencyAdmin: false };
   }
 
   // 2) Sub-admin? (lookup against `sub_admins` table)
   const db = getServiceSupabase();
-  const { data: sub } = await db.from("sub_admins").select("email").eq("email", email).maybeSingle();
+  const { data: sub } = await db.from("sub_admins").select("email, agency_id, is_agency_admin").eq("email", email).maybeSingle();
   if (sub) {
-    return { ok: true, role: "sub_admin", email, userId: data.user.id };
+    return {
+      ok: true, role: "sub_admin", email, userId: data.user.id,
+      agencyId: (sub as { agency_id: string | null }).agency_id ?? null,
+      isAgencyAdmin: (sub as { is_agency_admin: boolean }).is_agency_admin ?? false,
+    };
   }
 
   return { ok: false, status: 403, error: "Forbidden" };

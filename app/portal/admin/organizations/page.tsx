@@ -7,6 +7,7 @@ import { ArrowLeft, Building2, Trash2, Copy, Check, Plus, UserPlus, X as XIcon, 
 import { CheckCircle2 } from "@/components/PortalIcons";
 import { PageLoader, EmptyState, Spinner } from "@/components/ui/states";
 import { useLang } from "@/components/LangContext";
+import { PortalTopNav } from "@/components/PortalTopNav";
 
 const t = {
   en: {
@@ -544,7 +545,8 @@ export default function OrganizationsPage() {
 
   return (
     <>
-    <main className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "calc(61px + 2rem)" }}>
+    <main className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "58px" }}>
+      <PortalTopNav />
       <div className="max-w-[780px] mx-auto px-4 pt-8 pb-20">
 
         {/* Header */}
@@ -657,7 +659,7 @@ export default function OrganizationsPage() {
                           </span>
                         )}
                         {org.pendingCount > 0 && (
-                          <span className="text-[9.5px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: "rgba(212,175,55,0.12)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                          <span className="text-[9.5px] font-semibold px-1.5 py-0.5 rounded-full" style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
                             {T.pending(org.pendingCount)}
                           </span>
                         )}
@@ -732,7 +734,7 @@ export default function OrganizationsPage() {
                           }}
                           disabled={qrGenerating === `${org.id}_member`}
                           className="hidden sm:inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 transition-colors disabled:opacity-50"
-                          style={{ background: copiedKey === `${org.id}_mem` ? "rgba(212,175,55,0.12)" : "var(--bg2)", color: copiedKey === `${org.id}_mem` ? "var(--gold)" : "var(--w2)", border: `1px solid ${copiedKey === `${org.id}_mem` ? "var(--border-gold)" : "var(--border)"}`, borderRadius: "8px" }}
+                          style={{ background: copiedKey === `${org.id}_mem` ? "var(--gdim)" : "var(--bg2)", color: copiedKey === `${org.id}_mem` ? "var(--gold)" : "var(--w2)", border: `1px solid ${copiedKey === `${org.id}_mem` ? "var(--border-gold)" : "var(--border)"}`, borderRadius: "8px" }}
                           title="Copy single-use admin invite link">
                           {copiedKey === `${org.id}_mem` ? <Check size={10} strokeWidth={2} /> : qrGenerating === `${org.id}_member` ? <Spinner size="xs" color="var(--w2)" /> : <Copy size={10} strokeWidth={1.8} />}
                           {T.adminLink}
@@ -803,7 +805,7 @@ export default function OrganizationsPage() {
                             {tabItem.label}
                             {tabItem.badge && (
                               <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
-                                style={{ background: tab === tabItem.id ? "rgba(212,175,55,0.15)" : "var(--bg2)", color: tab === tabItem.id ? "var(--gold)" : "var(--w3)", border: `1px solid ${tab === tabItem.id ? "var(--border-gold)" : "var(--border)"}` }}>
+                                style={{ background: tab === tabItem.id ? "var(--gdim)" : "var(--bg2)", color: tab === tabItem.id ? "var(--gold)" : "var(--w3)", border: `1px solid ${tab === tabItem.id ? "var(--border-gold)" : "var(--border)"}` }}>
                                 {tabItem.badge}
                               </span>
                             )}

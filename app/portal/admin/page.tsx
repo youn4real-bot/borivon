@@ -14,10 +14,12 @@ import {
   Lock, Unlock, IdCard, FileText, Folder, FilePen, Save, Eye,
   CheckCircle2, XCircle, AlertTriangle, PartyPopper,
 } from "@/components/PortalIcons";
-import { X as XIcon, RotateCcw, Download, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2 } from "lucide-react";
+import { X as XIcon, RotateCcw, Download, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus } from "lucide-react";
 import { Spinner, PageLoader, EmptyState } from "@/components/ui/states";
 import { CandidateStagePreview, type JourneyMode } from "@/components/JourneyView";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
+import { PortalTopNav } from "@/components/PortalTopNav";
+import { SignRequestPanel } from "@/components/SignRequestPanel";
 
 // ── File key → all possible translated labels ─────────────────────────────────
 const FILE_KEY_ALL_LABELS: Record<string, Set<string>> = (() => {
@@ -89,6 +91,7 @@ type CandidateProfile = {
   manually_verified: boolean | null;
   profile_photo: string | null;
   payment_tier: string | null;
+  placement_ready: boolean | null;
 };
 
 type AdminPipeline = {
@@ -171,12 +174,12 @@ function PaymentBadge({ tier }: { tier: string | null | undefined }) {
     <span
       className="inline-flex items-center text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ml-1 flex-shrink-0"
       style={{
-        background: isKandidat ? "rgba(212,175,55,0.15)" : "var(--info-bg)",
+        background: isKandidat ? "var(--gdim)" : "var(--info-bg)",
         color:      isKandidat ? "var(--gold)"           : "var(--info)",
-        border:     isKandidat ? "1px solid rgba(212,175,55,0.4)" : "1px solid var(--info-border)",
+        border:     isKandidat ? "1px solid var(--border-gold)" : "1px solid var(--info-border)",
       }}
     >
-      {isKandidat ? "★ Kandidat" : "Starter"}
+      {isKandidat ? "★ Premium" : "Starter"}
     </span>
   );
 }
@@ -209,10 +212,9 @@ export default function AdminPage() {
     id: string;
     orgId: string;
     orgName: string;
-    facilityType: string;
+    specialty: string | null;
     slots: number;
-    bundesland: string | null;
-    city: string | null;
+    location: string | null;
     startDate: string | null;
     notes: string | null;
     createdAt: string;
@@ -221,6 +223,112 @@ export default function AdminPage() {
   /** needId → userId being assigned */
   const [needAssign, setNeedAssign]   = useState<Record<string, string>>({});
   const [needPlacing, setNeedPlacing] = useState<Record<string, boolean>>({});
+
+  // ── Agencies (multi-tenancy) ─────────────────────────────────────────────────
+  type Agency = { id: string; name: string; created_at: string; adminCount: number; memberCount: number; candidateCount: number };
+  type AgencySubAdmin = { id: string; email: string; name: string; label: string; agency_id: string | null; is_agency_admin: boolean };
+  const [agencies, setAgencies]               = useState<Agency[]>([]);
+  const [agencySubAdmins, setAgencySubAdmins] = useState<AgencySubAdmin[]>([]);
+  const [agenciesLoaded, setAgenciesLoaded]   = useState(false);
+  const [newAgencyName, setNewAgencyName]     = useState("");
+  const [agencyCreating, setAgencyCreating]   = useState(false);
+  const [showAgencyPanel, setShowAgencyPanel] = useState(false);
+  const [showOrgReqPanel, setShowOrgReqPanel] = useState(false);
+
+  async function loadAgencies(token: string) {
+    const [ra, rs] = await Promise.all([
+      fetch("/api/portal/admin/agencies",   { headers: { Authorization: `Bearer ${token}` } }),
+      fetch("/api/portal/admin/sub-admins", { headers: { Authorization: `Bearer ${token}` } }),
+    ]);
+    if (ra.ok) { const j = await ra.json(); setAgencies(j.agencies ?? []); }
+    if (rs.ok) { const j = await rs.json(); setAgencySubAdmins(j.subAdmins ?? []); }
+    setAgenciesLoaded(true);
+  }
+
+  async function createAgency() {
+    if (!newAgencyName.trim()) return;
+    setAgencyCreating(true);
+    try {
+      const res = await fetch("/api/portal/admin/agencies", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ name: newAgencyName.trim() }),
+      });
+      if (res.ok) {
+        setNewAgencyName("");
+        await loadAgencies(accessToken);
+      }
+    } finally { setAgencyCreating(false); }
+  }
+
+  async function assignSubAdminAgency(email: string, agencyId: string | null, isAgencyAdmin: boolean) {
+    await fetch("/api/portal/admin/agencies", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ email, agencyId, isAgencyAdmin }),
+    });
+    setAgencySubAdmins(prev => prev.map(sa =>
+      sa.email === email ? { ...sa, agency_id: agencyId, is_agency_admin: isAgencyAdmin } : sa
+    ));
+  }
+
+  // ── Org Requirements Manager ─────────────────────────────────────────────────
+  type OrgReq = { id: string; specialty: string | null; slots: number; location: string | null; start_date: string | null; notes: string | null; active: boolean };
+  const [orgReqSelOrg, setOrgReqSelOrg] = useState("");
+  const [orgReqs, setOrgReqs]           = useState<OrgReq[]>([]);
+  const [orgReqLoading, setOrgReqLoading] = useState(false);
+  const [orgReqForm, setOrgReqForm]     = useState({ specialty: "", slots: "1", location: "", start_date: "", notes: "" });
+  const [orgReqAdding, setOrgReqAdding] = useState(false);
+  const [showOrgReqForm, setShowOrgReqForm] = useState(false);
+
+  async function loadOrgReqs(orgId: string) {
+    if (!orgId) { setOrgReqs([]); return; }
+    setOrgReqLoading(true);
+    try {
+      const res = await fetch(`/api/portal/admin/organizations/${orgId}/requirements`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (res.ok) {
+        const j = await res.json() as { requirements: OrgReq[] };
+        setOrgReqs(j.requirements ?? []);
+      }
+    } finally { setOrgReqLoading(false); }
+  }
+
+  async function addOrgReq() {
+    if (!orgReqSelOrg) return;
+    setOrgReqAdding(true);
+    try {
+      await fetch(`/api/portal/admin/organizations/${orgReqSelOrg}/requirements`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({
+          specialty:  orgReqForm.specialty.trim()  || undefined,
+          slots:      parseInt(orgReqForm.slots)   || 1,
+          location:   orgReqForm.location.trim()   || undefined,
+          start_date: orgReqForm.start_date        || undefined,
+          notes:      orgReqForm.notes.trim()      || undefined,
+        }),
+      });
+      setOrgReqForm({ specialty: "", slots: "1", location: "", start_date: "", notes: "" });
+      setShowOrgReqForm(false);
+      await loadOrgReqs(orgReqSelOrg);
+      fetch("/api/portal/admin/org-needs", { headers: { Authorization: `Bearer ${accessToken}` } })
+        .then(r => r.json())
+        .then((j: { needs?: OrgNeed[] }) => { if (j?.needs) setOrgNeeds(j.needs); })
+        .catch(() => {});
+    } finally { setOrgReqAdding(false); }
+  }
+
+  async function closeOrgReq(reqId: string) {
+    if (!orgReqSelOrg) return;
+    await fetch(`/api/portal/admin/organizations/${orgReqSelOrg}/requirements`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+      body: JSON.stringify({ requirementId: reqId }),
+    });
+    setOrgReqs(prev => prev.map(r => r.id === reqId ? { ...r, active: false } : r));
+  }
 
   // ── Suggested matches inbox ──────────────────────────────────────────────────
   type SuggestedMatch = {
@@ -317,7 +425,12 @@ export default function AdminPage() {
       // Check supreme-admin status + fetch org list in parallel with main data.
       fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${token}` } })
         .then(r => r.ok ? r.json() : null)
-        .then(j => { if (j?.isSuperAdmin) setIsSuperAdmin(true); })
+        .then(j => {
+          if (j?.isSuperAdmin) {
+            setIsSuperAdmin(true);
+            loadAgencies(token).catch(() => {});
+          }
+        })
         .catch(() => {});
       fetch("/api/portal/admin/organizations", { headers: { Authorization: `Bearer ${token}` } })
         .then(r => r.ok ? r.json() : null)
@@ -362,6 +475,7 @@ export default function AdminPage() {
           );
           if (uid) {
             setSelectedUser(uid);
+            window.scrollTo({ top: 0, behavior: "smooth" });
             if (navDoc) setActivePhase(getPhaseIdx(navDoc));
             if (navDocId) {
               // Try to find the doc in the freshly-loaded list
@@ -403,6 +517,7 @@ export default function AdminPage() {
       }
       if (!uid) return;
       setSelectedUser(uid);
+      window.scrollTo({ top: 0, behavior: "smooth" });
       if (!detail.docId) return;
       const all = [...docs, ...docHistory];
       const doc = all.find(d => d.id === detail.docId);
@@ -473,7 +588,7 @@ export default function AdminPage() {
       setTimeout(() => setPipelineSaved(false), 2500);
     } catch (err) {
       console.error("Save pipeline error:", err);
-      showError("Failed to save pipeline — please try again.");
+      showError(t.adErrPipeline);
     } finally {
       setPipelineSaving(false);
     }
@@ -495,7 +610,7 @@ export default function AdminPage() {
       }
     } catch (err) {
       console.error("Save passport error:", err);
-      showError("Failed to save profile — please try again.");
+      showError(t.adErrProfile);
     } finally {
       setPassportSaving(false);
     }
@@ -518,7 +633,7 @@ export default function AdminPage() {
       }
     } catch (err) {
       console.error("reviewPassport error:", err);
-      showError("Failed to update passport status — please try again.");
+      showError(t.adErrPassportStatus);
     } finally {
       setPassportInfoSaving(false);
     }
@@ -638,7 +753,7 @@ export default function AdminPage() {
           ...prev,
           [selectedUser]: { ...prev[selectedUser], manually_verified: current },
         }));
-        showError("Could not update verification — please try again.");
+        showError(t.adErrVerify);
       }
     } catch (err) {
       console.error("toggleManualVerify error:", err);
@@ -646,7 +761,7 @@ export default function AdminPage() {
         ...prev,
         [selectedUser]: { ...prev[selectedUser], manually_verified: current },
       }));
-      showError("Network error — please try again.");
+      showError(t.adErrNetwork);
     }
   }
 
@@ -667,7 +782,7 @@ export default function AdminPage() {
       }
     } catch (err) {
       console.error("savePassportInfo error:", err);
-      showError("Failed to save passport info — please try again.");
+      showError(t.adErrPassportSave);
     } finally {
       setPassportInfoSaving(false);
     }
@@ -689,7 +804,7 @@ export default function AdminPage() {
       }
     } catch (err) {
       console.error("Review error:", err);
-      showError("Failed to update document status — please try again.");
+      showError(t.adErrDocStatus);
     } finally {
       setSaving(s => ({ ...s, [docId]: false }));
     }
@@ -963,7 +1078,7 @@ export default function AdminPage() {
         });
         if (!res.ok) {
           const j = await res.json().catch(() => ({}));
-          showError(j.error ?? "Failed to delete candidate");
+          showError(j.error ?? t.adErrDelete);
           return;
         }
         // Remove from local state
@@ -1027,9 +1142,9 @@ export default function AdminPage() {
         {/* Passport Info Modal — with approve / reject / edit */}
         {showPassportInfo && (() => {
           const pst = p_info?.passport_status ?? null;
-          const pstBg    = pst === "approved" ? "var(--success-bg)"   : pst === "rejected" ? "var(--danger-bg)"  : "rgba(212,175,55,0.12)";
+          const pstBg    = pst === "approved" ? "var(--success-bg)"   : pst === "rejected" ? "var(--danger-bg)"  : "var(--gdim)";
           const pstColor = pst === "approved" ? "var(--success)"                : pst === "rejected" ? "var(--danger)"               : "var(--gold)";
-          const pstBdr   = pst === "approved" ? "var(--success-border)"   : pst === "rejected" ? "var(--danger-border)"   : "rgba(212,175,55,0.35)";
+          const pstBdr   = pst === "approved" ? "var(--success-border)"   : pst === "rejected" ? "var(--danger-border)"   : "var(--border-gold)";
           const pstLabel = pst === "approved"
             ? (lang === "fr" ? "Approuvé" : lang === "de" ? "Genehmigt" : "Approved")
             : pst === "rejected"
@@ -1140,7 +1255,7 @@ export default function AdminPage() {
 
                 {/* ── Header ── */}
                 <div className="flex items-center justify-between px-5 py-3 flex-shrink-0"
-                  style={{ borderBottom: "1px solid var(--border-gold)", background: "rgba(212,175,55,0.06)" }}>
+                  style={{ borderBottom: "1px solid var(--border-gold)", background: "var(--gdim)" }}>
                   <div className="flex items-center gap-2">
                     <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--gold)" }}>
                       <IdCard size={13} strokeWidth={1.8} className="inline mr-1.5 -mt-0.5" /> {lang === "fr" ? "Données du passeport" : lang === "de" ? "Reisepassdaten" : "Passport data"}
@@ -1235,19 +1350,19 @@ export default function AdminPage() {
                     <>
                     {pst !== "approved" && (
                       <div className="mb-3 px-1 space-y-1">
-                        <p className="text-[10px]" style={{ color: "#e08a00" }}>
+                        <p className="text-[10px]" style={{ color: "var(--warning)" }}>
                           {lang === "fr" ? "Comparez chaque champ avec le document passeport." : lang === "de" ? "Vergleichen Sie jedes Feld mit dem Reisepassdokument." : "Compare each field against the passport document."}
                         </p>
                         <div className="flex items-center gap-1.5">
                           <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                            <rect x="1" y="1" width="14" height="14" rx="3" stroke="#f59e0b" strokeWidth="1.5"/>
+                            <rect x="1" y="1" width="14" height="14" rx="3" stroke="var(--warning)" strokeWidth="1.5"/>
                           </svg>
                           <span style={{ color: "#aaa", fontSize: 9 }}>→</span>
                           <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                            <rect width="16" height="16" rx="3.5" fill="#22c55e"/>
+                            <rect width="16" height="16" rx="3.5" fill="var(--success)"/>
                             <path d="M4.5 8l2.5 2.5 4.5-4.5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
                           </svg>
-                          <p className="text-[10px]" style={{ color: "#e08a00" }}>
+                          <p className="text-[10px]" style={{ color: "var(--warning)" }}>
                             {lang === "fr" ? "Cochez toutes les cases pour confirmer, puis Approuver." : lang === "de" ? "Aktivieren Sie alle Kästchen zur Bestätigung, dann Genehmigen." : "Tick every box to confirm, then Approve."}
                           </p>
                         </div>
@@ -1290,13 +1405,13 @@ export default function AdminPage() {
                                     </svg>
                                   ) : confirmed ? (
                                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                                      <rect width="16" height="16" rx="3.5" fill="#22c55e"/>
+                                      <rect width="16" height="16" rx="3.5" fill="var(--success)"/>
                                       <path d="M4.5 8l2.5 2.5 4.5-4.5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
                                     </svg>
                                   ) : (
                                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                                      <rect x="1" y="1" width="14" height="14" rx="3" stroke="#f59e0b" strokeWidth="1.5"/>
-                                      <path d="M4.5 8l2.5 2.5 4.5-4.5" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" strokeOpacity="0.35"/>
+                                      <rect x="1" y="1" width="14" height="14" rx="3" stroke="var(--warning)" strokeWidth="1.5"/>
+                                      <path d="M4.5 8l2.5 2.5 4.5-4.5" stroke="var(--warning)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" strokeOpacity="0.35"/>
                                     </svg>
                                   )}
                                 </button>
@@ -1393,7 +1508,8 @@ export default function AdminPage() {
           );
         })()}
 
-        <main className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "calc(61px + 2rem)" }}>
+        <main className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "58px" }}>
+          <PortalTopNav />
           <div className="max-w-[780px] mx-auto px-4 pt-8 pb-16">
 
             {/* ── Back + premium candidate header ──
@@ -1415,7 +1531,7 @@ export default function AdminPage() {
                   return (
                     <button onClick={() => setShowHistory(v => !v)}
                       className="inline-flex items-center gap-1.5 text-[11px] font-medium px-3 py-1.5 rounded-full transition-opacity hover:opacity-80"
-                      style={{ background: showHistory ? "rgba(212,175,55,0.12)" : "var(--bg2)", color: showHistory ? "var(--gold)" : "var(--w3)", border: `1px solid ${showHistory ? "rgba(212,175,55,0.3)" : "var(--border)"}` }}>
+                      style={{ background: showHistory ? "var(--gdim)" : "var(--bg2)", color: showHistory ? "var(--gold)" : "var(--w3)", border: `1px solid ${showHistory ? "var(--border-gold)" : "var(--border)"}` }}>
                       <Folder size={11} strokeWidth={1.8} /> {historyForUser.length} old
                     </button>
                   );
@@ -1452,6 +1568,12 @@ export default function AdminPage() {
                   <span className="truncate">{user.name}</span>
                   <VerifiedBadge verified={!!profiles[selectedUser]?.manually_verified} size="sm" color="gold" />
                   <PaymentBadge tier={profiles[selectedUser]?.payment_tier} />
+                  {profiles[selectedUser]?.placement_ready && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full align-middle"
+                      style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
+                      ✓ Ready to match
+                    </span>
+                  )}
                   {/* Org tags inline next to the gold tick — minimalist, no × */}
                   {(candidateOrgs[selectedUser] ?? []).map(org => (
                     <span key={org.id}
@@ -1469,7 +1591,7 @@ export default function AdminPage() {
               <div className="flex items-center gap-2 flex-wrap flex-shrink-0">
                 {pendingDocs.length > 0 && (
                   <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-full"
-                    style={{ background: "rgba(201,162,64,0.12)", color: "#c9a240", border: "1px solid rgba(201,162,64,0.25)" }}>
+                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
                     {pendingDocs.length} {t.aPending}
                   </span>
                 )}
@@ -1485,11 +1607,11 @@ export default function AdminPage() {
                       aria-label="Toggle manual verification"
                       className="inline-flex items-center gap-1.5 text-[10.5px] px-3 py-1.5 rounded-full font-semibold tracking-wide uppercase transition-colors"
                       style={isManual
-                        ? { background: "rgba(201,162,64,0.12)", border: "1px solid rgba(201,162,64,0.3)" }
+                        ? { background: "var(--gdim)", border: "1px solid var(--border-gold)" }
                         : { background: "transparent", border: "1px solid var(--border)" }}>
                       <svg width="11" height="11" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
                         <path d="M19.998 3.094 14.638 0l-2.972 5.15H5.432v6.354L0 14.64 3.094 20 0 25.359l5.432 3.137v6.355h6.234L14.638 40l5.36-3.094L25.358 40l2.978-5.149h6.227v-6.355L40 25.359 36.905 20 40 14.64l-5.438-3.135V5.15h-6.227L25.358 0l-5.36 3.094Z"
-                          fill={isManual ? "#c9a240" : "none"} stroke={isManual ? "none" : "var(--w3)"} strokeWidth="2" />
+                          fill={isManual ? "var(--gold)" : "none"} stroke={isManual ? "none" : "var(--w3)"} strokeWidth="2" />
                         <path d="m13 19.5 4.5 4 7-7" stroke={isManual ? "#fff" : "transparent"} strokeWidth="3.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
                       <span style={isManual ? { color: "var(--gold)" } : { color: "var(--w3)" }}>
@@ -1498,6 +1620,17 @@ export default function AdminPage() {
                     </button>
                   );
                 })()}
+                {/* Edit CV — opens cv-builder in admin mode for this candidate */}
+                {selectedUser && (
+                  <button
+                    onClick={() => window.open(`/portal/cv-builder?candidateId=${selectedUser}`, "_blank")}
+                    title="Edit candidate's CV"
+                    className="inline-flex items-center gap-1.5 text-[10.5px] px-3 py-1.5 rounded-full font-semibold tracking-wide uppercase transition-opacity hover:opacity-80"
+                    style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w3)" }}>
+                    <FilePen size={11} strokeWidth={1.8} />
+                    Edit CV
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1532,6 +1665,15 @@ export default function AdminPage() {
                 </div>
               );
             })()}
+
+            {/* ── Signature requests ── */}
+            {selectedUser && (
+              <SignRequestPanel
+                candidateId={selectedUser}
+                authToken={accessToken}
+                lang={(lang as "en" | "fr" | "de") in { en: 1, fr: 1, de: 1 } ? lang as "en" | "fr" | "de" : "en"}
+              />
+            )}
 
             {/* Always two-column: sidebar + content */}
             <div className="flex gap-4 sm:gap-6 items-start">
@@ -1693,7 +1835,7 @@ export default function AdminPage() {
                               <button key={s} onClick={() => setPipeline(p => ({ ...p, interview_status: s }))}
                                 title={s} aria-label={s}
                                 className="w-7 h-7 flex items-center justify-center font-semibold transition-all"
-                                style={{ background: pipeline.interview_status === s ? s === "passed" ? "var(--success-border)" : s === "failed" ? "var(--danger-bg)" : "rgba(201,162,64,0.12)" : "var(--bg2)", color: pipeline.interview_status === s ? s === "passed" ? "var(--success)" : s === "failed" ? "var(--danger)" : "var(--gold)" : "var(--w3)", border: `1px solid ${pipeline.interview_status === s ? s === "passed" ? "var(--success-border)" : s === "failed" ? "var(--danger-bg)" : "rgba(201,162,64,0.3)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
+                                style={{ background: pipeline.interview_status === s ? s === "passed" ? "var(--success-border)" : s === "failed" ? "var(--danger-bg)" : "var(--gdim)" : "var(--bg2)", color: pipeline.interview_status === s ? s === "passed" ? "var(--success)" : s === "failed" ? "var(--danger)" : "var(--gold)" : "var(--w3)", border: `1px solid ${pipeline.interview_status === s ? s === "passed" ? "var(--success-border)" : s === "failed" ? "var(--danger-bg)" : "var(--border-gold)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
                                 {s === "passed" ? <CheckCircle2 size={13} strokeWidth={1.8} /> : s === "failed" ? <XCircle size={13} strokeWidth={1.8} /> : <RotateCcw size={12} strokeWidth={1.8} />}
                               </button>
                             ))}
@@ -1779,7 +1921,7 @@ export default function AdminPage() {
                       </div>
                     )}
                     {activePipelineStage === "flight" && (
-                      <div className="overflow-hidden" style={{ background: "var(--card)", border: `1px solid ${pipeline.flight_date ? "rgba(212,175,55,0.35)" : "var(--border)"}`, borderRadius: "var(--r-lg)" }}>
+                      <div className="overflow-hidden" style={{ background: "var(--card)", border: `1px solid ${pipeline.flight_date ? "var(--border-gold)" : "var(--border)"}`, borderRadius: "var(--r-lg)" }}>
                         <div className="flex items-center gap-3 px-4 py-3.5">
                           <span className="flex items-center justify-center w-9 h-9 flex-shrink-0"
                             style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-md)" }}>
@@ -1871,7 +2013,7 @@ export default function AdminPage() {
                         const cSt = !hasData ? "empty" : pst === "approved" ? "approved" : pst === "rejected" ? "rejected" : "pending";
                         const sc2 = cSt === "approved" ? { bg: "var(--success-border)",  txt: "var(--success)", bdr: "1px solid var(--success-border)" }
                                   : cSt === "rejected"  ? { bg: "var(--danger-bg)",  txt: "var(--danger)", bdr: "1px solid var(--danger-bg)" }
-                                  : cSt === "pending"   ? { bg: "rgba(201,162,64,0.10)", txt: "#c9a240", bdr: "1px solid rgba(201,162,64,0.30)" }
+                                  : cSt === "pending"   ? { bg: "var(--gdim)", txt: "var(--gold)", bdr: "1px solid var(--border-gold)" }
                                   :                       { bg: "var(--bg2)",             txt: "var(--w3)", bdr: "1px solid var(--border)" };
                         const cSymEl = cSt === "approved" ? <CheckCircle2 size={14} strokeWidth={1.8} />
                                      : cSt === "rejected" ? <XCircle      size={14} strokeWidth={1.8} />
@@ -1991,7 +2133,7 @@ export default function AdminPage() {
                       const sc =
                         circleStatus === "approved" ? { bg: "var(--success-border)",  txt: "var(--success)", bdr: "1px solid var(--success-border)" }
                       : circleStatus === "rejected"  ? { bg: "var(--danger-bg)",  txt: "var(--danger)", bdr: "1px solid var(--danger-bg)" }
-                      : circleStatus === "pending"   ? { bg: "rgba(201,162,64,0.10)", txt: "#c9a240", bdr: "1px solid rgba(201,162,64,0.30)" }
+                      : circleStatus === "pending"   ? { bg: "var(--gdim)", txt: "var(--gold)", bdr: "1px solid var(--border-gold)" }
                       :                               { bg: "var(--bg2)",             txt: "var(--w3)", bdr: "1px solid var(--border)" };
 
                       const circleSymbolEl = circleStatus === "approved" ? <CheckCircle2 size={14} strokeWidth={1.8} />
@@ -2060,7 +2202,7 @@ export default function AdminPage() {
                                       const dsc =
                                         d.status === "approved" ? { bg: "var(--success-bg)",  txt: "var(--success)", bdr: "var(--success-border)" }
                                       : d.status === "rejected"  ? { bg: "var(--danger-bg)",  txt: "var(--danger)", bdr: "var(--danger-bg)" }
-                                      :                           { bg: "rgba(201,162,64,0.1)", txt: "#c9a240", bdr: "rgba(201,162,64,0.3)" };
+                                      :                           { bg: "var(--gdim)", txt: "var(--gold)", bdr: "var(--border-gold)" };
                                       const dClickable = !!d.drive_file_id;
                                       return (
                                         <div key={d.id}
@@ -2229,8 +2371,8 @@ export default function AdminPage() {
                         </div>
                         {historyForUser.map((d, idx) => {
                           const st = d.status;
-                          const stBg = st === "approved" ? "var(--success-bg)" : st === "rejected" ? "var(--danger-bg)" : "rgba(201,162,64,0.1)";
-                          const stCl = st === "approved" ? "var(--success)" : st === "rejected" ? "var(--danger)" : "#c9a240";
+                          const stBg = st === "approved" ? "var(--success-bg)" : st === "rejected" ? "var(--danger-bg)" : "var(--gdim)";
+                          const stCl = st === "approved" ? "var(--success)" : st === "rejected" ? "var(--danger)" : "var(--gold)";
                           return (
                             <div key={d.id}>
                               {idx > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
@@ -2272,14 +2414,14 @@ export default function AdminPage() {
         {/* ── Delete candidate confirmation modal ── */}
         {deleteCandidateConfirm && typeof window !== "undefined" && createPortal(
           <>
-            <div className="fixed inset-0 z-[1400] bg-black/40 backdrop-blur-sm" onClick={() => !deletingCandidate && setDeleteCandidateConfirm(false)} />
-            <div className="fixed inset-0 z-[1401] flex items-center justify-center p-4">
+            <div className="fixed inset-0 z-[1400] bg-black/40 backdrop-blur-sm bv-modal-outer" onClick={() => !deletingCandidate && setDeleteCandidateConfirm(false)} />
+            <div className="fixed inset-0 z-[1401] flex items-center justify-center p-4 bv-modal-outer">
               <div className="w-full max-w-sm rounded-2xl p-6 flex flex-col gap-4"
                 style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }}>
                 <div className="flex flex-col items-center gap-2 text-center">
                   <div className="w-12 h-12 rounded-full flex items-center justify-center mb-1"
-                    style={{ background: "rgba(255,59,48,0.1)" }}>
-                    <Trash2 size={22} strokeWidth={1.6} style={{ color: "#ff3b30" }} />
+                    style={{ background: "var(--danger-bg)" }}>
+                    <Trash2 size={22} strokeWidth={1.6} style={{ color: "var(--danger)" }} />
                   </div>
                   <p className="text-[15px] font-semibold" style={{ color: "var(--w)" }}>Delete candidate?</p>
                   <p className="text-[12.5px] leading-relaxed" style={{ color: "var(--w3)" }}>
@@ -2310,7 +2452,7 @@ export default function AdminPage() {
                     disabled={deleteCandidateInput !== "DELETE" || deletingCandidate}
                     className="flex-1 rounded-xl py-2.5 text-[13px] font-semibold transition-opacity"
                     style={{
-                      background: deleteCandidateInput === "DELETE" && !deletingCandidate ? "#ff3b30" : "rgba(255,59,48,0.3)",
+                      background: deleteCandidateInput === "DELETE" && !deletingCandidate ? "var(--danger)" : "var(--danger-bg)",
                       color: "#fff", cursor: deleteCandidateInput !== "DELETE" || deletingCandidate ? "not-allowed" : "pointer",
                     }}>
                     {deletingCandidate ? "Deleting…" : "Delete"}
@@ -2343,13 +2485,14 @@ export default function AdminPage() {
             }
           />
         )}
-      <main className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "calc(61px + 2rem)" }}>
+      <main className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "58px" }}>
+        <PortalTopNav />
         <div className="max-w-[780px] mx-auto px-4 pt-8 pb-16">
 
-          {/* Header — refined typography */}
-          <div className="mb-6">
-            <h1 className="text-[22px] font-semibold tracking-[-0.015em]" style={{ color: "var(--w)" }}>{t.aTitle}</h1>
-            <p className="text-[13.5px] mt-1.5" style={{ color: "var(--w3)" }}>
+          {/* Header */}
+          <div className="mb-5">
+            <h1 className="text-[20px] font-semibold tracking-[-0.015em]" style={{ color: "var(--w)" }}>{t.aTitle}</h1>
+            <p className="text-[12.5px] mt-1" style={{ color: "var(--w3)" }}>
               {totalPending > 0
                 ? t.aSubPending
                     .replace("{n}", String(totalPending))
@@ -2358,88 +2501,184 @@ export default function AdminPage() {
             </p>
           </div>
 
-          {/* ── Quick Candidate Invite ── supreme admin only ── */}
-          {isSuperAdmin && (
-            <div className="mb-6 px-5 py-4 flex items-center gap-3 flex-wrap"
-              style={{ background: "var(--card)", borderRadius: "16px", border: "1px solid var(--border)", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-              <div className="flex-1 min-w-0">
-                <p className="text-[12.5px] font-semibold" style={{ color: "var(--w)" }}>Invite a candidate</p>
-                <p className="text-[11px] mt-0.5" style={{ color: "var(--w3)" }}>Single-use link — one person, platform access only</p>
-              </div>
-              {inviteUrl ? (
-                <>
-                  <input readOnly value={inviteUrl}
-                    className="flex-1 text-[11px] px-3 py-1.5 rounded-lg outline-none min-w-0"
-                    style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)", fontFamily: "monospace" }}
-                    onClick={e => (e.target as HTMLInputElement).select()}
-                  />
-                  <button
-                    onClick={async () => {
-                      await navigator.clipboard.writeText(inviteUrl).catch(() => {});
-                      setInviteCopied(true);
-                      setTimeout(() => setInviteCopied(false), 2500);
-                    }}
-                    className="flex-shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-opacity hover:opacity-80"
-                    style={{ background: inviteCopied ? "rgba(52,199,89,0.15)" : "var(--gdim)", color: inviteCopied ? "var(--success)" : "var(--gold)", border: `1px solid ${inviteCopied ? "var(--success)" : "var(--border-gold)"}` }}>
-                    {inviteCopied ? "✓ Copied" : "Copy"}
-                  </button>
-                  <button
-                    onClick={() => setInviteUrl(null)}
-                    className="flex-shrink-0 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-opacity hover:opacity-80"
-                    style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
-                    New
-                  </button>
-                </>
-              ) : (
-                <button
-                  onClick={async () => {
-                    setInviteGenerating(true);
-                    try {
-                      const res = await fetch("/api/portal/admin/invite-candidate", {
-                        method: "POST",
-                        headers: { Authorization: `Bearer ${accessToken}` },
-                      });
-                      const j = await res.json();
-                      if (j.url) setInviteUrl(j.url);
-                    } catch { /* ignore */ }
-                    setInviteGenerating(false);
-                  }}
-                  disabled={inviteGenerating}
-                  className="flex-shrink-0 px-4 py-2 rounded-xl text-[11.5px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-50"
-                  style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                  {inviteGenerating ? "Generating…" : "Generate Invite"}
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* Stats bar */}
+          {/* Stats bar — first thing you see */}
           {Object.keys(grouped).length > 0 && (() => {
             const totalCandidates = Object.keys(grouped).length;
             const fullyApproved   = archivedUserIds.filter(uid =>
               grouped[uid].every(d => d.status === "approved")
             ).length;
             return (
-              <div className="grid grid-cols-3 gap-3 mb-8">
+              <div className="grid grid-cols-3 gap-2 mb-6">
                 {[
-                  { label: "Candidates",    value: totalCandidates, color: "var(--gold)" },
-                  { label: "Pending docs",  value: totalPending,    color: "#ff9500" },
-                  { label: "Fully approved", value: fullyApproved,  color: "var(--success)" },
+                  { label: lang === "de" ? "Kandidaten" : lang === "fr" ? "Candidats" : "Candidates", value: totalCandidates, color: "var(--gold)" },
+                  { label: lang === "de" ? "Ausstehend" : lang === "fr" ? "En attente" : "Pending", value: totalPending, color: "var(--warning)" },
+                  { label: lang === "de" ? "Genehmigt" : lang === "fr" ? "Approuvés" : "Approved", value: fullyApproved, color: "var(--success)" },
                 ].map(s => (
-                  <div key={s.label} className="px-5 py-5 text-center transition-all hover:-translate-y-0.5"
+                  <div key={s.label} className="py-4 text-center"
                     style={{
                       background: "var(--card)",
-                      borderRadius: "20px",
-                      border: "none",
-                      boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+                      borderRadius: "var(--r-xl)",
+                      border: "1px solid var(--border)",
                     }}>
-                    <p className="text-[28px] font-semibold tracking-[-0.02em] tabular-nums leading-none" style={{ color: s.color }}>{s.value}</p>
-                    <p className="text-[10.5px] mt-2.5 font-medium uppercase tracking-[0.14em]" style={{ color: "var(--w3)" }}>{s.label}</p>
+                    <p className="text-[26px] font-bold tracking-[-0.03em] tabular-nums leading-none" style={{ color: s.color }}>{s.value}</p>
+                    <p className="text-[10px] mt-2 font-medium uppercase tracking-[0.12em]" style={{ color: "var(--w3)" }}>{s.label}</p>
                   </div>
                 ))}
               </div>
             );
           })()}
+
+          {/* ── Tools strip — invite + agencies ── superadmin only ── */}
+          {isSuperAdmin && (
+            <div className="mb-5 space-y-px" style={{ borderRadius: "var(--r-xl)", border: "1px solid var(--border)", overflow: "hidden" }}>
+
+              {/* Invite row */}
+              <div className="flex items-center gap-3 px-4 py-3" style={{ background: "var(--card)" }}>
+                <p className="text-[12px] flex-1" style={{ color: "var(--w3)" }}>
+                  {lang === "de" ? "Einladungslink" : lang === "fr" ? "Lien d'invitation" : "Invite link"}
+                </p>
+                {inviteUrl ? (
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <input readOnly value={inviteUrl}
+                      className="flex-1 text-[10.5px] px-2.5 py-1 rounded-md outline-none min-w-0"
+                      style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)", fontFamily: "monospace" }}
+                      onClick={e => (e.target as HTMLInputElement).select()}
+                    />
+                    <button
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(inviteUrl).catch(() => {});
+                        setInviteCopied(true);
+                        setTimeout(() => setInviteCopied(false), 2500);
+                      }}
+                      className="flex-shrink-0 px-2.5 py-1 rounded-md text-[10.5px] font-semibold transition-opacity hover:opacity-80"
+                      style={{ background: inviteCopied ? "var(--success-bg)" : "var(--gdim)", color: inviteCopied ? "var(--success)" : "var(--gold)", border: `1px solid ${inviteCopied ? "var(--success-border)" : "var(--border-gold)"}` }}>
+                      {inviteCopied ? "✓" : t.adCopy}
+                    </button>
+                    <button onClick={() => setInviteUrl(null)}
+                      className="flex-shrink-0 text-[10.5px] transition-opacity hover:opacity-70"
+                      style={{ color: "var(--w3)", background: "none", border: "none" }}>
+                      {t.adReset}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={async () => {
+                      setInviteGenerating(true);
+                      try {
+                        const res = await fetch("/api/portal/admin/invite-candidate", {
+                          method: "POST",
+                          headers: { Authorization: `Bearer ${accessToken}` },
+                        });
+                        const j = await res.json();
+                        if (j.url) setInviteUrl(j.url);
+                      } catch { /* ignore */ }
+                      setInviteGenerating(false);
+                    }}
+                    disabled={inviteGenerating}
+                    className="flex-shrink-0 px-3 py-1.5 text-[11px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-50"
+                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-sm)" }}>
+                    {inviteGenerating ? "…" : lang === "de" ? "Link generieren" : lang === "fr" ? "Générer" : "Generate"}
+                  </button>
+                )}
+              </div>
+
+              {/* Agencies row */}
+              {agenciesLoaded && (
+                <div style={{ background: "var(--card)", borderTop: "1px solid var(--border)" }}>
+                  <button
+                    onClick={() => setShowAgencyPanel(p => !p)}
+                    className="w-full flex items-center gap-2 px-4 py-3 text-left"
+                  >
+                    <Building2 size={12} strokeWidth={1.8} style={{ color: "var(--w3)", flexShrink: 0 }} />
+                    <p className="text-[12px] flex-1" style={{ color: "var(--w3)" }}>
+                      {t.adAgencies}
+                      <span className="ml-1.5 text-[10.5px]" style={{ color: "var(--w3)", opacity: 0.6 }}>· {agencies.length}</span>
+                    </p>
+                    <ChevronDown size={13} strokeWidth={1.8} style={{ color: "var(--w3)", transform: showAgencyPanel ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
+              </button>
+              {showAgencyPanel && (
+                <div className="px-5 pb-5 space-y-4">
+                  {/* Agency list */}
+                  {agencies.length > 0 && (
+                    <div className="space-y-2">
+                      {agencies.map(ag => (
+                        <div key={ag.id} className="p-3 rounded-xl" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <p className="text-[13px] font-semibold flex-1" style={{ color: "var(--w)" }}>{ag.name}</p>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: "var(--info-bg)", color: "var(--info)", border: "1px solid var(--info-border)" }}>
+                              {ag.candidateCount} {t.adCandAbbr} · {ag.adminCount} {t.adAdminAbbr}
+                            </span>
+                          </div>
+                          {/* Sub-admins in this agency */}
+                          <div className="space-y-1">
+                            {agencySubAdmins.filter(sa => sa.agency_id === ag.id).map(sa => (
+                              <div key={sa.email} className="flex items-center gap-2">
+                                <p className="text-[11px] flex-1 truncate" style={{ color: "var(--w3)" }}>{sa.email}</p>
+                                <button
+                                  onClick={() => assignSubAdminAgency(sa.email, ag.id, !sa.is_agency_admin)}
+                                  className="text-[10px] px-2 py-0.5 rounded-full transition-opacity hover:opacity-80"
+                                  style={{
+                                    background: sa.is_agency_admin ? "var(--success-bg)" : "var(--bg2)",
+                                    color: sa.is_agency_admin ? "var(--success)" : "var(--w3)",
+                                    border: `1px solid ${sa.is_agency_admin ? "var(--success-border)" : "var(--border)"}`,
+                                  }}>
+                                  {sa.is_agency_admin ? t.adAgencyAdmin : t.adAgencyMember}
+                                </button>
+                                <button
+                                  onClick={() => assignSubAdminAgency(sa.email, null, false)}
+                                  className="text-[10px] px-2 py-0.5 rounded-full transition-opacity hover:opacity-80"
+                                  style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
+                                  {t.adRemove}
+                                </button>
+                              </div>
+                            ))}
+                            {/* Assign unassigned sub-admins */}
+                            {agencySubAdmins.filter(sa => !sa.agency_id).length > 0 && (
+                              <div className="mt-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
+                                <p className="text-[10px] mb-1.5" style={{ color: "var(--w3)" }}>{t.adAddToAgency}</p>
+                                <div className="flex flex-wrap gap-1">
+                                  {agencySubAdmins.filter(sa => !sa.agency_id).map(sa => (
+                                    <button
+                                      key={sa.email}
+                                      onClick={() => assignSubAdminAgency(sa.email, ag.id, false)}
+                                      className="text-[10px] px-2 py-0.5 rounded-full transition-opacity hover:opacity-80"
+                                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                                      + {sa.email.split("@")[0]}
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {/* Create agency */}
+                  <div className="flex items-center gap-2">
+                    <input
+                      value={newAgencyName}
+                      onChange={e => setNewAgencyName(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && createAgency()}
+                      placeholder={t.adNewAgencyPh}
+                      className="flex-1 text-[12px] px-3 py-1.5 rounded-lg outline-none"
+                      style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }}
+                    />
+                    <button
+                      onClick={createAgency}
+                      disabled={agencyCreating || !newAgencyName.trim()}
+                      className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11.5px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-40"
+                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                      <Plus size={12} strokeWidth={2} />
+                      {agencyCreating ? t.adCreating : t.adCreate}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          </div>
+          )}
 
           {/* ── Org needs panel ──────────────────────────────────────────── */}
           {orgNeeds.length > 0 && (
@@ -2448,7 +2687,7 @@ export default function AdminPage() {
               <div className="flex items-center gap-2 mb-3">
                 <Building2 size={13} strokeWidth={1.8} style={{ color: "var(--gold)", flexShrink: 0 }} />
                 <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--gold)" }}>
-                  Org needs · {orgNeeds.length}
+                  {t.adOrgNeeds} · {orgNeeds.length}
                 </p>
               </div>
               <div className="space-y-2">
@@ -2463,17 +2702,16 @@ export default function AdminPage() {
                         <div className="flex-1 min-w-0">
                           <p className="text-[12.5px] font-semibold" style={{ color: "var(--w)" }}>{need.orgName}</p>
                           <p className="text-[11px] mt-0.5" style={{ color: "var(--w3)" }}>
-                            {need.facilityType}
+                            {need.specialty ?? t.adAnySpecialty}
                             <span className="mx-1.5 opacity-40">·</span>
-                            {need.slots} slot{need.slots !== 1 ? "s" : ""}
-                            {need.bundesland && <><span className="mx-1.5 opacity-40">·</span>{need.bundesland}</>}
-                            {need.city && <><span className="mx-1.5 opacity-40">·</span>{need.city}</>}
+                            {need.slots} {need.slots !== 1 ? t.adSlots : t.adSlot}
+                            {need.location && <><span className="mx-1.5 opacity-40">·</span>{need.location}</>}
                           </p>
                         </div>
                         {alreadyPlaced && (
                           <span className="text-[9.5px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
-                            style={{ background: "rgba(52,199,89,0.1)", color: "#34c759", border: "1px solid rgba(52,199,89,0.2)" }}>
-                            ✓ placed
+                            style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
+                            ✓ {t.adMatched}
                           </span>
                         )}
                       </div>
@@ -2484,12 +2722,12 @@ export default function AdminPage() {
                           onChange={e => setNeedAssign(p => ({ ...p, [need.id]: e.target.value }))}
                           className="flex-1 text-[11px] px-2 py-1.5 outline-none"
                           style={{ background: "var(--bg)", color: "var(--w2)", border: "1px solid var(--border)", borderRadius: "8px", minWidth: 0 }}>
-                          <option value="">Assign candidate…</option>
+                          <option value="">{t.adAssignCandidate}</option>
                           {Object.entries(users).map(([uid, u]) => {
                             const alreadyLinked = (candidateOrgs[uid] ?? []).some(o => o.id === need.orgId);
                             return (
                               <option key={uid} value={uid} disabled={alreadyLinked}>
-                                {u.name || u.email}{alreadyLinked ? " (linked)" : ""}
+                                {u.name || u.email}{alreadyLinked ? ` (${t.adLinked})` : ""}
                               </option>
                             );
                           })}
@@ -2499,7 +2737,7 @@ export default function AdminPage() {
                           disabled={!needAssign[need.id] || !!needPlacing[need.id]}
                           className="inline-flex items-center gap-1 text-[11px] font-semibold px-3 py-1.5 flex-shrink-0 transition-all disabled:opacity-40"
                           style={{ background: "var(--gold)", color: "#131312", border: "none", borderRadius: "8px" }}>
-                          {needPlacing[need.id] ? "…" : "Link →"}
+                          {needPlacing[need.id] ? "…" : `${t.adLink} →`}
                         </button>
                       </div>
                     </div>
@@ -2518,7 +2756,7 @@ export default function AdminPage() {
                   <path d="M19.998 3.094 14.638 0l-2.972 5.15H5.432v6.354L0 14.64 3.094 20 0 25.359l5.432 3.137v6.355h6.234L14.638 40l5.36-3.094L25.358 40l2.978-5.149h6.227v-6.355L40 25.359 36.905 20 40 14.64l-5.438-3.135V5.15h-6.227L25.358 0l-5.36 3.094Z" fill="var(--info)"/>
                 </svg>
                 <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--info)" }}>
-                  Suggested matches · {suggestedMatches.length}
+                  {t.adSuggestedMatches} · {suggestedMatches.length}
                 </p>
               </div>
               <div className="space-y-2">
@@ -2533,26 +2771,134 @@ export default function AdminPage() {
                           <>
                             {m.requirement.specialty && <span> · {m.requirement.specialty}</span>}
                             {m.requirement.location  && <span> · {m.requirement.location}</span>}
-                            <span> · {m.requirement.slots} slot{m.requirement.slots !== 1 ? "s" : ""}</span>
-                            {m.requirement.start_date && <span> · from {m.requirement.start_date}</span>}
+                            <span> · {m.requirement.slots} {m.requirement.slots !== 1 ? t.adSlots : t.adSlot}</span>
+                            {m.requirement.start_date && <span> · {t.adFromDate} {m.requirement.start_date}</span>}
                           </>
                         )}
                       </p>
                     </div>
                     <button onClick={() => decideMatch(m.id, "accepted")} disabled={!!matchDeciding[m.id]}
-                      title="Accept — links candidate to org"
+                      title={t.adAcceptHint}
                       className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-3 py-1.5 transition-all disabled:opacity-50"
                       style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)", borderRadius: "var(--r-sm)" }}>
-                      {matchDeciding[m.id] ? <Spinner size="xs" color="var(--success)" /> : "✓ Accept"}
+                      {matchDeciding[m.id] ? <Spinner size="xs" color="var(--success)" /> : `✓ ${t.adAccept}`}
                     </button>
                     <button onClick={() => decideMatch(m.id, "skipped")} disabled={!!matchDeciding[m.id]}
-                      title="Skip — removes from inbox"
+                      title={t.adSkipHint}
                       className="bv-icon-btn bv-icon-btn--reject w-8 h-8 rounded-full flex items-center justify-center disabled:opacity-40">
                       <XIcon size={12} strokeWidth={1.8} />
                     </button>
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* ── Org Requirements Manager — collapsible ── */}
+          {allOrgs.length > 0 && (
+            <div className="mb-5" style={{ borderRadius: "var(--r-xl)", border: "1px solid var(--border)", overflow: "hidden" }}>
+              <button
+                onClick={() => setShowOrgReqPanel(v => !v)}
+                className="w-full flex items-center gap-2 px-4 py-3 text-left"
+                style={{ background: "var(--card)" }}
+              >
+                <Building2 size={12} strokeWidth={1.8} style={{ color: "var(--w3)", flexShrink: 0 }} />
+                <p className="text-[12px] flex-1" style={{ color: "var(--w3)" }}>
+                  {lang === "de" ? "Org-Anforderungen" : lang === "fr" ? "Besoins org" : "Org requirements"}
+                  {orgReqSelOrg && <span className="ml-1.5 text-[10.5px] opacity-60">· active</span>}
+                </p>
+                <ChevronDown size={13} strokeWidth={1.8} style={{ color: "var(--w3)", transform: showOrgReqPanel ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
+              </button>
+              {showOrgReqPanel && (
+              <div className="px-4 pb-4 pt-2" style={{ background: "var(--card)", borderTop: "1px solid var(--border)" }}>
+              <select
+                value={orgReqSelOrg}
+                onChange={e => { setOrgReqSelOrg(e.target.value); setShowOrgReqForm(false); loadOrgReqs(e.target.value); }}
+                className="w-full text-[11.5px] px-3 py-2 outline-none mb-3"
+                style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)", borderRadius: "8px" }}>
+                <option value="">{t.adSelectOrg}</option>
+                {allOrgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </select>
+
+              {orgReqSelOrg && (
+                <>
+                  {!showOrgReqForm && (
+                    <div className="flex justify-end mb-2">
+                      <button onClick={() => setShowOrgReqForm(v => !v)}
+                        className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2.5 py-1 rounded-full transition-opacity hover:opacity-80"
+                        style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                        <Plus size={10} strokeWidth={2.5} /> {t.adAdd}
+                      </button>
+                    </div>
+                  )}
+                  {orgReqLoading ? (
+                    <div className="flex justify-center py-3"><Spinner size="sm" /></div>
+                  ) : (
+                    <div className="space-y-2 mb-2">
+                      {orgReqs.filter(r => r.active).length === 0 && !showOrgReqForm && (
+                        <p className="text-[11.5px] text-center py-2" style={{ color: "var(--w3)" }}>{t.adNoActiveReqs}</p>
+                      )}
+                      {orgReqs.filter(r => r.active).map(r => (
+                        <div key={r.id} className="flex items-start gap-2 px-3 py-2 rounded-lg"
+                          style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-[11.5px] font-semibold" style={{ color: "var(--w)" }}>
+                              {r.specialty || t.adAnySpecialty}
+                              {r.slots > 1 && <span className="ml-1.5 text-[10px] opacity-60">{r.slots} {t.adSlots}</span>}
+                            </p>
+                            <p className="text-[10.5px] mt-0.5" style={{ color: "var(--w3)" }}>
+                              {[r.location, r.start_date].filter(Boolean).join(" · ") || t.adNoLocDate}
+                            </p>
+                            {r.notes && <p className="text-[10px] mt-0.5 italic" style={{ color: "var(--w3)" }}>{r.notes}</p>}
+                          </div>
+                          <button onClick={() => closeOrgReq(r.id)}
+                            title={t.adCloseReq}
+                            className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-opacity hover:opacity-70"
+                            style={{ color: "var(--w3)" }}>
+                            <XIcon size={11} strokeWidth={2} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {showOrgReqForm && (
+                    <div className="space-y-2 mt-2 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
+                      <div className="grid grid-cols-2 gap-2">
+                        <input value={orgReqForm.specialty} onChange={e => setOrgReqForm(p => ({ ...p, specialty: e.target.value }))}
+                          placeholder={t.adSpecialtyPh}
+                          className="px-2.5 py-1.5 text-[11.5px] outline-none rounded-lg col-span-2"
+                          style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)" }} />
+                        <input value={orgReqForm.location} onChange={e => setOrgReqForm(p => ({ ...p, location: e.target.value }))}
+                          placeholder={t.adLocationPh}
+                          className="px-2.5 py-1.5 text-[11.5px] outline-none rounded-lg"
+                          style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)" }} />
+                        <input type="number" min="1" value={orgReqForm.slots} onChange={e => setOrgReqForm(p => ({ ...p, slots: e.target.value }))}
+                          placeholder={t.adSlotsPh}
+                          className="px-2.5 py-1.5 text-[11.5px] outline-none rounded-lg"
+                          style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)" }} />
+                        <input type="date" value={orgReqForm.start_date} onChange={e => setOrgReqForm(p => ({ ...p, start_date: e.target.value }))}
+                          className="px-2.5 py-1.5 text-[11.5px] outline-none rounded-lg col-span-2"
+                          style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)" }} />
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={addOrgReq} disabled={orgReqAdding}
+                          className="flex-1 py-1.5 text-[11.5px] font-semibold rounded-lg transition-opacity disabled:opacity-50"
+                          style={{ background: "var(--gold)", color: "#131312" }}>
+                          {orgReqAdding ? t.aSaving : t.adSaveReq}
+                        </button>
+                        <button onClick={() => setShowOrgReqForm(false)}
+                          className="px-3 py-1.5 text-[11.5px] rounded-lg transition-opacity hover:opacity-70"
+                          style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
+                          {t.adCancel}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+              </div>
+            )}
             </div>
           )}
 
@@ -2577,7 +2923,7 @@ export default function AdminPage() {
                     type="text"
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
-                    placeholder="Search candidates by name or email…"
+                    placeholder={t.adSearchPh}
                     className="w-full pl-10 pr-10 py-3 text-[13px] outline-none transition-colors focus:border-[var(--gold)]"
                     style={{
                       background: "var(--card)",
@@ -2587,7 +2933,7 @@ export default function AdminPage() {
                       boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
                     }} />
                   {searchQuery && (
-                    <button onClick={() => setSearchQuery("")} aria-label="Clear search"
+                    <button onClick={() => setSearchQuery("")} aria-label={t.adClearSearch}
                       className="bv-icon-btn absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded-full"
                       style={{ color: "var(--w3)" }}>
                       <XIcon size={13} strokeWidth={1.8} />
@@ -2597,24 +2943,28 @@ export default function AdminPage() {
                 {/* Filter chips */}
                 <div className="flex items-center gap-2 flex-wrap">
                   {([
-                    { key: "all"     as const, label: "All",            count: all.length },
-                    { key: "pending" as const, label: "Pending review", count: pendingCount },
-                    { key: "stuck"   as const, label: "Stuck > 7d",     count: stuckCount },
-                    { key: "clear"   as const, label: "All clear",      count: clearCount },
+                    { key: "all"     as const, label: t.adFilterAll,     count: all.length },
+                    { key: "pending" as const, label: t.adFilterPending, count: pendingCount },
+                    { key: "stuck"   as const, label: t.adFilterStuck,   count: stuckCount },
+                    { key: "clear"   as const, label: t.adFilterClear,   count: clearCount },
                   ]).map(chip => {
                     const active = filterMode === chip.key;
                     return (
                       <button key={chip.key}
                         onClick={() => setFilterMode(chip.key)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-medium tracking-tight transition-colors"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold tracking-tight transition-all hover:opacity-90"
                         style={{
-                          background: active ? "var(--gdim)" : "var(--bg2)",
-                          color: active ? "var(--gold)" : "var(--w2)",
+                          background: active ? "var(--gdim)" : "transparent",
+                          color: active ? "var(--gold)" : "var(--w3)",
                           border: `1px solid ${active ? "var(--border-gold)" : "var(--border)"}`,
                           borderRadius: "999px",
                         }}>
                         {chip.label}
-                        <span className="text-[10.5px] tabular-nums opacity-70">{chip.count}</span>
+                        <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold tabular-nums"
+                          style={{
+                            background: active ? "var(--border-gold)" : "var(--bg2)",
+                            color: active ? "var(--gold)" : "var(--w3)",
+                          }}>{chip.count}</span>
                       </button>
                     );
                   })}
@@ -2647,10 +2997,10 @@ export default function AdminPage() {
 
             if (visibleIds.length === 0) {
               if (q) {
-                return <EmptyState Icon={Search} title="No candidates found" sub={`No matches for "${searchQuery}".`} />;
+                return <EmptyState Icon={Search} title={t.adNoCandFound} sub={t.adNoMatchFor.replace("{q}", searchQuery)} />;
               }
               if (filterMode === "stuck") {
-                return <EmptyState Icon={CheckCircle2} tone="success" title="Nothing stuck" sub="No candidates have been waiting more than 7 days." />;
+                return <EmptyState Icon={CheckCircle2} tone="success" title={t.adNothingStuck} sub={t.adNoStuckSub} />;
               }
               return <EmptyState Icon={CheckCircle2} tone="success" title={t.aNothingTitle} sub={t.aNothing} />;
             }
@@ -2668,7 +3018,7 @@ export default function AdminPage() {
                     allDocs[0].uploaded_at);
                 const ta = timeAgo(mostRecent, lang);
                 const isExpanded = expandedRow === uid;
-                const openPanel = () => { setSelectedUser(uid); setActivePhase(0); setPassportDataFeedback(profiles[uid]?.passport_feedback ?? ""); };
+                const openPanel = () => { setSelectedUser(uid); setActivePhase(0); setPassportDataFeedback(profiles[uid]?.passport_feedback ?? ""); window.scrollTo({ top: 0, behavior: "smooth" }); };
 
                 return (
                   <div key={uid}
@@ -2718,11 +3068,11 @@ export default function AdminPage() {
                       {isClear ? (
                         <span className="inline-flex items-center gap-1 text-[11.5px] font-semibold flex-shrink-0"
                           style={{ color: "var(--success)" }}>
-                          <CheckCircle2 size={12} strokeWidth={2.2} /> All clear
+                          <CheckCircle2 size={12} strokeWidth={2.2} /> {t.adAllClearStatus}
                         </span>
                       ) : (
                         <span className="text-[11.5px] font-semibold flex-shrink-0"
-                          style={{ color: "#c9a240" }}>
+                          style={{ color: "var(--gold)" }}>
                           {pendingCnt} {t.aPending}
                         </span>
                       )}
@@ -2731,7 +3081,7 @@ export default function AdminPage() {
                       {!isClear && (
                       <button
                         onClick={(e) => { e.stopPropagation(); setExpandedRow(isExpanded ? null : uid); }}
-                        aria-label={isExpanded ? "Collapse" : "Peek pending docs"}
+                        aria-label={isExpanded ? t.adCollapse : t.adPeekDocs}
                         aria-expanded={isExpanded}
                         className="w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0"
                         style={{
@@ -2751,7 +3101,7 @@ export default function AdminPage() {
                       <div className="px-5 pb-4 pt-1 bv-enter"
                         style={{ borderTop: "1px solid var(--border)" }}>
                         <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-2.5 mt-2.5" style={{ color: "var(--w3)" }}>
-                          Pending review ({pendingCnt})
+                          {t.adPendingReviewLabel} ({pendingCnt})
                         </p>
                         <div className="space-y-1">
                           {pendingDocs.slice(0, 8).map(d => {
@@ -2767,7 +3117,7 @@ export default function AdminPage() {
                           })}
                           {pendingDocs.length > 8 && (
                             <p className="text-[11px] mt-2 text-center" style={{ color: "var(--w3)" }}>
-                              + {pendingDocs.length - 8} more — open full panel to review
+                              {t.adMoreOpen.replace("{n}", String(pendingDocs.length - 8))}
                             </p>
                           )}
                         </div>
@@ -2801,7 +3151,7 @@ export default function AdminPage() {
                     const user       = users[uid] ?? { name: uid, email: uid };
                     return (
                       <button key={uid}
-                        onClick={() => { setSelectedUser(uid); setActivePhase(0); setPassportDataFeedback(profiles[uid]?.passport_feedback ?? ""); }}
+                        onClick={() => { setSelectedUser(uid); setActivePhase(0); setPassportDataFeedback(profiles[uid]?.passport_feedback ?? ""); window.scrollTo({ top: 0, behavior: "smooth" }); }}
                         className="bv-row-hover w-full text-left px-3 py-3 flex items-center gap-3 transition-colors outline-none"
                         style={{ borderBottom: "1px solid var(--border)", opacity: 0.75 }}>
                         {profiles[uid]?.profile_photo ? (

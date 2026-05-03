@@ -45,13 +45,14 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
   const [inviteStatus, setInviteStatus]       = useState<"idle" | "checking" | "valid" | "invalid">("idle");
   const [inviteOrgName, setInviteOrgName]     = useState("");
 
-  // Close on Escape
+  // Close on Escape — disabled while a submit is in flight so a stray Esc
+  // can't abort signup/login mid-request.
   useEffect(() => {
     if (!open) return;
-    const fn = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    const fn = (e: KeyboardEvent) => { if (e.key === "Escape" && !loading) onClose(); };
     document.addEventListener("keydown", fn);
     return () => document.removeEventListener("keydown", fn);
-  }, [open, onClose]);
+  }, [open, onClose, loading]);
 
   // Reset state on close
   useEffect(() => {
@@ -155,7 +156,7 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
           setInviteOrgName(json.org?.name ?? "");
           setInviteStatus("valid");
         } catch {
-          setError(lang === "de" ? "Verbindungsfehler — bitte erneut versuchen." : "Connection error — please try again.");
+          setError(lang === "de" ? "Verbindungsfehler — bitte erneut versuchen." : lang === "fr" ? "Erreur de connexion — veuillez réessayer." : "Connection error — please try again.");
           setLoading(false);
           return;
         }
@@ -167,7 +168,7 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
 
     if (mode === "register") {
       const finalCode = inviteCode.trim().toUpperCase().replace(/[\s-]+/g, "");
-      const { error: err } = await supabase.auth.signUp({
+      const { data: signUpData, error: err } = await supabase.auth.signUp({
         email: email.trim().toLowerCase(), password,
         options: {
           data: {
@@ -182,6 +183,13 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
         setError(err.message === "User already registered" ? t.pErrExists : err.message);
         setLoading(false); return;
       }
+      // If email confirmation is disabled, Supabase returns a session immediately
+      if (signUpData?.session) {
+        onClose();
+        router.replace("/portal/dashboard");
+        return;
+      }
+      // Otherwise show "check your email" screen
       setCheckEmail(true); setLoading(false); return;
     }
 
@@ -229,7 +237,7 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
     <div
       className="fixed inset-x-0 bottom-0 top-[58px] z-[700] flex items-end sm:items-center justify-center sm:p-4 bv-auth-modal-outer"
       style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
-      onClick={onClose}
+      onClick={() => { if (!loading) onClose(); }}
     >
       {/* Mobile: keep clearance for the bottom action bar so the modal never
           slides behind the lang/theme/profile cluster. Desktop: navbar above
@@ -339,9 +347,9 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
                           letterSpacing: "0.06em",
                           textTransform: "uppercase",
                           paddingRight: "40px",
-                          borderColor: inviteStatus === "valid" ? "rgba(52,199,89,0.6)" : inviteStatus === "invalid" ? "rgba(224,82,82,0.6)" : "transparent",
+                          borderColor: inviteStatus === "valid" ? "var(--success-border)" : inviteStatus === "invalid" ? "var(--danger-border)" : "transparent",
                         }}
-                        onFocus={e => (e.currentTarget.style.borderColor = inviteStatus === "valid" ? "rgba(52,199,89,0.6)" : inviteStatus === "invalid" ? "rgba(224,82,82,0.6)" : "var(--gold)")}
+                        onFocus={e => (e.currentTarget.style.borderColor = inviteStatus === "valid" ? "var(--success-border)" : inviteStatus === "invalid" ? "var(--danger-border)" : "var(--gold)")}
                       />
                       {/* Status indicator */}
                       <span className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center">
@@ -349,21 +357,21 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
                           <svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--w3)" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeOpacity=".25"/><path d="M12 2a10 10 0 0 1 10 10" /></svg>
                         )}
                         {inviteStatus === "valid" && (
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#34c759" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                         )}
                         {inviteStatus === "invalid" && (
-                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#e05252" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                         )}
                       </span>
                     </div>
                     {/* Feedback line below invite code */}
                     {inviteStatus === "valid" && inviteOrgName && (
-                      <p className="text-[11.5px] -mt-1 px-1" style={{ color: "#34c759" }}>
+                      <p className="text-[11.5px] -mt-1 px-1" style={{ color: "var(--success)" }}>
                         ✓ {lang === "de" ? `Einladung von ${inviteOrgName} akzeptiert` : lang === "en" ? `Invitation from ${inviteOrgName} accepted` : `Invitation de ${inviteOrgName} acceptée`}
                       </p>
                     )}
                     {inviteStatus === "invalid" && (
-                      <p className="text-[11.5px] -mt-1 px-1" style={{ color: "#e05252" }}>
+                      <p className="text-[11.5px] -mt-1 px-1" style={{ color: "var(--danger)" }}>
                         {lang === "de" ? "Ungültiger Code — bitte prüfen" : lang === "en" ? "Invalid code — please check" : "Code invalide — veuillez vérifier"}
                       </p>
                     )}
@@ -417,7 +425,7 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
 
                 {error && (
                   <p className="text-[12.5px] px-3 py-2.5 rounded-xl"
-                    style={{ background: "rgba(224,82,82,0.08)", color: "#e05252", border: "1px solid rgba(224,82,82,0.2)" }}>
+                    style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
                     {error}
                   </p>
                 )}
@@ -429,7 +437,7 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
                     color: "#131312",
                     marginTop: "4px",
                     borderRadius: "12px",
-                    boxShadow: "0 4px 14px rgba(212,175,55,0.25)",
+                    boxShadow: "0 4px 14px var(--border-gold)",
                     border: "none",
                   }}>
                   {loading ? "…" : mode === "login" ? t.pBtnLogin : mode === "register" ? t.pBtnSignup : (lang === "de" ? "Link senden" : lang === "en" ? "Send link" : "Envoyer le lien")}
@@ -448,7 +456,7 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
                         className="sr-only" />
                       <div className="w-4 h-4 rounded-[4px] flex items-center justify-center transition-all"
                         style={{ background: consent ? "var(--gold)" : "transparent", border: `1.5px solid ${consent ? "var(--gold)" : "var(--border2)"}` }}>
-                        {consent && <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="#1a1a1a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                        {consent && <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="#131312" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                       </div>
                     </div>
                     <span className="text-[11.5px] leading-relaxed" style={{ color: "var(--w3)" }}>
@@ -469,7 +477,7 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
                         className="sr-only" />
                       <div className="w-4 h-4 rounded-[4px] flex items-center justify-center transition-all"
                         style={{ background: dataConsent ? "var(--gold)" : "transparent", border: `1.5px solid ${dataConsent ? "var(--gold)" : "var(--border2)"}` }}>
-                        {dataConsent && <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="#1a1a1a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                        {dataConsent && <svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="#131312" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
                       </div>
                     </div>
                     <span className="text-[11.5px] leading-relaxed" style={{ color: "var(--w3)" }}>

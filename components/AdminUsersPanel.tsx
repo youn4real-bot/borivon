@@ -79,7 +79,7 @@ const t = {
 };
 
 export function AdminUsersPanel({ accessToken, onClose }: Props) {
-  const { lang } = useLang();
+  const { lang, t: gT } = useLang();
   const T = t[lang] ?? t.en;
   const [users, setUsers] = useState<UserEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -91,16 +91,23 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
   const [myId, setMyId] = useState("");
 
   useEffect(() => {
+    let cancelled = false;
+    const ctrl = new AbortController();
     // Get current user's ID so we can hide the delete button on their own row
     supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) setMyId(user.id);
+      if (!cancelled && user) setMyId(user.id);
     });
     fetch("/api/portal/admin/users", {
       headers: { Authorization: `Bearer ${accessToken}` },
+      signal: ctrl.signal,
     })
       .then(r => r.json())
-      .then(j => { setUsers(j.users ?? []); setLoading(false); })
-      .catch(() => setLoading(false));
+      .then(j => { if (!cancelled) { setUsers(j.users ?? []); setLoading(false); } })
+      .catch((err) => {
+        if (cancelled || err?.name === "AbortError") return;
+        setLoading(false);
+      });
+    return () => { cancelled = true; ctrl.abort(); };
   }, [accessToken]);
 
   const filtered = users.filter(u => {
@@ -110,6 +117,7 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
   });
 
   async function deleteUser() {
+    if (deleting) return; // double-submit guard
     if (!deleteTarget || deleteInput !== "DELETE") return;
     setDeleting(true);
     setDeleteError("");
@@ -150,15 +158,32 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
     }
   }
 
+  // Esc: close delete-confirm if open, else close the slide-over panel.
+  // Guarded on `deleting` so a stray Esc can't dismiss mid-delete.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || deleting) return;
+      if (deleteTarget) {
+        setDeleteTarget(null);
+        setDeleteInput("");
+      } else {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [deleting, deleteTarget, onClose]);
+
   if (typeof document === "undefined") return null;
 
   return createPortal(
     <>
-      {/* Backdrop */}
+      {/* Backdrop — locked while a delete is in flight so the user can't
+          dismiss the panel mid-operation and end up in inconsistent UI. */}
       <div
         className="fixed inset-0 z-[1300]"
         style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(4px)" }}
-        onClick={onClose}
+        onClick={() => { if (!deleting) onClose(); }}
       />
 
       {/* Slide-over panel */}
@@ -243,9 +268,9 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
                 <span
                   className="text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
                   style={{
-                    background: u.role === "admin" ? "rgba(201,162,64,0.12)" : "var(--bg2)",
-                    color: u.role === "admin" ? "#c9a240" : "var(--w3)",
-                    border: `1px solid ${u.role === "admin" ? "rgba(201,162,64,0.25)" : "var(--border)"}`,
+                    background: u.role === "admin" ? "var(--gdim)" : "var(--bg2)",
+                    color: u.role === "admin" ? "var(--gold)" : "var(--w3)",
+                    border: `1px solid ${u.role === "admin" ? "var(--border-gold)" : "var(--border)"}`,
                   }}
                 >
                   {u.role === "admin" ? T.roleAdmin : T.roleCandidate}
@@ -258,14 +283,14 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
                     className="w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0 transition-colors"
                     style={{ color: "var(--w3)" }}
                     onMouseEnter={e => {
-                      (e.currentTarget as HTMLElement).style.background = "rgba(255,59,48,0.1)";
-                      (e.currentTarget as HTMLElement).style.color = "#ff3b30";
+                      (e.currentTarget as HTMLElement).style.background = "var(--danger-bg)";
+                      (e.currentTarget as HTMLElement).style.color = "var(--danger)";
                     }}
                     onMouseLeave={e => {
                       (e.currentTarget as HTMLElement).style.background = "transparent";
                       (e.currentTarget as HTMLElement).style.color = "var(--w3)";
                     }}
-                    aria-label={`Delete ${u.name || u.email}`}
+                    aria-label={gT.delUserAria.replace("{name}", u.name || u.email)}
                   >
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="3 6 5 6 21 6"/>
@@ -294,8 +319,8 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
               style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 8px 40px rgba(0,0,0,0.22)" }}
             >
               <div className="flex flex-col items-center gap-2 text-center">
-                <div className="w-11 h-11 rounded-full flex items-center justify-center mb-1" style={{ background: "rgba(255,59,48,0.1)" }}>
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#ff3b30" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <div className="w-11 h-11 rounded-full flex items-center justify-center mb-1" style={{ background: "var(--danger-bg)" }}>
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                     <polyline points="3 6 5 6 21 6"/>
                     <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
                     <path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
@@ -308,7 +333,7 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
                   {T.deleteBody}
                 </p>
                 {deleteError && (
-                  <p className="text-[11.5px] font-medium" style={{ color: "#ff3b30" }}>{deleteError}</p>
+                  <p className="text-[11.5px] font-medium" style={{ color: "var(--danger)" }}>{deleteError}</p>
                 )}
               </div>
 
@@ -344,7 +369,7 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
                   disabled={deleteInput !== T.typeToConfirm || deleting}
                   className="flex-1 rounded-xl py-2.5 text-[13px] font-semibold"
                   style={{
-                    background: deleteInput === T.typeToConfirm && !deleting ? "#ff3b30" : "rgba(255,59,48,0.25)",
+                    background: deleteInput === T.typeToConfirm && !deleting ? "var(--danger)" : "var(--danger-bg)",
                     color: "#fff",
                     cursor: deleteInput !== T.typeToConfirm || deleting ? "not-allowed" : "pointer",
                   }}

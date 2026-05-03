@@ -33,7 +33,7 @@ export function PhotoCropModal({
   onSave: (dataUrl: string) => void;
   onCancel: () => void;
 }) {
-  const { lang } = useLang();
+  const { lang, t: gT } = useLang();
   const imgRef = useRef<HTMLImageElement | null>(null);
   const [naturalW, setNaturalW] = useState(0);
   const [naturalH, setNaturalH] = useState(0);
@@ -53,7 +53,10 @@ export function PhotoCropModal({
   const dragRef  = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
   const pinchRef = useRef<{ dist: number; scale: number } | null>(null);
 
-  // Load image to learn natural dimensions, then fit-cover into the circle
+  // Load image to learn natural dimensions, then fit-cover into the circle.
+  // Only re-runs when the source changes — resizing the window during a crop
+  // session must NOT wipe the user's positioning. Viewport changes are
+  // handled by the re-fit effect below.
   useEffect(() => {
     const img = new Image();
     img.onload = () => {
@@ -66,7 +69,16 @@ export function PhotoCropModal({
     };
     img.crossOrigin = "anonymous";
     img.src = src;
-  }, [src, viewport]);
+  }, [src]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When the viewport changes (rotation / window resize), re-clamp scale and
+  // offset so the image still covers the new circle — preserves the user's
+  // current framing instead of resetting to fit-cover with tx=ty=0.
+  useEffect(() => {
+    if (!naturalW || !naturalH) return;
+    const c = clamp(scale, tx, ty);
+    setScale(c.s); setTx(c.x); setTy(c.y);
+  }, [viewport]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Clamp scale + offset so the image always covers the circle
   function clamp(s: number, x: number, y: number) {
@@ -186,10 +198,9 @@ export function PhotoCropModal({
     : { title: "Crop your photo", sub: "Drag to position, pinch or scroll to zoom.", save: "Save", cancel: "Cancel" };
 
   return createPortal(
-    // z-[700] (not 1300) so the bug-report button (z-[1201]) and the navbar
-    // both stay accessible above this modal — same rule as every other popup.
-    // Only blur + a soft tint on the backdrop, no heavy black overlay.
-    <div className="fixed inset-x-0 bottom-0 top-[58px] z-[700] flex items-center justify-center p-4 bv-photo-crop-outer"
+    // z-[1150] — above ProfilePopup (z-[1100]) so the crop modal appears in
+    // front when opened from "My profile". Below the navbar (z-[1200]).
+    <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1150] flex items-center justify-center p-4 bv-photo-crop-outer"
       style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)",
                animation: "bvFadeRise 0.22s var(--ease-out)" }}>
       <style>{`
@@ -209,7 +220,7 @@ export function PhotoCropModal({
             <p className="text-[14px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>{labels.title}</p>
             <p className="text-[11.5px] mt-0.5" style={{ color: "var(--w3)" }}>{labels.sub}</p>
           </div>
-          <button onClick={onCancel} aria-label="Close"
+          <button onClick={onCancel} aria-label={gT.miClose}
             className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center"
             style={{ color: "var(--w3)" }}>
             <XIcon size={14} strokeWidth={1.8} />
@@ -233,7 +244,7 @@ export function PhotoCropModal({
               touchAction: "none",
               // Gold glow ring around the crop circle (no heavy outer dim,
               // since the page chrome stays visible behind the modal).
-              boxShadow: "0 0 0 2px var(--border-gold), 0 0 24px rgba(212,175,55,0.18)",
+              boxShadow: "0 0 0 2px var(--border-gold), 0 0 24px var(--gdim)",
               userSelect: "none",
             }}>
             { /* eslint-disable-next-line @next/next/no-img-element */ }
@@ -288,7 +299,7 @@ export function PhotoCropModal({
             style={{
               background: "var(--gold)", color: "#131312",
               borderRadius: "var(--r-md)",
-              boxShadow: "0 4px 14px rgba(212,175,55,0.35), 0 0 0 1px rgba(212,175,55,0.4)",
+              boxShadow: "0 4px 14px var(--border-gold), 0 0 0 1px var(--border-gold)",
             }}>
             <Check size={13} strokeWidth={2} />
             {labels.save}

@@ -20,7 +20,7 @@ import { Spinner } from "@/components/ui/states";
 const MAX_ATTACH_CHARS = 800_000;
 
 export function BugReportButton() {
-  const { lang } = useLang();
+  const { lang, t: globalT } = useLang();
   const [token, setToken] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
@@ -29,6 +29,12 @@ export function BugReportButton() {
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+  // Track the post-success auto-close timer so we can clear it on unmount —
+  // prevents setState-on-unmounted-component if the user navigates within 1.6s.
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -51,6 +57,16 @@ export function BugReportButton() {
     return () => { mounted = false; subscription.unsubscribe(); };
   }, []);
 
+  // Esc closes the bug-report dialog — but NOT while a send is in flight.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !sending) close();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, sending]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!token) return null;
 
   const labelCTA       = lang === "fr" ? "Signaler un bug"        : lang === "de" ? "Fehler melden"        : "Report a bug";
@@ -72,7 +88,7 @@ export function BugReportButton() {
   async function handlePick(file: File | null) {
     setError("");
     if (!file) return;
-    if (!file.type.startsWith("image/")) { setError("Only images allowed"); return; }
+    if (!file.type.startsWith("image/")) { setError(globalT.bugOnlyImg); return; }
     const data = await compress(file, 1280, 0.78);
     if (data.length > MAX_ATTACH_CHARS) { setError(labelTooLarge); return; }
     setAttach(data);
@@ -80,7 +96,7 @@ export function BugReportButton() {
 
   async function send() {
     if (sending) return;
-    if (!text.trim() && !attach) { setError("Please describe the issue or attach a screenshot."); return; }
+    if (!text.trim() && !attach) { setError(globalT.bugDescribe); return; }
     setSending(true); setError("");
     try {
       const res = await fetch("/api/portal/messages", {
@@ -94,10 +110,10 @@ export function BugReportButton() {
       });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        throw new Error(j?.error || "Failed to send");
+        throw new Error(j?.error || globalT.bugSendFail);
       }
       setSent(true);
-      setTimeout(() => {
+      closeTimerRef.current = setTimeout(() => {
         setOpen(false); setSent(false); setText(""); setAttach(null);
         if (fileRef.current) fileRef.current.value = "";
       }, 1600);
@@ -150,7 +166,7 @@ export function BugReportButton() {
           borderRadius: "999px",
           boxShadow: "var(--shadow-md)",
         }}>
-        <Bug size={18} strokeWidth={1.8} style={{ color: "#e05252" }} />
+        <Bug size={18} strokeWidth={1.8} style={{ color: "var(--danger)" }} />
         <span className="hidden sm:inline">{labelCTA}</span>
       </button>
 
@@ -173,7 +189,7 @@ export function BugReportButton() {
               style={{ borderBottom: "1px solid var(--border)" }}>
               <div className="flex items-center gap-2.5 flex-1 min-w-0">
                 <span className="flex items-center justify-center w-9 h-9 rounded-full flex-shrink-0"
-                  style={{ background: "rgba(224,82,82,0.10)", color: "#e05252", border: "1px solid rgba(224,82,82,0.22)" }}>
+                  style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
                   <Bug size={15} strokeWidth={1.8} />
                 </span>
                 <div>
@@ -181,7 +197,7 @@ export function BugReportButton() {
                   <p className="text-[11.5px]" style={{ color: "var(--w3)" }}>{labelSubtitle}</p>
                 </div>
               </div>
-              <button onClick={close} aria-label="Close"
+              <button onClick={close} aria-label={globalT.miClose}
                 className="w-8 h-8 flex items-center justify-center rounded-lg flex-shrink-0 hover:scale-110"
                 style={{ background: "transparent", color: "var(--w3)", border: "none", transition: "color 0.2s, transform 0.15s" }}
                 onMouseEnter={(e) => { e.currentTarget.style.color = "var(--w)"; }}
@@ -192,7 +208,7 @@ export function BugReportButton() {
 
             {sent ? (
               <div className="px-5 py-8 text-center">
-                <p className="text-[13px]" style={{ color: "#34c759" }}>✓ {labelSent}</p>
+                <p className="text-[13px]" style={{ color: "var(--success)" }}>✓ {labelSent}</p>
               </div>
             ) : (
               <>
@@ -209,11 +225,11 @@ export function BugReportButton() {
                   {attach ? (
                     <div className="flex items-start gap-2">
                       { /* eslint-disable-next-line @next/next/no-img-element */ }
-                      <img src={attach} alt="screenshot"
+                      <img src={attach} alt={globalT.miPreview}
                         className="max-h-[120px] rounded-md"
                         style={{ border: "1px solid var(--border)" }} />
                       <button onClick={() => { setAttach(null); if (fileRef.current) fileRef.current.value = ""; }}
-                        aria-label="Remove screenshot"
+                        aria-label={globalT.bugRemoveScreenshot}
                         className="w-7 h-7 flex items-center justify-center rounded-md flex-shrink-0 hover:scale-110"
                         style={{ background: "transparent", color: "var(--w3)", border: "none", transition: "color 0.2s, transform 0.15s" }}
                         onMouseEnter={(e) => { e.currentTarget.style.color = "var(--w)"; }}
@@ -234,7 +250,7 @@ export function BugReportButton() {
                   )}
 
                   {error && (
-                    <p className="text-[11.5px]" style={{ color: "#e05252" }}>{error}</p>
+                    <p className="text-[11.5px]" style={{ color: "var(--danger)" }}>{error}</p>
                   )}
                 </div>
 

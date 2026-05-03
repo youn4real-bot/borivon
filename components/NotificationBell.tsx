@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { Bell, Paperclip, CheckCircle2, XCircle, User } from "@/components/PortalIcons";
+import { Bell, Paperclip, CheckCircle2, XCircle, User, FilePen } from "@/components/PortalIcons";
 
 import { Spinner } from "@/components/ui/states";
 import { useLang } from "@/components/LangContext";
@@ -28,6 +28,8 @@ const BELL_T = {
     placed: "🎉 Vous avez été sélectionné !",
     placedWith: "Associé à",
     placedNext: "Consultez votre tableau de bord pour voir les détails.",
+    signRequest: "Document à signer",
+    signRequestNext: "Ouvrez votre tableau de bord pour signer.",
     approved: "a été approuvé",
     rejected: "a été refusé",
     goToDashboard: "Voir le tableau de bord →",
@@ -55,6 +57,8 @@ const BELL_T = {
     placed: "🎉 You've been matched!",
     placedWith: "Placed with",
     placedNext: "Check your dashboard to see the details.",
+    signRequest: "Document to sign",
+    signRequestNext: "Open your dashboard to review and sign.",
     approved: "has been approved",
     rejected: "has been rejected",
     goToDashboard: "Go to dashboard →",
@@ -82,6 +86,8 @@ const BELL_T = {
     placed: "🎉 Sie wurden ausgewählt!",
     placedWith: "Zugeordnet zu",
     placedNext: "Sehen Sie die Details in Ihrem Dashboard.",
+    signRequest: "Dokument zum Unterschreiben",
+    signRequestNext: "Öffnen Sie Ihr Dashboard zum Unterschreiben.",
     approved: "wurde genehmigt",
     rejected: "wurde abgelehnt",
     goToDashboard: "Zum Dashboard →",
@@ -100,7 +106,7 @@ type CandidateNotif = {
   doc_id: string | null;
   doc_name: string;
   doc_type: string;
-  action: "approved" | "rejected" | "verified" | "placed";
+  action: "approved" | "rejected" | "verified" | "placed" | "sign_request";
   feedback: string | null;
   read: boolean;
   created_at: string;
@@ -132,10 +138,11 @@ function relTime(iso: string, justNow: string) {
 // ── Bell button ───────────────────────────────────────────────────────────────
 
 function BellButton({ unread, open, onClick }: { unread: number; open: boolean; onClick: () => void }) {
+  const { t } = useLang();
   return (
     <button
       onClick={onClick}
-      aria-label="Notifications"
+      aria-label={t.nbAria}
       className="relative flex items-center justify-center w-9 h-9 cursor-pointer hover:scale-110 active:scale-95 transition-transform"
       style={{
         background: "transparent",
@@ -197,7 +204,7 @@ function NotifDropdown({ label, total, unread, tab, onTabChange, onClose, childr
             className="px-3.5 py-1 rounded-full text-[11px] font-semibold transition-all"
             style={{
               background: tab === t ? "var(--gold)" : "var(--bg2)",
-              color:      tab === t ? "#1a1a1a"    : "var(--w3)",
+              color:      tab === t ? "#131312"    : "var(--w3)",
               border:     tab === t ? "none"        : "1px solid var(--border)",
             }}>
             {t === "all" ? `${allTab}${total ? ` (${total})` : ""}` : `${unreadTab}${unread ? ` (${unread})` : ""}`}
@@ -314,8 +321,8 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
     markOneRead(n);
     setOpen(false);
 
-    // "placed" notifications have no document — just go to dashboard
-    if (n.action === "placed") {
+    // "placed" and "sign_request" notifications — just go to dashboard
+    if (n.action === "placed" || n.action === "sign_request") {
       router.push("/portal/dashboard");
       return;
     }
@@ -356,16 +363,17 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
           {displayed.length === 0 ? (
             <EmptyState msg={tab === "unread" ? bt.noUnread : bt.noNotifs} hint={tab === "unread" ? undefined : bt.noNotifsHint} />
           ) : displayed.map((n, i) => {
-            const verified = n.action === "verified";
-            const approved = n.action === "approved";
-            const placed   = n.action === "placed";
-            const iconSt = verified
-              ? { bg: "rgba(212,175,55,0.15)", color: "var(--gold)", border: "1.5px solid rgba(212,175,55,0.35)" }
-              : placed
-              ? { bg: "rgba(212,175,55,0.15)", color: "var(--gold)",  border: "1.5px solid rgba(212,175,55,0.35)" }
+            const verified    = n.action === "verified";
+            const approved    = n.action === "approved";
+            const placed      = n.action === "placed";
+            const signRequest = n.action === "sign_request";
+            const iconSt = (verified || placed)
+              ? { bg: "var(--gdim)", color: "var(--gold)", border: "1.5px solid var(--border-gold)" }
+              : signRequest
+              ? { bg: "var(--gdim)", color: "var(--gold)", border: "1.5px solid var(--border-gold)" }
               : approved
-              ? { bg: "rgba(52,199,89,0.12)",  color: "#34c759",     border: "1.5px solid rgba(52,199,89,0.25)" }
-              : { bg: "rgba(224,82,82,0.12)",  color: "#e05252",     border: "1.5px solid rgba(224,82,82,0.25)" };
+              ? { bg: "var(--success-bg)",  color: "var(--success)",     border: "1.5px solid var(--success-border)" }
+              : { bg: "var(--danger-bg)",  color: "var(--danger)",     border: "1.5px solid var(--danger-border)" };
             // Parse "**Lebenslauf**" bold markers in verifiedNext
             const verifiedNextParts = bt.verifiedNext.split(/\*\*(.*?)\*\*/g);
             return (
@@ -374,8 +382,8 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
                 <button
                   className="bv-row-hover w-full text-left px-4 py-3 flex items-start gap-3"
                   style={{
-                    background: n.read ? "transparent" : "rgba(212,175,55,0.08)",
-                    borderLeft: n.read ? "2px solid transparent" : "2px solid rgba(212,175,55,0.5)",
+                    background: n.read ? "transparent" : "var(--gdim)",
+                    borderLeft: n.read ? "2px solid transparent" : "2px solid var(--border-gold)",
                     borderTop: "none", borderRight: "none", borderBottom: "none",
                     cursor: pendingNotifId === n.id ? "wait" : "pointer",
                     opacity: pendingNotifId === n.id ? 0.7 : 1,
@@ -384,7 +392,7 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
                   onClick={() => handleClick(n)}>
                   <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
                     style={{ background: iconSt.bg, color: iconSt.color, border: iconSt.border }}>
-                    {pendingNotifId === n.id ? <Spinner size="xs" /> : verified ? <CheckCircle2 size={15} strokeWidth={1.8} /> : placed ? <span style={{ fontSize: 15 }}>🏢</span> : approved ? <CheckCircle2 size={15} strokeWidth={1.8} /> : <XCircle size={15} strokeWidth={1.8} />}
+                    {pendingNotifId === n.id ? <Spinner size="xs" /> : verified ? <CheckCircle2 size={15} strokeWidth={1.8} /> : placed ? <span style={{ fontSize: 15 }}>🏢</span> : signRequest ? <FilePen size={14} strokeWidth={1.8} /> : approved ? <CheckCircle2 size={15} strokeWidth={1.8} /> : <XCircle size={15} strokeWidth={1.8} />}
                   </div>
                   <div className="flex-1 min-w-0">
                     {verified ? (
@@ -409,6 +417,19 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
                           {bt.placedNext}
                         </p>
                       </>
+                    ) : signRequest ? (
+                      <>
+                        <p className="text-xs font-semibold leading-snug" style={{ color: "var(--gold)" }}>
+                          {bt.signRequest}
+                        </p>
+                        <p className="text-[11px] mt-1 px-2 py-1.5 rounded-lg leading-snug"
+                          style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                          <strong>{n.doc_name}</strong>
+                        </p>
+                        <p className="text-[11px] mt-1 leading-snug" style={{ color: "var(--w2)" }}>
+                          {bt.signRequestNext}
+                        </p>
+                      </>
                     ) : (
                       <p className="text-xs leading-snug" style={{ color: "var(--w)" }}>
                         <span className="font-semibold">{n.doc_type}</span>
@@ -418,9 +439,9 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
                     {!verified && !placed && n.feedback && (
                       <p className="text-[11px] mt-1.5 px-2 py-1.5 rounded-lg leading-snug"
                         style={{
-                          background: approved ? "rgba(52,199,89,0.07)" : "rgba(224,82,82,0.07)",
-                          color: approved ? "#34c759" : "#e05252",
-                          border: `1px solid ${approved ? "rgba(52,199,89,0.15)" : "rgba(224,82,82,0.15)"}`,
+                          background: approved ? "var(--success-bg)" : "var(--danger-bg)",
+                          color: approved ? "var(--success)" : "var(--danger)",
+                          border: `1px solid ${approved ? "var(--success-bg)" : "var(--danger-border)"}`,
                         }}>
                         {n.feedback}
                       </p>
@@ -428,8 +449,8 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
                     <p className="text-[10px] mt-1.5 flex items-center gap-1" style={{ color: "var(--w3)" }}>
                       {relTime(n.created_at, bt.justNow)}
                       <span style={{ color: "var(--border)" }}>·</span>
-                      <span style={{ color: verified || placed ? "var(--gold)" : approved ? "#34c759" : "#e05252" }}>
-                        {verified || placed ? bt.goToDashboard : bt.tapToReview}
+                      <span style={{ color: verified || placed || signRequest ? "var(--gold)" : approved ? "var(--success)" : "var(--danger)" }}>
+                        {verified || placed || signRequest ? bt.goToDashboard : bt.tapToReview}
                       </span>
                     </p>
                   </div>
@@ -589,8 +610,8 @@ function AdminBell({ accessToken }: { accessToken: string }) {
             {/* Overdue banner — shows count of unread items >48h old */}
             {overdueCount > 0 && (
               <div className="mx-3 mt-3 mb-1 px-3 py-2 inline-flex items-center gap-2 text-[11.5px] font-semibold tracking-tight"
-                style={{ background: "rgba(224,82,82,0.08)", color: "#e05252", border: "1px solid rgba(224,82,82,0.22)", borderRadius: "var(--r-sm)" }}>
-                <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#e05252", animation: "pls 2s ease-in-out infinite" }} />
+                style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)", borderRadius: "var(--r-sm)" }}>
+                <span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--danger)", animation: "pls 2s ease-in-out infinite" }} />
                 {t.waiting48h(overdueCount)}
               </div>
             )}
@@ -600,15 +621,15 @@ function AdminBell({ accessToken }: { accessToken: string }) {
               const isSignup = n.type === "signup";
               const iconSt = isSignup
                 ? { bg: "var(--info-bg)",  color: "var(--info)",     border: "1px solid var(--info-border)",  Icon: User }
-                : { bg: "rgba(212,175,55,0.12)", color: "var(--gold)", border: "1px solid rgba(212,175,55,0.25)",  Icon: Paperclip };
+                : { bg: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)",  Icon: Paperclip };
               return (
                 <div key={n.id}>
                   {i > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
                   <button
                     className="w-full text-left px-4 py-3 flex items-start gap-3 transition-colors hover:bg-[rgba(255,255,255,0.03)]"
                     style={{
-                      background: n.read ? "transparent" : "rgba(212,175,55,0.08)",
-                      borderLeft: n.read ? "2px solid transparent" : "2px solid rgba(212,175,55,0.5)",
+                      background: n.read ? "transparent" : "var(--gdim)",
+                      borderLeft: n.read ? "2px solid transparent" : "2px solid var(--border-gold)",
                       borderTop: "none", borderRight: "none", borderBottom: "none",
                       cursor: "pointer",
                     }}

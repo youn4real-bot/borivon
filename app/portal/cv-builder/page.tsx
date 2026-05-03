@@ -15,8 +15,9 @@
 
 import * as React from "react";
 import { useState, useRef, useEffect, ChangeEvent } from "react";
+import { PortalTopNav } from "@/components/PortalTopNav";
 import { createPortal } from "react-dom";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import type { CVData, WorkEntry, EduEntry, MonthYear } from "@/components/CVDocument";
@@ -337,7 +338,7 @@ function Input({ value, onChange, placeholder, type = "text", className = "", ha
       className={`w-full px-4 py-3.5 text-[15px] font-medium outline-none transition-all ${className}`}
       style={{
         background: "var(--bg2)",
-        border: `1px solid ${hasError ? "#e05252" : focused ? "var(--gold)" : "transparent"}`,
+        border: `1px solid ${hasError ? "var(--danger)" : focused ? "var(--gold)" : "transparent"}`,
         color: "var(--w)",
         borderRadius: "12px",
       }}
@@ -372,7 +373,7 @@ function DateInput({ value, onChange, hasError, onBlur }: {
       className="w-full px-4 py-3.5 text-[15px] font-medium outline-none transition-all"
       style={{
         background: "var(--bg2)",
-        border: `1px solid ${hasError ? "#e05252" : focused ? "var(--gold)" : "transparent"}`,
+        border: `1px solid ${hasError ? "var(--danger)" : focused ? "var(--gold)" : "transparent"}`,
         color: "var(--w)",
         borderRadius: "12px",
       }}
@@ -470,7 +471,7 @@ function MonthYearPicker({ value, onChange, label, allowNull = false, isPresent 
 
   const buttonStyle: React.CSSProperties = {
     background: "var(--bg2)",
-    border: `1px solid ${hasError ? "#e05252" : "transparent"}`,
+    border: `1px solid ${hasError ? "var(--danger)" : "transparent"}`,
     color: "var(--w)",
     borderRadius: "12px",
   };
@@ -645,9 +646,9 @@ function PhoneInput({ value, onChange, hasError = false }: { value: string; onCh
         onChange={e => setNum(e.target.value)}
         placeholder={isMorocco ? "600 000 000" : ""}
         className="flex-1 w-full px-4 py-3.5 text-[15px] font-medium outline-none transition-all"
-        style={{ background: "var(--bg2)", border: `1px solid ${hasError ? "#e05252" : "transparent"}`, color: "var(--w)", borderRadius: "12px" }}
+        style={{ background: "var(--bg2)", border: `1px solid ${hasError ? "var(--danger)" : "transparent"}`, color: "var(--w)", borderRadius: "12px" }}
         onFocus={e => (e.currentTarget.style.borderColor = "var(--gold)")}
-        onBlur={e => (e.currentTarget.style.borderColor = hasError ? "#e05252" : "transparent")}
+        onBlur={e => (e.currentTarget.style.borderColor = hasError ? "var(--danger)" : "transparent")}
       />
       {open && (
         <>
@@ -719,7 +720,7 @@ function LangLevelButton({ level, onChange, hasError = false }: {
     <>
       <button type="button" onClick={() => setOpen(true)}
         className="flex items-center justify-center px-4 py-2.5 text-[13px] font-semibold outline-none cursor-pointer transition-all hover:opacity-100"
-        style={{ background: "rgba(255,255,255,0.06)", border: `1px solid ${hasError ? "#e05252" : "transparent"}`, color: detail ? "var(--w)" : "var(--w3)", borderRadius: "10px", minWidth: "84px", opacity: 0.95, flexShrink: 0 }}>
+        style={{ background: "rgba(255,255,255,0.06)", border: `1px solid ${hasError ? "var(--danger)" : "transparent"}`, color: detail ? "var(--w)" : "var(--w3)", borderRadius: "10px", minWidth: "84px", opacity: 0.95, flexShrink: 0 }}>
         {shortLabel}
       </button>
       <PickerPopup
@@ -872,15 +873,15 @@ function InternshipInfoPopup({ open, onClose }: { open: boolean; onClose: () => 
           </div>
           <div className="px-6 pb-2 space-y-4">
             {/* DO list — green checks */}
-            <div className="rounded-2xl p-4" style={{ background: "rgba(52,199,89,0.07)" }}>
-              <div className="text-[12px] font-semibold uppercase tracking-wider mb-3" style={{ color: "#34c759" }}>
+            <div className="rounded-2xl p-4" style={{ background: "var(--success-bg)" }}>
+              <div className="text-[12px] font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--success)" }}>
                 {dosTitle}
               </div>
               <ul className="space-y-2.5">
                 {dos.map((line, i) => (
                   <li key={i} className="flex items-start gap-2.5 text-[13px] leading-relaxed" style={{ color: "var(--w)" }}>
                     <span className="flex items-center justify-center w-5 h-5 rounded-full flex-shrink-0 mt-0.5"
-                      style={{ background: "rgba(52,199,89,0.18)", color: "#34c759" }}>
+                      style={{ background: "var(--success-bg)", color: "var(--success)" }}>
                       <Check size={11} strokeWidth={2.5} />
                     </span>
                     <span>{line}</span>
@@ -889,15 +890,15 @@ function InternshipInfoPopup({ open, onClose }: { open: boolean; onClose: () => 
               </ul>
             </div>
             {/* DON'T list — red ×'s */}
-            <div className="rounded-2xl p-4" style={{ background: "rgba(224,82,82,0.06)" }}>
-              <div className="text-[12px] font-semibold uppercase tracking-wider mb-3" style={{ color: "#e05252" }}>
+            <div className="rounded-2xl p-4" style={{ background: "var(--danger-bg)" }}>
+              <div className="text-[12px] font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--danger)" }}>
                 {dontsTitle}
               </div>
               <ul className="space-y-2.5">
                 {donts.map((line, i) => (
                   <li key={i} className="flex items-start gap-2.5 text-[13px] leading-relaxed" style={{ color: "var(--w)" }}>
                     <span className="flex items-center justify-center w-5 h-5 rounded-full flex-shrink-0 mt-0.5"
-                      style={{ background: "rgba(224,82,82,0.16)", color: "#e05252" }}>
+                      style={{ background: "var(--danger-bg)", color: "var(--danger)" }}>
                       <XIcon size={11} strokeWidth={2.5} />
                     </span>
                     <span>{line}</span>
@@ -1056,15 +1057,15 @@ function AbiturInfoPopup({ open, onClose }: { open: boolean; onClose: () => void
             <h3 className="text-[16px] font-semibold mb-4" style={{ color: "var(--w)" }}>{title}</h3>
           </div>
           <div className="px-6 pb-2 space-y-4">
-            <div className="rounded-2xl p-4" style={{ background: "rgba(52,199,89,0.07)" }}>
-              <div className="text-[12px] font-semibold uppercase tracking-wider mb-3" style={{ color: "#34c759" }}>
+            <div className="rounded-2xl p-4" style={{ background: "var(--success-bg)" }}>
+              <div className="text-[12px] font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--success)" }}>
                 {dosTitle}
               </div>
               <ul className="space-y-2.5">
                 {dos.map((line, i) => (
                   <li key={i} className="flex items-start gap-2.5 text-[13px] leading-relaxed" style={{ color: "var(--w)" }}>
                     <span className="flex items-center justify-center w-5 h-5 rounded-full flex-shrink-0 mt-0.5"
-                      style={{ background: "rgba(52,199,89,0.18)", color: "#34c759" }}>
+                      style={{ background: "var(--success-bg)", color: "var(--success)" }}>
                       <Check size={11} strokeWidth={2.5} />
                     </span>
                     <span>{line}</span>
@@ -1072,15 +1073,15 @@ function AbiturInfoPopup({ open, onClose }: { open: boolean; onClose: () => void
                 ))}
               </ul>
             </div>
-            <div className="rounded-2xl p-4" style={{ background: "rgba(224,82,82,0.06)" }}>
-              <div className="text-[12px] font-semibold uppercase tracking-wider mb-3" style={{ color: "#e05252" }}>
+            <div className="rounded-2xl p-4" style={{ background: "var(--danger-bg)" }}>
+              <div className="text-[12px] font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--danger)" }}>
                 {dontsTitle}
               </div>
               <ul className="space-y-2.5">
                 {donts.map((line, i) => (
                   <li key={i} className="flex items-start gap-2.5 text-[13px] leading-relaxed" style={{ color: "var(--w)" }}>
                     <span className="flex items-center justify-center w-5 h-5 rounded-full flex-shrink-0 mt-0.5"
-                      style={{ background: "rgba(224,82,82,0.16)", color: "#e05252" }}>
+                      style={{ background: "var(--danger-bg)", color: "var(--danger)" }}>
                       <XIcon size={11} strokeWidth={2.5} />
                     </span>
                     <span>{line}</span>
@@ -1140,7 +1141,7 @@ function HobbiesField({ value, onChange }: { value: string; onChange: (v: string
           <button key={h.de} type="button" onClick={() => toggleDefault(h.de)}
             className="inline-flex items-center gap-1.5 text-[13px] px-4 py-2 rounded-full transition-all"
             style={{
-              background: selected ? "rgba(212,175,55,0.18)" : "var(--bg2)",
+              background: selected ? "var(--gdim)" : "var(--bg2)",
               color: selected ? "var(--gold)" : "var(--w2)",
               border: "none",
               fontWeight: selected ? 600 : 400,
@@ -1151,7 +1152,7 @@ function HobbiesField({ value, onChange }: { value: string; onChange: (v: string
       })}
       {customs.map(c => (
         <span key={c} className="inline-flex items-center gap-1.5 text-[13px] px-4 py-2 rounded-full font-semibold"
-          style={{ background: "rgba(212,175,55,0.18)", color: "var(--gold)" }}>
+          style={{ background: "var(--gdim)", color: "var(--gold)" }}>
           {c}
           <button onClick={() => removeCustom(c)} aria-label="Remove"
             className="inline-flex items-center justify-center w-4 h-4 rounded-full transition-opacity hover:opacity-70"
@@ -1427,20 +1428,40 @@ function NursingStatusField({ entry, updateEdu, diplomaHasError = false }: {
      pending    → small "Pending" pill (passport submitted, admin reviewing)
      rejected   → small "Rejected" pill
      approved   → green ✓ checkmark — data is verified, lock conceptually lifted */
-function LockedField({ value, placeholder, onLockedClick, displayFlag, passportStatus, hasError }: {
+function LockedField({ value, placeholder, onLockedClick, displayFlag, passportStatus, hasError, onChange }: {
   value: string;
   placeholder?: string;
   onLockedClick: () => void;
   displayFlag?: { iso2: string };
   passportStatus: null | "pending" | "approved" | "rejected";
   hasError?: boolean;
+  onChange?: (v: string) => void;
 }) {
   const { lang } = useLang();
+
+  // Supreme admin unlock: render as a real editable input
+  if (onChange) {
+    return (
+      <input
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        placeholder={placeholder ?? "—"}
+        className="w-full px-4 py-3.5 text-[15px] font-medium outline-none"
+        style={{
+          background: "var(--bg2)",
+          border: `1px solid ${hasError ? "var(--danger)" : "var(--border-gold)"}`,
+          color: "var(--w)",
+          borderRadius: "12px",
+        }}
+      />
+    );
+  }
+
   const indicator = (() => {
     if (passportStatus === "approved") {
       return (
         <span className="flex items-center justify-center w-5 h-5 rounded-full flex-shrink-0"
-          style={{ background: "rgba(52,199,89,0.18)", color: "#34c759" }}>
+          style={{ background: "var(--success-bg)", color: "var(--success)" }}>
           <Check size={11} strokeWidth={2.5} />
         </span>
       );
@@ -1449,7 +1470,7 @@ function LockedField({ value, placeholder, onLockedClick, displayFlag, passportS
       const label = lang === "de" ? "Prüfung" : lang === "en" ? "Pending" : "En attente";
       return (
         <span className="text-[10.5px] font-semibold px-2 py-1 rounded-full flex-shrink-0"
-          style={{ background: "rgba(212,175,55,0.18)", color: "var(--gold)" }}>
+          style={{ background: "var(--gdim)", color: "var(--gold)" }}>
           {label}
         </span>
       );
@@ -1458,7 +1479,7 @@ function LockedField({ value, placeholder, onLockedClick, displayFlag, passportS
       const label = lang === "de" ? "Abgelehnt" : lang === "en" ? "Rejected" : "Refusé";
       return (
         <span className="text-[10.5px] font-semibold px-2 py-1 rounded-full flex-shrink-0"
-          style={{ background: "rgba(224,82,82,0.16)", color: "#e05252" }}>
+          style={{ background: "var(--danger-bg)", color: "var(--danger)" }}>
           {label}
         </span>
       );
@@ -1468,7 +1489,7 @@ function LockedField({ value, placeholder, onLockedClick, displayFlag, passportS
   return (
     <button type="button" onClick={onLockedClick}
       className="w-full flex items-center gap-3 px-4 py-3.5 text-[15px] font-medium outline-none cursor-pointer transition-all hover:opacity-90"
-      style={{ background: "var(--bg2)", border: `1px solid ${hasError ? "#e05252" : "transparent"}`, color: value ? "var(--w)" : "var(--w3)", borderRadius: "12px", textAlign: "left" }}>
+      style={{ background: "var(--bg2)", border: `1px solid ${hasError ? "var(--danger)" : "transparent"}`, color: value ? "var(--w)" : "var(--w3)", borderRadius: "12px", textAlign: "left" }}>
       {displayFlag && <CountryFlag iso={displayFlag.iso2} size={20} />}
       <span className="flex-1 truncate">{value || placeholder || "—"}</span>
       {indicator}
@@ -1608,7 +1629,7 @@ function RemoveBtn({ onClick, label }: { onClick: () => void; label: string }) {
   return (
     <button onClick={onClick} aria-label={label}
       className="bv-row-hover inline-flex items-center gap-1 text-[11px] font-medium px-2 py-1"
-      style={{ color: "#e05252" }}>
+      style={{ color: "var(--danger)" }}>
       <XIcon size={11} strokeWidth={1.8} /> {label}
     </button>
   );
@@ -1698,15 +1719,18 @@ function getValidationErrorLabels(errors: Set<string>, lang: string): string[] {
 
 // ─── Main page ───────────────────────────────────────────────────────────────
 
-export default function CVBuilderPage() {
+function CVBuilderInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const adminCandidateId = searchParams.get("candidateId");
   const { t, lang } = useLang();
   const photoRef = useRef<HTMLInputElement>(null);
   const serverSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const [userId, setUserId]   = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [cvData, setCvData]   = useState<CVData>(() => makeCVData());
+  const [userId, setUserId]       = useState<string | null>(null);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [loading, setLoading]     = useState(true);
+  const [cvData, setCvData]       = useState<CVData>(() => makeCVData());
 
   const [smartGaps, setSmartGaps]       = useState<SmartGap[]>([]);
   const [showGapPanel, setShowGapPanel] = useState(false);
@@ -1785,6 +1809,11 @@ export default function CVBuilderPage() {
   const [lockedPopupOpen, setLockedPopupOpen] = useState(false);
   // null = no passport submitted | "pending" | "approved" | "rejected"
   const [passportStatus, setPassportStatus] = useState<null | "pending" | "approved" | "rejected">(null);
+  // Payment tier — null = free, "starter", "kandidat"
+  const [paymentTier, setPaymentTier] = useState<string | null>(null);
+  // Starter upgrade modal
+  const [starterUpgradeOpen, setStarterUpgradeOpen] = useState(false);
+  const [starterUpgradeLoading, setStarterUpgradeLoading] = useState(false);
   // Candidate's sex extracted from the passport — drives the gendered job
   // title for the mandatory nursing internship ("Pflegepraktikant" vs
   // "Pflegepraktikantin").
@@ -1801,7 +1830,11 @@ export default function CVBuilderPage() {
   const [saveError, setSaveError]   = useState(false);
 
   // ── Draft key (per user) ──────────────────────────────────────────────────
-  const draftKey = userId ? `bv-cv-draft-${userId}` : null;
+  // When admin edits a candidate's CV, key by candidateId so we don't
+  // overwrite the admin's own draft.
+  const draftKey = userId
+    ? (adminCandidateId ? `bv-cv-draft-${adminCandidateId}` : `bv-cv-draft-${userId}`)
+    : null;
 
   // ── Auto-save draft (localStorage immediately + server after 2.5 s) ─────────
   useEffect(() => {
@@ -1818,7 +1851,10 @@ export default function CVBuilderPage() {
     // 2. Debounce the server write — fire 2.5 s after the last change
     if (serverSaveTimer.current) clearTimeout(serverSaveTimer.current);
     serverSaveTimer.current = setTimeout(() => {
-      fetch("/api/portal/me/cv-draft", {
+      const draftUrl = adminCandidateId
+        ? `/api/portal/admin/cv-draft?candidateId=${adminCandidateId}`
+        : "/api/portal/me/cv-draft";
+      fetch(draftUrl, {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
         body: JSON.stringify(rest),
@@ -1841,7 +1877,10 @@ export default function CVBuilderPage() {
       const { photo, ...rest } = cvData;
       void photo;
       // keepalive: true survives tab close / navigation
-      fetch("/api/portal/me/cv-draft", {
+      const flushUrl = adminCandidateId
+        ? `/api/portal/admin/cv-draft?candidateId=${adminCandidateId}`
+        : "/api/portal/me/cv-draft";
+      fetch(flushUrl, {
         method: "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
         body: JSON.stringify(rest),
@@ -1913,10 +1952,63 @@ export default function CVBuilderPage() {
       setUserId(uid);
       setAuthToken(session.access_token ?? "");
 
+      // Admin editing a candidate's CV — skip role check + passport gate
+      if (adminCandidateId) {
+        setPassportStatus("approved");
+        // Check if the editing admin is the supreme admin (unlocks locked fields)
+        fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${session.access_token}` } })
+          .then(r => r.ok ? r.json() : null)
+          .then(j => { if (j?.isSuperAdmin) setIsSuperAdmin(true); })
+          .catch(() => {});
+
+        const serverDraft = await fetch(
+          `/api/portal/admin/cv-draft?candidateId=${adminCandidateId}`,
+          { headers: { Authorization: `Bearer ${session.access_token}` } },
+        )
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null) as { draft: Partial<CVData> | null; photo: string | null } | null;
+
+        if (serverDraft?.photo) setCvData(d => ({ ...d, photo: serverDraft.photo ?? null }));
+
+        const savedRaw = serverDraft?.draft
+          ? JSON.stringify(serverDraft.draft)
+          : localStorage.getItem(`bv-cv-draft-${adminCandidateId}`);
+
+        if (savedRaw) {
+          try {
+            const parsed = JSON.parse(savedRaw) as Partial<CVData>;
+            const saved: Partial<CVData> = {
+              ...parsed,
+              workEntries:    Array.isArray(parsed.workEntries)    ? parsed.workEntries    : undefined,
+              eduEntries:     Array.isArray(parsed.eduEntries)     ? parsed.eduEntries     : undefined,
+              langs:          Array.isArray(parsed.langs)          ? parsed.langs          : undefined,
+              edvSelected:    Array.isArray(parsed.edvSelected)    ? parsed.edvSelected    : undefined,
+              edvCustomInputs:Array.isArray(parsed.edvCustomInputs)? parsed.edvCustomInputs: undefined,
+              additionalNationalities: Array.isArray(parsed.additionalNationalities) ? parsed.additionalNationalities : undefined,
+            };
+            setCvData(prev => {
+              const merged = { ...prev, ...saved };
+              if (merged.nationality) merged.nationality = toNatDe(merged.nationality);
+              return merged;
+            });
+          } catch { /* invalid JSON */ }
+        }
+
+        setLoading(false);
+        return;
+      }
+
+      // Block org members — they have no CV to build
+      const roleRes = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${session.access_token}` } }).catch(() => null);
+      if (roleRes?.ok) {
+        const roleJson = await roleRes.json().catch(() => ({}));
+        if (roleJson.role === "org_member") { router.replace("/portal/org/dashboard"); return; }
+      }
+
       // 1. Always fetch passport profile (needed to fill empty draft slots too)
       const { data: profile } = await supabase
         .from("candidate_profiles")
-        .select("first_name,last_name,dob,sex,nationality,city_of_birth,country_of_birth,country_of_residence,address_street,address_number,address_postal,city_of_residence,marital_status,children_ages,passport_status")
+        .select("first_name,last_name,dob,sex,nationality,city_of_birth,country_of_birth,country_of_residence,address_street,address_number,address_postal,city_of_residence,marital_status,children_ages,passport_status,payment_tier")
         .eq("user_id", uid)
         .single();
       // Passport status drives the lock state — pending/approved/rejected
@@ -1924,6 +2016,9 @@ export default function CVBuilderPage() {
       if (profile?.passport_status) {
         const s = profile.passport_status as string;
         if (s === "pending" || s === "approved" || s === "rejected") setPassportStatus(s);
+      }
+      if ((profile as { payment_tier?: string | null } | null)?.payment_tier) {
+        setPaymentTier((profile as { payment_tier?: string | null }).payment_tier ?? null);
       }
       if (profile?.sex) {
         const sx = String(profile.sex).toUpperCase();
@@ -2328,7 +2423,37 @@ export default function CVBuilderPage() {
       setTimeout(() => document.getElementById("gap-panel")?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
       return;
     }
+
+    // Payment gate — skip entirely when admin is editing a candidate's CV
+    if (!paymentTier && !adminCandidateId) {
+      setStarterUpgradeOpen(true);
+      return;
+    }
+
     await doGenerate();
+  }
+
+  async function handleUpgradeToStarter() {
+    setStarterUpgradeLoading(true);
+    try {
+      const res = await fetch("/api/portal/stripe/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
+        body: JSON.stringify({ plan: "starter" }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (json.url) {
+        window.location.href = json.url;
+      } else {
+        alert(lang === "de" ? "Bitte kontaktieren Sie uns, um Ihr Konto zu upgraden." : lang === "en" ? "Please contact us to upgrade." : "Veuillez nous contacter pour passer au plan Starter.");
+        setStarterUpgradeOpen(false);
+      }
+    } catch {
+      alert(t.cvbUpgradeUnavail);
+      setStarterUpgradeOpen(false);
+    } finally {
+      setStarterUpgradeLoading(false);
+    }
   }
 
   async function doGenerate() {
@@ -2339,12 +2464,12 @@ export default function CVBuilderPage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
         body: JSON.stringify(cvData),
       });
-      if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || "Error"); }
+      if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || t.cvbErrFallback); }
       const blob = await res.blob();
       setPdfBlob(blob);
       setPdfUrl(URL.createObjectURL(blob));
     } catch (err: unknown) {
-      setGenError(err instanceof Error ? err.message : "Error");
+      setGenError(err instanceof Error ? err.message : t.cvbErrFallback);
     } finally {
       setGenerating(false);
     }
@@ -2366,13 +2491,14 @@ export default function CVBuilderPage() {
       const file = new File([pdfBlob], `lebenslauf_${fn}.pdf`, { type: "application/pdf" });
       const form = new FormData();
       form.append("file", file); form.append("fileType", "Lebenslauf (DE)"); form.append("fileKey", "cv_de");
-      form.append("userId", userId); form.append("firstName", cvData.firstName); form.append("lastName", cvData.lastName);
+      // In admin mode, upload to the candidate's dossier not the admin's
+      form.append("userId", adminCandidateId ?? userId); form.append("firstName", cvData.firstName); form.append("lastName", cvData.lastName);
       const headers: HeadersInit = authToken ? { Authorization: `Bearer ${authToken}` } : {};
       const res = await fetch("/api/portal/upload", { method: "POST", headers, body: form });
-      if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || "Error"); }
+      if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || t.cvbErrFallback); }
       setUploaded(true);
     } catch (err: unknown) {
-      setUploadErr(err instanceof Error ? err.message : "Error");
+      setUploadErr(err instanceof Error ? err.message : t.cvbErrFallback);
     } finally {
       setUploading(false);
     }
@@ -2435,7 +2561,7 @@ export default function CVBuilderPage() {
           <p className="text-[13px] leading-relaxed mb-6" style={{ color: "var(--w3)" }}>{gateBody}</p>
           <button onClick={() => router.push("/portal/dashboard")}
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm"
-            style={{ background: "var(--gold)", color: "#1a1a1a" }}>
+            style={{ background: "var(--gold)", color: "#131312" }}>
             <ArrowLeft size={14} strokeWidth={2} />
             {lang === "de" ? "Zurück zum Portal" : lang === "en" ? "Back to portal" : "Retour au portail"}
           </button>
@@ -2476,16 +2602,26 @@ export default function CVBuilderPage() {
         onClose={() => setExtraNatPickerOpen(false)}
       />
     )}
-    <main className="bv-page-bottom min-h-screen pt-[72px] pb-16 px-4" style={{ background: "var(--bg)" }}>
+    <main className="bv-page-bottom min-h-screen pt-[58px] pb-16 px-4" style={{ background: "var(--bg)" }}>
+      <PortalTopNav />
       <div className="max-w-2xl mx-auto bv-enter-soft">
+
+        {/* Admin editing banner */}
+        {adminCandidateId && (
+          <div className="mb-4 px-4 py-2.5 rounded-xl flex items-center gap-2 text-[12px] font-medium"
+            style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)", color: "var(--gold)" }}>
+            <FilePen size={13} strokeWidth={1.8} />
+            {t.cvbAdminEditing}
+          </div>
+        )}
 
         {/* Header — refined hierarchy */}
         <div className="mb-8">
           <div className="flex items-center justify-between gap-3 mb-5">
-            <button onClick={() => router.push("/portal/dashboard")}
+            <button onClick={() => adminCandidateId ? router.push("/portal/admin") : router.push("/portal/dashboard")}
               className="bv-row-hover inline-flex items-center gap-1.5 text-[12px] font-medium px-2 py-1"
               style={{ color: "var(--w3)" }}>
-              <ArrowLeft size={13} strokeWidth={1.8} /> {t.cvb_backToPortal}
+              <ArrowLeft size={13} strokeWidth={1.8} /> {adminCandidateId ? t.cvbBackToAdmin : t.cvb_backToPortal}
             </button>
             <AutosaveIndicator savedAt={savedAt} error={saveError} />
           </div>
@@ -2507,16 +2643,16 @@ export default function CVBuilderPage() {
           {/* Compact visual guide — premium line icons matching site style */}
           <div className="grid grid-cols-2 gap-2 mb-4">
             <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl"
-              style={{ background: "rgba(52,199,89,0.07)" }}>
-              <Briefcase size={15} strokeWidth={1.7} style={{ color: "#34c759", flexShrink: 0 }} />
-              <span className="text-[11.5px] font-semibold leading-tight" style={{ color: "#34c759" }}>
+              style={{ background: "var(--success-bg)" }}>
+              <Briefcase size={15} strokeWidth={1.7} style={{ color: "var(--success)", flexShrink: 0 }} />
+              <span className="text-[11.5px] font-semibold leading-tight" style={{ color: "var(--success)" }}>
                 {lang === "de" ? "Professionell" : lang === "en" ? "Professional" : "Professionnelle"}
               </span>
             </div>
             <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl"
-              style={{ background: "rgba(224,82,82,0.05)" }}>
-              <Smartphone size={15} strokeWidth={1.7} style={{ color: "#e05252", flexShrink: 0 }} />
-              <span className="text-[11.5px] font-semibold leading-tight" style={{ color: "#e05252" }}>
+              style={{ background: "var(--danger-bg)" }}>
+              <Smartphone size={15} strokeWidth={1.7} style={{ color: "var(--danger)", flexShrink: 0 }} />
+              <span className="text-[11.5px] font-semibold leading-tight" style={{ color: "var(--danger)" }}>
                 {lang === "de" ? "Keine Selfies" : lang === "en" ? "No selfies" : "Pas de selfies"}
               </span>
             </div>
@@ -2530,7 +2666,7 @@ export default function CVBuilderPage() {
             <button onClick={() => photoRef.current?.click()}
               aria-label={cvData.photo ? t.cvb_changePhoto : t.cvb_choosePhoto}
               className="relative w-44 h-44 flex flex-col items-center justify-center gap-2.5 transition-all hover:-translate-y-0.5 hover:opacity-95"
-              style={{ background: cvData.photo ? "transparent" : "var(--bg2)", border: validationErrors.has("photo") ? "2px solid #e05252" : "none", borderRadius: "9999px", cursor: "pointer", overflow: "hidden" }}>
+              style={{ background: cvData.photo ? "transparent" : "var(--bg2)", border: validationErrors.has("photo") ? "2px solid var(--danger)" : "none", borderRadius: "9999px", cursor: "pointer", overflow: "hidden" }}>
               {cvData.photo ? (
                 <>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -2567,7 +2703,7 @@ export default function CVBuilderPage() {
                     }).catch(err => console.warn("[cv-builder] photo clear failed:", err));
                   }
                 }}
-                className="text-[11.5px] font-medium transition-opacity hover:opacity-70" style={{ color: "#e05252", background: "transparent", border: "none" }}>
+                className="text-[11.5px] font-medium transition-opacity hover:opacity-70" style={{ color: "var(--danger)", background: "transparent", border: "none" }}>
                 {t.cvb_removePhoto}
               </button>
             )}
@@ -2582,52 +2718,53 @@ export default function CVBuilderPage() {
           forceOpen={["firstName","lastName","birthDate","birthPlace","nationality","email","address","postalCode","city","phone","maritalStatus"].some(k => validationErrors.has(k))}
         >
           {autoFillDone && (
-            <div className="mb-3 px-3 py-2 rounded-lg text-xs" style={{ background: "rgba(52,199,89,0.1)", color: "#34c759", border: "1px solid rgba(52,199,89,0.3)" }}>
+            <div className="mb-3 px-3 py-2 rounded-lg text-xs" style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
               {t.cvb_autoFillDone}
             </div>
           )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <div>
               <Label required>{t.cvb_firstName}</Label>
-              <LockedField value={cvData.firstName} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("firstName")} />
+              <LockedField value={cvData.firstName} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("firstName")} onChange={isSuperAdmin && adminCandidateId ? v => set("firstName", v) : undefined} />
             </div>
             <div>
               <Label required>{t.cvb_lastName}</Label>
-              <LockedField value={cvData.lastName} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("lastName")} />
+              <LockedField value={cvData.lastName} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("lastName")} onChange={isSuperAdmin && adminCandidateId ? v => set("lastName", v) : undefined} />
             </div>
             <div>
               <Label required>{t.cvb_birthDate}</Label>
-              <LockedField value={cvData.birthDate} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("birthDate")} />
+              <LockedField value={cvData.birthDate} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("birthDate")} onChange={isSuperAdmin && adminCandidateId ? v => set("birthDate", v) : undefined} />
             </div>
             <div>
               <Label required>{t.cvb_birthPlace}</Label>
-              <LockedField value={cvData.birthPlace} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("birthPlace")} />
+              <LockedField value={cvData.birthPlace} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("birthPlace")} onChange={isSuperAdmin && adminCandidateId ? v => set("birthPlace", v) : undefined} />
             </div>
             {/* Country of birth (left) | Nationality (right) */}
             <div>
               <Label>{lang === "de" ? "Geburtsland" : lang === "en" ? "Country of birth" : "Pays de naissance"}</Label>
               <LockedField
-                value={(() => {
+                value={isSuperAdmin && adminCandidateId ? (cvData.countryOfBirth || "") : (() => {
                   const found = Object.entries(COUNTRY_MAP).find(([,n]) => n.de === cvData.countryOfBirth);
                   return found ? (found[1][lang as "fr"|"en"|"de"] ?? found[1].de) : (cvData.countryOfBirth || "");
                 })()}
-                displayFlag={(() => {
+                displayFlag={isSuperAdmin && adminCandidateId ? undefined : (() => {
                   const found = Object.entries(COUNTRY_MAP).find(([,n]) => n.de === cvData.countryOfBirth);
                   if (!found) return undefined;
                   const iso2 = ISO3_TO_ISO2[found[0]];
                   return iso2 ? { iso2 } : undefined;
                 })()}
                 onLockedClick={showLocked} passportStatus={passportStatus}
+                onChange={isSuperAdmin && adminCandidateId ? v => set("countryOfBirth", v) : undefined}
               />
             </div>
             <div>
               <Label>{t.cvb_nationality}</Label>
               <LockedField
-                value={(() => {
+                value={isSuperAdmin && adminCandidateId ? (cvData.nationality || "") : (() => {
                   const found = Object.entries(COUNTRY_MAP).find(([,n]) => n.de === cvData.nationality);
                   return found ? (found[1][lang as "fr"|"en"|"de"] ?? found[1].de) : (cvData.nationality || "");
                 })()}
-                displayFlag={(() => {
+                displayFlag={isSuperAdmin && adminCandidateId ? undefined : (() => {
                   const found = Object.entries(COUNTRY_MAP).find(([,n]) => n.de === cvData.nationality);
                   if (!found) return undefined;
                   const iso2 = ISO3_TO_ISO2[found[0]];
@@ -2635,6 +2772,7 @@ export default function CVBuilderPage() {
                 })()}
                 onLockedClick={showLocked} passportStatus={passportStatus}
                 hasError={validationErrors.has("nationality")}
+                onChange={isSuperAdmin && adminCandidateId ? v => set("nationality", v) : undefined}
               />
             </div>
             {/* Additional nationalities — only available once the passport
@@ -2694,31 +2832,32 @@ export default function CVBuilderPage() {
             {/* Address (left) | Postal code (right) */}
             <div>
               <Label>{t.cvb_address}</Label>
-              <LockedField value={cvData.address} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("address")} />
+              <LockedField value={cvData.address} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("address")} onChange={isSuperAdmin && adminCandidateId ? v => set("address", v) : undefined} />
             </div>
             <div>
               <Label>{t.cvb_postalCode}</Label>
-              <LockedField value={cvData.postalCode} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("postalCode")} />
+              <LockedField value={cvData.postalCode} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("postalCode")} onChange={isSuperAdmin && adminCandidateId ? v => set("postalCode", v) : undefined} />
             </div>
             {/* City of residence (left) | Country of residence (right) */}
             <div>
               <Label>{lang === "de" ? "Wohnort" : lang === "en" ? "City of residence" : "Ville de résidence"}</Label>
-              <LockedField value={cvData.city} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("city")} />
+              <LockedField value={cvData.city} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("city")} onChange={isSuperAdmin && adminCandidateId ? v => set("city", v) : undefined} />
             </div>
             <div>
               <Label>{lang === "de" ? "Wohnsitzland" : lang === "en" ? "Country of residence" : "Pays de résidence"}</Label>
               <LockedField
-                value={(() => {
+                value={isSuperAdmin && adminCandidateId ? (cvData.countryOfResidence || "") : (() => {
                   const found = Object.entries(COUNTRY_MAP).find(([,n]) => n.de === cvData.countryOfResidence);
                   return found ? (found[1][lang as "fr"|"en"|"de"] ?? found[1].de) : (cvData.countryOfResidence || "");
                 })()}
-                displayFlag={(() => {
+                displayFlag={isSuperAdmin && adminCandidateId ? undefined : (() => {
                   const found = Object.entries(COUNTRY_MAP).find(([,n]) => n.de === cvData.countryOfResidence);
                   if (!found) return undefined;
                   const iso2 = ISO3_TO_ISO2[found[0]];
                   return iso2 ? { iso2 } : undefined;
                 })()}
                 onLockedClick={showLocked} passportStatus={passportStatus}
+                onChange={isSuperAdmin && adminCandidateId ? v => set("countryOfResidence", v) : undefined}
               />
             </div>
             {/* Phone (left) | Email (right) */}
@@ -2732,7 +2871,7 @@ export default function CVBuilderPage() {
             </div>
             <div className="sm:col-span-2">
               <Label required>{lang === "de" ? "Familienstand" : lang === "en" ? "Marital status" : "État civil"}</Label>
-              <div className="grid grid-cols-2 gap-2 mt-1" style={validationErrors.has("maritalStatus") ? { outline: "1px solid #e05252", outlineOffset: "3px", borderRadius: "14px" } : {}}>
+              <div className="grid grid-cols-2 gap-2 mt-1" style={validationErrors.has("maritalStatus") ? { outline: "1px solid var(--danger)", outlineOffset: "3px", borderRadius: "14px" } : {}}>
                 {(["ledig","verheiratet","geschieden","verwitwet"] as const).map(opt => {
                   const { base } = parseMaritalStatus(cvData.maritalStatus);
                   const active = base === opt;
@@ -2758,7 +2897,7 @@ export default function CVBuilderPage() {
                       }}
                       className="rounded-xl py-2.5 text-sm font-medium transition-all"
                       style={{
-                        background: active ? "rgba(212,175,55,0.15)" : "var(--bg2)",
+                        background: active ? "var(--gdim)" : "var(--bg2)",
                         color: active ? "var(--gold)" : "var(--w2)",
                         border: "none",
                       }}>
@@ -2799,7 +2938,7 @@ export default function CVBuilderPage() {
                         }}
                         className="rounded-xl py-3.5 text-[14px] font-medium transition-all"
                         style={{
-                          background: kidsAnswer === "yes" ? "rgba(212,175,55,0.15)" : "var(--bg2)",
+                          background: kidsAnswer === "yes" ? "var(--gdim)" : "var(--bg2)",
                           color: kidsAnswer === "yes" ? "var(--gold)" : "var(--w2)",
                           border: "none",
                         }}>
@@ -2812,7 +2951,7 @@ export default function CVBuilderPage() {
                         }}
                         className="rounded-xl py-3.5 text-[14px] font-medium transition-all"
                         style={{
-                          background: kidsAnswer === "no" ? "rgba(212,175,55,0.15)" : "var(--bg2)",
+                          background: kidsAnswer === "no" ? "var(--gdim)" : "var(--bg2)",
                           color: kidsAnswer === "no" ? "var(--gold)" : "var(--w2)",
                           border: "none",
                         }}>
@@ -3042,7 +3181,7 @@ export default function CVBuilderPage() {
               <div key={entry.id} className={`${idx > 0 ? "pt-7 mt-7" : ""} ${idx > 0 ? "border-t" : ""}`}
                 style={{ borderColor: idx > 0 ? "rgba(255,255,255,0.05)" : "transparent" }}>
                 <div className="flex items-center justify-between mb-5">
-                  <span className="text-[16px] font-semibold tracking-tight inline-flex items-center gap-2" style={{ color: entry.isGap ? "#e05252" : "var(--w)" }}>
+                  <span className="text-[16px] font-semibold tracking-tight inline-flex items-center gap-2" style={{ color: entry.isGap ? "var(--danger)" : "var(--w)" }}>
                     {entry.isGap
                       ? `⏸ ${t.cvb_gapPeriod}`
                       : idx === 0
@@ -3086,7 +3225,7 @@ export default function CVBuilderPage() {
                         <div
                           className="w-full flex items-center px-4 py-3.5 text-[15px] font-medium"
                           style={{ background: "var(--bg2)", border: "none", color: "var(--w)", borderRadius: "12px", cursor: "default",
-                            ...(validationErrors.has(`work_${entry.id}_title`) ? { outline: "1px solid #e05252", outlineOffset: "2px" } : {}) }}>
+                            ...(validationErrors.has(`work_${entry.id}_title`) ? { outline: "1px solid var(--danger)", outlineOffset: "2px" } : {}) }}>
                           <span className="flex-1">
                             {entry.title || (sex === "F" ? "Pflegepraktikantin" : "Pflegepraktikant")}
                           </span>
@@ -3190,14 +3329,14 @@ export default function CVBuilderPage() {
                       onPresentToggle={() => updateWork(entry.id, { end: entry.end ? null : { month: "", year: "" } })} lang={lang} required hasError={validationErrors.has(`work_${entry.id}_end`)} />
                     <div className="sm:col-span-2">
                       <Label required={jobNum === 1}>{t.cvb_deptLabel}</Label>
-                      <div className="flex flex-wrap gap-2 mt-2 rounded-xl p-1" style={validationErrors.has(`work_${entry.id}_departments`) ? { outline: "1px solid #e05252", outlineOffset: "2px" } : {}}>
+                      <div className="flex flex-wrap gap-2 mt-2 rounded-xl p-1" style={validationErrors.has(`work_${entry.id}_departments`) ? { outline: "1px solid var(--danger)", outlineOffset: "2px" } : {}}>
                         {NURSING_DEPTS.map(dept => {
                           const selected = entry.departments.includes(dept.de);
                           return (
                             <button key={dept.de} onClick={() => toggleWorkDept(entry.id, dept.de)}
                               className="text-[13px] px-4 py-2 rounded-full transition-all"
                               style={{
-                                background: selected ? "rgba(212,175,55,0.18)" : "var(--bg2)",
+                                background: selected ? "var(--gdim)" : "var(--bg2)",
                                 border: "none",
                                 color: selected ? "var(--gold)" : "var(--w2)",
                                 fontWeight: selected ? 600 : 400,
@@ -3212,7 +3351,7 @@ export default function CVBuilderPage() {
                           .filter(d => !NURSING_DEPTS.some(nd => nd.de === d))
                           .map((custom, i) => (
                             <span key={`cust-${i}`} className="inline-flex items-center gap-1.5 text-[13px] px-4 py-2 rounded-full font-semibold"
-                              style={{ background: "rgba(212,175,55,0.18)", color: "var(--gold)" }}>
+                              style={{ background: "var(--gdim)", color: "var(--gold)" }}>
                               {custom}
                               <button onClick={() => updateWork(entry.id, { departments: entry.departments.filter(d => d !== custom) })}
                                 aria-label={t.cvb_remove}
@@ -3300,7 +3439,7 @@ export default function CVBuilderPage() {
         {/* ── 6. EDV ── */}
         <SectionCard id="skills-section" title={t.cvb_edvSection} kind="skills"
           forceOpen={validationErrors.has("edvSelected")}>
-          <div className="flex flex-wrap gap-2 rounded-xl p-1" style={validationErrors.has("edvSelected") ? { outline: "1px solid #e05252", outlineOffset: "2px" } : {}}>
+          <div className="flex flex-wrap gap-2 rounded-xl p-1" style={validationErrors.has("edvSelected") ? { outline: "1px solid var(--danger)", outlineOffset: "2px" } : {}}>
             {EDV_DEFAULTS.map(s => {
               const selected = cvData.edvSelected.includes(s.de);
               const label    = s[lang as "fr"|"en"|"de"] ?? s.de;
@@ -3308,7 +3447,7 @@ export default function CVBuilderPage() {
                 <button key={s.de} onClick={() => toggleEdv(s.de)}
                   className="inline-flex items-center gap-1.5 text-[13px] px-4 py-2 rounded-full transition-all"
                   style={{
-                    background: selected ? "rgba(212,175,55,0.18)" : "var(--bg2)",
+                    background: selected ? "var(--gdim)" : "var(--bg2)",
                     border: "none",
                     color: selected ? "var(--gold)" : "var(--w2)",
                     fontWeight: selected ? 600 : 400,
@@ -3319,7 +3458,7 @@ export default function CVBuilderPage() {
             })}
             {cvData.edvCustomInputs.map((s, i) => (
               <span key={i} className="inline-flex items-center gap-1.5 text-[13px] px-4 py-2 rounded-full font-semibold"
-                style={{ background: "rgba(212,175,55,0.18)", color: "var(--gold)" }}>
+                style={{ background: "var(--gdim)", color: "var(--gold)" }}>
                 {s}
                 <button onClick={() => removeEdvCustom(i)} aria-label="Remove"
                   className="inline-flex items-center justify-center w-4 h-4 rounded-full transition-opacity hover:opacity-70"
@@ -3345,17 +3484,17 @@ export default function CVBuilderPage() {
                 <span className="inline-flex items-center gap-1.5">
                   {t.cvb_driverLicense}
                   <span className="text-[10.5px] font-semibold px-1.5 py-0.5 rounded"
-                    style={{ background: "rgba(212,175,55,0.18)", color: "var(--gold)", lineHeight: 1 }}>
+                    style={{ background: "var(--gdim)", color: "var(--gold)", lineHeight: 1 }}>
                     B
                   </span>
                 </span>
               </Label>
-              <div className="grid grid-cols-2 gap-3 rounded-xl" style={validationErrors.has("driverLicense") ? { outline: "1px solid #e05252", outlineOffset: "2px" } : {}}>
+              <div className="grid grid-cols-2 gap-3 rounded-xl" style={validationErrors.has("driverLicense") ? { outline: "1px solid var(--danger)", outlineOffset: "2px" } : {}}>
                 <button type="button"
                   onClick={() => set("driverLicense", "B")}
                   className="flex flex-col items-center justify-center gap-2 py-4 rounded-xl transition-all"
                   style={{
-                    background: cvData.driverLicense === "B" ? "rgba(212,175,55,0.15)" : "var(--bg2)",
+                    background: cvData.driverLicense === "B" ? "var(--gdim)" : "var(--bg2)",
                     color: cvData.driverLicense === "B" ? "var(--gold)" : "var(--w2)",
                     border: "none",
                   }}>
@@ -3368,7 +3507,7 @@ export default function CVBuilderPage() {
                   onClick={() => set("driverLicense", "")}
                   className="flex flex-col items-center justify-center gap-2 py-4 rounded-xl transition-all"
                   style={{
-                    background: cvData.driverLicense === "" ? "rgba(212,175,55,0.15)" : "var(--bg2)",
+                    background: cvData.driverLicense === "" ? "var(--gdim)" : "var(--bg2)",
                     color: cvData.driverLicense === "" ? "var(--gold)" : "var(--w2)",
                     border: "none",
                   }}>
@@ -3379,7 +3518,7 @@ export default function CVBuilderPage() {
             </div>
             <div className="sm:col-span-2">
               <Label required>{t.cvb_hobbies}</Label>
-              <div className="rounded-xl p-1" style={validationErrors.has("hobbies") ? { outline: "1px solid #e05252", outlineOffset: "2px" } : {}}>
+              <div className="rounded-xl p-1" style={validationErrors.has("hobbies") ? { outline: "1px solid var(--danger)", outlineOffset: "2px" } : {}}>
                 <HobbiesField value={cvData.hobbies} onChange={v => set("hobbies", v)} />
               </div>
             </div>
@@ -3391,21 +3530,21 @@ export default function CVBuilderPage() {
           <div className="text-center mt-2 bv-sticky-bottom">
             <button onClick={handleGenerate} disabled={generating}
               className="inline-flex items-center gap-2 px-8 py-4 text-[14px] font-semibold tracking-tight transition-all hover:opacity-90 hover:-translate-y-0.5 active:scale-[0.98] disabled:opacity-50 w-full sm:w-auto justify-center"
-              style={{ background: "var(--gold)", color: "#131312", borderRadius: "16px", boxShadow: "0 6px 20px rgba(212,175,55,0.28)" }}>
+              style={{ background: "var(--gold)", color: "#131312", borderRadius: "16px", boxShadow: "var(--shadow-gold-lg)" }}>
               {generating ? (
                 <><Spinner size="sm" color="#131312" /> {t.cvb_generating}</>
               ) : <><FileText size={15} strokeWidth={1.8} /> {t.cvb_generateBtn}</>}
             </button>
             {genError && (
-              <div className="mt-3 rounded-xl px-4 py-3 text-left" style={{ background: "rgba(224,82,82,0.08)", border: "1px solid rgba(224,82,82,0.22)" }}>
-                <p className="text-[12px] font-semibold flex items-center gap-1.5 mb-1.5" style={{ color: "#e05252" }}>
+              <div className="mt-3 rounded-xl px-4 py-3 text-left" style={{ background: "var(--danger-bg)", border: "1px solid var(--danger-border)" }}>
+                <p className="text-[12px] font-semibold flex items-center gap-1.5 mb-1.5" style={{ color: "var(--danger)" }}>
                   <AlertTriangle size={12} strokeWidth={1.8} /> {genError}
                 </p>
                 {validationErrors.size > 0 && (
                   <ul className="space-y-0.5 pl-1">
                     {getValidationErrorLabels(validationErrors, lang).map(lbl => (
-                      <li key={lbl} className="text-[11.5px] flex items-center gap-1.5" style={{ color: "#e05252" }}>
-                        <span className="w-1 h-1 rounded-full flex-shrink-0" style={{ background: "#e05252" }} />{lbl}
+                      <li key={lbl} className="text-[11.5px] flex items-center gap-1.5" style={{ color: "var(--danger)" }}>
+                        <span className="w-1 h-1 rounded-full flex-shrink-0" style={{ background: "var(--danger)" }} />{lbl}
                       </li>
                     ))}
                   </ul>
@@ -3417,7 +3556,7 @@ export default function CVBuilderPage() {
           <div className="p-7 text-center"
             style={{ background: "var(--card)", border: "none", borderRadius: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
             <span className="mx-auto mb-3 flex items-center justify-center w-12 h-12 rounded-full"
-              style={{ background: "rgba(52,199,89,0.10)", border: "none", color: "#34c759" }}>
+              style={{ background: "var(--success-bg)", border: "none", color: "var(--success)" }}>
               <CheckCircle2 size={22} strokeWidth={1.6} />
             </span>
             <p className="text-[16px] font-semibold tracking-[-0.01em] mb-1.5" style={{ color: "var(--w)" }}>{t.cvb_successTitle}</p>
@@ -3425,7 +3564,7 @@ export default function CVBuilderPage() {
 
             {uploaded ? (
               <span className="inline-flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold tracking-tight"
-                style={{ background: "rgba(52,199,89,0.10)", color: "#34c759", border: "1px solid rgba(52,199,89,0.28)", borderRadius: "var(--r-md)" }}>
+                style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)", borderRadius: "var(--r-md)" }}>
                 <CheckCircle2 size={14} strokeWidth={1.8} /> {t.cvb_sent}
               </span>
             ) : (
@@ -3433,7 +3572,7 @@ export default function CVBuilderPage() {
                 {/* Keep Editing — big primary */}
                 <button onClick={() => { setPdfUrl(null); setPdfBlob(null); setUploaded(false); }}
                   className="inline-flex items-center gap-2 px-8 py-4 text-[14px] font-semibold tracking-tight transition-all hover:opacity-90 hover:-translate-y-0.5 active:scale-[0.98] w-full sm:w-auto justify-center"
-                  style={{ background: "var(--gold)", color: "#131312", borderRadius: "16px", boxShadow: "0 6px 20px rgba(212,175,55,0.28)" }}>
+                  style={{ background: "var(--gold)", color: "#131312", borderRadius: "16px", boxShadow: "var(--shadow-gold-lg)" }}>
                   <FilePen size={15} strokeWidth={1.8} /> {t.cvb_keepEditing}
                 </button>
                 <div className="flex gap-2.5 justify-center flex-wrap mt-1">
@@ -3446,13 +3585,13 @@ export default function CVBuilderPage() {
                   {/* Submit */}
                   <button onClick={() => setShowSubmitConfirm(true)} disabled={uploading}
                     className="inline-flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold tracking-tight transition-opacity hover:opacity-90 disabled:opacity-50"
-                    style={{ background: "rgba(52,199,89,0.12)", color: "#34c759", border: "1px solid rgba(52,199,89,0.28)", borderRadius: "var(--r-md)" }}>
+                    style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)", borderRadius: "var(--r-md)" }}>
                     <Upload size={14} strokeWidth={1.8} /> {uploading ? t.cvb_sending : t.cvb_submitCV}
                   </button>
                 </div>
               </div>
             )}
-            {uploadErr && <p className="mt-3 text-[12.5px] inline-flex items-center gap-1.5 justify-center" style={{ color: "#e05252" }}><AlertTriangle size={12} strokeWidth={1.8} /> {uploadErr}</p>}
+            {uploadErr && <p className="mt-3 text-[12.5px] inline-flex items-center gap-1.5 justify-center" style={{ color: "var(--danger)" }}><AlertTriangle size={12} strokeWidth={1.8} /> {uploadErr}</p>}
           </div>
         )}
 
@@ -3461,14 +3600,14 @@ export default function CVBuilderPage() {
       {/* ── Gap panel — inline below generate button ── */}
       {showGapPanel && smartGaps.length > 0 && (
         <div id="gap-panel" className="p-5 mt-4"
-          style={{ background: "var(--card)", border: "1px solid rgba(224,82,82,0.32)", borderRadius: "var(--r-xl)", boxShadow: "var(--shadow-sm)" }}>
+          style={{ background: "var(--card)", border: "1px solid var(--danger-border)", borderRadius: "var(--r-xl)", boxShadow: "var(--shadow-sm)" }}>
           {/* Header */}
           <div className="flex items-center gap-2.5 mb-1.5">
             <span className="flex items-center justify-center w-8 h-8 rounded-full"
-              style={{ background: "rgba(224,82,82,0.10)", color: "#e05252", border: "1px solid rgba(224,82,82,0.24)" }}>
+              style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
               <Ban size={15} strokeWidth={1.7} />
             </span>
-            <h3 className="text-[14px] font-semibold tracking-[-0.01em]" style={{ color: "#e05252" }}>
+            <h3 className="text-[14px] font-semibold tracking-[-0.01em]" style={{ color: "var(--danger)" }}>
               {lang === "fr" ? "Périodes non justifiées détectées" : lang === "de" ? "Lücken im Lebenslauf gefunden" : "Timeline gaps found"}
             </h3>
           </div>
@@ -3525,11 +3664,11 @@ export default function CVBuilderPage() {
             {smartGaps.map((g, i) => (
               <div key={i}
                 className="flex items-center justify-between gap-3 p-4"
-                style={{ background: "rgba(224,82,82,0.06)", border: "none", borderRadius: "14px" }}>
+                style={{ background: "var(--danger-bg)", border: "none", borderRadius: "14px" }}>
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "#e05252" }} />
+                  <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "var(--danger)" }} />
                   <div className="min-w-0">
-                    <p className="text-[12.5px] font-semibold tracking-tight" style={{ color: "#e05252" }}>
+                    <p className="text-[12.5px] font-semibold tracking-tight" style={{ color: "var(--danger)" }}>
                       {fmtMY(g.gapStart)} → {(() => {
                         const today = todayMY();
                         const isToday = g.gapEnd.year === today.year && g.gapEnd.month === today.month;
@@ -3569,16 +3708,19 @@ export default function CVBuilderPage() {
 
     {/* ── CV PDF Preview modal ── */}
     {showCvPreview && pdfUrl && typeof document !== "undefined" && createPortal(
-      <div className="fixed inset-x-0 z-[800] flex items-center justify-center p-4 bv-cvprev-outer"
-        style={{ background: "rgba(0,0,0,0.72)", top: "58px", bottom: 0 }}
+      <div className="fixed inset-x-0 z-[800] flex items-center justify-center px-2 bv-cvprev-outer"
+        style={{ background: "rgba(0,0,0,0.72)", top: "calc(58px + var(--bv-subnav-h, 0px))", paddingTop: "6px", bottom: 0 }}
         onClick={() => setShowCvPreview(false)}>
-        {/* Mobile: leave clearance for the bottom action bar (same as Reisepass preview) */}
         <style>{`
+          .bv-cvprev-card {
+            height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 6px - 6px - env(safe-area-inset-bottom, 0px));
+            max-height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 6px - 6px - env(safe-area-inset-bottom, 0px));
+          }
           @media (max-width: 639.98px) {
-            .bv-cvprev-outer { padding-bottom: calc(1rem + 72px) !important; }
+            .bv-cvprev-outer { padding-bottom: calc(72px + 6px + env(safe-area-inset-bottom, 0px)) !important; }
             .bv-cvprev-card  {
-              height: calc(100dvh - 58px - 1rem - 72px - 1rem) !important;
-              max-height: calc(100dvh - 58px - 1rem - 72px - 1rem) !important;
+              height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 6px - 72px - 6px - env(safe-area-inset-bottom, 0px)) !important;
+              max-height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 6px - 72px - 6px - env(safe-area-inset-bottom, 0px)) !important;
             }
           }
         `}</style>
@@ -3588,8 +3730,6 @@ export default function CVBuilderPage() {
             border: "1px solid var(--border)",
             borderRadius: "var(--r-2xl)",
             boxShadow: "var(--shadow-lg)",
-            height: "88vh",
-            maxHeight: "88vh",
             animation: "bvFadeRise 0.22s var(--ease-out)",
           }}
           onClick={e => e.stopPropagation()}>
@@ -3650,7 +3790,7 @@ export default function CVBuilderPage() {
           {/* Keep Editing — big */}
           <button onClick={() => setShowSubmitConfirm(false)}
             className="inline-flex items-center gap-2 px-8 py-4 text-[14px] font-semibold tracking-tight transition-all hover:opacity-90 hover:-translate-y-0.5 active:scale-[0.98] w-full justify-center mb-3"
-            style={{ background: "var(--gold)", color: "#131312", borderRadius: "16px", boxShadow: "0 6px 20px rgba(212,175,55,0.28)" }}>
+            style={{ background: "var(--gold)", color: "#131312", borderRadius: "16px", boxShadow: "var(--shadow-gold-lg)" }}>
             <FilePen size={15} strokeWidth={1.8} /> {t.cvb_keepEditing}
           </button>
           {/* Submit — smaller */}
@@ -3659,13 +3799,93 @@ export default function CVBuilderPage() {
             await handleUpload();
           }} disabled={uploading}
             className="inline-flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold tracking-tight transition-opacity hover:opacity-90 disabled:opacity-50"
-            style={{ background: "rgba(52,199,89,0.12)", color: "#34c759", border: "1px solid rgba(52,199,89,0.28)", borderRadius: "var(--r-md)" }}>
+            style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)", borderRadius: "var(--r-md)" }}>
             <Upload size={14} strokeWidth={1.8} /> {uploading ? t.cvb_sending : t.cvb_submitCV}
           </button>
         </div>
       </div>,
       document.body
     )}
+
+    {/* ── Starter upgrade modal ── */}
+    {starterUpgradeOpen && (
+      <div className="fixed inset-0 z-[1200] flex items-center justify-center p-4"
+        style={{ background: "rgba(0,0,0,0.72)", backdropFilter: "blur(6px)" }}
+        onClick={() => setStarterUpgradeOpen(false)}>
+        <div className="relative w-full max-w-sm rounded-2xl p-7 flex flex-col items-center text-center"
+          style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }}
+          onClick={e => e.stopPropagation()}>
+
+          <div className="w-14 h-14 rounded-full flex items-center justify-center mb-4 text-2xl"
+            style={{ background: "var(--gdim)" }}>📄</div>
+
+          <h2 className="text-[18px] font-bold mb-2" style={{ color: "var(--w)" }}>
+            {lang === "de" ? "Starter-Plan erforderlich" : lang === "en" ? "Starter Plan Required" : "Plan Starter requis"}
+          </h2>
+          <p className="text-[13px] mb-5 leading-relaxed" style={{ color: "var(--w3)" }}>
+            {lang === "de" ? "Die professionelle Lebenslauf-Erstellung ist im Starter-Plan enthalten."
+              : lang === "en" ? "Professional CV generation is included in the Starter plan."
+              : "La génération professionnelle de CV est incluse dans le plan Starter."}
+          </p>
+
+          <div className="mx-auto w-full rounded-2xl px-4 py-3 mb-5 flex items-center gap-3"
+            style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
+            <span className="text-[13px] font-semibold flex-1" style={{ color: "var(--gold)" }}>★ Starter-Plan</span>
+            <span className="text-[20px] font-bold tracking-tight" style={{ color: "var(--w)" }}>€9</span>
+            <span className="text-[11px]" style={{ color: "var(--w3)" }}>
+              {lang === "de" ? "einmalig" : lang === "en" ? "one-time" : "paiement unique"}
+            </span>
+          </div>
+
+          <style>{`@keyframes bvWave{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}`}</style>
+          <ul className="w-full text-left space-y-2 mb-5">
+            {([
+              lang === "de" ? "Professioneller Lebenslauf (PDF)" : lang === "en" ? "Professional CV (PDF)" : "CV professionnel (PDF)",
+              lang === "de" ? "Deutsches Format & Layout" : lang === "en" ? "German format & layout" : "Format et mise en page allemands",
+              lang === "de" ? "Unbegrenzte Neugestaltungen" : lang === "en" ? "Unlimited regenerations" : "Régénérations illimitées",
+            ] as string[]).map(f => (
+              <li key={f} className="flex items-start gap-2 text-[12.5px]" style={{ color: "var(--w2)" }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5"><polyline points="20 6 9 17 4 12"/></svg>
+                <span>{f}</span>
+              </li>
+            ))}
+            {/* Blue verified badge */}
+            <li className="flex items-start gap-2 text-[12.5px]" style={{ color: "var(--w2)" }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--info)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span>{lang === "de" ? "Blaues Abzeichen — mehr Chancen auf Einstellung" : lang === "en" ? "Blue badge — better recruitment chances" : "Badge bleu — meilleures chances de recrutement"}</span>
+            </li>
+            {/* Refund — gold shimmer text */}
+            <li className="flex items-start gap-2 text-[12.5px]">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span className="font-semibold"
+                style={{ background: "linear-gradient(90deg,var(--gold),#f0dfa0,var(--gold),#a07830)", backgroundSize: "200% auto", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text", animation: "bvWave 2.5s linear infinite" }}>
+                {lang === "de" ? "Rückerstattung, sobald Sie mit uns in Deutschland ankommen" : lang === "en" ? "Refundable once you land in Germany with us" : "Remboursable dès que vous arrivez en Allemagne avec nous"}
+              </span>
+            </li>
+          </ul>
+
+          <button onClick={handleUpgradeToStarter} disabled={starterUpgradeLoading}
+            className="w-full py-3 rounded-xl text-[14px] font-semibold tracking-tight transition-opacity hover:opacity-90 disabled:opacity-50"
+            style={{ background: "var(--gold)", color: "#131312", cursor: starterUpgradeLoading ? "wait" : "pointer" }}>
+            {starterUpgradeLoading
+              ? (lang === "de" ? "Weiterleitung…" : lang === "en" ? "Redirecting…" : "Redirection…")
+              : (lang === "de" ? "Jetzt upgraden — €9" : lang === "en" ? "Upgrade now — €9" : "Passer au Starter — 9€")}
+          </button>
+          <button onClick={() => setStarterUpgradeOpen(false)}
+            className="mt-3 text-[13px]" style={{ color: "var(--w3)" }}>
+            {lang === "de" ? "Später" : lang === "en" ? "Later" : "Plus tard"}
+          </button>
+        </div>
+      </div>
+    )}
     </>
+  );
+}
+
+export default function CVBuilderPage() {
+  return (
+    <React.Suspense fallback={null}>
+      <CVBuilderInner />
+    </React.Suspense>
   );
 }

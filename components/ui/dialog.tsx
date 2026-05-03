@@ -2,6 +2,7 @@
 import * as React from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useLang } from "@/components/LangContext";
 
 interface DialogProps {
   open: boolean;
@@ -14,6 +15,7 @@ interface DialogProps {
 }
 
 export function Dialog({ open, onClose, title, eyebrow, children, className }: DialogProps) {
+  const { t } = useLang();
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     if (open) {
@@ -76,7 +78,7 @@ export function Dialog({ open, onClose, title, eyebrow, children, className }: D
           </div>
           <button
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t.miClose}
             className="flex-shrink-0 w-8 h-8 flex items-center justify-center transition-colors cursor-pointer"
             style={{
               background: "var(--bg2)",

@@ -166,8 +166,8 @@ function CelebrationPortal({ userId, orgId, orgName, lang, onDismiss }: Props) {
         className="w-full max-w-sm text-center px-8 py-10 rounded-3xl relative"
         style={{
           background: "var(--card)",
-          border: "1px solid rgba(212,175,55,0.35)",
-          boxShadow: "0 24px 64px rgba(0,0,0,0.5), 0 0 0 1px rgba(212,175,55,0.2)",
+          border: "1px solid var(--border-gold)",
+          boxShadow: "0 24px 64px rgba(0,0,0,0.5), 0 0 0 1px var(--gdim)",
           animation: "bvCardRise 0.55s 0.1s var(--ease-out) both",
         }}
         onClick={e => e.stopPropagation()}
@@ -181,7 +181,7 @@ function CelebrationPortal({ userId, orgId, orgName, lang, onDismiss }: Props) {
             animation: "bvBuildPop 0.6s 0.3s var(--ease-out) both",
           }}
         >
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#c9a240" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/>
             <path d="M9 9v.01"/><path d="M9 12v.01"/><path d="M9 15v.01"/><path d="M9 18v.01"/>
           </svg>
@@ -219,7 +219,7 @@ function CelebrationPortal({ userId, orgId, orgName, lang, onDismiss }: Props) {
             background: "var(--gold)",
             color: "#131312",
             border: "none",
-            boxShadow: "0 4px 14px rgba(201,162,64,0.35)",
+            boxShadow: "0 4px 14px var(--border-gold)",
           }}
         >
           {t.btn}

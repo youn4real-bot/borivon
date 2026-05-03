@@ -18,29 +18,28 @@ export async function GET(req: NextRequest) {
 
   const [{ data: reqs }, { data: orgs }] = await Promise.all([
     db.from("org_requirements")
-      .select("id, org_id, facility_type, slots, bundesland, city, start_date, notes, created_at")
+      .select("id, org_id, specialty, slots, location, start_date, notes, created_at")
       .eq("active", true)
       .order("created_at", { ascending: false }),
     db.from("organizations").select("id, name"),
   ]);
 
-  type ReqRow = { id: string; org_id: string; facility_type: string | null; slots: number; bundesland: string | null; city: string | null; start_date: string | null; notes: string | null; created_at: string };
+  type ReqRow = { id: string; org_id: string; specialty: string | null; slots: number; location: string | null; start_date: string | null; notes: string | null; created_at: string };
   type OrgRow = { id: string; name: string };
 
   const orgNameById: Record<string, string> = {};
   for (const o of (orgs ?? []) as OrgRow[]) orgNameById[o.id] = o.name;
 
   const needs = ((reqs ?? []) as ReqRow[]).map(r => ({
-    id:           r.id,
-    orgId:        r.org_id,
-    orgName:      orgNameById[r.org_id] ?? "(unknown)",
-    facilityType: r.facility_type ?? "—",
-    slots:        r.slots,
-    bundesland:   r.bundesland,
-    city:         r.city,
-    startDate:    r.start_date,
-    notes:        r.notes,
-    createdAt:    r.created_at,
+    id:        r.id,
+    orgId:     r.org_id,
+    orgName:   orgNameById[r.org_id] ?? "(unknown)",
+    specialty: r.specialty ?? null,
+    slots:     r.slots,
+    location:  r.location ?? null,
+    startDate: r.start_date,
+    notes:     r.notes,
+    createdAt: r.created_at,
   }));
 
   return NextResponse.json({ needs });

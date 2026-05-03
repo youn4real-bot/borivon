@@ -22,6 +22,23 @@ export async function GET(req: NextRequest) {
       .order("uploaded_at", { ascending: false });
     if (error) { console.error("[admin GET] documents query failed:", error); return NextResponse.json({ error: "Internal error" }, { status: 500 }); }
     docs = data ?? [];
+  } else if (auth.isAgencyAdmin && auth.agencyId) {
+    // Agency admin — all candidates in their agency
+    const { data: agencyCands } = await db
+      .from("candidate_profiles")
+      .select("user_id")
+      .eq("agency_id", auth.agencyId);
+    const agencyIds = ((agencyCands ?? []) as { user_id: string }[]).map(r => r.user_id);
+    if (agencyIds.length === 0) {
+      return NextResponse.json({ docs: [], users: {}, role });
+    }
+    const { data, error } = await db
+      .from("documents")
+      .select("id, user_id, file_name, file_type, uploaded_at, status, feedback, drive_file_id")
+      .in("user_id", agencyIds)
+      .order("uploaded_at", { ascending: false });
+    if (error) { console.error("[admin GET] documents query (agency) failed:", error); return NextResponse.json({ error: "Internal error" }, { status: 500 }); }
+    docs = data ?? [];
   } else {
     // Sub-admin — only candidates they have access to.
     // Combines direct assignments AND organization membership.
@@ -67,7 +84,7 @@ export async function GET(req: NextRequest) {
   // simply be absent from the rows; the UI falls back to null gracefully.
   const { data: profileRows } = await db
     .from("candidate_profiles")
-    .select("user_id, first_name, last_name, dob, sex, nationality, passport_no, passport_expiry, city_of_birth, country_of_birth, issuing_authority, issue_date, address_street, address_number, address_postal, city_of_residence, country_of_residence, passport_status, passport_feedback, marital_status, children_ages, manually_verified, profile_photo, payment_tier")
+    .select("user_id, first_name, last_name, dob, sex, nationality, passport_no, passport_expiry, city_of_birth, country_of_birth, issuing_authority, issue_date, address_street, address_number, address_postal, city_of_residence, country_of_residence, passport_status, passport_feedback, marital_status, children_ages, manually_verified, profile_photo, payment_tier, placement_ready")
     .in("user_id", userIds);
   const profiles: Record<string, {
     first_name: string | null; last_name: string | null;
@@ -85,6 +102,7 @@ export async function GET(req: NextRequest) {
     manually_verified: boolean | null;
     profile_photo: string | null;
     payment_tier: string | null;
+    placement_ready: boolean | null;
   }> = {};
   for (const p of profileRows ?? []) {
     profiles[p.user_id] = p;

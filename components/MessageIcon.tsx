@@ -216,6 +216,7 @@ function MessageBubble({ msg, mine, lang, showAvatar, senderInitial, senderAvata
   senderAvatarUrl?: string | null; // actual photo URL for the avatar (candidate photo or admin logo)
   onOpenImage: (src: string) => void;
 }) {
+  const { t } = useLang();
   const isBug = msg.kind === "bug";
   return (
     <div className={`flex items-end gap-2 ${mine ? "flex-row-reverse" : "flex-row"} ${showAvatar ? "mt-3" : "mt-1"}`}>
@@ -242,7 +243,7 @@ function MessageBubble({ msg, mine, lang, showAvatar, senderInitial, senderAvata
           }}>
           {isBug && (
             <p className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-[0.14em] mb-1"
-              style={{ color: mine ? "rgba(19,19,18,0.7)" : "#e05252" }}>
+              style={{ color: mine ? "rgba(19,19,18,0.7)" : "var(--danger)" }}>
               <Bug size={10} strokeWidth={2.2} /> {lang === "fr" ? "Rapport de bug" : lang === "de" ? "Fehlerbericht" : "Bug report"}
             </p>
           )}
@@ -254,7 +255,7 @@ function MessageBubble({ msg, mine, lang, showAvatar, senderInitial, senderAvata
               className="block p-0 m-0 cursor-zoom-in"
               style={{ background: "transparent", border: "none" }}>
               { /* eslint-disable-next-line @next/next/no-img-element */ }
-              <img src={msg.attachment} alt="attachment"
+              <img src={msg.attachment} alt={t.miAttachment}
                 className="max-h-[200px] rounded-md block"
                 style={{ border: "1px solid var(--border)" }} />
             </button>
@@ -320,6 +321,7 @@ function renderItems(
 // to close — and only the lightbox closes, the chat modal underneath stays
 // open (we stopPropagation on every click so the chat backdrop never sees it).
 function Lightbox({ src, onClose }: { src: string; onClose: () => void }) {
+  const { t } = useLang();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -368,19 +370,19 @@ function Lightbox({ src, onClose }: { src: string; onClose: () => void }) {
       onMouseDown={e => e.stopPropagation()}>
       <div className="fixed top-3 right-3 sm:top-5 sm:right-5 flex items-center gap-2 z-10"
         onClick={e => e.stopPropagation()}>
-        <button onClick={download} aria-label="Download"
+        <button onClick={download} aria-label={t.miDownload}
           className="w-10 h-10 flex items-center justify-center rounded-full transition-opacity hover:opacity-80"
           style={{ background: "rgba(255,255,255,0.12)", color: "#fff", border: "1px solid rgba(255,255,255,0.2)" }}>
           <Download size={17} strokeWidth={1.8} />
         </button>
-        <button onClick={close} aria-label="Close"
+        <button onClick={close} aria-label={t.miClose}
           className="w-10 h-10 flex items-center justify-center rounded-full transition-opacity hover:opacity-80"
           style={{ background: "rgba(255,255,255,0.12)", color: "#fff", border: "1px solid rgba(255,255,255,0.2)" }}>
           <XIcon size={18} strokeWidth={1.8} />
         </button>
       </div>
       { /* eslint-disable-next-line @next/next/no-img-element */ }
-      <img src={src} alt="attachment"
+      <img src={src} alt={t.miAttachment}
         onClick={e => e.stopPropagation()}
         style={{
           maxWidth: "100%", maxHeight: "100%", objectFit: "contain",
@@ -398,6 +400,7 @@ function ComposeBar({
   onSend: (text: string, attachment: string | null) => Promise<void>;
   lang: string; disabled?: boolean;
 }) {
+  const { t } = useLang();
   const [text, setText] = useState("");
   const [attach, setAttach] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
@@ -432,9 +435,9 @@ function ComposeBar({
       {attach && (
         <div className="px-3 pt-2.5 flex items-start gap-2">
           { /* eslint-disable-next-line @next/next/no-img-element */ }
-          <img src={attach} alt="preview" className="max-h-[80px] rounded-md"
+          <img src={attach} alt={t.miPreview} className="max-h-[80px] rounded-md"
             style={{ border: "1px solid var(--border)" }} />
-          <button onClick={() => setAttach(null)} aria-label="Remove attachment"
+          <button onClick={() => setAttach(null)} aria-label={t.miRemoveAttach}
             className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full"
             style={{ color: "var(--w3)" }}>
             <XIcon size={12} strokeWidth={2} />
@@ -444,7 +447,7 @@ function ComposeBar({
       <div className="flex items-end gap-2 px-3 py-2.5">
         <input ref={fileRef} type="file" accept="image/*" className="hidden"
           onChange={e => handleAttach(e.target.files?.[0] ?? null)} />
-        <button onClick={() => fileRef.current?.click()} aria-label="Attach image"
+        <button onClick={() => fileRef.current?.click()} aria-label={t.miAttachImg}
           disabled={disabled || sending}
           className="bv-icon-btn w-10 h-10 flex items-center justify-center rounded-full flex-shrink-0 disabled:opacity-50"
           style={{ color: "var(--w2)" }}>
@@ -464,7 +467,7 @@ function ComposeBar({
             maxHeight: "120px", minHeight: "40px",
           }}
         />
-        <button onClick={send} aria-label="Send"
+        <button onClick={send} aria-label={t.miSend}
           disabled={disabled || sending || (!text.trim() && !attach)}
           className="w-10 h-10 flex items-center justify-center rounded-lg flex-shrink-0 disabled:opacity-40"
           style={{ background: "var(--gold)", color: "#131312" }}>
@@ -507,6 +510,7 @@ function ThreadModal({
   /** Actual photo URL for the current user (candidate photo or admin logo) */
   ownAvatarUrl?: string | null;
 }) {
+  const { t } = useLang();
   // Compact = passport-popup-sized (max-w-md ~448px / max-h 90vh).
   // Expanded = roomier chat window (max-w-2xl ~672px / max-h 95vh) — better
   // for long conversations. Persisted per-user so it sticks across sessions.
@@ -649,7 +653,7 @@ function ThreadModal({
             </p>
             {subtitle && <p className="text-[11px] truncate" style={{ color: "var(--w3)" }}>{subtitle}</p>}
           </div>
-          <button onClick={onClose} aria-label="Close"
+          <button onClick={onClose} aria-label={t.miClose}
             className="w-8 h-8 flex items-center justify-center rounded-lg flex-shrink-0 hover:scale-110"
             style={{ background: "transparent", color: "var(--w3)", border: "none", transition: "color 0.2s, transform 0.15s" }}
             onMouseEnter={(e) => { e.currentTarget.style.color = "var(--w)"; }}
@@ -733,12 +737,11 @@ function InboxDropdown({
 
 // ── Candidate side ───────────────────────────────────────────────────────────
 
-// The Borivon logo used as the admin's permanent avatar in all chat views.
-// /favicon.png is the site's brand icon (same one shown on the browser tab).
+// Fallback logo when the admin has no profile photo uploaded.
 const ADMIN_LOGO_URL = "/favicon.png";
 
 function CandidateChat({ accessToken, userId }: { accessToken: string; userId: string }) {
-  const { lang } = useLang();
+  const { lang, t } = useLang();
   const ref = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Same two-stage flow as admin: dropdown list first, then modal.
@@ -749,6 +752,8 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
   // Candidate's own display name and profile photo.
   const [candidateName, setCandidateName] = useState("You");
   const [candidatePhoto, setCandidatePhoto] = useState<string | null>(null);
+  // Admin's profile photo (real upload or fallback logo).
+  const [adminPhoto, setAdminPhoto] = useState<string>(ADMIN_LOGO_URL);
 
   useEffect(() => {
     let cancelled = false;
@@ -759,10 +764,14 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
       const fallback = data.user.email ?? "You";
       setCandidateName(fn || fallback);
     });
-    // Fetch the candidate's profile photo (set when they upload one in CV builder).
+    // Fetch the candidate's own photo and the admin's photo in parallel.
     fetch("/api/portal/me/profile-photo", { headers: { Authorization: `Bearer ${accessToken}` } })
       .then(r => r.ok ? r.json() : null)
       .then(j => { if (!cancelled && j?.photo) setCandidatePhoto(j.photo); })
+      .catch(() => {});
+    fetch("/api/portal/admin-photo", { headers: { Authorization: `Bearer ${accessToken}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(j => { if (!cancelled && j?.photo) setAdminPhoto(j.photo); })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [accessToken]);
@@ -868,7 +877,7 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
   }
 
   const title = lang === "fr" ? "Messages" : lang === "de" ? "Nachrichten" : "Messages";
-  const teamName = lang === "fr" ? "Équipe Borivon" : lang === "de" ? "Borivon Team" : "Borivon team";
+  const teamName = "Youness Taoufiq";
 
   // Build a single fake "conversation" row from the candidate's thread so the
   // list dropdown looks like the admin's. Last message preview = last msg body.
@@ -892,13 +901,13 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
               <button onClick={openThread}
                 className="bv-row-hover w-full text-left px-3.5 py-3 flex items-center gap-2.5 transition-colors">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={ADMIN_LOGO_URL} alt="Borivon"
+                <img src={adminPhoto} alt="Borivon"
                   className="w-9 h-9 rounded-full object-cover flex-shrink-0"
                   style={{ border: `1px solid ${unread > 0 ? "var(--border-gold)" : "var(--border)"}` }} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-[13px] font-semibold truncate inline-flex items-center" style={{ color: "var(--w)" }}>
-                      {teamName}<VerifiedBadge verified size="xs" title="Borivon" color="black" />
+                      {teamName}<VerifiedBadge verified size="xs" isAdmin title="Borivon" color="black" />
                     </p>
                     {last && <span className="text-[9.5px] flex-shrink-0" style={{ color: "var(--w3)" }}>{fmtTime(lastAt, lang)}</span>}
                   </div>
@@ -909,7 +918,7 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
                     ) : (
                       <>
                         {lastSender === "candidate" && <span style={{ color: "var(--w3)", flexShrink: 0 }}>{lang === "fr" ? "Vous : " : lang === "de" ? "Sie: " : "You: "}</span>}
-                        <span className="truncate">{hasAttachment && !lastBody ? "📎 image" : (lastBody || "—")}</span>
+                        <span className="truncate">{hasAttachment && !lastBody ? `📎 ${t.miImage}` : (lastBody || "—")}</span>
                       </>
                     )}
                   </p>
@@ -935,7 +944,7 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
           lang={lang}
           otherInitial="B"        otherName={teamName}
           ownInitial={candidateInitial} ownName={candidateName}
-          otherAvatarUrl={ADMIN_LOGO_URL}
+          otherAvatarUrl={adminPhoto}
           ownAvatarUrl={candidatePhoto}
           verifiedOther isAdminOther
         />
@@ -947,13 +956,21 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
 // ── Admin side ───────────────────────────────────────────────────────────────
 
 function AdminInbox({ accessToken }: { accessToken: string }) {
-  const { lang } = useLang();
+  const { lang, t } = useLang();
   const ref = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [inboxOpen, setInboxOpen] = useState(false);
   const [convs, setConvs] = useState<AdminConversation[]>([]);
   const [activeThread, setActiveThread] = useState<AdminConversation | null>(null);
   const [threadMsgs, setThreadMsgs] = useState<Msg[]>([]);
+  const [ownPhoto, setOwnPhoto] = useState<string>(ADMIN_LOGO_URL);
+
+  useEffect(() => {
+    fetch("/api/portal/me/profile-photo", { headers: { Authorization: `Bearer ${accessToken}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(j => { if (j?.photo) setOwnPhoto(j.photo); })
+      .catch(() => {});
+  }, [accessToken]);
 
   const fetchConvs = useCallback(async () => {
     const res = await fetch("/api/portal/admin/messages", { headers: { Authorization: `Bearer ${accessToken}` } });
@@ -1087,9 +1104,9 @@ function AdminInbox({ accessToken }: { accessToken: string }) {
           otherInitial={(activeThread.name || activeThread.email || "?").charAt(0).toUpperCase()}
           otherName={activeThread.name || activeThread.email}
           ownInitial="B"
-          ownName="Borivon team"
+          ownName="Youness Taoufiq"
           otherAvatarUrl={activeThread.photoUrl ?? null}
-          ownAvatarUrl={ADMIN_LOGO_URL}
+          ownAvatarUrl={ownPhoto}
           verifiedOther={!!activeThread.verified}
           otherBadgeColor={activeThread.isOrgMember ? "red" : "gold"}
         />
@@ -1104,9 +1121,9 @@ function MsgPaymentBadge({ tier }: { tier?: string | null }) {
   return (
     <span className="inline-flex items-center text-[8.5px] font-bold uppercase tracking-wider px-1 py-0.5 rounded-full ml-0.5 flex-shrink-0"
       style={{
-        background: isK ? "rgba(212,175,55,0.15)" : "var(--info-bg)",
+        background: isK ? "var(--gdim)" : "var(--info-bg)",
         color:      isK ? "var(--gold)"           : "var(--info)",
-        border:     isK ? "1px solid rgba(212,175,55,0.4)" : "1px solid var(--info-border)",
+        border:     isK ? "1px solid var(--border-gold)" : "1px solid var(--info-border)",
       }}>
       {isK ? "★ K" : "S"}
     </span>
@@ -1116,6 +1133,7 @@ function MsgPaymentBadge({ tier }: { tier?: string | null }) {
 function ConversationList({
   convs, onPick, lang,
 }: { convs: AdminConversation[]; onPick: (c: AdminConversation) => void; lang: string }) {
+  const { t } = useLang();
   if (convs.length === 0) {
     return (
       <div className="px-6 py-10 text-center" style={{ background: "var(--bg)" }}>
@@ -1158,9 +1176,9 @@ function ConversationList({
             </div>
             <p className="text-[11px] truncate flex items-center gap-1 mt-0.5"
               style={{ color: c.unread > 0 ? "var(--w2)" : "var(--w3)", fontWeight: c.unread > 0 ? 500 : 400 }}>
-              {c.lastKind === "bug" && <Bug size={10} strokeWidth={2.2} style={{ color: "#e05252", flexShrink: 0 }} />}
+              {c.lastKind === "bug" && <Bug size={10} strokeWidth={2.2} style={{ color: "var(--danger)", flexShrink: 0 }} />}
               {c.lastSender === "admin" && <span style={{ color: "var(--w3)", flexShrink: 0 }}>{lang === "fr" ? "Vous : " : lang === "de" ? "Sie: " : "You: "}</span>}
-              <span className="truncate">{c.hasAttachment && !c.lastBody ? "📎 image" : (c.lastBody || "—")}</span>
+              <span className="truncate">{c.hasAttachment && !c.lastBody ? `📎 ${t.miImage}` : (c.lastBody || "—")}</span>
             </p>
           </div>
           {c.unread > 0 && (

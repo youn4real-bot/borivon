@@ -29,6 +29,9 @@ import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { buildProfileSlug } from "@/lib/profile-slug";
 import { VerifiedCelebration } from "@/components/VerifiedCelebration";
 import { MatchedCelebration } from "@/components/MatchedCelebration";
+import { PaymentCelebration } from "@/components/PaymentCelebration";
+import { PortalTopNav } from "@/components/PortalTopNav";
+import { PendingSignatures } from "@/components/PendingSignatures";
 
 // Onboarding tour is shown at most once per user (gated by a localStorage
 // flag). Lazy-load so returning users don't pay for it.
@@ -251,9 +254,13 @@ export default function DashboardPage() {
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [upgradeLoading, setUpgradeLoading] = useState(false);
   // Payment success toast — shown when user returns from Stripe checkout
-  const [paymentToast, setPaymentToast] = useState<{ plan: string } | null>(null);
+  const [paymentCelebration, setPaymentCelebration] = useState<{ plan: string } | null>(null);
   // Helper: does the user have at least the Kandidat plan?
   const hasKandidat = paymentTier === "kandidat";
+
+  // Sign requests — documents sent for digital signature
+  type SignReq = { id: string; document_name: string; note: string | null; status: "pending" | "signed" | "declined"; signed_at: string | null; created_at: string; signature_zone: { page: number; x: number; y: number; w: number; h: number } | null; pdf_preview_url: string | null; };
+  const [signRequests, setSignRequests] = useState<SignReq[]>([]);
 
   // Wire the bottom-bar hamburger ↔ home toggle. The Navbar reads this and
   // renders an icon as the first item in the mobile bottom action bar.
@@ -408,15 +415,21 @@ export default function DashboardPage() {
             if (newOrg) {
               // Dispatch event so any listeners (future notifications) can react
               window.dispatchEvent(new CustomEvent("bv-org-placed", { detail: { name: newOrg.name } }));
-              // Show the celebration modal once per (user, orgId)
-              try {
-                const key = `bv-celebrated-orgs-${userId}`;
-                const seen = JSON.parse(localStorage.getItem(key) ?? "[]") as string[];
-                if (!seen.includes(newOrg.id)) {
+              // Show the celebration modal ONCE per (user, orgId).
+              // Write to localStorage immediately (before the modal mounts) so
+              // a quick refresh can't trigger the celebration a second time.
+              if (userId) {
+                try {
+                  const key = `bv-celebrated-orgs-${userId}`;
+                  const seen = JSON.parse(localStorage.getItem(key) ?? "[]") as string[];
+                  if (!seen.includes(newOrg.id)) {
+                    seen.push(newOrg.id);
+                    localStorage.setItem(key, JSON.stringify(seen));
+                    setCelebrateOrg({ id: newOrg.id, name: newOrg.name });
+                  }
+                } catch {
                   setCelebrateOrg({ id: newOrg.id, name: newOrg.name });
                 }
-              } catch {
-                setCelebrateOrg({ id: newOrg.id, name: newOrg.name });
               }
             }
             return list;
@@ -434,7 +447,16 @@ export default function DashboardPage() {
       window.removeEventListener("focus", onFocus);
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, [authToken]);
+  }, [authToken, userId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Plan-gate fallback: non-Kandidat users can't reach journey views — bounce
+  // them back to docs the moment they would land on one (race-safe; runs as
+  // an effect, not during render).
+  useEffect(() => {
+    if (viewMode !== "docs" && profileLoaded && !hasKandidat) {
+      setViewMode("docs");
+    }
+  }, [viewMode, profileLoaded, hasKandidat]);
 
   // Issue 4.3: live passport status — no page refresh needed when admin approves/rejects
   useEffect(() => {
@@ -579,6 +601,13 @@ export default function DashboardPage() {
       setLastName(user.user_metadata?.last_name ?? "");
       setUserName(user.user_metadata?.full_name ?? user.email ?? "");
 
+      // Load sign requests in background
+      fetch("/api/portal/me/sign-requests", {
+        headers: { Authorization: `Bearer ${session?.access_token ?? ""}` },
+      }).then(r => r.ok ? r.json() : { requests: [] })
+        .then(j => setSignRequests((j as { requests: SignReq[] }).requests ?? []))
+        .catch(() => {});
+
       // Auto-redeem invite code stored in user metadata at registration time.
       // Fires once per session; safe to re-run (server ignores already-used codes).
       const storedCode = user.user_metadata?.invite_code as string | undefined;
@@ -651,9 +680,22 @@ export default function DashboardPage() {
           const list = ((orgs ?? []) as { id: string; name: string; status: string }[])
             .filter(o => o.status !== "rejected");
           setLinkedOrgs(list);
-          const approved = list.filter(o => o.status === "approved");
-          // Org assignment is now admin-controlled (via invite) — don't auto-pop the code modal
           setOrgChecked(true);
+          // Show MatchedCelebration for any approved org not yet celebrated.
+          // This handles the "placed" notification → navigate to dashboard flow.
+          const approvedOrgs = list.filter(o => o.status === "approved");
+          if (approvedOrgs.length > 0) {
+            try {
+              const key = `bv-celebrated-orgs-${user.id}`;
+              const seen = JSON.parse(localStorage.getItem(key) ?? "[]") as string[];
+              const uncelebrated = approvedOrgs.find(o => !seen.includes(o.id));
+              if (uncelebrated) {
+                seen.push(uncelebrated.id);
+                localStorage.setItem(key, JSON.stringify(seen));
+                setCelebrateOrg({ id: uncelebrated.id, name: uncelebrated.name });
+              }
+            } catch { /* private mode */ }
+          }
         })
         .catch(() => setOrgChecked(true));
     });
@@ -702,8 +744,7 @@ export default function DashboardPage() {
     const planParam    = searchParams.get("plan");
     if (paymentParam === "success" && planParam) {
       setPaymentTier(planParam);
-      setPaymentToast({ plan: planParam });
-      setTimeout(() => setPaymentToast(null), 6000);
+      setPaymentCelebration({ plan: planParam });
       window.history.replaceState({}, "", window.location.pathname);
     } else if (paymentParam === "cancelled") {
       window.history.replaceState({}, "", window.location.pathname);
@@ -876,6 +917,7 @@ export default function DashboardPage() {
   }
 
   async function handleUpgradeToKandidat() {
+    if (upgradeLoading) return; // double-click guard
     setUpgradeLoading(true);
     try {
       const res = await fetch("/api/portal/stripe/checkout", {
@@ -888,7 +930,7 @@ export default function DashboardPage() {
         window.location.href = json.url;
       } else {
         // Stripe not configured — show contact info
-        alert(lang === "de" ? "Bitte kontaktieren Sie uns, um Ihr Konto auf Kandidat zu upgraden." : lang === "en" ? "Please contact us to upgrade to the Kandidat plan." : "Veuillez nous contacter pour passer au plan Kandidat.");
+        alert(lang === "de" ? "Bitte kontaktieren Sie uns, um auf den Premium-Plan zu upgraden." : lang === "en" ? "Please contact us to upgrade to the Premium plan." : "Veuillez nous contacter pour passer au plan Premium.");
         setUpgradeOpen(false);
       }
     } catch {
@@ -955,7 +997,7 @@ export default function DashboardPage() {
   const statusColor = (s: string) =>
     s === "approved" ? { bg: "var(--success-bg)", text: "var(--success)", border: "var(--success-border)" } :
     s === "rejected"  ? { bg: "var(--danger-bg)", text: "var(--danger)", border: "var(--danger-bg)" } :
-    { bg: "rgba(255,200,0,0.1)", text: "#c9a240", border: "rgba(201,162,64,0.2)" };
+    { bg: "rgba(255,200,0,0.1)", text: "var(--gold)", border: "var(--border-gold)" };
 
   const statusLabel = (s: string) =>
     s === "approved" ? t.pStatusApproved :
@@ -991,34 +1033,41 @@ export default function DashboardPage() {
     {/* Kandidat upgrade modal — shown when free/Starter user tries a gated feature */}
     {upgradeOpen && (
       <>
+        {/* Backdrop — locked while a Stripe checkout is being created so a
+            stray click can't cancel the redirect mid-request. */}
         <div className="fixed inset-0 z-[1200]"
-          style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", animation: "bvFadeRise 0.2s var(--ease-out)", cursor: "pointer" }}
-          onClick={() => setUpgradeOpen(false)} />
+          style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", animation: "bvFadeRise 0.2s var(--ease-out)", cursor: upgradeLoading ? "wait" : "pointer" }}
+          onClick={() => { if (!upgradeLoading) setUpgradeOpen(false); }} />
         <div className="fixed inset-0 z-[1201] flex items-end sm:items-center justify-center p-4 pointer-events-none">
           <div className="w-full max-w-[380px] max-h-[90dvh] overflow-y-auto flex flex-col pointer-events-auto"
             style={{ background: "var(--card)", borderRadius: "24px", boxShadow: "0 24px 64px rgba(0,0,0,0.4)", animation: "bvFadeRise 0.26s var(--ease-out)" }}>
             {/* Header */}
             <div className="px-6 pt-7 pb-1 text-center">
               <span className="mx-auto mb-4 flex items-center justify-center w-14 h-14 rounded-full"
-                style={{ background: "rgba(212,175,55,0.12)", border: "1px solid rgba(212,175,55,0.35)" }}>
+                style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
                 <PhaseIcon kind="flight" size={24} style={{ color: "var(--gold)" }} />
               </span>
               <h3 className="text-[18px] font-semibold tracking-tight mb-2" style={{ color: "var(--w)" }}>
-                {lang === "de" ? "Kandidat-Plan erforderlich" : lang === "en" ? "Kandidat Plan Required" : "Plan Kandidat requis"}
+                {lang === "de" ? "Premium-Plan erforderlich" : lang === "en" ? "Premium Plan Required" : "Plan Premium requis"}
               </h3>
               <p className="text-[13px] leading-relaxed mb-1" style={{ color: "var(--w2)" }}>
                 {lang === "de"
-                  ? "Das Interview-Tracking, die Anerkennung, Visum & Flug-Updates gehören zum Kandidat-Plan."
+                  ? "Interview-Tracking, Anerkennung, Visum & Flug-Updates sind im Premium-Plan enthalten."
                   : lang === "en"
-                  ? "Interview tracking, recognition, visa & flight updates are included in the Kandidat plan."
-                  : "Le suivi des entretiens, la reconnaissance, le visa et les vols font partie du plan Kandidat."}
+                  ? "Interview tracking, recognition, visa & flight updates are included in the Premium plan."
+                  : "Le suivi des entretiens, la reconnaissance, le visa et les vols font partie du plan Premium."}
               </p>
             </div>
             {/* Price box */}
             <div className="mx-6 my-5 px-4 py-3 rounded-2xl flex items-center gap-3"
-              style={{ background: "rgba(212,175,55,0.08)", border: "1px solid rgba(212,175,55,0.25)" }}>
-              <span className="text-[13px] font-semibold flex-1" style={{ color: "var(--gold)" }}>
-                ★ {lang === "de" ? "Kandidat-Plan" : "Kandidat Plan"}
+              style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
+              <span className="flex items-center gap-1.5 text-[13px] font-semibold flex-1" style={{ color: "var(--gold)" }}>
+                {/* Spiked gold badge — shiny, slightly bulky */}
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ filter: "drop-shadow(0 0 3px rgba(201,162,64,0.7))", flexShrink: 0 }}>
+                  <path d="M12 1.5L14.5 5.2L18.8 3.8L17.6 8.2L22 10.2L19.2 13.8L21.6 17.8L16.9 17.5L15.5 22L12 19.5L8.5 22L7.1 17.5L2.4 17.8L4.8 13.8L2 10.2L6.4 8.2L5.2 3.8L9.5 5.2Z" fill="var(--gold)"/>
+                  <path d="M8.5 12.5l3 3 4.5-5.5" stroke="#131312" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                {lang === "de" ? "Premium-Plan" : "Premium Plan"}
               </span>
               <span className="text-[20px] font-bold tracking-tight" style={{ color: "var(--w)" }}>€99</span>
               <span className="text-[11px]" style={{ color: "var(--w3)" }}>
@@ -1027,18 +1076,32 @@ export default function DashboardPage() {
             </div>
             {/* Features */}
             <div className="px-6 pb-2 space-y-2">
-              {[
-                lang === "de" ? "📋 Interview-Vorbereitung & Termin" : lang === "en" ? "📋 Interview scheduling & preparation" : "📋 Planification et préparation d'entretien",
-                lang === "de" ? "📄 Anerkennungs-Tracking" : lang === "en" ? "📄 Recognition tracking" : "📄 Suivi de reconnaissance",
-                lang === "de" ? "🏛️ Botschafts-Vorbereitung" : lang === "en" ? "🏛️ Embassy preparation" : "🏛️ Préparation ambassade",
-                lang === "de" ? "🛂 Visum-Status-Updates" : lang === "en" ? "🛂 Visa status updates" : "🛂 Mises à jour du statut de visa",
-                lang === "de" ? "✈️ Flugbuchungs-Info" : lang === "en" ? "✈️ Flight booking info" : "✈️ Informations de vol",
-              ].map((f, i) => (
-                <div key={i} className="flex items-center gap-2 text-[12.5px]" style={{ color: "var(--w2)" }}>
-                  <CheckCircle2 size={13} strokeWidth={2} color="#34c759" />
+              {([
+                lang === "de" ? "Interview-Vorbereitung & Termin" : lang === "en" ? "Interview scheduling & preparation" : "Planification et préparation d'entretien",
+                lang === "de" ? "Anerkennungs-Tracking" : lang === "en" ? "Recognition tracking" : "Suivi de reconnaissance",
+                lang === "de" ? "Botschafts-Vorbereitung" : lang === "en" ? "Embassy preparation" : "Préparation ambassade",
+                lang === "de" ? "Visum-Status-Updates" : lang === "en" ? "Visa status updates" : "Mises à jour du statut de visa",
+                lang === "de" ? "Flugbuchungs-Info" : lang === "en" ? "Flight booking info" : "Informations de vol",
+              ] as string[]).map((f, i) => (
+                <div key={i} className="flex items-start gap-2 text-[12.5px]" style={{ color: "var(--w2)" }}>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5"><polyline points="20 6 9 17 4 12"/></svg>
                   <span>{f}</span>
                 </div>
               ))}
+              {/* Gold verified badge row */}
+              <div className="flex items-start gap-2 text-[12.5px]" style={{ color: "var(--w2)" }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5"><polyline points="20 6 9 17 4 12"/></svg>
+                <span>{lang === "de" ? "Goldenes Abzeichen — Top-Priorität bei Einstellungen" : lang === "en" ? "Gold badge — top recruitment priority" : "Badge or — priorité maximale de recrutement"}</span>
+              </div>
+              {/* Refund — gold shimmer text */}
+              <style>{`@keyframes bvWave{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}`}</style>
+              <div className="flex items-start gap-2 text-[12.5px]">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5"><polyline points="20 6 9 17 4 12"/></svg>
+                <span className="font-semibold"
+                  style={{ background: "linear-gradient(90deg,var(--gold),#f0dfa0,var(--gold),#a07830)", backgroundSize: "200% auto", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text", animation: "bvWave 2.5s linear infinite" }}>
+                  {lang === "de" ? "Rückerstattung, sobald Sie mit uns in Deutschland ankommen" : lang === "en" ? "Refundable once you land in Germany with us" : "Remboursable dès que vous arrivez en Allemagne avec nous"}
+                </span>
+              </div>
             </div>
             {/* CTAs */}
             <div className="p-5 pt-4 flex flex-col gap-2">
@@ -1049,11 +1112,11 @@ export default function DashboardPage() {
                 style={{ background: "var(--gold)", color: "#131312", cursor: upgradeLoading ? "wait" : "pointer" }}>
                 {upgradeLoading
                   ? (lang === "de" ? "Bitte warten…" : lang === "en" ? "Please wait…" : "Veuillez patienter…")
-                  : (lang === "de" ? "Jetzt upgraden — €99" : lang === "en" ? "Upgrade now — €99" : "Passer au Kandidat — 99€")}
+                  : (lang === "de" ? "Jetzt upgraden — €99" : lang === "en" ? "Upgrade now — €99" : "Passer au Premium — 99€")}
               </button>
               <button
-                onClick={() => setUpgradeOpen(false)}
-                className="w-full py-2 text-[13px]"
+                onClick={() => setUpgradeOpen(false)} disabled={upgradeLoading}
+                className="w-full py-2 text-[13px] disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{ color: "var(--w3)", cursor: "pointer", background: "none", border: "none" }}>
                 {lang === "de" ? "Später" : lang === "en" ? "Maybe later" : "Plus tard"}
               </button>
@@ -1123,8 +1186,8 @@ export default function DashboardPage() {
           : d.sex || "—";
       const expired = d.passport_expiry && new Date(d.passport_expiry) < new Date();
       return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}
+        <div className="fixed inset-x-0 bottom-0 z-[820] flex items-center justify-center p-4 bv-modal-outer"
+          style={{ top: "calc(58px + var(--bv-subnav-h, 0px))", background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}
           onClick={() => setInfoPassportData(null)}>
           <div className="w-full max-w-md overflow-hidden flex flex-col"
             style={{
@@ -1203,21 +1266,28 @@ export default function DashboardPage() {
       // shows full-screen with zoom/rotation; data opens as standalone popup.
       const verificationPhase = isPassportDoc && !passportStatus;
       return (
-      <div className={`fixed inset-x-0 z-[700] flex justify-center p-4 bv-cand-preview-outer ${verificationPhase && passportModal ? "bv-side-preview-cand" : "top-[58px] bottom-0 items-center"}`}
-        style={{ background: verificationPhase && passportModal ? "rgba(0,0,0,0.45)" : "rgba(0,0,0,0.72)",
-                 backdropFilter: verificationPhase && passportModal ? "blur(8px)" : undefined }}
+      <div className={`fixed inset-x-0 z-[700] flex justify-center px-2 bv-cand-preview-outer ${verificationPhase && passportModal ? "bv-side-preview-cand" : "items-center"}`}
+        style={{
+          top: "calc(58px + var(--bv-subnav-h, 0px))",
+          paddingTop: "6px",
+          bottom: 0,
+          background: verificationPhase && passportModal ? "rgba(0,0,0,0.45)" : "rgba(0,0,0,0.72)",
+          backdropFilter: verificationPhase && passportModal ? "blur(8px)" : undefined,
+        }}
         onClick={() => setPreviewDoc(null)}>
-        {/* Mobile only: leave clearance for the bottom action bar so the
-            PDF popup never slides behind it. */}
         <style>{`
+          .bv-cand-preview-card {
+            height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 6px - 6px - env(safe-area-inset-bottom, 0px));
+            max-height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 6px - 6px - env(safe-area-inset-bottom, 0px));
+          }
           @media (max-width: 639.98px) {
-            .bv-cand-preview-outer { padding-bottom: calc(1rem + 72px) !important; }
+            .bv-cand-preview-outer { padding-bottom: calc(72px + 6px + env(safe-area-inset-bottom, 0px)) !important; }
             .bv-cand-preview-card  {
-              height: calc(100dvh - 58px - 1rem - 72px - 1rem) !important;
-              max-height: calc(100dvh - 58px - 1rem - 72px - 1rem) !important;
+              height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 6px - 72px - 6px - env(safe-area-inset-bottom, 0px)) !important;
+              max-height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 6px - 72px - 6px - env(safe-area-inset-bottom, 0px)) !important;
             }
             .bv-side-preview-cand {
-              top: 58px !important;
+              top: calc(58px + var(--bv-subnav-h, 0px)) !important;
               bottom: calc(50dvh + 0.25rem) !important;
               padding-bottom: 0.25rem !important;
               align-items: center !important;
@@ -1229,7 +1299,7 @@ export default function DashboardPage() {
           }
           @media (min-width: 640px) {
             .bv-side-preview-cand {
-              top: 58px;
+              top: calc(58px + var(--bv-subnav-h, 0px));
               bottom: 0;
               align-items: center;
               justify-content: flex-end !important;
@@ -1246,8 +1316,8 @@ export default function DashboardPage() {
           style={{
             background: "var(--card)", border: "1px solid var(--border)",
             borderRadius: "var(--r-2xl)", boxShadow: "var(--shadow-lg)",
-            height: verificationPhase && passportModal ? "auto" : "88vh",
-            maxHeight: verificationPhase && passportModal ? "620px" : "88vh",
+            height: verificationPhase && passportModal ? "auto" : undefined,
+            maxHeight: verificationPhase && passportModal ? "620px" : undefined,
             minHeight: verificationPhase && passportModal ? "420px" : undefined,
             animation: "bvFadeRise .28s var(--ease-out)",
           }}
@@ -1334,7 +1404,8 @@ export default function DashboardPage() {
       </div>
       );
     })()}
-    <main className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "calc(61px + 2rem)" }}>
+    <main className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "58px" }}>
+      <PortalTopNav />
       <div className="max-w-[780px] mx-auto px-4 pt-8 pb-16">
 
         {/* Header — refined typographic hierarchy */}
@@ -1347,7 +1418,6 @@ export default function DashboardPage() {
                   "verified profile" signal across the entire site. */}
               <VerifiedBadge verified={isVerified} size="sm"
                 title={lang === "de" ? "Verifiziert" : lang === "en" ? "Verified" : "Vérifié"} />
-              <span className="ml-1.5 inline-block" style={{ transform: "translateY(-1px)" }}>👋</span>
             </h1>
             <p className="text-[13.5px] mt-1.5" style={{ color: "var(--w3)" }}>
               {isReturn ? t.pWelcomeBackSub : t.pDashSpace}
@@ -1359,8 +1429,8 @@ export default function DashboardPage() {
                     className="inline-flex items-center gap-1 text-[10.5px] font-semibold uppercase tracking-[0.1em] px-2 py-0.5"
                     title={`${lang === "de" ? "Anfrage an" : lang === "en" ? "Request to" : "Demande à"} ${o.name} — ${lang === "de" ? "wartet auf Genehmigung" : lang === "en" ? "pending approval" : "en attente d'approbation"}`}
                     style={{
-                      background: "rgba(224,200,82,0.10)", color: "#e5b94f",
-                      border: "1px solid rgba(224,200,82,0.30)", borderRadius: "var(--r-sm)",
+                      background: "var(--gdim)", color: "var(--gold)",
+                      border: "1px solid var(--border-gold)", borderRadius: "var(--r-sm)",
                     }}>
                     <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <path d="M3 21h18"/><path d="M5 21V7l8-4v18"/><path d="M19 21V11l-6-4"/>
@@ -1405,6 +1475,18 @@ export default function DashboardPage() {
               style={{ background: "var(--bg2)", color: "var(--w)", border: "none" }}>
               {lang === "de" ? "Kopieren" : lang === "en" ? "Copy" : "Copier"}
             </button>
+          </div>
+        )}
+
+        {/* ── Pending signature requests ── */}
+        {signRequests.length > 0 && (
+          <div className="mb-6">
+            <PendingSignatures
+              requests={signRequests}
+              lang={(lang as "en" | "fr" | "de") in { en: 1, fr: 1, de: 1 } ? lang as "en" | "fr" | "de" : "en"}
+              authToken={authToken}
+              onSigned={(id) => setSignRequests(prev => prev.map(r => r.id === id ? { ...r, status: "signed" } : r))}
+            />
           </div>
         )}
 
@@ -1534,8 +1616,9 @@ export default function DashboardPage() {
                       if (unlocked) { setViewMode(js.key); window.scrollTo({ top: 0, behavior: "smooth" }); }
                     }}
                     title={unlocked ? stageLabel : t.pJourneyLocked}
+                    aria-disabled={!unlocked && hasKandidat}
                     className={`w-full flex flex-col items-center gap-1.5 py-1 transition-all duration-200${unlocked ? " bv-row-hover" : ""}`}
-                    style={{ cursor: "pointer", opacity: unlocked ? 1 : 0.45, WebkitTapHighlightColor: "transparent" }}
+                    style={{ cursor: unlocked || !hasKandidat ? "pointer" : "not-allowed", opacity: unlocked ? 1 : 0.45, WebkitTapHighlightColor: "transparent" }}
                   >
                     <span
                       className="relative flex items-center justify-center w-9 h-9 rounded-full leading-none select-none transition-all duration-300"
@@ -1686,13 +1769,9 @@ export default function DashboardPage() {
           {/* ── Main content ── */}
           <div className="flex-1 min-w-0">
 
-            {/* ── Journey stage views ── */}
-            {viewMode !== "docs" && profileLoaded && !hasKandidat && (() => {
-              // Fallback guard: non-Kandidat users can't reach journey views.
-              // Use setTimeout to avoid calling setState during render.
-              setTimeout(() => setViewMode("docs"), 0);
-              return null;
-            })()}
+            {/* ── Journey stage views ──
+                The plan-gate effect above bounces non-Kandidat users back to
+                docs; we render JourneyView only when they're allowed in. */}
             {viewMode !== "docs" && (!profileLoaded || hasKandidat) && (
               <JourneyView mode={viewMode} pipeline={pipeline} t={t} lang={lang} onBack={() => { setViewMode("docs"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
             )}
@@ -1753,9 +1832,9 @@ export default function DashboardPage() {
                       const done    = isDone(s.key);
                       const active  = isActive(s.key);
                       const locked  = !isUnlocked(s.key);
-                      const color   = done ? "#34c759" : active ? "var(--gold)" : "var(--w3)";
-                      const bg      = done ? "rgba(52,199,89,0.1)" : active ? "var(--gdim)" : "var(--bg2)";
-                      const border  = done ? "rgba(52,199,89,0.28)" : active ? "rgba(212,175,55,0.35)" : "var(--border)";
+                      const color   = done ? "var(--success)" : active ? "var(--gold)" : "var(--w3)";
+                      const bg      = done ? "var(--success-bg)" : active ? "var(--gdim)" : "var(--bg2)";
+                      const border  = done ? "var(--success-border)" : active ? "var(--border-gold)" : "var(--border)";
                       return (
                         <div key={s.key} className="flex items-center flex-1 min-w-0">
                           <button
@@ -1775,9 +1854,9 @@ export default function DashboardPage() {
                               opacity: locked ? 0.38 : 1,
                             }}>
                             <span className="relative flex items-center justify-center w-8 h-8 rounded-full"
-                              style={{ background: done ? "rgba(52,199,89,0.15)" : active ? "rgba(212,175,55,0.15)" : "var(--bg2)" }}>
+                              style={{ background: done ? "var(--success-bg)" : active ? "var(--gdim)" : "var(--bg2)" }}>
                               {done ? (
-                                <CheckCircle2 size={16} strokeWidth={1.8} color="#34c759" />
+                                <CheckCircle2 size={16} strokeWidth={1.8} style={{ color: "var(--success)" }} />
                               ) : (
                                 <PhaseIcon kind={s.kind} size={14} style={{ color }} />
                               )}
@@ -2024,7 +2103,7 @@ export default function DashboardPage() {
                           style={{
                             background: "var(--danger-bg)",
                             border: "1px solid var(--danger-bg)",
-                            borderLeft: "3px solid #e05252",
+                            borderLeft: "3px solid var(--danger)",
                             borderRadius: "var(--r-md)",
                           }}>
                           <div className="px-3 py-2.5">
@@ -2093,7 +2172,7 @@ export default function DashboardPage() {
                           <button
                             onClick={(e) => { e.stopPropagation(); router.push("/portal/cv-builder"); }}
                             className="text-xs font-semibold transition-all hover:opacity-90 hover:-translate-y-0.5 px-3 py-1.5 inline-flex items-center gap-1.5"
-                            style={{ background: "var(--gold)", color: "#1a1a1a", borderRadius: "var(--r-sm)", boxShadow: "0 4px 12px rgba(212,175,55,0.25)" }}>
+                            style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)", boxShadow: "0 4px 12px var(--border-gold)" }}>
                             <Sparkles size={12} strokeWidth={2} /> {t.pCVBuilderBtn}
                           </button>
                         )}
@@ -2104,7 +2183,7 @@ export default function DashboardPage() {
                         {!uploaded && !isOther && item.key !== "cv" && item.key !== "cv_de" && (
                           <button onClick={(e) => { e.stopPropagation(); openPicker(item.key); }}
                             className="text-xs font-semibold transition-opacity hover:opacity-80 px-3 py-1.5"
-                            style={{ background: "var(--gold)", color: "#1a1a1a", borderRadius: "var(--r-sm)" }}>
+                            style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)" }}>
                             {t.pUploadBtn}
                           </button>
                         )}
@@ -2115,7 +2194,7 @@ export default function DashboardPage() {
                         {isOther && allOtherDocs.length < 5 && (
                           <button onClick={(e) => { e.stopPropagation(); openPicker(item.key); }}
                             className="text-xs font-semibold transition-opacity hover:opacity-80 px-3 py-1.5"
-                            style={{ background: "var(--gold)", color: "#1a1a1a", borderRadius: "var(--r-sm)" }}>
+                            style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)" }}>
                             {t.pUploadBtn}
                           </button>
                         )}
@@ -2320,8 +2399,8 @@ export default function DashboardPage() {
         const popItem = ALL_ITEMS.find(i => i.key === tipPopup.itemKey);
         if (!popItem) return null;
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
-            style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}
+          <div className="fixed inset-x-0 bottom-0 z-[820] flex items-center justify-center p-4 bv-modal-outer"
+            style={{ top: "calc(58px + var(--bv-subnav-h, 0px))", background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}
             onClick={() => setTipPopup(null)}>
             <div className="w-full max-w-sm overflow-hidden"
               style={{
@@ -2389,10 +2468,10 @@ export default function DashboardPage() {
             @media (max-width: 639.98px) {
               .bv-passport-modal-outer { padding-bottom: calc(1rem + 72px) !important; }
               .bv-passport-modal-card  {
-                max-height: calc(100dvh - 58px - 1rem - 72px - 1rem) !important;
+                max-height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 1rem - 72px - 1rem) !important;
               }
               .bv-side-data-cand {
-                top: calc(58px + 50dvh - 0.25rem) !important;
+                top: calc(58px + var(--bv-subnav-h, 0px) + 50dvh - 0.25rem) !important;
                 bottom: 0 !important;
                 padding-top: 0.25rem !important;
                 align-items: center !important;
@@ -2444,7 +2523,7 @@ export default function DashboardPage() {
                 ) : isPassportPending ? (
                   <div className="flex items-center gap-2 flex-shrink-0">
                     <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full"
-                      style={{ background: "rgba(201,162,64,0.12)", color: "#c9a240", border: "1px solid rgba(201,162,64,0.25)" }}>
+                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
                       {lang === "de" ? "In Prüfung" : lang === "fr" ? "En attente" : "Pending review"}
                     </span>
                     <button onClick={() => setPassportModal(null)}
@@ -2498,13 +2577,13 @@ export default function DashboardPage() {
                   if (!v || v === "—" || v.trim() === "") return; // handled by missing
                   if (f.key === "address_postal" && !/^\d{5}$/.test(v.trim())) {
                     suspiciousKeys.add(f.key);
-                    suspiciousHints[f.key] = "Must be exactly 5 digits";
+                    suspiciousHints[f.key] = t.dValMust5;
                   }
                   if (f.wordsOnly) {
                     if (/\d/.test(v)) {
                       // Issue 6.3: only flag digits-in-name, never flag cities by whitelist
                       // (non-Moroccan candidates have perfectly valid non-Moroccan cities)
-                      suspiciousKeys.add(f.key); suspiciousHints[f.key] = "Should contain only letters";
+                      suspiciousKeys.add(f.key); suspiciousHints[f.key] = t.dValLettersOnly;
                     }
                   }
                 });
@@ -2520,13 +2599,13 @@ export default function DashboardPage() {
                 );
                 const IconUnchecked = (
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <rect x="1" y="1" width="14" height="14" rx="3" stroke="#f59e0b" strokeWidth="1.5"/>
-                    <path d="M4.5 8l2.5 2.5 4.5-4.5" stroke="#f59e0b" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" strokeOpacity="0.35"/>
+                    <rect x="1" y="1" width="14" height="14" rx="3" stroke="var(--warning)" strokeWidth="1.5"/>
+                    <path d="M4.5 8l2.5 2.5 4.5-4.5" stroke="var(--warning)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" strokeOpacity="0.35"/>
                   </svg>
                 );
                 const IconChecked = (
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <rect width="16" height="16" rx="3.5" fill="#22c55e"/>
+                    <rect width="16" height="16" rx="3.5" fill="var(--success)"/>
                     <path d="M4.5 8l2.5 2.5 4.5-4.5" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
                 );
@@ -2573,7 +2652,7 @@ export default function DashboardPage() {
                   <>
                     {/* ── Always-visible orange review note ───────────────── */}
                     <div className="mb-3 px-1 space-y-1">
-                      <p className="text-[10px]" style={{ color: "#e08a00" }}>
+                      <p className="text-[10px]" style={{ color: "var(--warning)" }}>
                         {t.pPassportReviewNote}
                       </p>
                       <div className="flex items-center gap-1.5">
@@ -2581,7 +2660,7 @@ export default function DashboardPage() {
                         {IconUnchecked}
                         <span style={{ color: "#aaa", fontSize: 9 }}>→</span>
                         {IconChecked}
-                        <p className="text-[10px]" style={{ color: "#e08a00" }}>
+                        <p className="text-[10px]" style={{ color: "var(--warning)" }}>
                           {t.pPassportReviewNote2}
                         </p>
                       </div>
@@ -2591,7 +2670,7 @@ export default function DashboardPage() {
                     {fields.map(f => {
                       const missing    = missingKeys.has(f.key);
                       const suspicious = !missing && suspiciousKeys.has(f.key);
-                      const borderColor = missing ? "var(--danger)" : suspicious ? "#f59e0b" : "var(--border2)";
+                      const borderColor = missing ? "var(--danger)" : suspicious ? "var(--warning)" : "var(--border2)";
                       const inputStyle = { background: "var(--bg2)", border: `1px solid ${borderColor}`, color: "var(--w)" };
                       const filled     = !missing;
                       // address_number is optional — allow confirming even when empty
@@ -2688,12 +2767,12 @@ export default function DashboardPage() {
                             }}
                             className="absolute right-2 top-1/2 -translate-y-1/2 transition-all"
                             style={{ cursor: canConfirm ? "pointer" : "default" }}
-                            title={!canConfirm ? "Fill in this field first" : confirmed ? "Confirmed — click to undo" : "Click to confirm"}>
+                            title={!canConfirm ? t.dTipFillFirst : confirmed ? t.dTipConfirmedUndo : t.dTipClickConfirm}>
                             {!canConfirm ? IconEmpty : confirmed ? IconChecked : IconUnchecked}
                           </button>
                         </div>
                         {suspicious && suspiciousHints[f.key] && (
-                          <p className="text-[9px] mt-0.5 inline-flex items-center gap-1" style={{ color: "#f59e0b" }}><AlertTriangle size={9} strokeWidth={1.8} />{suspiciousHints[f.key]}</p>
+                          <p className="text-[9px] mt-0.5 inline-flex items-center gap-1" style={{ color: "var(--warning)" }}><AlertTriangle size={9} strokeWidth={1.8} />{suspiciousHints[f.key]}</p>
                         )}
                       </div>
                       );
@@ -2766,27 +2845,27 @@ export default function DashboardPage() {
                         headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
                         body: JSON.stringify({ groups: pdfGroups, filename: `${fn}_passport_data.pdf`, docTitle, docSubtitle }),
                       });
-                      if (!res.ok) { alert("Could not generate PDF — please try again."); return; }
+                      if (!res.ok) { alert(t.dErrPdfGen); return; }
                       const blob = await res.blob();
                       const url = URL.createObjectURL(blob);
                       const a = document.createElement("a");
                       a.href = url; a.download = `${fn}_passport_data.pdf`; a.click();
                       setTimeout(() => URL.revokeObjectURL(url), 0);
-                    } catch { alert("Download failed — please try again."); }
+                    } catch { alert(t.dErrDownload); }
                   }}
                   className="w-full py-2.5 rounded-xl font-semibold text-sm inline-flex items-center justify-center gap-2 transition-opacity hover:opacity-90"
-                  style={{ background: "var(--gold)", color: "#1a1a1a" }}>
+                  style={{ background: "var(--gold)", color: "#131312" }}>
                   <Download size={14} strokeWidth={1.8} />
                   {lang === "fr" ? "Télécharger les données" : lang === "de" ? "Daten herunterladen" : "Download data"}
                 </button>
               ) : isPassportPending ? (
-                <p className="text-[11.5px] py-2 text-center font-medium" style={{ color: "#c9a240" }}>
+                <p className="text-[11.5px] py-2 text-center font-medium" style={{ color: "var(--gold)" }}>
                   {lang === "de" ? "Eingereicht — wird geprüft" : lang === "fr" ? "Soumis — en cours de vérification" : "Submitted — under review"}
                 </p>
               ) : (
                 <>
                   {allConfirmed && (
-                    <p className="text-[10px] mb-2.5 py-1.5 rounded-lg font-medium text-center" style={{ color: "#22c55e", background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.2)" }}>
+                    <p className="text-[10px] mb-2.5 py-1.5 rounded-lg font-medium text-center" style={{ color: "var(--success)", background: "var(--success-bg)", border: "1px solid var(--success-border)" }}>
                       {t.pPassportThanks}
                     </p>
                   )}
@@ -2803,12 +2882,12 @@ export default function DashboardPage() {
                         if (!res.ok) {
                           const err = await res.json().catch(() => ({}));
                           setPassportSaving(false);
-                          alert(err.error ?? "Failed to save passport data. Please try again.");
+                          alert(err.error ?? t.dErrPassportSave);
                           return;
                         }
                       } catch {
                         setPassportSaving(false);
-                        alert("Network error — please check your connection and try again.");
+                        alert(t.dErrNetwork);
                         return;
                       }
                       setPassportSaving(false);
@@ -2820,7 +2899,7 @@ export default function DashboardPage() {
                       setPassportStatus("pending");
                     }}
                     className="w-full py-2.5 rounded-xl font-semibold text-sm transition-opacity hover:opacity-90 disabled:opacity-50"
-                    style={{ background: "var(--gold)", color: "#1a1a1a" }}>
+                    style={{ background: "var(--gold)", color: "#131312" }}>
                     {passportSaving ? "…" : allConfirmed
                       ? (lang === "fr" ? "Envoyer" : lang === "de" ? "Absenden" : "Submit")
                       : t.pPassportConfirm}
@@ -2835,8 +2914,8 @@ export default function DashboardPage() {
 
       {/* Passport field hint — issuing authority */}
       {passportHint === "issuing_authority" && (
-        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[820] flex items-center justify-center p-4"
-          style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}
+        <div className="fixed inset-x-0 bottom-0 z-[820] flex items-center justify-center p-4 bv-modal-outer"
+          style={{ top: "calc(58px + var(--bv-subnav-h, 0px))", background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}
           onClick={() => setPassportHint(null)}>
           <div className="w-full max-w-md overflow-hidden"
             style={{
@@ -2884,9 +2963,9 @@ export default function DashboardPage() {
                   <span className="text-sm font-mono" style={{ color: "var(--danger)" }}>Laayoune</span>
                 </div>
                 <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
-                  style={{ background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.2)" }}>
-                  <CheckCircle2 size={16} strokeWidth={1.8} className="flex-shrink-0" style={{ color: "#22c55e" }} />
-                  <span className="text-sm font-mono" style={{ color: "#22c55e" }}>Province de Laayoune</span>
+                  style={{ background: "var(--success-bg)", border: "1px solid var(--success-border)" }}>
+                  <CheckCircle2 size={16} strokeWidth={1.8} className="flex-shrink-0" style={{ color: "var(--success)" }} />
+                  <span className="text-sm font-mono" style={{ color: "var(--success)" }}>Province de Laayoune</span>
                 </div>
               </div>
             </div>
@@ -2896,8 +2975,8 @@ export default function DashboardPage() {
 
       {/* Passport field hint — address */}
       {passportHint === "address_street" && (
-        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[820] flex items-center justify-center p-4"
-          style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}
+        <div className="fixed inset-x-0 bottom-0 z-[820] flex items-center justify-center p-4 bv-modal-outer"
+          style={{ top: "calc(58px + var(--bv-subnav-h, 0px))", background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}
           onClick={() => setPassportHint(null)}>
           <div className="w-full max-w-md overflow-hidden flex flex-col"
             style={{
@@ -2944,9 +3023,9 @@ export default function DashboardPage() {
                     <p className="text-[9px] font-mono break-all" style={{ color: "var(--danger)" }}>HAY MOHAMMADI HAUPTSTRASSE IMM 7 ETG 3 N 12</p>
                   </div>
                   <div className="rounded-lg px-2 py-1.5 space-y-0.5"
-                    style={{ background: "rgba(34,197,94,0.07)", border: "1px solid rgba(34,197,94,0.2)" }}>
-                    <p className="text-[8px] font-semibold flex items-center justify-center gap-1" style={{ color: "#22c55e" }}><CheckCircle2 size={9} strokeWidth={2} /> {lang === "fr" ? "Correct" : lang === "de" ? "Richtig" : "Correct"}</p>
-                    <p className="text-[9px] font-mono break-all" style={{ color: "#22c55e" }}>HAY MOHAMMADI RUE IBN BATTOUTA IMM 7 ETG 3 N 12</p>
+                    style={{ background: "var(--success-bg)", border: "1px solid var(--success-border)" }}>
+                    <p className="text-[8px] font-semibold flex items-center justify-center gap-1" style={{ color: "var(--success)" }}><CheckCircle2 size={9} strokeWidth={2} /> {lang === "fr" ? "Correct" : lang === "de" ? "Richtig" : "Correct"}</p>
+                    <p className="text-[9px] font-mono break-all" style={{ color: "var(--success)" }}>HAY MOHAMMADI RUE IBN BATTOUTA IMM 7 ETG 3 N 12</p>
                   </div>
                 </div>
               </div>
@@ -3011,8 +3090,8 @@ export default function DashboardPage() {
 
                 {/* ✅ Correct order — two boxes */}
                 <div className="px-2.5 py-2 rounded-xl space-y-1.5 pl-7"
-                  style={{ background: "rgba(34,197,94,0.07)", border: "1px solid rgba(34,197,94,0.2)" }}>
-                  <p className="text-[8px] font-semibold flex items-center gap-1" style={{ color: "#22c55e" }}>
+                  style={{ background: "var(--success-bg)", border: "1px solid var(--success-border)" }}>
+                  <p className="text-[8px] font-semibold flex items-center gap-1" style={{ color: "var(--success)" }}>
                     <CheckCircle2 size={9} strokeWidth={2} /> {lang === "fr" ? "Ce que vous tapez — bon ordre" : lang === "de" ? "Was Sie eingeben — richtige Reihenfolge" : "What you type — correct order"}
                   </p>
                   <div className="flex gap-2">
@@ -3048,8 +3127,8 @@ export default function DashboardPage() {
 
       {/* Passport field hint — postal code */}
       {passportHint === "address_postal" && (
-        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[820] flex items-center justify-center p-4"
-          style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}
+        <div className="fixed inset-x-0 bottom-0 z-[820] flex items-center justify-center p-4 bv-modal-outer"
+          style={{ top: "calc(58px + var(--bv-subnav-h, 0px))", background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}
           onClick={() => setPassportHint(null)}>
           <div className="w-full max-w-md overflow-hidden"
             style={{
@@ -3079,7 +3158,7 @@ export default function DashboardPage() {
                 {/* Step 1 — open website (special: clickable link row) */}
                 <a href="https://www.codepostal.ma/search.aspx" target="_blank" rel="noopener noreferrer"
                   className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-opacity hover:opacity-80 no-underline"
-                  style={{ background: "var(--info)", border: "1px solid rgba(91,154,224,0.6)", textDecoration: "none" }}>
+                  style={{ background: "var(--info)", border: "1px solid var(--info-border)", textDecoration: "none" }}>
                   <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0"
                     style={{ background: "rgba(255,255,255,0.25)", color: "#fff" }}>1</span>
                   <p className="text-xs font-semibold flex-1" style={{ color: "#fff" }}>
@@ -3124,10 +3203,10 @@ export default function DashboardPage() {
                   },
                 ].map((step, i) => (
                   <div key={i} className="flex items-start gap-3 px-3 py-2.5 rounded-xl"
-                    style={{ background: i === 4 ? "rgba(34,197,94,0.07)" : "var(--bg2)", border: `1px solid ${i === 4 ? "rgba(34,197,94,0.2)" : "var(--border)"}` }}>
+                    style={{ background: i === 4 ? "var(--success-bg)" : "var(--bg2)", border: `1px solid ${i === 4 ? "var(--success-border)" : "var(--border)"}` }}>
                     <span className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 mt-0.5"
-                      style={{ background: i === 4 ? "#22c55e" : "var(--info)", color: "#fff" }}>{step.n}</span>
-                    <p className="text-xs leading-relaxed" style={{ color: i === 4 ? "#22c55e" : "var(--w2)", fontWeight: i === 4 ? 600 : 400 }}>
+                      style={{ background: i === 4 ? "var(--success)" : "var(--info)", color: "#fff" }}>{step.n}</span>
+                    <p className="text-xs leading-relaxed" style={{ color: i === 4 ? "var(--success)" : "var(--w2)", fontWeight: i === 4 ? 600 : 400 }}>
                       {lang === "fr" ? step.fr : lang === "de" ? step.de : step.en}
                     </p>
                   </div>
@@ -3196,7 +3275,7 @@ export default function DashboardPage() {
               {/* Action buttons */}
               <a href={MAPS_URL} target="_blank" rel="noreferrer"
                 className="flex items-center justify-center gap-2 w-full py-3 rounded-xl text-sm font-semibold transition-opacity hover:opacity-90"
-                style={{ background: "var(--gold)", color: "#1a1a1a" }}>
+                style={{ background: "var(--gold)", color: "#131312" }}>
                 {t.pGuideWorkMapsBtn}
               </a>
 
@@ -3249,36 +3328,14 @@ export default function DashboardPage() {
       />
     )}
 
-    {/* ── Payment success toast — shown 6 s after returning from Stripe ── */}
-    {paymentToast && (
-      <div
-        className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[1500] flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-xl"
-        style={{
-          background: "var(--card)",
-          border: "1px solid rgba(212,175,55,0.4)",
-          boxShadow: "0 8px 32px rgba(0,0,0,0.35)",
-          animation: "bvFadeRise 0.3s var(--ease-out)",
-          maxWidth: "calc(100vw - 2rem)",
-          whiteSpace: "nowrap",
-        }}
-      >
-        <span style={{ fontSize: 20 }}>🎉</span>
-        <div>
-          <p className="text-[13.5px] font-semibold" style={{ color: "var(--gold)" }}>
-            {paymentToast.plan === "kandidat"
-              ? (lang === "de" ? "Willkommen im Kandidat-Plan!" : lang === "en" ? "Welcome to Kandidat plan!" : "Bienvenue dans le plan Kandidat !")
-              : (lang === "de" ? "Starter-Plan aktiviert!" : lang === "en" ? "Starter plan activated!" : "Plan Starter activé !")}
-          </p>
-          <p className="text-[11.5px] mt-0.5" style={{ color: "var(--w3)" }}>
-            {lang === "de" ? "Ihre Zahlung wurde bestätigt." : lang === "en" ? "Your payment has been confirmed." : "Votre paiement a été confirmé."}
-          </p>
-        </div>
-        <button onClick={() => setPaymentToast(null)}
-          className="ml-2 w-6 h-6 flex items-center justify-center rounded-full flex-shrink-0"
-          style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
-          <XIcon size={11} strokeWidth={2} />
-        </button>
-      </div>
+    {/* ── Payment celebration — full-screen, shown once after Stripe redirect ── */}
+    {paymentCelebration && userId && (
+      <PaymentCelebration
+        userId={userId}
+        plan={paymentCelebration.plan}
+        lang={lang}
+        onDismiss={() => setPaymentCelebration(null)}
+      />
     )}
     </>
   );

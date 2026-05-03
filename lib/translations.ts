@@ -205,6 +205,55 @@ export interface Translation {
   aFlightDate: string; aFlightInfo: string;
   aPipelineSave: string;
   aDocsApprove: string; aDocsRevoke: string;
+  // ── Autosave indicator (cv-builder, dashboard passport form) ──────────────
+  aSaving: string; aSaved: string; aSaveError: string;
+  aJustNow: string; aSecAgo: string; aMinAgo: string; aHrAgo: string;
+  aLoading: string;
+  // ── Admin: error toasts (showError) ────────────────────────────────────────
+  adErrVerify: string; adErrNetwork: string; adErrPassportSave: string; adErrDocStatus: string;
+  adErrPipeline: string; adErrProfile: string; adErrPassportStatus: string; adErrDelete: string;
+  // ── Admin: invite + agencies + filters + needs panel ───────────────────────
+  adInviteLink: string; adCopy: string; adReset: string;
+  adAgencies: string; adAgencyAdmin: string; adAgencyMember: string;
+  adRemove: string; adAddToAgency: string; adNewAgencyPh: string;
+  adCreating: string; adCreate: string;
+  adOrgNeeds: string; adAnySpecialty: string; adSlot: string; adSlots: string;
+  adMatched: string; adAssignCandidate: string; adLinked: string; adLink: string;
+  adSuggestedMatches: string; adFromDate: string;
+  adAcceptHint: string; adAccept: string; adSkipHint: string;
+  adSelectOrg: string; adAdd: string; adNoActiveReqs: string;
+  adNoLocDate: string; adCloseReq: string;
+  adSpecialtyPh: string; adLocationPh: string; adSlotsPh: string;
+  adSaveReq: string; adCancel: string;
+  adSearchPh: string; adClearSearch: string;
+  adFilterAll: string; adFilterPending: string; adFilterStuck: string; adFilterClear: string;
+  adNoCandFound: string; adNoMatchFor: string;
+  adNothingStuck: string; adNoStuckSub: string;
+  adAllClearStatus: string; adPendingReviewLabel: string;
+  adPeekDocs: string; adCollapse: string; adMoreOpen: string;
+  adCandAbbr: string; adAdminAbbr: string;
+  // ── Dashboard alerts + tooltips ────────────────────────────────────────────
+  dErrPdfGen: string; dErrDownload: string; dErrPassportSave: string; dErrNetwork: string;
+  dValMust5: string; dValLettersOnly: string;
+  dTipFillFirst: string; dTipConfirmedUndo: string; dTipClickConfirm: string;
+  // ── CV builder ─────────────────────────────────────────────────────────────
+  cvbAdminEditing: string; cvbBackToAdmin: string; cvbUpgradeUnavail: string; cvbErrFallback: string;
+  // ── Bug report ─────────────────────────────────────────────────────────────
+  bugOnlyImg: string; bugDescribe: string; bugSendFail: string; bugRemoveScreenshot: string;
+  // ── Sign request panel ─────────────────────────────────────────────────────
+  srDocNameReq: string; srUploadPdf: string; srErr: string; srDragDrop: string;
+  srSeen: string; srNotOpened: string;
+  // ── Message icon (aria/alt + UI) ───────────────────────────────────────────
+  miClose: string; miDownload: string; miAttachment: string; miPreview: string;
+  miAttachImg: string; miSend: string; miRemoveAttach: string; miImage: string;
+  // ── Profile icon (aria/title) ──────────────────────────────────────────────
+  profProfileAria: string; profUpgradePlan: string;
+  // ── Admin users panel ──────────────────────────────────────────────────────
+  delUserAria: string;
+  // ── Feed errors ────────────────────────────────────────────────────────────
+  fdPostFail: string; fdNetErr: string;
+  // ── Notification bell aria ─────────────────────────────────────────────────
+  nbAria: string;
 }
 
 export const translations: Record<Lang, Translation> = {
@@ -430,6 +479,75 @@ export const translations: Record<Lang, Translation> = {
     aFlightDate: "Date de vol", aFlightInfo: "Infos de vol",
     aPipelineSave: "Enregistrer",
     aDocsApprove: "🔓 Débloquer l'étape suivante", aDocsRevoke: "🔒 Verrouiller",
+    // Autosave
+    aSaving: "Enregistrement…", aSaved: "Enregistré", aSaveError: "Échec d'enregistrement",
+    aJustNow: "à l'instant", aSecAgo: "il y a {n}s", aMinAgo: "il y a {n}min", aHrAgo: "il y a {n}h",
+    aLoading: "Chargement",
+    // Admin error toasts
+    adErrVerify: "Impossible de mettre à jour la vérification — veuillez réessayer.",
+    adErrNetwork: "Erreur réseau — veuillez réessayer.",
+    adErrPassportSave: "Échec de l'enregistrement des données du passeport — veuillez réessayer.",
+    adErrDocStatus: "Échec de la mise à jour du statut du document — veuillez réessayer.",
+    adErrPipeline: "Échec de l'enregistrement du parcours — veuillez réessayer.",
+    adErrProfile: "Échec de l'enregistrement du profil — veuillez réessayer.",
+    adErrPassportStatus: "Échec de la mise à jour du statut du passeport — veuillez réessayer.",
+    adErrDelete: "Échec de la suppression du candidat",
+    // Admin: invite + agencies + filters + needs
+    adInviteLink: "Lien d'invitation", adCopy: "Copier", adReset: "Réinitialiser",
+    adAgencies: "Agences", adAgencyAdmin: "Admin agence", adAgencyMember: "Membre",
+    adRemove: "Retirer", adAddToAgency: "Ajouter à cette agence :", adNewAgencyPh: "Nom de la nouvelle agence…",
+    adCreating: "Création…", adCreate: "Créer",
+    adOrgNeeds: "Besoins org", adAnySpecialty: "Toute spécialité", adSlot: "place", adSlots: "places",
+    adMatched: "associé", adAssignCandidate: "Assigner un candidat…", adLinked: "lié", adLink: "Lier",
+    adSuggestedMatches: "Suggestions", adFromDate: "à partir du",
+    adAcceptHint: "Accepter — lie le candidat à l'organisation", adAccept: "Accepter",
+    adSkipHint: "Ignorer — retire de la boîte de réception",
+    adSelectOrg: "Sélectionner une organisation…", adAdd: "Ajouter", adNoActiveReqs: "Aucun besoin actif",
+    adNoLocDate: "Aucun lieu/date défini", adCloseReq: "Clôturer le besoin",
+    adSpecialtyPh: "Spécialité (ex. Pflege)", adLocationPh: "Lieu", adSlotsPh: "Places",
+    adSaveReq: "Enregistrer le besoin", adCancel: "Annuler",
+    adSearchPh: "Rechercher candidats par nom ou e-mail…", adClearSearch: "Effacer la recherche",
+    adFilterAll: "Tous", adFilterPending: "En attente", adFilterStuck: "Bloqués > 7j", adFilterClear: "Tout réglé",
+    adNoCandFound: "Aucun candidat trouvé", adNoMatchFor: "Aucun résultat pour « {q} ».",
+    adNothingStuck: "Rien de bloqué", adNoStuckSub: "Aucun candidat n'attend depuis plus de 7 jours.",
+    adAllClearStatus: "Tout réglé", adPendingReviewLabel: "À examiner",
+    adPeekDocs: "Aperçu des docs en attente", adCollapse: "Réduire",
+    adMoreOpen: "+ {n} de plus — ouvrir le panneau pour examiner",
+    adCandAbbr: "cand.", adAdminAbbr: "admin",
+    // Dashboard alerts
+    dErrPdfGen: "Impossible de générer le PDF — veuillez réessayer.",
+    dErrDownload: "Échec du téléchargement — veuillez réessayer.",
+    dErrPassportSave: "Échec de l'enregistrement des données. Veuillez réessayer.",
+    dErrNetwork: "Erreur réseau — vérifiez votre connexion et réessayez.",
+    dValMust5: "Doit faire exactement 5 chiffres", dValLettersOnly: "Doit contenir uniquement des lettres",
+    dTipFillFirst: "Remplissez ce champ d'abord", dTipConfirmedUndo: "Confirmé — cliquer pour annuler",
+    dTipClickConfirm: "Cliquer pour confirmer",
+    // CV builder
+    cvbAdminEditing: "Mode admin — les modifications sont enregistrées dans le brouillon du candidat",
+    cvbBackToAdmin: "Retour à l'admin",
+    cvbUpgradeUnavail: "Mise à niveau indisponible pour le moment.",
+    cvbErrFallback: "Erreur",
+    // Bug report
+    bugOnlyImg: "Images uniquement",
+    bugDescribe: "Veuillez décrire le problème ou joindre une capture d'écran.",
+    bugSendFail: "Échec de l'envoi", bugRemoveScreenshot: "Retirer la capture d'écran",
+    // Sign request
+    srDocNameReq: "Nom du document requis", srUploadPdf: "Veuillez téléverser un PDF",
+    srErr: "Erreur", srDragDrop: "glisser-déposer ou cliquer",
+    srSeen: "Vu", srNotOpened: "Pas encore ouvert",
+    // Message icon
+    miClose: "Fermer", miDownload: "Télécharger", miAttachment: "pièce jointe", miPreview: "aperçu",
+    miAttachImg: "Joindre une image", miSend: "Envoyer", miRemoveAttach: "Retirer la pièce jointe",
+    miImage: "image",
+    // Profile icon
+    profProfileAria: "Profil", profUpgradePlan: "Mettre à niveau",
+    // Admin users panel
+    delUserAria: "Supprimer {name}",
+    // Feed errors
+    fdPostFail: "Impossible de publier. Veuillez réessayer.",
+    fdNetErr: "Erreur réseau — veuillez réessayer.",
+    // Notification bell
+    nbAria: "Notifications",
   },
   en: {
     dir: "ltr",
@@ -653,6 +771,75 @@ export const translations: Record<Lang, Translation> = {
     aFlightDate: "Flight date", aFlightInfo: "Flight info",
     aPipelineSave: "Save",
     aDocsApprove: "🔓 Unlock Next Step", aDocsRevoke: "🔒 Lock",
+    // Autosave
+    aSaving: "Saving…", aSaved: "Saved", aSaveError: "Couldn't save",
+    aJustNow: "just now", aSecAgo: "{n}s ago", aMinAgo: "{n}m ago", aHrAgo: "{n}h ago",
+    aLoading: "Loading",
+    // Admin error toasts
+    adErrVerify: "Could not update verification — please try again.",
+    adErrNetwork: "Network error — please try again.",
+    adErrPassportSave: "Failed to save passport info — please try again.",
+    adErrDocStatus: "Failed to update document status — please try again.",
+    adErrPipeline: "Failed to save pipeline — please try again.",
+    adErrProfile: "Failed to save profile — please try again.",
+    adErrPassportStatus: "Failed to update passport status — please try again.",
+    adErrDelete: "Failed to delete candidate",
+    // Admin: invite + agencies + filters + needs
+    adInviteLink: "Invite link", adCopy: "Copy", adReset: "Reset",
+    adAgencies: "Agencies", adAgencyAdmin: "Agency Admin", adAgencyMember: "Member",
+    adRemove: "Remove", adAddToAgency: "Add to this agency:", adNewAgencyPh: "New agency name…",
+    adCreating: "Creating…", adCreate: "Create",
+    adOrgNeeds: "Org needs", adAnySpecialty: "Any specialty", adSlot: "slot", adSlots: "slots",
+    adMatched: "matched", adAssignCandidate: "Assign candidate…", adLinked: "linked", adLink: "Link",
+    adSuggestedMatches: "Suggested matches", adFromDate: "from",
+    adAcceptHint: "Accept — links candidate to org", adAccept: "Accept",
+    adSkipHint: "Skip — removes from inbox",
+    adSelectOrg: "Select organisation…", adAdd: "Add", adNoActiveReqs: "No active requirements yet",
+    adNoLocDate: "No location/date set", adCloseReq: "Close requirement",
+    adSpecialtyPh: "Specialty (e.g. Pflege)", adLocationPh: "Location", adSlotsPh: "Slots",
+    adSaveReq: "Save requirement", adCancel: "Cancel",
+    adSearchPh: "Search candidates by name or email…", adClearSearch: "Clear search",
+    adFilterAll: "All", adFilterPending: "Pending review", adFilterStuck: "Stuck > 7d", adFilterClear: "All clear",
+    adNoCandFound: "No candidates found", adNoMatchFor: "No matches for \"{q}\".",
+    adNothingStuck: "Nothing stuck", adNoStuckSub: "No candidates have been waiting more than 7 days.",
+    adAllClearStatus: "All clear", adPendingReviewLabel: "Pending review",
+    adPeekDocs: "Peek pending docs", adCollapse: "Collapse",
+    adMoreOpen: "+ {n} more — open full panel to review",
+    adCandAbbr: "cand", adAdminAbbr: "admin",
+    // Dashboard alerts
+    dErrPdfGen: "Could not generate PDF — please try again.",
+    dErrDownload: "Download failed — please try again.",
+    dErrPassportSave: "Failed to save passport data. Please try again.",
+    dErrNetwork: "Network error — please check your connection and try again.",
+    dValMust5: "Must be exactly 5 digits", dValLettersOnly: "Should contain only letters",
+    dTipFillFirst: "Fill in this field first", dTipConfirmedUndo: "Confirmed — click to undo",
+    dTipClickConfirm: "Click to confirm",
+    // CV builder
+    cvbAdminEditing: "Admin editing — changes save to candidate's draft",
+    cvbBackToAdmin: "Back to admin",
+    cvbUpgradeUnavail: "Upgrade not available right now.",
+    cvbErrFallback: "Error",
+    // Bug report
+    bugOnlyImg: "Only images allowed",
+    bugDescribe: "Please describe the issue or attach a screenshot.",
+    bugSendFail: "Failed to send", bugRemoveScreenshot: "Remove screenshot",
+    // Sign request
+    srDocNameReq: "Document name required", srUploadPdf: "Please upload a PDF",
+    srErr: "Error", srDragDrop: "drag & drop or click",
+    srSeen: "Seen", srNotOpened: "Not opened yet",
+    // Message icon
+    miClose: "Close", miDownload: "Download", miAttachment: "attachment", miPreview: "preview",
+    miAttachImg: "Attach image", miSend: "Send", miRemoveAttach: "Remove attachment",
+    miImage: "image",
+    // Profile icon
+    profProfileAria: "Profile", profUpgradePlan: "Upgrade plan",
+    // Admin users panel
+    delUserAria: "Delete {name}",
+    // Feed errors
+    fdPostFail: "Could not publish post. Please try again.",
+    fdNetErr: "Network error — please try again.",
+    // Notification bell
+    nbAria: "Notifications",
   },
   de: {
     dir: "ltr",
@@ -876,5 +1063,74 @@ export const translations: Record<Lang, Translation> = {
     aFlightDate: "Flugdatum", aFlightInfo: "Fluginfos",
     aPipelineSave: "Speichern",
     aDocsApprove: "🔓 Nächsten Schritt freischalten", aDocsRevoke: "🔒 Sperren",
+    // Autosave
+    aSaving: "Wird gespeichert…", aSaved: "Gespeichert", aSaveError: "Speichern fehlgeschlagen",
+    aJustNow: "gerade eben", aSecAgo: "vor {n}s", aMinAgo: "vor {n}min", aHrAgo: "vor {n}h",
+    aLoading: "Lädt",
+    // Admin error toasts
+    adErrVerify: "Verifizierung konnte nicht aktualisiert werden — bitte erneut versuchen.",
+    adErrNetwork: "Netzwerkfehler — bitte erneut versuchen.",
+    adErrPassportSave: "Passdaten konnten nicht gespeichert werden — bitte erneut versuchen.",
+    adErrDocStatus: "Dokumentstatus konnte nicht aktualisiert werden — bitte erneut versuchen.",
+    adErrPipeline: "Pipeline konnte nicht gespeichert werden — bitte erneut versuchen.",
+    adErrProfile: "Profil konnte nicht gespeichert werden — bitte erneut versuchen.",
+    adErrPassportStatus: "Pass-Status konnte nicht aktualisiert werden — bitte erneut versuchen.",
+    adErrDelete: "Kandidat konnte nicht gelöscht werden",
+    // Admin: invite + agencies + filters + needs
+    adInviteLink: "Einladungslink", adCopy: "Kopieren", adReset: "Zurücksetzen",
+    adAgencies: "Agenturen", adAgencyAdmin: "Agentur-Admin", adAgencyMember: "Mitglied",
+    adRemove: "Entfernen", adAddToAgency: "Zu dieser Agentur hinzufügen:", adNewAgencyPh: "Name der neuen Agentur…",
+    adCreating: "Wird erstellt…", adCreate: "Erstellen",
+    adOrgNeeds: "Org-Bedarf", adAnySpecialty: "Beliebige Fachrichtung", adSlot: "Platz", adSlots: "Plätze",
+    adMatched: "zugeordnet", adAssignCandidate: "Kandidat zuweisen…", adLinked: "verknüpft", adLink: "Verknüpfen",
+    adSuggestedMatches: "Vorschläge", adFromDate: "ab",
+    adAcceptHint: "Annehmen — verknüpft Kandidat mit Org", adAccept: "Annehmen",
+    adSkipHint: "Überspringen — entfernt aus dem Posteingang",
+    adSelectOrg: "Organisation wählen…", adAdd: "Hinzufügen", adNoActiveReqs: "Noch keine aktiven Anforderungen",
+    adNoLocDate: "Kein Ort/Datum festgelegt", adCloseReq: "Anforderung schließen",
+    adSpecialtyPh: "Fachrichtung (z. B. Pflege)", adLocationPh: "Ort", adSlotsPh: "Plätze",
+    adSaveReq: "Anforderung speichern", adCancel: "Abbrechen",
+    adSearchPh: "Kandidaten nach Name oder E-Mail suchen…", adClearSearch: "Suche löschen",
+    adFilterAll: "Alle", adFilterPending: "Zu prüfen", adFilterStuck: "Hängend > 7T", adFilterClear: "Alles erledigt",
+    adNoCandFound: "Keine Kandidaten gefunden", adNoMatchFor: "Keine Treffer für „{q}\".",
+    adNothingStuck: "Nichts hängt", adNoStuckSub: "Keine Kandidaten warten länger als 7 Tage.",
+    adAllClearStatus: "Alles erledigt", adPendingReviewLabel: "Zu prüfen",
+    adPeekDocs: "Ausstehende Docs anzeigen", adCollapse: "Einklappen",
+    adMoreOpen: "+ {n} mehr — vollständiges Panel öffnen",
+    adCandAbbr: "Kand.", adAdminAbbr: "Admin",
+    // Dashboard alerts
+    dErrPdfGen: "PDF konnte nicht erstellt werden — bitte erneut versuchen.",
+    dErrDownload: "Download fehlgeschlagen — bitte erneut versuchen.",
+    dErrPassportSave: "Passdaten konnten nicht gespeichert werden. Bitte erneut versuchen.",
+    dErrNetwork: "Netzwerkfehler — bitte Verbindung prüfen und erneut versuchen.",
+    dValMust5: "Muss genau 5 Ziffern lang sein", dValLettersOnly: "Darf nur Buchstaben enthalten",
+    dTipFillFirst: "Bitte zuerst dieses Feld ausfüllen", dTipConfirmedUndo: "Bestätigt — zum Rückgängigmachen klicken",
+    dTipClickConfirm: "Zum Bestätigen klicken",
+    // CV builder
+    cvbAdminEditing: "Admin bearbeitet — Änderungen werden im Entwurf des Kandidaten gespeichert",
+    cvbBackToAdmin: "Zurück zum Admin",
+    cvbUpgradeUnavail: "Upgrade momentan nicht verfügbar.",
+    cvbErrFallback: "Fehler",
+    // Bug report
+    bugOnlyImg: "Nur Bilder erlaubt",
+    bugDescribe: "Bitte das Problem beschreiben oder einen Screenshot anhängen.",
+    bugSendFail: "Senden fehlgeschlagen", bugRemoveScreenshot: "Screenshot entfernen",
+    // Sign request
+    srDocNameReq: "Dokumentname erforderlich", srUploadPdf: "Bitte ein PDF hochladen",
+    srErr: "Fehler", srDragDrop: "ziehen & ablegen oder klicken",
+    srSeen: "Gesehen", srNotOpened: "Noch nicht geöffnet",
+    // Message icon
+    miClose: "Schließen", miDownload: "Herunterladen", miAttachment: "Anhang", miPreview: "Vorschau",
+    miAttachImg: "Bild anhängen", miSend: "Senden", miRemoveAttach: "Anhang entfernen",
+    miImage: "Bild",
+    // Profile icon
+    profProfileAria: "Profil", profUpgradePlan: "Plan upgraden",
+    // Admin users panel
+    delUserAria: "{name} löschen",
+    // Feed errors
+    fdPostFail: "Beitrag konnte nicht veröffentlicht werden. Bitte erneut versuchen.",
+    fdNetErr: "Netzwerkfehler — bitte erneut versuchen.",
+    // Notification bell
+    nbAria: "Benachrichtigungen",
   },
 };

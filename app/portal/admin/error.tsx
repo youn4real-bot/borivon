@@ -34,7 +34,7 @@ export default function AdminError({
       <div className="max-w-xl w-full p-6 rounded-2xl"
         style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
         <p className="text-[10.5px] font-semibold uppercase tracking-[0.16em] mb-2"
-          style={{ color: "#e05252" }}>
+          style={{ color: "var(--danger)" }}>
           {errorLabel}
         </p>
         <h1 className="text-base font-semibold mb-3" style={{ color: "var(--w)" }}>

@@ -238,7 +238,7 @@ export default function JoinPage() {
           style={{
             background: "var(--card)",
             border: "1px solid var(--border-gold)",
-            boxShadow: "0 0 0 1px rgba(212,175,55,0.08), 0 20px 60px rgba(0,0,0,0.18)",
+            boxShadow: "0 0 0 1px var(--gdim), 0 20px 60px rgba(0,0,0,0.18)",
           }}>
 
           {/* Celebration icon */}
@@ -282,7 +282,7 @@ export default function JoinPage() {
             <div className="space-y-3">
               <button onClick={() => goTo("register")}
                 className="w-full py-3.5 text-[14.5px] font-bold rounded-2xl transition-all hover:opacity-90 hover:-translate-y-0.5 active:scale-[0.98]"
-                style={{ background: "var(--gold)", color: "#131312", boxShadow: "0 4px 18px rgba(201,162,64,0.35)" }}>
+                style={{ background: "var(--gold)", color: "#131312", boxShadow: "0 4px 18px var(--border-gold)" }}>
                 {isMember ? i18n.ctaMember : i18n.ctaCandidate}
               </button>
               <button onClick={() => goTo("login")}

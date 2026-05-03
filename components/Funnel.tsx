@@ -28,13 +28,14 @@ type Step =
   | "s1of"
   | "s2p"
   | "s2o"
+  | "s2fk"   // org → Fachkräfte → hiring form
   | "ok";
 
 interface FunnelState {
   type: "person" | "org" | null;
   level: string | null;
   levelName: string | null;
-  svc: "courses" | "translation" | "other" | null;
+  svc: "courses" | "translation" | "other" | "fachkraefte" | null;
   fmt: "online" | "onsite" | null;
   workField: "pflege" | "trucking" | "it" | "other" | null;
 }
@@ -69,6 +70,21 @@ const intentLabels = {
     genEy:       "Nous vous recontactons",
     genTi:       "Comment pouvons-nous vous aider ?",
     genDesc:     "Partagez votre demande et notre équipe vous répondra sous 48 h.",
+    // Fachkräfte
+    fachkraefte: "Fachkräfte",
+    fkEy:        "Recrutement international",
+    fkTi:        "Trouvez vos Fachkräfte",
+    fkDesc:      "Dites-nous vos besoins et nous vous proposerons les meilleurs candidats sous 48 h.",
+    fkName:      "Nom du contact",
+    fkPhName:    "Votre nom",
+    fkSector:    "Secteur recherché",
+    fkPhSector:  "Ex. : Soins infirmiers, IT, Logistique…",
+    fkPositions: "Nombre de postes",
+    fkPhPositions: "Ex. : 3",
+    fkCity:      "Ville / région (optionnel)",
+    fkPhCity:    "Ex. : Berlin, Munich…",
+    fkNote:      "Précisez vos exigences (optionnel)",
+    fkPhNote:    "Qualifications, dates, conditions…",
   },
   en: {
     ey:          "Your goal",
@@ -93,6 +109,21 @@ const intentLabels = {
     genEy:       "We'll be in touch",
     genTi:       "How can we help you?",
     genDesc:     "Share your request and our team will get back to you within 48 h.",
+    // Fachkräfte
+    fachkraefte: "Fachkräfte",
+    fkEy:        "International recruitment",
+    fkTi:        "Find your Fachkräfte",
+    fkDesc:      "Tell us your needs and we'll match you with the best candidates within 48 h.",
+    fkName:      "Contact name",
+    fkPhName:    "Your name",
+    fkSector:    "Sector needed",
+    fkPhSector:  "E.g. Nursing, IT, Logistics…",
+    fkPositions: "Number of positions",
+    fkPhPositions: "E.g. 3",
+    fkCity:      "City / region (optional)",
+    fkPhCity:    "E.g. Berlin, Munich…",
+    fkNote:      "Specific requirements (optional)",
+    fkPhNote:    "Qualifications, start dates, conditions…",
   },
   de: {
     ey:          "Ihr Ziel",
@@ -117,6 +148,21 @@ const intentLabels = {
     genEy:       "Wir melden uns",
     genTi:       "Wie können wir Ihnen helfen?",
     genDesc:     "Teilen Sie uns Ihr Anliegen mit — wir melden uns innerhalb von 48 Stunden.",
+    // Fachkräfte
+    fachkraefte: "Fachkräfte",
+    fkEy:        "Internationale Vermittlung",
+    fkTi:        "Finden Sie Ihre Fachkräfte",
+    fkDesc:      "Teilen Sie uns Ihren Bedarf mit — wir melden uns innerhalb von 48 Stunden mit passenden Kandidaten.",
+    fkName:      "Ansprechpartner",
+    fkPhName:    "Ihr Name",
+    fkSector:    "Gesuchter Bereich",
+    fkPhSector:  "z. B. Pflege, IT, Logistik…",
+    fkPositions: "Anzahl der Stellen",
+    fkPhPositions: "z. B. 3",
+    fkCity:      "Stadt / Region (optional)",
+    fkPhCity:    "z. B. Berlin, München…",
+    fkNote:      "Besondere Anforderungen (optional)",
+    fkPhNote:    "Qualifikationen, Startdatum, Bedingungen…",
   },
 };
 
@@ -248,6 +294,14 @@ export function Funnel() {
   const [workEmail, setWorkEmail] = useState("");
   const [workPhone, setWorkPhone] = useState("");
   const [workMsg, setWorkMsg] = useState("");
+  // Fachkräfte form
+  const [fkName, setFkName]           = useState("");
+  const [fkEmail, setFkEmail]         = useState("");
+  const [fkPhone, setFkPhone]         = useState("");
+  const [fkSector, setFkSector]       = useState("");
+  const [fkPositions, setFkPositions] = useState("");
+  const [fkCity, setFkCity]           = useState("");
+  const [fkNote, setFkNote]           = useState("");
   const [errors, setErrors] = useState<Record<string, boolean>>({});
   // Resume banner — only shown if we restored a saved state on mount
   const [resumeBannerOpen, setResumeBannerOpen] = useState(false);
@@ -301,10 +355,11 @@ export function Funnel() {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
         step, history, state, personEmail, personPhone, personMsg, orgEmail, orgCompany,
         workEmail, workPhone, workMsg,
+        fkName, fkEmail, fkPhone, fkSector, fkPositions, fkCity, fkNote,
         ts: Date.now(),
       }));
     } catch { /* quota — ignore */ }
-  }, [step, history, state, personEmail, personPhone, personMsg, orgEmail, orgCompany, workEmail, workPhone, workMsg]);
+  }, [step, history, state, personEmail, personPhone, personMsg, orgEmail, orgCompany, workEmail, workPhone, workMsg, fkName, fkEmail, fkPhone, fkSector, fkPositions, fkCity, fkNote]);
 
   // ── Lightweight per-step analytics (localStorage — exportable later) ────
   const analyticsLogged = useRef<Set<Step>>(new Set());
@@ -477,6 +532,38 @@ export function Funnel() {
         }
       } catch (err) {
         console.error("[lead general] network", err);
+        try { localStorage.setItem(`bv-lead-retry-${Date.now()}`, JSON.stringify(payload)); } catch { /* ignore */ }
+      }
+    } finally {
+      setSubmitting(false);
+      setHistory([]); setStep("ok");
+    }
+  };
+
+  const submitFachkraefte = async () => {
+    const errs: Record<string, boolean> = {};
+    if (!isValidEmail(fkEmail)) errs.fkEmail = true;
+    if (Object.keys(errs).length) { setErrors(errs); return; }
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      const payload = {
+        kind: "fachkraefte",
+        name: fkName, email: fkEmail, phone: fkPhone,
+        sector: fkSector, positions: fkPositions, city: fkCity, message: fkNote,
+      };
+      try {
+        const res = await fetch("/api/leads", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          console.error("[lead fachkraefte] non-2xx", res.status, await res.text().catch(() => ""));
+          try { localStorage.setItem(`bv-lead-retry-${Date.now()}`, JSON.stringify(payload)); } catch { /* ignore */ }
+        }
+      } catch (err) {
+        console.error("[lead fachkraefte] network", err);
         try { localStorage.setItem(`bv-lead-retry-${Date.now()}`, JSON.stringify(payload)); } catch { /* ignore */ }
       }
     } finally {
@@ -763,6 +850,7 @@ export function Funnel() {
           <div className="flex flex-col" style={{ gap: SP_CHOICE_GAP }}>
             <ChoiceRow label={t.coS1} onClick={() => { setState((s) => ({ ...s, svc: "courses" })); goTo("s1of"); }} />
             <ChoiceRow label={t.coS2} onClick={() => { setState((s) => ({ ...s, svc: "translation" })); goTo("s2o"); }} />
+            <ChoiceRow label={il.fachkraefte} onClick={() => { setState((s) => ({ ...s, svc: "fachkraefte" })); goTo("s2fk"); }} />
             <ChoiceRow label={t.coS3} onClick={() => { setState((s) => ({ ...s, svc: "other" })); goTo("s2o"); }} />
           </div>
         </div>
@@ -939,6 +1027,103 @@ export function Funnel() {
             className="fpnote text-center mt-[0.4rem] leading-[1.5]"
             style={{ fontSize: FS_NOTE, color: "var(--w3)" }}
           >
+            {t.pnote}
+          </p>
+        </div>
+      )}
+
+      {/* ── S2fk: org → Fachkräfte hiring form ── */}
+      {step === "s2fk" && (
+        <div className={stepClass}>
+          <p className="fey font-semibold tracking-[0.22em] uppercase" style={{ fontSize: FS_EYEBROW, color: "var(--gold)", marginBottom: "clamp(0.4rem,1.2vw,0.55rem)" }}>{il.fkEy}</p>
+          <h2 className="fti font-medium leading-[1.15] tracking-[-0.02em]" style={{ fontSize: FS_TITLE, color: "var(--w)", marginBottom: "clamp(0.4rem,1.2vw,0.6rem)" }}>
+            {il.fkTi}
+          </h2>
+          <p className="leading-[1.7]" style={{ fontSize: FS_DESC, color: "var(--w2)", marginBottom: SP_TITLE_MB }}>
+            {il.fkDesc}
+          </p>
+          {/* Contact name */}
+          <FunnelInput
+            label={il.fkName} type="text"
+            value={fkName}
+            onChange={(e) => setFkName(e.target.value)}
+            placeholder={il.fkPhName}
+          />
+          {/* Email — required */}
+          <FunnelInput
+            label={t.lblEmail} type="email" required
+            value={fkEmail}
+            onChange={(e) => { setFkEmail(e.target.value); setErrors((er) => ({ ...er, fkEmail: false })); }}
+            placeholder={t.phEmail}
+            className={errors.fkEmail ? "!border-red-500/70 !bg-red-500/[0.04]" : ""}
+          />
+          {/* Phone */}
+          <FunnelInput
+            label={t.lblPhone} type="tel"
+            value={fkPhone}
+            onChange={(e) => setFkPhone(e.target.value)}
+            placeholder={t.phPhone}
+          />
+          {/* Sector */}
+          <FunnelInput
+            label={il.fkSector} type="text"
+            value={fkSector}
+            onChange={(e) => setFkSector(e.target.value)}
+            placeholder={il.fkPhSector}
+          />
+          {/* Positions + City — side by side */}
+          <div className="flex gap-2" style={{ marginBottom: SP_INPUT_MB }}>
+            <div className="flex-1">
+              <input
+                aria-label={il.fkPositions}
+                type="number" min="1"
+                value={fkPositions}
+                onChange={(e) => setFkPositions(e.target.value)}
+                placeholder={il.fkPhPositions}
+                className="w-full font-[family-name:var(--font-dm-sans)] outline-none transition-colors duration-200"
+                style={{ fontSize: FS_INPUT, padding: PAD_INPUT, borderRadius: FX_FIELD_RADIUS, background: "var(--bg2)", border: "1px solid var(--border2)", color: "var(--w)" }}
+              />
+            </div>
+            <div className="flex-1">
+              <input
+                aria-label={il.fkCity}
+                type="text"
+                value={fkCity}
+                onChange={(e) => setFkCity(e.target.value)}
+                placeholder={il.fkPhCity}
+                className="w-full font-[family-name:var(--font-dm-sans)] outline-none transition-colors duration-200"
+                style={{ fontSize: FS_INPUT, padding: PAD_INPUT, borderRadius: FX_FIELD_RADIUS, background: "var(--bg2)", border: "1px solid var(--border2)", color: "var(--w)" }}
+              />
+            </div>
+          </div>
+          {/* Notes */}
+          <FunnelTextarea
+            label={il.fkNote}
+            value={fkNote}
+            onChange={(e) => setFkNote(e.target.value)}
+            placeholder={il.fkPhNote}
+          />
+          <button
+            onClick={submitFachkraefte}
+            disabled={submitting}
+            className="fsbtn w-full font-bold cursor-pointer active:scale-[0.98] border-none"
+            style={{
+              fontSize: FS_BTN,
+              padding: PAD_BTN,
+              marginTop: "clamp(0.08rem,0.4vw,0.12rem)",
+              background: "var(--gold-gradient)",
+              color: "#09090a",
+              borderRadius: FX_BTN_RADIUS,
+              boxShadow: "var(--shadow-gold-md)",
+              transition: "box-shadow 0.2s, transform 0.1s",
+              opacity: submitting ? 0.7 : 1,
+            }}
+            onMouseEnter={(e) => { if (!submitting) (e.currentTarget as HTMLElement).style.boxShadow = "var(--shadow-gold-hover)"; }}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLElement).style.boxShadow = "var(--shadow-gold-md)")}
+          >
+            {t.sbtnO}
+          </button>
+          <p className="fpnote text-center mt-[0.4rem] leading-[1.5]" style={{ fontSize: FS_NOTE, color: "var(--w3)" }}>
             {t.pnote}
           </p>
         </div>

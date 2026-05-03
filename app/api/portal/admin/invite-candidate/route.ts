@@ -22,6 +22,7 @@ export async function POST(req: NextRequest) {
     org_id: null,   // standalone — no org association
     type: "candidate",
     code,
+    agency_id: auth.agencyId ?? null,
   });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
