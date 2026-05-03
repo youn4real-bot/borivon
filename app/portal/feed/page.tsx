@@ -218,7 +218,6 @@ function PostCard({
   const commentInputRef = useRef<HTMLInputElement>(null);
 
   const videoEmbed = extractVideoEmbed(post.content);
-  const catMeta = getCategoryMeta(post.category ?? "general", lang);
 
   const loadComments = useCallback(async () => {
     if (commentsLoaded) return;
@@ -358,11 +357,6 @@ function PostCard({
             </div>
             <div className="flex items-center gap-2 mt-0.5">
               <span className="text-[11px]" style={{ color: "var(--w3)" }}>{relTime(post.createdAt, t, lang)}</span>
-              {/* Category badge */}
-              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
-                style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
-                {catMeta.emoji} {catMeta.label}
-              </span>
             </div>
           </div>
           <div className="flex items-center gap-0.5 flex-shrink-0">
@@ -539,13 +533,9 @@ export default function FeedPage() {
   const [communities, setCommunities] = useState<Community[]>([{ kind: "global", id: null, name: "Borivon" }]);
   const [activeOrgId, setActiveOrgId] = useState<string | null>(null);
 
-  // Filter
-  const [selectedCategory, setSelectedCategory] = useState<"all" | Category>("all");
-
   // Composer
   const [titleDraft, setTitleDraft] = useState("");
   const [draft, setDraft] = useState("");
-  const [postCategory, setPostCategory] = useState<Category>("general");
   const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [gifInput, setGifInput] = useState("");
@@ -600,7 +590,7 @@ export default function FeedPage() {
         }
       } catch { /* fall back to global default */ }
 
-      await loadPosts(tk, 0, "all", null);
+      await loadPosts(tk, 0, null);
       setLoading(false);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -614,31 +604,29 @@ export default function FeedPage() {
     if (!authToken) return;
     const timer = setInterval(async () => {
       if (!authToken) return;
-      const catParam = selectedCategory !== "all" ? `&category=${selectedCategory}` : "";
       const orgParam = activeOrgId ? `&orgId=${encodeURIComponent(activeOrgId)}` : "";
-      const res = await fetch(`/api/portal/feed?page=0${catParam}${orgParam}`, { headers: { Authorization: `Bearer ${authToken}` } });
+      const res = await fetch(`/api/portal/feed?page=0${orgParam}`, { headers: { Authorization: `Bearer ${authToken}` } });
       if (!res.ok) return;
       const j = await res.json();
       const fresh = ((j.posts ?? []) as Post[]).filter(p => !postIdsRef.current.has(p.id));
       if (fresh.length > 0) setPendingPosts(fresh);
     }, 90_000);
     return () => clearInterval(timer);
-  }, [authToken, selectedCategory, activeOrgId]);
+  }, [authToken, activeOrgId]);
 
-  // Reload when category filter OR active community changes
+  // Reload when active community changes
   useEffect(() => {
     if (!authToken) return;
     setPosts([]);
     setPendingPosts([]);
-    loadPosts(authToken, 0, selectedCategory, activeOrgId);
+    loadPosts(authToken, 0, activeOrgId);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCategory, activeOrgId, authToken]);
+  }, [activeOrgId, authToken]);
 
-  async function loadPosts(tk: string, p: number, category: string, orgId: string | null) {
+  async function loadPosts(tk: string, p: number, orgId: string | null) {
     if (p === 0) setPostsLoadError(false);
-    const catParam = category !== "all" ? `&category=${category}` : "";
     const orgParam = orgId ? `&orgId=${encodeURIComponent(orgId)}` : "";
-    const res = await fetch(`/api/portal/feed?page=${p}${catParam}${orgParam}`, { headers: { Authorization: `Bearer ${tk}` } });
+    const res = await fetch(`/api/portal/feed?page=${p}${orgParam}`, { headers: { Authorization: `Bearer ${tk}` } });
     if (!res.ok) { if (p === 0) setPostsLoadError(true); return; }
     const j = await res.json();
     if (p === 0) setPosts(j.posts ?? []);
@@ -658,14 +646,13 @@ export default function FeedPage() {
       const res = await fetch("/api/portal/feed", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ title: titleDraft.trim(), content: draft.trim(), imageBase64, gifUrl, category: postCategory, orgId: activeOrgId }),
+        body: JSON.stringify({ title: titleDraft.trim(), content: draft.trim(), imageBase64, gifUrl, orgId: activeOrgId }),
       });
       if (res.ok) {
         const j = await res.json();
         setPosts(prev => [j.post, ...prev]);
         setTitleDraft(""); setDraft(""); setImageBase64(null); setImagePreview(null);
         setGifInput(""); setShowGifInput(false); setShowVideoInput(false);
-        setPostCategory("general");
       } else {
         const j = await res.json().catch(() => ({}));
         setPostError(j.error ?? gT.fdPostFail);
@@ -818,26 +805,6 @@ export default function FeedPage() {
             )}
           </div>
 
-          {/* Category selector */}
-          <div className="flex items-center gap-1.5 px-4 pb-3 flex-wrap">
-            {CATEGORIES.map(cat => {
-              const label = cat.label[lang as keyof typeof cat.label] ?? cat.label.en;
-              const active = postCategory === cat.value;
-              return (
-                <button key={cat.value} onClick={() => setPostCategory(cat.value as Category)}
-                  className="flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full transition-all"
-                  style={{
-                    background: active ? "var(--gdim)" : "transparent",
-                    color: active ? "var(--gold)" : "var(--w3)",
-                    border: `1px solid ${active ? "var(--border-gold)" : "var(--border)"}`,
-                    cursor: "pointer",
-                  }}>
-                  <span>{cat.emoji}</span> {label}
-                </button>
-              );
-            })}
-          </div>
-
           {/* Toolbar */}
           <div className="flex items-center justify-between px-4 pb-3 gap-2">
             <div className="flex items-center gap-1">
@@ -909,35 +876,7 @@ export default function FeedPage() {
           </div>
         )}
 
-        {/* ── Category filter bar ──────────────────────────────────────────── */}
-        <div className="flex items-center gap-1.5 mb-4 overflow-x-auto pb-0.5" style={{ scrollbarWidth: "none" }}>
-          <button onClick={() => setSelectedCategory("all")}
-            className="flex items-center gap-1 text-[12px] font-semibold px-3 py-1.5 rounded-full transition-all flex-shrink-0"
-            style={{
-              background: selectedCategory === "all" ? "var(--gold)" : "var(--card)",
-              color: selectedCategory === "all" ? "#131312" : "var(--w3)",
-              border: `1px solid ${selectedCategory === "all" ? "var(--gold)" : "var(--border)"}`,
-              cursor: "pointer",
-            }}>
-            {t.filterAll}
-          </button>
-          {CATEGORIES.map(cat => {
-            const label = cat.label[lang as keyof typeof cat.label] ?? cat.label.en;
-            const active = selectedCategory === cat.value;
-            return (
-              <button key={cat.value} onClick={() => setSelectedCategory(cat.value as Category)}
-                className="flex items-center gap-1 text-[12px] font-semibold px-3 py-1.5 rounded-full transition-all flex-shrink-0"
-                style={{
-                  background: active ? "var(--gold)" : "var(--card)",
-                  color: active ? "#131312" : "var(--w3)",
-                  border: `1px solid ${active ? "var(--gold)" : "var(--border)"}`,
-                  cursor: "pointer",
-                }}>
-                {cat.emoji} {label}
-              </button>
-            );
-          })}
-        </div>
+
 
         {/* ── New posts banner ─────────────────────────────────────────────── */}
         {pendingPosts.length > 0 && (
@@ -956,7 +895,7 @@ export default function FeedPage() {
             <p className="text-[14px] font-semibold mb-2" style={{ color: "var(--w2)" }}>
               {lang === "de" ? "Feed konnte nicht geladen werden." : lang === "fr" ? "Impossible de charger le fil." : "Could not load the feed."}
             </p>
-            <button onClick={() => loadPosts(authToken, 0, selectedCategory, activeOrgId)}
+            <button onClick={() => loadPosts(authToken, 0, activeOrgId)}
               className="text-[12.5px] font-medium px-4 py-1.5 rounded-full"
               style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
               {lang === "de" ? "Erneut versuchen" : lang === "fr" ? "Réessayer" : "Try again"}
@@ -965,10 +904,7 @@ export default function FeedPage() {
         ) : posts.length === 0 ? (
           <div className="text-center py-16">
             <div className="flex justify-center mb-4">
-              {selectedCategory !== "all"
-                ? <span className="text-4xl">{getCategoryMeta(selectedCategory, lang).emoji}</span>
-                : <Sparkles size={36} strokeWidth={1.5} style={{ color: "var(--gold)" }} />
-              }
+              <Sparkles size={36} strokeWidth={1.5} style={{ color: "var(--gold)" }} />
             </div>
             <p className="text-[15px] font-semibold mb-1" style={{ color: "var(--w)" }}>{t.noPostsTitle}</p>
             <p className="text-[13px]" style={{ color: "var(--w3)" }}>{t.noPostsSub}</p>
@@ -984,7 +920,7 @@ export default function FeedPage() {
 
         {hasMore && (
           <div className="mt-6 text-center">
-            <button onClick={async () => { setLoadingMore(true); await loadPosts(authToken, page + 1, selectedCategory, activeOrgId); setLoadingMore(false); }}
+            <button onClick={async () => { setLoadingMore(true); await loadPosts(authToken, page + 1, activeOrgId); setLoadingMore(false); }}
               disabled={loadingMore}
               className="px-6 py-2.5 rounded-xl text-[13px] font-semibold transition-all hover:opacity-80"
               style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)", cursor: "pointer" }}>
