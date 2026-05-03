@@ -866,7 +866,7 @@ export default function OrgDashboardPage() {
             <div className="space-y-2">
               {candidates.map(c => (
                 <button key={c.userId} type="button"
-                  onClick={() => router.push(`/portal/org/candidates/${c.userId}`)}
+                  onClick={() => router.push(`/portal/admin?nav_email=${encodeURIComponent(c.email)}`)}
                   className="w-full flex items-center gap-3.5 px-4 py-3.5 rounded-2xl text-left transition-colors hover:opacity-90"
                   style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
                   <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden"

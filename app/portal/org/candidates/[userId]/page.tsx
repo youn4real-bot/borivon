@@ -145,10 +145,22 @@ export default function OrgCandidateDossierPage({
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) { router.replace("/"); return; }
 
+      // Redirect to the supreme-admin candidate panel (org admins are
+      // sub_admins server-side, so they have permission to use the same
+      // doc-review UI as the supreme admin). Keeps a single source of
+      // truth for the candidate dashboard layout.
       const res = await fetch(`/api/portal/org/candidates/${userId}`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
       });
       if (cancelled) return;
+      if (res.ok) {
+        const data = await res.json() as Dossier;
+        if (!cancelled) {
+          router.replace(`/portal/admin?nav_email=${encodeURIComponent(data.email)}`);
+          return;
+        }
+      }
+      // Fallback — keep showing the summary view if we can't resolve email
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
         setError((j as { error?: string }).error ?? "Error");
