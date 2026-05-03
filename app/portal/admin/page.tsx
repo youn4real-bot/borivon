@@ -200,6 +200,12 @@ export default function AdminPage() {
   const [inviteGenerating, setInviteGenerating] = useState(false);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [inviteCopied, setInviteCopied] = useState(false);
+  /** Org-admin invite generation state — separate flow, requires picking
+   *  the org the new admin will be tied to. */
+  const [orgInviteOrgId, setOrgInviteOrgId]       = useState("");
+  const [orgInviteGenerating, setOrgInviteGenerating] = useState(false);
+  const [orgInviteUrl, setOrgInviteUrl]           = useState<string | null>(null);
+  const [orgInviteCopied, setOrgInviteCopied]     = useState(false);
   /** All orgs in the system — used for the "Place with org" dropdown */
   const [allOrgs, setAllOrgs] = useState<OrgBasic[]>([]);
   /** Currently selected org in the placement dropdown */
@@ -2580,10 +2586,11 @@ export default function AdminPage() {
           {isSuperAdmin && (
             <div className="mb-5 space-y-px" style={{ borderRadius: "var(--r-xl)", border: "1px solid var(--border)", overflow: "hidden" }}>
 
-              {/* Invite row */}
+              {/* Candidate invite row — generates a /join link that lands on
+                  /portal/dashboard after signup. */}
               <div className="flex items-center gap-3 px-4 py-3" style={{ background: "var(--card)" }}>
                 <p className="text-[12px] flex-1" style={{ color: "var(--w3)" }}>
-                  {lang === "de" ? "Einladungslink" : lang === "fr" ? "Lien d'invitation" : "Invite link"}
+                  {lang === "de" ? "Kandidaten-Einladung" : lang === "fr" ? "Lien candidat" : "Candidate invite"}
                 </p>
                 {inviteUrl ? (
                   <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -2627,6 +2634,71 @@ export default function AdminPage() {
                     style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-sm)" }}>
                     {inviteGenerating ? "…" : lang === "de" ? "Link generieren" : lang === "fr" ? "Générer" : "Generate"}
                   </button>
+                )}
+              </div>
+
+              {/* Org-admin invite row — generates a /join link that lands on
+                  /portal/org/dashboard after signup. Requires picking which
+                  org the new admin will manage. */}
+              <div className="flex items-center gap-3 px-4 py-3" style={{ background: "var(--card)", borderTop: "1px solid var(--border)" }}>
+                <p className="text-[12px] flex-1" style={{ color: "var(--w3)" }}>
+                  {lang === "de" ? "Org-Admin-Einladung" : lang === "fr" ? "Lien admin org" : "Org admin invite"}
+                </p>
+                {orgInviteUrl ? (
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <input readOnly value={orgInviteUrl}
+                      className="flex-1 text-[10.5px] px-2.5 py-1 rounded-md outline-none min-w-0"
+                      style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)", fontFamily: "monospace" }}
+                      onClick={e => (e.target as HTMLInputElement).select()}
+                    />
+                    <button
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(orgInviteUrl).catch(() => {});
+                        setOrgInviteCopied(true);
+                        setTimeout(() => setOrgInviteCopied(false), 2500);
+                      }}
+                      className="flex-shrink-0 px-2.5 py-1 rounded-md text-[10.5px] font-semibold transition-opacity hover:opacity-80"
+                      style={{ background: orgInviteCopied ? "var(--success-bg)" : "var(--gdim)", color: orgInviteCopied ? "var(--success)" : "var(--gold)", border: `1px solid ${orgInviteCopied ? "var(--success-border)" : "var(--border-gold)"}` }}>
+                      {orgInviteCopied ? "✓" : t.adCopy}
+                    </button>
+                    <button onClick={() => { setOrgInviteUrl(null); setOrgInviteOrgId(""); }}
+                      className="flex-shrink-0 text-[10.5px] transition-opacity hover:opacity-70"
+                      style={{ color: "var(--w3)", background: "none", border: "none" }}>
+                      {t.adReset}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 min-w-0">
+                    <select
+                      value={orgInviteOrgId}
+                      onChange={e => setOrgInviteOrgId(e.target.value)}
+                      disabled={orgInviteGenerating || allOrgs.length === 0}
+                      className="text-[10.5px] px-2 py-1 rounded-md outline-none disabled:opacity-50"
+                      style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)", maxWidth: 160 }}>
+                      <option value="">{t.adSelectOrg}</option>
+                      {allOrgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                    </select>
+                    <button
+                      onClick={async () => {
+                        if (!orgInviteOrgId) return;
+                        setOrgInviteGenerating(true);
+                        try {
+                          const res = await fetch(`/api/portal/admin/organizations/${orgInviteOrgId}/generate-invite`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                            body: JSON.stringify({ type: "member" }),
+                          });
+                          const j = await res.json();
+                          if (j.url) setOrgInviteUrl(j.url);
+                        } catch { /* ignore */ }
+                        setOrgInviteGenerating(false);
+                      }}
+                      disabled={orgInviteGenerating || !orgInviteOrgId}
+                      className="flex-shrink-0 px-3 py-1.5 text-[11px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-40"
+                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-sm)" }}>
+                      {orgInviteGenerating ? "…" : lang === "de" ? "Link generieren" : lang === "fr" ? "Générer" : "Generate"}
+                    </button>
+                  </div>
                 )}
               </div>
 
