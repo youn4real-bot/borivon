@@ -2221,11 +2221,17 @@ function CVBuilderInner() {
     });
     // 1. Broadcast base64 immediately so the navbar avatar updates at once
     //    (no wait for the network round-trip to Storage).
-    if (typeof window !== "undefined") {
+    //    Skipped in admin-edit mode — otherwise the admin's own navbar
+    //    would show the candidate's photo.
+    if (typeof window !== "undefined" && !adminCandidateId) {
       window.dispatchEvent(new CustomEvent("bv-profile-photo-changed", { detail: { photo: small } }));
     }
-    // 2. Persist to Supabase Storage (profile_photo stores the public URL).
-    const res = await fetch("/api/portal/me/profile-photo", {
+    // 2. Persist to Supabase Storage. Admin mode → write to the candidate's
+    //    profile via the admin endpoint. Self mode → write to own profile.
+    const url = adminCandidateId
+      ? `/api/portal/admin/profile-photo?candidateId=${encodeURIComponent(adminCandidateId)}`
+      : "/api/portal/me/profile-photo";
+    const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
       body: JSON.stringify({ photo: small }),
@@ -2233,8 +2239,14 @@ function CVBuilderInner() {
     // 3. Re-broadcast with the Storage URL so subsequent renders use the CDN URL.
     if (res.ok) {
       const json = await res.json().catch(() => ({}));
-      if (json.photo && typeof window !== "undefined") {
+      if (json.photo && typeof window !== "undefined" && !adminCandidateId) {
         window.dispatchEvent(new CustomEvent("bv-profile-photo-changed", { detail: { photo: json.photo } }));
+      }
+      // In admin mode, also update the local cvData.photo so the form
+      // immediately reflects the saved CDN URL (the local data URL
+      // currently displayed will be replaced on next form load anyway).
+      if (json.photo && adminCandidateId) {
+        setCvData(d => ({ ...d, photo: json.photo }));
       }
     }
   }
@@ -2689,14 +2701,17 @@ function CVBuilderInner() {
             {cvData.photo && (
               <button onClick={() => {
                   setCvData(d => ({ ...d, photo: null }));
-                  // Mirror the removal to the server-side avatar + notify the
-                  // ProfileIcon so the navbar avatar reverts to initials
-                  // immediately, no page reload required.
-                  if (typeof window !== "undefined") {
+                  // Mirror the removal to the server-side avatar. Skip the
+                  // navbar broadcast in admin mode so the supreme admin's
+                  // own avatar isn't wiped while clearing a candidate's photo.
+                  if (typeof window !== "undefined" && !adminCandidateId) {
                     window.dispatchEvent(new CustomEvent("bv-profile-photo-changed", { detail: { photo: null } }));
                   }
                   if (authToken) {
-                    fetch("/api/portal/me/profile-photo", {
+                    const url = adminCandidateId
+                      ? `/api/portal/admin/profile-photo?candidateId=${encodeURIComponent(adminCandidateId)}`
+                      : "/api/portal/me/profile-photo";
+                    fetch(url, {
                       method: "POST",
                       headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
                       body: JSON.stringify({ photo: null }),

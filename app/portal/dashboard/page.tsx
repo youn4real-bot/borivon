@@ -447,7 +447,7 @@ export default function DashboardPage() {
       .on("postgres_changes",
         { event: "UPDATE", schema: "public", table: "candidate_profiles", filter: `user_id=eq.${userId}` },
         (payload) => {
-          const row = payload.new as { passport_status?: string; manually_verified?: boolean; payment_tier?: string | null };
+          const row = payload.new as { passport_status?: string; manually_verified?: boolean; payment_tier?: string | null; profile_photo?: string | null };
           if (row.passport_status !== undefined) setPassportStatus(row.passport_status);
           // Pick up payment_tier changes pushed by the Stripe webhook (no page refresh needed).
           if (row.payment_tier !== undefined) {
@@ -455,6 +455,12 @@ export default function DashboardPage() {
             // Notify the navbar so the upgrade modal / Starter card hides
             // immediately without waiting for a page reload.
             window.dispatchEvent(new CustomEvent("bv-payment-tier-changed", { detail: { tier: row.payment_tier ?? null } }));
+          }
+          // Live profile photo updates — fired when the supreme admin (or
+          // the user themselves elsewhere) swaps the photo. The navbar
+          // ProfileIcon listens to this event and refreshes its avatar.
+          if (row.profile_photo !== undefined) {
+            window.dispatchEvent(new CustomEvent("bv-profile-photo-changed", { detail: { photo: row.profile_photo ?? null } }));
           }
           // Fire celebration the instant admin flips manually_verified to true.
           if (row.manually_verified === true) {
