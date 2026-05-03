@@ -192,17 +192,22 @@ export function Footer() {
             <div className="flex flex-col gap-3">
               <div>
                 <label
+                  htmlFor="bv-footer-contact-email"
                   className="block text-[11px] font-semibold tracking-[0.12em] uppercase mb-1.5"
                   style={{ color: "var(--w3)" }}
                 >
                   {cl.emailLbl}{" "}
-                  <span style={{ color: "var(--gold)" }}>✱</span>
+                  <span style={{ color: "var(--gold)" }} aria-hidden="true">✱</span>
                 </label>
                 <input
+                  id="bv-footer-contact-email"
                   type="email"
                   value={contactEmail}
                   onChange={(e) => { setContactEmail(e.target.value); setContactError(false); }}
                   placeholder={cl.ph}
+                  required aria-required="true"
+                  aria-invalid={contactError}
+                  autoComplete="email"
                   className="w-full rounded-[10px] outline-none"
                   style={{
                     fontSize: "14px",
@@ -215,6 +220,7 @@ export function Footer() {
               </div>
               <div>
                 <label
+                  htmlFor="bv-footer-contact-msg"
                   className="block text-[11px] font-semibold tracking-[0.12em] uppercase mb-1.5"
                   style={{ color: "var(--w3)" }}
                 >
@@ -224,6 +230,7 @@ export function Footer() {
                   </span>
                 </label>
                 <textarea
+                  id="bv-footer-contact-msg"
                   value={contactMsg}
                   onChange={(e) => setContactMsg(e.target.value)}
                   placeholder={cl.phMsg}

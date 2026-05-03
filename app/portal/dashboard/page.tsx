@@ -1404,7 +1404,7 @@ export default function DashboardPage() {
       </div>
       );
     })()}
-    <main className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "58px" }}>
+    <main id="bv-main" tabIndex={-1} className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "58px" }}>
       <PortalTopNav />
       <div className="max-w-[780px] mx-auto px-4 pt-8 pb-16">
 
@@ -1608,6 +1608,11 @@ export default function DashboardPage() {
               const unlocked = isJourneyUnlocked(js.key, pipeline);
               const isActive = viewMode === js.key;
               const stageLabel = t[`pJourney${js.key.charAt(0).toUpperCase() + js.key.slice(1)}` as keyof typeof t] as string;
+              // Locked-but-Kandidat: nothing to do → actually disable. Locked
+              // for Starter: still actionable (opens upgrade modal). Unlocked:
+              // navigates. Disabled prop matches reality so keyboard users get
+              // the same blocked behavior as mouse users.
+              const isInert = hasKandidat && !unlocked;
               return (
                 <div key={js.key} className="flex flex-col items-center">
                   <button
@@ -1615,10 +1620,11 @@ export default function DashboardPage() {
                       if (!hasKandidat) { setUpgradeOpen(true); return; }
                       if (unlocked) { setViewMode(js.key); window.scrollTo({ top: 0, behavior: "smooth" }); }
                     }}
+                    disabled={isInert}
                     title={unlocked ? stageLabel : t.pJourneyLocked}
-                    aria-disabled={!unlocked && hasKandidat}
+                    aria-label={unlocked ? stageLabel : `${stageLabel} — ${t.pJourneyLocked}`}
                     className={`w-full flex flex-col items-center gap-1.5 py-1 transition-all duration-200${unlocked ? " bv-row-hover" : ""}`}
-                    style={{ cursor: unlocked || !hasKandidat ? "pointer" : "not-allowed", opacity: unlocked ? 1 : 0.45, WebkitTapHighlightColor: "transparent" }}
+                    style={{ cursor: isInert ? "not-allowed" : "pointer", opacity: unlocked ? 1 : 0.45, WebkitTapHighlightColor: "transparent" }}
                   >
                     <span
                       className="relative flex items-center justify-center w-9 h-9 rounded-full leading-none select-none transition-all duration-300"
@@ -1732,9 +1738,11 @@ export default function DashboardPage() {
                         onClick={() => {
                           if (unlocked) { setViewMode(js.key); setMobileNavOpen(false); window.scrollTo({ top: 0, behavior: "smooth" }); }
                         }}
+                        disabled={!unlocked}
                         title={unlocked ? stageLabel : t.pJourneyLocked}
+                        aria-label={unlocked ? stageLabel : `${stageLabel} — ${t.pJourneyLocked}`}
                         className={`w-full flex flex-col items-center gap-1.5 py-1 transition-all duration-200${unlocked ? " bv-row-hover" : ""}`}
-                        style={{ cursor: "pointer", opacity: unlocked ? 1 : 0.45, WebkitTapHighlightColor: "transparent" }}>
+                        style={{ cursor: unlocked ? "pointer" : "not-allowed", opacity: unlocked ? 1 : 0.45, WebkitTapHighlightColor: "transparent" }}>
                         <span
                           className="relative flex items-center justify-center w-9 h-9 rounded-full leading-none select-none transition-all duration-300"
                           style={{

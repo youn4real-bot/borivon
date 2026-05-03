@@ -229,6 +229,8 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder={T.searchPlaceholder}
+              aria-label={T.searchPlaceholder}
+              type="search"
               className="w-full rounded-xl pl-8 pr-3 py-2 text-[12.5px] outline-none"
               style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)" }}
             />
@@ -338,19 +340,22 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <p className="text-[11.5px] text-center" style={{ color: "var(--w3)" }}>
+                <label htmlFor="bv-delete-confirm-input" className="text-[11.5px] text-center" style={{ color: "var(--w3)" }}>
                   {T.typeToConfirmLabel} <strong style={{ color: "var(--w)" }}>{T.typeToConfirm}</strong> {T.typeToConfirmSuffix}
-                </p>
+                </label>
                 <input
+                  id="bv-delete-confirm-input"
                   value={deleteInput}
                   onChange={e => setDeleteInput(e.target.value)}
                   onKeyDown={e => { if (e.key === "Enter" && deleteInput === T.typeToConfirm) deleteUser(); }}
                   placeholder={T.typeToConfirm}
+                  aria-label={`${T.typeToConfirmLabel} ${T.typeToConfirm} ${T.typeToConfirmSuffix}`}
                   autoFocus
+                  autoComplete="off"
                   className="w-full text-center rounded-xl px-3 py-2.5 text-[13px] outline-none"
                   style={{
                     background: "var(--bg2)",
-                    border: `1px solid ${deleteInput === T.typeToConfirm ? "rgba(255,59,48,0.5)" : "var(--border)"}`,
+                    border: `1px solid ${deleteInput === T.typeToConfirm ? "var(--danger-border)" : "var(--border)"}`,
                     color: "var(--w)",
                   }}
                 />

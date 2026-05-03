@@ -21,7 +21,7 @@
  * to skip the title bar / footer and bring your own — the chrome rules still apply.
  */
 
-import { useEffect } from "react";
+import { useEffect, useId, useRef } from "react";
 import { createPortal } from "react-dom";
 import { X as XIcon } from "lucide-react";
 import { useLang } from "@/components/LangContext";
@@ -61,6 +61,8 @@ export function Modal({
   busy?: boolean;
 }) {
   const { t } = useLang();
+  const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
   // Lock body scroll + Esc to close (Esc disabled while busy)
   useEffect(() => {
     if (!open) return;
@@ -73,6 +75,52 @@ export function Modal({
       document.body.style.overflow = prev;
     };
   }, [open, onClose, busy]);
+
+  // Focus management: capture the previously-focused element on open, focus
+  // the first interactive element inside the dialog, and restore focus on
+  // close. Tab/Shift-Tab traps focus within the dialog.
+  useEffect(() => {
+    if (!open) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+
+    // Defer focus until the portal has rendered.
+    const focusTimer = setTimeout(() => {
+      const root = dialogRef.current;
+      if (!root) return;
+      const first = root.querySelector<HTMLElement>(
+        "input:not([disabled]):not([type='hidden']), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])"
+      );
+      (first ?? root).focus();
+    }, 0);
+
+    const onTab = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const root = dialogRef.current;
+      if (!root) return;
+      const focusables = Array.from(root.querySelectorAll<HTMLElement>(
+        "input:not([disabled]):not([type='hidden']), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])"
+      )).filter(el => el.offsetParent !== null);
+      if (focusables.length === 0) { e.preventDefault(); return; }
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey && active === first) {
+        e.preventDefault(); last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault(); first.focus();
+      }
+    };
+    window.addEventListener("keydown", onTab);
+
+    return () => {
+      clearTimeout(focusTimer);
+      window.removeEventListener("keydown", onTab);
+      // Restore focus to the trigger element that opened the modal.
+      if (previouslyFocused && typeof previouslyFocused.focus === "function") {
+        previouslyFocused.focus();
+      }
+    };
+  }, [open]);
 
   if (!open || typeof document === "undefined") return null;
 
@@ -93,7 +141,12 @@ export function Modal({
         }
       `}</style>
       <div
-        className="w-full flex flex-col"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
+        tabIndex={-1}
+        className="w-full flex flex-col outline-none"
         style={{
           maxWidth: SIZE_MAX_W[size],
           background: "var(--card)",
@@ -111,7 +164,7 @@ export function Modal({
             style={{ borderBottom: "1px solid var(--border)" }}>
             <div className="min-w-0">
               {title && (
-                <p className="text-[14px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>
+                <p id={titleId} className="text-[14px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>
                   {title}
                 </p>
               )}

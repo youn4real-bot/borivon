@@ -206,20 +206,23 @@ export function SignRequestPanel({ candidateId, authToken, lang }: Props) {
       {showForm && (
         <div className="p-4 space-y-3" style={{ background: "var(--card)", borderBottom: "1px solid var(--border)" }}>
           <div>
-            <label className="block text-[11.5px] font-medium mb-1" style={{ color: "var(--w3)" }}>{t.docName}</label>
+            <label htmlFor={`bv-sr-doc-name-${candidateId}`} className="block text-[11.5px] font-medium mb-1" style={{ color: "var(--w3)" }}>{t.docName}</label>
             <input
+              id={`bv-sr-doc-name-${candidateId}`}
               value={docName}
               onChange={e => setDocName(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleSubmit(); } }}
               placeholder={t.docNamePh}
+              required aria-required="true"
               className="w-full px-3 py-2 text-[13px] rounded-xl outline-none"
               style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)" }}
             />
           </div>
 
           <div>
-            <label className="block text-[11.5px] font-medium mb-1" style={{ color: "var(--w3)" }}>{t.note}</label>
+            <label htmlFor={`bv-sr-note-${candidateId}`} className="block text-[11.5px] font-medium mb-1" style={{ color: "var(--w3)" }}>{t.note}</label>
             <input
+              id={`bv-sr-note-${candidateId}`}
               value={note}
               onChange={e => setNote(e.target.value)}
               onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleSubmit(); } }}
@@ -246,8 +249,15 @@ export function SignRequestPanel({ candidateId, authToken, lang }: Props) {
             <div
               role="button"
               tabIndex={0}
+              aria-label={t.uploadPdf}
               onClick={() => fileRef.current?.click()}
-              onKeyDown={e => e.key === "Enter" && fileRef.current?.click()}
+              onKeyDown={e => {
+                // Both Enter and Space activate buttons per WAI-ARIA.
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  fileRef.current?.click();
+                }
+              }}
               onDragOver={e => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
               onDrop={async e => {

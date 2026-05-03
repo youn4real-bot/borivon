@@ -1,7 +1,8 @@
 "use client";
 
 import { useRef, useEffect, useState, useCallback } from "react";
-import { RotateCcw } from "lucide-react";
+import { RotateCcw, Type, Pencil } from "lucide-react";
+import { useLang } from "@/components/LangContext";
 
 type Props = {
   width?:        number;
@@ -16,10 +17,24 @@ export function SignaturePad({
   defaultValue, onCapture,
   clearLabel = "Clear",
 }: Props) {
+  const { lang } = useLang();
   const canvasRef  = useRef<HTMLCanvasElement>(null);
   const drawing    = useRef(false);
   const lastPos    = useRef<{ x: number; y: number } | null>(null);
   const [isEmpty, setIsEmpty] = useState(!defaultValue);
+  // Keyboard / typed-name fallback — for users who can't draw with a pointer
+  // (assistive tech, no touchscreen + no mouse, etc.). Renders the typed name
+  // into the canvas as a cursive-styled signature on submit.
+  const [mode, setMode]       = useState<"draw" | "type">("draw");
+  const [typedName, setTypedName] = useState("");
+
+  const labels = {
+    draw:        lang === "de" ? "Hier unterschreiben" : lang === "fr" ? "Signez ici" : "Draw your signature here",
+    typeMode:    lang === "de" ? "Tippen statt zeichnen" : lang === "fr" ? "Taper à la place" : "Type instead",
+    drawMode:    lang === "de" ? "Zeichnen" : lang === "fr" ? "Dessiner" : "Draw",
+    typedPh:     lang === "de" ? "Vollständigen Namen tippen" : lang === "fr" ? "Tapez votre nom complet" : "Type your full name",
+    canvasLabel: lang === "de" ? "Unterschriftsfeld zum Zeichnen" : lang === "fr" ? "Zone de signature à dessiner" : "Signature drawing area",
+  };
 
   // Initialise canvas size + DPR, then paint any saved default
   useEffect(() => {
@@ -132,34 +147,98 @@ export function SignaturePad({
     onCapture(null);
   }
 
+  // Render the typed name as a cursive PNG into the canvas + emit it.
+  function renderTypedName(name: string) {
+    const canvas = canvasRef.current;
+    if (!canvas || !name.trim()) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, width, height);
+    ctx.fillStyle = "#0a0a0a";
+    // Use a cursive system font; fall back gracefully if unavailable.
+    const fontSize = Math.min(48, Math.max(24, height * 0.5));
+    ctx.font = `italic ${fontSize}px "Brush Script MT", "Lucida Handwriting", cursive`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(name.trim(), width / 2, height / 2);
+    setIsEmpty(false);
+    onCapture(canvas.toDataURL("image/png"));
+  }
+
+  // Whenever the typed name changes in type-mode, re-render the canvas
+  // synchronously so what the user sees matches what's submitted.
+  useEffect(() => {
+    if (mode !== "type") return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    if (!typedName.trim()) {
+      ctx.clearRect(0, 0, width, height);
+      setIsEmpty(true);
+      onCapture(null);
+      return;
+    }
+    renderTypedName(typedName);
+  }, [typedName, mode]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className="relative w-full">
       <canvas
         ref={canvasRef}
+        role="img"
+        aria-label={labels.canvasLabel}
         style={{
           width: "100%", height,
           display: "block",
           borderRadius: "12px",
           border: "1.5px solid var(--border)",
           background: "#fff",
-          cursor: "crosshair",
+          cursor: mode === "draw" ? "crosshair" : "default",
           touchAction: "none",
+          pointerEvents: mode === "draw" ? "auto" : "none",
         }}
       />
-      {isEmpty && (
+      {isEmpty && mode === "draw" && (
         <span className="absolute inset-0 flex items-center justify-center text-[13px] pointer-events-none select-none"
           style={{ color: "rgba(0,0,0,0.18)" }}>
-          Draw your signature here
+          {labels.draw}
         </span>
       )}
       {!isEmpty && (
         <button type="button" onClick={clear}
+          aria-label={clearLabel}
           className="absolute top-2 right-2 inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full transition-opacity hover:opacity-80"
           style={{ background: "rgba(0,0,0,0.06)", color: "rgba(0,0,0,0.5)" }}>
-          <RotateCcw size={10} strokeWidth={2} />
+          <RotateCcw size={10} strokeWidth={2} aria-hidden="true" />
           {clearLabel}
         </button>
       )}
+      {/* Mode toggle + typed-name input — keyboard fallback for assistive
+          tech and users with no pointing device. */}
+      <div className="mt-2 flex items-center gap-2">
+        <button type="button"
+          onClick={() => { setMode(m => m === "draw" ? "type" : "draw"); clear(); setTypedName(""); }}
+          aria-pressed={mode === "type"}
+          className="inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full transition-opacity hover:opacity-80"
+          style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
+          {mode === "draw"
+            ? <><Type size={11} strokeWidth={1.8} aria-hidden="true" /> {labels.typeMode}</>
+            : <><Pencil size={11} strokeWidth={1.8} aria-hidden="true" /> {labels.drawMode}</>}
+        </button>
+        {mode === "type" && (
+          <input
+            type="text"
+            value={typedName}
+            onChange={e => setTypedName(e.target.value)}
+            placeholder={labels.typedPh}
+            aria-label={labels.typedPh}
+            autoComplete="off"
+            className="flex-1 text-[13px] px-3 py-1 rounded-md outline-none"
+            style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }}
+          />
+        )}
+      </div>
     </div>
   );
 }

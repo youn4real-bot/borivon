@@ -1508,7 +1508,7 @@ export default function AdminPage() {
           );
         })()}
 
-        <main className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "58px" }}>
+        <main id="bv-main" tabIndex={-1} className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "58px" }}>
           <PortalTopNav />
           <div className="max-w-[780px] mx-auto px-4 pt-8 pb-16">
 
@@ -2485,7 +2485,7 @@ export default function AdminPage() {
             }
           />
         )}
-      <main className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "58px" }}>
+      <main id="bv-main" tabIndex={-1} className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "58px" }}>
         <PortalTopNav />
         <div className="max-w-[780px] mx-auto px-4 pt-8 pb-16">
 

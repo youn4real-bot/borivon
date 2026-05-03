@@ -235,6 +235,9 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Borivon"
       className="fixed inset-x-0 bottom-0 top-[58px] z-[700] flex items-end sm:items-center justify-center sm:p-4 bv-auth-modal-outer"
       style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
       onClick={() => { if (!loading) onClose(); }}
@@ -318,10 +321,10 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
                 {mode === "register" && (
                   <>
                     <input type="text" value={firstName} onChange={e => setFirstName(e.target.value)}
-                      placeholder={t.pFirstName} autoComplete="given-name"
+                      placeholder={t.pFirstName} aria-label={t.pFirstName} autoComplete="given-name" required aria-required="true"
                       style={fieldStyle} onFocus={focusGold} onBlur={blurReset} />
                     <input type="text" value={lastName} onChange={e => setLastName(e.target.value)}
-                      placeholder={t.pLastName} autoComplete="family-name"
+                      placeholder={t.pLastName} aria-label={t.pLastName} autoComplete="family-name" required aria-required="true"
                       style={fieldStyle} onFocus={focusGold} onBlur={blurReset} />
                     {/* Invite code — mandatory */}
                     <div className="relative">
@@ -340,6 +343,9 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
                           lang === "en" ? "Invitation code *" :
                           "Code d'invitation *"
                         }
+                        aria-label={lang === "de" ? "Einladungscode" : lang === "en" ? "Invitation code" : "Code d'invitation"}
+                        aria-invalid={inviteStatus === "invalid"}
+                        required aria-required="true"
                         autoComplete="off"
                         style={{
                           ...fieldStyle,
@@ -351,8 +357,9 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
                         }}
                         onFocus={e => (e.currentTarget.style.borderColor = inviteStatus === "valid" ? "var(--success-border)" : inviteStatus === "invalid" ? "var(--danger-border)" : "var(--gold)")}
                       />
-                      {/* Status indicator */}
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center">
+                      {/* Status indicator — decorative SVGs hidden from SR
+                          (the live region below carries the meaning). */}
+                      <span className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center" aria-hidden="true">
                         {inviteStatus === "checking" && (
                           <svg className="animate-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--w3)" strokeWidth="2"><circle cx="12" cy="12" r="10" strokeOpacity=".25"/><path d="M12 2a10 10 0 0 1 10 10" /></svg>
                         )}
@@ -364,7 +371,9 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
                         )}
                       </span>
                     </div>
-                    {/* Feedback line below invite code */}
+                    {/* Feedback line below invite code — announced to screen
+                        readers when the validation result changes. */}
+                    <div role="status" aria-live="polite" className="contents">
                     {inviteStatus === "valid" && inviteOrgName && (
                       <p className="text-[11.5px] -mt-1 px-1" style={{ color: "var(--success)" }}>
                         ✓ {lang === "de" ? `Einladung von ${inviteOrgName} akzeptiert` : lang === "en" ? `Invitation from ${inviteOrgName} accepted` : `Invitation de ${inviteOrgName} acceptée`}
@@ -375,11 +384,12 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
                         {lang === "de" ? "Ungültiger Code — bitte prüfen" : lang === "en" ? "Invalid code — please check" : "Code invalide — veuillez vérifier"}
                       </p>
                     )}
+                    </div>
                   </>
                 )}
 
                 <input type="email" value={email} onChange={e => setEmail(e.target.value)}
-                  placeholder={t.phEmail} autoComplete="email"
+                  placeholder={t.phEmail} aria-label={t.phEmail} autoComplete="email" required aria-required="true"
                   style={fieldStyle} onFocus={focusGold} onBlur={blurReset} />
 
                 {mode !== "forgot" && (
@@ -388,11 +398,15 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
                       type={showPassword ? "text" : "password"} value={password}
                       onChange={e => setPassword(e.target.value)}
                       placeholder={mode === "register" ? t.pPasswordHint : t.pPassword}
+                      aria-label={mode === "register" ? t.pPasswordHint : t.pPassword}
                       autoComplete={mode === "register" ? "new-password" : "current-password"}
+                      required aria-required="true"
                       style={{ ...fieldStyle, paddingRight: "44px" }}
                       onFocus={focusGold} onBlur={blurReset}
                     />
                     <button type="button" onClick={() => setShowPassword(v => !v)}
+                      aria-label={showPassword ? (lang === "de" ? "Passwort ausblenden" : lang === "fr" ? "Masquer le mot de passe" : "Hide password") : (lang === "de" ? "Passwort anzeigen" : lang === "fr" ? "Afficher le mot de passe" : "Show password")}
+                      aria-pressed={showPassword}
                       style={{ position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)", color: "var(--w3)", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
                       <EyeIcon open={showPassword} />
                     </button>
@@ -404,11 +418,13 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
                     <input
                       type={showConfirm ? "text" : "password"} value={confirmPassword}
                       onChange={e => setConfirmPassword(e.target.value)}
-                      placeholder={t.pConfirmPassword} autoComplete="new-password"
+                      placeholder={t.pConfirmPassword} aria-label={t.pConfirmPassword} autoComplete="new-password" required aria-required="true"
                       style={{ ...fieldStyle, paddingRight: "44px" }}
                       onFocus={focusGold} onBlur={blurReset}
                     />
                     <button type="button" onClick={() => setShowConfirm(v => !v)}
+                      aria-label={showConfirm ? (lang === "de" ? "Passwort ausblenden" : lang === "fr" ? "Masquer le mot de passe" : "Hide password") : (lang === "de" ? "Passwort anzeigen" : lang === "fr" ? "Afficher le mot de passe" : "Show password")}
+                      aria-pressed={showConfirm}
                       style={{ position: "absolute", right: "14px", top: "50%", transform: "translateY(-50%)", color: "var(--w3)", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
                       <EyeIcon open={showConfirm} />
                     </button>
@@ -423,12 +439,14 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
                   </button>
                 )}
 
+                <div role="alert" aria-live="assertive">
                 {error && (
                   <p className="text-[12.5px] px-3 py-2.5 rounded-xl"
                     style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
                     {error}
                   </p>
                 )}
+                </div>
 
                 <button type="submit" disabled={loading}
                   className="w-full py-[13px] text-[14px] font-semibold tracking-wide transition-all hover:opacity-90 hover:-translate-y-0.5 active:scale-[0.98] disabled:opacity-60 disabled:hover:translate-y-0"

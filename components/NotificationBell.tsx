@@ -143,6 +143,9 @@ function BellButton({ unread, open, onClick }: { unread: number; open: boolean; 
     <button
       onClick={onClick}
       aria-label={t.nbAria}
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      aria-controls="bv-notif-dropdown"
       className="relative flex items-center justify-center w-9 h-9 cursor-pointer hover:scale-110 active:scale-95 transition-transform"
       style={{
         background: "transparent",
@@ -198,9 +201,12 @@ function NotifDropdown({ label, total, unread, tab, onTabChange, onClose, childr
           </span>
         )}
       </div>
-      <div className="flex gap-1.5">
+      <div role="tablist" aria-label={label} className="flex gap-1.5">
         {(["all", "unread"] as const).map(t => (
           <button key={t} onClick={() => onTabChange(t)}
+            role="tab"
+            aria-selected={tab === t}
+            id={`bv-notif-tab-${t}`}
             className="px-3.5 py-1 rounded-full text-[11px] font-semibold transition-all"
             style={{
               background: tab === t ? "var(--gold)" : "var(--bg2)",
@@ -218,7 +224,8 @@ function NotifDropdown({ label, total, unread, tab, onTabChange, onClose, childr
     return createPortal(
       <>
         <div className="fixed inset-0" style={{ zIndex: 1299, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)" }} onClick={onClose} />
-        <div className="fixed bottom-0 left-0 right-0 flex flex-col rounded-t-[22px]"
+        <div id="bv-notif-dropdown" role="dialog" aria-modal="false" aria-label={label}
+          className="fixed bottom-0 left-0 right-0 flex flex-col rounded-t-[22px]"
           style={{ zIndex: 1300, background: "var(--card)", border: "1px solid var(--border)", borderBottom: "none", boxShadow: "0 -12px 40px rgba(0,0,0,0.32)", animation: "bvSlideUp 0.28s var(--ease-out)", maxHeight: "80dvh", overflow: "hidden" }}>
           <div className="flex justify-center pt-3 pb-1 flex-shrink-0 cursor-pointer" onClick={onClose}>
             <div className="w-9 h-1 rounded-full" style={{ background: "var(--border2)" }} />
@@ -235,7 +242,8 @@ function NotifDropdown({ label, total, unread, tab, onTabChange, onClose, childr
   }
 
   return (
-    <div className="absolute right-0 w-[320px] rounded-2xl overflow-hidden z-[600]"
+    <div id="bv-notif-dropdown" role="dialog" aria-modal="false" aria-label={label}
+      className="absolute right-0 w-[320px] rounded-2xl overflow-hidden z-[600]"
       style={{ top: "calc(100% + 8px)", background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 8px 32px rgba(0,0,0,0.28)" }}>
       <div className="px-4 pt-4 pb-0">{header}</div>
       <div style={{ height: 1, background: "var(--border)", marginTop: 12 }} />

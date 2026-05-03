@@ -681,7 +681,7 @@ export default function FeedPage() {
   const canPost = !!titleDraft.trim() && !!draft.trim() && !posting;
 
   if (loading) return (
-    <main className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "58px" }}>
+    <main id="bv-main" tabIndex={-1} className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "58px" }}>
       <PortalTopNav />
       <div className="flex items-center justify-center min-h-[40vh]">
         <Loader2 size={24} strokeWidth={1.8} className="animate-spin" style={{ color: "var(--gold)" }} />
@@ -690,7 +690,7 @@ export default function FeedPage() {
   );
 
   return (
-    <main className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "58px" }}>
+    <main id="bv-main" tabIndex={-1} className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "58px" }}>
       <PortalTopNav />
       <div className="max-w-[640px] mx-auto px-4 pt-5 pb-24 sm:px-6">
 

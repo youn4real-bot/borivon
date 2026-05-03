@@ -458,6 +458,7 @@ function ComposeBar({
           onChange={e => setText(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
           placeholder={ph}
+          aria-label={ph}
           rows={1}
           disabled={disabled || sending}
           className="flex-1 resize-none outline-none px-3 py-2 text-[14px]"

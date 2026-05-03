@@ -5,9 +5,9 @@ import { usePathname } from "next/navigation";
 import { useLang } from "./LangContext";
 
 const NAV_T = {
-  en: { dashboard: "Dashboard", community: "Community" },
-  fr: { dashboard: "Tableau de bord", community: "Communauté" },
-  de: { dashboard: "Dashboard", community: "Community" },
+  en: { dashboard: "Dashboard", community: "Community", skip: "Skip to content" },
+  fr: { dashboard: "Tableau de bord", community: "Communauté", skip: "Aller au contenu" },
+  de: { dashboard: "Dashboard", community: "Community", skip: "Zum Inhalt springen" },
 } as const;
 
 /**
@@ -56,6 +56,17 @@ export function PortalTopNav() {
   ];
 
   return (
+    <>
+      {/* Skip-to-content link — visible only when keyboard-focused. Lets
+          screen-reader and keyboard users jump past the nav directly to the
+          page's <main id="bv-main"> region. */}
+      <a
+        href="#bv-main"
+        className="sr-only focus:not-sr-only fixed top-2 left-2 z-[2000] px-3 py-2 rounded-md text-[13px] font-semibold no-underline"
+        style={{ background: "var(--gold)", color: "#131312", boxShadow: "var(--shadow-md)" }}
+      >
+        {T.skip}
+      </a>
     <nav
       ref={navRef}
       className="sticky z-[1100] flex items-center gap-0 px-4 sm:px-[3.5vw] border-b"
@@ -72,6 +83,7 @@ export function PortalTopNav() {
           key={tab.href}
           href={tab.href}
           prefetch={true}
+          aria-current={tab.active ? "page" : undefined}
           className="relative inline-flex items-center px-4 sm:px-5 py-3.5 text-[13px] font-semibold transition-colors duration-150 no-underline"
           style={{
             color: tab.active ? "var(--w)" : "var(--w3)",
@@ -84,5 +96,6 @@ export function PortalTopNav() {
         </Link>
       ))}
     </nav>
+    </>
   );
 }

@@ -207,7 +207,7 @@ export function BugReportButton() {
             </div>
 
             {sent ? (
-              <div className="px-5 py-8 text-center">
+              <div className="px-5 py-8 text-center" role="status" aria-live="polite">
                 <p className="text-[13px]" style={{ color: "var(--success)" }}>✓ {labelSent}</p>
               </div>
             ) : (
@@ -217,7 +217,9 @@ export function BugReportButton() {
                     value={text}
                     onChange={e => setText(e.target.value)}
                     placeholder={labelText}
+                    aria-label={labelTitle}
                     rows={4}
+                    autoFocus
                     className="w-full resize-none outline-none px-3 py-2.5 text-[13px]"
                     style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)", borderRadius: "var(--r-md)" }}
                   />
@@ -249,9 +251,11 @@ export function BugReportButton() {
                     </>
                   )}
 
+                  <div role="alert" aria-live="assertive">
                   {error && (
                     <p className="text-[11.5px]" style={{ color: "var(--danger)" }}>{error}</p>
                   )}
+                  </div>
                 </div>
 
                 <div className="flex items-center justify-end gap-2 px-5 py-3"

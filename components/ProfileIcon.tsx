@@ -316,6 +316,9 @@ export function ProfileIcon() {
       <button
         onClick={() => setOpen((o) => !o)}
         aria-label={gT.profProfileAria}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-controls="bv-profile-menu"
         className="w-9 h-9 rounded-full flex items-center justify-center text-[11px] font-semibold tracking-wider cursor-pointer hover:scale-110 active:scale-95 transition-transform flex-shrink-0 overflow-hidden"
         style={{
           background: user.photo ? "transparent" : (open ? "var(--gold)" : "var(--gdim)"),
@@ -515,7 +518,8 @@ export function ProfileIcon() {
           return createPortal(
             <>
               <div className="fixed inset-0" style={{ zIndex: 1299, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)" }} onClick={() => setOpen(false)} />
-              <div className="fixed bottom-0 left-0 right-0 rounded-t-[22px] overflow-hidden"
+              <div id="bv-profile-menu" role="menu" aria-label={gT.profProfileAria}
+                className="fixed bottom-0 left-0 right-0 rounded-t-[22px] overflow-hidden"
                 style={{ zIndex: 1300, background: "var(--card)", border: "1px solid var(--border)", borderBottom: "none", boxShadow: "0 -12px 40px rgba(0,0,0,0.32)", animation: "bvSlideUp 0.28s var(--ease-out)", paddingBottom: "env(safe-area-inset-bottom)" }}>
                 <div className="flex justify-center pt-3 pb-1 cursor-pointer" onClick={() => setOpen(false)}>
                   <div className="w-9 h-1 rounded-full" style={{ background: "var(--border2)" }} />
@@ -529,6 +533,9 @@ export function ProfileIcon() {
 
         return (
           <div
+            id="bv-profile-menu"
+            role="menu"
+            aria-label={gT.profProfileAria}
             className="absolute right-0 w-[240px] overflow-hidden z-[600]"
             style={{
               top: "calc(100% + 10px)",

@@ -599,9 +599,9 @@ textarea:focus {
   transition-duration: 80ms;
 }
 .bv-row-hover:focus-visible {
-  outline: none;
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
   background-color: var(--bg2);
-  box-shadow: 0 0 0 2px var(--border-gold);
 }
 /* Respect reduced-motion: drop the lift, keep just the bg fill. */
 @media (prefers-reduced-motion: reduce) {

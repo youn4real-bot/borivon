@@ -231,17 +231,31 @@ export function PhotoCropModal({
         <div className="flex items-center justify-center py-6"
           style={{ background: "var(--bg)" }}>
           <div
+            role="application"
+            aria-label={labels.title}
+            tabIndex={0}
             onMouseDown={onMouseDown}
             onTouchStart={onTouchStart}
             onTouchMove={onTouchMove}
             onTouchEnd={onTouchEnd}
             onWheel={onWheel}
+            // Arrow-key pan / +/-/= zoom for keyboard users (no pointer needed)
+            onKeyDown={e => {
+              const STEP = 12; // px per arrow press
+              if (e.key === "ArrowLeft")  { e.preventDefault(); const c = clamp(scale, tx + STEP, ty); setTx(c.x); setTy(c.y); }
+              else if (e.key === "ArrowRight") { e.preventDefault(); const c = clamp(scale, tx - STEP, ty); setTx(c.x); setTy(c.y); }
+              else if (e.key === "ArrowUp")    { e.preventDefault(); const c = clamp(scale, tx, ty + STEP); setTx(c.x); setTy(c.y); }
+              else if (e.key === "ArrowDown")  { e.preventDefault(); const c = clamp(scale, tx, ty - STEP); setTx(c.x); setTy(c.y); }
+              else if (e.key === "+" || e.key === "=") { e.preventDefault(); setZoom(scale * ZOOM_STEP); }
+              else if (e.key === "-" || e.key === "_") { e.preventDefault(); setZoom(scale / ZOOM_STEP); }
+            }}
             style={{
               width: viewport, height: viewport,
               position: "relative", overflow: "hidden",
               borderRadius: "9999px",
               cursor: dragRef.current ? "grabbing" : "grab",
               touchAction: "none",
+              outline: "none",
               // Gold glow ring around the crop circle (no heavy outer dim,
               // since the page chrome stays visible behind the modal).
               boxShadow: "0 0 0 2px var(--border-gold), 0 0 24px var(--gdim)",

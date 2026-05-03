@@ -2602,7 +2602,7 @@ function CVBuilderInner() {
         onClose={() => setExtraNatPickerOpen(false)}
       />
     )}
-    <main className="bv-page-bottom min-h-screen pt-[58px] pb-16 px-4" style={{ background: "var(--bg)" }}>
+    <main id="bv-main" tabIndex={-1} className="bv-page-bottom min-h-screen pt-[58px] pb-16 px-4" style={{ background: "var(--bg)" }}>
       <PortalTopNav />
       <div className="max-w-2xl mx-auto bv-enter-soft">
 
