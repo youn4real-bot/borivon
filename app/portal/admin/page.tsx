@@ -2262,9 +2262,14 @@ export default function AdminPage() {
                                                 {ta.label}
                                               </p>
                                             </div>
+                                            {/* Action buttons — wrap so click + mousedown can't bubble
+                                                to the row's preview-doc handler. */}
+                                            <div className="flex items-center gap-1.5 flex-shrink-0"
+                                              onClick={(e) => e.stopPropagation()}
+                                              onMouseDown={(e) => e.stopPropagation()}>
                                             {/* Download — always shown (parity with top-level peer rows) */}
                                             {d.drive_file_id && (
-                                              <button
+                                              <button type="button"
                                                 onClick={(e) => { e.stopPropagation(); downloadDoc(d); }}
                                                 title={t.aDownload} aria-label={t.aDownload}
                                                 className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0"
@@ -2274,14 +2279,14 @@ export default function AdminPage() {
                                             )}
                                             {d.status === "pending" && (
                                               <>
-                                                <button
+                                                <button type="button"
                                                   onClick={(e) => { e.stopPropagation(); openRejectModal({ kind: "doc", docId: d.id, label: d.file_name, initialFeedback: d.feedback ?? "" }); }}
                                                   disabled={saving[d.id]}
                                                   title="Reject" aria-label="Reject"
                                                   className="bv-icon-btn bv-icon-btn--reject w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0 disabled:opacity-40">
                                                   <XCircle size={12} strokeWidth={1.8} />
                                                 </button>
-                                                <button
+                                                <button type="button"
                                                   onClick={(e) => { e.stopPropagation(); review(d.id, "approved"); }}
                                                   disabled={saving[d.id]}
                                                   title="Approve" aria-label="Approve"
@@ -2290,6 +2295,7 @@ export default function AdminPage() {
                                                 </button>
                                               </>
                                             )}
+                                            </div>
                                             {d.status === "approved" && (
                                               <div className="relative flex-shrink-0">
                                                 <button
@@ -2327,11 +2333,17 @@ export default function AdminPage() {
                               </div>
 
                               {/* Right: single-row action icons —
-                                  download / reject / approve. */}
+                                  download / reject / approve.
+                                  Wrapper stops both click + mousedown bubbling
+                                  so the parent row's "preview doc" handler
+                                  can never swallow these button clicks. */}
                               {!isMulti && doc && (
-                                <div className="flex items-center gap-1.5 flex-shrink-0 mt-0.5">
+                                <div className="flex items-center gap-1.5 flex-shrink-0 mt-0.5"
+                                  onClick={(e) => e.stopPropagation()}
+                                  onMouseDown={(e) => e.stopPropagation()}>
                                   {doc.drive_file_id && (
-                                    <button title={t.aDownload} aria-label={t.aDownload} onClick={(e) => { e.stopPropagation(); downloadDoc(doc); }}
+                                    <button type="button" title={t.aDownload} aria-label={t.aDownload}
+                                      onClick={(e) => { e.stopPropagation(); downloadDoc(doc); }}
                                       className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
                                       style={{ color: "var(--w2)" }}>
                                       <Download size={13} strokeWidth={1.8} />
@@ -2339,14 +2351,14 @@ export default function AdminPage() {
                                   )}
                                   {doc.status === "pending" && (
                                     <>
-                                      <button
+                                      <button type="button"
                                         onClick={(e) => { e.stopPropagation(); openRejectModal({ kind: "doc", docId: doc.id, label: item.label, initialFeedback: doc.feedback ?? "" }); }}
                                         disabled={saving[doc.id]}
                                         title="Reject" aria-label="Reject"
                                         className="bv-icon-btn bv-icon-btn--reject w-9 h-9 flex items-center justify-center rounded-full disabled:opacity-40">
                                         <XCircle size={15} strokeWidth={1.8} />
                                       </button>
-                                      <button
+                                      <button type="button"
                                         onClick={(e) => { e.stopPropagation(); review(doc.id, "approved"); }}
                                         disabled={saving[doc.id]}
                                         title="Approve" aria-label="Approve"
