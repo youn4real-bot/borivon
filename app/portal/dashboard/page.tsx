@@ -2337,14 +2337,21 @@ export default function DashboardPage() {
           && /pass/i.test(previewDoc.file_type)
           && !passportStatus;
         return (
-        <div className={`fixed inset-x-0 z-[750] flex justify-center p-4 bv-passport-modal-outer ${splitWithPreview ? "bv-side-data-cand" : "top-[58px] bottom-0 items-center"}`}
-          style={{ background: splitWithPreview ? "transparent" : "rgba(0,0,0,0.45)",
-                   backdropFilter: splitWithPreview ? undefined : "blur(8px)",
-                   pointerEvents: splitWithPreview ? "none" : "auto" }}
+        <div className={`fixed inset-x-0 z-[750] flex justify-center p-4 bv-passport-modal-outer ${splitWithPreview ? "bv-side-data-cand" : "items-center"}`}
+          style={{
+            // Reserve clearance for the navbar (58px) AND the sub-nav strip
+            // (Tableau de bord / Communauté tabs) so the modal isn't half-
+            // hidden under the chrome. Bottom: leave a small gap on desktop.
+            top: splitWithPreview ? undefined : "calc(58px + var(--bv-subnav-h, 0px))",
+            bottom: splitWithPreview ? undefined : "0",
+            background: splitWithPreview ? "transparent" : "rgba(0,0,0,0.45)",
+            backdropFilter: splitWithPreview ? undefined : "blur(8px)",
+            pointerEvents: splitWithPreview ? "none" : "auto",
+          }}
           onClick={!splitWithPreview ? (e) => { if (e.target === e.currentTarget) setPassportModal(null); } : undefined}>
           {/* Phone: leave clearance for the bottom action bar so the modal
-              never slides behind it. Laptop: top-[58px] above already
-              creates the small gap below the navbar. */}
+              never slides behind it. Laptop: the top + bottom inline above
+              already creates the gap. */}
           <style>{`
             @media (max-width: 639.98px) {
               .bv-passport-modal-outer { padding-bottom: calc(1rem + 72px) !important; }
@@ -2362,8 +2369,13 @@ export default function DashboardPage() {
               }
             }
             @media (min-width: 640px) {
+              .bv-passport-modal-card {
+                /* Desktop: keep the card tall enough to be useful but
+                   short enough to leave a visible gap above and below. */
+                max-height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 2rem) !important;
+              }
               .bv-side-data-cand {
-                top: 58px;
+                top: calc(58px + var(--bv-subnav-h, 0px));
                 bottom: 0;
                 align-items: center;
                 justify-content: flex-start !important;
@@ -2376,7 +2388,7 @@ export default function DashboardPage() {
             style={{
               background: "var(--card)", border: "1px solid var(--border)",
               borderRadius: "var(--r-2xl)", boxShadow: "var(--shadow-lg)",
-              maxHeight: "88vh", animation: "bvFadeRise .28s var(--ease-out)",
+              animation: "bvFadeRise .28s var(--ease-out)",
               pointerEvents: "auto",
             }}>
             {/* Header */}
