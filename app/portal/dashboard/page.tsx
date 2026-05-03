@@ -24,7 +24,6 @@ import { ZoomPanRotateViewer } from "@/components/ZoomPanRotateViewer";
 import { Spinner, PageLoader, AutosaveIndicator } from "@/components/ui/states";
 import { JourneyView } from "@/components/JourneyView";
 import { OrgCodeModal } from "@/components/OrgCodeModal";
-import { useMobileMenu } from "@/components/MobileMenuContext";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { buildProfileSlug } from "@/lib/profile-slug";
 import { VerifiedCelebration } from "@/components/VerifiedCelebration";
@@ -213,9 +212,6 @@ export default function DashboardPage() {
   const [mode, setMode]           = useState<"wizard">("wizard");
   const [phase, setPhase]         = useState(0);
   const [isReturn, setIsReturn]   = useState(false);
-  // Mobile-only: phase rail slides in/out via the bottom-bar hamburger button.
-  // Default closed on mobile, irrelevant on desktop (rail is always visible).
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   type MsgType = "success" | "errPdfOnly" | "errAllTypes" | "errSize" | "errUpload" | "errNetwork" | "errDownload";
   type SlotMsg = { key: string; ok: boolean; type: MsgType; label?: string };
@@ -262,23 +258,8 @@ export default function DashboardPage() {
   type SignReq = { id: string; document_name: string; note: string | null; status: "pending" | "signed" | "declined"; signed_at: string | null; created_at: string; signature_zone: { page: number; x: number; y: number; w: number; h: number } | null; pdf_preview_url: string | null; };
   const [signRequests, setSignRequests] = useState<SignReq[]>([]);
 
-  // Wire the bottom-bar hamburger ↔ home toggle. The Navbar reads this and
-  // renders an icon as the first item in the mobile bottom action bar.
-  const mobileMenu = useMobileMenu();
-  useEffect(() => {
-    if (!mobileMenu) return;
-    mobileMenu.setConfig({
-      isOpen: mobileNavOpen,
-      toggle: () => setMobileNavOpen(o => !o),
-      label: mobileNavOpen ? "Close phases" : "Open phases",
-    });
-    return () => mobileMenu.setConfig(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mobileNavOpen]);
-
-  // Close the mobile drawer whenever the user picks a phase or jumps to a
-  // journey stage — feels expected.
-  useEffect(() => { setMobileNavOpen(false); }, [phase]);
+  // (Mobile drawer + bottom-bar hamburger removed — sidebar is now always
+  // visible on every breakpoint, matching the admin dashboard layout.)
 
   // Helper: set slotMsg and auto-clear it after 5 s
   const setSlotMsgTimed = (msg: SlotMsg | null) => {
@@ -1533,11 +1514,10 @@ export default function DashboardPage() {
         {/* Two-column: sidebar stepper + main content */}
         <div className="flex gap-4 sm:gap-6 items-start">
 
-          {/* ── Vertical sidebar ──
-              Desktop: always visible at left, sticky.
-              Mobile: hidden by default; slides in as an overlay drawer when
-              the user taps the hamburger in the bottom bar. */}
-          <aside className={`shrink-0 w-[60px] sm:w-[80px] hidden sm:block`}
+          {/* ── Vertical sidebar — always visible, same pattern as the
+              admin dashboard. No hamburger drawer on mobile; the rail just
+              shrinks to 60px on phones so it stays inline with the content. */}
+          <aside className={`shrink-0 w-[60px] sm:w-[80px]`}
             style={{ position: "sticky", top: "calc(61px + 1.5rem)" }}>
             {PHASES.map((ph, i) => {
               const isActive = i === phase && viewMode === "docs";
@@ -1660,124 +1640,6 @@ export default function DashboardPage() {
               );
             })}
           </aside>
-
-          {/* ── Mobile slide-in drawer for phase rail ──
-              Hidden on desktop. Backdrop dims the page; tap to close.
-              The drawer itself slides in from the left and reuses the same
-              phase + journey rail content as the desktop aside. */}
-          {mobileNavOpen && (
-            <div
-              className="sm:hidden fixed inset-0 z-[450]"
-              style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", animation: "bvFadeRise .18s var(--ease-out)" }}
-              onClick={() => setMobileNavOpen(false)}>
-              <aside
-                className="absolute top-0 bottom-0 left-0 w-[110px] py-6 px-2 flex flex-col items-center"
-                style={{
-                  background: "var(--card)",
-                  borderRight: "1px solid var(--border)",
-                  animation: "bvSlideInLeft .22s var(--ease-out)",
-                  paddingTop: "calc(61px + 1.5rem)",
-                  overflowY: "auto",
-                }}
-                onClick={e => e.stopPropagation()}>
-                {PHASES.map((ph, i) => {
-                  const isActive = i === phase && viewMode === "docs";
-                  // Same logic as desktop sidebar: count only docs the admin
-                  // has acted on AND the candidate hasn't opened yet.
-                  const decidedCnt = ph.items.reduce((n, it) => {
-                    const list = getDocAll(it.key);
-                    if (list.length === 0) return n;
-                    return n + list.filter(d =>
-                      (d.status === "approved" || d.status === "rejected") && !seenDocIds.has(d.id)
-                    ).length;
-                  }, 0);
-                  const rejectedCnt = ph.items.reduce((n, it) => {
-                    const list = getDocAll(it.key);
-                    if (list.length === 0) return n;
-                    return n + list.filter(d => d.status === "rejected" && !seenDocIds.has(d.id)).length;
-                  }, 0);
-                  const badgeColor = rejectedCnt > 0 ? "var(--danger)" : "var(--gold)";
-                  return (
-                    <div key={i} className="flex flex-col items-center w-full">
-                      <button
-                        onClick={() => { setPhase(i); setViewMode("docs"); setSlotMsg(null); window.scrollTo({ top: 0, behavior: "smooth" }); }}
-                        title={ph.title}
-                        className="bv-lift-hover w-full flex flex-col items-center gap-1.5 py-1.5">
-                        <span
-                          className="relative flex items-center justify-center w-10 h-10 rounded-full leading-none select-none transition-all duration-300"
-                          style={{
-                            background: "transparent", border: "none",
-                            color: isActive ? "var(--gold)" : "var(--w3)",
-                            transform: isActive ? "scale(1.08)" : "scale(1)",
-                            transition: "color 0.2s, transform 0.15s",
-                          }}>
-                          <PhaseIcon kind={ph.kind} size={17} />
-                          {decidedCnt > 0 && (
-                            <span className="absolute -top-1 -right-1 min-w-[16px] h-4 rounded-full text-[9px] font-bold flex items-center justify-center px-1"
-                              style={{ background: badgeColor, color: "#131312", border: "1.5px solid var(--card)" }}>
-                              {decidedCnt}
-                            </span>
-                          )}
-                        </span>
-                        <span className="text-[10px] text-center leading-tight font-medium px-0.5 w-full"
-                          style={{ color: isActive ? "var(--gold)" : "var(--w3)" }}>
-                          {ph.shortTitle}
-                        </span>
-                      </button>
-                      {i < PHASES.length - 1 && (
-                        <div className="w-px" style={{ height: 18, background: "var(--border)" }} />
-                      )}
-                    </div>
-                  );
-                })}
-                <div className="flex flex-col items-center py-1 w-full">
-                  <div style={{ width: 1, height: 20, background: "var(--border)" }} />
-                </div>
-                {JOURNEY_STAGES.map((js, ji) => {
-                  const unlocked = isJourneyUnlocked(js.key, pipeline);
-                  const isActive = viewMode === js.key;
-                  const stageLabel = t[`pJourney${js.key.charAt(0).toUpperCase() + js.key.slice(1)}` as keyof typeof t] as string;
-                  return (
-                    <div key={js.key} className="flex flex-col items-center w-full">
-                      <button
-                        onClick={() => {
-                          if (unlocked) { setViewMode(js.key); setMobileNavOpen(false); window.scrollTo({ top: 0, behavior: "smooth" }); }
-                        }}
-                        disabled={!unlocked}
-                        title={unlocked ? stageLabel : t.pJourneyLocked}
-                        aria-label={unlocked ? stageLabel : `${stageLabel} — ${t.pJourneyLocked}`}
-                        className={`w-full flex flex-col items-center gap-1.5 py-1 transition-all duration-200${unlocked ? " bv-row-hover" : ""}`}
-                        style={{ cursor: unlocked ? "pointer" : "not-allowed", opacity: unlocked ? 1 : 0.45, WebkitTapHighlightColor: "transparent" }}>
-                        <span
-                          className="relative flex items-center justify-center w-9 h-9 rounded-full leading-none select-none transition-all duration-300"
-                          style={{
-                            background: "transparent", border: "none",
-                            color: isActive ? "var(--gold)" : "var(--w3)",
-                            transform: isActive ? "scale(1.08)" : "scale(1)",
-                            transition: "color 0.2s, transform 0.15s",
-                          }}>
-                          <PhaseIcon kind={js.kind} size={15} />
-                          {!unlocked && (
-                            <span className="absolute -top-1 -right-1 flex items-center justify-center w-3.5 h-3.5 rounded-full"
-                              style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-                              <Lock size={7} strokeWidth={2.2} style={{ color: "var(--w3)" }} />
-                            </span>
-                          )}
-                        </span>
-                        <span className="text-[10px] text-center leading-tight font-medium"
-                          style={{ color: isActive ? "var(--gold)" : "var(--w3)" }}>
-                          {stageLabel}
-                        </span>
-                      </button>
-                      {ji < JOURNEY_STAGES.length - 1 && (
-                        <div className="w-px" style={{ height: 18, background: "var(--border)" }} />
-                      )}
-                    </div>
-                  );
-                })}
-              </aside>
-            </div>
-          )}
 
           {/* ── Main content ── */}
           <div className="flex-1 min-w-0">
