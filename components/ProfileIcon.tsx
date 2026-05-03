@@ -130,6 +130,7 @@ export function ProfileIcon() {
   // Plan comparison modal — shown when candidates click their avatar
   const [planModalOpen, setPlanModalOpen]       = useState(false);
   const [checkoutPlan, setCheckoutPlan]         = useState<"starter" | "kandidat" | null>(null);
+  const [checkoutError, setCheckoutError]       = useState<string | null>(null);
   const orgPhotoInputRef = useRef<HTMLInputElement>(null);
   const ref = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -137,6 +138,7 @@ export function ProfileIcon() {
   async function handleCheckout(plan: "starter" | "kandidat") {
     if (!accessToken || checkoutPlan) return;
     setCheckoutPlan(plan);
+    setCheckoutError(null);
     try {
       const res = await fetch("/api/portal/stripe/checkout", {
         method: "POST",
@@ -144,8 +146,19 @@ export function ProfileIcon() {
         body: JSON.stringify({ plan }),
       });
       const json = await res.json().catch(() => ({}));
-      if (json.url) { window.location.href = json.url; }
-    } catch { /* ignore */ }
+      if (res.ok && json.url) {
+        window.location.href = json.url;
+        return; // don't reset state — we're navigating away
+      }
+      // Non-OK or missing URL — surface the failure instead of silently
+      // returning. Without this, the user clicks Upgrade and sees the
+      // spinner stop with no explanation.
+      const fallback = lang === "de" ? "Checkout konnte nicht gestartet werden — bitte erneut versuchen." : lang === "fr" ? "Impossible de lancer le paiement — veuillez réessayer." : "Could not start checkout — please try again.";
+      setCheckoutError(json?.error || fallback);
+    } catch {
+      const netErr = lang === "de" ? "Netzwerkfehler — bitte erneut versuchen." : lang === "fr" ? "Erreur réseau — veuillez réessayer." : "Network error — please try again.";
+      setCheckoutError(netErr);
+    }
     setCheckoutPlan(null);
   }
 
@@ -859,6 +872,15 @@ export function ProfileIcon() {
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 </button>
               </div>
+
+              {/* Checkout error banner — shown when Stripe redirect fails */}
+              {checkoutError && (
+                <div role="alert" aria-live="assertive"
+                  className="mx-6 mb-3 px-3 py-2 rounded-lg text-[12.5px]"
+                  style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
+                  {checkoutError}
+                </div>
+              )}
 
               {/* Two plan cards — side by side on desktop, stacked on mobile */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 px-6 pb-6">

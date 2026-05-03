@@ -125,20 +125,25 @@ export function SignRequestPanel({ candidateId, authToken, lang }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const load = async (signal?: AbortSignal) => {
-    const res = await fetch(`/api/portal/admin/sign-request?candidateId=${candidateId}`, {
-      headers: { Authorization: `Bearer ${authToken}` },
-      signal,
-    });
-    if (res.ok) {
-      const j = await res.json() as { requests: SignRequest[] };
-      setRequests(j.requests ?? []);
+    try {
+      const res = await fetch(`/api/portal/admin/sign-request?candidateId=${candidateId}`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+        signal,
+      });
+      if (res.ok) {
+        const j = await res.json() as { requests: SignRequest[] };
+        setRequests(j.requests ?? []);
+      }
+    } finally {
+      // Always clear the spinner — previously, a network reject left the
+      // spinner spinning forever because setLoading(false) was unreachable.
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => {
     const ctrl = new AbortController();
-    load(ctrl.signal).catch(() => { /* abort or network */ });
+    load(ctrl.signal).catch(() => { /* aborted */ });
     return () => ctrl.abort();
   }, [candidateId]); // eslint-disable-line react-hooks/exhaustive-deps
 

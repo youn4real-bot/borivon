@@ -267,12 +267,19 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
   const bt = BELL_T[lang] ?? BELL_T.fr;
 
   const fetch_ = useCallback(async () => {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("notifications")
       .select("id, doc_id, doc_name, doc_type, action, feedback, read, created_at")
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .limit(30);
+    // On Supabase error: keep the existing notifications list rather than
+    // wiping it to []. Wiping silently makes the unread badge disappear and
+    // the user thinks they're caught up when really the fetch failed.
+    if (error) {
+      console.error("[NotificationBell] fetch failed:", error.message);
+      return;
+    }
     setNotifs(data ?? []);
   }, [userId]);
 

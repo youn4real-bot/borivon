@@ -254,22 +254,35 @@ export default function AdminPage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ name: newAgencyName.trim() }),
       });
-      if (res.ok) {
-        setNewAgencyName("");
-        await loadAgencies(accessToken);
-      }
+      if (!res.ok) { showError(t.adErrNetwork); return; }
+      setNewAgencyName("");
+      await loadAgencies(accessToken);
+    } catch {
+      showError(t.adErrNetwork);
     } finally { setAgencyCreating(false); }
   }
 
   async function assignSubAdminAgency(email: string, agencyId: string | null, isAgencyAdmin: boolean) {
-    await fetch("/api/portal/admin/agencies", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({ email, agencyId, isAgencyAdmin }),
-    });
-    setAgencySubAdmins(prev => prev.map(sa =>
+    // Snapshot for rollback if the server rejects the change.
+    const prev = agencySubAdmins;
+    // Optimistic update first so the UI feels instant.
+    setAgencySubAdmins(p => p.map(sa =>
       sa.email === email ? { ...sa, agency_id: agencyId, is_agency_admin: isAgencyAdmin } : sa
     ));
+    try {
+      const res = await fetch("/api/portal/admin/agencies", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ email, agencyId, isAgencyAdmin }),
+      });
+      if (!res.ok) {
+        setAgencySubAdmins(prev); // rollback
+        showError(t.adErrNetwork);
+      }
+    } catch {
+      setAgencySubAdmins(prev);
+      showError(t.adErrNetwork);
+    }
   }
 
   // ── Org Requirements Manager ─────────────────────────────────────────────────
@@ -288,10 +301,11 @@ export default function AdminPage() {
       const res = await fetch(`/api/portal/admin/organizations/${orgId}/requirements`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
-      if (res.ok) {
-        const j = await res.json() as { requirements: OrgReq[] };
-        setOrgReqs(j.requirements ?? []);
-      }
+      if (!res.ok) { showError(t.adErrNetwork); return; }
+      const j = await res.json() as { requirements: OrgReq[] };
+      setOrgReqs(j.requirements ?? []);
+    } catch {
+      showError(t.adErrNetwork);
     } finally { setOrgReqLoading(false); }
   }
 
@@ -299,7 +313,7 @@ export default function AdminPage() {
     if (!orgReqSelOrg) return;
     setOrgReqAdding(true);
     try {
-      await fetch(`/api/portal/admin/organizations/${orgReqSelOrg}/requirements`, {
+      const res = await fetch(`/api/portal/admin/organizations/${orgReqSelOrg}/requirements`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({
@@ -310,6 +324,7 @@ export default function AdminPage() {
           notes:      orgReqForm.notes.trim()      || undefined,
         }),
       });
+      if (!res.ok) { showError(t.adErrNetwork); return; }
       setOrgReqForm({ specialty: "", slots: "1", location: "", start_date: "", notes: "" });
       setShowOrgReqForm(false);
       await loadOrgReqs(orgReqSelOrg);
@@ -322,12 +337,20 @@ export default function AdminPage() {
 
   async function closeOrgReq(reqId: string) {
     if (!orgReqSelOrg) return;
-    await fetch(`/api/portal/admin/organizations/${orgReqSelOrg}/requirements`, {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({ requirementId: reqId }),
-    });
-    setOrgReqs(prev => prev.map(r => r.id === reqId ? { ...r, active: false } : r));
+    const prev = orgReqs;
+    // Optimistic UI then verify with server.
+    setOrgReqs(p => p.map(r => r.id === reqId ? { ...r, active: false } : r));
+    try {
+      const res = await fetch(`/api/portal/admin/organizations/${orgReqSelOrg}/requirements`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ requirementId: reqId }),
+      });
+      if (!res.ok) { setOrgReqs(prev); showError(t.adErrNetwork); }
+    } catch {
+      setOrgReqs(prev);
+      showError(t.adErrNetwork);
+    }
   }
 
   // ── Suggested matches inbox ──────────────────────────────────────────────────
@@ -649,20 +672,21 @@ export default function AdminPage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ candidateUserId: selectedUser, status: "approved" }),
       });
-      if (res.ok) {
-        const org = allOrgs.find(o => o.id === orgId);
-        if (org) {
-          // Optimistic update — no need to re-fetch the whole admin payload.
-          setCandidateOrgs(prev => ({
-            ...prev,
-            [selectedUser]: [
-              ...(prev[selectedUser] ?? []).filter(o => o.id !== orgId),
-              { id: org.id, name: org.name },
-            ],
-          }));
-        }
-        setPlacementOrgId("");
+      if (!res.ok) { showError(t.adErrNetwork); return; }
+      const org = allOrgs.find(o => o.id === orgId);
+      if (org) {
+        // Optimistic update — no need to re-fetch the whole admin payload.
+        setCandidateOrgs(prev => ({
+          ...prev,
+          [selectedUser]: [
+            ...(prev[selectedUser] ?? []).filter(o => o.id !== orgId),
+            { id: org.id, name: org.name },
+          ],
+        }));
       }
+      setPlacementOrgId("");
+    } catch {
+      showError(t.adErrNetwork);
     } finally {
       setPlacing(false);
     }
@@ -678,16 +702,17 @@ export default function AdminPage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ candidateUserId: userId, status: "approved" }),
       });
-      if (res.ok) {
-        const org = allOrgs.find(o => o.id === need.orgId);
-        if (org) {
-          setCandidateOrgs(prev => ({
-            ...prev,
-            [userId]: [...(prev[userId] ?? []).filter(o => o.id !== need.orgId), { id: org.id, name: org.name }],
-          }));
-        }
-        setNeedAssign(p => ({ ...p, [need.id]: "" }));
+      if (!res.ok) { showError(t.adErrNetwork); return; }
+      const org = allOrgs.find(o => o.id === need.orgId);
+      if (org) {
+        setCandidateOrgs(prev => ({
+          ...prev,
+          [userId]: [...(prev[userId] ?? []).filter(o => o.id !== need.orgId), { id: org.id, name: org.name }],
+        }));
       }
+      setNeedAssign(p => ({ ...p, [need.id]: "" }));
+    } catch {
+      showError(t.adErrNetwork);
     } finally {
       setNeedPlacing(p => ({ ...p, [need.id]: false }));
     }
@@ -696,26 +721,34 @@ export default function AdminPage() {
   /** Remove a candidate from an org. */
   async function removeFromOrg(orgId: string) {
     if (!selectedUser) return;
-    await fetch(`/api/portal/admin/organizations/${orgId}/candidates`, {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({ candidateUserId: selectedUser }),
-    });
-    // Optimistic removal.
-    setCandidateOrgs(prev => ({
-      ...prev,
-      [selectedUser]: (prev[selectedUser] ?? []).filter(o => o.id !== orgId),
+    const prev = candidateOrgs;
+    // Optimistic removal first.
+    setCandidateOrgs(p => ({
+      ...p,
+      [selectedUser]: (p[selectedUser] ?? []).filter(o => o.id !== orgId),
     }));
+    try {
+      const res = await fetch(`/api/portal/admin/organizations/${orgId}/candidates`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ candidateUserId: selectedUser }),
+      });
+      if (!res.ok) { setCandidateOrgs(prev); showError(t.adErrNetwork); }
+    } catch {
+      setCandidateOrgs(prev);
+      showError(t.adErrNetwork);
+    }
   }
 
   async function decideMatch(matchId: string, action: "accepted" | "skipped") {
     setMatchDeciding(p => ({ ...p, [matchId]: true }));
-    const res = await fetch("/api/portal/admin/suggested-matches", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-      body: JSON.stringify({ matchId, action }),
-    });
-    if (res.ok) {
+    try {
+      const res = await fetch("/api/portal/admin/suggested-matches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ matchId, action }),
+      });
+      if (!res.ok) { showError(t.adErrNetwork); return; }
       setSuggestedMatches(prev => prev.filter(m => m.id !== matchId));
       // If accepted, refresh candidateOrgs map so the org tag appears under the candidate
       if (action === "accepted") {
@@ -727,8 +760,11 @@ export default function AdminPage() {
           }));
         }
       }
+    } catch {
+      showError(t.adErrNetwork);
+    } finally {
+      setMatchDeciding(p => ({ ...p, [matchId]: false }));
     }
-    setMatchDeciding(p => ({ ...p, [matchId]: false }));
   }
 
   /** Toggle the manual verified-tick override for the currently-selected candidate. */

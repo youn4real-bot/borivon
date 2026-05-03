@@ -204,10 +204,12 @@ function PostCard({
   onPin: (id: string, pinned: boolean) => void;
   onCommentAdded: (id: string, photo: string | null, name: string) => void;
 }) {
+  const { t: gT } = useLang();
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState<Comment[]>([]);
   const [commentsLoaded, setCommentsLoaded] = useState(false);
   const [commentText, setCommentText] = useState("");
+  const [commentError, setCommentError] = useState<string | null>(null);
   const [sendingComment, setSendingComment] = useState(false);
   const [liking, setLiking] = useState(false);
   const [pinning, setPinning] = useState(false);
@@ -265,20 +267,26 @@ function PostCard({
   const handleAddComment = async () => {
     if (!commentText.trim() || sendingComment) return;
     setSendingComment(true);
+    setCommentError(null);
     try {
       const res = await fetch(`/api/portal/feed/${post.id}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
         body: JSON.stringify({ content: commentText.trim() }),
       });
-      if (res.ok) {
-        const j = await res.json();
-        setComments(c => [...c, j.comment]);
-        setCommentsLoaded(true);
-        setCommentText("");
-        setReplyTo(null);
-        onCommentAdded(post.id, j.comment.authorPhoto, j.comment.authorName);
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        setCommentError(j?.error || gT.fdPostFail);
+        return;
       }
+      const j = await res.json();
+      setComments(c => [...c, j.comment]);
+      setCommentsLoaded(true);
+      setCommentText("");
+      setReplyTo(null);
+      onCommentAdded(post.id, j.comment.authorPhoto, j.comment.authorName);
+    } catch {
+      setCommentError(gT.fdNetErr);
     } finally { setSendingComment(false); }
   };
 
@@ -497,6 +505,11 @@ function PostCard({
               </button>
             </div>
             </div>
+            {commentError && (
+              <p role="alert" aria-live="assertive" className="text-[11px] mt-1.5 ml-1" style={{ color: "var(--danger)" }}>
+                {commentError}
+              </p>
+            )}
           </div>
         </div>
       )}

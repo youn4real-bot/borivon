@@ -15,6 +15,7 @@ export function Footer() {
   const [contactSent, setContactSent] = useState(false);
   const [contactSubmitting, setContactSubmitting] = useState(false);
   const [contactError, setContactError] = useState(false);
+  const [contactSendError, setContactSendError] = useState<string | null>(null);
 
   const cookieLabels = {
     fr: "Paramètres des cookies",
@@ -37,6 +38,7 @@ export function Footer() {
       phMsg: "Comment pouvons-nous vous aider ?",
       send: "Envoyer",
       sent: "Message envoyé — nous vous répondrons dans les 48 h.",
+      errSend: "Impossible d'envoyer — veuillez réessayer ou nous écrire directement.",
     },
     en: {
       title: "Contact us",
@@ -47,6 +49,7 @@ export function Footer() {
       phMsg: "How can we help you?",
       send: "Send message",
       sent: "Message sent — we'll get back to you within 48 h.",
+      errSend: "Could not send — please try again or email us directly.",
     },
     de: {
       title: "Kontakt",
@@ -57,6 +60,7 @@ export function Footer() {
       phMsg: "Wie können wir Ihnen helfen?",
       send: "Nachricht senden",
       sent: "Nachricht gesendet — wir melden uns innerhalb von 48 Stunden.",
+      errSend: "Senden fehlgeschlagen — bitte erneut versuchen oder direkt schreiben.",
     },
   };
   const cl = contactLabels[lang] ?? contactLabels.en;
@@ -69,15 +73,25 @@ export function Footer() {
     if (!isValidEmail(contactEmail)) { setContactError(true); return; }
     if (contactSubmitting) return;
     setContactSubmitting(true);
+    setContactSendError(null);
     try {
-      await fetch("/api/leads", {
+      const res = await fetch("/api/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ kind: "contact", email: contactEmail, message: contactMsg }),
       });
-    } catch { /* ignore — lead still considered sent */ }
-    setContactSubmitting(false);
-    setContactSent(true);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setContactSent(true);
+    } catch {
+      // Don't fake-confirm success on failure — show an error and let the
+      // user retry. The previous "ignore — lead still considered sent" path
+      // told users their message arrived even when the API was down.
+      setContactSendError(
+        cl.errSend ?? "Could not send — please try again or email us directly.",
+      );
+    } finally {
+      setContactSubmitting(false);
+    }
   }
 
   function onCloseContact() {
@@ -87,6 +101,7 @@ export function Footer() {
       setContactEmail("");
       setContactMsg("");
       setContactError(false);
+      setContactSendError(null);
     }, 300);
   }
 
@@ -246,6 +261,13 @@ export function Footer() {
                   }}
                 />
               </div>
+              {contactSendError && (
+                <div role="alert" aria-live="assertive"
+                  className="rounded-[10px] px-3 py-2 text-[12.5px]"
+                  style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
+                  {contactSendError}
+                </div>
+              )}
               <button
                 onClick={submitContact}
                 disabled={contactSubmitting}

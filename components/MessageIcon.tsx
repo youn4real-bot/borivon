@@ -65,23 +65,44 @@ export function MessageIcon() {
 
   useEffect(() => {
     let mounted = true;
+    // Evaluate the user's role and retry on transient network errors. Falling
+    // back to "candidate" on a single failed fetch is wrong — an admin who
+    // hits a slow request would suddenly see the candidate chat UI instead
+    // of their inbox. Retry up to 3 times with backoff before giving up.
     const evaluate = async (session: { user: { id: string; email?: string | null }; access_token?: string } | null) => {
       if (!session?.user) { if (mounted) setState({ kind: "anon" }); return; }
       const accessToken = session.access_token ?? "";
-      try {
-        const res = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${accessToken}` } });
-        const json = await res.json().catch(() => ({}));
-        if (!mounted) return;
-        if (json?.role === "admin") {
-          setState({ kind: "admin", userId: session.user.id, accessToken });
-        } else if (json?.role === "sub_admin") {
-          setState({ kind: "anon" });
-        } else {
-          setState({ kind: "candidate", userId: session.user.id, accessToken });
+
+      const fetchRole = async (attempt: number): Promise<void> => {
+        try {
+          const res = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${accessToken}` } });
+          if (!res.ok) throw new Error(`role ${res.status}`);
+          const json = await res.json();
+          if (!mounted) return;
+          if (json?.role === "admin") {
+            setState({ kind: "admin", userId: session.user.id, accessToken });
+          } else if (json?.role === "sub_admin") {
+            setState({ kind: "anon" });
+          } else if (json?.role === "candidate") {
+            setState({ kind: "candidate", userId: session.user.id, accessToken });
+          } else {
+            // Unexpected payload — treat as anon rather than misclassifying.
+            setState({ kind: "anon" });
+          }
+        } catch {
+          if (!mounted) return;
+          if (attempt < 3) {
+            // Backoff retry — keep current state (don't flash candidate UI).
+            setTimeout(() => fetchRole(attempt + 1), 400 * attempt);
+          } else {
+            // Persistent failure — hide the chat icon entirely instead of
+            // showing the wrong UI to an admin or sub-admin.
+            console.error("[MessageIcon] role fetch failed after retries");
+            setState({ kind: "anon" });
+          }
         }
-      } catch {
-        if (mounted) setState({ kind: "candidate", userId: session.user.id, accessToken });
-      }
+      };
+      fetchRole(1);
     };
 
     supabase.auth.getSession().then(({ data: { session } }) => evaluate(session));
@@ -404,10 +425,12 @@ function ComposeBar({
   const [text, setText] = useState("");
   const [attach, setAttach] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [sendErr, setSendErr] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const ph = lang === "fr" ? "Écrire un message…" : lang === "de" ? "Nachricht schreiben…" : "Write a message…";
   const tooLarge = lang === "fr" ? "Image trop grande (max ~600 Ko)." : lang === "de" ? "Bild zu groß (max ~600 KB)." : "Image too large (max ~600 KB).";
+  const sendFailedLabel = lang === "fr" ? "Échec de l'envoi — réessayer" : lang === "de" ? "Senden fehlgeschlagen — erneut versuchen" : "Send failed — try again";
 
   async function handleAttach(file: File | null) {
     if (!file || !file.type.startsWith("image/")) return;
@@ -419,10 +442,14 @@ function ComposeBar({
   async function send() {
     if (sending || (!text.trim() && !attach)) return;
     setSending(true);
+    setSendErr(null);
     try {
       await onSend(text.trim(), attach);
       setText(""); setAttach(null);
       if (fileRef.current) fileRef.current.value = "";
+    } catch (e) {
+      // Keep the text in the input + show inline error so the user can retry.
+      setSendErr((e as Error).message || sendFailedLabel);
     } finally {
       setSending(false);
     }
@@ -432,6 +459,12 @@ function ComposeBar({
     <div style={{ borderTop: "1px solid var(--border)", background: "var(--card)" }}
       // Lift above iOS Safari home indicator
       className="pb-[env(safe-area-inset-bottom)]">
+      {sendErr && (
+        <div role="alert" aria-live="assertive"
+          className="px-3 pt-2 pb-0 text-[11.5px]" style={{ color: "var(--danger)" }}>
+          {sendFailedLabel}
+        </div>
+      )}
       {attach && (
         <div className="px-3 pt-2.5 flex items-start gap-2">
           { /* eslint-disable-next-line @next/next/no-img-element */ }
@@ -874,7 +907,13 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ body: text, attachment }),
     });
-    if (res.ok) await fetchMsgs();
+    if (!res.ok) {
+      // Surface failure to ComposeBar so the message stays in the input and
+      // the user sees an error instead of a silent reset.
+      const j = await res.json().catch(() => ({}));
+      throw new Error(j?.error || `Send failed (${res.status})`);
+    }
+    await fetchMsgs();
   }
 
   const title = lang === "fr" ? "Messages" : lang === "de" ? "Nachrichten" : "Messages";
@@ -1063,10 +1102,12 @@ function AdminInbox({ accessToken }: { accessToken: string }) {
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ threadUserId: activeThread.threadUserId, body: text, attachment }),
     });
-    if (res.ok) {
-      await fetchThread(activeThread.threadUserId);
-      await fetchConvs();
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      throw new Error(j?.error || `Send failed (${res.status})`);
     }
+    await fetchThread(activeThread.threadUserId);
+    await fetchConvs();
   }
 
   function closeThread() {
