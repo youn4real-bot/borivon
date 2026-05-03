@@ -532,6 +532,13 @@ export default function FeedPage() {
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
 
+  // Communities — global Borivon community + every org community the user
+  // can access. Org admins only see their own org. Candidates see Borivon
+  // plus every org they're approved-linked to.
+  type Community = { kind: "global" | "org"; id: string | null; name: string };
+  const [communities, setCommunities] = useState<Community[]>([{ kind: "global", id: null, name: "Borivon" }]);
+  const [activeOrgId, setActiveOrgId] = useState<string | null>(null);
+
   // Filter
   const [selectedCategory, setSelectedCategory] = useState<"all" | Category>("all");
 
@@ -563,7 +570,8 @@ export default function FeedPage() {
       try {
         const res = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${tk}` } });
         ({ role } = await res.json().catch(() => ({ role: null })));
-        if (role === "org_member") { router.replace("/portal/org/dashboard"); return; }
+        // Org members CAN now access the feed — they see only their org's
+        // private community (the global Borivon community is hidden for them).
       } catch { /* offline */ }
 
       setAuthToken(tk);
@@ -578,7 +586,21 @@ export default function FeedPage() {
         .maybeSingle();
       setUserMeta({ name, photo: (profile as { profile_photo?: string | null } | null)?.profile_photo ?? null, isBorivonTeam: adminFlag });
 
-      await loadPosts(tk, 0, "all");
+      // Fetch the list of communities the user can access. Default-select
+      // the first one (Borivon for candidates, the org for org admins).
+      try {
+        const cRes = await fetch("/api/portal/feed/communities", { headers: { Authorization: `Bearer ${tk}` } });
+        if (cRes.ok) {
+          const cj = await cRes.json() as { communities: Community[] };
+          if (cj.communities?.length) {
+            setCommunities(cj.communities);
+            const first = cj.communities[0];
+            setActiveOrgId(first.id);
+          }
+        }
+      } catch { /* fall back to global default */ }
+
+      await loadPosts(tk, 0, "all", null);
       setLoading(false);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -593,28 +615,30 @@ export default function FeedPage() {
     const timer = setInterval(async () => {
       if (!authToken) return;
       const catParam = selectedCategory !== "all" ? `&category=${selectedCategory}` : "";
-      const res = await fetch(`/api/portal/feed?page=0${catParam}`, { headers: { Authorization: `Bearer ${authToken}` } });
+      const orgParam = activeOrgId ? `&orgId=${encodeURIComponent(activeOrgId)}` : "";
+      const res = await fetch(`/api/portal/feed?page=0${catParam}${orgParam}`, { headers: { Authorization: `Bearer ${authToken}` } });
       if (!res.ok) return;
       const j = await res.json();
       const fresh = ((j.posts ?? []) as Post[]).filter(p => !postIdsRef.current.has(p.id));
       if (fresh.length > 0) setPendingPosts(fresh);
     }, 90_000);
     return () => clearInterval(timer);
-  }, [authToken, selectedCategory]);
+  }, [authToken, selectedCategory, activeOrgId]);
 
-  // Reload when category filter changes
+  // Reload when category filter OR active community changes
   useEffect(() => {
     if (!authToken) return;
     setPosts([]);
     setPendingPosts([]);
-    loadPosts(authToken, 0, selectedCategory);
+    loadPosts(authToken, 0, selectedCategory, activeOrgId);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCategory, authToken]);
+  }, [selectedCategory, activeOrgId, authToken]);
 
-  async function loadPosts(tk: string, p: number, category: string) {
+  async function loadPosts(tk: string, p: number, category: string, orgId: string | null) {
     if (p === 0) setPostsLoadError(false);
     const catParam = category !== "all" ? `&category=${category}` : "";
-    const res = await fetch(`/api/portal/feed?page=${p}${catParam}`, { headers: { Authorization: `Bearer ${tk}` } });
+    const orgParam = orgId ? `&orgId=${encodeURIComponent(orgId)}` : "";
+    const res = await fetch(`/api/portal/feed?page=${p}${catParam}${orgParam}`, { headers: { Authorization: `Bearer ${tk}` } });
     if (!res.ok) { if (p === 0) setPostsLoadError(true); return; }
     const j = await res.json();
     if (p === 0) setPosts(j.posts ?? []);
@@ -634,7 +658,7 @@ export default function FeedPage() {
       const res = await fetch("/api/portal/feed", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ title: titleDraft.trim(), content: draft.trim(), imageBase64, gifUrl, category: postCategory }),
+        body: JSON.stringify({ title: titleDraft.trim(), content: draft.trim(), imageBase64, gifUrl, category: postCategory, orgId: activeOrgId }),
       });
       if (res.ok) {
         const j = await res.json();
@@ -851,6 +875,40 @@ export default function FeedPage() {
           </div>
         </div>
 
+        {/* ── Community switcher ────────────────────────────────────────────
+             Only renders when the user has more than one community accessible
+             (e.g. a candidate linked to one org sees Borivon + their org).
+             Org admins with only their own org see no tabs (single community
+             is implicit). */}
+        {communities.length > 1 && (
+          <div className="flex items-center gap-1.5 mb-3 overflow-x-auto pb-0.5" style={{ scrollbarWidth: "none" }}
+            role="tablist" aria-label="Community">
+            {communities.map(c => {
+              const active = activeOrgId === c.id;
+              const key = c.id ?? "global";
+              return (
+                <button key={key}
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setActiveOrgId(c.id)}
+                  className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-3.5 py-1.5 rounded-full transition-all flex-shrink-0 tracking-tight"
+                  style={{
+                    background: active ? "var(--gold)" : "var(--card)",
+                    color: active ? "#131312" : "var(--w2)",
+                    border: `1px solid ${active ? "var(--gold)" : "var(--border)"}`,
+                    cursor: "pointer",
+                    boxShadow: active ? "var(--shadow-gold-sm)" : "none",
+                  }}>
+                  {c.kind === "global"
+                    ? <span aria-hidden="true">★</span>
+                    : <span aria-hidden="true" style={{ fontSize: 11 }}>🏢</span>}
+                  {c.name}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
         {/* ── Category filter bar ──────────────────────────────────────────── */}
         <div className="flex items-center gap-1.5 mb-4 overflow-x-auto pb-0.5" style={{ scrollbarWidth: "none" }}>
           <button onClick={() => setSelectedCategory("all")}
@@ -898,7 +956,7 @@ export default function FeedPage() {
             <p className="text-[14px] font-semibold mb-2" style={{ color: "var(--w2)" }}>
               {lang === "de" ? "Feed konnte nicht geladen werden." : lang === "fr" ? "Impossible de charger le fil." : "Could not load the feed."}
             </p>
-            <button onClick={() => loadPosts(authToken, 0, selectedCategory)}
+            <button onClick={() => loadPosts(authToken, 0, selectedCategory, activeOrgId)}
               className="text-[12.5px] font-medium px-4 py-1.5 rounded-full"
               style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
               {lang === "de" ? "Erneut versuchen" : lang === "fr" ? "Réessayer" : "Try again"}
@@ -926,7 +984,7 @@ export default function FeedPage() {
 
         {hasMore && (
           <div className="mt-6 text-center">
-            <button onClick={async () => { setLoadingMore(true); await loadPosts(authToken, page + 1, selectedCategory); setLoadingMore(false); }}
+            <button onClick={async () => { setLoadingMore(true); await loadPosts(authToken, page + 1, selectedCategory, activeOrgId); setLoadingMore(false); }}
               disabled={loadingMore}
               className="px-6 py-2.5 rounded-xl text-[13px] font-semibold transition-all hover:opacity-80"
               style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)", cursor: "pointer" }}>
