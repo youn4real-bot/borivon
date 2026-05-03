@@ -431,22 +431,31 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
                   </div>
                 )}
 
-                {mode === "login" && (
+                <div role="alert" aria-live="assertive">
+                {error && (
+                  <div className="text-[12.5px] px-3 py-2.5 rounded-xl flex flex-col gap-1.5"
+                    style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
+                    <span>{error}</span>
+                    {/* When the credentials are wrong, surface the password-reset
+                        path right next to the error so the user sees it immediately. */}
+                    {mode === "login" && (
+                      <button type="button" onClick={() => reset("forgot")}
+                        className="text-left text-[12px] font-semibold underline underline-offset-2 hover:opacity-80 transition-opacity w-fit"
+                        style={{ color: "var(--gold)", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
+                        {lang === "de" ? "Passwort zurücksetzen →" : lang === "en" ? "Reset your password →" : "Réinitialiser le mot de passe →"}
+                      </button>
+                    )}
+                  </div>
+                )}
+                </div>
+
+                {mode === "login" && !error && (
                   <button type="button" onClick={() => reset("forgot")}
-                    className="text-left text-[12px] hover:opacity-70 transition-opacity w-fit"
+                    className="text-left text-[12.5px] font-medium hover:opacity-70 transition-opacity w-fit"
                     style={{ color: "var(--gold)", background: "transparent", border: "none", cursor: "pointer", padding: 0 }}>
                     {lang === "de" ? "Passwort vergessen?" : lang === "en" ? "Forgot password?" : "Mot de passe oublié ?"}
                   </button>
                 )}
-
-                <div role="alert" aria-live="assertive">
-                {error && (
-                  <p className="text-[12.5px] px-3 py-2.5 rounded-xl"
-                    style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
-                    {error}
-                  </p>
-                )}
-                </div>
 
                 <button type="submit" disabled={loading}
                   className="w-full py-[13px] text-[14px] font-semibold tracking-wide transition-all hover:opacity-90 hover:-translate-y-0.5 active:scale-[0.98] disabled:opacity-60 disabled:hover:translate-y-0"
@@ -460,6 +469,40 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
                   }}>
                   {loading ? "…" : mode === "login" ? t.pBtnLogin : mode === "register" ? t.pBtnSignup : (lang === "de" ? "Link senden" : lang === "en" ? "Send link" : "Envoyer le lien")}
                 </button>
+
+                {/* Magic-link fallback — passwordless sign-in when the user
+                    can't remember their password and the reset email isn't
+                    arriving. Sends a one-click sign-in link to their email. */}
+                {mode === "login" && (
+                  <button type="button" disabled={loading || !email.trim()}
+                    onClick={async () => {
+                      if (loading) return;
+                      if (!isValidEmail(email)) { setError(t.pErrEmail); return; }
+                      setLoading(true);
+                      setError("");
+                      const { error: otpErr } = await supabase.auth.signInWithOtp({
+                        email: email.trim().toLowerCase(),
+                        options: { emailRedirectTo: `${window.location.origin}/portal/auth/callback` },
+                      });
+                      setLoading(false);
+                      if (otpErr) {
+                        setError(otpErr.message);
+                      } else {
+                        setCheckEmail(true);
+                      }
+                    }}
+                    className="w-full py-2.5 text-[12.5px] font-medium tracking-wide transition-opacity hover:opacity-80 disabled:opacity-40"
+                    style={{
+                      background: "transparent",
+                      color: "var(--w2)",
+                      border: "1px solid var(--border)",
+                      borderRadius: "12px",
+                      marginTop: "8px",
+                      cursor: "pointer",
+                    }}>
+                    {lang === "de" ? "Anmeldelink per E-Mail erhalten" : lang === "fr" ? "Recevoir un lien de connexion par e-mail" : "Email me a sign-in link"}
+                  </button>
+                )}
               </form>
 
               {/* Consent — register only. Two separate mandatory boxes:
