@@ -2,12 +2,19 @@
 import type { ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useLang } from "./LangContext";
 import { useTheme } from "./ThemeContext";
 import { useMobileMenu } from "./MobileMenuContext";
 import type { Lang } from "@/lib/translations";
 import { Sun, Moon, Menu, Home } from "lucide-react";
+
+const PORTAL_NAV_T = {
+  en: { dashboard: "Dashboard",     community: "Community"  },
+  fr: { dashboard: "Tableau de bord", community: "Communauté" },
+  de: { dashboard: "Dashboard",     community: "Community"  },
+} as const;
 
 const LANGS: { code: Lang; flagSrc: string; label: string }[] = [
   { code: "fr", flagSrc: "https://flagcdn.com/fr.svg", label: "Français" },
@@ -57,6 +64,19 @@ export function Navbar({ rightExtra, leftExtra }: { rightExtra?: ReactNode; left
     },
   };
   const NT = navT[lang] ?? navT.en;
+  const PNT = PORTAL_NAV_T[lang as keyof typeof PORTAL_NAV_T] ?? PORTAL_NAV_T.en;
+
+  // Portal tab logic — mirrors PortalTopNav routing
+  const isAdmin = pathname.startsWith("/portal/admin");
+  const isOrg   = pathname.startsWith("/portal/org");
+  const isFeed  = pathname.startsWith("/portal/feed");
+  const dashHref = isAdmin ? "/portal/admin"
+                 : isOrg   ? "/portal/org/dashboard"
+                 :            "/portal/dashboard";
+  const portalTabs = useBottomBar ? [
+    { label: PNT.dashboard, href: dashHref,        active: !isFeed },
+    { label: PNT.community, href: "/portal/feed",  active: isFeed  },
+  ] : null;
 
   // Close on Escape. Outside-click is handled by the portal-rendered backdrop
   // (we can't use the document mousedown trick because the dropdown lives
@@ -204,15 +224,36 @@ export function Navbar({ rightExtra, leftExtra }: { rightExtra?: ReactNode; left
           transition: "background var(--dur-3) var(--ease), border-color var(--dur-3) var(--ease)",
         }}
       >
-        <div className="flex items-center gap-4">
-          <a
-            href="/"
-            className="font-[family-name:var(--font-dm-serif)] italic no-underline hover:opacity-80 transition-opacity"
-            style={{ fontSize: "clamp(1.15rem,3.5vw,1.4rem)", color: "var(--w)" }}
-            aria-label="Borivon — Accueil"
-          >
-            Borivon<span style={{ color: "var(--gold)" }} className="not-italic">.</span>
-          </a>
+        <div className="flex items-center gap-1">
+          {/* Public pages: show logo. Portal pages: show Dashboard + Community tabs. */}
+          {portalTabs ? (
+            portalTabs.map(tab => (
+              <Link
+                key={tab.href}
+                href={tab.href}
+                prefetch
+                aria-current={tab.active ? "page" : undefined}
+                className="relative inline-flex items-center px-4 py-[18px] text-[13.5px] font-semibold transition-colors duration-150 no-underline"
+                style={{
+                  color: tab.active ? "var(--w)" : "var(--w3)",
+                  borderBottom: tab.active ? "2px solid var(--gold)" : "2px solid transparent",
+                  marginBottom: "-1px",
+                  letterSpacing: "-0.01em",
+                }}
+              >
+                {tab.label}
+              </Link>
+            ))
+          ) : (
+            <a
+              href="/"
+              className="font-[family-name:var(--font-dm-serif)] italic no-underline hover:opacity-80 transition-opacity"
+              style={{ fontSize: "clamp(1.15rem,3.5vw,1.4rem)", color: "var(--w)" }}
+              aria-label="Borivon — Accueil"
+            >
+              Borivon<span style={{ color: "var(--gold)" }} className="not-italic">.</span>
+            </a>
+          )}
           {leftExtra}
         </div>
         {/* On mobile the actions live in the bottom bar — this slot is empty

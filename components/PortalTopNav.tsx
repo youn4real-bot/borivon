@@ -1,101 +1,37 @@
 "use client";
-import { useEffect, useRef } from "react";
-import Link from "next/link";
+import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { useLang } from "./LangContext";
 
 const NAV_T = {
-  en: { dashboard: "Dashboard", community: "Community", skip: "Skip to content" },
-  fr: { dashboard: "Tableau de bord", community: "Communauté", skip: "Aller au contenu" },
-  de: { dashboard: "Dashboard", community: "Community", skip: "Zum Inhalt springen" },
+  en: { skip: "Skip to content" },
+  fr: { skip: "Aller au contenu" },
+  de: { skip: "Zum Inhalt springen" },
 } as const;
 
-/**
- * Universal sticky sub-nav: Dashboard + Community for every portal role.
- *   - /portal/admin        → Dashboard = /portal/admin
- *   - /portal/org/*        → Dashboard = /portal/org/dashboard
- *   - everything else      → Dashboard = /portal/dashboard  (candidate)
- *
- * Sets --bv-subnav-h CSS variable so modals below can offset correctly.
- */
+// Tabs are now in the top Navbar. This component only handles the
+// skip-to-content link (accessibility) and zeroes --bv-subnav-h so
+// all modals/PDF popups start flush below the single 58px top bar.
 export function PortalTopNav() {
   const { lang } = useLang();
   const T = NAV_T[lang as keyof typeof NAV_T] ?? NAV_T.en;
-  const pathname = usePathname() ?? "";
-  const navRef = useRef<HTMLElement>(null);
+
+  usePathname(); // keep the hook so the component re-renders on navigation
 
   useEffect(() => {
-    const update = () => {
-      const h = navRef.current?.offsetHeight ?? 44;
-      document.documentElement.style.setProperty("--bv-subnav-h", `${h}px`);
-    };
-    update();
-    const ro = new ResizeObserver(update);
-    if (navRef.current) ro.observe(navRef.current);
+    document.documentElement.style.setProperty("--bv-subnav-h", "0px");
     return () => {
-      ro.disconnect();
       document.documentElement.style.setProperty("--bv-subnav-h", "0px");
     };
   }, []);
 
-  // Determine which Dashboard URL to use based on current route
-  const isAdmin  = pathname.startsWith("/portal/admin");
-  const isOrg    = pathname.startsWith("/portal/org");
-  const isFeed   = pathname.startsWith("/portal/feed");
-
-  const dashHref = isAdmin ? "/portal/admin"
-                 : isOrg   ? "/portal/org/dashboard"
-                 :            "/portal/dashboard";
-
-  const dashActive = !isFeed;
-  const feedActive = isFeed;
-
-  const tabs = [
-    { label: T.dashboard, href: dashHref,      active: dashActive },
-    { label: T.community, href: "/portal/feed", active: feedActive },
-  ];
-
   return (
-    <>
-      {/* Skip-to-content link — visible only when keyboard-focused. Lets
-          screen-reader and keyboard users jump past the nav directly to the
-          page's <main id="bv-main"> region. */}
-      <a
-        href="#bv-main"
-        className="sr-only focus:not-sr-only fixed top-2 left-2 z-[2000] px-3 py-2 rounded-md text-[13px] font-semibold no-underline"
-        style={{ background: "var(--gold)", color: "#131312", boxShadow: "var(--shadow-md)" }}
-      >
-        {T.skip}
-      </a>
-    <nav
-      ref={navRef}
-      className="sticky z-[1100] flex items-center gap-0 px-4 sm:px-[3.5vw] border-b"
-      style={{
-        top: "58px",
-        background: "var(--nav-bg)",
-        borderColor: "var(--border)",
-        backdropFilter: "blur(20px)",
-        WebkitBackdropFilter: "blur(20px)",
-      }}
+    <a
+      href="#bv-main"
+      className="sr-only focus:not-sr-only fixed top-2 left-2 z-[2000] px-3 py-2 rounded-md text-[13px] font-semibold no-underline"
+      style={{ background: "var(--gold)", color: "#131312", boxShadow: "var(--shadow-md)" }}
     >
-      {tabs.map((tab) => (
-        <Link
-          key={tab.href}
-          href={tab.href}
-          prefetch={true}
-          aria-current={tab.active ? "page" : undefined}
-          className="relative inline-flex items-center px-4 sm:px-5 py-3.5 text-[13px] font-semibold transition-colors duration-150 no-underline"
-          style={{
-            color: tab.active ? "var(--w)" : "var(--w3)",
-            borderBottom: tab.active ? "2px solid var(--gold)" : "2px solid transparent",
-            marginBottom: "-1px",
-            letterSpacing: "-0.01em",
-          }}
-        >
-          {tab.label}
-        </Link>
-      ))}
-    </nav>
-    </>
+      {T.skip}
+    </a>
   );
 }

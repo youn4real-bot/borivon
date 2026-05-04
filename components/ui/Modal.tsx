@@ -126,8 +126,9 @@ export function Modal({
 
   return createPortal(
     <div
-      className="fixed inset-x-0 bottom-0 top-[58px] z-[700] flex items-center justify-center p-4 bv-modal-outer"
+      className="fixed inset-x-0 bottom-0 z-[700] flex items-center justify-center p-4 bv-modal-outer"
       style={{
+        top: "calc(58px + var(--bv-subnav-h, 0px))",
         background: "rgba(0,0,0,0.45)",
         backdropFilter: "blur(8px)",
         animation: "bvFadeRise 0.22s var(--ease-out)",
