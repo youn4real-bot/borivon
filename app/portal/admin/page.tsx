@@ -384,6 +384,7 @@ export default function AdminPage() {
   const [expandedPairs, setExpandedPairs] = useState<Set<string>>(new Set());
   const [showArchive, setShowArchive]   = useState(false);
   const [expandedRow, setExpandedRow]   = useState<string | null>(null);
+  const [rowPlacing, setRowPlacing]     = useState<Record<string, boolean>>({});
   const [searchQuery, setSearchQuery]   = useState("");
   const [filterMode, setFilterMode]     = useState<"all" | "pending" | "stuck" | "clear">("all");
   const [pipeline, setPipeline]         = useState<AdminPipeline>(DEFAULT_PIPELINE);
@@ -2818,50 +2819,95 @@ export default function AdminPage() {
                         </span>
                       )}
 
-                      {/* Inline expand chevron — borderless, color-only */}
-                      {!isClear && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setExpandedRow(isExpanded ? null : uid); }}
-                        aria-label={isExpanded ? t.adCollapse : t.adPeekDocs}
-                        aria-expanded={isExpanded}
-                        className="w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0"
-                        style={{
-                          color: isExpanded ? "var(--gold)" : "var(--w3)",
-                          background: "transparent",
-                          border: "none",
-                          transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
-                          transition: "color 0.2s, transform 0.2s",
-                        }}>
-                        <ChevronDown size={14} strokeWidth={1.8} />
-                      </button>
-                      )}
+                      {/* Match-with-org chevron — always shown; gold if already matched */}
+                      {(() => {
+                        const orgs = candidateOrgs[uid] ?? [];
+                        const isMatched = orgs.length > 0;
+                        return (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setExpandedRow(isExpanded ? null : uid); }}
+                            aria-label="Match with org"
+                            aria-expanded={isExpanded}
+                            className="w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0"
+                            style={{
+                              color: isMatched ? "var(--gold)" : isExpanded ? "var(--w2)" : "var(--w3)",
+                              background: isMatched ? "var(--gdim)" : "transparent",
+                              border: isMatched ? "1px solid var(--border-gold)" : "none",
+                              transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
+                              transition: "color 0.2s, transform 0.2s, background 0.2s",
+                            }}>
+                            <ChevronDown size={14} strokeWidth={1.8} />
+                          </button>
+                        );
+                      })()}
                     </div>
 
-                    {/* Inline pending-docs peek */}
+                    {/* Match-with-org panel */}
                     {isExpanded && (
-                      <div className="px-5 pb-4 pt-1 bv-enter"
+                      <div className="px-4 pb-3 pt-2 bv-enter"
                         style={{ borderTop: "1px solid var(--border)" }}>
-                        <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-2.5 mt-2.5" style={{ color: "var(--w3)" }}>
-                          {t.adPendingReviewLabel} ({pendingCnt})
-                        </p>
-                        <div className="space-y-1">
-                          {pendingDocs.slice(0, 8).map(d => {
-                            const dta = timeAgo(d.uploaded_at, lang);
+                        {(() => {
+                          const orgs = candidateOrgs[uid] ?? [];
+                          if (orgs.length > 0) {
                             return (
-                              <div key={d.id} className="flex items-center gap-3 px-3 py-2 rounded-lg"
-                                style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "var(--gold)" }} />
-                                <span className="text-[12.5px] font-medium truncate flex-1" style={{ color: "var(--w2)" }}>{d.file_type}</span>
-                                <span className="text-[10.5px] flex-shrink-0" style={{ color: "var(--w3)" }}>{dta.label}</span>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-[10.5px] font-medium" style={{ color: "var(--w3)" }}>
+                                  {lang === "de" ? "Zugewiesen:" : lang === "fr" ? "Assigné :" : "Matched with:"}
+                                </span>
+                                {orgs.map(o => (
+                                  <span key={o.id} className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full"
+                                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                                    {o.name}
+                                  </span>
+                                ))}
                               </div>
                             );
-                          })}
-                          {pendingDocs.length > 8 && (
-                            <p className="text-[11px] mt-2 text-center" style={{ color: "var(--w3)" }}>
-                              {t.adMoreOpen.replace("{n}", String(pendingDocs.length - 8))}
-                            </p>
-                          )}
-                        </div>
+                          }
+                          return (
+                            <div>
+                              <p className="text-[10.5px] font-medium mb-2" style={{ color: "var(--w3)" }}>
+                                {lang === "de" ? "Mit Organisation zusammenführen:" : lang === "fr" ? "Associer à une organisation :" : "Match with:"}
+                              </p>
+                              <div className="flex flex-wrap gap-1.5">
+                                {allOrgs.map(org => {
+                                  const alreadyLinked = (candidateOrgs[uid] ?? []).some(o => o.id === org.id);
+                                  const isLoading = rowPlacing[`${uid}-${org.id}`];
+                                  return (
+                                    <button key={org.id}
+                                      disabled={alreadyLinked || isLoading}
+                                      onClick={async e => {
+                                        e.stopPropagation();
+                                        if (alreadyLinked || isLoading) return;
+                                        setRowPlacing(p => ({ ...p, [`${uid}-${org.id}`]: true }));
+                                        try {
+                                          const res = await fetch(`/api/portal/admin/organizations/${org.id}/candidates`, {
+                                            method: "POST",
+                                            headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                                            body: JSON.stringify({ candidateUserId: uid, status: "approved" }),
+                                          });
+                                          if (res.ok) {
+                                            setCandidateOrgs(prev => ({
+                                              ...prev,
+                                              [uid]: [...(prev[uid] ?? []), { id: org.id, name: org.name }],
+                                            }));
+                                            setExpandedRow(null);
+                                          }
+                                        } catch { /* ignore */ }
+                                        setRowPlacing(p => { const n = { ...p }; delete n[`${uid}-${org.id}`]; return n; });
+                                      }}
+                                      className="inline-flex items-center gap-1 text-[11px] font-semibold px-3 py-1.5 rounded-full transition-all disabled:opacity-40"
+                                      style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
+                                      {isLoading ? "…" : `+ ${org.name}`}
+                                    </button>
+                                  );
+                                })}
+                                {allOrgs.length === 0 && (
+                                  <p className="text-[11px]" style={{ color: "var(--w3)" }}>No organizations yet</p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     )}
                   </div>
