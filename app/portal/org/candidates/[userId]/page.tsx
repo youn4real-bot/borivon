@@ -19,7 +19,6 @@ const T_MAP = {
     back:          "Our candidates",
     verifiedLabel: "Identity verified",
     pendingLabel:  "Verification in progress",
-    tierStarter:   "Starter",
     tierKandidat:  "Kandidat",
     docsTitle:     "Documents",
     docsApproved:  "Approved",
@@ -39,7 +38,6 @@ const T_MAP = {
     back:          "Nos candidats",
     verifiedLabel: "Identité vérifiée",
     pendingLabel:  "Vérification en cours",
-    tierStarter:   "Starter",
     tierKandidat:  "Kandidat",
     docsTitle:     "Documents",
     docsApproved:  "Approuvés",
@@ -59,7 +57,6 @@ const T_MAP = {
     back:          "Unsere Kandidaten",
     verifiedLabel: "Identität verifiziert",
     pendingLabel:  "Verifizierung läuft",
-    tierStarter:   "Starter",
     tierKandidat:  "Kandidat",
     docsTitle:     "Dokumente",
     docsApproved:  "Genehmigt",
@@ -257,7 +254,7 @@ export default function OrgCandidateDossierPage({
             <div className="flex flex-wrap items-center gap-2 mb-4">
               <TierBadge
                 tier={dossier.tier}
-                label={dossier.tier === "kandidat" ? T.tierKandidat : T.tierStarter}
+                label={dossier.tier ? T.tierKandidat : "—"}
               />
               <span
                 className="inline-flex items-center gap-1 text-[11px] font-medium"

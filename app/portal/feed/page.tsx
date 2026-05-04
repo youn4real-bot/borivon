@@ -37,6 +37,7 @@ type Category = typeof CATEGORIES[number]["value"];
 type Author = {
   name: string; email: string; photo: string | null;
   verified: boolean; tier: string | null; isBorivonTeam: boolean;
+  isSuperAdmin: boolean; isOrgMember: boolean;
 };
 type Post = {
   id: string; title: string | null; content: string; category: string;
@@ -51,6 +52,7 @@ type Comment = {
   authorId: string; authorName: string; authorPhoto: string | null;
   authorVerified: boolean; isBorivonTeam: boolean; isOwn: boolean;
   likeCount: number; likedByMe: boolean;
+  isSuperAdmin: boolean; isOrgMember: boolean;
 };
 
 // ── Translations ──────────────────────────────────────────────────────────────
@@ -156,12 +158,42 @@ function getCategoryMeta(value: string, lang: string) {
 }
 
 // ── Avatar ────────────────────────────────────────────────────────────────────
-function Avatar({ photo, name, size = 36, isBorivonTeam = false }: { photo: string | null; name: string; size?: number; isBorivonTeam?: boolean }) {
+function deriveTickColor(isSuperAdmin: boolean | undefined, isOrgMember: boolean | undefined, verified: boolean): "gold" | "black" | "red" | "default" {
+  if (isSuperAdmin) return "black";
+  if (isOrgMember) return "red";
+  if (verified) return "gold";
+  return "default";
+}
+
+function derivePostAccent(isSuperAdmin: boolean, isOrgMember: boolean, verified: boolean) {
+  if (isSuperAdmin) return {
+    border: "#1e1e1e",
+    gradient: "linear-gradient(90deg,transparent,#555555,transparent)",
+    line: true,
+  };
+  if (isOrgMember) return {
+    border: "var(--danger)",
+    gradient: "linear-gradient(90deg,transparent,var(--danger),transparent)",
+    line: true,
+  };
+  if (verified) return {
+    border: "var(--border-gold)",
+    gradient: "linear-gradient(90deg,transparent,var(--gold),transparent)",
+    line: true,
+  };
+  return { border: "var(--border)", gradient: "", line: false };
+}
+
+function Avatar({ photo, name, size = 36, isBorivonTeam = false, tickColor = "default" }: {
+  photo: string | null; name: string; size?: number; isBorivonTeam?: boolean;
+  tickColor?: "gold" | "black" | "red" | "default";
+}) {
   const initials = name.split(" ").map(w => w[0]?.toUpperCase() ?? "").slice(0, 2).join("");
+  const borderColor = tickColor === "black" ? "#1a1a1a" : tickColor === "red" ? "var(--danger)" : tickColor === "gold" ? "var(--gold)" : "var(--border)";
   if (photo) return (
-    <div className="flex-shrink-0 rounded-full overflow-hidden" style={{ width: size, height: size }}>
-      <img src={photo} alt={name} className="w-full h-full object-cover"
-        style={{ border: isBorivonTeam ? "2px solid var(--gold)" : "2px solid var(--border)" }} />
+    <div className="flex-shrink-0 rounded-full overflow-hidden"
+      style={{ width: size, height: size, border: `2px solid ${borderColor}`, boxSizing: "content-box" }}>
+      <img src={photo} alt={name} className="w-full h-full object-cover" />
     </div>
   );
   return (
@@ -169,7 +201,7 @@ function Avatar({ photo, name, size = 36, isBorivonTeam = false }: { photo: stri
       style={{
         width: size, height: size, fontSize: Math.max(9, size * 0.3),
         background: isBorivonTeam ? "var(--gdim)" : "var(--bg2)",
-        border: isBorivonTeam ? "2px solid var(--border-gold)" : "2px solid var(--border)",
+        border: `2px solid ${borderColor}`,
         color: isBorivonTeam ? "var(--gold)" : "var(--w2)",
       }}>
       {initials || "?"}
@@ -322,11 +354,36 @@ function PostCard({
 
   const commentCount = Math.max(post.commentCount, comments.length);
 
+  // Build flat threaded list: @replies inserted right after the mentioned comment
+  const flatComments: Array<{ c: Comment; isReply: boolean }> = [];
+  comments.forEach(c => {
+    const trimmed = c.content.trimStart();
+    if (trimmed.charAt(0) === "@") {
+      const mention = trimmed.slice(1).split(" ")[0].toLowerCase();
+      for (let i = flatComments.length - 1; i >= 0; i--) {
+        if (!flatComments[i].isReply) {
+          const nm = flatComments[i].c.authorName;
+          const first = nm.split(" ")[0].toLowerCase();
+          const full  = nm.toLowerCase().split(" ").join("");
+          if (first === mention || full === mention) {
+            let idx = i + 1;
+            while (idx < flatComments.length && flatComments[idx].isReply) idx++;
+            flatComments.splice(idx, 0, { c, isReply: true });
+            return;
+          }
+        }
+      }
+    }
+    flatComments.push({ c, isReply: false });
+  });
+
+  const accent = derivePostAccent(post.author.isSuperAdmin, post.author.isOrgMember, post.author.verified);
+
   return (
     <div className="rounded-2xl overflow-hidden"
       style={{
         background: "var(--card)",
-        border: post.pinned ? "1px solid var(--border-gold)" : post.author.isBorivonTeam ? "1px solid var(--border-gold)" : "1px solid var(--border)",
+        border: `1px solid ${accent.border}`,
       }}>
 
       {/* Pinned banner */}
@@ -338,25 +395,19 @@ function PostCard({
         </div>
       )}
 
-      {/* Borivon team accent */}
-      {!post.pinned && post.author.isBorivonTeam && (
-        <div className="h-[2px]" style={{ background: "linear-gradient(90deg,transparent,var(--gold),transparent)" }} />
+      {/* Author-role accent line */}
+      {!post.pinned && accent.line && (
+        <div className="h-[2px]" style={{ background: accent.gradient }} />
       )}
 
       <div className="px-4 pt-4 pb-3">
         {/* Author row */}
         <div className="flex items-start gap-3 mb-3">
-          <Avatar photo={post.author.photo} name={post.author.name} size={38} isBorivonTeam={post.author.isBorivonTeam} />
+          <Avatar photo={post.author.photo} name={post.author.name} size={38} isBorivonTeam={post.author.isBorivonTeam} tickColor={deriveTickColor(post.author.isSuperAdmin, post.author.isOrgMember, post.author.verified)} />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1 flex-wrap">
               <span className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>{post.author.name}</span>
               {post.author.verified && <VerifiedBadge verified size="xs" isAdmin={post.author.isBorivonTeam} color={post.author.isBorivonTeam ? "black" : "gold"} />}
-              {post.author.isBorivonTeam && (
-                <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full"
-                  style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                  {t.borivonTeam}
-                </span>
-              )}
             </div>
             <div className="flex items-center gap-2 mt-0.5">
               <span className="text-[11px]" style={{ color: "var(--w3)" }}>{relTime(post.createdAt, t, lang)}</span>
@@ -419,19 +470,28 @@ function PostCard({
 
         {/* Actions — no divider, use padding */}
         <div className="flex items-center gap-3 pt-2">
+          {/* Like */}
           <button onClick={handleLike} disabled={liking}
             className="flex items-center gap-1.5 text-[12px] font-medium py-1 transition-all hover:opacity-80"
             style={{ color: post.likedByMe ? "var(--danger)" : "var(--w3)", background: "transparent", border: "none", cursor: "pointer" }}>
             <Heart size={15} strokeWidth={2} fill={post.likedByMe ? "var(--danger)" : "none"} />
             {post.likeCount > 0 && <span>{post.likeCount}</span>}
           </button>
+          {/* Comment icon */}
           <button onClick={toggleComments}
             className="flex items-center gap-1.5 text-[12px] font-medium py-1 transition-all hover:opacity-80"
             style={{ color: showComments ? "var(--gold)" : "var(--w3)", background: "transparent", border: "none", cursor: "pointer" }}>
-            <CommenterAvatars avatars={post.commenterAvatars} />
             <MessageCircle size={15} strokeWidth={2} />
-            <span>{commentCount > 0 ? (showComments ? t.hideComments : t.showComments(commentCount)) : t.comment}</span>
+            {commentCount > 0 && <span>{commentCount}</span>}
           </button>
+          {/* Commenter avatars */}
+          {post.commenterAvatars.length > 0 && (
+            <button onClick={toggleComments}
+              className="flex items-center py-1 transition-all hover:opacity-80"
+              style={{ background: "transparent", border: "none", cursor: "pointer" }}>
+              <CommenterAvatars avatars={post.commenterAvatars} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -439,34 +499,32 @@ function PostCard({
       {showComments && (
         <div className="px-4 pb-4" style={{ borderTop: "1px solid var(--border)" }}>
           <div className="pt-3 space-y-3">
-            {comments.map(c => (
-              <div key={c.id} className="flex gap-2.5">
-                <Avatar photo={c.authorPhoto} name={c.authorName} size={28} isBorivonTeam={c.isBorivonTeam} />
+            {flatComments.map(item => (
+              <div key={item.c.id} className={item.isReply ? "flex gap-2 ml-8 mt-1.5" : "flex gap-2"}>
+                <Avatar photo={item.c.authorPhoto} name={item.c.authorName} size={item.isReply ? 22 : 28} isBorivonTeam={item.c.isBorivonTeam} tickColor={deriveTickColor(item.c.isSuperAdmin, item.c.isOrgMember, item.c.authorVerified)} />
                 <div className="flex-1 min-w-0">
                   <div className="rounded-2xl px-3 py-2" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
                     <div className="flex items-center gap-1 mb-0.5">
-                      <span className="text-[11.5px] font-semibold" style={{ color: "var(--w)" }}>{c.authorName}</span>
-                      {c.authorVerified && <VerifiedBadge verified size="xs" isAdmin={c.isBorivonTeam} color={c.isBorivonTeam ? "black" : "gold"} />}
+                      <span className="text-[11.5px] font-semibold" style={{ color: "var(--w)" }}>{item.c.authorName}</span>
+                      {item.c.authorVerified && <VerifiedBadge verified size="xs" isAdmin={item.c.isBorivonTeam} color={item.c.isBorivonTeam ? "black" : "gold"} />}
                     </div>
-                    <p className="text-[12px] leading-relaxed whitespace-pre-wrap" style={{ color: "var(--w2)", wordBreak: "break-word" }}>{c.content}</p>
+                    <p className="text-[12px] leading-relaxed whitespace-pre-wrap" style={{ color: "var(--w2)", wordBreak: "break-word" }}>{item.c.content}</p>
                   </div>
                   <div className="flex items-center gap-3 mt-1 ml-1">
-                    <span className="text-[10px]" style={{ color: "var(--w3)" }}>{relTime(c.createdAt, t, lang)}</span>
-                    {/* Comment like */}
-                    <button onClick={() => handleLikeComment(c.id, c.likedByMe, c.likeCount)} disabled={!!likingComment[c.id]}
+                    <span className="text-[10px]" style={{ color: "var(--w3)" }}>{relTime(item.c.createdAt, t, lang)}</span>
+                    <button onClick={() => handleLikeComment(item.c.id, item.c.likedByMe, item.c.likeCount)} disabled={!!likingComment[item.c.id]}
                       className="flex items-center gap-1 text-[10px] font-medium transition-all hover:opacity-70"
-                      style={{ color: c.likedByMe ? "var(--danger)" : "var(--w3)", background: "transparent", border: "none", cursor: "pointer" }}>
-                      <Heart size={10} strokeWidth={2} fill={c.likedByMe ? "var(--danger)" : "none"} />
-                      {c.likeCount > 0 && <span>{c.likeCount}</span>}
+                      style={{ color: item.c.likedByMe ? "var(--danger)" : "var(--w3)", background: "transparent", border: "none", cursor: "pointer" }}>
+                      <Heart size={10} strokeWidth={2} fill={item.c.likedByMe ? "var(--danger)" : "none"} />
+                      {item.c.likeCount > 0 && <span>{item.c.likeCount}</span>}
                     </button>
-                    {/* Reply */}
-                    <button onClick={() => handleReply(c.authorName)}
+                    <button onClick={() => handleReply(item.c.authorName)}
                       className="text-[10px] font-semibold hover:opacity-70 transition-opacity"
                       style={{ color: "var(--w3)", background: "transparent", border: "none", cursor: "pointer" }}>
                       {t.reply}
                     </button>
-                    {(c.isOwn || isAdmin) && (
-                      <button onClick={() => handleDeleteComment(c.id)}
+                    {(item.c.isOwn || isAdmin) && (
+                      <button onClick={() => handleDeleteComment(item.c.id)}
                         className="text-[10px] hover:opacity-70 transition-opacity"
                         style={{ color: "var(--w3)", background: "transparent", border: "none", cursor: "pointer" }}>
                         {t.deletePost}
@@ -490,15 +548,15 @@ function PostCard({
               </div>
             )}
             <div className="flex gap-2.5">
-            <div className="flex-1 flex items-center gap-2 rounded-2xl px-3 py-2"
+            <div className="flex-1 flex items-center gap-1.5 rounded-full px-3 py-1.5"
               style={{ background: "var(--bg2)", border: `1px solid ${replyTo ? "var(--gold)" : "var(--border)"}`, transition: "border-color 0.15s" }}>
               <input ref={commentInputRef} value={commentText} onChange={e => setCommentText(e.target.value.slice(0, 300))}
                 onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleAddComment(); } }}
                 placeholder={replyTo ? `${t.replyingTo} @${replyTo}…` : t.writeComment}
-                className="flex-1 text-[12.5px] outline-none bg-transparent" style={{ color: "var(--w)", border: "none" }} />
+                className="flex-1 text-[10px] outline-none bg-transparent" style={{ color: "var(--w)", border: "none" }} />
               <button onClick={handleAddComment} disabled={!commentText.trim() || sendingComment}
                 style={{ background: "transparent", border: "none", cursor: commentText.trim() ? "pointer" : "default", color: commentText.trim() ? "var(--gold)" : "var(--w3)", transition: "color 0.15s" }}>
-                {sendingComment ? <Loader2 size={15} strokeWidth={2} className="animate-spin" /> : <Send size={15} strokeWidth={2} />}
+                {sendingComment ? <Loader2 size={13} strokeWidth={2} className="animate-spin" /> : <Send size={13} strokeWidth={2} />}
               </button>
             </div>
             </div>
@@ -522,7 +580,7 @@ export default function FeedPage() {
 
   const [authToken, setAuthToken] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
-  const [userMeta, setUserMeta] = useState<{ name: string; photo: string | null; isBorivonTeam: boolean }>({ name: "", photo: null, isBorivonTeam: false });
+  const [userMeta, setUserMeta] = useState<{ name: string; photo: string | null; isBorivonTeam: boolean; isSuperAdmin: boolean; isOrgMember: boolean; verified: boolean }>({ name: "", photo: null, isBorivonTeam: false, isSuperAdmin: false, isOrgMember: false, verified: false });
   const [loading, setLoading] = useState(true);
   const [posts, setPosts] = useState<Post[]>([]);
   const [page, setPage] = useState(0);
@@ -601,10 +659,13 @@ export default function FeedPage() {
 
       const { data: profile } = await supabase
         .from("candidate_profiles")
-        .select("profile_photo")
+        .select("profile_photo, manually_verified")
         .eq("user_id", session.user.id)
         .maybeSingle();
-      setUserMeta({ name, photo: (profile as { profile_photo?: string | null } | null)?.profile_photo ?? null, isBorivonTeam: adminFlag });
+      const isSuperAdmin = role === "admin";
+      const isOrgMember = role === "org_member";
+      const selfVerified = adminFlag || ((profile as { manually_verified?: boolean } | null)?.manually_verified ?? false);
+      setUserMeta({ name, photo: (profile as { profile_photo?: string | null } | null)?.profile_photo ?? null, isBorivonTeam: adminFlag, isSuperAdmin, isOrgMember, verified: selfVerified });
 
       // Fetch the list of communities the user can access. Default-select
       // the first one (Borivon for candidates, the org for org admins).
@@ -767,14 +828,14 @@ export default function FeedPage() {
           style={{ background: "var(--card)", border: `1px solid ${draggingOver ? "var(--gold)" : titleError ? "var(--danger-border)" : "var(--border)"}`, transition: "border-color 0.2s" }}>
           <div className="p-4">
             <div className="flex gap-3">
-              <Avatar photo={userMeta.photo} name={userMeta.name} size={38} isBorivonTeam={userMeta.isBorivonTeam} />
+              <Avatar photo={userMeta.photo} name={userMeta.name} size={38} isBorivonTeam={userMeta.isBorivonTeam} tickColor={deriveTickColor(userMeta.isSuperAdmin, userMeta.isOrgMember, userMeta.verified)} />
               <div className="flex-1 min-w-0">
                 {/* Required title */}
                 <input
                   value={titleDraft}
                   onChange={e => { setTitleDraft(e.target.value.slice(0, 100)); setTitleError(false); }}
                   placeholder={t.titlePlaceholder}
-                  className="w-full outline-none text-[14.5px] font-bold bg-transparent leading-snug"
+                  className="w-full outline-none text-[11px] font-semibold bg-transparent leading-snug"
                   style={{ color: titleError ? "var(--danger)" : "var(--w)", border: "none", fontFamily: "inherit" }}
                 />
                 {titleError && (
@@ -787,7 +848,7 @@ export default function FeedPage() {
                   onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handlePost(); }}
                   placeholder={t.placeholder}
                   rows={3}
-                  className="w-full resize-none outline-none text-[13px] leading-relaxed bg-transparent mt-1.5"
+                  className="w-full resize-none outline-none text-[11px] leading-relaxed bg-transparent mt-1"
                   style={{ color: "var(--w2)", border: "none", fontFamily: "inherit" }}
                 />
                 {draft.length > 400 && (
@@ -891,22 +952,24 @@ export default function FeedPage() {
           </div>
 
           {/* Toolbar */}
-          <div className="flex items-center justify-between px-4 pb-3 gap-2">
-            <div className="flex items-center gap-1">
+          <div className="flex items-center justify-between px-4 pb-3 gap-2"
+            style={{ borderTop: "1px solid var(--border)", paddingTop: 8 }}>
+            <div className="flex items-center gap-0.5">
               <button onClick={() => fileRef.current?.click()} title={t.addPhoto}
-                className="w-8 h-8 flex items-center justify-center rounded-xl transition-all hover:opacity-80"
-                style={{ color: imagePreview ? "var(--gold)" : "var(--w3)", background: "var(--bg2)", border: "none", cursor: "pointer" }}>
-                <ImagePlus size={15} strokeWidth={1.8} />
+                className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
+                style={{ color: imagePreview ? "var(--gold)" : undefined,
+                         background: imagePreview ? "var(--gdim) !important" : undefined }}>
+                <ImagePlus size={15} strokeWidth={1.7} />
               </button>
               <button onClick={() => { setShowGifPicker(s => !s); setShowVideoInput(false); }} title={t.addGif}
-                className="w-8 h-8 flex items-center justify-center rounded-xl transition-all hover:opacity-80 text-[11px] font-bold"
-                style={{ color: (showGifPicker || gifUrl) ? "var(--gold)" : "var(--w3)", background: "var(--bg2)", border: "none", cursor: "pointer" }}>
+                className="bv-icon-btn h-9 px-2.5 flex items-center justify-center rounded-full text-[11px] font-bold tracking-wider"
+                style={{ color: (showGifPicker || gifUrl) ? "var(--gold)" : undefined }}>
                 GIF
               </button>
               <button onClick={() => { setShowVideoInput(s => !s); setShowGifPicker(false); }} title={t.addVideo}
-                className="w-8 h-8 flex items-center justify-center rounded-xl transition-all hover:opacity-80"
-                style={{ color: showVideoInput ? "var(--gold)" : "var(--w3)", background: "var(--bg2)", border: "none", cursor: "pointer" }}>
-                <Link2 size={14} strokeWidth={1.8} />
+                className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
+                style={{ color: showVideoInput ? "var(--gold)" : undefined }}>
+                <Link2 size={14} strokeWidth={1.7} />
               </button>
               <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleImageSelect} />
             </div>
@@ -915,13 +978,15 @@ export default function FeedPage() {
                 <p className="text-[11px]" style={{ color: "var(--danger)" }}>{postError}</p>
               )}
               <button onClick={handlePost} disabled={!canPost || posting}
-                className="flex items-center gap-2 text-[13px] font-semibold px-5 py-2 rounded-xl transition-all active:scale-[0.97]"
+                className="flex items-center gap-2 text-[12px] font-semibold px-5 py-2 rounded-full transition-all active:scale-[0.97]"
                 style={{
-                  background: canPost ? "var(--gold)" : "var(--bg2)",
+                  background: canPost ? "var(--gold)" : "transparent",
                   color: canPost ? "#131312" : "var(--w3)",
-                  border: "none", cursor: canPost && !posting ? "pointer" : "default", transition: "all 0.15s",
+                  border: `1px solid ${canPost ? "var(--gold)" : "var(--border)"}`,
+                  cursor: canPost && !posting ? "pointer" : "default",
+                  transition: "all 0.15s",
                 }}>
-                {posting ? <><Loader2 size={13} strokeWidth={2} className="animate-spin" />{t.posting}</> : t.post}
+                {posting ? <><Loader2 size={12} strokeWidth={2} className="animate-spin" />{t.posting}</> : t.post}
               </button>
             </div>
           </div>

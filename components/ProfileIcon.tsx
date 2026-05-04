@@ -635,7 +635,7 @@ export function ProfileIcon() {
             style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(10px)" }}
             onClick={() => { if (!photoSaving) { setOrgProfileOpen(false); setPhotoMenuOpen(false); } }} />
           <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
-            <div className="w-full max-w-[340px] rounded-2xl overflow-hidden"
+            <div className="w-full max-w-[340px] rounded-2xl"
               style={{
                 background: "var(--card)",
                 border: "1px solid var(--border)",
@@ -705,7 +705,7 @@ export function ProfileIcon() {
 
                   {/* Change / Delete popup — appears on photo click */}
                   {photoMenuOpen && user.photo && (
-                    <div className="absolute left-1/2 -translate-x-1/2 flex flex-col overflow-hidden z-10"
+                    <div className="absolute left-1/2 -translate-x-1/2 flex flex-col overflow-hidden z-[10010]"
                       style={{
                         top: "calc(100% + 10px)",
                         background: "var(--bg2)",

@@ -50,14 +50,26 @@ async function resolveUserMeta(db: ReturnType<typeof getServiceSupabase>, userId
   const adminEmail = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
   if (adminEmail) borivonEmails.add(adminEmail);
 
+  const { data: orgMemberRows } = await db
+    .from("organization_members")
+    .select("sub_admin_email")
+    .in("sub_admin_email", emails);
+  const orgMemberEmailSet = new Set(
+    ((orgMemberRows ?? []) as { sub_admin_email: string }[]).map(r => r.sub_admin_email.toLowerCase())
+  );
+
   const result: Record<string, {
     name: string; email: string; photo: string | null;
     verified: boolean; tier: string | null; isBorivonTeam: boolean;
+    isSuperAdmin: boolean; isOrgMember: boolean;
   }> = {};
   for (const uid of userIds) {
     const auth = authInfo[uid];
     const prof = profileMap[uid];
     const isBorivonTeam = auth?.email ? borivonEmails.has(auth.email) : false;
+    const userEmail = (auth?.email ?? "").toLowerCase();
+    const isSuperAdmin = !!adminEmail && userEmail === adminEmail;
+    const isOrgMember = orgMemberEmailSet.has(userEmail) && !isSuperAdmin;
     result[uid] = {
       name:          auth?.name ?? "Unknown",
       email:         auth?.email ?? "",
@@ -65,6 +77,8 @@ async function resolveUserMeta(db: ReturnType<typeof getServiceSupabase>, userId
       verified:      isBorivonTeam || (prof?.verified ?? false),
       tier:          prof?.tier ?? null,
       isBorivonTeam,
+      isSuperAdmin,
+      isOrgMember,
     };
   }
   return result;
@@ -234,7 +248,7 @@ export async function GET(req: NextRequest) {
     pinned:           r.pinned ?? false,
     category:         r.category ?? "general",
     createdAt:        r.created_at,
-    author:           userMeta[r.user_id] ?? { name: "Unknown", email: "", photo: null, verified: false, tier: null, isBorivonTeam: false },
+    author:           userMeta[r.user_id] ?? { name: "Unknown", email: "", photo: null, verified: false, tier: null, isBorivonTeam: false, isSuperAdmin: false, isOrgMember: false },
     authorId:         r.user_id,
     isOwn:            r.user_id === auth.userId,
     likeCount:        likesByPost[r.id] ?? 0,
@@ -356,7 +370,7 @@ export async function POST(req: NextRequest) {
       pinned:           false,
       category:         safeCategory,
       createdAt:        p.created_at,
-      author:           userMeta[auth.userId] ?? { name: "Unknown", email: "", photo: null, verified: false, tier: null, isBorivonTeam: false },
+      author:           userMeta[auth.userId] ?? { name: "Unknown", email: "", photo: null, verified: false, tier: null, isBorivonTeam: false, isSuperAdmin: false, isOrgMember: false },
       authorId:         auth.userId,
       isOwn:            true,
       likeCount:        0,

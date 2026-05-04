@@ -1812,8 +1812,6 @@ function CVBuilderInner() {
   // Payment tier — null = free, "starter", "kandidat"
   const [paymentTier, setPaymentTier] = useState<string | null>(null);
   // Starter upgrade modal
-  const [starterUpgradeOpen, setStarterUpgradeOpen] = useState(false);
-  const [starterUpgradeLoading, setStarterUpgradeLoading] = useState(false);
   // Candidate's sex extracted from the passport — drives the gendered job
   // title for the mandatory nursing internship ("Pflegepraktikant" vs
   // "Pflegepraktikantin").
@@ -2438,35 +2436,13 @@ function CVBuilderInner() {
 
     // Payment gate — skip entirely when admin is editing a candidate's CV
     if (!paymentTier && !adminCandidateId) {
-      setStarterUpgradeOpen(true);
+      router.push("/portal/dashboard");
       return;
     }
 
     await doGenerate();
   }
 
-  async function handleUpgradeToStarter() {
-    setStarterUpgradeLoading(true);
-    try {
-      const res = await fetch("/api/portal/stripe/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
-        body: JSON.stringify({ plan: "starter" }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (json.url) {
-        window.location.href = json.url;
-      } else {
-        alert(lang === "de" ? "Bitte kontaktieren Sie uns, um Ihr Konto zu upgraden." : lang === "en" ? "Please contact us to upgrade." : "Veuillez nous contacter pour passer au plan Starter.");
-        setStarterUpgradeOpen(false);
-      }
-    } catch {
-      alert(t.cvbUpgradeUnavail);
-      setStarterUpgradeOpen(false);
-    } finally {
-      setStarterUpgradeLoading(false);
-    }
-  }
 
   async function doGenerate() {
     setGenerating(true); setGenError(""); setPdfBlob(null); setPdfUrl(null); setUploaded(false);
@@ -3822,77 +3798,6 @@ function CVBuilderInner() {
       document.body
     )}
 
-    {/* ── Starter upgrade modal ── */}
-    {starterUpgradeOpen && (
-      <div className="fixed inset-0 z-[1200] flex items-center justify-center p-4"
-        style={{ background: "rgba(0,0,0,0.72)", backdropFilter: "blur(6px)" }}
-        onClick={() => setStarterUpgradeOpen(false)}>
-        <div className="relative w-full max-w-sm rounded-2xl p-7 flex flex-col items-center text-center"
-          style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 24px 64px rgba(0,0,0,0.5)" }}
-          onClick={e => e.stopPropagation()}>
-
-          <div className="w-14 h-14 rounded-full flex items-center justify-center mb-4 text-2xl"
-            style={{ background: "var(--gdim)" }}>📄</div>
-
-          <h2 className="text-[18px] font-bold mb-2" style={{ color: "var(--w)" }}>
-            {lang === "de" ? "Starter-Plan erforderlich" : lang === "en" ? "Starter Plan Required" : "Plan Starter requis"}
-          </h2>
-          <p className="text-[13px] mb-5 leading-relaxed" style={{ color: "var(--w3)" }}>
-            {lang === "de" ? "Die professionelle Lebenslauf-Erstellung ist im Starter-Plan enthalten."
-              : lang === "en" ? "Professional CV generation is included in the Starter plan."
-              : "La génération professionnelle de CV est incluse dans le plan Starter."}
-          </p>
-
-          <div className="mx-auto w-full rounded-2xl px-4 py-3 mb-5 flex items-center gap-3"
-            style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
-            <span className="text-[13px] font-semibold flex-1" style={{ color: "var(--gold)" }}>★ Starter-Plan</span>
-            <span className="text-[20px] font-bold tracking-tight" style={{ color: "var(--w)" }}>€9</span>
-            <span className="text-[11px]" style={{ color: "var(--w3)" }}>
-              {lang === "de" ? "einmalig" : lang === "en" ? "one-time" : "paiement unique"}
-            </span>
-          </div>
-
-          <style>{`@keyframes bvWave{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}`}</style>
-          <ul className="w-full text-left space-y-2 mb-5">
-            {([
-              lang === "de" ? "Professioneller Lebenslauf (PDF)" : lang === "en" ? "Professional CV (PDF)" : "CV professionnel (PDF)",
-              lang === "de" ? "Deutsches Format & Layout" : lang === "en" ? "German format & layout" : "Format et mise en page allemands",
-              lang === "de" ? "Unbegrenzte Neugestaltungen" : lang === "en" ? "Unlimited regenerations" : "Régénérations illimitées",
-            ] as string[]).map(f => (
-              <li key={f} className="flex items-start gap-2 text-[12.5px]" style={{ color: "var(--w2)" }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5"><polyline points="20 6 9 17 4 12"/></svg>
-                <span>{f}</span>
-              </li>
-            ))}
-            {/* Blue verified badge */}
-            <li className="flex items-start gap-2 text-[12.5px]" style={{ color: "var(--w2)" }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--info)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5"><polyline points="20 6 9 17 4 12"/></svg>
-              <span>{lang === "de" ? "Blaues Abzeichen — mehr Chancen auf Einstellung" : lang === "en" ? "Blue badge — better recruitment chances" : "Badge bleu — meilleures chances de recrutement"}</span>
-            </li>
-            {/* Refund — gold shimmer text */}
-            <li className="flex items-start gap-2 text-[12.5px]">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5"><polyline points="20 6 9 17 4 12"/></svg>
-              <span className="font-semibold"
-                style={{ background: "linear-gradient(90deg,var(--gold),#f0dfa0,var(--gold),#a07830)", backgroundSize: "200% auto", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text", animation: "bvWave 2.5s linear infinite" }}>
-                {lang === "de" ? "Rückerstattung, sobald Sie mit uns in Deutschland ankommen" : lang === "en" ? "Refundable once you land in Germany with us" : "Remboursable dès que vous arrivez en Allemagne avec nous"}
-              </span>
-            </li>
-          </ul>
-
-          <button onClick={handleUpgradeToStarter} disabled={starterUpgradeLoading}
-            className="w-full py-3 rounded-xl text-[14px] font-semibold tracking-tight transition-opacity hover:opacity-90 disabled:opacity-50"
-            style={{ background: "var(--gold)", color: "#131312", cursor: starterUpgradeLoading ? "wait" : "pointer" }}>
-            {starterUpgradeLoading
-              ? (lang === "de" ? "Weiterleitung…" : lang === "en" ? "Redirecting…" : "Redirection…")
-              : (lang === "de" ? "Jetzt upgraden — €9" : lang === "en" ? "Upgrade now — €9" : "Passer au Starter — 9€")}
-          </button>
-          <button onClick={() => setStarterUpgradeOpen(false)}
-            className="mt-3 text-[13px]" style={{ color: "var(--w3)" }}>
-            {lang === "de" ? "Später" : lang === "en" ? "Later" : "Plus tard"}
-          </button>
-        </div>
-      </div>
-    )}
     </>
   );
 }

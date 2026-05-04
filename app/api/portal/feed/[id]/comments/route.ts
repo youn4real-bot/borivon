@@ -68,8 +68,19 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   const adminEmail = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
   if (adminEmail) borivonEmails.add(adminEmail);
 
+  const { data: orgMemberData } = await db
+    .from("organization_members")
+    .select("sub_admin_email")
+    .in("sub_admin_email", emails);
+  const orgMemberEmailSet = new Set(
+    ((orgMemberData ?? []) as { sub_admin_email: string }[]).map(r => r.sub_admin_email.toLowerCase())
+  );
+
   const enriched = rows.map(r => {
-    const isBorivonTeam = borivonEmails.has(authInfo[r.user_id]?.email ?? "");
+    const userEmail = (authInfo[r.user_id]?.email ?? "").toLowerCase();
+    const isBorivonTeam = borivonEmails.has(userEmail);
+    const isSuperAdmin = !!adminEmail && userEmail === adminEmail;
+    const isOrgMember = orgMemberEmailSet.has(userEmail) && !isSuperAdmin;
     return {
       id:             r.id,
       content:        r.content,
@@ -79,6 +90,8 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
       authorPhoto:    photoInfo[r.user_id]?.photo ?? null,
       authorVerified: isBorivonTeam || (photoInfo[r.user_id]?.verified ?? false),
       isBorivonTeam,
+      isSuperAdmin,
+      isOrgMember,
       isOwn:          r.user_id === auth.userId,
       likeCount:      likeCountByComment[r.id] ?? 0,
       likedByMe:      likedByMeSet.has(r.id),
@@ -136,6 +149,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   const { data: sub } = await db.from("sub_admins").select("email").eq("email", auth.email).maybeSingle();
   const isBorivonTeam = !!sub || auth.email === (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
+  const isSuperAdmin = auth.email === (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
 
   return NextResponse.json({
     comment: {
@@ -147,6 +161,8 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       authorPhoto:    (profile as { profile_photo?: string | null } | null)?.profile_photo ?? null,
       authorVerified: isBorivonTeam || ((profile as { manually_verified?: boolean } | null)?.manually_verified ?? false),
       isBorivonTeam,
+      isSuperAdmin,
+      isOrgMember:    false,
       isOwn:          true,
       likeCount:      0,
       likedByMe:      false,

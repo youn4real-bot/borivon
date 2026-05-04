@@ -16,7 +16,7 @@ import { createPortal } from "react-dom";
 import { CheckCircle2, RefreshCcw } from "lucide-react";
 
 const PIECES = Array.from({ length: 40 }, (_, i) => {
-  const colours = ["#c9a240", "#d4af37", "#fff", "#e8cc6e", "#a07830", "#f0dfa0", "#fffbe6", "#007AFF"];
+  const colours = ["#c9a240", "#d4af37", "#fff", "#e8cc6e", "#a07830", "#f0dfa0", "#fffbe6"];
   const shapes  = ["circle", "rect", "rect"];
   return {
     id: i,
@@ -33,31 +33,25 @@ const PIECES = Array.from({ length: 40 }, (_, i) => {
 
 const T = {
   de: {
-    title:     "Zahlung bestätigt",
-    starter:   "Starter-Plan aktiviert",
-    kandidat:  "Kandidat-Plan aktiviert",
-    body_s:    "Ihr Lebenslauf kann jetzt professionell erstellt werden. Viel Erfolg auf Ihrem Weg nach Deutschland!",
-    body_k:    "Ihr vollständiger Karriereweg ist jetzt freigeschaltet. Wir begleiten Sie bis nach Deutschland!",
-    refund:    "Und ja — weiterhin erstattungsfähig, sobald Sie mit uns in Deutschland ankommen",
-    btn:       "Los geht's",
+    title:    "Zahlung bestätigt",
+    kandidat: "Kandidat-Plan aktiviert",
+    body:     "Ihr vollständiger Karriereweg ist jetzt freigeschaltet. Wir begleiten Sie bis nach Deutschland!",
+    refund:   "Und ja — weiterhin erstattungsfähig, sobald Sie mit uns in Deutschland ankommen",
+    btn:      "Los geht's",
   },
   en: {
-    title:     "Payment confirmed",
-    starter:   "Starter Plan activated",
-    kandidat:  "Kandidat Plan activated",
-    body_s:    "Your CV can now be professionally generated. Good luck on your journey to Germany!",
-    body_k:    "Your full career journey is now unlocked. We'll walk with you all the way to Germany!",
-    refund:    "And yes — it's still refundable once you land in Germany with us",
-    btn:       "Let's go",
+    title:    "Payment confirmed",
+    kandidat: "Kandidat Plan activated",
+    body:     "Your full career journey is now unlocked. We'll walk with you all the way to Germany!",
+    refund:   "And yes — it's still refundable once you land in Germany with us",
+    btn:      "Let's go",
   },
   fr: {
-    title:     "Paiement confirmé",
-    starter:   "Plan Starter activé",
-    kandidat:  "Plan Kandidat activé",
-    body_s:    "Votre CV peut maintenant être généré professionnellement. Bonne chance pour votre parcours vers l'Allemagne !",
-    body_k:    "Votre parcours complet est maintenant débloqué. Nous vous accompagnons jusqu'en Allemagne !",
-    refund:    "Et oui — toujours remboursable dès votre arrivée en Allemagne avec nous",
-    btn:       "C'est parti",
+    title:    "Paiement confirmé",
+    kandidat: "Plan Kandidat activé",
+    body:     "Votre parcours complet est maintenant débloqué. Nous vous accompagnons jusqu'en Allemagne !",
+    refund:   "Et oui — toujours remboursable dès votre arrivée en Allemagne avec nous",
+    btn:      "C'est parti",
   },
 } as const;
 
@@ -72,7 +66,6 @@ function CelebrationPortal({ userId, plan, lang, onDismiss }: Props) {
   const t = T[lang] ?? T.en;
   const [visible, setVisible] = useState(true);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isKandidat = plan === "kandidat";
 
   useEffect(() => {
     timerRef.current = setTimeout(() => setVisible(false), 8_000);
@@ -165,19 +158,10 @@ function CelebrationPortal({ userId, plan, lang, onDismiss }: Props) {
             border: "2px solid var(--border-gold)",
             animation: "bvBuildPop 0.6s 0.3s var(--ease-out) both",
           }}>
-          {isKandidat ? (
-            /* Gold star badge */
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <circle cx="12" cy="12" r="11" fill="var(--gold)"/>
-              <path d="M7 12.5l3.5 3.5 6.5-7" stroke="#131312" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          ) : (
-            /* Blue badge */
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <circle cx="12" cy="12" r="11" fill="#007AFF"/>
-              <path d="M7 12.5l3.5 3.5 6.5-7" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          )}
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="12" cy="12" r="11" fill="var(--gold)"/>
+            <path d="M7 12.5l3.5 3.5 6.5-7" stroke="#131312" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
         </div>
 
         {/* Title shimmer */}
@@ -193,11 +177,11 @@ function CelebrationPortal({ userId, plan, lang, onDismiss }: Props) {
 
         {/* Plan name */}
         <p className="text-[15px] font-bold mb-3" style={{ color: "var(--gold)" }}>
-          {isKandidat ? t.kandidat : t.starter}
+          {t.kandidat}
         </p>
 
         <p className="text-[12.5px] leading-relaxed mb-4" style={{ color: "var(--w3)" }}>
-          {isKandidat ? t.body_k : t.body_s}
+          {t.body}
         </p>
 
         {/* Refund line — single sentence (was two redundant lines) */}

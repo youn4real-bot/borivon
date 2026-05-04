@@ -540,7 +540,7 @@ function ThreadModal({
   /** Actual photo URL for the other party (candidate photo or admin logo) */
   otherAvatarUrl?: string | null;
   /** Override badge color for the other party (e.g. "red" for org admins) */
-  otherBadgeColor?: "gold" | "red" | "black" | "blue";
+  otherBadgeColor?: "gold" | "red" | "black";
   /** Actual photo URL for the current user (candidate photo or admin logo) */
   ownAvatarUrl?: string | null;
 }) {

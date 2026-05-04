@@ -162,12 +162,14 @@ html {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* Prevent iOS Safari from zooming when an input is focused.
-   Triggers when font-size < 16px. We only enforce this on touch viewports
-   so desktop typography rhythm is preserved exactly as designed. */
-@media (max-width: 768px) {
-  input, select, textarea {
-    font-size: 16px !important;
+/* Baseline font-size for touch viewports — prevents iOS Safari zoom on focus
+   for inputs that don't specify their own size. Placed in @layer base so
+   Tailwind utility classes (text-[Xpx]) override it normally. */
+@layer base {
+  @media (max-width: 768px) {
+    input, select, textarea {
+      font-size: 16px;
+    }
   }
 }
 
@@ -367,7 +369,11 @@ textarea:focus {
   line-height: 1.4;
   transition: border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
 }
-.bv-input::placeholder { color: var(--w3); }
+.bv-input::placeholder { color: var(--w3); opacity: 0.45; }
+
+/* Global law: all placeholders site-wide are faint grey — never dark/visible */
+input::placeholder,
+textarea::placeholder { color: var(--w3) !important; opacity: 0.4 !important; }
 .bv-input:hover { border-color: var(--border2); }
 .bv-input:focus {
   outline: none;

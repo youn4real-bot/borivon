@@ -63,9 +63,8 @@ export function VerifiedBadge({
    *  "gold"  — verified candidate (default)
    *  "red"   — org admin
    *  "black" — supreme admin (Youness / Borivon)
-   *  "blue"  — legacy
    */
-  color?: "gold" | "red" | "black" | "blue";
+  color?: "gold" | "red" | "black";
 }) {
   const { lang } = useLang();
   const t = VB_T[(lang as "fr" | "en" | "de") in VB_T ? (lang as "fr" | "en" | "de") : "en"];
@@ -74,7 +73,7 @@ export function VerifiedBadge({
   if (!verified) return null;
   const px = size === "xs" ? 14 : size === "md" ? 24 : 16;
   const isBlack = color === "black";
-  const fillColor = isBlack ? "url(#bvBlackShine)" : color === "red" ? "#e03030" : color === "blue" ? "#0095F6" : "#c9a240";
+  const fillColor = isBlack ? "url(#bvBlackShine)" : color === "red" ? "#e03030" : "#c9a240";
   const gradId = `bvBlackShine_${size}`;
 
   return (
