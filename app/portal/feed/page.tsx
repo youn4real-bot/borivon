@@ -17,12 +17,13 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PortalTopNav } from "@/components/PortalTopNav";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
-import { Heart, MessageCircle, Trash2, Send, Loader2, Pin, ImagePlus, Smile, Link2, ChevronUp, Sparkles } from "lucide-react";
+import { Heart, MessageCircle, Trash2, Send, Loader2, Pin, ImagePlus, Smile, Link2, ChevronUp, Sparkles, X } from "lucide-react";
 
 // ── Categories ────────────────────────────────────────────────────────────────
 const CATEGORIES = [
@@ -241,6 +242,145 @@ function CommenterAvatars({ avatars }: { avatars: { photo: string | null; name: 
   );
 }
 
+// ── Comments popup modal ──────────────────────────────────────────────────────
+function CommentsModal({
+  post, t, lang, isAdmin,
+  flatComments, commentText, replyTo, sendingComment, commentError, likingComment,
+  onClose, onLikeComment, onReply, onDeleteComment, onChangeText, onAddComment, onClearReply,
+  inputRef,
+}: {
+  post: Post; t: typeof T["en"]; lang: string; isAdmin: boolean;
+  flatComments: Array<{ c: Comment; isReply: boolean }>;
+  commentText: string; replyTo: string | null;
+  sendingComment: boolean; commentError: string | null;
+  likingComment: Record<string, boolean>;
+  onClose: () => void;
+  onLikeComment: (id: string, liked: boolean, count: number) => void;
+  onReply: (name: string) => void;
+  onDeleteComment: (id: string) => void;
+  onChangeText: (v: string) => void;
+  onAddComment: () => void;
+  onClearReply: () => void;
+  inputRef: React.RefObject<HTMLInputElement | null>;
+}) {
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <div
+      className="fixed inset-x-0 bottom-0 top-[58px] z-[9999] flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-[520px] flex flex-col"
+        style={{
+          background: "var(--card)",
+          border: "1px solid var(--border)",
+          borderRadius: "var(--r-lg)",
+          boxShadow: "var(--shadow-lg)",
+          maxHeight: "calc(100vh - 120px)",
+        }}
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
+          <div className="flex items-center gap-2 min-w-0">
+            <MessageCircle size={14} strokeWidth={1.8} style={{ color: "var(--gold)", flexShrink: 0 }} />
+            <span className="text-[13px] font-semibold truncate" style={{ color: "var(--w)" }}>
+              {post.title ?? post.content.slice(0, 48)}
+            </span>
+          </div>
+          <button
+            onClick={onClose}
+            className="flex-shrink-0 ml-2 w-7 h-7 flex items-center justify-center rounded-full transition-opacity hover:opacity-70"
+            style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w3)", cursor: "pointer" }}
+          >
+            <X size={12} strokeWidth={2.5} />
+          </button>
+        </div>
+
+        {/* Comments list — scrollable */}
+        <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3" style={{ minHeight: 0 }}>
+          {flatComments.length === 0 ? (
+            <p className="text-center text-[12.5px] py-8" style={{ color: "var(--w3)" }}>{t.writeComment}</p>
+          ) : (
+            flatComments.map(item => (
+              <div key={item.c.id} className={item.isReply ? "flex gap-2 ml-8 mt-1.5" : "flex gap-2"}>
+                <Avatar photo={item.c.authorPhoto} name={item.c.authorName} size={item.isReply ? 22 : 28} isBorivonTeam={item.c.isBorivonTeam} tickColor={deriveTickColor(item.c.isSuperAdmin, item.c.isOrgMember, item.c.authorVerified)} />
+                <div className="flex-1 min-w-0">
+                  <div className="rounded-2xl px-3 py-2" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+                    <div className="flex items-center gap-1 mb-0.5">
+                      <span className="text-[11.5px] font-semibold" style={{ color: "var(--w)" }}>{item.c.authorName}</span>
+                      {item.c.authorVerified && <VerifiedBadge verified size="xs" isAdmin={item.c.isBorivonTeam} color={item.c.isBorivonTeam ? "black" : "gold"} />}
+                    </div>
+                    <p className="text-[12px] leading-relaxed whitespace-pre-wrap" style={{ color: "var(--w2)", wordBreak: "break-word" }}>{item.c.content}</p>
+                  </div>
+                  <div className="flex items-center gap-3 mt-1 ml-1">
+                    <span className="text-[10px]" style={{ color: "var(--w3)" }}>{relTime(item.c.createdAt, t, lang)}</span>
+                    <button onClick={() => onLikeComment(item.c.id, item.c.likedByMe, item.c.likeCount)} disabled={!!likingComment[item.c.id]}
+                      className="flex items-center gap-1 text-[10px] font-medium transition-all hover:opacity-70"
+                      style={{ color: item.c.likedByMe ? "var(--danger)" : "var(--w3)", background: "transparent", border: "none", cursor: "pointer" }}>
+                      <Heart size={10} strokeWidth={2} fill={item.c.likedByMe ? "var(--danger)" : "none"} />
+                      {item.c.likeCount > 0 && <span>{item.c.likeCount}</span>}
+                    </button>
+                    <button onClick={() => onReply(item.c.authorName)}
+                      className="text-[10px] font-semibold hover:opacity-70 transition-opacity"
+                      style={{ color: "var(--w3)", background: "transparent", border: "none", cursor: "pointer" }}>
+                      {t.reply}
+                    </button>
+                    {(item.c.isOwn || isAdmin) && (
+                      <button onClick={() => onDeleteComment(item.c.id)}
+                        className="text-[10px] hover:opacity-70 transition-opacity"
+                        style={{ color: "var(--w3)", background: "transparent", border: "none", cursor: "pointer" }}>
+                        {t.deletePost}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Input — sticky at bottom */}
+        <div className="px-4 pb-4 pt-2 flex-shrink-0" style={{ borderTop: "1px solid var(--border)" }}>
+          {replyTo && (
+            <div className="flex items-center gap-1.5 mb-1.5 ml-1">
+              <span className="text-[10.5px]" style={{ color: "var(--w3)" }}>
+                {t.replyingTo} <span className="font-semibold" style={{ color: "var(--gold)" }}>@{replyTo}</span>
+              </span>
+              <button onClick={onClearReply}
+                style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--w3)", lineHeight: 1, padding: 0 }}>
+                ×
+              </button>
+            </div>
+          )}
+          <div className="flex gap-2.5">
+            <div className="flex-1 flex items-center gap-1.5 rounded-full px-3 py-1.5"
+              style={{ background: "var(--bg2)", border: `1px solid ${replyTo ? "var(--gold)" : "var(--border)"}`, transition: "border-color 0.15s" }}>
+              <input ref={inputRef} value={commentText} onChange={e => onChangeText(e.target.value.slice(0, 300))}
+                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onAddComment(); } }}
+                placeholder={replyTo ? `${t.replyingTo} @${replyTo}…` : t.writeComment}
+                className="flex-1 text-[10px] outline-none bg-transparent" style={{ color: "var(--w)", border: "none" }}
+                autoFocus
+              />
+              <button onClick={onAddComment} disabled={!commentText.trim() || sendingComment}
+                style={{ background: "transparent", border: "none", cursor: commentText.trim() ? "pointer" : "default", color: commentText.trim() ? "var(--gold)" : "var(--w3)", transition: "color 0.15s" }}>
+                {sendingComment ? <Loader2 size={13} strokeWidth={2} className="animate-spin" /> : <Send size={13} strokeWidth={2} />}
+              </button>
+            </div>
+          </div>
+          {commentError && (
+            <p role="alert" aria-live="assertive" className="text-[11px] mt-1.5 ml-1" style={{ color: "var(--danger)" }}>
+              {commentError}
+            </p>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 // ── Post card ─────────────────────────────────────────────────────────────────
 function PostCard({
   post, authToken, t, lang, isAdmin,
@@ -276,10 +416,19 @@ function PostCard({
     } catch { /* offline */ }
   }, [post.id, authToken, commentsLoaded]);
 
+  const handleCloseComments = () => {
+    setShowComments(false);
+    setReplyTo(null);
+    setCommentText("");
+  };
+
   const toggleComments = async () => {
-    if (!showComments && !commentsLoaded) await loadComments();
-    if (showComments) { setReplyTo(null); setCommentText(""); }
-    setShowComments(s => !s);
+    if (!showComments) {
+      if (!commentsLoaded) await loadComments();
+      setShowComments(true);
+    } else {
+      handleCloseComments();
+    }
   };
 
   const handleLike = async () => {
@@ -394,6 +543,7 @@ function PostCard({
   const accent = derivePostAccent(post.author.isSuperAdmin, post.author.isOrgMember, post.author.verified);
 
   return (
+    <>
     <div className="rounded-2xl overflow-hidden"
       style={{
         background: `linear-gradient(var(--card), var(--card)) padding-box,
@@ -510,80 +660,26 @@ function PostCard({
         </div>
       </div>
 
-      {/* Comments */}
-      {showComments && (
-        <div className="px-4 pb-4" style={{ borderTop: "1px solid var(--border)" }}>
-          <div className="pt-3 space-y-3">
-            {flatComments.map(item => (
-              <div key={item.c.id} className={item.isReply ? "flex gap-2 ml-8 mt-1.5" : "flex gap-2"}>
-                <Avatar photo={item.c.authorPhoto} name={item.c.authorName} size={item.isReply ? 22 : 28} isBorivonTeam={item.c.isBorivonTeam} tickColor={deriveTickColor(item.c.isSuperAdmin, item.c.isOrgMember, item.c.authorVerified)} />
-                <div className="flex-1 min-w-0">
-                  <div className="rounded-2xl px-3 py-2" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                    <div className="flex items-center gap-1 mb-0.5">
-                      <span className="text-[11.5px] font-semibold" style={{ color: "var(--w)" }}>{item.c.authorName}</span>
-                      {item.c.authorVerified && <VerifiedBadge verified size="xs" isAdmin={item.c.isBorivonTeam} color={item.c.isBorivonTeam ? "black" : "gold"} />}
-                    </div>
-                    <p className="text-[12px] leading-relaxed whitespace-pre-wrap" style={{ color: "var(--w2)", wordBreak: "break-word" }}>{item.c.content}</p>
-                  </div>
-                  <div className="flex items-center gap-3 mt-1 ml-1">
-                    <span className="text-[10px]" style={{ color: "var(--w3)" }}>{relTime(item.c.createdAt, t, lang)}</span>
-                    <button onClick={() => handleLikeComment(item.c.id, item.c.likedByMe, item.c.likeCount)} disabled={!!likingComment[item.c.id]}
-                      className="flex items-center gap-1 text-[10px] font-medium transition-all hover:opacity-70"
-                      style={{ color: item.c.likedByMe ? "var(--danger)" : "var(--w3)", background: "transparent", border: "none", cursor: "pointer" }}>
-                      <Heart size={10} strokeWidth={2} fill={item.c.likedByMe ? "var(--danger)" : "none"} />
-                      {item.c.likeCount > 0 && <span>{item.c.likeCount}</span>}
-                    </button>
-                    <button onClick={() => handleReply(item.c.authorName)}
-                      className="text-[10px] font-semibold hover:opacity-70 transition-opacity"
-                      style={{ color: "var(--w3)", background: "transparent", border: "none", cursor: "pointer" }}>
-                      {t.reply}
-                    </button>
-                    {(item.c.isOwn || isAdmin) && (
-                      <button onClick={() => handleDeleteComment(item.c.id)}
-                        className="text-[10px] hover:opacity-70 transition-opacity"
-                        style={{ color: "var(--w3)", background: "transparent", border: "none", cursor: "pointer" }}>
-                        {t.deletePost}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="flex flex-col gap-1.5 mt-3">
-            {replyTo && (
-              <div className="flex items-center gap-1.5 ml-1">
-                <span className="text-[10.5px]" style={{ color: "var(--w3)" }}>
-                  {t.replyingTo} <span className="font-semibold" style={{ color: "var(--gold)" }}>@{replyTo}</span>
-                </span>
-                <button onClick={() => { setReplyTo(null); setCommentText(""); }}
-                  style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--w3)", lineHeight: 1, padding: 0 }}>
-                  ×
-                </button>
-              </div>
-            )}
-            <div className="flex gap-2.5">
-            <div className="flex-1 flex items-center gap-1.5 rounded-full px-3 py-1.5"
-              style={{ background: "var(--bg2)", border: `1px solid ${replyTo ? "var(--gold)" : "var(--border)"}`, transition: "border-color 0.15s" }}>
-              <input ref={commentInputRef} value={commentText} onChange={e => setCommentText(e.target.value.slice(0, 300))}
-                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleAddComment(); } }}
-                placeholder={replyTo ? `${t.replyingTo} @${replyTo}…` : t.writeComment}
-                className="flex-1 text-[10px] outline-none bg-transparent" style={{ color: "var(--w)", border: "none" }} />
-              <button onClick={handleAddComment} disabled={!commentText.trim() || sendingComment}
-                style={{ background: "transparent", border: "none", cursor: commentText.trim() ? "pointer" : "default", color: commentText.trim() ? "var(--gold)" : "var(--w3)", transition: "color 0.15s" }}>
-                {sendingComment ? <Loader2 size={13} strokeWidth={2} className="animate-spin" /> : <Send size={13} strokeWidth={2} />}
-              </button>
-            </div>
-            </div>
-            {commentError && (
-              <p role="alert" aria-live="assertive" className="text-[11px] mt-1.5 ml-1" style={{ color: "var(--danger)" }}>
-                {commentError}
-              </p>
-            )}
-          </div>
-        </div>
-      )}
     </div>
+
+    {showComments && (
+      <CommentsModal
+        post={post} t={t} lang={lang} isAdmin={isAdmin}
+        flatComments={flatComments}
+        commentText={commentText} replyTo={replyTo}
+        sendingComment={sendingComment} commentError={commentError}
+        likingComment={likingComment}
+        onClose={handleCloseComments}
+        onLikeComment={handleLikeComment}
+        onReply={handleReply}
+        onDeleteComment={handleDeleteComment}
+        onChangeText={setCommentText}
+        onAddComment={handleAddComment}
+        onClearReply={() => { setReplyTo(null); setCommentText(""); }}
+        inputRef={commentInputRef}
+      />
+    )}
+    </>
   );
 }
 
