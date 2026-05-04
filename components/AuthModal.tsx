@@ -168,6 +168,25 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
 
     if (mode === "register") {
       const finalCode = inviteCode.trim().toUpperCase().replace(/[\s-]+/g, "");
+      // Block re-registration for any already-registered account (admin, candidate, org member).
+      try {
+        const checkRes = await fetch("/api/portal/check-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: email.trim().toLowerCase() }),
+        });
+        const checkJson = await checkRes.json();
+        if (checkJson.exists) {
+          setError(
+            lang === "de" ? "Diese E-Mail ist bereits registriert. Bitte melden Sie sich an." :
+            lang === "fr" ? "Cet e-mail est déjà enregistré. Veuillez vous connecter." :
+            "This email is already registered. Please log in instead."
+          );
+          setLoading(false); return;
+        }
+      } catch {
+        // If the check fails, let Supabase handle it below
+      }
       const { data: signUpData, error: err } = await supabase.auth.signUp({
         email: email.trim().toLowerCase(), password,
         options: {
@@ -181,6 +200,13 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
       });
       if (err) {
         setError(err.message === "User already registered" ? t.pErrExists : err.message);
+        setLoading(false); return;
+      }
+      // Supabase silently accepts signUp for an existing email when confirmation
+      // is enabled (no error, no session, but identities array is empty). Detect
+      // this to avoid corrupting the existing account's email_confirmed_at.
+      if ((signUpData?.user?.identities?.length ?? 1) === 0) {
+        setError(t.pErrExists);
         setLoading(false); return;
       }
       // If email confirmation is disabled, Supabase returns a session immediately
