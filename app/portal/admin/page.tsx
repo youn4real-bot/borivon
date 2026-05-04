@@ -168,18 +168,14 @@ function timeAgo(iso: string, lang?: string) {
 
 // ── Payment tier badge ────────────────────────────────────────────────────────
 function PaymentBadge({ tier }: { tier: string | null | undefined }) {
-  if (!tier) return null;
-  const isKandidat = tier === "kandidat";
+  // Kandidat users already have the gold verified badge — no extra badge needed.
+  if (!tier || tier === "kandidat") return null;
   return (
     <span
       className="inline-flex items-center text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ml-1 flex-shrink-0"
-      style={{
-        background: isKandidat ? "var(--gdim)" : "var(--info-bg)",
-        color:      isKandidat ? "var(--gold)"           : "var(--info)",
-        border:     isKandidat ? "1px solid var(--border-gold)" : "1px solid var(--info-border)",
-      }}
+      style={{ background: "var(--info-bg)", color: "var(--info)", border: "1px solid var(--info-border)" }}
     >
-      {isKandidat ? "★ Premium" : "Starter"}
+      Starter
     </span>
   );
 }
@@ -1610,12 +1606,6 @@ export default function AdminPage() {
                   <span className="truncate">{user.name}</span>
                   <VerifiedBadge verified={!!profiles[selectedUser]?.manually_verified} size="sm" color="gold" />
                   <PaymentBadge tier={profiles[selectedUser]?.payment_tier} />
-                  {profiles[selectedUser]?.placement_ready && (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full align-middle"
-                      style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
-                      ✓ Ready to match
-                    </span>
-                  )}
                   {/* Org tags inline next to the gold tick — minimalist, no × */}
                   {(candidateOrgs[selectedUser] ?? []).map(org => (
                     <span key={org.id}
@@ -2468,8 +2458,8 @@ export default function AdminPage() {
         {/* ── Delete candidate confirmation modal ── */}
         {deleteCandidateConfirm && typeof window !== "undefined" && createPortal(
           <>
-            <div className="fixed inset-0 z-[1400] bg-black/40 backdrop-blur-sm bv-modal-outer" onClick={() => !deletingCandidate && setDeleteCandidateConfirm(false)} />
-            <div className="fixed inset-0 z-[1401] flex items-center justify-center p-4 bv-modal-outer">
+            <div className="fixed inset-0 z-[9999] bg-black/40 backdrop-blur-sm bv-modal-outer" onClick={() => !deletingCandidate && setDeleteCandidateConfirm(false)} />
+            <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bv-modal-outer">
               <div className="w-full max-w-sm rounded-2xl p-6 flex flex-col gap-4"
                 style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }}>
                 <div className="flex flex-col items-center gap-2 text-center">

@@ -60,7 +60,8 @@ const T = {
     titlePlaceholder: "Titre du post",
     post: "Publier", posting: "Publication…",
     addPhoto: "Photo", addGif: "GIF", addVideo: "Vidéo",
-    gifUrlPlaceholder: "Collez l'URL d'un GIF…",
+    gifSearchPlaceholder: "Rechercher un GIF…",
+    gifTrending: "Tendances", gifPoweredBy: "Propulsé par Tenor",
     videoUrlPlaceholder: "URL YouTube ou Loom",
     noPostsTitle: "Aucune publication", noPostsSub: "Soyez le premier à partager !",
     like: "J'aime", comment: "Commenter", deletePost: "Supprimer",
@@ -83,7 +84,8 @@ const T = {
     titlePlaceholder: "Post title",
     post: "Post", posting: "Posting…",
     addPhoto: "Photo", addGif: "GIF", addVideo: "Video",
-    gifUrlPlaceholder: "Paste a GIF URL…",
+    gifSearchPlaceholder: "Search for a GIF…",
+    gifTrending: "Trending", gifPoweredBy: "Powered by Tenor",
     videoUrlPlaceholder: "YouTube or Loom URL",
     noPostsTitle: "No posts yet", noPostsSub: "Be the first to share something!",
     like: "Like", comment: "Comment", deletePost: "Delete",
@@ -106,7 +108,8 @@ const T = {
     titlePlaceholder: "Titel des Beitrags",
     post: "Posten", posting: "Wird gepostet…",
     addPhoto: "Foto", addGif: "GIF", addVideo: "Video",
-    gifUrlPlaceholder: "GIF-URL einfügen…",
+    gifSearchPlaceholder: "GIF suchen…",
+    gifTrending: "Trends", gifPoweredBy: "Unterstützt von Tenor",
     videoUrlPlaceholder: "YouTube- oder Loom-URL",
     noPostsTitle: "Noch keine Beiträge", noPostsSub: "Seien Sie der Erste!",
     like: "Gefällt mir", comment: "Kommentieren", deletePost: "Löschen",
@@ -538,14 +541,40 @@ export default function FeedPage() {
   const [draft, setDraft] = useState("");
   const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [gifInput, setGifInput] = useState("");
-  const [showGifInput, setShowGifInput] = useState(false);
+  const [gifUrl, setGifUrl] = useState<string | null>(null);
+  const [showGifPicker, setShowGifPicker] = useState(false);
+  const [gifSearch, setGifSearch] = useState("");
+  const [gifResults, setGifResults] = useState<{ id: string; preview: string; url: string; title: string }[]>([]);
+  const [gifLoading, setGifLoading] = useState(false);
+  const gifSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showVideoInput, setShowVideoInput] = useState(false);
   const [titleError, setTitleError] = useState(false);
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
   const [postsLoadError, setPostsLoadError] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Fetch GIFs from Tenor whenever the picker opens or search query changes
+  useEffect(() => {
+    if (!showGifPicker || !authToken) return;
+    if (gifSearchTimer.current) clearTimeout(gifSearchTimer.current);
+    gifSearchTimer.current = setTimeout(async () => {
+      setGifLoading(true);
+      try {
+        const q = gifSearch.trim();
+        const url = q
+          ? `/api/portal/feed/gifs?q=${encodeURIComponent(q)}`
+          : `/api/portal/feed/gifs`;
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${authToken}` } });
+        if (res.ok) {
+          const j = await res.json();
+          setGifResults(j.gifs ?? []);
+        }
+      } catch { /* offline */ }
+      finally { setGifLoading(false); }
+    }, gifSearch.trim() ? 400 : 0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showGifPicker, gifSearch, authToken]);
 
   // New posts banner
   const [pendingPosts, setPendingPosts] = useState<Post[]>([]);
@@ -642,7 +671,6 @@ export default function FeedPage() {
     setPostError(null);
     setPosting(true);
     try {
-      const gifUrl = gifInput.trim().startsWith("http") ? gifInput.trim() : null;
       const res = await fetch("/api/portal/feed", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
@@ -652,7 +680,7 @@ export default function FeedPage() {
         const j = await res.json();
         setPosts(prev => [j.post, ...prev]);
         setTitleDraft(""); setDraft(""); setImageBase64(null); setImagePreview(null);
-        setGifInput(""); setShowGifInput(false); setShowVideoInput(false);
+        setGifUrl(null); setShowGifPicker(false); setGifSearch(""); setGifResults([]); setShowVideoInput(false);
       } else {
         const j = await res.json().catch(() => ({}));
         setPostError(j.error ?? gT.fdPostFail);
@@ -764,19 +792,62 @@ export default function FeedPage() {
               </div>
             )}
 
-            {/* GIF input */}
-            {showGifInput && (
-              <div className="mt-3 flex items-center gap-2 rounded-xl px-3 py-2"
-                style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                <Smile size={13} strokeWidth={1.8} style={{ color: "var(--gold)", flexShrink: 0 }} />
-                <input value={gifInput} onChange={e => setGifInput(e.target.value)}
-                  placeholder={t.gifUrlPlaceholder}
-                  className="flex-1 text-[12px] outline-none bg-transparent" style={{ color: "var(--w)", border: "none" }} />
+            {/* GIF picker */}
+            {showGifPicker && !gifUrl && (
+              <div className="mt-3 rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)", background: "var(--bg2)" }}>
+                {/* Search bar */}
+                <div className="flex items-center gap-2 px-3 py-2" style={{ borderBottom: "1px solid var(--border)" }}>
+                  <Smile size={13} strokeWidth={1.8} style={{ color: "var(--gold)", flexShrink: 0 }} />
+                  <input
+                    autoFocus
+                    value={gifSearch}
+                    onChange={e => setGifSearch(e.target.value)}
+                    placeholder={t.gifSearchPlaceholder}
+                    className="flex-1 text-[12px] outline-none bg-transparent"
+                    style={{ color: "var(--w)", border: "none" }}
+                  />
+                  {gifSearch && (
+                    <button onClick={() => setGifSearch("")} style={{ color: "var(--w3)", background: "none", border: "none", cursor: "pointer", lineHeight: 1 }}>×</button>
+                  )}
+                </div>
+                {/* Label */}
+                <p className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide" style={{ color: "var(--w3)" }}>
+                  {gifSearch.trim() ? gifSearch : t.gifTrending}
+                </p>
+                {/* Grid */}
+                <div className="px-2 pb-2" style={{ maxHeight: 220, overflowY: "auto" }}>
+                  {gifLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 size={18} strokeWidth={1.8} className="animate-spin" style={{ color: "var(--gold)" }} />
+                    </div>
+                  ) : gifResults.length === 0 ? (
+                    <p className="text-center text-[11px] py-6" style={{ color: "var(--w3)" }}>No GIFs found</p>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {gifResults.map(g => (
+                        <button key={g.id} onClick={() => { setGifUrl(g.url); setShowGifPicker(false); }}
+                          className="rounded-lg overflow-hidden aspect-square transition-opacity hover:opacity-80 active:scale-95"
+                          style={{ background: "var(--border)", border: "none", padding: 0, cursor: "pointer" }}
+                          title={g.title}>
+                          <img src={g.preview} alt={g.title} className="w-full h-full object-cover" loading="lazy" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                {/* Tenor attribution (required by ToS) */}
+                <p className="text-center text-[9px] pb-1.5" style={{ color: "var(--w3)" }}>{t.gifPoweredBy}</p>
               </div>
             )}
-            {gifInput.startsWith("http") && (
-              <div className="mt-2 rounded-xl overflow-hidden" style={{ maxHeight: 200 }}>
-                <img src={gifInput} alt="GIF" className="w-full object-contain" style={{ maxHeight: 200, background: "var(--bg2)" }} />
+            {/* Selected GIF preview */}
+            {gifUrl && (
+              <div className="mt-2 relative rounded-xl overflow-hidden" style={{ maxHeight: 220 }}>
+                <img src={gifUrl} alt="GIF" className="w-full object-contain" style={{ maxHeight: 220, background: "var(--bg2)" }} />
+                <button onClick={() => { setGifUrl(null); setShowGifPicker(true); }}
+                  className="absolute top-2 right-2 rounded-full p-1.5"
+                  style={{ background: "rgba(0,0,0,0.65)", border: "none", cursor: "pointer", color: "#fff" }}>
+                  ×
+                </button>
               </div>
             )}
 
@@ -813,9 +884,9 @@ export default function FeedPage() {
                 style={{ color: imagePreview ? "var(--gold)" : "var(--w3)", background: "var(--bg2)", border: "none", cursor: "pointer" }}>
                 <ImagePlus size={15} strokeWidth={1.8} />
               </button>
-              <button onClick={() => { setShowGifInput(s => !s); setShowVideoInput(false); }} title={t.addGif}
+              <button onClick={() => { setShowGifPicker(s => !s); setShowVideoInput(false); }} title={t.addGif}
                 className="w-8 h-8 flex items-center justify-center rounded-xl transition-all hover:opacity-80 text-[11px] font-bold"
-                style={{ color: showGifInput ? "var(--gold)" : "var(--w3)", background: "var(--bg2)", border: "none", cursor: "pointer" }}>
+                style={{ color: (showGifPicker || gifUrl) ? "var(--gold)" : "var(--w3)", background: "var(--bg2)", border: "none", cursor: "pointer" }}>
                 GIF
               </button>
               <button onClick={() => { setShowVideoInput(s => !s); setShowGifInput(false); }} title={t.addVideo}

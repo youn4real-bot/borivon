@@ -21,6 +21,21 @@
 }
 
 :root {
+  /* ── Z-index scale (LAW: any user-triggered popup = --z-top, always wins) ─
+     --z-modal  1100  first-level modals (profile popup, doc viewer)
+     --z-nav    1200  sticky navbar + thread chat modal
+     --z-panel  1300  slide-over panels, lightboxes
+     --z-dialog 1400  confirmation dialogs, sheet-overs
+     --z-top    9999  action-triggered popups that must float above EVERYTHING
+                      (VerifiedBadge, delete confirms, payment sheets, etc.)
+     Rule: if a user can open it by clicking something inside another modal,
+     it MUST use --z-top so it is never buried behind its parent. */
+  --z-modal:  1100;
+  --z-nav:    1200;
+  --z-panel:  1300;
+  --z-dialog: 1400;
+  --z-top:    9999;
+
   /* Display serif — DM Serif Display (kept).
      Variable name aliased so call sites can use either --font-dm-serif or --font-serif. */
   --font-dm-serif: var(--font-serif-v);

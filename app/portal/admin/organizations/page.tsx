@@ -1063,7 +1063,7 @@ export default function OrganizationsPage() {
     </main>
     {/* ── QR code modal ───────────────────────────────────────────────────── */}
     {qrModal && (
-      <div className="fixed inset-0 z-[1400] flex items-center justify-center p-4"
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
         style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)" }}
         onClick={() => setQrModal(null)}>
         <div className="rounded-2xl p-6 flex flex-col items-center gap-4 w-full max-w-[300px]"

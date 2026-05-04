@@ -132,13 +132,13 @@ export function ProfileIcon() {
   const [photoMenuOpen, setPhotoMenuOpen]       = useState(false);
   // Plan comparison modal — shown when candidates click their avatar
   const [planModalOpen, setPlanModalOpen]       = useState(false);
-  const [checkoutPlan, setCheckoutPlan]         = useState<"starter" | "kandidat" | null>(null);
+  const [checkoutPlan, setCheckoutPlan]         = useState<"kandidat" | "kandidat_installment" | null>(null);
   const [checkoutError, setCheckoutError]       = useState<string | null>(null);
   const orgPhotoInputRef = useRef<HTMLInputElement>(null);
   const ref = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
-  async function handleCheckout(plan: "starter" | "kandidat") {
+  async function handleCheckout(plan: "kandidat" | "kandidat_installment") {
     if (!accessToken || checkoutPlan) return;
     setCheckoutPlan(plan);
     setCheckoutError(null);
@@ -631,10 +631,10 @@ export function ProfileIcon() {
       {/* ── Org-member "My Profile" modal ───────────────────────────────────── */}
       {orgProfileOpen && typeof document !== "undefined" && createPortal(
         <>
-          <div className="fixed inset-0 z-[1400]"
+          <div className="fixed inset-0 z-[9999]"
             style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(10px)" }}
             onClick={() => { if (!photoSaving) { setOrgProfileOpen(false); setPhotoMenuOpen(false); } }} />
-          <div className="fixed inset-0 z-[1401] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
             <div className="w-full max-w-[340px] rounded-2xl overflow-hidden"
               style={{
                 background: "var(--card)",
@@ -834,9 +834,9 @@ export function ProfileIcon() {
       {/* Delete account confirmation modal */}
       {deleteConfirm && typeof document !== "undefined" && createPortal(
         <>
-          <div className="fixed inset-0 z-[1400]" style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)" }}
+          <div className="fixed inset-0 z-[9999]" style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)" }}
             onClick={() => { if (!deleting) { setDeleteConfirm(false); setDeleteInput(""); } }} />
-          <div className="fixed inset-0 z-[1401] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
             <div className="w-full max-w-sm rounded-2xl p-6" style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)" }}>
               <div className="w-10 h-10 rounded-full flex items-center justify-center mx-auto mb-4"
                 style={{ background: "var(--danger-bg)", border: "1px solid var(--danger-border)" }}>
@@ -890,10 +890,10 @@ export function ProfileIcon() {
         <>
           {/* Backdrop — locked while a Stripe checkout is being created so a
               stray click can't cancel the redirect mid-request. */}
-          <div className="fixed inset-0 z-[1400] bv-modal-outer"
+          <div className="fixed inset-0 z-[9999] bv-modal-outer"
             style={{ background: "rgba(0,0,0,0.72)", backdropFilter: "blur(8px)" }}
             onClick={() => { if (!checkoutPlan) setPlanModalOpen(false); }} />
-          <div className="fixed inset-0 z-[1401] flex items-center justify-center p-4 bv-modal-outer">
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bv-modal-outer">
             <div className="w-full max-w-[680px] rounded-2xl overflow-hidden"
               style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 24px 64px rgba(0,0,0,0.45)", animation: "bvFadeRise .22s var(--ease-out)" }}
               onClick={e => e.stopPropagation()}>
@@ -905,7 +905,7 @@ export function ProfileIcon() {
                     {lang === "de" ? "Wähle deinen Plan" : lang === "en" ? "Choose your plan" : "Choisissez votre plan"}
                   </h2>
                   <p className="text-[12.5px] mt-0.5" style={{ color: "var(--w3)" }}>
-                    {lang === "de" ? "Einmalzahlung — keine Abonnements" : lang === "en" ? "One-time payment — no subscriptions" : "Paiement unique — pas d'abonnement"}
+                    {lang === "de" ? "Einmalig oder in 5 Raten" : lang === "en" ? "One-time or split into 5 payments" : "En une fois ou en 5 versements"}
                   </p>
                 </div>
                 <button onClick={() => setPlanModalOpen(false)} disabled={!!checkoutPlan}
@@ -924,69 +924,12 @@ export function ProfileIcon() {
                 </div>
               )}
 
-              {/* Plan cards — Starter (€9) is hidden once the user has paid for
-                   anything (since Premium includes everything in Starter). Free
-                   users see both options; "starter" tier sees only the Premium
-                   upgrade. "kandidat" tier never reaches this modal. */}
-              <div className={`grid grid-cols-1 ${user.paymentTier ? "" : "sm:grid-cols-2"} gap-4 px-6 pb-6`}>
+              {/* Single plan card */}
+              <div className="grid grid-cols-1 gap-4 px-6 pb-6">
 
-                {/* ── Starter ── only shown to free users */}
-                {!user.paymentTier && (
-                <div className="rounded-2xl p-5 flex flex-col"
-                  style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: "var(--info)" }}>
-                      Starter
-                    </span>
-                    <span className="text-[10.5px] font-medium px-2 py-0.5 rounded-full"
-                      style={{ background: "var(--info-bg)", color: "var(--info)", border: "1px solid var(--info-border)" }}>
-                      {lang === "de" ? "Empfohlen" : lang === "en" ? "Recommended" : "Recommandé"}
-                    </span>
-                  </div>
-                  <div className="mb-4">
-                    <span className="text-[36px] font-bold tracking-tight" style={{ color: "var(--w)" }}>€9</span>
-                    <span className="text-[12px] ml-1" style={{ color: "var(--w3)" }}>
-                      {lang === "de" ? "einmalig" : lang === "en" ? "one-time" : "unique"}
-                    </span>
-                  </div>
-                  <ul className="flex-1 space-y-2 mb-5">
-                    {[
-                      lang === "de" ? "Professioneller Lebenslauf (PDF)" : lang === "en" ? "Professional CV (PDF)" : "CV professionnel (PDF)",
-                      lang === "de" ? "Deutsches Format & Layout" : lang === "en" ? "German format & layout" : "Format allemand",
-                      lang === "de" ? "Unbegrenzte Neugestaltungen" : lang === "en" ? "Unlimited regenerations" : "Régénérations illimitées",
-                      lang === "de" ? "Blaues Abzeichen" : lang === "en" ? "Blue verified badge" : "Badge bleu vérifié",
-                    ].map(f => (
-                      <li key={f} className="flex items-start gap-2 text-[12.5px]" style={{ color: "var(--w2)" }}>
-                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5"><polyline points="20 6 9 17 4 12"/></svg>
-                        {f}
-                      </li>
-                    ))}
-                    <li className="flex items-start gap-2 text-[12px]" style={{ color: "var(--gold)" }}>
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5"><polyline points="20 6 9 17 4 12"/></svg>
-                      <span className="font-semibold">
-                        {lang === "de" ? "Rückerstattung bei Ankunft in DE" : lang === "en" ? "Refundable when you land in Germany" : "Remboursé à votre arrivée en DE"}
-                      </span>
-                    </li>
-                  </ul>
-                  <button
-                    onClick={() => handleCheckout("starter")}
-                    disabled={!!checkoutPlan}
-                    className="w-full py-3 rounded-xl text-[14px] font-semibold transition-opacity hover:opacity-90 disabled:opacity-50"
-                    style={{ background: "var(--info)", color: "#fff", border: "none", cursor: checkoutPlan ? "wait" : "pointer" }}>
-                    {checkoutPlan === "starter"
-                      ? (lang === "de" ? "Weiterleitung…" : lang === "en" ? "Redirecting…" : "Redirection…")
-                      : (lang === "de" ? "Starter wählen — €9" : lang === "en" ? "Get Starter — €9" : "Choisir Starter — 9€")}
-                  </button>
-                </div>
-                )}
-
-                {/* ── Kandidat (Premium) ── */}
+                {/* ── Kandidat (only plan) ── */}
                 <div className="rounded-2xl p-5 flex flex-col relative overflow-hidden"
                   style={{ background: "linear-gradient(135deg,var(--gdim),var(--gdim))", border: "1px solid var(--border-gold)" }}>
-                  <div className="absolute top-3 right-3 text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full"
-                    style={{ background: "var(--gold)", color: "#131312" }}>
-                    Premium
-                  </div>
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: "var(--gold)" }}>
                       Kandidat
@@ -1000,8 +943,7 @@ export function ProfileIcon() {
                   </div>
                   <ul className="flex-1 space-y-2 mb-5">
                     {[
-                      lang === "de" ? "Alles im Starter-Plan" : lang === "en" ? "Everything in Starter" : "Tout dans Starter",
-                      lang === "de" ? "Goldenes Premium-Abzeichen ★" : lang === "en" ? "Gold premium badge ★" : "Badge premium doré ★",
+                      lang === "de" ? "Professioneller Lebenslauf (PDF)" : lang === "en" ? "Professional CV (PDF)" : "CV professionnel (PDF)",
                       lang === "de" ? "Priorität bei Jobvermittlung" : lang === "en" ? "Priority job matching" : "Matching prioritaire",
                       lang === "de" ? "Direkter Beratungs-Zugang" : lang === "en" ? "Direct counselling access" : "Accès conseil direct",
                       lang === "de" ? "Vollständige Begleitung nach Deutschland" : lang === "en" ? "Full relocation support to Germany" : "Accompagnement complet vers l'Allemagne",
@@ -1018,6 +960,8 @@ export function ProfileIcon() {
                       </span>
                     </li>
                   </ul>
+
+                  {/* Primary — pay in full */}
                   <button
                     onClick={() => handleCheckout("kandidat")}
                     disabled={!!checkoutPlan}
@@ -1025,7 +969,18 @@ export function ProfileIcon() {
                     style={{ background: "var(--gold)", color: "#131312", border: "none", cursor: checkoutPlan ? "wait" : "pointer" }}>
                     {checkoutPlan === "kandidat"
                       ? (lang === "de" ? "Weiterleitung…" : lang === "en" ? "Redirecting…" : "Redirection…")
-                      : (lang === "de" ? "Kandidat wählen — €99" : lang === "en" ? "Get Kandidat — €99" : "Choisir Kandidat — 99€")}
+                      : (lang === "de" ? "Jetzt zahlen — €99" : lang === "en" ? "Pay now — €99" : "Payer maintenant — 99€")}
+                  </button>
+
+                  {/* Secondary — installment option */}
+                  <button
+                    onClick={() => handleCheckout("kandidat_installment")}
+                    disabled={!!checkoutPlan}
+                    className="w-full py-2.5 rounded-xl text-[13px] font-semibold transition-opacity hover:opacity-90 disabled:opacity-50 mt-2"
+                    style={{ background: "transparent", color: "var(--gold)", border: "1px solid var(--border-gold)", cursor: checkoutPlan ? "wait" : "pointer" }}>
+                    {checkoutPlan === "kandidat_installment"
+                      ? (lang === "de" ? "Weiterleitung…" : lang === "en" ? "Redirecting…" : "Redirection…")
+                      : (lang === "de" ? "In 5 Raten zahlen — €20 / Monat" : lang === "en" ? "Pay in 5 instalments — €20 / month" : "Payer en 5 fois — 20€ / mois")}
                   </button>
                 </div>
 

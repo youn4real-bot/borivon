@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
+import { VerifiedBadge } from "@/components/VerifiedBadge";
 
 type UserEntry = {
   id: string;
@@ -11,6 +12,8 @@ type UserEntry = {
   name: string;
   role: "admin" | "candidate";
   createdAt: string;
+  photo: string | null;
+  verified: boolean;
 };
 
 type Props = {
@@ -251,17 +254,24 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
                 style={{ borderBottom: "1px solid var(--border)" }}
               >
                 {/* Avatar */}
-                <div
-                  className="w-9 h-9 rounded-full flex items-center justify-center text-[12px] font-semibold flex-shrink-0"
-                  style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}
-                >
-                  {(u.name || u.email).charAt(0).toUpperCase()}
+                <div className="flex-shrink-0">
+                  {u.photo ? (
+                    <img src={u.photo} alt={u.name || u.email}
+                      className="w-9 h-9 rounded-full object-cover"
+                      style={{ border: "1px solid var(--border)" }} />
+                  ) : (
+                    <div className="w-9 h-9 rounded-full flex items-center justify-center text-[12px] font-semibold"
+                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                      {(u.name || u.email).charAt(0).toUpperCase()}
+                    </div>
+                  )}
                 </div>
 
                 {/* Name + email */}
                 <div className="flex-1 min-w-0">
-                  <p className="text-[12.5px] font-medium truncate" style={{ color: "var(--w)" }}>
-                    {u.name || <span style={{ color: "var(--w3)" }}>{T.noName}</span>}
+                  <p className="text-[12.5px] font-medium flex items-center gap-1" style={{ color: "var(--w)" }}>
+                    <span className="truncate">{u.name || <span style={{ color: "var(--w3)" }}>{T.noName}</span>}</span>
+                    {u.verified && <VerifiedBadge verified size="xs" color="gold" />}
                   </p>
                   <p className="text-[11px] truncate mt-0.5" style={{ color: "var(--w3)" }}>{u.email}</p>
                 </div>
@@ -311,11 +321,11 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
       {deleteTarget && (
         <>
           <div
-            className="fixed inset-0 z-[1402]"
+            className="fixed inset-0 z-[9999]"
             style={{ background: "rgba(0,0,0,0.5)" }}
             onClick={() => !deleting && (setDeleteTarget(null), setDeleteInput(""))}
           />
-          <div className="fixed inset-0 z-[1403] flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
             <div
               className="w-full max-w-sm rounded-2xl p-6 flex flex-col gap-4"
               style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 8px 40px rgba(0,0,0,0.22)" }}

@@ -15,8 +15,8 @@ import { useLang } from "@/components/LangContext";
  *   - "sm"  → next to a row label (~16px)
  *   - "md"  → in a profile-page header (~24px)
  *
- * z-index: popup uses z-[1190] so the navbar (z-[1200]) always stays on top
- * and all nav interactions (language picker, etc.) remain accessible.
+ * z-index: popup uses z-[1500] — above every other modal in the app so the
+ * tick popup always renders on top regardless of where it is clicked from.
  */
 
 const VB_T = {
@@ -115,12 +115,8 @@ export function VerifiedBadge({
       </span>
 
       {open && typeof document !== "undefined" && createPortal(
-        // z-[1250] — above the message thread modal (z-[1200]) so the popup
-        // always renders IN FRONT. The backdrop starts at top-[58px] so the
-        // sticky navbar is never covered on laptop/desktop. On phones,
-        // safe-area-inset-bottom keeps the card above the home indicator.
         <div
-          className="fixed inset-x-0 bottom-0 top-[58px] z-[1250] flex items-center justify-center p-4 bv-modal-outer"
+          className="fixed inset-x-0 bottom-0 top-[58px] z-[9999] flex items-center justify-center p-4 bv-modal-outer"
           style={{
             background: "rgba(0,0,0,0.55)",
             backdropFilter: "blur(8px)",

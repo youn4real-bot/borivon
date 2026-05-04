@@ -1157,20 +1157,6 @@ function AdminInbox({ accessToken }: { accessToken: string }) {
   );
 }
 
-function MsgPaymentBadge({ tier }: { tier?: string | null }) {
-  if (!tier) return null;
-  const isK = tier === "kandidat";
-  return (
-    <span className="inline-flex items-center text-[8.5px] font-bold uppercase tracking-wider px-1 py-0.5 rounded-full ml-0.5 flex-shrink-0"
-      style={{
-        background: isK ? "var(--gdim)" : "var(--info-bg)",
-        color:      isK ? "var(--gold)"           : "var(--info)",
-        border:     isK ? "1px solid var(--border-gold)" : "1px solid var(--info-border)",
-      }}>
-      {isK ? "★ K" : "S"}
-    </span>
-  );
-}
 
 function ConversationList({
   convs, onPick, lang,
@@ -1212,7 +1198,6 @@ function ConversationList({
               <p className="text-[13px] font-semibold truncate inline-flex items-center gap-0.5" style={{ color: "var(--w)" }}>
                 {c.name}
                 <VerifiedBadge verified={!!c.verified} size="xs" color={c.isOrgMember ? "red" : "gold"} />
-                <MsgPaymentBadge tier={c.paymentTier} />
               </p>
               <span className="text-[9.5px] flex-shrink-0" style={{ color: "var(--w3)" }}>{fmtTime(c.lastAt, lang)}</span>
             </div>

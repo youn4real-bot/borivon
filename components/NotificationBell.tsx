@@ -8,6 +8,7 @@ import { Bell, Paperclip, CheckCircle2, XCircle, User, FilePen } from "@/compone
 
 import { Spinner } from "@/components/ui/states";
 import { useLang } from "@/components/LangContext";
+import { VerifiedBadge } from "@/components/VerifiedBadge";
 
 // ── Minimal bell-specific translations ─────────────────────────────────────────
 const BELL_T = {
@@ -121,6 +122,8 @@ type AdminNotif = {
   doc_name: string | null;
   read: boolean;
   created_at: string;
+  user_photo: string | null;
+  user_verified: boolean;
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -649,15 +652,26 @@ function AdminBell({ accessToken }: { accessToken: string }) {
                       cursor: "pointer",
                     }}
                     onClick={() => handleClick(n)}>
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
-                      style={{ background: iconSt.bg, border: iconSt.border, color: iconSt.color }}>
-                      <iconSt.Icon size={14} strokeWidth={1.7} />
+                    {/* Candidate avatar — photo if available, initials fallback */}
+                    <div className="flex-shrink-0 mt-0.5">
+                      {n.user_photo ? (
+                        <img src={n.user_photo} alt={n.user_name}
+                          className="w-8 h-8 rounded-full object-cover"
+                          style={{ border: "1px solid var(--border)" }} />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-[12px] font-semibold"
+                          style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                          {n.user_name.charAt(0).toUpperCase()}
+                        </div>
+                      )}
                     </div>
                     <div className="flex-1 min-w-0">
                       {isSignup ? (
                         <>
-                          <p className="text-xs leading-snug" style={{ color: "var(--w)" }}>
-                            <span className="font-semibold">{n.user_name}</span> {t.justSignedUp}
+                          <p className="text-xs leading-snug flex items-center gap-1" style={{ color: "var(--w)" }}>
+                            <span className="font-semibold">{n.user_name}</span>
+                            {n.user_verified && <VerifiedBadge verified size="xs" color="gold" />}
+                            {t.justSignedUp}
                           </p>
                           {n.user_email && (
                             <p className="text-[11px] mt-0.5 truncate" style={{ color: "var(--w3)" }}>{n.user_email}</p>
@@ -665,8 +679,10 @@ function AdminBell({ accessToken }: { accessToken: string }) {
                         </>
                       ) : (
                         <>
-                          <p className="text-xs leading-snug" style={{ color: "var(--w)" }}>
-                            <span className="font-semibold">{n.user_name}</span> {t.uploadedDoc}
+                          <p className="text-xs leading-snug flex items-center gap-1" style={{ color: "var(--w)" }}>
+                            <span className="font-semibold">{n.user_name}</span>
+                            {n.user_verified && <VerifiedBadge verified size="xs" color="gold" />}
+                            {t.uploadedDoc}
                           </p>
                           {n.doc_type && (
                             <p className="text-[11px] mt-0.5 px-2 py-1 rounded-lg leading-snug"

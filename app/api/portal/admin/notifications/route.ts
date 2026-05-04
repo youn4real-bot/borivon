@@ -19,7 +19,47 @@ export async function GET(req: NextRequest) {
     console.error("[admin notifications GET] failed:", error);
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
-  return NextResponse.json({ notifications: data ?? [] });
+
+  const rows = data ?? [];
+
+  // Enrich with profile photo + verified status by joining through auth.users
+  const emails = [...new Set(rows.map(n => n.user_email).filter(Boolean))];
+  const photoMap: Record<string, { photo: string | null; verified: boolean }> = {};
+  if (emails.length > 0) {
+    let page = 1;
+    const authUsers: { id: string; email?: string }[] = [];
+    while (true) {
+      const { data: batch } = await db.auth.admin.listUsers({ page, perPage: 50 });
+      authUsers.push(...(batch?.users ?? []));
+      if ((batch?.users ?? []).length < 50) break;
+      page++;
+    }
+    const emailToId: Record<string, string> = {};
+    for (const u of authUsers) {
+      if (u.email && emails.includes(u.email)) emailToId[u.email] = u.id;
+    }
+    const userIds = Object.values(emailToId);
+    if (userIds.length > 0) {
+      const { data: profiles } = await db
+        .from("candidate_profiles")
+        .select("user_id, profile_photo, manually_verified")
+        .in("user_id", userIds);
+      const profileById: Record<string, { profile_photo: string | null; manually_verified: boolean | null }> =
+        Object.fromEntries((profiles ?? []).map(p => [p.user_id, p]));
+      for (const [email, uid] of Object.entries(emailToId)) {
+        const p = profileById[uid];
+        photoMap[email] = { photo: p?.profile_photo ?? null, verified: !!p?.manually_verified };
+      }
+    }
+  }
+
+  const enriched = rows.map(n => ({
+    ...n,
+    user_photo:    photoMap[n.user_email]?.photo    ?? null,
+    user_verified: photoMap[n.user_email]?.verified ?? false,
+  }));
+
+  return NextResponse.json({ notifications: enriched });
 }
 
 // PATCH — mark notifications as read.

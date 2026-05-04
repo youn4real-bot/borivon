@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
   }
 
   const [{ data: profiles }, { data: subAdmins }] = await Promise.all([
-    db.from("candidate_profiles").select("user_id, first_name, last_name"),
+    db.from("candidate_profiles").select("user_id, first_name, last_name, profile_photo, manually_verified"),
     db.from("sub_admins").select("email"),
   ]);
   const authUsers = allAuthUsers;
@@ -37,7 +37,15 @@ export async function GET(req: NextRequest) {
       || [u.user_metadata?.first_name, u.user_metadata?.last_name].filter(Boolean).join(" ");
     const name = profileName || metaName || "";
     const role = adminEmails.has((u.email ?? "").toLowerCase()) ? "admin" : "candidate";
-    return { id: u.id, email: u.email ?? "", name, role, createdAt: u.created_at };
+    return {
+      id: u.id,
+      email: u.email ?? "",
+      name,
+      role,
+      createdAt: u.created_at,
+      photo: (p as { profile_photo?: string | null } | undefined)?.profile_photo ?? null,
+      verified: !!(p as { manually_verified?: boolean | null } | undefined)?.manually_verified,
+    };
   });
 
   // Sort: admins first, then by createdAt desc
