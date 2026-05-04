@@ -2700,21 +2700,21 @@ export default function AdminPage() {
               <div className="mb-4 space-y-3">
                 {/* Search — CV-builder field styling */}
                 <div className="relative">
-                  <Search size={14} strokeWidth={1.8}
-                    className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none"
+                  <Search size={12} strokeWidth={1.8}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
                     style={{ color: "var(--w3)" }} />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
                     placeholder={t.adSearchPh}
-                    className="w-full pl-9 pr-9 py-2.5 text-[12px] outline-none transition-colors focus:border-[var(--gold)]"
+                    className="w-full pl-8 pr-8 py-1.5 text-[11.5px] outline-none transition-colors"
                     style={{
                       background: "var(--card)",
-                      border: "none",
+                      border: "1px solid var(--border)",
                       color: "var(--w)",
-                      borderRadius: "14px",
-                      boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+                      borderRadius: "10px",
+                      boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
                     }} />
                   {searchQuery && (
                     <button onClick={() => setSearchQuery("")} aria-label={t.adClearSearch}
