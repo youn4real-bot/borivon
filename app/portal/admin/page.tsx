@@ -2767,7 +2767,16 @@ export default function AdminPage() {
                         </p>
                       </div>
 
-                      {/* Time-since label — quiet text only, no chip */}
+                      {/* Pending tasks badge */}
+                      {(() => {
+                        const taskCnt = pendingCnt + (profiles[uid]?.passport_status === "pending" ? 1 : 0);
+                        if (!taskCnt) return null;
+                        return (
+                          <span className="flex-shrink-0 text-[12px] font-bold" style={{ color: "#f59e0b" }}>
+                            {taskCnt}
+                          </span>
+                        );
+                      })()}
 
                       {/* Match-with-org chevron — always shown; gold if already matched */}
                       {(() => {
@@ -2806,7 +2815,7 @@ export default function AdminPage() {
 
           {/* ── Tools strip — invite + agencies ── superadmin only ── */}
           {isSuperAdmin && (
-            <div className="mb-5 space-y-px" style={{ borderRadius: "var(--r-xl)", border: "1px solid var(--border)" }}>
+            <div className="mt-4 mb-5 space-y-px" style={{ borderRadius: "var(--r-xl)", border: "1px solid var(--border)" }}>
 
               {/* Candidate invite row — generates a /join link that lands on
                   /portal/dashboard after signup. */}
@@ -2855,7 +2864,7 @@ export default function AdminPage() {
               {/* Org-admin invite row — generates a /join link that lands on
                   /portal/org/dashboard after signup. Requires picking which
                   org the new admin will manage. */}
-              <div className="flex items-center gap-3 px-4 py-3" style={{ background: "var(--card)", borderTop: "1px solid var(--border)", borderRadius: "0 0 var(--r-xl) var(--r-xl)" }}>
+              <div className="flex items-center gap-3 px-4 py-3" style={{ background: "var(--card)", borderRadius: "0 0 var(--r-xl) var(--r-xl)" }}>
                 <span className="flex-1 flex items-center gap-2"><Building2 size={16} strokeWidth={1.6} style={{ color: "var(--w3)" }} /><span className="text-[12px]" style={{ color: "var(--w3)" }}>Invitation Link</span></span>
                 {orgInviteUrl ? (
                   <div className="flex items-center gap-2 flex-shrink-0">
