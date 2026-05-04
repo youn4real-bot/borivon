@@ -14,12 +14,11 @@ import {
   Lock, Unlock, IdCard, FileText, Folder, FilePen, Save, Eye,
   CheckCircle2, XCircle, AlertTriangle, PartyPopper,
 } from "@/components/PortalIcons";
-import { X as XIcon, RotateCcw, Download, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus } from "lucide-react";
+import { X as XIcon, RotateCcw, Download, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User } from "lucide-react";
 import { Spinner, PageLoader, EmptyState } from "@/components/ui/states";
 import { CandidateStagePreview, type JourneyMode } from "@/components/JourneyView";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { PortalTopNav } from "@/components/PortalTopNav";
-import { SignRequestPanel } from "@/components/SignRequestPanel";
 
 // ── File key → all possible translated labels ─────────────────────────────────
 const FILE_KEY_ALL_LABELS: Record<string, Set<string>> = (() => {
@@ -201,7 +200,11 @@ export default function AdminPage() {
   const [orgInviteOrgId, setOrgInviteOrgId]       = useState("");
   const [orgInviteGenerating, setOrgInviteGenerating] = useState(false);
   const [orgInviteUrl, setOrgInviteUrl]           = useState<string | null>(null);
+  const [orgInviteDropdown, setOrgInviteDropdown] = useState(false);
   const [orgInviteCopied, setOrgInviteCopied]     = useState(false);
+  const [newOrgModal, setNewOrgModal]             = useState(false);
+  const [newOrgName, setNewOrgName]               = useState("");
+  const [newOrgCreating, setNewOrgCreating]       = useState(false);
   /** All orgs in the system — used for the "Place with org" dropdown */
   const [allOrgs, setAllOrgs] = useState<OrgBasic[]>([]);
   /** Currently selected org in the placement dropdown */
@@ -433,6 +436,12 @@ export default function AdminPage() {
   const [mergePreview, setMergePreview] = useState<{ origId: string; transId: string; label: string } | null>(null);
   // Passport DATA PDF download state (passport info modal)
   const [passportDataPdfDl, setPassportDataPdfDl] = useState(false);
+  // Signature request modal
+  const [sigModal, setSigModal] = useState<{ driveFileId: string; label: string } | null>(null);
+  const [sigPartyAdmin, setSigPartyAdmin] = useState(false);
+  const [sigPartyCandidate, setSigPartyCandidate] = useState(true);
+  const [sigNote, setSigNote] = useState("");
+  const [sigSending, setSigSending] = useState(false);
   // Delete candidate confirmation
   const [deleteCandidateConfirm, setDeleteCandidateConfirm] = useState(false);
   const [deleteCandidateInput, setDeleteCandidateInput] = useState("");
@@ -456,24 +465,11 @@ export default function AdminPage() {
       // Check supreme-admin status + fetch org list in parallel with main data.
       fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${token}` } })
         .then(r => r.ok ? r.json() : null)
-        .then(j => {
-          if (j?.isSuperAdmin) {
-            setIsSuperAdmin(true);
-            loadAgencies(token).catch(() => {});
-          }
-        })
+        .then(j => { if (j?.isSuperAdmin) setIsSuperAdmin(true); })
         .catch(() => {});
       fetch("/api/portal/admin/organizations", { headers: { Authorization: `Bearer ${token}` } })
         .then(r => r.ok ? r.json() : null)
         .then(j => { if (j?.orgs) setAllOrgs(j.orgs); })
-        .catch(() => {});
-      fetch("/api/portal/admin/suggested-matches", { headers: { Authorization: `Bearer ${token}` } })
-        .then(r => r.ok ? r.json() : null)
-        .then(j => { if (j?.matches) setSuggestedMatches(j.matches); })
-        .catch(() => {});
-      fetch("/api/portal/admin/org-needs", { headers: { Authorization: `Bearer ${token}` } })
-        .then(r => r.ok ? r.json() : null)
-        .then(j => { if (j?.needs) setOrgNeeds(j.needs); })
         .catch(() => {});
       try {
         const res = await fetch("/api/portal/admin", { headers: { Authorization: `Bearer ${token}` } });
@@ -1461,8 +1457,30 @@ export default function AdminPage() {
 
                 {/* ── Footer: approve / reject / save ── */}
                 {p_info && (
-                  <div className="px-5 py-3 flex-shrink-0 flex items-center gap-2"
+                  <div className="px-5 py-3 flex-shrink-0 flex flex-col gap-2"
                     style={{ borderTop: "1px solid var(--border)" }}>
+                  {isSuperAdmin && (() => {
+                    const isManual = !!profiles[selectedUser ?? ""]?.manually_verified;
+                    return (
+                      <button
+                        onClick={toggleManualVerify}
+                        title={isManual ? "Manually verified — click to revoke" : "Grant the gold verified tick"}
+                        className="self-start inline-flex items-center gap-1.5 text-[10.5px] px-3 py-1.5 rounded-full font-semibold transition-colors"
+                        style={isManual
+                          ? { background: "var(--gdim)", border: "1px solid var(--border-gold)" }
+                          : { background: "transparent", border: "1px solid var(--border)" }}>
+                        <svg width="10" height="10" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                          <path d="M19.998 3.094 14.638 0l-2.972 5.15H5.432v6.354L0 14.64 3.094 20 0 25.359l5.432 3.137v6.355h6.234L14.638 40l5.36-3.094L25.358 40l2.978-5.149h6.227v-6.355L40 25.359 36.905 20 40 14.64l-5.438-3.135V5.15h-6.227L25.358 0l-5.36 3.094Z"
+                            fill={isManual ? "var(--gold)" : "none"} stroke={isManual ? "none" : "var(--w3)"} strokeWidth="2" />
+                          <path d="m13 19.5 4.5 4 7-7" stroke={isManual ? "#fff" : "transparent"} strokeWidth="3.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                        <span style={{ color: isManual ? "var(--gold)" : "var(--w3)" }}>
+                          {isManual ? "Verified" : "Verify"}
+                        </span>
+                      </button>
+                    );
+                  })()}
+                  <div className="flex items-center gap-2">
                     {passportInfoEditMode ? (
                       <>
                         <button
@@ -1528,6 +1546,7 @@ export default function AdminPage() {
                           : <><Download size={12} strokeWidth={1.8} /> Download data PDF</>}
                       </button>
                     )}
+                  </div>
                   </div>
                 )}
               </div>
@@ -1616,31 +1635,6 @@ export default function AdminPage() {
                     {pendingDocs.length} {t.aPending}
                   </span>
                 )}
-                {/* Manual verification override — only the supreme admin (isSuperAdmin) */}
-                {isSuperAdmin && (() => {
-                  const isManual = !!profiles[selectedUser ?? ""]?.manually_verified;
-                  return (
-                    <button
-                      onClick={toggleManualVerify}
-                      title={isManual
-                        ? "Manually verified — click to revoke the gold tick"
-                        : "Grant the gold verified tick (overrides document checks)"}
-                      aria-label="Toggle manual verification"
-                      className="inline-flex items-center gap-1.5 text-[10.5px] px-3 py-1.5 rounded-full font-semibold tracking-wide uppercase transition-colors"
-                      style={isManual
-                        ? { background: "var(--gdim)", border: "1px solid var(--border-gold)" }
-                        : { background: "transparent", border: "1px solid var(--border)" }}>
-                      <svg width="11" height="11" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                        <path d="M19.998 3.094 14.638 0l-2.972 5.15H5.432v6.354L0 14.64 3.094 20 0 25.359l5.432 3.137v6.355h6.234L14.638 40l5.36-3.094L25.358 40l2.978-5.149h6.227v-6.355L40 25.359 36.905 20 40 14.64l-5.438-3.135V5.15h-6.227L25.358 0l-5.36 3.094Z"
-                          fill={isManual ? "var(--gold)" : "none"} stroke={isManual ? "none" : "var(--w3)"} strokeWidth="2" />
-                        <path d="m13 19.5 4.5 4 7-7" stroke={isManual ? "#fff" : "transparent"} strokeWidth="3.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-                      </svg>
-                      <span style={isManual ? { color: "var(--gold)" } : { color: "var(--w3)" }}>
-                        {isManual ? "Verified" : "Verify"}
-                      </span>
-                    </button>
-                  );
-                })()}
                 {/* Edit CV — opens cv-builder in admin mode for this candidate */}
                 {selectedUser && (
                   <button
@@ -1655,46 +1649,6 @@ export default function AdminPage() {
               </div>
             </div>
 
-            {/* ── Org Placement dropdown ── */}
-            {allOrgs.length > 0 && (() => {
-              const placedIds = new Set((candidateOrgs[selectedUser] ?? []).map(o => o.id));
-              const available = allOrgs.filter(o => !placedIds.has(o.id));
-              if (available.length === 0) return null;
-              return (
-                <div className="inline-flex items-center gap-1.5 mb-4 px-1">
-                  <select
-                    value={placementOrgId}
-                    onChange={e => setPlacementOrgId(e.target.value)}
-                    className="text-[11px] px-2 py-1 outline-none"
-                    style={{
-                      background: "var(--bg2)", color: "var(--w2)",
-                      border: "1px solid var(--border)", borderRadius: "var(--r-sm)",
-                      height: 28,
-                    }}>
-                    <option value="">Place with org…</option>
-                    {available.map(o => (
-                      <option key={o.id} value={o.id}>{o.name}</option>
-                    ))}
-                  </select>
-                  <button
-                    onClick={() => placeWithOrg(placementOrgId)}
-                    disabled={!placementOrgId || placing}
-                    className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 transition-all disabled:opacity-40"
-                    style={{ background: "var(--gold)", color: "#131312", border: "none", borderRadius: "var(--r-sm)", height: 28 }}>
-                    {placing ? "…" : "Place"}
-                  </button>
-                </div>
-              );
-            })()}
-
-            {/* ── Signature requests ── */}
-            {selectedUser && (
-              <SignRequestPanel
-                candidateId={selectedUser}
-                authToken={accessToken}
-                lang={(lang as "en" | "fr" | "de") in { en: 1, fr: 1, de: 1 } ? lang as "en" | "fr" | "de" : "en"}
-              />
-            )}
 
             {/* Always two-column: sidebar + content */}
             <div className="flex gap-4 sm:gap-6 items-start">
@@ -2050,9 +2004,9 @@ export default function AdminPage() {
                           <div key="passport_data_pdf">
                             {idx > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
                             <div className="px-5 py-4">
-                              <div className="flex items-start gap-3">
+                              <div className="flex items-center gap-3">
                                 {/* Status circle */}
-                                <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
+                                <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
                                   style={{ background: sc2.bg, color: sc2.txt, border: sc2.bdr }}>
                                   {cSymEl}
                                 </div>
@@ -2197,7 +2151,7 @@ export default function AdminPage() {
                                         </button>
                                       </>
                                     )}
-                                    {sst === "approved" && (
+                                    {subDoc.drive_file_id && (
                                       <div className="relative flex-shrink-0"
                                         style={{ zIndex: revokeMenu === subDoc.id ? 600 : undefined }}>
                                         <button
@@ -2213,11 +2167,19 @@ export default function AdminPage() {
                                             <div className="absolute right-0 top-full mt-1 rounded-xl overflow-hidden"
                                               style={{ zIndex: 600, background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
                                               <button
-                                                onClick={e => { e.stopPropagation(); setRevokeMenu(null); openRejectModal({ kind: "doc", docId: subDoc.id, label: subLabel, initialFeedback: subDoc.feedback ?? "" }); }}
+                                                onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ driveFileId: subDoc.drive_file_id!, label: subLabel }); }}
                                                 className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
-                                                style={{ color: "var(--danger)" }}>
-                                                <RotateCcw size={11} strokeWidth={1.8} /> Revoke
+                                                style={{ color: "var(--w)" }}>
+                                                <FilePen size={11} strokeWidth={1.8} /> Signature
                                               </button>
+                                              {sst === "approved" && (
+                                                <button
+                                                  onClick={e => { e.stopPropagation(); setRevokeMenu(null); openRejectModal({ kind: "doc", docId: subDoc.id, label: subLabel, initialFeedback: subDoc.feedback ?? "" }); }}
+                                                  className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                                  style={{ color: "var(--danger)" }}>
+                                                  <RotateCcw size={11} strokeWidth={1.8} /> Revoke
+                                                </button>
+                                              )}
                                             </div>
                                           </>
                                         )}
@@ -2336,7 +2298,7 @@ export default function AdminPage() {
                             onClick={adminRowOnClick}
                             className={`px-3 py-3 transition-colors${adminRowClickable ? " bv-row-hover cursor-pointer" : ""}`}
                             style={{ minHeight: 60 }}>
-                            <div className="flex items-start gap-3">
+                            <div className="flex items-center gap-3">
                               {/* Content */}
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-1.5 min-w-0">
@@ -2421,11 +2383,11 @@ export default function AdminPage() {
                                               </>
                                             )}
                                             </div>
-                                            {d.status === "approved" && (
+                                            {d.drive_file_id && (
                                               <div className="relative flex-shrink-0">
                                                 <button
                                                   onClick={(e) => { e.stopPropagation(); setRevokeMenu(prev => prev === d.id ? null : d.id); }}
-                                                  title="Revoke approval" aria-label="More actions"
+                                                  title="More actions" aria-label="More actions"
                                                   className="bv-icon-btn w-6 h-6 flex items-center justify-center rounded-full bv-touch"
                                                   style={{ color: "var(--w2)" }}
                                                 ><MoreHorizontal size={11} strokeWidth={1.8} /></button>
@@ -2435,12 +2397,20 @@ export default function AdminPage() {
                                                     <div className="absolute right-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
                                                       style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
                                                       <button
-                                                        onClick={() => { setRevokeMenu(null); openRejectModal({ kind: "doc", docId: d.id, label: d.file_name, initialFeedback: d.feedback ?? "" }); }}
-                                                        disabled={saving[d.id]}
-                                                        className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium disabled:opacity-40 inline-flex items-center gap-1.5"
-                                                        style={{ color: "var(--danger)" }}>
-                                                        <RotateCcw size={11} strokeWidth={1.8} /> Revoke
+                                                        onClick={() => { setRevokeMenu(null); setSigModal({ driveFileId: d.drive_file_id!, label: d.file_name }); }}
+                                                        className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                                        style={{ color: "var(--w)" }}>
+                                                        <FilePen size={11} strokeWidth={1.8} /> Signature
                                                       </button>
+                                                      {d.status === "approved" && (
+                                                        <button
+                                                          onClick={() => { setRevokeMenu(null); openRejectModal({ kind: "doc", docId: d.id, label: d.file_name, initialFeedback: d.feedback ?? "" }); }}
+                                                          disabled={saving[d.id]}
+                                                          className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium disabled:opacity-40 inline-flex items-center gap-1.5"
+                                                          style={{ color: "var(--danger)" }}>
+                                                          <RotateCcw size={11} strokeWidth={1.8} /> Revoke
+                                                        </button>
+                                                      )}
                                                     </div>
                                                   </>
                                                 )}
@@ -2463,7 +2433,7 @@ export default function AdminPage() {
                                   so the parent row's "preview doc" handler
                                   can never swallow these button clicks. */}
                               {!isMulti && doc && (
-                                <div className="flex items-center gap-1.5 flex-shrink-0 mt-0.5"
+                                <div className="flex items-center gap-1.5 flex-shrink-0"
                                   onClick={(e) => e.stopPropagation()}
                                   onMouseDown={(e) => e.stopPropagation()}>
                                   {doc.drive_file_id && (
@@ -2492,11 +2462,11 @@ export default function AdminPage() {
                                       </button>
                                     </>
                                   )}
-                                  {doc.status === "approved" && (
+                                  {doc.drive_file_id && (
                                     <div className="relative" onClick={(e) => e.stopPropagation()}>
                                       <button
                                         onClick={(e) => { e.stopPropagation(); setRevokeMenu(prev => prev === doc.id ? null : doc.id); }}
-                                        title="Revoke approval" aria-label="More actions"
+                                        title="More actions" aria-label="More actions"
                                         className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
                                         style={{ color: "var(--w2)" }}>
                                         <MoreHorizontal size={14} strokeWidth={1.8} />
@@ -2507,12 +2477,20 @@ export default function AdminPage() {
                                           <div className="absolute right-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
                                             style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
                                             <button
-                                              onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); openRejectModal({ kind: "doc", docId: doc.id, label: item.label, initialFeedback: doc.feedback ?? "" }); }}
-                                              disabled={saving[doc.id]}
-                                              className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium disabled:opacity-40 inline-flex items-center gap-1.5"
-                                              style={{ color: "var(--danger)" }}>
-                                              <RotateCcw size={11} strokeWidth={1.8} /> Revoke
+                                              onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ driveFileId: doc.drive_file_id!, label: item.label }); }}
+                                              className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                              style={{ color: "var(--w)" }}>
+                                              <FilePen size={11} strokeWidth={1.8} /> Signature
                                             </button>
+                                            {doc.status === "approved" && (
+                                              <button
+                                                onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); openRejectModal({ kind: "doc", docId: doc.id, label: item.label, initialFeedback: doc.feedback ?? "" }); }}
+                                                disabled={saving[doc.id]}
+                                                className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium disabled:opacity-40 inline-flex items-center gap-1.5"
+                                                style={{ color: "var(--danger)" }}>
+                                                <RotateCcw size={11} strokeWidth={1.8} /> Revoke
+                                              </button>
+                                            )}
                                           </div>
                                         </>
                                       )}
@@ -2717,8 +2695,7 @@ export default function AdminPage() {
                       color: "var(--w)",
                       borderRadius: "8px",
                       height: "32px",
-                      fontSize: "16px",
-                      transform: "scale(1)",
+                      fontSize: "13px",
                     }} />
                 </div>
               </div>
@@ -2917,6 +2894,201 @@ export default function AdminPage() {
             );
           })()}
 
+          {/* ── Tools strip — invite + agencies ── superadmin only ── */}
+          {isSuperAdmin && (
+            <div className="mb-5 space-y-px" style={{ borderRadius: "var(--r-xl)", border: "1px solid var(--border)" }}>
+
+              {/* Candidate invite row — generates a /join link that lands on
+                  /portal/dashboard after signup. */}
+              <div className="flex items-center gap-3 px-4 py-3" style={{ background: "var(--card)", borderRadius: "var(--r-xl) var(--r-xl) 0 0" }}>
+                <span className="flex-1 flex items-center gap-2"><User size={16} strokeWidth={1.6} style={{ color: "var(--w3)" }} /><span className="text-[12px]" style={{ color: "var(--w3)" }}>Invitation Link</span></span>
+                {inviteUrl ? (
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(inviteUrl).catch(() => {});
+                        setInviteCopied(true);
+                        setTimeout(() => setInviteCopied(false), 2500);
+                      }}
+                      className="flex-shrink-0 px-2.5 py-1 rounded-md text-[10.5px] font-semibold transition-opacity hover:opacity-80"
+                      style={{ background: inviteCopied ? "var(--success-bg)" : "var(--gdim)", color: inviteCopied ? "var(--success)" : "var(--gold)", border: `1px solid ${inviteCopied ? "var(--success-border)" : "var(--border-gold)"}` }}>
+                      {inviteCopied ? "✓" : t.adCopy}
+                    </button>
+                    <button onClick={() => setInviteUrl(null)}
+                      className="flex-shrink-0 text-[10.5px] transition-opacity hover:opacity-70"
+                      style={{ color: "var(--w3)", background: "none", border: "none" }}>
+                      {t.adReset}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={async () => {
+                      setInviteGenerating(true);
+                      try {
+                        const res = await fetch("/api/portal/admin/invite-candidate", {
+                          method: "POST",
+                          headers: { Authorization: `Bearer ${accessToken}` },
+                        });
+                        const j = await res.json();
+                        if (j.url) setInviteUrl(j.url);
+                      } catch { /* ignore */ }
+                      setInviteGenerating(false);
+                    }}
+                    disabled={inviteGenerating}
+                    className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-40"
+                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-sm)" }}>
+                    {inviteGenerating ? "…" : lang === "de" ? "Link generieren" : lang === "fr" ? "Générer" : "Generate"}
+                  </button>
+                )}
+              </div>
+
+              {/* Org-admin invite row — generates a /join link that lands on
+                  /portal/org/dashboard after signup. Requires picking which
+                  org the new admin will manage. */}
+              <div className="flex items-center gap-3 px-4 py-3" style={{ background: "var(--card)", borderTop: "1px solid var(--border)", borderRadius: "0 0 var(--r-xl) var(--r-xl)" }}>
+                <span className="flex-1 flex items-center gap-2"><Building2 size={16} strokeWidth={1.6} style={{ color: "var(--w3)" }} /><span className="text-[12px]" style={{ color: "var(--w3)" }}>Invitation Link</span></span>
+                {orgInviteUrl ? (
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(orgInviteUrl).catch(() => {});
+                        setOrgInviteCopied(true);
+                        setTimeout(() => setOrgInviteCopied(false), 2500);
+                      }}
+                      className="flex-shrink-0 px-2.5 py-1 rounded-md text-[10.5px] font-semibold transition-opacity hover:opacity-80"
+                      style={{ background: orgInviteCopied ? "var(--success-bg)" : "var(--gdim)", color: orgInviteCopied ? "var(--success)" : "var(--gold)", border: `1px solid ${orgInviteCopied ? "var(--success-border)" : "var(--border-gold)"}` }}>
+                      {orgInviteCopied ? "✓" : t.adCopy}
+                    </button>
+                    <button onClick={() => { setOrgInviteUrl(null); setOrgInviteOrgId(""); }}
+                      className="flex-shrink-0 text-[10.5px] transition-opacity hover:opacity-70"
+                      style={{ color: "var(--w3)", background: "none", border: "none" }}>
+                      {t.adReset}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="relative flex-shrink-0">
+                    {/* Backdrop to close dropdown on click-away */}
+                    {orgInviteDropdown && (
+                      <div className="fixed inset-0 z-[599]" onClick={() => setOrgInviteDropdown(false)} />
+                    )}
+                    <button
+                      onClick={() => { if (allOrgs.length > 0) setOrgInviteDropdown(p => !p); }}
+                      disabled={orgInviteGenerating || allOrgs.length === 0}
+                      className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-40"
+                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-sm)" }}>
+                      {orgInviteGenerating
+                        ? "…"
+                        : lang === "de" ? "Link generieren" : lang === "fr" ? "Générer" : "Generate"}
+                      {!orgInviteGenerating && (
+                        <ChevronDown size={11} strokeWidth={2}
+                          style={{ transform: orgInviteDropdown ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
+                      )}
+                    </button>
+                    {orgInviteDropdown && (
+                      <div className="absolute right-0 top-full mt-1 rounded-xl overflow-hidden"
+                        style={{ zIndex: 600, background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 180 }}>
+                        {allOrgs.map(o => (
+                          <button key={o.id}
+                            onClick={async () => {
+                              setOrgInviteDropdown(false);
+                              setOrgInviteGenerating(true);
+                              try {
+                                const res = await fetch(`/api/portal/admin/organizations/${o.id}/generate-invite`, {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                                  body: JSON.stringify({ type: "member" }),
+                                });
+                                const j = await res.json();
+                                if (j.url) setOrgInviteUrl(j.url);
+                              } catch { /* ignore */ }
+                              setOrgInviteGenerating(false);
+                            }}
+                            className="bv-row-hover w-full text-left px-3 py-2.5 text-[11.5px] font-medium"
+                            style={{ color: "var(--w)" }}>
+                            {o.name} <span style={{ color: "var(--w3)" }}>admin</span>
+                          </button>
+                        ))}
+                        <button
+                          onClick={() => { setOrgInviteDropdown(false); setNewOrgName(""); setNewOrgModal(true); }}
+                          className="bv-row-hover w-full text-left px-3 py-2.5 text-[11.5px] font-medium inline-flex items-center gap-1.5"
+                          style={{ color: "var(--w3)", borderTop: allOrgs.length > 0 ? "1px solid var(--border)" : undefined }}>
+                          <Plus size={11} strokeWidth={2} /> New organization admin
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+          </div>
+          )}
+
+          {/* ── New-org modal ── */}
+          {newOrgModal && typeof window !== "undefined" && createPortal(
+            <>
+              <div className="fixed inset-0 z-[800] bg-black/40 backdrop-blur-sm" onClick={() => !newOrgCreating && setNewOrgModal(false)} />
+              <div className="fixed inset-0 z-[801] flex items-center justify-center p-4">
+                <div className="w-full max-w-sm rounded-2xl overflow-hidden"
+                  style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)" }}>
+                  <div className="px-5 pt-5 pb-4">
+                    <p className="text-[14px] font-semibold mb-1" style={{ color: "var(--w)" }}>New organization</p>
+                    <p className="text-[11.5px] mb-4" style={{ color: "var(--w3)" }}>Creates the org and generates an admin invite link.</p>
+                    <input
+                      autoFocus
+                      value={newOrgName}
+                      onChange={e => setNewOrgName(e.target.value)}
+                      onKeyDown={async e => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                      placeholder="Organization name"
+                      className="w-full rounded-xl px-3 py-2.5 text-[13px] outline-none"
+                      style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)" }}
+                    />
+                  </div>
+                  <div className="px-5 pb-5 flex gap-2">
+                    <button
+                      onClick={() => setNewOrgModal(false)}
+                      disabled={newOrgCreating}
+                      className="flex-1 py-2.5 rounded-xl text-[13px] font-medium transition-opacity hover:opacity-70 disabled:opacity-40"
+                      style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
+                      Cancel
+                    </button>
+                    <button
+                      disabled={!newOrgName.trim() || newOrgCreating}
+                      onClick={async () => {
+                        const name = newOrgName.trim();
+                        if (!name) return;
+                        setNewOrgCreating(true);
+                        try {
+                          const createRes = await fetch("/api/portal/admin/organizations", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                            body: JSON.stringify({ name }),
+                          });
+                          const createJ = await createRes.json();
+                          if (!createJ.org) throw new Error(createJ.error ?? "Failed");
+                          const newOrg: OrgBasic = { id: createJ.org.id, name: createJ.org.name };
+                          setAllOrgs(prev => [...prev, newOrg]);
+                          const invRes = await fetch(`/api/portal/admin/organizations/${newOrg.id}/generate-invite`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                            body: JSON.stringify({ type: "member" }),
+                          });
+                          const invJ = await invRes.json();
+                          if (invJ.url) setOrgInviteUrl(invJ.url);
+                        } catch { /* ignore */ }
+                        setNewOrgCreating(false);
+                        setNewOrgModal(false);
+                      }}
+                      className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-40"
+                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                      {newOrgCreating ? "Creating…" : "Create & generate link"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>,
+            document.body,
+          )}
+
           {/* Archive toggle */}
           {archivedUserIds.length > 0 && (
             <div className="mt-10">
@@ -2982,447 +3154,6 @@ export default function AdminPage() {
             </div>
           )}
 
-
-          {/* ── Tools strip — invite + agencies ── superadmin only ── */}
-          {isSuperAdmin && (
-            <div className="mb-5 space-y-px" style={{ borderRadius: "var(--r-xl)", border: "1px solid var(--border)", overflow: "hidden" }}>
-
-              {/* Candidate invite row — generates a /join link that lands on
-                  /portal/dashboard after signup. */}
-              <div className="flex items-center gap-3 px-4 py-3" style={{ background: "var(--card)" }}>
-                <p className="text-[12px] flex-1" style={{ color: "var(--w3)" }}>
-                  {lang === "de" ? "Kandidaten-Einladung" : lang === "fr" ? "Lien candidat" : "Candidate invite"}
-                </p>
-                {inviteUrl ? (
-                  <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <input readOnly value={inviteUrl}
-                      className="flex-1 text-[10.5px] px-2.5 py-1 rounded-md outline-none min-w-0"
-                      style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)", fontFamily: "monospace" }}
-                      onClick={e => (e.target as HTMLInputElement).select()}
-                    />
-                    <button
-                      onClick={async () => {
-                        await navigator.clipboard.writeText(inviteUrl).catch(() => {});
-                        setInviteCopied(true);
-                        setTimeout(() => setInviteCopied(false), 2500);
-                      }}
-                      className="flex-shrink-0 px-2.5 py-1 rounded-md text-[10.5px] font-semibold transition-opacity hover:opacity-80"
-                      style={{ background: inviteCopied ? "var(--success-bg)" : "var(--gdim)", color: inviteCopied ? "var(--success)" : "var(--gold)", border: `1px solid ${inviteCopied ? "var(--success-border)" : "var(--border-gold)"}` }}>
-                      {inviteCopied ? "✓" : t.adCopy}
-                    </button>
-                    <button onClick={() => setInviteUrl(null)}
-                      className="flex-shrink-0 text-[10.5px] transition-opacity hover:opacity-70"
-                      style={{ color: "var(--w3)", background: "none", border: "none" }}>
-                      {t.adReset}
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={async () => {
-                      setInviteGenerating(true);
-                      try {
-                        const res = await fetch("/api/portal/admin/invite-candidate", {
-                          method: "POST",
-                          headers: { Authorization: `Bearer ${accessToken}` },
-                        });
-                        const j = await res.json();
-                        if (j.url) setInviteUrl(j.url);
-                      } catch { /* ignore */ }
-                      setInviteGenerating(false);
-                    }}
-                    disabled={inviteGenerating}
-                    className="flex-shrink-0 px-3 py-1.5 text-[11px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-50"
-                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-sm)" }}>
-                    {inviteGenerating ? "…" : lang === "de" ? "Link generieren" : lang === "fr" ? "Générer" : "Generate"}
-                  </button>
-                )}
-              </div>
-
-              {/* Org-admin invite row — generates a /join link that lands on
-                  /portal/org/dashboard after signup. Requires picking which
-                  org the new admin will manage. */}
-              <div className="flex items-center gap-3 px-4 py-3" style={{ background: "var(--card)", borderTop: "1px solid var(--border)" }}>
-                <p className="text-[12px] flex-1" style={{ color: "var(--w3)" }}>
-                  {lang === "de" ? "Org-Admin-Einladung" : lang === "fr" ? "Lien admin org" : "Org admin invite"}
-                </p>
-                {orgInviteUrl ? (
-                  <div className="flex items-center gap-2 flex-1 min-w-0">
-                    <input readOnly value={orgInviteUrl}
-                      className="flex-1 text-[10.5px] px-2.5 py-1 rounded-md outline-none min-w-0"
-                      style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)", fontFamily: "monospace" }}
-                      onClick={e => (e.target as HTMLInputElement).select()}
-                    />
-                    <button
-                      onClick={async () => {
-                        await navigator.clipboard.writeText(orgInviteUrl).catch(() => {});
-                        setOrgInviteCopied(true);
-                        setTimeout(() => setOrgInviteCopied(false), 2500);
-                      }}
-                      className="flex-shrink-0 px-2.5 py-1 rounded-md text-[10.5px] font-semibold transition-opacity hover:opacity-80"
-                      style={{ background: orgInviteCopied ? "var(--success-bg)" : "var(--gdim)", color: orgInviteCopied ? "var(--success)" : "var(--gold)", border: `1px solid ${orgInviteCopied ? "var(--success-border)" : "var(--border-gold)"}` }}>
-                      {orgInviteCopied ? "✓" : t.adCopy}
-                    </button>
-                    <button onClick={() => { setOrgInviteUrl(null); setOrgInviteOrgId(""); }}
-                      className="flex-shrink-0 text-[10.5px] transition-opacity hover:opacity-70"
-                      style={{ color: "var(--w3)", background: "none", border: "none" }}>
-                      {t.adReset}
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 min-w-0">
-                    <select
-                      value={orgInviteOrgId}
-                      onChange={e => setOrgInviteOrgId(e.target.value)}
-                      disabled={orgInviteGenerating || allOrgs.length === 0}
-                      className="text-[10.5px] px-2 py-1 rounded-md outline-none disabled:opacity-50"
-                      style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)", maxWidth: 160 }}>
-                      <option value="">{t.adSelectOrg}</option>
-                      {allOrgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-                    </select>
-                    <button
-                      onClick={async () => {
-                        if (!orgInviteOrgId) return;
-                        setOrgInviteGenerating(true);
-                        try {
-                          const res = await fetch(`/api/portal/admin/organizations/${orgInviteOrgId}/generate-invite`, {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-                            body: JSON.stringify({ type: "member" }),
-                          });
-                          const j = await res.json();
-                          if (j.url) setOrgInviteUrl(j.url);
-                        } catch { /* ignore */ }
-                        setOrgInviteGenerating(false);
-                      }}
-                      disabled={orgInviteGenerating || !orgInviteOrgId}
-                      className="flex-shrink-0 px-3 py-1.5 text-[11px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-40"
-                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-sm)" }}>
-                      {orgInviteGenerating ? "…" : lang === "de" ? "Link generieren" : lang === "fr" ? "Générer" : "Generate"}
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {/* Agencies row */}
-              {agenciesLoaded && (
-                <div style={{ background: "var(--card)", borderTop: "1px solid var(--border)" }}>
-                  <button
-                    onClick={() => setShowAgencyPanel(p => !p)}
-                    className="w-full flex items-center gap-2 px-4 py-3 text-left"
-                  >
-                    <Building2 size={12} strokeWidth={1.8} style={{ color: "var(--w3)", flexShrink: 0 }} />
-                    <p className="text-[12px] flex-1" style={{ color: "var(--w3)" }}>
-                      {t.adAgencies}
-                      <span className="ml-1.5 text-[10.5px]" style={{ color: "var(--w3)", opacity: 0.6 }}>· {agencies.length}</span>
-                    </p>
-                    <ChevronDown size={13} strokeWidth={1.8} style={{ color: "var(--w3)", transform: showAgencyPanel ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
-              </button>
-              {showAgencyPanel && (
-                <div className="px-5 pb-5 space-y-4">
-                  {/* Agency list */}
-                  {agencies.length > 0 && (
-                    <div className="space-y-2">
-                      {agencies.map(ag => (
-                        <div key={ag.id} className="p-3 rounded-xl" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                          <div className="flex items-center gap-2 mb-1.5">
-                            <p className="text-[13px] font-semibold flex-1" style={{ color: "var(--w)" }}>{ag.name}</p>
-                            <span className="text-[10px] px-1.5 py-0.5 rounded-full" style={{ background: "var(--info-bg)", color: "var(--info)", border: "1px solid var(--info-border)" }}>
-                              {ag.candidateCount} {t.adCandAbbr} · {ag.adminCount} {t.adAdminAbbr}
-                            </span>
-                          </div>
-                          {/* Sub-admins in this agency */}
-                          <div className="space-y-1">
-                            {agencySubAdmins.filter(sa => sa.agency_id === ag.id).map(sa => (
-                              <div key={sa.email} className="flex items-center gap-2">
-                                <p className="text-[11px] flex-1 truncate" style={{ color: "var(--w3)" }}>{sa.email}</p>
-                                <button
-                                  onClick={() => assignSubAdminAgency(sa.email, ag.id, !sa.is_agency_admin)}
-                                  className="text-[10px] px-2 py-0.5 rounded-full transition-opacity hover:opacity-80"
-                                  style={{
-                                    background: sa.is_agency_admin ? "var(--success-bg)" : "var(--bg2)",
-                                    color: sa.is_agency_admin ? "var(--success)" : "var(--w3)",
-                                    border: `1px solid ${sa.is_agency_admin ? "var(--success-border)" : "var(--border)"}`,
-                                  }}>
-                                  {sa.is_agency_admin ? t.adAgencyAdmin : t.adAgencyMember}
-                                </button>
-                                <button
-                                  onClick={() => assignSubAdminAgency(sa.email, null, false)}
-                                  className="text-[10px] px-2 py-0.5 rounded-full transition-opacity hover:opacity-80"
-                                  style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
-                                  {t.adRemove}
-                                </button>
-                              </div>
-                            ))}
-                            {/* Assign unassigned sub-admins */}
-                            {agencySubAdmins.filter(sa => !sa.agency_id).length > 0 && (
-                              <div className="mt-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
-                                <p className="text-[10px] mb-1.5" style={{ color: "var(--w3)" }}>{t.adAddToAgency}</p>
-                                <div className="flex flex-wrap gap-1">
-                                  {agencySubAdmins.filter(sa => !sa.agency_id).map(sa => (
-                                    <button
-                                      key={sa.email}
-                                      onClick={() => assignSubAdminAgency(sa.email, ag.id, false)}
-                                      className="text-[10px] px-2 py-0.5 rounded-full transition-opacity hover:opacity-80"
-                                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                                      + {sa.email.split("@")[0]}
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {/* Create agency */}
-                  <div className="flex items-center gap-2">
-                    <input
-                      value={newAgencyName}
-                      onChange={e => setNewAgencyName(e.target.value)}
-                      onKeyDown={e => e.key === "Enter" && createAgency()}
-                      placeholder={t.adNewAgencyPh}
-                      className="flex-1 text-[12px] px-3 py-1.5 rounded-lg outline-none"
-                      style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }}
-                    />
-                    <button
-                      onClick={createAgency}
-                      disabled={agencyCreating || !newAgencyName.trim()}
-                      className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11.5px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-40"
-                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                      <Plus size={12} strokeWidth={2} />
-                      {agencyCreating ? t.adCreating : t.adCreate}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-          </div>
-          )}
-
-          {/* ── Org needs panel ──────────────────────────────────────────── */}
-          {orgNeeds.length > 0 && (
-            <div className="mb-6 p-5"
-              style={{ background: "var(--card)", borderRadius: "20px", border: "1px solid var(--border)", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-              <div className="flex items-center gap-2 mb-3">
-                <Building2 size={13} strokeWidth={1.8} style={{ color: "var(--gold)", flexShrink: 0 }} />
-                <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--gold)" }}>
-                  {t.adOrgNeeds} · {orgNeeds.length}
-                </p>
-              </div>
-              <div className="space-y-2">
-                {orgNeeds.map(need => {
-                  const alreadyPlaced = Object.values(candidateOrgs)
-                    .flat()
-                    .some(o => o.id === need.orgId);
-                  return (
-                    <div key={need.id} className="p-3 rounded-xl"
-                      style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                      <div className="flex items-start gap-2 mb-2">
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[12.5px] font-semibold" style={{ color: "var(--w)" }}>{need.orgName}</p>
-                          <p className="text-[11px] mt-0.5" style={{ color: "var(--w3)" }}>
-                            {need.specialty ?? t.adAnySpecialty}
-                            <span className="mx-1.5 opacity-40">·</span>
-                            {need.slots} {need.slots !== 1 ? t.adSlots : t.adSlot}
-                            {need.location && <><span className="mx-1.5 opacity-40">·</span>{need.location}</>}
-                          </p>
-                        </div>
-                        {alreadyPlaced && (
-                          <span className="text-[9.5px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
-                            style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
-                            ✓ {t.adMatched}
-                          </span>
-                        )}
-                      </div>
-                      {/* Assign candidate dropdown */}
-                      <div className="flex items-center gap-2">
-                        <select
-                          value={needAssign[need.id] ?? ""}
-                          onChange={e => setNeedAssign(p => ({ ...p, [need.id]: e.target.value }))}
-                          className="flex-1 text-[11px] px-2 py-1.5 outline-none"
-                          style={{ background: "var(--bg)", color: "var(--w2)", border: "1px solid var(--border)", borderRadius: "8px", minWidth: 0 }}>
-                          <option value="">{t.adAssignCandidate}</option>
-                          {Object.entries(users).map(([uid, u]) => {
-                            const alreadyLinked = (candidateOrgs[uid] ?? []).some(o => o.id === need.orgId);
-                            return (
-                              <option key={uid} value={uid} disabled={alreadyLinked}>
-                                {u.name || u.email}{alreadyLinked ? ` (${t.adLinked})` : ""}
-                              </option>
-                            );
-                          })}
-                        </select>
-                        <button
-                          onClick={() => assignNeedCandidate(need, needAssign[need.id] ?? "")}
-                          disabled={!needAssign[need.id] || !!needPlacing[need.id]}
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold px-3 py-1.5 flex-shrink-0 transition-all disabled:opacity-40"
-                          style={{ background: "var(--gold)", color: "#131312", border: "none", borderRadius: "8px" }}>
-                          {needPlacing[need.id] ? "…" : `${t.adLink} →`}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* ── Suggested matches inbox ──────────────────────────────────── */}
-          {suggestedMatches.length > 0 && (
-            <div className="mb-6 p-5"
-              style={{ background: "var(--card)", borderRadius: "20px", border: "1px solid var(--info-border)", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-              <div className="flex items-center gap-2 mb-3">
-                <svg width="13" height="13" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
-                  <path d="M19.998 3.094 14.638 0l-2.972 5.15H5.432v6.354L0 14.64 3.094 20 0 25.359l5.432 3.137v6.355h6.234L14.638 40l5.36-3.094L25.358 40l2.978-5.149h6.227v-6.355L40 25.359 36.905 20 40 14.64l-5.438-3.135V5.15h-6.227L25.358 0l-5.36 3.094Z" fill="var(--info)"/>
-                </svg>
-                <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--info)" }}>
-                  {t.adSuggestedMatches} · {suggestedMatches.length}
-                </p>
-              </div>
-              <div className="space-y-2">
-                {suggestedMatches.map(m => (
-                  <div key={m.id} className="p-3 flex items-center gap-3"
-                    style={{ background: "var(--bg2)", borderRadius: "var(--r-md)", border: "1px solid var(--border)" }}>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[12.5px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>{m.candidateName}</p>
-                      <p className="text-[11px] mt-0.5" style={{ color: "var(--w3)" }}>
-                        → <span style={{ color: "var(--w2)" }}>{m.orgName}</span>
-                        {m.requirement && (
-                          <>
-                            {m.requirement.specialty && <span> · {m.requirement.specialty}</span>}
-                            {m.requirement.location  && <span> · {m.requirement.location}</span>}
-                            <span> · {m.requirement.slots} {m.requirement.slots !== 1 ? t.adSlots : t.adSlot}</span>
-                            {m.requirement.start_date && <span> · {t.adFromDate} {m.requirement.start_date}</span>}
-                          </>
-                        )}
-                      </p>
-                    </div>
-                    <button onClick={() => decideMatch(m.id, "accepted")} disabled={!!matchDeciding[m.id]}
-                      title={t.adAcceptHint}
-                      className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-3 py-1.5 transition-all disabled:opacity-50"
-                      style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)", borderRadius: "var(--r-sm)" }}>
-                      {matchDeciding[m.id] ? <Spinner size="xs" color="var(--success)" /> : `✓ ${t.adAccept}`}
-                    </button>
-                    <button onClick={() => decideMatch(m.id, "skipped")} disabled={!!matchDeciding[m.id]}
-                      title={t.adSkipHint}
-                      className="bv-icon-btn bv-icon-btn--reject w-8 h-8 rounded-full flex items-center justify-center disabled:opacity-40">
-                      <XIcon size={12} strokeWidth={1.8} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── Org Requirements Manager — collapsible ── */}
-          {allOrgs.length > 0 && (
-            <div className="mb-5" style={{ borderRadius: "var(--r-xl)", border: "1px solid var(--border)", overflow: "hidden" }}>
-              <button
-                onClick={() => setShowOrgReqPanel(v => !v)}
-                className="w-full flex items-center gap-2 px-4 py-3 text-left"
-                style={{ background: "var(--card)" }}
-              >
-                <Building2 size={12} strokeWidth={1.8} style={{ color: "var(--w3)", flexShrink: 0 }} />
-                <p className="text-[12px] flex-1" style={{ color: "var(--w3)" }}>
-                  {lang === "de" ? "Org-Anforderungen" : lang === "fr" ? "Besoins org" : "Org requirements"}
-                  {orgReqSelOrg && <span className="ml-1.5 text-[10.5px] opacity-60">· active</span>}
-                </p>
-                <ChevronDown size={13} strokeWidth={1.8} style={{ color: "var(--w3)", transform: showOrgReqPanel ? "rotate(180deg)" : "none", transition: "transform 0.2s" }} />
-              </button>
-              {showOrgReqPanel && (
-              <div className="px-4 pb-4 pt-2" style={{ background: "var(--card)", borderTop: "1px solid var(--border)" }}>
-              <select
-                value={orgReqSelOrg}
-                onChange={e => { setOrgReqSelOrg(e.target.value); setShowOrgReqForm(false); loadOrgReqs(e.target.value); }}
-                className="w-full text-[11.5px] px-3 py-2 outline-none mb-3"
-                style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)", borderRadius: "8px" }}>
-                <option value="">{t.adSelectOrg}</option>
-                {allOrgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-              </select>
-
-              {orgReqSelOrg && (
-                <>
-                  {!showOrgReqForm && (
-                    <div className="flex justify-end mb-2">
-                      <button onClick={() => setShowOrgReqForm(v => !v)}
-                        className="inline-flex items-center gap-1 text-[10.5px] font-semibold px-2.5 py-1 rounded-full transition-opacity hover:opacity-80"
-                        style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                        <Plus size={10} strokeWidth={2.5} /> {t.adAdd}
-                      </button>
-                    </div>
-                  )}
-                  {orgReqLoading ? (
-                    <div className="flex justify-center py-3"><Spinner size="sm" /></div>
-                  ) : (
-                    <div className="space-y-2 mb-2">
-                      {orgReqs.filter(r => r.active).length === 0 && !showOrgReqForm && (
-                        <p className="text-[11.5px] text-center py-2" style={{ color: "var(--w3)" }}>{t.adNoActiveReqs}</p>
-                      )}
-                      {orgReqs.filter(r => r.active).map(r => (
-                        <div key={r.id} className="flex items-start gap-2 px-3 py-2 rounded-lg"
-                          style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[11.5px] font-semibold" style={{ color: "var(--w)" }}>
-                              {r.specialty || t.adAnySpecialty}
-                              {r.slots > 1 && <span className="ml-1.5 text-[10px] opacity-60">{r.slots} {t.adSlots}</span>}
-                            </p>
-                            <p className="text-[10.5px] mt-0.5" style={{ color: "var(--w3)" }}>
-                              {[r.location, r.start_date].filter(Boolean).join(" · ") || t.adNoLocDate}
-                            </p>
-                            {r.notes && <p className="text-[10px] mt-0.5 italic" style={{ color: "var(--w3)" }}>{r.notes}</p>}
-                          </div>
-                          <button onClick={() => closeOrgReq(r.id)}
-                            title={t.adCloseReq}
-                            className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-opacity hover:opacity-70"
-                            style={{ color: "var(--w3)" }}>
-                            <XIcon size={11} strokeWidth={2} />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {showOrgReqForm && (
-                    <div className="space-y-2 mt-2 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
-                      <div className="grid grid-cols-2 gap-2">
-                        <input value={orgReqForm.specialty} onChange={e => setOrgReqForm(p => ({ ...p, specialty: e.target.value }))}
-                          placeholder={t.adSpecialtyPh}
-                          className="px-2.5 py-1.5 text-[11.5px] outline-none rounded-lg col-span-2"
-                          style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)" }} />
-                        <input value={orgReqForm.location} onChange={e => setOrgReqForm(p => ({ ...p, location: e.target.value }))}
-                          placeholder={t.adLocationPh}
-                          className="px-2.5 py-1.5 text-[11.5px] outline-none rounded-lg"
-                          style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)" }} />
-                        <input type="number" min="1" value={orgReqForm.slots} onChange={e => setOrgReqForm(p => ({ ...p, slots: e.target.value }))}
-                          placeholder={t.adSlotsPh}
-                          className="px-2.5 py-1.5 text-[11.5px] outline-none rounded-lg"
-                          style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)" }} />
-                        <input type="date" value={orgReqForm.start_date} onChange={e => setOrgReqForm(p => ({ ...p, start_date: e.target.value }))}
-                          className="px-2.5 py-1.5 text-[11.5px] outline-none rounded-lg col-span-2"
-                          style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)" }} />
-                      </div>
-                      <div className="flex gap-2">
-                        <button onClick={addOrgReq} disabled={orgReqAdding}
-                          className="flex-1 py-1.5 text-[11.5px] font-semibold rounded-lg transition-opacity disabled:opacity-50"
-                          style={{ background: "var(--gold)", color: "#131312" }}>
-                          {orgReqAdding ? t.aSaving : t.adSaveReq}
-                        </button>
-                        <button onClick={() => setShowOrgReqForm(false)}
-                          className="px-3 py-1.5 text-[11.5px] rounded-lg transition-opacity hover:opacity-70"
-                          style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
-                          {t.adCancel}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </>
-              )}
-              </div>
-            )}
-            </div>
-          )}
-
         </div>
       </main>
 
@@ -3433,6 +3164,108 @@ export default function AdminPage() {
           onCancel={closeRejectModal}
           onSubmit={(text, shot) => submitReject(text, shot)}
         />
+      )}
+
+      {/* ── Signature request modal ── */}
+      {sigModal && (
+        <div className="fixed inset-0 z-[800] flex items-end sm:items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(8px)" }}
+          onClick={() => setSigModal(null)}>
+          <div className="w-full max-w-sm rounded-2xl overflow-hidden"
+            style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)" }}
+            onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div className="px-5 py-4 flex items-center gap-3"
+              style={{ borderBottom: "1px solid var(--border)", background: "var(--bg2)" }}>
+              <FilePen size={14} strokeWidth={1.8} style={{ color: "var(--gold)", flexShrink: 0 }} />
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>
+                  {lang === "fr" ? "Demande de signature" : lang === "de" ? "Signatur anfordern" : "Request signature"}
+                </p>
+                <p className="text-[11px] truncate mt-0.5" style={{ color: "var(--w3)" }}>{sigModal.label}</p>
+              </div>
+              <button onClick={() => setSigModal(null)}
+                className="bv-icon-btn w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
+                style={{ color: "var(--w3)" }}>
+                <XIcon size={13} strokeWidth={2} />
+              </button>
+            </div>
+            {/* Body */}
+            <div className="p-5 space-y-4">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] mb-3" style={{ color: "var(--w3)" }}>
+                  {lang === "fr" ? "Qui doit signer ?" : lang === "de" ? "Wer unterschreibt?" : "Who needs to sign?"}
+                </p>
+                <div className="space-y-2.5">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input type="checkbox" checked={sigPartyAdmin}
+                      onChange={e => setSigPartyAdmin(e.target.checked)}
+                      className="w-4 h-4 rounded" style={{ accentColor: "var(--gold)" }} />
+                    <span className="text-[12.5px]" style={{ color: "var(--w)" }}>
+                      {lang === "fr" ? "Admin / Admin d'organisation" : lang === "de" ? "Admin / Org-Admin" : "Admin / Org admin"}
+                    </span>
+                  </label>
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input type="checkbox" checked={sigPartyCandidate}
+                      onChange={e => setSigPartyCandidate(e.target.checked)}
+                      className="w-4 h-4 rounded" style={{ accentColor: "var(--gold)" }} />
+                    <span className="text-[12.5px]" style={{ color: "var(--w)" }}>
+                      {lang === "fr" ? "Candidat" : lang === "de" ? "Kandidat" : "Candidate"}
+                    </span>
+                  </label>
+                </div>
+              </div>
+              <div>
+                <label className="text-[11px] font-medium block mb-1.5" style={{ color: "var(--w3)" }}>
+                  {lang === "fr" ? "Note (optionnel)" : lang === "de" ? "Hinweis (optional)" : "Note (optional)"}
+                </label>
+                <input value={sigNote} onChange={e => setSigNote(e.target.value)}
+                  placeholder={lang === "fr" ? "ex. Veuillez signer avant vendredi" : lang === "de" ? "z.B. Bitte bis Freitag unterschreiben" : "e.g. Please sign before Friday"}
+                  className="w-full px-3 py-2 text-[12.5px] rounded-xl outline-none"
+                  style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", fontSize: 16 }} />
+              </div>
+            </div>
+            {/* Footer */}
+            <div className="px-5 pb-5 flex gap-2">
+              <button
+                onClick={async () => {
+                  if (sigSending || (!sigPartyAdmin && !sigPartyCandidate)) return;
+                  setSigSending(true);
+                  try {
+                    await fetch("/api/portal/admin/sign-request", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                      body: JSON.stringify({
+                        candidateId: selectedUser,
+                        documentName: sigModal.label,
+                        driveFileId: sigModal.driveFileId,
+                        note: sigNote.trim() || undefined,
+                        parties: { admin: sigPartyAdmin, candidate: sigPartyCandidate },
+                      }),
+                    });
+                    setSigModal(null);
+                    setSigNote("");
+                    setSigPartyAdmin(false);
+                    setSigPartyCandidate(true);
+                  } catch { /* ignore */ }
+                  setSigSending(false);
+                }}
+                disabled={sigSending || (!sigPartyAdmin && !sigPartyCandidate)}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[13px] font-semibold transition-opacity disabled:opacity-50"
+                style={{ background: "var(--gold)", color: "#131312" }}>
+                {sigSending
+                  ? <><span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" /> {lang === "fr" ? "Envoi…" : lang === "de" ? "Senden…" : "Sending…"}</>
+                  : <><Send size={13} strokeWidth={2} /> {lang === "fr" ? "Envoyer" : lang === "de" ? "Senden" : "Send"}</>
+                }
+              </button>
+              <button onClick={() => { setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true); }}
+                className="px-4 py-2.5 rounded-xl text-[13px] transition-opacity hover:opacity-70"
+                style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
+                <XIcon size={14} strokeWidth={2} />
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

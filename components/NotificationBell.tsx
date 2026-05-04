@@ -505,7 +505,7 @@ function AdminBell({ accessToken }: { accessToken: string }) {
 
   useEffect(() => {
     fetch_();
-    const timer = setInterval(fetch_, 20_000);
+    const timer = setInterval(fetch_, 60_000);
     return () => clearInterval(timer);
   }, [fetch_]);
 

@@ -552,6 +552,7 @@ export default function FeedPage() {
   const [posting, setPosting] = useState(false);
   const [postError, setPostError] = useState<string | null>(null);
   const [postsLoadError, setPostsLoadError] = useState(false);
+  const [draggingOver, setDraggingOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Fetch GIFs from Tenor whenever the picker opens or search query changes
@@ -690,12 +691,24 @@ export default function FeedPage() {
     } finally { setPosting(false); }
   };
 
+  const processImageFile = (file: File) => {
+    if (!file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = ev => { const b64 = ev.target?.result as string; setImageBase64(b64); setImagePreview(b64); setGifUrl(null); };
+    reader.readAsDataURL(file);
+  };
+
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = ev => { const b64 = ev.target?.result as string; setImageBase64(b64); setImagePreview(b64); };
-    reader.readAsDataURL(file);
+    processImageFile(file);
     e.target.value = "";
+  };
+
+  const handleComposerDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDraggingOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) processImageFile(file);
   };
 
   const handleLike = (id: string, liked: boolean, likeCount: number) =>
@@ -748,7 +761,10 @@ export default function FeedPage() {
 
         {/* ── Composer ────────────────────────────────────────────────────── */}
         <div className="rounded-2xl overflow-hidden mb-4"
-          style={{ background: "var(--card)", border: `1px solid ${titleError ? "var(--danger-border)" : "var(--border)"}`, transition: "border-color 0.2s" }}>
+          onDragOver={e => { e.preventDefault(); setDraggingOver(true); }}
+          onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDraggingOver(false); }}
+          onDrop={handleComposerDrop}
+          style={{ background: "var(--card)", border: `1px solid ${draggingOver ? "var(--gold)" : titleError ? "var(--danger-border)" : "var(--border)"}`, transition: "border-color 0.2s" }}>
           <div className="p-4">
             <div className="flex gap-3">
               <Avatar photo={userMeta.photo} name={userMeta.name} size={38} isBorivonTeam={userMeta.isBorivonTeam} />

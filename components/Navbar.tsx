@@ -9,6 +9,7 @@ import { useTheme } from "./ThemeContext";
 import { useMobileMenu } from "./MobileMenuContext";
 import type { Lang } from "@/lib/translations";
 import { Sun, Moon, Menu, Home } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
 const PORTAL_NAV_T = {
   en: { dashboard: "Dashboard",     community: "Community"  },
@@ -28,6 +29,8 @@ export function Navbar({ rightExtra, leftExtra }: { rightExtra?: ReactNode; left
   const [langOpen, setLangOpen] = useState(false);
   const langRef = useRef<HTMLDivElement>(null);
   const langTriggerRef = useRef<HTMLButtonElement>(null);
+  const [communityUnread, setCommunityUnread] = useState(0);
+  const [authTk, setAuthTk] = useState("");
   // Position of the dropdown when portaled to <body> — recomputed each open.
   const [dropdownPos, setDropdownPos] = useState<{ top?: number; bottom?: number; left: number } | null>(null);
   // Per-page mobile menu toggle (e.g. dashboard's slide-in phase rail).
@@ -77,6 +80,44 @@ export function Navbar({ rightExtra, leftExtra }: { rightExtra?: ReactNode; left
     { label: PNT.dashboard, href: dashHref,        active: !isFeed },
     { label: PNT.community, href: "/portal/feed",  active: isFeed  },
   ] : null;
+
+  // Community unread badge ────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!useBottomBar) return;
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.access_token) setAuthTk(session.access_token);
+    });
+  }, [useBottomBar]);
+
+  useEffect(() => {
+    if (!isFeed) return;
+    setCommunityUnread(0);
+    if (typeof localStorage !== "undefined")
+      localStorage.setItem("community_last_visited", new Date().toISOString());
+  }, [isFeed]);
+
+  useEffect(() => {
+    if (!authTk || isFeed) return;
+    const poll = async () => {
+      const since = (typeof localStorage !== "undefined"
+        ? localStorage.getItem("community_last_visited")
+        : null) ?? new Date(0).toISOString();
+      try {
+        const res = await fetch(
+          `/api/portal/feed/unread?since=${encodeURIComponent(since)}`,
+          { headers: { Authorization: `Bearer ${authTk}` } },
+        );
+        if (res.ok) {
+          const j = await res.json();
+          setCommunityUnread(j.count ?? 0);
+        }
+      } catch { /* offline */ }
+    };
+    poll();
+    const id = setInterval(poll, 60_000);
+    return () => clearInterval(id);
+  }, [authTk, isFeed]);
+  // ─────────────────────────────────────────────────────────────────────────────
 
   // Close on Escape. Outside-click is handled by the portal-rendered backdrop
   // (we can't use the document mousedown trick because the dropdown lives
@@ -227,13 +268,16 @@ export function Navbar({ rightExtra, leftExtra }: { rightExtra?: ReactNode; left
         <div className="flex items-center gap-1">
           {/* Public pages: show logo. Portal pages: show Dashboard + Community tabs. */}
           {portalTabs ? (
-            portalTabs.map(tab => (
+            portalTabs.map(tab => {
+              const isCommunity = tab.href === "/portal/feed";
+              const badge = isCommunity && communityUnread > 0 ? communityUnread : 0;
+              return (
               <Link
                 key={tab.href}
                 href={tab.href}
                 prefetch
                 aria-current={tab.active ? "page" : undefined}
-                className="relative inline-flex items-center px-4 py-[18px] text-[13.5px] font-semibold transition-colors duration-150 no-underline"
+                className="relative inline-flex items-center px-2.5 py-[18px] text-[12px] font-semibold transition-colors duration-150 no-underline"
                 style={{
                   color: tab.active ? "var(--w)" : "var(--w3)",
                   borderBottom: tab.active ? "2px solid var(--gold)" : "2px solid transparent",
@@ -242,8 +286,26 @@ export function Navbar({ rightExtra, leftExtra }: { rightExtra?: ReactNode; left
                 }}
               >
                 {tab.label}
+                {badge > 0 && (
+                  <span
+                    className="absolute flex items-center justify-center font-bold"
+                    style={{
+                      top: 8, left: 6,
+                      minWidth: 16, height: 16,
+                      borderRadius: 99,
+                      fontSize: 9,
+                      padding: "0 4px",
+                      background: "var(--gold)",
+                      color: "#131312",
+                      lineHeight: 1,
+                    }}
+                  >
+                    {badge > 99 ? "99+" : badge}
+                  </span>
+                )}
               </Link>
-            ))
+              );
+            })
           ) : (
             <a
               href="/"

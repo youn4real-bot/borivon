@@ -16,7 +16,7 @@
 import {
   // Document / phase icons
   IdCard,           // ID & passport bundle (was 🪪)
-  Stethoscope,      // Nursing (was 🏥) — could swap for HeartPulse if preferred
+  Stethoscope,      // kept for CV-builder sections
   Languages,        // Translations (was ✍️)
   FileText,         // Other docs (was 📝)
   // Journey icons
@@ -63,7 +63,7 @@ export type PhaseKind =
 const PHASE_ICONS: Record<PhaseKind, LucideIcon> = {
   id:           IdCard,
   passport:     IdCard,
-  nursing:      Stethoscope,
+  nursing:      Briefcase,
   translations: Languages,
   others:       FileText,
   docs:         Folder,

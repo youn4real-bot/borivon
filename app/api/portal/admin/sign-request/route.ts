@@ -1,6 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
+import { google } from "googleapis";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
+
+function getDriveClient() {
+  const auth = new google.auth.GoogleAuth({
+    credentials: {
+      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+      private_key: (process.env.GOOGLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n"),
+    },
+    scopes: ["https://www.googleapis.com/auth/drive"],
+  });
+  return google.drive({ version: "v3", auth });
+}
+
+async function fetchPdfBuffer(fileId: string): Promise<Buffer> {
+  const drive = getDriveClient();
+  const res = await drive.files.get(
+    { fileId, alt: "media", supportsAllDrives: true },
+    { responseType: "stream" }
+  );
+  const stream = res.data as NodeJS.ReadableStream;
+  const chunks: Buffer[] = [];
+  await new Promise<void>((resolve, reject) => {
+    stream.on("data", (c: Buffer) => chunks.push(c));
+    stream.on("end", resolve);
+    stream.on("error", reject);
+  });
+  return Buffer.concat(chunks);
+}
 
 const MAX_PDF_BYTES = 10_000_000; // 10 MB
 const BUCKET = "sign-documents";
@@ -64,13 +92,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Payload too large" }, { status: 413 });
   }
 
-  let body: { candidateId?: string; documentName?: string; pdfBase64?: string; note?: string; signatureZone?: unknown };
+  let body: { candidateId?: string; documentName?: string; pdfBase64?: string; driveFileId?: string; note?: string; signatureZone?: unknown; parties?: { admin?: boolean; candidate?: boolean } };
   try { body = JSON.parse(raw); } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { candidateId, documentName, pdfBase64, note, signatureZone } = body;
-  if (!candidateId || !documentName || !pdfBase64) {
+  const { candidateId, documentName, pdfBase64, driveFileId, note, signatureZone, parties } = body;
+  if (!candidateId || !documentName || (!pdfBase64 && !driveFileId)) {
     return NextResponse.json({ error: "Missing fields" }, { status: 400 });
   }
 
@@ -78,11 +106,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Decode base64 PDF
-  const pdfBuffer = Buffer.from(
-    pdfBase64.replace(/^data:[^;]+;base64,/, ""),
-    "base64",
-  );
+  // Get PDF bytes — either from inline base64 or from Google Drive
+  let pdfBuffer: Buffer;
+  if (driveFileId) {
+    try {
+      pdfBuffer = await fetchPdfBuffer(driveFileId);
+    } catch (err) {
+      console.error("[sign-request POST] drive fetch error:", err);
+      return NextResponse.json({ error: "Could not fetch file from Drive" }, { status: 502 });
+    }
+  } else {
+    pdfBuffer = Buffer.from(
+      pdfBase64!.replace(/^data:[^;]+;base64,/, ""),
+      "base64",
+    );
+  }
 
   // Insert sign_request first to get the ID for the storage path
   const db = getServiceSupabase();
@@ -95,6 +133,7 @@ export async function POST(req: NextRequest) {
       note:              note ?? null,
       status:            "pending",
       signature_zone:    signatureZone ? JSON.stringify(signatureZone) : null,
+      parties:           parties ? JSON.stringify(parties) : null,
     })
     .select("id")
     .single();

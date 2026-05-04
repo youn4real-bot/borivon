@@ -7,31 +7,37 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url);
   const q = (searchParams.get("q") ?? "").trim();
-  const key = process.env.TENOR_API_KEY ?? "LIVDSRZULELA";
+  const key = process.env.GIPHY_API_KEY ?? "";
+  console.warn("[feed/gifs] key_len:", key.length, "q:", q || "(trending)");
 
-  // Tenor v1 — LIVDSRZULELA is the official free demo key (no registration needed)
   const endpoint = q
-    ? `https://api.tenor.com/v1/search?q=${encodeURIComponent(q)}&key=${key}&limit=24&contentfilter=medium&media_filter=minimal`
-    : `https://api.tenor.com/v1/trending?key=${key}&limit=24&contentfilter=medium&media_filter=minimal`;
+    ? `https://api.giphy.com/v1/gifs/search?api_key=${key}&q=${encodeURIComponent(q)}&limit=24&rating=pg-13&lang=en`
+    : `https://api.giphy.com/v1/gifs/trending?api_key=${key}&limit=24&rating=pg-13`;
 
   try {
-    const res = await fetch(endpoint);
-    if (!res.ok) return NextResponse.json({ gifs: [] });
+    const res = await fetch(endpoint, { cache: "no-store" });
+    console.warn("[feed/gifs] GIPHY status:", res.status);
+    if (!res.ok) {
+      console.error("[feed/gifs] GIPHY error body:", await res.text().catch(() => ""));
+      return NextResponse.json({ gifs: [] });
+    }
     const data = await res.json();
+    console.warn("[feed/gifs] raw count:", (data.data ?? []).length);
 
-    // v1: results[].media[0].{ gif, tinygif, nanogif }.url
-    const gifs = ((data.results ?? []) as Record<string, unknown>[]).flatMap(r => {
-      const media = (r.media as Record<string, { url: string }>[]) ?? [];
-      const m = media[0] ?? {};
-      const preview = m.nanogif?.url || m.tinygif?.url || m.gif?.url || "";
-      const url     = m.gif?.url     || m.tinygif?.url || "";
+    // GIPHY: data[].images.{ fixed_height_small, fixed_width, original }.url
+    const gifs = ((data.data ?? []) as Record<string, unknown>[]).flatMap(r => {
+      const images = r.images as Record<string, { url: string; mp4?: string }> | undefined;
+      if (!images) return [];
+      const preview = images.fixed_height_small?.url || images.fixed_width?.url || "";
+      const url     = images.original?.url || images.fixed_height?.url || preview;
       if (!preview || !url) return [];
       return [{ id: r.id as string, title: (r.title as string) ?? "", preview, url }];
     });
 
+    console.warn("[feed/gifs] parsed:", gifs.length);
     return NextResponse.json({ gifs });
   } catch (e) {
-    console.error("[feed/gifs] Tenor fetch failed:", e);
+    console.error("[feed/gifs] GIPHY fetch failed:", e);
     return NextResponse.json({ gifs: [] });
   }
 }
