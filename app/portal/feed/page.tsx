@@ -835,8 +835,6 @@ export default function FeedPage() {
                     </div>
                   )}
                 </div>
-                {/* Tenor attribution (required by ToS) */}
-                <p className="text-center text-[9px] pb-1.5" style={{ color: "var(--w3)" }}>{t.gifPoweredBy}</p>
               </div>
             )}
             {/* Selected GIF preview */}
