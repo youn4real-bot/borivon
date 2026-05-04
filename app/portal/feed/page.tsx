@@ -245,13 +245,14 @@ function CommenterAvatars({ avatars }: { avatars: { photo: string | null; name: 
 // ── Comments popup modal ──────────────────────────────────────────────────────
 function CommentsModal({
   post, t, lang, isAdmin,
-  flatComments, commentText, replyTo, sendingComment, commentError, likingComment,
+  flatComments, commentText, replyTo, commentsLoaded, sendingComment, commentError, likingComment,
   onClose, onLikeComment, onReply, onDeleteComment, onChangeText, onAddComment, onClearReply,
   inputRef,
 }: {
   post: Post; t: typeof T["en"]; lang: string; isAdmin: boolean;
   flatComments: Array<{ c: Comment; isReply: boolean }>;
   commentText: string; replyTo: string | null;
+  commentsLoaded: boolean;
   sendingComment: boolean; commentError: string | null;
   likingComment: Record<string, boolean>;
   onClose: () => void;
@@ -300,7 +301,11 @@ function CommentsModal({
 
         {/* Comments list — scrollable */}
         <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3" style={{ minHeight: 0 }}>
-          {flatComments.length === 0 ? (
+          {!commentsLoaded ? (
+            <div className="flex justify-center py-8">
+              <Loader2 size={20} strokeWidth={1.8} className="animate-spin" style={{ color: "var(--gold)" }} />
+            </div>
+          ) : flatComments.length === 0 ? (
             <p className="text-center text-[12.5px] py-8" style={{ color: "var(--w3)" }}>{t.writeComment}</p>
           ) : (
             flatComments.map(item => (
@@ -422,22 +427,25 @@ function PostCard({
     setCommentText("");
   };
 
-  const toggleComments = async () => {
+  const toggleComments = () => {
     if (!showComments) {
-      if (!commentsLoaded) await loadComments();
       setShowComments(true);
+      if (!commentsLoaded) loadComments();
     } else {
       handleCloseComments();
     }
   };
 
-  const handleLike = async () => {
+  const handleLike = () => {
     if (liking) return;
     setLiking(true);
-    try {
-      const res = await fetch(`/api/portal/feed/${post.id}/like`, { method: "POST", headers: { Authorization: `Bearer ${authToken}` } });
-      if (res.ok) { const j = await res.json(); onLike(post.id, j.liked, j.likeCount); }
-    } finally { setLiking(false); }
+    const optimisticLiked = !post.likedByMe;
+    const optimisticCount = post.likeCount + (optimisticLiked ? 1 : -1);
+    onLike(post.id, optimisticLiked, optimisticCount);
+    fetch(`/api/portal/feed/${post.id}/like`, { method: "POST", headers: { Authorization: `Bearer ${authToken}` } })
+      .then(res => res.ok ? res.json() : null)
+      .then(j => { if (j) onLike(post.id, j.liked, j.likeCount); })
+      .finally(() => setLiking(false));
   };
 
   const handleLikeComment = async (commentId: string, currentlyLiked: boolean, currentCount: number) => {
@@ -667,6 +675,7 @@ function PostCard({
         post={post} t={t} lang={lang} isAdmin={isAdmin}
         flatComments={flatComments}
         commentText={commentText} replyTo={replyTo}
+        commentsLoaded={commentsLoaded}
         sendingComment={sendingComment} commentError={commentError}
         likingComment={likingComment}
         onClose={handleCloseComments}
