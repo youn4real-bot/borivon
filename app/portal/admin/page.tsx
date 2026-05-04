@@ -428,6 +428,8 @@ export default function AdminPage() {
   const [passportPdfDl, setPassportPdfDl] = useState(false);
   // Merged-PDF download loading state keyed by paired item key
   const [mergePdfDl, setMergePdfDl] = useState<Set<string>>(new Set());
+  // Merged-PDF preview state
+  const [mergePreview, setMergePreview] = useState<{ origId: string; transId: string; label: string } | null>(null);
   // Passport DATA PDF download state (passport info modal)
   const [passportDataPdfDl, setPassportDataPdfDl] = useState(false);
   // Delete candidate confirmation
@@ -1167,7 +1169,7 @@ export default function AdminPage() {
         {showPassportInfo && (() => {
           const pst = p_info?.passport_status ?? null;
           const pstBg    = pst === "approved" ? "var(--success-bg)"   : pst === "rejected" ? "var(--danger-bg)"  : "var(--gdim)";
-          const pstColor = pst === "approved" ? "var(--success)"                : pst === "rejected" ? "var(--danger)"               : "var(--gold)";
+          const pstColor = pst === "approved" ? "var(--success)"                : pst === "rejected" ? "var(--danger)"               : "#f59e0b";
           const pstBdr   = pst === "approved" ? "var(--success-border)"   : pst === "rejected" ? "var(--danger-border)"   : "var(--border-gold)";
           const pstLabel = pst === "approved"
             ? (lang === "fr" ? "Approuvé" : lang === "de" ? "Genehmigt" : "Approved")
@@ -1609,7 +1611,7 @@ export default function AdminPage() {
               <div className="flex items-center gap-2 flex-wrap flex-shrink-0">
                 {pendingDocs.length > 0 && (
                   <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-full"
-                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                    style={{ background: "rgba(245,158,11,0.12)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.3)" }}>
                     {pendingDocs.length} {t.aPending}
                   </span>
                 )}
@@ -1725,7 +1727,7 @@ export default function AdminPage() {
                           <PhaseIcon kind={ph.kind} size={14} />
                           {pendingCnt > 0 && (
                             <span className="absolute -top-1 -right-1 min-w-[16px] h-4 rounded-full text-[9px] font-bold flex items-center justify-center px-1"
-                              style={{ background: "var(--gold)", color: "#131312", border: "1.5px solid var(--bg)" }}>{pendingCnt}</span>
+                              style={{ background: "#f59e0b", color: "#131312", border: "1.5px solid var(--bg)" }}>{pendingCnt}</span>
                           )}
                         </span>
                         <span className="text-[8px] text-center leading-tight font-medium px-0.5 w-full"
@@ -2015,8 +2017,8 @@ export default function AdminPage() {
                       </div>
                       {pendingDocs.length > 0 && (
                         <span className="inline-flex items-center gap-1.5 text-[11px] font-medium flex-shrink-0"
-                          style={{ color: "var(--gold)" }}>
-                          <span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--gold)" }} />{pendingDocs.length} pending
+                          style={{ color: "#f59e0b" }}>
+                          <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#f59e0b" }} />{pendingDocs.length} pending
                         </span>
                       )}
                     </div>
@@ -2034,7 +2036,7 @@ export default function AdminPage() {
                         const cSt = !hasData ? "empty" : pst === "approved" ? "approved" : pst === "rejected" ? "rejected" : "pending";
                         const sc2 = cSt === "approved" ? { bg: "var(--success-border)",  txt: "var(--success)", bdr: "1px solid var(--success-border)" }
                                   : cSt === "rejected"  ? { bg: "var(--danger-bg)",  txt: "var(--danger)", bdr: "1px solid var(--danger-bg)" }
-                                  : cSt === "pending"   ? { bg: "var(--gdim)", txt: "var(--gold)", bdr: "1px solid var(--border-gold)" }
+                                  : cSt === "pending"   ? { bg: "rgba(245,158,11,0.12)", txt: "#f59e0b", bdr: "1px solid rgba(245,158,11,0.3)" }
                                   :                       { bg: "var(--bg2)",             txt: "var(--w3)", bdr: "1px solid var(--border)" };
                         const cSymEl = cSt === "approved" ? <CheckCircle2 size={14} strokeWidth={1.8} />
                                      : cSt === "rejected" ? <XCircle      size={14} strokeWidth={1.8} />
@@ -2150,7 +2152,7 @@ export default function AdminPage() {
                           const sst = !subDoc ? "empty" : subDoc.status;
                           const ssc = sst === "approved" ? { bg: "var(--success-bg)", txt: "var(--success)", bdr: "var(--success-border)" }
                             : sst === "rejected" ? { bg: "var(--danger-bg)", txt: "var(--danger)", bdr: "var(--danger-bg)" }
-                            : sst === "pending"  ? { bg: "var(--gdim)", txt: "var(--gold)", bdr: "var(--border-gold)" }
+                            : sst === "pending"  ? { bg: "rgba(245,158,11,0.12)", txt: "#f59e0b", bdr: "rgba(245,158,11,0.3)" }
                             : { bg: "var(--bg2)", txt: "var(--w3)", bdr: "var(--border)" };
                           return (
                             <div
@@ -2231,14 +2233,12 @@ export default function AdminPage() {
                         return (
                           <div key={item.key}>
                             {idx > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
-                            {/* Master header — click to expand/collapse */}
+                            {/* Master header — click to preview merged PDF */}
                             <div
-                              className="px-3 py-3 flex items-center gap-2 cursor-pointer bv-row-hover"
-                              onClick={() => setExpandedPairs(prev => {
-                                const n = new Set(prev);
-                                n.has(item.key) ? n.delete(item.key) : n.add(item.key);
-                                return n;
-                              })}>
+                              className={`px-3 py-3 flex items-center gap-2${canMerge ? " cursor-pointer bv-row-hover" : ""}`}
+                              onClick={() => {
+                                if (canMerge) setMergePreview({ origId: origDoc!.drive_file_id!, transId: transDoc!.drive_file_id!, label: item.label });
+                              }}>
                               <div className="flex-1 min-w-0">
                                 <p className="text-[11.5px] font-medium tracking-tight" style={{ color: mPairColor ?? "var(--w)" }}>{item.label}</p>
                                 {item.optional && (
@@ -2655,6 +2655,24 @@ export default function AdminPage() {
             }
           />
         )}
+      {mergePreview && (
+        <AdminDocPreviewModal
+          doc={{
+            id: `merged-${mergePreview.origId}`,
+            user_id: "",
+            file_name: `${mergePreview.label.replace(/\s+/g, "_")}_merged.pdf`,
+            file_type: mergePreview.label,
+            uploaded_at: new Date().toISOString(),
+            status: "pending",
+            feedback: null,
+            drive_file_id: mergePreview.origId,
+          }}
+          accessToken={accessToken}
+          overrideFetchUrl={`/api/portal/documents/merge-pdf?origId=${mergePreview.origId}&transId=${mergePreview.transId}`}
+          onClose={() => setMergePreview(null)}
+          noPreviewText={t.aNoPreview}
+        />
+      )}
       <main id="bv-main" tabIndex={-1} className="bv-page-bottom min-h-screen" style={{ background: "var(--bg)", paddingTop: "58px" }}>
         <PortalTopNav />
         <div className="max-w-[780px] mx-auto px-4 pt-8 pb-16">
@@ -2670,6 +2688,289 @@ export default function AdminPage() {
                 : t.aSubAllDone}
             </p>
           </div>
+
+          {/* Search + filter row — works on the full candidate list (pending + archived combined) */}
+          {(pendingUserIds.length + archivedUserIds.length) > 0 && (() => {
+            const all = [...pendingUserIds, ...archivedUserIds];
+            const HOUR = 60 * 60 * 1000;
+            const stuckCount = all.filter(uid => {
+              const recent = Math.max(...grouped[uid].map(d => new Date(d.uploaded_at).getTime()));
+              return grouped[uid].some(d => d.status === "pending") && (Date.now() - recent) / HOUR >= 7 * 24;
+            }).length;
+            const clearCount = archivedUserIds.length;
+            const pendingCount = pendingUserIds.length;
+            return (
+              <div className="mb-4 space-y-3">
+                {/* Search — CV-builder field styling */}
+                <div className="relative">
+                  <Search size={14} strokeWidth={1.8}
+                    className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none"
+                    style={{ color: "var(--w3)" }} />
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                    placeholder={t.adSearchPh}
+                    className="w-full pl-10 pr-10 py-3 text-[13px] outline-none transition-colors focus:border-[var(--gold)]"
+                    style={{
+                      background: "var(--card)",
+                      border: "none",
+                      color: "var(--w)",
+                      borderRadius: "14px",
+                      boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
+                    }} />
+                  {searchQuery && (
+                    <button onClick={() => setSearchQuery("")} aria-label={t.adClearSearch}
+                      className="bv-icon-btn absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded-full"
+                      style={{ color: "var(--w3)" }}>
+                      <XIcon size={13} strokeWidth={1.8} />
+                    </button>
+                  )}
+                </div>
+                {/* Filter chips */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  {([
+                    { key: "all"     as const, label: t.adFilterAll,     count: all.length },
+                    { key: "pending" as const, label: t.adFilterPending, count: pendingCount },
+                    { key: "stuck"   as const, label: t.adFilterStuck,   count: stuckCount },
+                    { key: "clear"   as const, label: t.adFilterClear,   count: clearCount },
+                  ]).map(chip => {
+                    const active = filterMode === chip.key;
+                    return (
+                      <button key={chip.key}
+                        onClick={() => setFilterMode(chip.key)}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold tracking-tight transition-all hover:opacity-90"
+                        style={{
+                          background: active ? "var(--gdim)" : "transparent",
+                          color: active ? "var(--gold)" : "var(--w3)",
+                          border: `1px solid ${active ? "var(--border-gold)" : "var(--border)"}`,
+                          borderRadius: "999px",
+                        }}>
+                        {chip.label}
+                        <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold tabular-nums"
+                          style={{
+                            background: active ? "var(--border-gold)" : "var(--bg2)",
+                            color: active ? "var(--gold)" : "var(--w3)",
+                          }}>{chip.count}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Pending candidates */}
+          {(() => {
+            // Apply search + filter
+            const HOUR = 60 * 60 * 1000;
+            const q = searchQuery.trim().toLowerCase();
+            const matchesSearch = (uid: string) => {
+              if (!q) return true;
+              const u = users[uid] ?? { name: "", email: "" };
+              return (u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q));
+            };
+            const isStuck = (uid: string) => {
+              const recent = Math.max(...grouped[uid].map(d => new Date(d.uploaded_at).getTime()));
+              return grouped[uid].some(d => d.status === "pending") && (Date.now() - recent) / HOUR >= 7 * 24;
+            };
+
+            let visibleIds: string[];
+            if (filterMode === "all")          visibleIds = [...pendingUserIds, ...archivedUserIds];
+            else if (filterMode === "pending") visibleIds = pendingUserIds;
+            else if (filterMode === "stuck")   visibleIds = pendingUserIds.filter(isStuck);
+            else                                visibleIds = archivedUserIds;
+            visibleIds = visibleIds.filter(matchesSearch);
+
+            if (visibleIds.length === 0) {
+              if (q) {
+                return <EmptyState Icon={Search} title={t.adNoCandFound} sub={t.adNoMatchFor.replace("{q}", searchQuery)} />;
+              }
+              if (filterMode === "stuck") {
+                return <EmptyState Icon={CheckCircle2} tone="success" title={t.adNothingStuck} sub={t.adNoStuckSub} />;
+              }
+              return <EmptyState Icon={CheckCircle2} tone="success" title={t.aNothingTitle} sub={t.aNothing} />;
+            }
+
+            return (
+            <div className="bv-enter-stagger" style={{ borderTop: "1px solid var(--border)" }}>
+              {visibleIds.map(uid => {
+                const allDocs    = grouped[uid];
+                const pendingDocs = allDocs.filter(d => d.status === "pending");
+                const pendingCnt = pendingDocs.length;
+                const isClear    = pendingCnt === 0;
+                const user       = users[uid] ?? { name: uid, email: uid };
+                const mostRecent = pendingDocs
+                  .reduce((latest, d) => new Date(d.uploaded_at) > new Date(latest) ? d.uploaded_at : latest,
+                    allDocs[0].uploaded_at);
+                const isExpanded = expandedRow === uid;
+                const openPanel = () => { setSelectedUser(uid); setActivePhase(0); setPassportDataFeedback(profiles[uid]?.passport_feedback ?? ""); window.scrollTo({ top: 0, behavior: "smooth" }); };
+
+                return (
+                  <div key={uid}
+                    className="bv-row group transition-colors"
+                    style={{ borderBottom: "1px solid var(--border)" }}>
+                    <div role="button" tabIndex={0}
+                      onClick={openPanel}
+                      onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openPanel(); } }}
+                      className="bv-row-hover px-3 py-3 flex items-center gap-3 cursor-pointer transition-colors outline-none">
+
+                      {profiles[uid]?.profile_photo ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={profiles[uid].profile_photo!} alt={user.name}
+                          className="w-9 h-9 rounded-full object-cover flex-shrink-0"
+                          style={{ border: "1px solid var(--border-gold)" }} />
+                      ) : (
+                        <span className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
+                          style={{ background: "var(--gdim)", color: "var(--gold)" }}>
+                          {user.name.charAt(0).toUpperCase()}
+                        </span>
+                      )}
+
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[13.5px] font-semibold truncate inline-flex items-center gap-0.5 flex-wrap" style={{ color: "var(--w)" }}>
+                          {user.name}
+                          <VerifiedBadge verified={!!profiles[uid]?.manually_verified} size="xs" color="gold" />
+                          <PaymentBadge tier={profiles[uid]?.payment_tier} />
+                        </p>
+                        <p className="text-[11.5px] truncate mt-0.5" style={{ color: "var(--w3)" }}>
+                          {user.email}
+                          {(candidateOrgs[uid] ?? []).map(o => (
+                            <span key={o.id}
+                              className="ml-2 inline-block text-[10px] font-semibold uppercase tracking-wider px-1.5 py-px"
+                              style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-sm)" }}>
+                              {o.name}
+                            </span>
+                          ))}
+                        </p>
+                      </div>
+
+                      {/* Time-since label — quiet text only, no chip */}
+                      {/* Status — only shown when there are pending docs */}
+                      {!isClear && (
+                        <span className="text-[11.5px] font-semibold flex-shrink-0"
+                          style={{ color: "#f59e0b" }}>
+                          {pendingCnt} {t.aPending}
+                        </span>
+                      )}
+
+                      {/* Inline expand chevron — borderless, color-only */}
+                      {!isClear && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setExpandedRow(isExpanded ? null : uid); }}
+                        aria-label={isExpanded ? t.adCollapse : t.adPeekDocs}
+                        aria-expanded={isExpanded}
+                        className="w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0"
+                        style={{
+                          color: isExpanded ? "var(--gold)" : "var(--w3)",
+                          background: "transparent",
+                          border: "none",
+                          transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
+                          transition: "color 0.2s, transform 0.2s",
+                        }}>
+                        <ChevronDown size={14} strokeWidth={1.8} />
+                      </button>
+                      )}
+                    </div>
+
+                    {/* Inline pending-docs peek */}
+                    {isExpanded && (
+                      <div className="px-5 pb-4 pt-1 bv-enter"
+                        style={{ borderTop: "1px solid var(--border)" }}>
+                        <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-2.5 mt-2.5" style={{ color: "var(--w3)" }}>
+                          {t.adPendingReviewLabel} ({pendingCnt})
+                        </p>
+                        <div className="space-y-1">
+                          {pendingDocs.slice(0, 8).map(d => {
+                            const dta = timeAgo(d.uploaded_at, lang);
+                            return (
+                              <div key={d.id} className="flex items-center gap-3 px-3 py-2 rounded-lg"
+                                style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+                                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "var(--gold)" }} />
+                                <span className="text-[12.5px] font-medium truncate flex-1" style={{ color: "var(--w2)" }}>{d.file_type}</span>
+                                <span className="text-[10.5px] flex-shrink-0" style={{ color: "var(--w3)" }}>{dta.label}</span>
+                              </div>
+                            );
+                          })}
+                          {pendingDocs.length > 8 && (
+                            <p className="text-[11px] mt-2 text-center" style={{ color: "var(--w3)" }}>
+                              {t.adMoreOpen.replace("{n}", String(pendingDocs.length - 8))}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            );
+          })()}
+
+          {/* Archive toggle */}
+          {archivedUserIds.length > 0 && (
+            <div className="mt-10">
+              <button
+                onClick={() => setShowArchive(v => !v)}
+                className="bv-row-hover text-xs flex items-center gap-1.5 mb-4 px-2 py-1"
+                style={{ color: "var(--w3)" }}
+              >
+                <span>{showArchive ? "▾" : "▸"}</span>
+                {showArchive ? t.aHideArchive : t.aShowArchive} ({archivedUserIds.length} {archivedUserIds.length !== 1 ? t.aCandidates : t.aCandidate})
+              </button>
+
+              {showArchive && (
+                <div style={{ borderTop: "1px solid var(--border)" }}>
+                  {archivedUserIds.map(uid => {
+                    const allDocs    = grouped[uid];
+                    const approvedCnt = allDocs.filter(d => d.status === "approved").length;
+                    const rejectedCnt = allDocs.filter(d => d.status === "rejected").length;
+                    const user       = users[uid] ?? { name: uid, email: uid };
+                    return (
+                      <button key={uid}
+                        onClick={() => { setSelectedUser(uid); setActivePhase(0); setPassportDataFeedback(profiles[uid]?.passport_feedback ?? ""); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                        className="bv-row-hover w-full text-left px-3 py-3 flex items-center gap-3 transition-colors outline-none"
+                        style={{ borderBottom: "1px solid var(--border)", opacity: 0.75 }}>
+                        {profiles[uid]?.profile_photo ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={profiles[uid].profile_photo!} alt={user.name}
+                            className="w-8 h-8 rounded-full object-cover flex-shrink-0"
+                            style={{ border: "1px solid var(--border)" }} />
+                        ) : (
+                          <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+                            style={{ background: "var(--bg2)", color: "var(--w3)" }}>
+                            {user.name.charAt(0).toUpperCase()}
+                          </span>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[12.5px] font-medium truncate tracking-tight inline-flex items-center gap-0.5 flex-wrap" style={{ color: "var(--w)" }}>
+                            {user.name}
+                            <VerifiedBadge verified={!!profiles[uid]?.manually_verified} size="xs" color="gold" />
+                            <PaymentBadge tier={profiles[uid]?.payment_tier} />
+                          </p>
+                          <p className="text-[11px] truncate mt-0.5" style={{ color: "var(--w3)" }}>{user.email}</p>
+                        </div>
+                        <div className="flex items-center gap-3 flex-shrink-0">
+                          {approvedCnt > 0 && (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold"
+                              style={{ color: "var(--success)" }}>
+                              <CheckCircle2 size={11} strokeWidth={2} /> {approvedCnt}
+                            </span>
+                          )}
+                          {rejectedCnt > 0 && (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold"
+                              style={{ color: "var(--danger)" }}>
+                              <XCircle size={11} strokeWidth={2} /> {rejectedCnt}
+                            </span>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Stats bar — first thing you see */}
           {Object.keys(grouped).length > 0 && (() => {
@@ -3135,289 +3436,6 @@ export default function AdminPage() {
               )}
               </div>
             )}
-            </div>
-          )}
-
-          {/* Search + filter row — works on the full candidate list (pending + archived combined) */}
-          {(pendingUserIds.length + archivedUserIds.length) > 0 && (() => {
-            const all = [...pendingUserIds, ...archivedUserIds];
-            const HOUR = 60 * 60 * 1000;
-            const stuckCount = all.filter(uid => {
-              const recent = Math.max(...grouped[uid].map(d => new Date(d.uploaded_at).getTime()));
-              return grouped[uid].some(d => d.status === "pending") && (Date.now() - recent) / HOUR >= 7 * 24;
-            }).length;
-            const clearCount = archivedUserIds.length;
-            const pendingCount = pendingUserIds.length;
-            return (
-              <div className="mb-4 space-y-3">
-                {/* Search — CV-builder field styling */}
-                <div className="relative">
-                  <Search size={14} strokeWidth={1.8}
-                    className="absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none"
-                    style={{ color: "var(--w3)" }} />
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
-                    placeholder={t.adSearchPh}
-                    className="w-full pl-10 pr-10 py-3 text-[13px] outline-none transition-colors focus:border-[var(--gold)]"
-                    style={{
-                      background: "var(--card)",
-                      border: "none",
-                      color: "var(--w)",
-                      borderRadius: "14px",
-                      boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
-                    }} />
-                  {searchQuery && (
-                    <button onClick={() => setSearchQuery("")} aria-label={t.adClearSearch}
-                      className="bv-icon-btn absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded-full"
-                      style={{ color: "var(--w3)" }}>
-                      <XIcon size={13} strokeWidth={1.8} />
-                    </button>
-                  )}
-                </div>
-                {/* Filter chips */}
-                <div className="flex items-center gap-2 flex-wrap">
-                  {([
-                    { key: "all"     as const, label: t.adFilterAll,     count: all.length },
-                    { key: "pending" as const, label: t.adFilterPending, count: pendingCount },
-                    { key: "stuck"   as const, label: t.adFilterStuck,   count: stuckCount },
-                    { key: "clear"   as const, label: t.adFilterClear,   count: clearCount },
-                  ]).map(chip => {
-                    const active = filterMode === chip.key;
-                    return (
-                      <button key={chip.key}
-                        onClick={() => setFilterMode(chip.key)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold tracking-tight transition-all hover:opacity-90"
-                        style={{
-                          background: active ? "var(--gdim)" : "transparent",
-                          color: active ? "var(--gold)" : "var(--w3)",
-                          border: `1px solid ${active ? "var(--border-gold)" : "var(--border)"}`,
-                          borderRadius: "999px",
-                        }}>
-                        {chip.label}
-                        <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold tabular-nums"
-                          style={{
-                            background: active ? "var(--border-gold)" : "var(--bg2)",
-                            color: active ? "var(--gold)" : "var(--w3)",
-                          }}>{chip.count}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            );
-          })()}
-
-          {/* Pending candidates */}
-          {(() => {
-            // Apply search + filter
-            const HOUR = 60 * 60 * 1000;
-            const q = searchQuery.trim().toLowerCase();
-            const matchesSearch = (uid: string) => {
-              if (!q) return true;
-              const u = users[uid] ?? { name: "", email: "" };
-              return (u.name?.toLowerCase().includes(q) || u.email?.toLowerCase().includes(q));
-            };
-            const isStuck = (uid: string) => {
-              const recent = Math.max(...grouped[uid].map(d => new Date(d.uploaded_at).getTime()));
-              return grouped[uid].some(d => d.status === "pending") && (Date.now() - recent) / HOUR >= 7 * 24;
-            };
-
-            let visibleIds: string[];
-            if (filterMode === "all")          visibleIds = [...pendingUserIds, ...archivedUserIds];
-            else if (filterMode === "pending") visibleIds = pendingUserIds;
-            else if (filterMode === "stuck")   visibleIds = pendingUserIds.filter(isStuck);
-            else                                visibleIds = archivedUserIds;
-            visibleIds = visibleIds.filter(matchesSearch);
-
-            if (visibleIds.length === 0) {
-              if (q) {
-                return <EmptyState Icon={Search} title={t.adNoCandFound} sub={t.adNoMatchFor.replace("{q}", searchQuery)} />;
-              }
-              if (filterMode === "stuck") {
-                return <EmptyState Icon={CheckCircle2} tone="success" title={t.adNothingStuck} sub={t.adNoStuckSub} />;
-              }
-              return <EmptyState Icon={CheckCircle2} tone="success" title={t.aNothingTitle} sub={t.aNothing} />;
-            }
-
-            return (
-            <div className="bv-enter-stagger" style={{ borderTop: "1px solid var(--border)" }}>
-              {visibleIds.map(uid => {
-                const allDocs    = grouped[uid];
-                const pendingDocs = allDocs.filter(d => d.status === "pending");
-                const pendingCnt = pendingDocs.length;
-                const isClear    = pendingCnt === 0;
-                const user       = users[uid] ?? { name: uid, email: uid };
-                const mostRecent = pendingDocs
-                  .reduce((latest, d) => new Date(d.uploaded_at) > new Date(latest) ? d.uploaded_at : latest,
-                    allDocs[0].uploaded_at);
-                const isExpanded = expandedRow === uid;
-                const openPanel = () => { setSelectedUser(uid); setActivePhase(0); setPassportDataFeedback(profiles[uid]?.passport_feedback ?? ""); window.scrollTo({ top: 0, behavior: "smooth" }); };
-
-                return (
-                  <div key={uid}
-                    className="bv-row group transition-colors"
-                    style={{ borderBottom: "1px solid var(--border)" }}>
-                    <div role="button" tabIndex={0}
-                      onClick={openPanel}
-                      onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openPanel(); } }}
-                      className="bv-row-hover px-3 py-3 flex items-center gap-3 cursor-pointer transition-colors outline-none">
-
-                      {profiles[uid]?.profile_photo ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={profiles[uid].profile_photo!} alt={user.name}
-                          className="w-9 h-9 rounded-full object-cover flex-shrink-0"
-                          style={{ border: "1px solid var(--border-gold)" }} />
-                      ) : (
-                        <span className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0"
-                          style={{ background: "var(--gdim)", color: "var(--gold)" }}>
-                          {user.name.charAt(0).toUpperCase()}
-                        </span>
-                      )}
-
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[13.5px] font-semibold truncate inline-flex items-center gap-0.5 flex-wrap" style={{ color: "var(--w)" }}>
-                          {user.name}
-                          <VerifiedBadge verified={!!profiles[uid]?.manually_verified} size="xs" color="gold" />
-                          <PaymentBadge tier={profiles[uid]?.payment_tier} />
-                        </p>
-                        <p className="text-[11.5px] truncate mt-0.5" style={{ color: "var(--w3)" }}>
-                          {user.email}
-                          {(candidateOrgs[uid] ?? []).map(o => (
-                            <span key={o.id}
-                              className="ml-2 inline-block text-[10px] font-semibold uppercase tracking-wider px-1.5 py-px"
-                              style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-sm)" }}>
-                              {o.name}
-                            </span>
-                          ))}
-                        </p>
-                      </div>
-
-                      {/* Time-since label — quiet text only, no chip */}
-                      {/* Status — only shown when there are pending docs */}
-                      {!isClear && (
-                        <span className="text-[11.5px] font-semibold flex-shrink-0"
-                          style={{ color: "var(--gold)" }}>
-                          {pendingCnt} {t.aPending}
-                        </span>
-                      )}
-
-                      {/* Inline expand chevron — borderless, color-only */}
-                      {!isClear && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setExpandedRow(isExpanded ? null : uid); }}
-                        aria-label={isExpanded ? t.adCollapse : t.adPeekDocs}
-                        aria-expanded={isExpanded}
-                        className="w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0"
-                        style={{
-                          color: isExpanded ? "var(--gold)" : "var(--w3)",
-                          background: "transparent",
-                          border: "none",
-                          transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
-                          transition: "color 0.2s, transform 0.2s",
-                        }}>
-                        <ChevronDown size={14} strokeWidth={1.8} />
-                      </button>
-                      )}
-                    </div>
-
-                    {/* Inline pending-docs peek */}
-                    {isExpanded && (
-                      <div className="px-5 pb-4 pt-1 bv-enter"
-                        style={{ borderTop: "1px solid var(--border)" }}>
-                        <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-2.5 mt-2.5" style={{ color: "var(--w3)" }}>
-                          {t.adPendingReviewLabel} ({pendingCnt})
-                        </p>
-                        <div className="space-y-1">
-                          {pendingDocs.slice(0, 8).map(d => {
-                            const dta = timeAgo(d.uploaded_at, lang);
-                            return (
-                              <div key={d.id} className="flex items-center gap-3 px-3 py-2 rounded-lg"
-                                style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                                <span className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: "var(--gold)" }} />
-                                <span className="text-[12.5px] font-medium truncate flex-1" style={{ color: "var(--w2)" }}>{d.file_type}</span>
-                                <span className="text-[10.5px] flex-shrink-0" style={{ color: "var(--w3)" }}>{dta.label}</span>
-                              </div>
-                            );
-                          })}
-                          {pendingDocs.length > 8 && (
-                            <p className="text-[11px] mt-2 text-center" style={{ color: "var(--w3)" }}>
-                              {t.adMoreOpen.replace("{n}", String(pendingDocs.length - 8))}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            );
-          })()}
-
-          {/* Archive toggle */}
-          {archivedUserIds.length > 0 && (
-            <div className="mt-10">
-              <button
-                onClick={() => setShowArchive(v => !v)}
-                className="bv-row-hover text-xs flex items-center gap-1.5 mb-4 px-2 py-1"
-                style={{ color: "var(--w3)" }}
-              >
-                <span>{showArchive ? "▾" : "▸"}</span>
-                {showArchive ? t.aHideArchive : t.aShowArchive} ({archivedUserIds.length} {archivedUserIds.length !== 1 ? t.aCandidates : t.aCandidate})
-              </button>
-
-              {showArchive && (
-                <div style={{ borderTop: "1px solid var(--border)" }}>
-                  {archivedUserIds.map(uid => {
-                    const allDocs    = grouped[uid];
-                    const approvedCnt = allDocs.filter(d => d.status === "approved").length;
-                    const rejectedCnt = allDocs.filter(d => d.status === "rejected").length;
-                    const user       = users[uid] ?? { name: uid, email: uid };
-                    return (
-                      <button key={uid}
-                        onClick={() => { setSelectedUser(uid); setActivePhase(0); setPassportDataFeedback(profiles[uid]?.passport_feedback ?? ""); window.scrollTo({ top: 0, behavior: "smooth" }); }}
-                        className="bv-row-hover w-full text-left px-3 py-3 flex items-center gap-3 transition-colors outline-none"
-                        style={{ borderBottom: "1px solid var(--border)", opacity: 0.75 }}>
-                        {profiles[uid]?.profile_photo ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={profiles[uid].profile_photo!} alt={user.name}
-                            className="w-8 h-8 rounded-full object-cover flex-shrink-0"
-                            style={{ border: "1px solid var(--border)" }} />
-                        ) : (
-                          <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
-                            style={{ background: "var(--bg2)", color: "var(--w3)" }}>
-                            {user.name.charAt(0).toUpperCase()}
-                          </span>
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[12.5px] font-medium truncate tracking-tight inline-flex items-center gap-0.5 flex-wrap" style={{ color: "var(--w)" }}>
-                            {user.name}
-                            <VerifiedBadge verified={!!profiles[uid]?.manually_verified} size="xs" color="gold" />
-                            <PaymentBadge tier={profiles[uid]?.payment_tier} />
-                          </p>
-                          <p className="text-[11px] truncate mt-0.5" style={{ color: "var(--w3)" }}>{user.email}</p>
-                        </div>
-                        <div className="flex items-center gap-3 flex-shrink-0">
-                          {approvedCnt > 0 && (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold"
-                              style={{ color: "var(--success)" }}>
-                              <CheckCircle2 size={11} strokeWidth={2} /> {approvedCnt}
-                            </span>
-                          )}
-                          {rejectedCnt > 0 && (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold"
-                              style={{ color: "var(--danger)" }}>
-                              <XCircle size={11} strokeWidth={2} /> {rejectedCnt}
-                            </span>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
             </div>
           )}
 

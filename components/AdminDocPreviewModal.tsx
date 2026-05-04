@@ -69,21 +69,17 @@ type Doc = {
 
 export function AdminDocPreviewModal({
   doc, accessToken, onClose, onUpdated, noPreviewText = "Preview not available",
-  onShowPassportData, sideBySide = false,
+  onShowPassportData, sideBySide = false, overrideFetchUrl,
 }: {
   doc: Doc;
   accessToken: string;
   onClose: () => void;
   onUpdated?: (doc: Doc) => void;
   noPreviewText?: string;
-  /** When set AND the doc is a passport, a "Passport data" button appears
-   *  in the header next to Download. Clicking it triggers this callback —
-   *  the parent owns the passport-data popup state. */
   onShowPassportData?: () => void;
-  /** Verification-phase split layout: this preview hugs the LEFT half on
-   *  laptop so the passport-data popup can sit on the right. On mobile we
-   *  ignore it and just stack vertically with the data popup below. */
   sideBySide?: boolean;
+  /** When provided, fetch the preview from this URL instead of /api/portal/file. */
+  overrideFetchUrl?: string;
 }) {
   const { lang, t: gT } = useLang();
   const dt = dm[lang as keyof typeof dm] ?? dm.en;
@@ -103,11 +99,12 @@ export function AdminDocPreviewModal({
   // Authenticated fetch via our API → blob URL. Used for both the PdfViewer
   // and the download button (no need to refetch).
   useEffect(() => {
-    if (!doc.drive_file_id) return;
+    const fetchUrl = overrideFetchUrl ?? (doc.drive_file_id ? `/api/portal/file?id=${doc.drive_file_id}` : null);
+    if (!fetchUrl) return;
     let mounted = true;
     let url = "";
     const ctrl = new AbortController();
-    fetch(`/api/portal/file?id=${doc.drive_file_id}`, {
+    fetch(fetchUrl, {
       signal: ctrl.signal,
       headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
     })
@@ -115,7 +112,7 @@ export function AdminDocPreviewModal({
       .then(blob => { if (!mounted) return; url = URL.createObjectURL(blob); setBlobUrl(url); })
       .catch(err => { if (err.name !== "AbortError") console.error("Preview fetch error:", err); });
     return () => { mounted = false; ctrl.abort(); if (url) URL.revokeObjectURL(url); };
-  }, [doc.drive_file_id, accessToken]);
+  }, [overrideFetchUrl, doc.drive_file_id, accessToken]);
 
   async function approve() {
     if (submitting) return;
