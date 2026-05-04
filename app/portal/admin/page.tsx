@@ -2678,15 +2678,12 @@ export default function AdminPage() {
         <div className="max-w-[780px] mx-auto px-4 pt-8 pb-16">
 
           {/* Header */}
-          <div className="mb-5">
-            <h1 className="text-[20px] font-semibold tracking-[-0.015em]" style={{ color: "var(--w)" }}>{t.aTitle}</h1>
-            <p className="text-[12.5px] mt-1" style={{ color: "var(--w3)" }}>
-              {totalPending > 0
-                ? t.aSubPending
-                    .replace("{n}", String(totalPending))
-                    .replace("{s}", totalPending !== 1 ? "s" : "")
-                : t.aSubAllDone}
-            </p>
+          <div className="mb-5 text-center">
+            <a href="/portal/admin"
+              className="font-[family-name:var(--font-dm-serif)] italic no-underline"
+              style={{ fontSize: "clamp(1.6rem,5vw,2rem)", color: "var(--w)", letterSpacing: "-0.01em" }}>
+              Borivon<span style={{ color: "var(--gold)" }} className="not-italic">.</span>
+            </a>
           </div>
 
           {/* Search + filter row — works on the full candidate list (pending + archived combined) */}
@@ -2711,7 +2708,7 @@ export default function AdminPage() {
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
                     placeholder={t.adSearchPh}
-                    className="w-full pl-10 pr-10 py-3 text-[13px] outline-none transition-colors focus:border-[var(--gold)]"
+                    className="w-full pl-9 pr-9 py-2.5 text-[12px] outline-none transition-colors focus:border-[var(--gold)]"
                     style={{
                       background: "var(--card)",
                       border: "none",
@@ -2726,35 +2723,6 @@ export default function AdminPage() {
                       <XIcon size={13} strokeWidth={1.8} />
                     </button>
                   )}
-                </div>
-                {/* Filter chips */}
-                <div className="flex items-center gap-2 flex-wrap">
-                  {([
-                    { key: "all"     as const, label: t.adFilterAll,     count: all.length },
-                    { key: "pending" as const, label: t.adFilterPending, count: pendingCount },
-                    { key: "stuck"   as const, label: t.adFilterStuck,   count: stuckCount },
-                    { key: "clear"   as const, label: t.adFilterClear,   count: clearCount },
-                  ]).map(chip => {
-                    const active = filterMode === chip.key;
-                    return (
-                      <button key={chip.key}
-                        onClick={() => setFilterMode(chip.key)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[12px] font-semibold tracking-tight transition-all hover:opacity-90"
-                        style={{
-                          background: active ? "var(--gdim)" : "transparent",
-                          color: active ? "var(--gold)" : "var(--w3)",
-                          border: `1px solid ${active ? "var(--border-gold)" : "var(--border)"}`,
-                          borderRadius: "999px",
-                        }}>
-                        {chip.label}
-                        <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold tabular-nums"
-                          style={{
-                            background: active ? "var(--border-gold)" : "var(--bg2)",
-                            color: active ? "var(--gold)" : "var(--w3)",
-                          }}>{chip.count}</span>
-                      </button>
-                    );
-                  })}
                 </div>
               </div>
             );
@@ -2972,32 +2940,6 @@ export default function AdminPage() {
             </div>
           )}
 
-          {/* Stats bar — first thing you see */}
-          {Object.keys(grouped).length > 0 && (() => {
-            const totalCandidates = Object.keys(grouped).length;
-            const fullyApproved   = archivedUserIds.filter(uid =>
-              grouped[uid].every(d => d.status === "approved")
-            ).length;
-            return (
-              <div className="grid grid-cols-3 gap-2 mb-6">
-                {[
-                  { label: lang === "de" ? "Kandidaten" : lang === "fr" ? "Candidats" : "Candidates", value: totalCandidates, color: "var(--gold)" },
-                  { label: lang === "de" ? "Ausstehend" : lang === "fr" ? "En attente" : "Pending", value: totalPending, color: "var(--warning)" },
-                  { label: lang === "de" ? "Genehmigt" : lang === "fr" ? "Approuvés" : "Approved", value: fullyApproved, color: "var(--success)" },
-                ].map(s => (
-                  <div key={s.label} className="py-4 text-center"
-                    style={{
-                      background: "var(--card)",
-                      borderRadius: "var(--r-xl)",
-                      border: "1px solid var(--border)",
-                    }}>
-                    <p className="text-[26px] font-bold tracking-[-0.03em] tabular-nums leading-none" style={{ color: s.color }}>{s.value}</p>
-                    <p className="text-[10px] mt-2 font-medium uppercase tracking-[0.12em]" style={{ color: "var(--w3)" }}>{s.label}</p>
-                  </div>
-                ))}
-              </div>
-            );
-          })()}
 
           {/* ── Tools strip — invite + agencies ── superadmin only ── */}
           {isSuperAdmin && (
