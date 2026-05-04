@@ -2697,30 +2697,31 @@ export default function AdminPage() {
             const clearCount = archivedUserIds.length;
             const pendingCount = pendingUserIds.length;
             return (
-              <div className="mb-4 space-y-3">
-                {/* Search — CV-builder field styling */}
+              <div className="mb-3">
                 <div className="relative">
-                  <Search size={12} strokeWidth={1.8}
-                    className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                  <Search size={11} strokeWidth={1.8}
+                    className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
                     style={{ color: "var(--w3)" }} />
                   <input
                     type="text"
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
                     placeholder={t.adSearchPh}
-                    className="w-full pl-8 pr-8 py-1.5 text-[11.5px] outline-none transition-colors"
+                    className="w-full pl-7 pr-7 outline-none transition-colors"
                     style={{
                       background: "var(--card)",
                       border: "1px solid var(--border)",
                       color: "var(--w)",
-                      borderRadius: "10px",
-                      boxShadow: "0 1px 2px rgba(0,0,0,0.04)",
+                      borderRadius: "8px",
+                      height: "32px",
+                      fontSize: "16px",
+                      transform: "scale(1)",
                     }} />
                   {searchQuery && (
                     <button onClick={() => setSearchQuery("")} aria-label={t.adClearSearch}
-                      className="bv-icon-btn absolute right-2 top-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center rounded-full"
+                      className="bv-icon-btn absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-full"
                       style={{ color: "var(--w3)" }}>
-                      <XIcon size={13} strokeWidth={1.8} />
+                      <XIcon size={11} strokeWidth={1.8} />
                     </button>
                   )}
                 </div>
