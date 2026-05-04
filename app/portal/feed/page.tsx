@@ -889,7 +889,7 @@ export default function FeedPage() {
                 style={{ color: (showGifPicker || gifUrl) ? "var(--gold)" : "var(--w3)", background: "var(--bg2)", border: "none", cursor: "pointer" }}>
                 GIF
               </button>
-              <button onClick={() => { setShowVideoInput(s => !s); setShowGifInput(false); }} title={t.addVideo}
+              <button onClick={() => { setShowVideoInput(s => !s); setShowGifPicker(false); }} title={t.addVideo}
                 className="w-8 h-8 flex items-center justify-center rounded-xl transition-all hover:opacity-80"
                 style={{ color: showVideoInput ? "var(--gold)" : "var(--w3)", background: "var(--bg2)", border: "none", cursor: "pointer" }}>
                 <Link2 size={14} strokeWidth={1.8} />
