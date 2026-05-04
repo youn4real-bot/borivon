@@ -101,6 +101,8 @@ export function VerifiedBadge({
           <path
             d="M19.998 3.094 14.638 0l-2.972 5.15H5.432v6.354L0 14.64 3.094 20 0 25.359l5.432 3.137v6.355h6.234L14.638 40l5.36-3.094L25.358 40l2.978-5.149h6.227v-6.355L40 25.359 36.905 20 40 14.64l-5.438-3.135V5.15h-6.227L25.358 0l-5.36 3.094Z"
             fill={isBlack ? `url(#${gradId})` : fillColor}
+            stroke={isBlack ? "rgba(255,255,255,0.28)" : "none"}
+            strokeWidth={isBlack ? "1.2" : "0"}
           />
           <path
             d="m13 19.5 4.5 4 7-7"
@@ -138,7 +140,7 @@ export function VerifiedBadge({
                     </linearGradient>
                   </defs>
                 )}
-                <path d="M19.998 3.094 14.638 0l-2.972 5.15H5.432v6.354L0 14.64 3.094 20 0 25.359l5.432 3.137v6.355h6.234L14.638 40l5.36-3.094L25.358 40l2.978-5.149h6.227v-6.355L40 25.359 36.905 20 40 14.64l-5.438-3.135V5.15h-6.227L25.358 0l-5.36 3.094Z" fill={isBlack ? `url(#${gradId}_lg)` : fillColor} />
+                <path d="M19.998 3.094 14.638 0l-2.972 5.15H5.432v6.354L0 14.64 3.094 20 0 25.359l5.432 3.137v6.355h6.234L14.638 40l5.36-3.094L25.358 40l2.978-5.149h6.227v-6.355L40 25.359 36.905 20 40 14.64l-5.438-3.135V5.15h-6.227L25.358 0l-5.36 3.094Z" fill={isBlack ? `url(#${gradId}_lg)` : fillColor} stroke={isBlack ? "rgba(255,255,255,0.28)" : "none"} strokeWidth={isBlack ? "1.2" : "0"} />
                 <path d="m13 19.5 4.5 4 7-7" stroke="#FFFFFF" strokeWidth="3.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </div>

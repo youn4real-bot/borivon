@@ -111,6 +111,10 @@
   --flag-black: #111111;
   --flag-red:   #cc0000;
   --flag-gold:  #ffce00;
+
+  /* ── Admin post accent (dark = faint white, light = near-black) ────────── */
+  --border-admin: rgba(255, 255, 255, 0.22);
+  --gradient-admin: linear-gradient(90deg, transparent, rgba(255,255,255,0.18), transparent);
 }
 
 .light {
@@ -140,6 +144,8 @@
   --shadow-gold-md:    0 5px 16px rgba(173, 139, 58, 0.22);
   --shadow-gold-lg:    0 6px 20px rgba(173, 139, 58, 0.26);
   --shadow-gold-hover: 0 10px 30px rgba(173, 139, 58, 0.32);
+  --border-admin: #1e1e1e;
+  --gradient-admin: linear-gradient(90deg, transparent, #444444, transparent);
 }
 
 @layer base {

@@ -387,6 +387,7 @@ export default function AdminPage() {
   const [expandedPairs, setExpandedPairs] = useState<Set<string>>(new Set());
   const [showArchive, setShowArchive]   = useState(false);
   const [expandedRow, setExpandedRow]   = useState<string | null>(null);
+  const [rowDropdownPos, setRowDropdownPos] = useState<{ top: number; right: number } | null>(null);
   const [rowPlacing, setRowPlacing]     = useState<Record<string, boolean>>({});
   const [searchQuery, setSearchQuery]   = useState("");
   const [filterMode, setFilterMode]     = useState<"all" | "pending" | "stuck" | "clear">("all");
@@ -1628,25 +1629,6 @@ export default function AdminPage() {
                 </h1>
                 <p className="text-[12.5px] mt-1 truncate" style={{ color: "var(--w3)" }}>{user.email}</p>
               </div>
-              <div className="flex items-center gap-2 flex-wrap flex-shrink-0">
-                {pendingDocs.length > 0 && (
-                  <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1.5 rounded-full"
-                    style={{ background: "rgba(245,158,11,0.12)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.3)" }}>
-                    {pendingDocs.length} {t.aPending}
-                  </span>
-                )}
-                {/* Edit CV — opens cv-builder in admin mode for this candidate */}
-                {selectedUser && (
-                  <button
-                    onClick={() => window.open(`/portal/cv-builder?candidateId=${selectedUser}`, "_blank")}
-                    title="Edit candidate's CV"
-                    className="inline-flex items-center gap-1.5 text-[10.5px] px-3 py-1.5 rounded-full font-semibold tracking-wide uppercase transition-opacity hover:opacity-80"
-                    style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w3)" }}>
-                    <FilePen size={11} strokeWidth={1.8} />
-                    Edit CV
-                  </button>
-                )}
-              </div>
             </div>
 
 
@@ -1680,10 +1662,6 @@ export default function AdminPage() {
                             transition: "color 0.2s, transform 0.15s",
                           }}>
                           <PhaseIcon kind={ph.kind} size={14} />
-                          {pendingCnt > 0 && (
-                            <span className="absolute -top-1 -right-1 min-w-[16px] h-4 rounded-full text-[9px] font-bold flex items-center justify-center px-1"
-                              style={{ background: "#f59e0b", color: "#131312", border: "1.5px solid var(--bg)" }}>{pendingCnt}</span>
-                          )}
                         </span>
                         <span className="text-[8px] text-center leading-tight font-medium px-0.5 w-full"
                           style={{ color: isActive ? "var(--gold)" : "var(--w3)" }}>{ph.shortTitle}</span>
@@ -1970,12 +1948,6 @@ export default function AdminPage() {
                           {PHASE_ITEMS[activePhase].title}
                         </h2>
                       </div>
-                      {pendingDocs.length > 0 && (
-                        <span className="inline-flex items-center gap-1.5 text-[11px] font-medium flex-shrink-0"
-                          style={{ color: "#f59e0b" }}>
-                          <span className="w-1.5 h-1.5 rounded-full" style={{ background: "#f59e0b" }} />{pendingDocs.length} pending
-                        </span>
-                      )}
                     </div>
 
                     <div className="h-px mx-6" style={{ background: "var(--border)" }} />
@@ -2476,6 +2448,14 @@ export default function AdminPage() {
                                           <div className="fixed inset-0 z-10" onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); }} />
                                           <div className="absolute right-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
                                             style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
+                                            {item.key === "cv_de" && selectedUser && (
+                                              <button
+                                                onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); window.open(`/portal/cv-builder?candidateId=${selectedUser}`, "_blank"); }}
+                                                className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                                style={{ color: "var(--w)" }}>
+                                                <FilePen size={11} strokeWidth={1.8} /> Edit CV
+                                              </button>
+                                            )}
                                             <button
                                               onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ driveFileId: doc.drive_file_id!, label: item.label }); }}
                                               className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
@@ -2788,13 +2768,6 @@ export default function AdminPage() {
                       </div>
 
                       {/* Time-since label — quiet text only, no chip */}
-                      {/* Status — only shown when there are pending docs */}
-                      {!isClear && (
-                        <span className="text-[11.5px] font-semibold flex-shrink-0"
-                          style={{ color: "#f59e0b" }}>
-                          {pendingCnt} {t.aPending}
-                        </span>
-                      )}
 
                       {/* Match-with-org chevron — always shown; gold if already matched */}
                       {(() => {
@@ -2802,7 +2775,13 @@ export default function AdminPage() {
                         const isMatched = orgs.length > 0;
                         return (
                           <button
-                            onClick={(e) => { e.stopPropagation(); setExpandedRow(isExpanded ? null : uid); }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (isExpanded) { setExpandedRow(null); setRowDropdownPos(null); return; }
+                              const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
+                              setRowDropdownPos({ top: rect.bottom + 6, right: window.innerWidth - rect.right });
+                              setExpandedRow(uid);
+                            }}
                             aria-label="Match with org"
                             aria-expanded={isExpanded}
                             className="w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0"
@@ -2818,75 +2797,6 @@ export default function AdminPage() {
                         );
                       })()}
                     </div>
-
-                    {/* Match-with-org panel */}
-                    {isExpanded && (
-                      <div className="px-4 pb-3 pt-2 bv-enter"
-                        style={{ borderTop: "1px solid var(--border)" }}>
-                        {(() => {
-                          const orgs = candidateOrgs[uid] ?? [];
-                          if (orgs.length > 0) {
-                            return (
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="text-[10.5px] font-medium" style={{ color: "var(--w3)" }}>
-                                  {lang === "de" ? "Zugewiesen:" : lang === "fr" ? "Assigné :" : "Matched with:"}
-                                </span>
-                                {orgs.map(o => (
-                                  <span key={o.id} className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full"
-                                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                                    {o.name}
-                                  </span>
-                                ))}
-                              </div>
-                            );
-                          }
-                          return (
-                            <div>
-                              <p className="text-[10.5px] font-medium mb-2" style={{ color: "var(--w3)" }}>
-                                {lang === "de" ? "Mit Organisation zusammenführen:" : lang === "fr" ? "Associer à une organisation :" : "Match with:"}
-                              </p>
-                              <div className="flex flex-wrap gap-1.5">
-                                {allOrgs.map(org => {
-                                  const alreadyLinked = (candidateOrgs[uid] ?? []).some(o => o.id === org.id);
-                                  const isLoading = rowPlacing[`${uid}-${org.id}`];
-                                  return (
-                                    <button key={org.id}
-                                      disabled={alreadyLinked || isLoading}
-                                      onClick={async e => {
-                                        e.stopPropagation();
-                                        if (alreadyLinked || isLoading) return;
-                                        setRowPlacing(p => ({ ...p, [`${uid}-${org.id}`]: true }));
-                                        try {
-                                          const res = await fetch(`/api/portal/admin/organizations/${org.id}/candidates`, {
-                                            method: "POST",
-                                            headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-                                            body: JSON.stringify({ candidateUserId: uid, status: "approved" }),
-                                          });
-                                          if (res.ok) {
-                                            setCandidateOrgs(prev => ({
-                                              ...prev,
-                                              [uid]: [...(prev[uid] ?? []), { id: org.id, name: org.name }],
-                                            }));
-                                            setExpandedRow(null);
-                                          }
-                                        } catch { /* ignore */ }
-                                        setRowPlacing(p => { const n = { ...p }; delete n[`${uid}-${org.id}`]; return n; });
-                                      }}
-                                      className="inline-flex items-center gap-1 text-[11px] font-semibold px-3 py-1.5 rounded-full transition-all disabled:opacity-40"
-                                      style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
-                                      {isLoading ? "…" : `+ ${org.name}`}
-                                    </button>
-                                  );
-                                })}
-                                {allOrgs.length === 0 && (
-                                  <p className="text-[11px]" style={{ color: "var(--w3)" }}>No organizations yet</p>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    )}
                   </div>
                 );
               })}
@@ -2935,7 +2845,7 @@ export default function AdminPage() {
                       setInviteGenerating(false);
                     }}
                     disabled={inviteGenerating}
-                    className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-40"
+                    className="flex-shrink-0 inline-flex items-center justify-center px-3 py-1.5 text-[11px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-40"
                     style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-sm)" }}>
                     {inviteGenerating ? "…" : lang === "de" ? "Link generieren" : lang === "fr" ? "Générer" : "Generate"}
                   </button>
@@ -2974,15 +2884,11 @@ export default function AdminPage() {
                     <button
                       onClick={() => { if (allOrgs.length > 0) setOrgInviteDropdown(p => !p); }}
                       disabled={orgInviteGenerating || allOrgs.length === 0}
-                      className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-40"
+                      className="flex-shrink-0 inline-flex items-center justify-center px-3 py-1.5 text-[11px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-40"
                       style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-sm)" }}>
                       {orgInviteGenerating
                         ? "…"
                         : lang === "de" ? "Link generieren" : lang === "fr" ? "Générer" : "Generate"}
-                      {!orgInviteGenerating && (
-                        <ChevronDown size={11} strokeWidth={2}
-                          style={{ transform: orgInviteDropdown ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
-                      )}
                     </button>
                     {orgInviteDropdown && (
                       <div className="absolute right-0 top-full mt-1 rounded-xl overflow-hidden"
@@ -3156,6 +3062,70 @@ export default function AdminPage() {
 
         </div>
       </main>
+
+      {/* Match-with-org floating dropdown — portalled to escape transform stacking context */}
+      {expandedRow && rowDropdownPos && typeof window !== "undefined" && createPortal(
+        <>
+          <div className="fixed inset-0 z-[599]" onClick={() => { setExpandedRow(null); setRowDropdownPos(null); }} />
+          <div className="rounded-xl p-3"
+            style={{ position: "fixed", top: rowDropdownPos.top, right: rowDropdownPos.right, zIndex: 600, background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 200 }}
+            onClick={e => e.stopPropagation()}>
+            {(candidateOrgs[expandedRow] ?? []).length > 0 ? (
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[10.5px] font-medium w-full mb-1" style={{ color: "var(--w3)" }}>
+                  {lang === "de" ? "Zugewiesen:" : lang === "fr" ? "Assigné :" : "Matched with:"}
+                </span>
+                {(candidateOrgs[expandedRow] ?? []).map(o => (
+                  <span key={o.id} className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full"
+                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                    {o.name}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <div>
+                <p className="text-[10.5px] font-medium mb-2" style={{ color: "var(--w3)" }}>
+                  {lang === "de" ? "Mit Organisation:" : lang === "fr" ? "Associer :" : "Match with:"}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {allOrgs.map(org => {
+                    const uid = expandedRow;
+                    const alreadyLinked = (candidateOrgs[uid] ?? []).some(o => o.id === org.id);
+                    const isLoading = rowPlacing[`${uid}-${org.id}`];
+                    return (
+                      <button key={org.id}
+                        disabled={alreadyLinked || isLoading}
+                        onClick={async e => {
+                          e.stopPropagation();
+                          if (alreadyLinked || isLoading) return;
+                          setRowPlacing(p => ({ ...p, [`${uid}-${org.id}`]: true }));
+                          try {
+                            const res = await fetch(`/api/portal/admin/organizations/${org.id}/candidates`, {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                              body: JSON.stringify({ candidateUserId: uid, status: "approved" }),
+                            });
+                            if (res.ok) {
+                              setCandidateOrgs(prev => ({ ...prev, [uid]: [...(prev[uid] ?? []), { id: org.id, name: org.name }] }));
+                              setExpandedRow(null); setRowDropdownPos(null);
+                            }
+                          } catch { /* ignore */ }
+                          setRowPlacing(p => { const n = { ...p }; delete n[`${uid}-${org.id}`]; return n; });
+                        }}
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold px-3 py-1.5 rounded-full transition-all disabled:opacity-40"
+                        style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
+                        {isLoading ? "…" : `+ ${org.name}`}
+                      </button>
+                    );
+                  })}
+                  {allOrgs.length === 0 && <p className="text-[11px]" style={{ color: "var(--w3)" }}>No organizations yet</p>}
+                </div>
+              </div>
+            )}
+          </div>
+        </>,
+        document.body,
+      )}
 
       {/* Standalone reject popup — same component used everywhere */}
       {rejectTarget && (

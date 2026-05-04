@@ -167,8 +167,8 @@ function deriveTickColor(isSuperAdmin: boolean | undefined, isOrgMember: boolean
 
 function derivePostAccent(isSuperAdmin: boolean, isOrgMember: boolean, verified: boolean) {
   if (isSuperAdmin) return {
-    border: "#1e1e1e",
-    gradient: "linear-gradient(90deg,transparent,#555555,transparent)",
+    border: "var(--border-admin)",
+    gradient: "var(--gradient-admin)",
     line: true,
   };
   if (isOrgMember) return {
@@ -189,7 +189,21 @@ function Avatar({ photo, name, size = 36, isBorivonTeam = false, tickColor = "de
   tickColor?: "gold" | "black" | "red" | "default";
 }) {
   const initials = name.split(" ").map(w => w[0]?.toUpperCase() ?? "").slice(0, 2).join("");
-  const borderColor = tickColor === "black" ? "#1a1a1a" : tickColor === "red" ? "var(--danger)" : tickColor === "gold" ? "var(--gold)" : "var(--border)";
+  const borderColor = tickColor === "red" ? "var(--danger)" : tickColor === "gold" ? "var(--gold)" : "var(--border)";
+  if (tickColor === "black") return (
+    <div className="flex-shrink-0 rounded-full"
+      style={{ padding: 2, background: "linear-gradient(135deg,#4a4a4a 0%,#1c1c1e 40%,#000000 100%)", boxSizing: "content-box", alignSelf: "flex-start" }}>
+      <div className="rounded-full overflow-hidden" style={{ width: size, height: size }}>
+        {photo
+          ? <img src={photo} alt={name} className="w-full h-full object-cover" />
+          : <div className="w-full h-full rounded-full flex items-center justify-center font-bold"
+              style={{ fontSize: Math.max(9, size * 0.3), background: "var(--gdim)", color: "var(--gold)" }}>
+              {name.split(" ").map(w => w[0]?.toUpperCase() ?? "").slice(0, 2).join("")}
+            </div>
+        }
+      </div>
+    </div>
+  );
   if (photo) return (
     <div className="flex-shrink-0 rounded-full overflow-hidden"
       style={{ width: size, height: size, border: `2px solid ${borderColor}`, boxSizing: "content-box" }}>
@@ -382,8 +396,9 @@ function PostCard({
   return (
     <div className="rounded-2xl overflow-hidden"
       style={{
-        background: "var(--card)",
-        border: `1px solid ${accent.border}`,
+        background: `linear-gradient(var(--card), var(--card)) padding-box,
+                     linear-gradient(to bottom, ${accent.border} 0%, transparent 55%) border-box`,
+        border: "1px solid transparent",
       }}>
 
       {/* Pinned banner */}
