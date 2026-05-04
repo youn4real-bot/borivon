@@ -405,7 +405,7 @@ function PostCard({
   const [commentText, setCommentText] = useState("");
   const [commentError, setCommentError] = useState<string | null>(null);
   const [sendingComment, setSendingComment] = useState(false);
-  const [liking, setLiking] = useState(false);
+
   const [pinning, setPinning] = useState(false);
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [likingComment, setLikingComment] = useState<Record<string, boolean>>({});
@@ -437,15 +437,12 @@ function PostCard({
   };
 
   const handleLike = () => {
-    if (liking) return;
-    setLiking(true);
     const optimisticLiked = !post.likedByMe;
     const optimisticCount = post.likeCount + (optimisticLiked ? 1 : -1);
     onLike(post.id, optimisticLiked, optimisticCount);
     fetch(`/api/portal/feed/${post.id}/like`, { method: "POST", headers: { Authorization: `Bearer ${authToken}` } })
       .then(res => res.ok ? res.json() : null)
-      .then(j => { if (j) onLike(post.id, j.liked, j.likeCount); })
-      .finally(() => setLiking(false));
+      .then(j => { if (j) onLike(post.id, j.liked, j.likeCount); });
   };
 
   const handleLikeComment = async (commentId: string, currentlyLiked: boolean, currentCount: number) => {
@@ -644,7 +641,7 @@ function PostCard({
         {/* Actions — no divider, use padding */}
         <div className="flex items-center gap-3 pt-2">
           {/* Like */}
-          <button onClick={handleLike} disabled={liking}
+          <button onClick={handleLike}
             className="flex items-center gap-1.5 text-[12px] font-medium py-1 transition-all hover:opacity-80"
             style={{ color: post.likedByMe ? "var(--danger)" : "var(--w3)", background: "transparent", border: "none", cursor: "pointer" }}>
             <Heart size={15} strokeWidth={2} fill={post.likedByMe ? "var(--danger)" : "none"} />
