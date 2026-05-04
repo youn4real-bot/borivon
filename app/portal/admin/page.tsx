@@ -2197,7 +2197,8 @@ export default function AdminPage() {
                                       </>
                                     )}
                                     {sst === "approved" && (
-                                      <div className="relative flex-shrink-0">
+                                      <div className="relative flex-shrink-0"
+                                        style={{ zIndex: revokeMenu === subDoc.id ? 600 : undefined }}>
                                         <button
                                           onClick={e => { e.stopPropagation(); setRevokeMenu(prev => prev === subDoc.id ? null : subDoc.id); }}
                                           className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
@@ -2206,11 +2207,12 @@ export default function AdminPage() {
                                         </button>
                                         {revokeMenu === subDoc.id && (
                                           <>
-                                            <div className="fixed inset-0 z-10" onClick={() => setRevokeMenu(null)} />
-                                            <div className="absolute right-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
-                                              style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
+                                            <div className="fixed inset-0" style={{ zIndex: 599 }}
+                                              onClick={e => { e.stopPropagation(); setRevokeMenu(null); }} />
+                                            <div className="absolute right-0 top-full mt-1 rounded-xl overflow-hidden"
+                                              style={{ zIndex: 600, background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
                                               <button
-                                                onClick={() => { setRevokeMenu(null); openRejectModal({ kind: "doc", docId: subDoc.id, label: subLabel, initialFeedback: subDoc.feedback ?? "" }); }}
+                                                onClick={e => { e.stopPropagation(); setRevokeMenu(null); openRejectModal({ kind: "doc", docId: subDoc.id, label: subLabel, initialFeedback: subDoc.feedback ?? "" }); }}
                                                 className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
                                                 style={{ color: "var(--danger)" }}>
                                                 <RotateCcw size={11} strokeWidth={1.8} /> Revoke
@@ -2679,11 +2681,11 @@ export default function AdminPage() {
 
           {/* Header */}
           <div className="mb-5 text-center">
-            <a href="/portal/admin"
-              className="font-[family-name:var(--font-dm-serif)] italic no-underline"
+            <span
+              className="font-[family-name:var(--font-dm-serif)] italic"
               style={{ fontSize: "clamp(1.6rem,5vw,2rem)", color: "var(--w)", letterSpacing: "-0.01em" }}>
               Borivon<span style={{ color: "var(--gold)" }} className="not-italic">.</span>
-            </a>
+            </span>
           </div>
 
           {/* Search + filter row — works on the full candidate list (pending + archived combined) */}
@@ -2707,7 +2709,7 @@ export default function AdminPage() {
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
                     placeholder={t.adSearchPh}
-                    className="w-full pl-7 pr-7 outline-none transition-colors"
+                    className="w-full pl-7 pr-7 outline-none transition-colors placeholder:opacity-40"
                     style={{
                       background: "var(--card)",
                       border: "1px solid var(--border)",
@@ -2717,13 +2719,6 @@ export default function AdminPage() {
                       fontSize: "16px",
                       transform: "scale(1)",
                     }} />
-                  {searchQuery && (
-                    <button onClick={() => setSearchQuery("")} aria-label={t.adClearSearch}
-                      className="bv-icon-btn absolute right-1.5 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center rounded-full"
-                      style={{ color: "var(--w3)" }}>
-                      <XIcon size={11} strokeWidth={1.8} />
-                    </button>
-                  )}
                 </div>
               </div>
             );
