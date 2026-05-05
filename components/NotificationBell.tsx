@@ -506,7 +506,17 @@ function AdminBell({ accessToken }: { accessToken: string }) {
   useEffect(() => {
     fetch_();
     const timer = setInterval(fetch_, 60_000);
-    return () => clearInterval(timer);
+    // Realtime channel — admin_notifications inserts (signups, uploads,
+    // sign-request events) push to the bell instantly so a fresh signup
+    // doesn't sit invisible for up to a minute waiting on the poll.
+    const channel = supabase
+      .channel("admin-notifs-bell")
+      .on("postgres_changes",
+        { event: "INSERT", schema: "public", table: "admin_notifications" },
+        () => fetch_(),
+      )
+      .subscribe();
+    return () => { clearInterval(timer); supabase.removeChannel(channel); };
   }, [fetch_]);
 
   useEffect(() => {

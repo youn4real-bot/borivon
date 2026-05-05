@@ -63,9 +63,34 @@ export async function GET(req: NextRequest) {
 
   const userIds = [...new Set(docs.map((d: { user_id: string }) => d.user_id))];
   const users: Record<string, { email: string; name: string }> = {};
+
+  // For full admins, surface candidates who have signed up but not yet
+  // uploaded anything — otherwise they're invisible until their first
+  // document lands. Sub-admins / agency admins keep the doc-scoped list.
+  if (role === "admin") {
+    let page = 1;
+    while (true) {
+      const { data: batch } = await adminClient.auth.admin.listUsers({ page, perPage: 50 });
+      const list = batch?.users ?? [];
+      for (const u of list) {
+        // Skip the supreme admin's own account + any non-candidate roles
+        // already represented in admin/sub_admins tables. Keep all others.
+        if (!u.id || !u.email) continue;
+        if (!userIds.includes(u.id)) userIds.push(u.id);
+        users[u.id] = {
+          email: u.email,
+          name: u.user_metadata?.full_name ?? u.email,
+        };
+      }
+      if (list.length < 50) break;
+      page++;
+    }
+  }
+
   // One missing/deleted user shouldn't 500 the whole admin page — swallow
   // individual lookup failures and leave that uid out of the map.
   await Promise.all(userIds.map(async (uid) => {
+    if (users[uid]) return; // already populated by listUsers
     try {
       const { data } = await adminClient.auth.admin.getUserById(uid);
       if (data?.user) {
