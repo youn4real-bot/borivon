@@ -1917,7 +1917,7 @@ export default function DashboardPage() {
                 <div key={item.key}>
                   {idx > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
                   {/* Master header */}
-                  <div className="px-2 py-3 flex items-center gap-3 cursor-pointer bv-row-hover" style={{ minHeight: 54 }}
+                  <div className="px-3 py-3 flex items-center gap-2 cursor-pointer bv-row-hover" style={{ minHeight: 54 }}
                     onClick={() => setExpandedPairs(prev => { const n = new Set(prev); n.has(item.key) ? n.delete(item.key) : n.add(item.key); return n; })}>
                     <div className="flex-1 min-w-0">
                       <p className="text-[11.5px] font-medium tracking-tight" style={{ color: pairColor ?? "var(--w)" }}>{item.label}</p>
@@ -1949,8 +1949,8 @@ export default function DashboardPage() {
                             onDragLeave={() => setDragOverKey(null)}
                             onDrop={e => onDrop(e, sub.subKey)}
                             onClick={sub.subDoc?.drive_file_id && !isSubUp ? () => handlePreview(sub.subDoc!) : undefined}
-                            className={`rounded-xl px-3 py-2.5 transition-colors${sub.subDoc?.drive_file_id ? " bv-row-hover cursor-pointer" : ""}`}
-                            style={{ background: isDragSub ? "var(--gdim)" : "var(--bg2)", border: `1px solid ${isDragSub ? "var(--gold)" : "var(--border)"}` }}>
+                            className={`rounded-xl px-3 py-3 transition-colors${sub.subDoc?.drive_file_id ? " bv-row-hover cursor-pointer" : ""}`}
+                            style={{ background: isDragSub ? "var(--gdim)" : "var(--bg2)", border: `1px solid ${isDragSub ? "var(--gold)" : "var(--border)"}`, minHeight: 60 }}>
                             <div className="flex items-center gap-3">
                               <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
                                 style={subSc ? { background: subSc.bg, color: subSc.text, border: `1px solid ${subSc.border}` } : { background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
