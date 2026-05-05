@@ -304,6 +304,14 @@ export function ProfileIcon() {
   }, [planModalOpen, checkoutPlan]);
 
   async function signOut() {
+    // Optimistically clear the avatar + dropdown BEFORE awaiting Supabase. If
+    // we wait for the SIGNED_OUT event, there's a visible window where the
+    // login screen renders with the old avatar in the bottom bar (and
+    // navigation prefetch may flash candidate-only UI).
+    setUser(null);
+    setOpen(false);
+    setAccessToken("");
+
     // Wipe per-user localStorage drafts so the next user on a shared device
     // doesn't see (or, after re-login, accidentally restore) stale data.
     try {
@@ -315,7 +323,11 @@ export function ProfileIcon() {
         }
       }
     } catch { /* private mode — ignore */ }
-    await supabase.auth.signOut();
+
+    // Local-scope signOut clears the cached session even if the server-side
+    // revoke call fails (network down) — without this, a flaky network can
+    // leave the JWT in localStorage and the avatar comes back on next mount.
+    try { await supabase.auth.signOut({ scope: "local" }); } catch { /* ignore */ }
     router.replace("/portal");
   }
 
