@@ -8,55 +8,74 @@ function getStripe() {
   return new Stripe(key);
 }
 
-const PRICE: Record<string, string | undefined> = {
-  kandidat:             process.env.STRIPE_PRICE_KANDIDAT,
-  kandidat_installment: process.env.STRIPE_PRICE_KANDIDAT_INSTALLMENT,
+// Plan codes -> Stripe price lookup_keys. Prices are resolved at runtime so
+// rebuilds of the Stripe product (live mode) don't require redeploys —
+// rotating a price ID on Stripe's side is invisible to us as long as the
+// lookup_key stays attached to the new price.
+const LOOKUP_KEY: Record<string, string> = {
+  premium_onetime: "premium_onetime_99",     // €99 one-off
+  premium_monthly: "premium_monthly_6x",     // €19/month × 6 cycles
 };
 
 const LABELS: Record<string, string> = {
-  kandidat:             "Kandidat — €99",
-  kandidat_installment: "Kandidat — €20/month × 5",
+  premium_onetime: "Premium — €99",
+  premium_monthly: "Premium — €19/month × 6",
 };
+
+type Plan = "premium_onetime" | "premium_monthly";
 
 /**
  * POST /api/portal/stripe/checkout
- * Body: { plan: "kandidat" | "kandidat_installment" }
+ * Body: { plan: "premium_onetime" | "premium_monthly" }
  * Returns: { url: string }  — Stripe-hosted checkout URL
  *
- * kandidat             → one-time €99 payment (mode: "payment")
- * kandidat_installment → €20/month subscription for 5 months (mode: "subscription")
- *   Set STRIPE_PRICE_KANDIDAT_INSTALLMENT to a recurring €20/month Stripe price.
- *   Cancel the subscription after 5 successful payments via the webhook or
- *   Stripe's built-in subscription schedule.
+ * premium_onetime → one-time €99 payment (mode: "payment")
+ * premium_monthly → €19/month subscription, capped at 6 cycles (mode:
+ *   "subscription"). The cycle cap is enforced by the webhook, which
+ *   counts invoice.paid events and cancels the subscription after 6.
  */
 export async function POST(req: NextRequest) {
   const auth = await requireUser(req);
   if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status });
 
   const body = await req.json().catch(() => ({}));
-  const plan: "kandidat" | "kandidat_installment" =
-    body.plan === "kandidat_installment" ? "kandidat_installment" : "kandidat";
-
-  const priceId = PRICE[plan];
-  if (!priceId) {
-    return Response.json({ error: "Stripe price not configured — add env vars." }, { status: 500 });
-  }
+  const plan: Plan = body.plan === "premium_monthly" ? "premium_monthly" : "premium_onetime";
+  const lookupKey = LOOKUP_KEY[plan];
 
   let stripe: Stripe;
   try { stripe = getStripe(); }
   catch { return Response.json({ error: "Payment not configured yet." }, { status: 503 }); }
 
+  // Resolve the price by lookup_key — no hardcoded price IDs in the codebase.
+  const prices = await stripe.prices.list({ lookup_keys: [lookupKey], active: true, limit: 1 });
+  const priceId = prices.data[0]?.id;
+  if (!priceId) {
+    console.error(`[checkout] no active price for lookup_key="${lookupKey}"`);
+    return Response.json(
+      { error: `Stripe price not found (lookup_key=${lookupKey}). Check live-mode product setup.` },
+      { status: 500 },
+    );
+  }
+
   const base = process.env.NEXT_PUBLIC_BASE_URL ?? "https://www.borivon.com";
-  const isInstallment = plan === "kandidat_installment";
+  const isMonthly = plan === "premium_monthly";
 
   const session = await stripe.checkout.sessions.create({
-    mode: isInstallment ? "subscription" : "payment",
+    mode: isMonthly ? "subscription" : "payment",
     line_items: [{ price: priceId, quantity: 1 }],
     metadata: { userId: auth.userId, plan },
     customer_email: auth.email ?? undefined,
-    ...(isInstallment ? {} : {
-      payment_intent_data: { description: LABELS[plan] },
-    }),
+    ...(isMonthly
+      ? {
+          // Stash plan + cycle cap on the subscription itself so the webhook
+          // can count invoice.paid events and auto-cancel after 6.
+          subscription_data: {
+            metadata: { userId: auth.userId, plan, max_cycles: "6" },
+          },
+        }
+      : {
+          payment_intent_data: { description: LABELS[plan] },
+        }),
     allow_promotion_codes: true,
     success_url: `${base}/portal/dashboard?payment=success&plan=${plan}`,
     cancel_url:  `${base}/portal/dashboard?payment=cancelled`,

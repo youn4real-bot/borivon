@@ -19,7 +19,7 @@ const T_MAP = {
     back:          "Our candidates",
     verifiedLabel: "Identity verified",
     pendingLabel:  "Verification in progress",
-    tierKandidat:  "Kandidat",
+    tierPremium:   "Premium",
     docsTitle:     "Documents",
     docsApproved:  "Approved",
     docsPending:   "Pending review",
@@ -38,7 +38,7 @@ const T_MAP = {
     back:          "Nos candidats",
     verifiedLabel: "Identité vérifiée",
     pendingLabel:  "Vérification en cours",
-    tierKandidat:  "Kandidat",
+    tierPremium:   "Premium",
     docsTitle:     "Documents",
     docsApproved:  "Approuvés",
     docsPending:   "En attente",
@@ -57,7 +57,7 @@ const T_MAP = {
     back:          "Unsere Kandidaten",
     verifiedLabel: "Identität verifiziert",
     pendingLabel:  "Verifizierung läuft",
-    tierKandidat:  "Kandidat",
+    tierPremium:   "Premium",
     docsTitle:     "Dokumente",
     docsApproved:  "Genehmigt",
     docsPending:   "Ausstehend",
@@ -93,16 +93,16 @@ type Dossier = {
 // ── Tier badge ────────────────────────────────────────────────────────────────
 function TierBadge({ tier, label }: { tier: string | null; label: string }) {
   if (!tier || tier === "free") return null;
-  const isKandidat = tier === "kandidat";
+  const isPremium = tier === "premium";
   return (
     <span
       className="inline-flex items-center gap-1 text-[10px] font-bold tracking-wider uppercase px-2.5 py-0.5 rounded-full"
-      style={isKandidat
+      style={isPremium
         ? { background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }
         : { background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }
       }
     >
-      {isKandidat && <Star size={8} strokeWidth={2.5} style={{ fill: "var(--gold)", stroke: "var(--gold)" }} />}
+      {isPremium && <Star size={8} strokeWidth={2.5} style={{ fill: "var(--gold)", stroke: "var(--gold)" }} />}
       {label}
     </span>
   );
@@ -254,7 +254,7 @@ export default function OrgCandidateDossierPage({
             <div className="flex flex-wrap items-center gap-2 mb-4">
               <TierBadge
                 tier={dossier.tier}
-                label={dossier.tier ? T.tierKandidat : "—"}
+                label={dossier.tier ? T.tierPremium : "—"}
               />
               <span
                 className="inline-flex items-center gap-1 text-[11px] font-medium"

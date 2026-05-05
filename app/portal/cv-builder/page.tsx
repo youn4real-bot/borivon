@@ -1809,7 +1809,7 @@ function CVBuilderInner() {
   const [lockedPopupOpen, setLockedPopupOpen] = useState(false);
   // null = no passport submitted | "pending" | "approved" | "rejected"
   const [passportStatus, setPassportStatus] = useState<null | "pending" | "approved" | "rejected">(null);
-  // Payment tier — null = free, "starter", "kandidat"
+  // Payment tier — null = free, "premium"
   const [paymentTier, setPaymentTier] = useState<string | null>(null);
   // Manual verification override — supreme admin can grant the gold tick
   // independent of passport status, and that override should also unlock
@@ -2441,9 +2441,9 @@ function CVBuilderInner() {
       return;
     }
 
-    // Payment gate — only Kandidat (€99) unlocks CV generation. Skip when
-    // admin is editing a candidate's CV.
-    if (paymentTier !== "kandidat" && !adminCandidateId) {
+    // Payment gate — only Premium unlocks CV generation. Skip when admin is
+    // editing a candidate's CV.
+    if (paymentTier !== "premium" && !adminCandidateId) {
       router.push("/portal/dashboard");
       return;
     }

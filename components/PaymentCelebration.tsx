@@ -4,7 +4,7 @@
  * PaymentCelebration
  *
  * Full-screen celebration shown ONCE after a successful Stripe payment
- * (Starter or Kandidat plan). Same confetti / card-rise look as
+ * (Premium plan). Same confetti / card-rise look as
  * VerifiedCelebration and MatchedCelebration.
  *
  * "Seen" state is persisted per (user, plan) in localStorage:
@@ -34,21 +34,21 @@ const PIECES = Array.from({ length: 40 }, (_, i) => {
 const T = {
   de: {
     title:    "Zahlung bestätigt",
-    kandidat: "Kandidat-Plan aktiviert",
+    premium: "Premium-Plan aktiviert",
     body:     "Ihr vollständiger Karriereweg ist jetzt freigeschaltet. Wir begleiten Sie bis nach Deutschland!",
     refund:   "Und ja — weiterhin erstattungsfähig, sobald Sie mit uns in Deutschland ankommen",
     btn:      "Los geht's",
   },
   en: {
     title:    "Payment confirmed",
-    kandidat: "Kandidat Plan activated",
+    premium: "Premium Plan activated",
     body:     "Your full career journey is now unlocked. We'll walk with you all the way to Germany!",
     refund:   "And yes — it's still refundable once you land in Germany with us",
     btn:      "Let's go",
   },
   fr: {
     title:    "Paiement confirmé",
-    kandidat: "Plan Kandidat activé",
+    premium: "Plan Premium activé",
     body:     "Votre parcours complet est maintenant débloqué. Nous vous accompagnons jusqu'en Allemagne !",
     refund:   "Et oui — toujours remboursable dès votre arrivée en Allemagne avec nous",
     btn:      "C'est parti",
@@ -177,7 +177,7 @@ function CelebrationPortal({ userId, plan, lang, onDismiss }: Props) {
 
         {/* Plan name */}
         <p className="text-[15px] font-bold mb-3" style={{ color: "var(--gold)" }}>
-          {t.kandidat}
+          {t.premium}
         </p>
 
         <p className="text-[12.5px] leading-relaxed mb-4" style={{ color: "var(--w3)" }}>

@@ -65,9 +65,7 @@ export async function GET(req: NextRequest) {
   }
 
   // 5. Regular candidate — also return payment_tier so the navbar can hide
-  //    the upgrade modal entirely for users who already paid for the
-  //    Premium ("kandidat") plan, and hide the cheaper Starter plan from
-  //    users who already have it (or already have Premium).
+  //    the upgrade modal entirely for users who already paid for Premium.
   const { data: profile } = await db
     .from("candidate_profiles")
     .select("payment_tier")

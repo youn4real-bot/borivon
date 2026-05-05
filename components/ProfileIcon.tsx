@@ -107,7 +107,7 @@ type UserInfo = {
   isSuperAdmin: boolean;
   /** Org name for org_member — shown as "Admin of X" in the profile modal. */
   orgName: string | null;
-  /** Stripe payment tier — null=free, "starter"=€9, "kandidat"=€99 (Premium).
+  /** Stripe payment tier — null=free, "premium" = €99 one-off OR €19/month × 6.
    *  Used to hide upgrade prompts that the user has already outgrown. */
   paymentTier: string | null;
 };
@@ -132,13 +132,13 @@ export function ProfileIcon() {
   const [photoMenuOpen, setPhotoMenuOpen]       = useState(false);
   // Plan comparison modal — shown when candidates click their avatar
   const [planModalOpen, setPlanModalOpen]       = useState(false);
-  const [checkoutPlan, setCheckoutPlan]         = useState<"kandidat" | "kandidat_installment" | null>(null);
+  const [checkoutPlan, setCheckoutPlan]         = useState<"premium_onetime" | "premium_monthly" | null>(null);
   const [checkoutError, setCheckoutError]       = useState<string | null>(null);
   const orgPhotoInputRef = useRef<HTMLInputElement>(null);
   const ref = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
-  async function handleCheckout(plan: "kandidat" | "kandidat_installment") {
+  async function handleCheckout(plan: "premium_onetime" | "premium_monthly") {
     if (!accessToken || checkoutPlan) return;
     setCheckoutPlan(plan);
     setCheckoutError(null);
@@ -274,8 +274,8 @@ export function ProfileIcon() {
       const tier = ce.detail?.tier ?? null;
       setUser(prev => (prev ? { ...prev, paymentTier: tier } : prev));
       // If the user just unlocked Premium, close any open upgrade modal so
-      // they don't see "Get Kandidat — €99" right after paying for it.
-      if (tier === "kandidat") setPlanModalOpen(false);
+      // they don't see "Get Premium — €99" right after paying for it.
+      if (tier === "premium") setPlanModalOpen(false);
     };
     window.addEventListener("bv-payment-tier-changed", onTier);
     return () => window.removeEventListener("bv-payment-tier-changed", onTier);
@@ -402,10 +402,10 @@ export function ProfileIcon() {
                     </svg>
                   </div>
                 </button>
-              ) : user.paymentTier === "kandidat" ? (
+              ) : user.paymentTier === "premium" ? (
                 // Premium candidates already have everything — show a static
                 // avatar (no upsell click). Removing the upgrade trigger here
-                // means kandidat users never see the €9 / €99 plan modal again.
+                // means premium users never see the plan modal again.
                 <div
                   className="relative w-11 h-11 rounded-full mx-auto mb-2.5 overflow-hidden block"
                   style={{ background: "none", border: "none", padding: 0 }}
@@ -927,12 +927,12 @@ export function ProfileIcon() {
               {/* Single plan card */}
               <div className="grid grid-cols-1 gap-4 px-6 pb-6">
 
-                {/* ── Kandidat (only plan) ── */}
+                {/* ── Premium (only plan) ── */}
                 <div className="rounded-2xl p-5 flex flex-col relative overflow-hidden"
                   style={{ background: "linear-gradient(135deg,var(--gdim),var(--gdim))", border: "1px solid var(--border-gold)" }}>
                   <div className="flex items-center justify-between mb-3">
                     <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: "var(--gold)" }}>
-                      Kandidat
+                      Premium
                     </span>
                   </div>
                   <div className="mb-4">
@@ -963,24 +963,24 @@ export function ProfileIcon() {
 
                   {/* Primary — pay in full */}
                   <button
-                    onClick={() => handleCheckout("kandidat")}
+                    onClick={() => handleCheckout("premium_onetime")}
                     disabled={!!checkoutPlan}
                     className="w-full py-3 rounded-xl text-[14px] font-semibold transition-opacity hover:opacity-90 disabled:opacity-50"
                     style={{ background: "var(--gold)", color: "#131312", border: "none", cursor: checkoutPlan ? "wait" : "pointer" }}>
-                    {checkoutPlan === "kandidat"
+                    {checkoutPlan === "premium_onetime"
                       ? (lang === "de" ? "Weiterleitung…" : lang === "en" ? "Redirecting…" : "Redirection…")
                       : (lang === "de" ? "Jetzt zahlen — €99" : lang === "en" ? "Pay now — €99" : "Payer maintenant — 99€")}
                   </button>
 
-                  {/* Secondary — installment option */}
+                  {/* Secondary — €19/month × 6 cycles */}
                   <button
-                    onClick={() => handleCheckout("kandidat_installment")}
+                    onClick={() => handleCheckout("premium_monthly")}
                     disabled={!!checkoutPlan}
                     className="w-full py-2.5 rounded-xl text-[13px] font-semibold transition-opacity hover:opacity-90 disabled:opacity-50 mt-2"
                     style={{ background: "transparent", color: "var(--gold)", border: "1px solid var(--border-gold)", cursor: checkoutPlan ? "wait" : "pointer" }}>
-                    {checkoutPlan === "kandidat_installment"
+                    {checkoutPlan === "premium_monthly"
                       ? (lang === "de" ? "Weiterleitung…" : lang === "en" ? "Redirecting…" : "Redirection…")
-                      : (lang === "de" ? "In 5 Raten zahlen — €20 / Monat" : lang === "en" ? "Pay in 5 instalments — €20 / month" : "Payer en 5 fois — 20€ / mois")}
+                      : (lang === "de" ? "In 6 Raten zahlen — €19 / Monat" : lang === "en" ? "Pay in 6 instalments — €19 / month" : "Payer en 6 fois — 19€ / mois")}
                   </button>
                 </div>
 

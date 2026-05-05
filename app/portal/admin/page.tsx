@@ -166,7 +166,7 @@ function timeAgo(iso: string, lang?: string) {
 }
 
 // ── Payment tier badge ────────────────────────────────────────────────────────
-// Starter tier removed; Kandidat users get the gold verified tick instead.
+// Starter tier removed; Premium users get the gold verified tick instead.
 // Keeping the component as a no-op so callsites don't have to be touched.
 function PaymentBadge(_: { tier: string | null | undefined }) {
   return null;

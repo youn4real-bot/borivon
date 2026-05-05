@@ -253,13 +253,13 @@ export default function DashboardPage() {
   // /verify-user) flips this to true when the candidate is fully approved.
   // Source of truth for the gold tick + public profile slug everywhere.
   const [manuallyVerified, setManuallyVerified] = useState(false);
-  // Upgrade modal — shown when candidate tries a Kandidat-tier feature
+  // Upgrade modal — shown when candidate tries a Premium-tier feature
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [upgradeLoading, setUpgradeLoading] = useState(false);
   // Payment success toast — shown when user returns from Stripe checkout
   const [paymentCelebration, setPaymentCelebration] = useState<{ plan: string } | null>(null);
-  // Helper: does the user have at least the Kandidat plan?
-  const hasKandidat = paymentTier === "kandidat";
+  // Helper: does the user have the Premium plan?
+  const hasPremium = paymentTier === "premium";
 
   // Sign requests — documents sent for digital signature
   type SignReq = { id: string; document_name: string; note: string | null; status: "pending" | "signed" | "declined"; signed_at: string | null; created_at: string; signature_zone: { page: number; x: number; y: number; w: number; h: number } | null; pdf_preview_url: string | null; };
@@ -438,14 +438,14 @@ export default function DashboardPage() {
     };
   }, [authToken, userId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Plan-gate fallback: non-Kandidat users can't reach journey views — bounce
+  // Plan-gate fallback: non-Premium users can't reach journey views — bounce
   // them back to docs the moment they would land on one (race-safe; runs as
   // an effect, not during render).
   useEffect(() => {
-    if (viewMode !== "docs" && profileLoaded && !hasKandidat) {
+    if (viewMode !== "docs" && profileLoaded && !hasPremium) {
       setViewMode("docs");
     }
-  }, [viewMode, profileLoaded, hasKandidat]);
+  }, [viewMode, profileLoaded, hasPremium]);
 
   // Issue 4.3: live passport status — no page refresh needed when admin approves/rejects
   useEffect(() => {
@@ -926,14 +926,14 @@ export default function DashboardPage() {
       });
   }
 
-  async function handleUpgradeToKandidat() {
+  async function handleUpgradeToPremium() {
     if (upgradeLoading) return; // double-click guard
     setUpgradeLoading(true);
     try {
       const res = await fetch("/api/portal/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
-        body: JSON.stringify({ plan: "kandidat" }),
+        body: JSON.stringify({ plan: "premium_onetime" }),
       });
       const json = await res.json().catch(() => ({}));
       if (json.url) {
@@ -1062,7 +1062,7 @@ export default function DashboardPage() {
         }}
       />
     )}
-    {/* Kandidat upgrade modal — shown when free/Starter user tries a gated feature */}
+    {/* Premium upgrade modal — shown when a free user tries a gated feature */}
     {upgradeOpen && (
       <>
         {/* Backdrop — locked while a Stripe checkout is being created so a
@@ -1138,7 +1138,7 @@ export default function DashboardPage() {
             {/* CTAs */}
             <div className="p-5 pt-4 flex flex-col gap-2">
               <button
-                onClick={handleUpgradeToKandidat}
+                onClick={handleUpgradeToPremium}
                 disabled={upgradeLoading}
                 className="w-full py-3 rounded-xl text-[14px] font-semibold tracking-tight transition-all hover:opacity-90"
                 style={{ background: "var(--gold)", color: "#131312", cursor: upgradeLoading ? "wait" : "pointer" }}>
@@ -1660,12 +1660,12 @@ export default function DashboardPage() {
               // for Starter: still actionable (opens upgrade modal). Unlocked:
               // navigates. Disabled prop matches reality so keyboard users get
               // the same blocked behavior as mouse users.
-              const isInert = hasKandidat && !unlocked;
+              const isInert = hasPremium && !unlocked;
               return (
                 <div key={js.key} className="flex flex-col items-center">
                   <button
                     onClick={() => {
-                      if (!hasKandidat) { setUpgradeOpen(true); return; }
+                      if (!hasPremium) { setUpgradeOpen(true); return; }
                       if (unlocked) { setViewMode(js.key); window.scrollTo({ top: 0, behavior: "smooth" }); }
                     }}
                     disabled={isInert}
@@ -1708,9 +1708,9 @@ export default function DashboardPage() {
           <div className="flex-1 min-w-0">
 
             {/* ── Journey stage views ──
-                The plan-gate effect above bounces non-Kandidat users back to
+                The plan-gate effect above bounces non-Premium users back to
                 docs; we render JourneyView only when they're allowed in. */}
-            {viewMode !== "docs" && (!profileLoaded || hasKandidat) && (
+            {viewMode !== "docs" && (!profileLoaded || hasPremium) && (
               <JourneyView mode={viewMode} pipeline={pipeline} t={t} lang={lang} onBack={() => { setViewMode("docs"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
             )}
 
@@ -1777,7 +1777,7 @@ export default function DashboardPage() {
                         <div key={s.key} className="flex items-center flex-1 min-w-0">
                           <button
                             onClick={() => {
-                              if (!hasKandidat) { setUpgradeOpen(true); return; }
+                              if (!hasPremium) { setUpgradeOpen(true); return; }
                               if (!locked) {
                                 setViewMode(s.key as ViewMode);
                                 window.scrollTo({ top: 0, behavior: "smooth" });
