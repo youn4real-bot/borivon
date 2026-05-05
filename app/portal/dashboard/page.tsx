@@ -1951,20 +1951,11 @@ export default function DashboardPage() {
                             onClick={sub.subDoc?.drive_file_id && !isSubUp ? () => handlePreview(sub.subDoc!) : undefined}
                             className={`rounded-xl px-3 py-3 transition-colors${sub.subDoc?.drive_file_id ? " bv-row-hover cursor-pointer" : ""}`}
                             style={{ background: isDragSub ? "var(--gdim)" : "var(--bg2)", border: `1px solid ${isDragSub ? "var(--gold)" : "var(--border)"}`, minHeight: 60 }}>
-                            <div className="flex items-center gap-3">
-                              <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
-                                style={subSc ? { background: subSc.bg, color: subSc.text, border: `1px solid ${subSc.border}` } : { background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
-                                {isSubUp ? <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
-                                  : sub.subDoc?.status === "approved" ? <CheckCircle2 size={14} strokeWidth={1.8} />
-                                  : sub.subDoc?.status === "rejected" ? <XCircle size={14} strokeWidth={1.8} />
-                                  : sub.subDoc ? <span className="w-1.5 h-1.5 rounded-full" style={{ background: "currentColor" }} />
-                                  : <span className="w-1.5 h-1.5 rounded-full" style={{ border: "1px solid currentColor" }} />}
-                              </div>
+                            <div className="flex items-center gap-1.5">
                               <div className="flex-1 min-w-0">
-                                <p className="text-[11.5px] font-medium tracking-tight" style={{ color: "var(--w)" }}>{sub.subLabel}</p>
+                                <p className="text-[11.5px] font-medium tracking-tight" style={{ color: sub.subDoc ? (subSc?.text ?? "var(--w)") : "var(--w2)" }}>{sub.subLabel}</p>
                                 {isSubUp && <div className="mt-1"><div className="w-full rounded-full h-1" style={{ background: "var(--border)" }}><div className="h-1 rounded-full" style={{ width: `${slotProgress}%`, background: "var(--gold)" }} /></div><p className="text-[9px] mt-0.5" style={{ color: "var(--w3)" }}>{slotProgress}%</p></div>}
-                                {!isSubUp && sub.subDoc && <p className="text-[10px] mt-0.5 truncate" style={{ color: "var(--w3)" }}><span className="font-semibold" style={{ color: subSc?.text }}>{statusLabel(sub.subDoc.status ?? "pending")}</span><span className="mx-1.5">·</span>{fmtDate(sub.subDoc.uploaded_at)}</p>}
-                                {!isSubUp && !sub.subDoc && <p className="text-[10px] mt-0.5" style={{ color: "var(--w3)" }}>{lang === "de" ? "Nicht eingereicht" : lang === "fr" ? "Non soumis" : "Not submitted"}</p>}
+                                {!isSubUp && !sub.subDoc && <p className="text-[10px]" style={{ color: "var(--w3)" }}>{lang === "de" ? "Nicht eingereicht" : lang === "fr" ? "Non soumis" : "Not submitted"}</p>}
                                 {subMsg && <p className="mt-1 text-[9.5px]" style={{ color: subMsg.ok ? "var(--success)" : "var(--danger)" }}>{subMsg.ok ? t.pUploadSuccess.replace("{label}", sub.subLabel) : subMsg.type === "errPdfOnly" ? t.pErrPdfOnly : subMsg.type === "errAllTypes" ? t.pErrAllTypes : subMsg.type === "errSize" ? t.pErrSize : t.pErrUpload}</p>}
                                 {!isSubUp && sub.subDoc?.status === "rejected" && sub.subDoc.feedback && (
                                   <div className="mt-1.5 px-2 py-1.5 rounded-lg" style={{ background: "var(--danger-bg)", borderLeft: "2px solid var(--danger)" }}>
@@ -1975,8 +1966,8 @@ export default function DashboardPage() {
                               </div>
                               {!isSubUp && (
                                 <div className="flex items-center gap-1 flex-shrink-0">
-                                  {sub.subDoc && sub.subDoc.status !== "approved" && <button onClick={e => { e.stopPropagation(); openPicker(sub.subKey); }} title={t.pReplaceBtn} className="bv-icon-btn w-8 h-8 flex items-center justify-center rounded-full" style={{ color: "var(--w2)" }}><RefreshCw size={13} strokeWidth={1.8} /></button>}
-                                  {sub.subDoc?.drive_file_id && <button onClick={e => { e.stopPropagation(); handleDownload(sub.subDoc!.drive_file_id!, sub.subDoc!.file_name, sub.subKey); }} title={lang === "de" ? "Herunterladen" : "Download"} className="bv-icon-btn w-8 h-8 flex items-center justify-center rounded-full" style={{ color: "var(--w2)" }}><Download size={13} strokeWidth={1.8} /></button>}
+                                  {sub.subDoc && sub.subDoc.status !== "approved" && <button onClick={e => { e.stopPropagation(); openPicker(sub.subKey); }} title={t.pReplaceBtn} className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full" style={{ color: "var(--w2)" }}><RefreshCw size={13} strokeWidth={1.8} /></button>}
+                                  {sub.subDoc?.drive_file_id && <button onClick={e => { e.stopPropagation(); handleDownload(sub.subDoc!.drive_file_id!, sub.subDoc!.file_name, sub.subKey); }} title={lang === "de" ? "Herunterladen" : "Download"} className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full" style={{ color: "var(--w2)" }}><Download size={13} strokeWidth={1.8} /></button>}
                                   {!sub.subDoc && <button onClick={e => { e.stopPropagation(); openPicker(sub.subKey); }} className="text-[10.5px] font-semibold px-2.5 py-1.5" style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)" }}>{t.pUploadBtn}</button>}
                                 </div>
                               )}
