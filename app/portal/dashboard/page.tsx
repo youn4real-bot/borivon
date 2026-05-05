@@ -997,11 +997,11 @@ export default function DashboardPage() {
     !!getDoc(i.key) && (!i.transKey || !!getDoc(i.transKey))
   );
 
-  async function downloadMergedPdf(pairKey: string, origDriveId: string, transDriveId: string, label: string) {
+  async function downloadMergedPdf(pairKey: string, origDocId: string, transDocId: string, label: string) {
     setMergingPair(pairKey);
     try {
       const res = await fetch(
-        `/api/portal/documents/merge-pdf?origId=${encodeURIComponent(origDriveId)}&transId=${encodeURIComponent(transDriveId)}`,
+        `/api/portal/documents/merge-pdf?origDocId=${encodeURIComponent(origDocId)}&transDocId=${encodeURIComponent(transDocId)}`,
         { headers: { Authorization: `Bearer ${authToken}` } },
       );
       if (!res.ok) throw new Error("merge failed");
@@ -1901,8 +1901,8 @@ export default function DashboardPage() {
                     <div className="flex-1 min-w-0">
                       <p className="text-[11.5px] font-medium tracking-tight" style={{ color: pairColor ?? "var(--w)" }}>{item.label}</p>
                     </div>
-                    {bothApproved && origDoc?.drive_file_id && transDoc?.drive_file_id && (
-                      <button onClick={e => { e.stopPropagation(); downloadMergedPdf(item.key, origDoc.drive_file_id!, transDoc.drive_file_id!, item.label); }}
+                    {bothApproved && origDoc && transDoc && (
+                      <button onClick={e => { e.stopPropagation(); downloadMergedPdf(item.key, origDoc.id, transDoc.id, item.label); }}
                         disabled={mergingPair === item.key}
                         title={lang === "de" ? "Kombi-PDF" : "Merged PDF"}
                         className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full flex-shrink-0" style={{ color: "var(--success)" }}>
