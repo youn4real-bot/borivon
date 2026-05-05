@@ -127,11 +127,13 @@ export function PdfViewer({
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const page = await doc.getPage(i);
             if (cancelled) return;
-            // Use the page's intrinsic rotation as the natural orientation so
-            // server-baked rotation (set via pdf-lib setRotation) is honored.
+            // Capture each page's intrinsic rotation so server-baked rotation
+            // (set via pdf-lib setRotation) is honored when rendering.
+            // naturalSize is the UNROTATED dimensions — PdfPage's isLandscape
+            // logic swaps W/H based on the total rotation passed in.
             const intr = ((page.rotate ?? 0) % 360 + 360) % 360;
             intrinsics.push(intr);
-            const vp = page.getViewport({ scale: 1.0, rotation: intr });
+            const vp = page.getViewport({ scale: 1.0, rotation: 0 });
             sizes.push({ w: vp.width, h: vp.height });
           }
 
