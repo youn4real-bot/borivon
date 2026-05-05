@@ -69,13 +69,18 @@ export async function POST(req: NextRequest) {
         read:     false,
       });
 
-      // Fire verified email (fire-and-forget)
+      // Fire verified email (fire-and-forget). Log failures so silent
+      // breakages (auth lookup down, email service down) are visible in the
+      // server logs rather than disappearing.
       db.auth.admin.getUserById(userId).then(({ data }) => {
         const email = data?.user?.email;
-        if (!email) return;
+        if (!email) {
+          console.warn("[verify-user] no email for user, skipping verified email", userId);
+          return;
+        }
         const firstName = (data?.user?.user_metadata?.full_name ?? "").split(" ")[0];
         sendVerifiedEmail(email, firstName);
-      }).catch(() => {});
+      }).catch(err => console.error("[verify-user] verified email lookup failed:", err));
     }
   }
 
