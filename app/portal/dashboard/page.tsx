@@ -1359,7 +1359,7 @@ export default function DashboardPage() {
                 type="button"
                 onClick={() => { reopenPassportData(); }}
                 title={lang === "de" ? "Passdaten" : lang === "fr" ? "Données du passeport" : "Passport data"}
-                aria-label="Passport data"
+                aria-label={lang === "de" ? "Passdaten" : lang === "fr" ? "Données du passeport" : "Passport data"}
                 className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-2.5 h-8 rounded-full transition-colors"
                 style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
                 <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -1378,11 +1378,14 @@ export default function DashboardPage() {
                 href={previewBlobUrl}
                 download={previewDoc.file_name}
                 className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center"
-                style={{ color: "var(--w2)" }} aria-label="Download" title="Download">
+                style={{ color: "var(--w2)" }}
+                aria-label={lang === "de" ? "Herunterladen" : lang === "fr" ? "Télécharger" : "Download"}
+                title={lang === "de" ? "Herunterladen" : lang === "fr" ? "Télécharger" : "Download"}>
                 <Download size={14} strokeWidth={1.8} />
               </a>
             )}
-            <button onClick={() => setPreviewDoc(null)} aria-label="Close"
+            <button onClick={() => setPreviewDoc(null)}
+              aria-label={lang === "de" ? "Schließen" : lang === "fr" ? "Fermer" : "Close"}
               className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center"
               style={{ color: "var(--w3)" }}>
               <XIcon size={14} strokeWidth={1.8} />

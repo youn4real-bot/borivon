@@ -1585,7 +1585,7 @@ export default function AdminPage() {
                 soft 1px shadow). */}
             <div className="flex items-center gap-3 mb-4">
               <button onClick={() => { setSelectedUser(null); }}
-                aria-label="Back"
+                aria-label={lang === "de" ? "Zurück" : lang === "fr" ? "Retour" : "Back"}
                 className="bv-icon-btn w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0"
                 style={{ color: "var(--w2)" }}>
                 <ArrowLeft size={15} strokeWidth={1.8} />
@@ -1598,7 +1598,7 @@ export default function AdminPage() {
                     <button onClick={() => setShowHistory(v => !v)}
                       className="inline-flex items-center gap-1.5 text-[11px] font-medium px-3 py-1.5 rounded-full transition-opacity hover:opacity-80"
                       style={{ background: showHistory ? "var(--gdim)" : "var(--bg2)", color: showHistory ? "var(--gold)" : "var(--w3)", border: `1px solid ${showHistory ? "var(--border-gold)" : "var(--border)"}` }}>
-                      <Folder size={11} strokeWidth={1.8} /> {historyForUser.length} old
+                      <Folder size={11} strokeWidth={1.8} /> {historyForUser.length} {lang === "de" ? "alt" : lang === "fr" ? "anciens" : "old"}
                     </button>
                   );
                 })()}
