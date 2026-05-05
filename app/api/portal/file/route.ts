@@ -120,8 +120,8 @@ export async function GET(req: NextRequest) {
       headers: {
         "Content-Type": mimeType,
         "Content-Disposition": "inline",
-        // Don't cache long — rotation can change.
-        "Cache-Control": "private, no-cache",
+        // Don't cache — rotation can change at any time.
+        "Cache-Control": "private, no-store, must-revalidate",
       },
     });
   } catch (err: unknown) {

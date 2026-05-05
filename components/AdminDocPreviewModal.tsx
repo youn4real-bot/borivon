@@ -107,6 +107,7 @@ export function AdminDocPreviewModal({
     const ctrl = new AbortController();
     fetch(fetchUrl, {
       signal: ctrl.signal,
+      cache: "no-store",
       headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
     })
       .then(r => r.blob())

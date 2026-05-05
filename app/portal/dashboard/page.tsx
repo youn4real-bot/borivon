@@ -523,6 +523,7 @@ export default function DashboardPage() {
     setPreviewLoading(true);
     fetch(`/api/portal/file?id=${previewDoc.drive_file_id}`, {
         signal: controller.signal,
+        cache: "no-store",
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
       })
       .then(r => r.blob())
