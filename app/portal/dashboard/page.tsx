@@ -17,7 +17,7 @@ import {
   IdCard, User, Home, Eye, FilePen, Sparkles, Paperclip, CheckCircle2, XCircle,
   Stethoscope, Languages, FileText,
 } from "@/components/PortalIcons";
-import { X as XIcon, Download, Upload, RefreshCw, Info, ChevronDown } from "lucide-react";
+import { X as XIcon, Download, Upload, RefreshCw, Info, ChevronDown, MoreHorizontal } from "lucide-react";
 import { PdfViewer } from "@/components/PdfViewer";
 import { DocxViewer } from "@/components/DocxViewer";
 import { ZoomPanRotateViewer } from "@/components/ZoomPanRotateViewer";
@@ -384,6 +384,8 @@ export default function DashboardPage() {
   // passport_status from candidate_profiles — drives info button color independently of doc status
   const [passportStatus, setPassportStatus] = useState<string | null>(null);
   const [showCelebration, setShowCelebration] = useState(false);
+  // 3-dot menu state for sub-doc rows (mirrors admin's revokeMenu)
+  const [candSubMenu, setCandSubMenu] = useState<string | null>(null);
 
   // Poll org placement every 30 s + on focus so admin-initiated placements
   // appear without a page reload. Uses authToken (available after login).
@@ -1942,43 +1944,82 @@ export default function DashboardPage() {
                         style={{ transition: "transform 0.2s", transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)" }} />
                     </button>
                   </div>
-                  {/* Sub-boxes — only shown when expanded */}
+                  {/* Sub-boxes — only shown when expanded. Mirrors admin layout 1:1. */}
                   {isExpanded && (
                     <div className="px-3 pb-3 space-y-1.5">
                       {([
                         { subKey: item.key,      subDoc: origDoc,  subLabel: "Original" },
                         { subKey: item.transKey, subDoc: transDoc, subLabel: lang === "de" ? "Übersetzt" : lang === "fr" ? "Traduit" : "Translated" },
                       ] as { subKey: string; subDoc: typeof origDoc; subLabel: string }[]).map(sub => {
-                        const subSc = sub.subDoc ? statusColor(sub.subDoc.status ?? "pending") : null;
+                        const sst = !sub.subDoc ? "empty" : sub.subDoc.status;
+                        const ssc = sst === "approved" ? { bg: "var(--success-bg)", txt: "var(--success)", bdr: "var(--success-border)" }
+                          : sst === "rejected" ? { bg: "var(--danger-bg)", txt: "var(--danger)", bdr: "var(--danger-bg)" }
+                          : sst === "pending"  ? { bg: "rgba(245,158,11,0.12)", txt: "#f59e0b", bdr: "rgba(245,158,11,0.3)" }
+                          : { bg: "var(--bg2)", txt: "var(--w3)", bdr: "var(--border)" };
                         const isSubUp = uploadingKey === sub.subKey;
                         const isDragSub = dragOverKey === sub.subKey;
                         const subMsg = slotMsg?.key === sub.subKey ? slotMsg : null;
+                        const menuOpen = candSubMenu === sub.subKey;
                         return (
                           <div key={sub.subKey}
                             onDragOver={e => { e.preventDefault(); setDragOverKey(sub.subKey); }}
                             onDragLeave={() => setDragOverKey(null)}
                             onDrop={e => onDrop(e, sub.subKey)}
-                            onClick={sub.subDoc?.drive_file_id && !isSubUp ? () => handlePreview(sub.subDoc!) : undefined}
-                            className={`rounded-xl px-3 py-3 transition-colors${sub.subDoc?.drive_file_id ? " bv-row-hover cursor-pointer" : ""}`}
+                            onClick={() => {
+                              if (isSubUp) return;
+                              if (sub.subDoc) handlePreview(sub.subDoc);
+                              else openPicker(sub.subKey);
+                            }}
+                            className={`rounded-xl px-3 py-3${isSubUp ? "" : " bv-row-hover cursor-pointer"}`}
                             style={{ background: isDragSub ? "var(--gdim)" : "var(--bg2)", border: `1px solid ${isDragSub ? "var(--gold)" : "var(--border)"}`, minHeight: 60 }}>
                             <div className="flex items-center gap-1.5">
                               <div className="flex-1 min-w-0">
-                                <p className="text-[11.5px] font-medium tracking-tight" style={{ color: sub.subDoc ? (subSc?.text ?? "var(--w)") : "var(--w2)" }}>{sub.subLabel}</p>
-                                {isSubUp && <div className="mt-1"><div className="w-full rounded-full h-1" style={{ background: "var(--border)" }}><div className="h-1 rounded-full" style={{ width: `${slotProgress}%`, background: "var(--gold)" }} /></div><p className="text-[9px] mt-0.5" style={{ color: "var(--w3)" }}>{slotProgress}%</p></div>}
+                                <p className="text-[11.5px] font-medium tracking-tight" style={{ color: sub.subDoc ? ssc.txt : "var(--w2)" }}>{sub.subLabel}</p>
                                 {!isSubUp && !sub.subDoc && <p className="text-[10px]" style={{ color: "var(--w3)" }}>{lang === "de" ? "Nicht eingereicht" : lang === "fr" ? "Non soumis" : "Not submitted"}</p>}
-                                {subMsg && <p className="mt-1 text-[9.5px]" style={{ color: subMsg.ok ? "var(--success)" : "var(--danger)" }}>{subMsg.ok ? t.pUploadSuccess.replace("{label}", sub.subLabel) : subMsg.type === "errPdfOnly" ? t.pErrPdfOnly : subMsg.type === "errAllTypes" ? t.pErrAllTypes : subMsg.type === "errSize" ? t.pErrSize : t.pErrUpload}</p>}
-                                {!isSubUp && sub.subDoc?.status === "rejected" && sub.subDoc.feedback && (
-                                  <div className="mt-1.5 px-2 py-1.5 rounded-lg" style={{ background: "var(--danger-bg)", borderLeft: "2px solid var(--danger)" }}>
-                                    <p className="text-[10px] leading-relaxed" style={{ color: "var(--w2)" }}>{sub.subDoc.feedback}</p>
-                                    <button onClick={e => { e.stopPropagation(); openPicker(sub.subKey); }} className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded" style={{ background: "var(--gold)", color: "#131312" }}><Upload size={10} strokeWidth={2} />{lang === "de" ? "Neu hochladen" : lang === "fr" ? "Renvoyer" : "Re-upload"}</button>
-                                  </div>
+                                {sub.subDoc && sst === "rejected" && sub.subDoc.feedback && (
+                                  <p className="text-[10px] mt-0.5 truncate" style={{ color: "var(--danger)" }}>{sub.subDoc.feedback}</p>
                                 )}
+                                {isSubUp && <div className="mt-1"><div className="w-full rounded-full h-1" style={{ background: "var(--border)" }}><div className="h-1 rounded-full" style={{ width: `${slotProgress}%`, background: "var(--gold)" }} /></div><p className="text-[9px] mt-0.5" style={{ color: "var(--w3)" }}>{slotProgress}%</p></div>}
+                                {subMsg && <p className="mt-1 text-[9.5px]" style={{ color: subMsg.ok ? "var(--success)" : "var(--danger)" }}>{subMsg.ok ? t.pUploadSuccess.replace("{label}", sub.subLabel) : subMsg.type === "errPdfOnly" ? t.pErrPdfOnly : subMsg.type === "errAllTypes" ? t.pErrAllTypes : subMsg.type === "errSize" ? t.pErrSize : t.pErrUpload}</p>}
                               </div>
-                              {!isSubUp && (
-                                <div className="flex items-center gap-1 flex-shrink-0">
-                                  {sub.subDoc && sub.subDoc.status !== "approved" && <button onClick={e => { e.stopPropagation(); openPicker(sub.subKey); }} title={t.pReplaceBtn} className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full" style={{ color: "var(--w2)" }}><RefreshCw size={13} strokeWidth={1.8} /></button>}
-                                  {sub.subDoc?.drive_file_id && <button onClick={e => { e.stopPropagation(); handleDownload(sub.subDoc!.drive_file_id!, sub.subDoc!.file_name, sub.subKey); }} title={lang === "de" ? "Herunterladen" : "Download"} className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full" style={{ color: "var(--w2)" }}><Download size={13} strokeWidth={1.8} /></button>}
-                                  {!sub.subDoc && <button onClick={e => { e.stopPropagation(); openPicker(sub.subKey); }} title={t.pUploadBtn} className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full" style={{ color: "var(--gold)" }}><Upload size={13} strokeWidth={1.8} /></button>}
+                              {!isSubUp && sub.subDoc && (
+                                <div className="flex items-center gap-1 flex-shrink-0"
+                                  onClick={e => e.stopPropagation()}
+                                  onMouseDown={e => e.stopPropagation()}>
+                                  {sub.subDoc.drive_file_id && (
+                                    <button type="button"
+                                      onClick={() => handleDownload(sub.subDoc!.drive_file_id!, sub.subDoc!.file_name, sub.subKey)}
+                                      title={lang === "de" ? "Herunterladen" : lang === "fr" ? "Télécharger" : "Download"}
+                                      className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
+                                      style={{ color: "var(--w2)" }}>
+                                      <Download size={13} strokeWidth={1.8} />
+                                    </button>
+                                  )}
+                                  <div className="relative flex-shrink-0" style={{ zIndex: menuOpen ? 600 : undefined }}>
+                                    <button
+                                      onClick={e => { e.stopPropagation(); setCandSubMenu(prev => prev === sub.subKey ? null : sub.subKey); }}
+                                      className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
+                                      style={{ color: "var(--w2)" }}>
+                                      <MoreHorizontal size={15} strokeWidth={1.8} />
+                                    </button>
+                                    {menuOpen && (
+                                      <>
+                                        <div className="fixed inset-0" style={{ zIndex: 599 }}
+                                          onClick={e => { e.stopPropagation(); setCandSubMenu(null); }} />
+                                        <div className="absolute right-0 top-full mt-1 rounded-xl overflow-hidden"
+                                          style={{ zIndex: 600, background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
+                                          {sub.subDoc.status !== "approved" && (
+                                            <button
+                                              onClick={e => { e.stopPropagation(); setCandSubMenu(null); openPicker(sub.subKey); }}
+                                              className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                              style={{ color: "var(--w)" }}>
+                                              <RefreshCw size={11} strokeWidth={1.8} /> {t.pReplaceBtn}
+                                            </button>
+                                          )}
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
                                 </div>
                               )}
                             </div>
