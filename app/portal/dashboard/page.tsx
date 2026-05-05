@@ -1847,9 +1847,6 @@ export default function DashboardPage() {
                       <PhaseIcon kind={currentPhase.kind} size={15} />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--w3)" }}>
-                        {lang === "de" ? "Phase" : lang === "en" ? "Phase" : "Phase"} {phase + 1}
-                      </p>
                       <h2 className="text-[18px] font-semibold tracking-[-0.015em] leading-tight" style={{ color: "var(--w)" }}>
                         {currentPhase.title}
                       </h2>
