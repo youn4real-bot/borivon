@@ -257,11 +257,17 @@ async function maybeGrantVerified(
     .limit(1);
   if (!passDocs?.length) return;
 
-  // Grant verified + mark placement-ready in one update
-  await db
+  // Grant verified + mark placement-ready atomically. Conditional on the
+  // current value of manually_verified so concurrent calls (passport doc and
+  // passport data approved at almost the same moment) don't both fall through
+  // to insert duplicate notifications + send duplicate verified emails.
+  const { data: updated } = await db
     .from("candidate_profiles")
     .update({ manually_verified: true, placement_ready: true })
-    .eq("user_id", userId);
+    .eq("user_id", userId)
+    .eq("manually_verified", false)
+    .select("user_id");
+  if (!updated?.length) return; // lost the race — someone else already verified
 
   // Trigger match suggestions for this newly-ready candidate (fire-and-forget)
   maybeCreateMatches(db, userId).catch(e => console.warn("[maybeCreateMatches]", e));

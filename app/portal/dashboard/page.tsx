@@ -425,6 +425,7 @@ export default function DashboardPage() {
         })
         .catch(() => {});
     };
+    refresh(); // initial load — without this the first org list takes 30s
     const t = setInterval(refresh, 30_000);
     const onFocus = () => refresh();
     const onVis   = () => { if (document.visibilityState === "visible") refresh(); };
