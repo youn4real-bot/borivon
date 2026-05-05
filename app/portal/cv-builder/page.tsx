@@ -1811,6 +1811,10 @@ function CVBuilderInner() {
   const [passportStatus, setPassportStatus] = useState<null | "pending" | "approved" | "rejected">(null);
   // Payment tier — null = free, "starter", "kandidat"
   const [paymentTier, setPaymentTier] = useState<string | null>(null);
+  // Manual verification override — supreme admin can grant the gold tick
+  // independent of passport status, and that override should also unlock
+  // the CV builder (otherwise the CTA the dashboard offers leads to a wall).
+  const [manuallyVerified, setManuallyVerified] = useState(false);
   // Starter upgrade modal
   // Candidate's sex extracted from the passport — drives the gendered job
   // title for the mandatory nursing internship ("Pflegepraktikant" vs
@@ -2006,7 +2010,7 @@ function CVBuilderInner() {
       // 1. Always fetch passport profile (needed to fill empty draft slots too)
       const { data: profile } = await supabase
         .from("candidate_profiles")
-        .select("first_name,last_name,dob,sex,nationality,city_of_birth,country_of_birth,country_of_residence,address_street,address_number,address_postal,city_of_residence,marital_status,children_ages,passport_status,payment_tier")
+        .select("first_name,last_name,dob,sex,nationality,city_of_birth,country_of_birth,country_of_residence,address_street,address_number,address_postal,city_of_residence,marital_status,children_ages,passport_status,payment_tier,manually_verified")
         .eq("user_id", uid)
         .single();
       // Passport status drives the lock state — pending/approved/rejected
@@ -2017,6 +2021,9 @@ function CVBuilderInner() {
       }
       if ((profile as { payment_tier?: string | null } | null)?.payment_tier) {
         setPaymentTier((profile as { payment_tier?: string | null }).payment_tier ?? null);
+      }
+      if ((profile as { manually_verified?: boolean } | null)?.manually_verified) {
+        setManuallyVerified(true);
       }
       if (profile?.sex) {
         const sx = String(profile.sex).toUpperCase();
@@ -2514,7 +2521,10 @@ function CVBuilderInner() {
   // "null" means never submitted; "pending"/"rejected" = not yet approved.
   // We show a soft gate with a clear message and a back button — not a hard
   // redirect — so the user understands why they can't access the builder yet.
-  if (passportStatus !== "approved") {
+  // Manual verification override (gold tick granted by supreme admin) also
+  // unlocks the builder — otherwise the dashboard's verified state and the
+  // CV gate disagree.
+  if (passportStatus !== "approved" && !manuallyVerified) {
     const gateTitle =
       passportStatus === null
         ? (lang === "de" ? "Reisepass erforderlich" : lang === "en" ? "Passport required" : "Passeport requis")
