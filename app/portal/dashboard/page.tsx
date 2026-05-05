@@ -1873,9 +1873,19 @@ export default function DashboardPage() {
                   <AlertTriangle size={11} strokeWidth={1.8} /> {t.pScanQualityShort}
                 </p>
                 {phase === 1 && (
-                  <p className="text-[11px] flex items-center gap-1.5" style={{ color: "var(--gold)" }}>
-                    <Paperclip size={11} strokeWidth={1.8} /> {t.pOriginalsOnlyShort}
-                  </p>
+                  <div className="text-[11px] flex flex-col gap-0.5" style={{ color: "var(--gold)" }}>
+                    <span className="flex items-center gap-1.5">
+                      <Paperclip size={11} strokeWidth={1.8} /> {t.pOriginalsOnlyShort}
+                    </span>
+                    <a href="https://rabat.diplo.de/resource/blob/2417070/461b64d35650206a0f64ffb772feee9f/uebersetzer-liste-data.pdf"
+                      target="_blank" rel="noreferrer" className="underline ml-5" style={{ color: "var(--gold)" }}>
+                      {t.pTransTooltipMoroccoLink}
+                    </a>
+                    <a href="https://www.justiz-dolmetscher.de/Recherche/de/Suchen"
+                      target="_blank" rel="noreferrer" className="underline ml-5" style={{ color: "var(--gold)" }}>
+                      {t.pTransTooltipGermanyLink}
+                    </a>
+                  </div>
                 )}
                 {currentPhase.isTranslations && (
                   <div className="text-[11px] flex flex-col gap-0.5" style={{ color: "var(--gold)" }}>
