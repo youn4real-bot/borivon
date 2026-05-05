@@ -1856,7 +1856,24 @@ export default function DashboardPage() {
                         type="button"
                         onClick={() => setDocHintOpen({
                           title: lang === "de" ? "Scan-Qualität" : lang === "fr" ? "Qualité du scan" : "Scan quality",
-                          hint: t.pScanQualityShort,
+                          hint: (
+                            <span className="flex flex-col gap-3">
+                              <span>{t.pScanQualityShort}</span>
+                              {phase === 1 && (
+                                <span className="flex flex-col gap-2 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
+                                  <span className="font-semibold text-[12px]" style={{ color: "var(--gold)" }}>{t.pOriginalsOnlyShort}</span>
+                                  <a href="https://rabat.diplo.de/resource/blob/2417070/461b64d35650206a0f64ffb772feee9f/uebersetzer-liste-data.pdf"
+                                    target="_blank" rel="noreferrer" className="underline" style={{ color: "var(--gold)" }}>
+                                    {t.pTransTooltipMoroccoLink}
+                                  </a>
+                                  <a href="https://www.justiz-dolmetscher.de/Recherche/de/Suchen"
+                                    target="_blank" rel="noreferrer" className="underline" style={{ color: "var(--gold)" }}>
+                                    {t.pTransTooltipGermanyLink}
+                                  </a>
+                                </span>
+                              )}
+                            </span>
+                          ),
                         })}
                         aria-label={t.pScanQualityShort}
                         title={t.pScanQualityShort}
@@ -1864,31 +1881,6 @@ export default function DashboardPage() {
                         style={{ background: "var(--info-bg)", color: "var(--info)", border: "none", cursor: "pointer" }}>
                         <Info size={11} strokeWidth={2.2} />
                       </button>
-                      {phase === 1 && (
-                        <button
-                          type="button"
-                          onClick={() => setDocHintOpen({
-                            title: t.pOriginalsOnlyShort,
-                            hint: (
-                              <span className="flex flex-col gap-2">
-                                <a href="https://rabat.diplo.de/resource/blob/2417070/461b64d35650206a0f64ffb772feee9f/uebersetzer-liste-data.pdf"
-                                  target="_blank" rel="noreferrer" className="underline" style={{ color: "var(--gold)" }}>
-                                  {t.pTransTooltipMoroccoLink}
-                                </a>
-                                <a href="https://www.justiz-dolmetscher.de/Recherche/de/Suchen"
-                                  target="_blank" rel="noreferrer" className="underline" style={{ color: "var(--gold)" }}>
-                                  {t.pTransTooltipGermanyLink}
-                                </a>
-                              </span>
-                            ),
-                          })}
-                          aria-label={t.pOriginalsOnlyShort}
-                          title={t.pOriginalsOnlyShort}
-                          className="inline-flex items-center justify-center w-5 h-5 rounded-full transition-opacity hover:opacity-80 flex-shrink-0"
-                          style={{ background: "var(--gdim)", color: "var(--gold)", border: "none", cursor: "pointer" }}>
-                          <Paperclip size={11} strokeWidth={2.2} />
-                        </button>
-                      )}
                     </div>
                     {pending > 0 && (
                       <span className="inline-flex items-center gap-1.5 text-[11px] font-medium flex-shrink-0"
