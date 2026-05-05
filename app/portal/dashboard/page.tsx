@@ -1930,11 +1930,21 @@ export default function DashboardPage() {
                         {mergingPair === item.key ? <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" /> : <Download size={15} strokeWidth={1.8} />}
                       </button>
                     )}
-                    <ChevronDown size={14} strokeWidth={1.8} style={{ color: "var(--w3)", transform: isExpanded ? "rotate(180deg)" : "none", transition: "transform 0.2s", flexShrink: 0 }} />
+                    <button type="button"
+                      className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full flex-shrink-0"
+                      style={{ color: "var(--w3)" }}
+                      aria-label={isExpanded ? "Collapse" : "Expand"}
+                      onClick={e => {
+                        e.stopPropagation();
+                        setExpandedPairs(prev => { const n = new Set(prev); n.has(item.key) ? n.delete(item.key) : n.add(item.key); return n; });
+                      }}>
+                      <ChevronDown size={13} strokeWidth={1.8}
+                        style={{ transition: "transform 0.2s", transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)" }} />
+                    </button>
                   </div>
-                  {/* Sub-boxes */}
+                  {/* Sub-boxes — only shown when expanded */}
                   {isExpanded && (
-                    <div className="pb-3 space-y-2" style={{ paddingLeft: "3rem", paddingRight: "0.5rem" }}>
+                    <div className="px-3 pb-3 space-y-1.5">
                       {([
                         { subKey: item.key,      subDoc: origDoc,  subLabel: "Original" },
                         { subKey: item.transKey, subDoc: transDoc, subLabel: lang === "de" ? "Übersetzt" : lang === "fr" ? "Traduit" : "Translated" },
