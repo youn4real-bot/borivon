@@ -249,6 +249,10 @@ export default function DashboardPage() {
   // Payment tier — gates journey/pipeline access
   const [paymentTier, setPaymentTier] = useState<string | null>(null);
   const [profileLoaded, setProfileLoaded] = useState(false);
+  // Verification flag — backend (admin/route.ts maybeGrantVerified or
+  // /verify-user) flips this to true when the candidate is fully approved.
+  // Source of truth for the gold tick + public profile slug everywhere.
+  const [manuallyVerified, setManuallyVerified] = useState(false);
   // Upgrade modal — shown when candidate tries a Kandidat-tier feature
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [upgradeLoading, setUpgradeLoading] = useState(false);
@@ -466,6 +470,9 @@ export default function DashboardPage() {
             window.dispatchEvent(new CustomEvent("bv-profile-photo-changed", { detail: { photo: row.profile_photo ?? null } }));
           }
           // Fire celebration the instant admin flips manually_verified to true.
+          if (row.manually_verified !== undefined) {
+            setManuallyVerified(!!row.manually_verified);
+          }
           if (row.manually_verified === true) {
             // Notify the navbar ProfileIcon so the badge appears immediately.
             window.dispatchEvent(new CustomEvent("bv-verified-changed"));
@@ -642,6 +649,7 @@ export default function DashboardPage() {
             .maybeSingle();
           setPassportStatus(data?.passport_status ?? null);
           setPaymentTier((data as { payment_tier?: string | null } | null)?.payment_tier ?? null);
+          setManuallyVerified(!!data?.manually_verified);
           // Show celebration if verified and not yet celebrated this session.
           if (data?.manually_verified) {
             const uid = user.id;
@@ -982,11 +990,13 @@ export default function DashboardPage() {
   const doneCount     = ALL_ITEMS.filter(i => getDoc(i.key)).length;
   const pct           = Math.round((doneCount / totalCount) * 100);
 
-  // Verified profile = passport approved AND Lebenslauf approved.
-  // Once verified, the candidate gets a permanent public URL and a blue
-  // checkmark next to their name everywhere across the site.
+  // Verified profile — single source of truth is the manually_verified flag,
+  // which the backend flips when passport doc + passport data are both
+  // approved (admin/route.ts → maybeGrantVerified) or when the supreme admin
+  // grants it directly via /verify-user. Local doc-state fallback covers the
+  // brief window between approval and the realtime push landing.
   const cvDoc       = getDoc("cv_de");
-  const isVerified  = passportStatus === "approved" && cvDoc?.status === "approved";
+  const isVerified  = manuallyVerified || (passportStatus === "approved" && cvDoc?.status === "approved");
   const profileSlug = isVerified && userId
     ? buildProfileSlug(firstName, lastName, userId)
     : "";
