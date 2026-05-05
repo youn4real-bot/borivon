@@ -2250,25 +2250,28 @@ export default function DashboardPage() {
                           </button>
                         )}
 
-                        {/* Empty state → big gold "Upload" pill (primary action).
-                            Skipped for CV slots (route to the builder) and for
-                            the "other" multi-doc slot (handled below). */}
+                        {/* Empty state → minimal upload icon button (matches
+                            the pair sub-rows). Skipped for CV slots (route to
+                            the builder) and for the "other" multi-doc slot. */}
                         {!uploaded && !isOther && item.key !== "cv" && item.key !== "cv_de" && (
                           <button onClick={(e) => { e.stopPropagation(); openPicker(item.key); }}
-                            className="text-xs font-semibold transition-opacity hover:opacity-80 px-3 py-1.5"
-                            style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)" }}>
-                            {t.pUploadBtn}
+                            title={t.pUploadBtn}
+                            aria-label={t.pUploadBtn}
+                            className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full flex-shrink-0"
+                            style={{ color: "var(--gold)" }}>
+                            <Upload size={13} strokeWidth={1.8} />
                           </button>
                         )}
 
-                        {/* "other" key — single Upload pill, allows multi-doc up
-                            to a max of 5 separate files. Once the candidate hits
-                            5 the button disappears so they can't add more. */}
+                        {/* "other" key — single icon-only upload, allows
+                            multi-doc up to 5. */}
                         {isOther && allOtherDocs.length < 5 && (
                           <button onClick={(e) => { e.stopPropagation(); openPicker(item.key); }}
-                            className="text-xs font-semibold transition-opacity hover:opacity-80 px-3 py-1.5"
-                            style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)" }}>
-                            {t.pUploadBtn}
+                            title={t.pUploadBtn}
+                            aria-label={t.pUploadBtn}
+                            className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full flex-shrink-0"
+                            style={{ color: "var(--gold)" }}>
+                            <Upload size={13} strokeWidth={1.8} />
                           </button>
                         )}
 
