@@ -166,17 +166,10 @@ function timeAgo(iso: string, lang?: string) {
 }
 
 // ── Payment tier badge ────────────────────────────────────────────────────────
-function PaymentBadge({ tier }: { tier: string | null | undefined }) {
-  // Kandidat users already have the gold verified badge — no extra badge needed.
-  if (!tier || tier === "kandidat") return null;
-  return (
-    <span
-      className="inline-flex items-center text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ml-1 flex-shrink-0"
-      style={{ background: "var(--info-bg)", color: "var(--info)", border: "1px solid var(--info-border)" }}
-    >
-      Starter
-    </span>
-  );
+// Starter tier removed; Kandidat users get the gold verified tick instead.
+// Keeping the component as a no-op so callsites don't have to be touched.
+function PaymentBadge(_: { tier: string | null | undefined }) {
+  return null;
 }
 
 // ── Preview modal moved to components/AdminDocPreviewModal.tsx ────────────────
