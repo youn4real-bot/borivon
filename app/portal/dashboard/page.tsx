@@ -1986,8 +1986,12 @@ export default function DashboardPage() {
                             style={{ background: isDragSub ? "var(--gdim)" : "var(--bg2)", border: `1px solid ${isDragSub ? "var(--gold)" : "var(--border)"}`, minHeight: 60 }}>
                             <div className="flex items-center gap-1.5">
                               <div className="flex-1 min-w-0">
-                                <p className="text-[11.5px] font-medium tracking-tight" style={{ color: sub.subDoc ? ssc.txt : "var(--w2)" }}>{sub.subLabel}</p>
-                                {!isSubUp && !sub.subDoc && <p className="text-[10px]" style={{ color: "var(--w3)" }}>{lang === "de" ? "Nicht eingereicht" : lang === "fr" ? "Non soumis" : "Not submitted"}</p>}
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <p className="text-[11.5px] font-medium tracking-tight" style={{ color: sub.subDoc ? ssc.txt : "var(--w2)" }}>{sub.subLabel}</p>
+                                  {sst !== "approved" && (
+                                    <span className="text-[10px] font-mono tracking-wide" style={{ color: "var(--w3)" }}>PDF</span>
+                                  )}
+                                </div>
                                 {sub.subDoc && sst === "rejected" && sub.subDoc.feedback && (
                                   <p className="text-[10px] mt-0.5 truncate" style={{ color: "var(--danger)" }}>{sub.subDoc.feedback}</p>
                                 )}
@@ -2073,8 +2077,15 @@ export default function DashboardPage() {
             // space vs a dedicated Eye icon. Inner buttons (Replace, Download,
             // info, hint) stop propagation so they don't accidentally trigger
             // the preview.
-            const rowClickable = !isOther && uploaded && doc?.drive_file_id && !isUploading;
-            const rowOnClick = rowClickable ? () => handlePreview(doc!) : undefined;
+            // Whole-row click: previews when uploaded, opens the file picker
+            // when empty. Multi-doc 'other' slot keeps a per-action picker.
+            const rowEmptyUpload = !uploaded && !isOther && item.key !== "cv" && item.key !== "cv_de";
+            const rowClickable =
+              (!isOther && uploaded && doc?.drive_file_id && !isUploading) ||
+              (rowEmptyUpload && !isUploading);
+            const rowOnClick = !rowClickable
+              ? undefined
+              : (!uploaded ? () => openPicker(item.key) : () => handlePreview(doc!));
 
             return (
               <div key={item.key}>
