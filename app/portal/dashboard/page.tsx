@@ -1862,12 +1862,12 @@ export default function DashboardPage() {
                                 <span className="font-semibold text-[12px] uppercase tracking-wider" style={{ color: "var(--w3)" }}>
                                   {lang === "de" ? "Scan" : lang === "fr" ? "Numérisation" : "Scan"}
                                 </span>
-                                <span>{lang === "de" ? "Nur Maschinenscanner. Keine Handyfotos." : lang === "fr" ? "Scanner uniquement. Pas de photos de téléphone." : "Machine scanner only. No phone photos."}</span>
+                                <span>{lang === "de" ? "Nur Maschinenscanner. Handyfotos abgelehnt." : lang === "fr" ? "Scanner uniquement. Photos de téléphone refusées." : "Machine scanner only. Phone photos rejected."}</span>
                               </span>
                               {phase === 1 && (
                                 <span className="flex flex-col gap-1.5 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
                                   <span className="font-semibold text-[12px] uppercase tracking-wider" style={{ color: "var(--w3)" }}>
-                                    {lang === "de" ? "Vereidigte Übersetzer" : lang === "fr" ? "Traducteurs assermentés" : "Sworn translators"}
+                                    {lang === "de" ? "Nur vereidigte Übersetzer akzeptiert" : lang === "fr" ? "Seuls les traducteurs assermentés acceptés" : "Only sworn translators accepted"}
                                   </span>
                                   <a href="https://rabat.diplo.de/resource/blob/2417070/461b64d35650206a0f64ffb772feee9f/uebersetzer-liste-data.pdf"
                                     target="_blank" rel="noreferrer" className="underline" style={{ color: "var(--gold)" }}>
