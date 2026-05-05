@@ -1922,11 +1922,11 @@ export default function DashboardPage() {
                     <div className="flex-1 min-w-0">
                       <p className="text-[11.5px] font-medium tracking-tight" style={{ color: pairColor ?? "var(--w)" }}>{item.label}</p>
                     </div>
-                    {bothApproved && origDoc && transDoc && (
+                    {origDoc && transDoc && (
                       <button onClick={e => { e.stopPropagation(); downloadMergedPdf(item.key, origDoc.id, transDoc.id, item.label); }}
                         disabled={mergingPair === item.key}
                         title={lang === "de" ? "Kombi-PDF" : "Merged PDF"}
-                        className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full flex-shrink-0" style={{ color: "var(--success)" }}>
+                        className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full flex-shrink-0" style={{ color: bothApproved ? "var(--success)" : "var(--w2)" }}>
                         {mergingPair === item.key ? <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" /> : <Download size={15} strokeWidth={1.8} />}
                       </button>
                     )}
@@ -1968,7 +1968,7 @@ export default function DashboardPage() {
                                 <div className="flex items-center gap-1 flex-shrink-0">
                                   {sub.subDoc && sub.subDoc.status !== "approved" && <button onClick={e => { e.stopPropagation(); openPicker(sub.subKey); }} title={t.pReplaceBtn} className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full" style={{ color: "var(--w2)" }}><RefreshCw size={13} strokeWidth={1.8} /></button>}
                                   {sub.subDoc?.drive_file_id && <button onClick={e => { e.stopPropagation(); handleDownload(sub.subDoc!.drive_file_id!, sub.subDoc!.file_name, sub.subKey); }} title={lang === "de" ? "Herunterladen" : "Download"} className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full" style={{ color: "var(--w2)" }}><Download size={13} strokeWidth={1.8} /></button>}
-                                  {!sub.subDoc && <button onClick={e => { e.stopPropagation(); openPicker(sub.subKey); }} className="text-[10.5px] font-semibold px-2.5 py-1.5" style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)" }}>{t.pUploadBtn}</button>}
+                                  {!sub.subDoc && <button onClick={e => { e.stopPropagation(); openPicker(sub.subKey); }} title={t.pUploadBtn} className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full" style={{ color: "var(--gold)" }}><Upload size={13} strokeWidth={1.8} /></button>}
                                 </div>
                               )}
                             </div>
