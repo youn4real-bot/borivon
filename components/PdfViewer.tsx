@@ -81,6 +81,7 @@ export function PdfViewer({
 
   const [pdf, setPdf]             = useState<PdfDoc>(null);
   const [pageSizes, setPageSizes] = useState<NaturalSize[]>([]);
+  const [intrinsicRotations, setIntrinsicRotations] = useState<number[]>([]);
   const [scale, setScale]         = useState(1.0);
   const [rotation, setRotation]   = useState(0);
   const [loading, setLoading]     = useState(true);
@@ -95,6 +96,7 @@ export function PdfViewer({
     setError(false);
     setPdf(null);
     setPageSizes([]);
+    setIntrinsicRotations([]);
     setScale(1.0);
     setRotation(0);
 
@@ -120,17 +122,23 @@ export function PdfViewer({
           pdfRef.current = doc;
 
           const sizes: NaturalSize[] = [];
+          const intrinsics: number[] = [];
           for (let i = 1; i <= doc.numPages; i++) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const page = await doc.getPage(i);
             if (cancelled) return;
-            const vp = page.getViewport({ scale: 1.0, rotation: 0 });
+            // Use the page's intrinsic rotation as the natural orientation so
+            // server-baked rotation (set via pdf-lib setRotation) is honored.
+            const intr = ((page.rotate ?? 0) % 360 + 360) % 360;
+            intrinsics.push(intr);
+            const vp = page.getViewport({ scale: 1.0, rotation: intr });
             sizes.push({ w: vp.width, h: vp.height });
           }
 
           if (cancelled) return;
           setPdf(doc);
           setPageSizes(sizes);
+          setIntrinsicRotations(intrinsics);
           setLoading(false);
         })
         .catch(() => {
@@ -319,7 +327,7 @@ export function PdfViewer({
                 pageNum={i + 1}
                 naturalSize={size}
                 scale={scale}
-                rotation={rotation}
+                rotation={(rotation + (intrinsicRotations[i] ?? 0)) % 360}
               />
             ))}
           </div>
