@@ -14,62 +14,59 @@ function getDriveClient() {
   return google.drive({ version: "v3", auth });
 }
 
-/**
- * Returns true if the request is authorised to access this fileId.
- *
- * Two valid paths (both use Authorization: Bearer <jwt>):
- *  A) Admin  — JWT user.email is ADMIN_EMAIL → unconditional access.
- *      Sub-admin → only if the file belongs to one of their assigned candidates.
- *  B) Candidate — JWT user owns a documents row with this drive_file_id.
- */
-async function isAuthorised(req: NextRequest, fileId: string): Promise<boolean> {
+async function isAuthorised(
+  req: NextRequest,
+  fileId: string | null,
+  docId: string | null,
+): Promise<boolean> {
   const db = getServiceSupabase();
 
-  // ── A) Admin / sub-admin via Bearer JWT ───────────────────────────────────
-  // requireAdminRole reads Authorization: Bearer <jwt> and verifies it.
-  // We "peek" — if the JWT belongs to admin / sub-admin we use it; otherwise
-  // we fall through to the candidate-ownership check below.
   const adminAuth = await requireAdminRole(req);
   if (adminAuth.ok) {
     if (adminAuth.role === "admin") return true;
-    // Sub-admin / org-admin: file must belong to a candidate they have access
-    // to (direct assignment OR org-based via candidate_organizations).
+    // Sub-admin: file must belong to a candidate they manage.
     const { data: doc } = await db
       .from("documents")
       .select("user_id")
-      .eq("drive_file_id", fileId)
+      .eq(fileId ? "drive_file_id" : "id", fileId ?? docId!)
       .maybeSingle();
     if (!doc) return false;
     return canActOnCandidate(adminAuth.role, adminAuth.email, doc.user_id);
   }
 
-  // ── B) Candidate Bearer token ─────────────────────────────────────────────
   const authHeader = req.headers.get("authorization");
   if (!authHeader?.startsWith("Bearer ")) return false;
   const jwt = authHeader.slice(7);
-
-  // Verify JWT with the cached anon client (validates signature server-side)
   const { data: { user }, error } = await getAnonVerifyClient().auth.getUser(jwt);
   if (error || !user) return false;
 
-  // Check this file ID actually belongs to this user in the documents table
   const { data: doc } = await db
     .from("documents")
     .select("id")
-    .eq("drive_file_id", fileId)
+    .eq(fileId ? "drive_file_id" : "id", fileId ?? docId!)
     .eq("user_id", user.id)
     .maybeSingle();
-
   return !!doc;
 }
 
 export async function GET(req: NextRequest) {
-  const fileId = req.nextUrl.searchParams.get("id");
-  if (!fileId) return new NextResponse("Missing id", { status: 400 });
+  let fileId = req.nextUrl.searchParams.get("id");
+  const docId = req.nextUrl.searchParams.get("docId");
+  if (!fileId && !docId) return new NextResponse("Missing id", { status: 400 });
 
   // ── Auth gate ─────────────────────────────────────────────────────────────
-  const allowed = await isAuthorised(req, fileId);
+  const allowed = await isAuthorised(req, fileId, docId);
   if (!allowed) return new NextResponse("Forbidden", { status: 403 });
+
+  // If only docId provided, resolve to drive_file_id
+  if (!fileId && docId) {
+    const db = getServiceSupabase();
+    const { data } = await db.from("documents").select("drive_file_id").eq("id", docId).maybeSingle();
+    fileId = data?.drive_file_id ?? null;
+    if (!fileId) return new NextResponse("File not found", { status: 404 });
+  }
+
+  if (!fileId) return new NextResponse("File not found", { status: 404 });
 
   try {
     const drive = getDriveClient();

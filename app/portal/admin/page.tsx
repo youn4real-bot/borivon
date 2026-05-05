@@ -434,7 +434,7 @@ export default function AdminPage() {
   // Merged-PDF download loading state keyed by paired item key
   const [mergePdfDl, setMergePdfDl] = useState<Set<string>>(new Set());
   // Merged-PDF preview state
-  const [mergePreview, setMergePreview] = useState<{ origId: string; transId: string; label: string } | null>(null);
+  const [mergePreview, setMergePreview] = useState<{ origDocId: string; transDocId: string; label: string } | null>(null);
   // Passport DATA PDF download state (passport info modal)
   const [passportDataPdfDl, setPassportDataPdfDl] = useState(false);
   // Signature request modal
@@ -1160,6 +1160,25 @@ export default function AdminPage() {
               && (previewDoc.status !== "approved" || (profiles[previewDoc.user_id]?.passport_status !== "approved"))
               && showPassportInfo
             }
+          />
+        )}
+
+        {mergePreview && (
+          <AdminDocPreviewModal
+            doc={{
+              id: mergePreview.origDocId,
+              user_id: "",
+              file_name: `${mergePreview.label.replace(/\s+/g, "_")}_merged.pdf`,
+              file_type: mergePreview.label,
+              uploaded_at: new Date().toISOString(),
+              status: "pending",
+              feedback: null,
+              drive_file_id: null,
+            }}
+            accessToken={accessToken}
+            overrideFetchUrl={`/api/portal/documents/merge-pdf?origDocId=${mergePreview.origDocId}&transDocId=${mergePreview.transDocId}`}
+            onClose={() => setMergePreview(null)}
+            noPreviewText={t.aNoPreview}
           />
         )}
 
@@ -2083,9 +2102,9 @@ export default function AdminPage() {
                             : { bg: "var(--bg2)", txt: "var(--w3)", bdr: "var(--border)" };
                           return (
                             <div
-                              className={`rounded-xl px-3 py-3${subDoc?.drive_file_id ? " bv-row-hover cursor-pointer" : ""}`}
+                              className={`rounded-xl px-3 py-3${subDoc ? " bv-row-hover cursor-pointer" : ""}`}
                               style={{ background: "var(--bg2)", border: "1px solid var(--border)", minHeight: 60 }}
-                              onClick={() => { if (subDoc?.drive_file_id) setPreviewDoc(subDoc); }}>
+                              onClick={() => { if (subDoc) setPreviewDoc(subDoc); }}>
                               <div className="flex items-center gap-1.5">
                                 <div className="flex-1 min-w-0">
                                   <p className="text-[11.5px] font-medium tracking-tight" style={{ color: subDoc ? ssc.txt : "var(--w2)" }}>{subLabel}</p>
@@ -2165,7 +2184,7 @@ export default function AdminPage() {
                         };
 
                         const isExpanded = expandedPairs.has(item.key);
-                        const canMerge = !!(origDoc?.drive_file_id && transDoc?.drive_file_id);
+                        const canMerge = !!(origDoc && transDoc);
                         const isMergeDl = mergePdfDl.has(item.key);
                         return (
                           <div key={item.key}>
@@ -2174,7 +2193,7 @@ export default function AdminPage() {
                             <div
                               className={`px-3 py-3 flex items-center gap-2${canMerge ? " cursor-pointer bv-row-hover" : ""}`}
                               onClick={() => {
-                                if (canMerge) setMergePreview({ origId: origDoc!.drive_file_id!, transId: transDoc!.drive_file_id!, label: item.label });
+                                if (canMerge) setMergePreview({ origDocId: origDoc!.id, transDocId: transDoc!.id, label: item.label });
                               }}>
                               <div className="flex-1 min-w-0">
                                 <p className="text-[11.5px] font-medium tracking-tight" style={{ color: mPairColor ?? "var(--w)" }}>{item.label}</p>
@@ -2196,7 +2215,7 @@ export default function AdminPage() {
                                     setMergePdfDl(prev => new Set(prev).add(item.key));
                                     try {
                                       const res = await fetch(
-                                        `/api/portal/documents/merge-pdf?origId=${origDoc!.drive_file_id}&transId=${transDoc!.drive_file_id}`,
+                                        `/api/portal/documents/merge-pdf?origDocId=${origDoc!.id}&transDocId=${transDoc!.id}`,
                                         { headers: { Authorization: `Bearer ${accessToken}` } }
                                       );
                                       if (!res.ok) throw new Error("Failed");
@@ -2260,7 +2279,7 @@ export default function AdminPage() {
                       // Whole-row click previews the doc (admin parity with
                       // candidate portal). Inner action buttons stop
                       // propagation so they don't trigger the preview.
-                      const adminRowClickable = !isMulti && submitted && doc?.drive_file_id;
+                      const adminRowClickable = !isMulti && submitted && !!doc;
                       const adminRowOnClick = adminRowClickable ? () => setPreviewDoc(doc!) : undefined;
 
                       return (
@@ -2619,17 +2638,17 @@ export default function AdminPage() {
       {mergePreview && (
         <AdminDocPreviewModal
           doc={{
-            id: `merged-${mergePreview.origId}`,
+            id: mergePreview.origDocId,
             user_id: "",
             file_name: `${mergePreview.label.replace(/\s+/g, "_")}_merged.pdf`,
             file_type: mergePreview.label,
             uploaded_at: new Date().toISOString(),
             status: "pending",
             feedback: null,
-            drive_file_id: mergePreview.origId,
+            drive_file_id: null,
           }}
           accessToken={accessToken}
-          overrideFetchUrl={`/api/portal/documents/merge-pdf?origId=${mergePreview.origId}&transId=${mergePreview.transId}`}
+          overrideFetchUrl={`/api/portal/documents/merge-pdf?origDocId=${mergePreview.origDocId}&transDocId=${mergePreview.transDocId}`}
           onClose={() => setMergePreview(null)}
           noPreviewText={t.aNoPreview}
         />

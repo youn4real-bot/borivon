@@ -31,21 +31,33 @@ async function fetchPdfBuffer(fileId: string): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
+async function resolveFileId(
+  db: ReturnType<typeof getServiceSupabase>,
+  driveId: string | null,
+  docId: string | null,
+): Promise<string | null> {
+  if (driveId) return driveId;
+  if (!docId) return null;
+  const { data } = await db.from("documents").select("drive_file_id").eq("id", docId).maybeSingle();
+  return data?.drive_file_id ?? null;
+}
+
 async function isAuthorised(
   req: NextRequest,
-  origId: string,
-  transId: string,
+  origDriveId: string | null,
+  transDriveId: string | null,
+  origDocId: string | null,
+  transDocId: string | null,
 ): Promise<boolean> {
   const db = getServiceSupabase();
 
   const adminAuth = await requireAdminRole(req);
   if (adminAuth.ok) {
     if (adminAuth.role === "admin") return true;
-    // Sub-admin: both files must belong to a candidate they manage
     const { data: origDoc } = await db
       .from("documents")
       .select("user_id")
-      .eq("drive_file_id", origId)
+      .eq(origDriveId ? "drive_file_id" : "id", origDriveId ?? origDocId!)
       .maybeSingle();
     if (!origDoc) return false;
     return canActOnCandidate(adminAuth.role, adminAuth.email, origDoc.user_id);
@@ -54,40 +66,50 @@ async function isAuthorised(
   const authHeader = req.headers.get("authorization");
   if (!authHeader?.startsWith("Bearer ")) return false;
   const jwt = authHeader.slice(7);
-
   const { data: { user }, error } = await getAnonVerifyClient().auth.getUser(jwt);
   if (error || !user) return false;
 
-  // Candidate must own BOTH files
   const { count: origCount } = await db
     .from("documents")
     .select("id", { count: "exact", head: true })
-    .eq("drive_file_id", origId)
+    .eq(origDriveId ? "drive_file_id" : "id", origDriveId ?? origDocId!)
     .eq("user_id", user.id);
   if (!origCount) return false;
 
   const { count: transCount } = await db
     .from("documents")
     .select("id", { count: "exact", head: true })
-    .eq("drive_file_id", transId)
+    .eq(transDriveId ? "drive_file_id" : "id", transDriveId ?? transDocId!)
     .eq("user_id", user.id);
   return !!transCount;
 }
 
 export async function GET(req: NextRequest) {
-  const origId  = req.nextUrl.searchParams.get("origId");
-  const transId = req.nextUrl.searchParams.get("transId");
-  if (!origId || !transId)
-    return new NextResponse("Missing origId or transId", { status: 400 });
+  const origId    = req.nextUrl.searchParams.get("origId");
+  const transId   = req.nextUrl.searchParams.get("transId");
+  const origDocId = req.nextUrl.searchParams.get("origDocId");
+  const transDocId = req.nextUrl.searchParams.get("transDocId");
 
-  const allowed = await isAuthorised(req, origId, transId);
+  if (!origId && !origDocId)
+    return new NextResponse("Missing origId or origDocId", { status: 400 });
+  if (!transId && !transDocId)
+    return new NextResponse("Missing transId or transDocId", { status: 400 });
+
+  const allowed = await isAuthorised(req, origId, transId, origDocId, transDocId);
   if (!allowed) return new NextResponse("Forbidden", { status: 403 });
 
+  // Resolve doc IDs to drive file IDs if needed
+  const db = getServiceSupabase();
+  const resolvedOrigId  = await resolveFileId(db, origId, origDocId);
+  const resolvedTransId = await resolveFileId(db, transId, transDocId);
+  if (!resolvedOrigId || !resolvedTransId)
+    return new NextResponse("File not found", { status: 404 });
+
   try {
-    // Fetch both PDFs in parallel
+    // Fetch both PDFs in parallel (übersetzt first, then original)
     const [transBytes, origBytes] = await Promise.all([
-      fetchPdfBuffer(transId),
-      fetchPdfBuffer(origId),
+      fetchPdfBuffer(resolvedTransId),
+      fetchPdfBuffer(resolvedOrigId),
     ]);
 
     // Merge: translated pages first, then original pages

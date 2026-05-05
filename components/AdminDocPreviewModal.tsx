@@ -99,7 +99,8 @@ export function AdminDocPreviewModal({
   // Authenticated fetch via our API → blob URL. Used for both the PdfViewer
   // and the download button (no need to refetch).
   useEffect(() => {
-    const fetchUrl = overrideFetchUrl ?? (doc.drive_file_id ? `/api/portal/file?id=${doc.drive_file_id}` : null);
+    const fetchUrl = overrideFetchUrl
+      ?? (doc.drive_file_id ? `/api/portal/file?id=${doc.drive_file_id}` : `/api/portal/file?docId=${doc.id}`);
     if (!fetchUrl) return;
     let mounted = true;
     let url = "";
@@ -354,13 +355,9 @@ export function AdminDocPreviewModal({
                 </a>
               </div>
             );
-          })() : doc.drive_file_id ? (
+          })() : (
             <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#525659" }}>
               <Spinner size="md" />
-            </div>
-          ) : (
-            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <p className="text-sm" style={{ color: "var(--w3)" }}>{noPreviewText}</p>
             </div>
           )}
         </div>
