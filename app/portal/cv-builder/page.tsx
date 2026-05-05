@@ -2434,8 +2434,9 @@ function CVBuilderInner() {
       return;
     }
 
-    // Payment gate — skip entirely when admin is editing a candidate's CV
-    if (!paymentTier && !adminCandidateId) {
+    // Payment gate — only Kandidat (€99) unlocks CV generation. Skip when
+    // admin is editing a candidate's CV.
+    if (paymentTier !== "kandidat" && !adminCandidateId) {
       router.push("/portal/dashboard");
       return;
     }
