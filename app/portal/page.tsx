@@ -94,6 +94,22 @@ function PortalPageInner() {
         setLoading(false); return;
       }
 
+      // Block re-signup of existing accounts. Supabase's auth.signUp silently
+      // re-sends a confirmation email when the address already exists, leaking
+      // nothing to the caller — so we precheck via service role.
+      try {
+        const exRes = await fetch("/api/portal/check-email", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: email.trim().toLowerCase() }),
+        });
+        const exJson = await exRes.json().catch(() => ({}));
+        if (exJson?.exists) {
+          setError(t.pErrExists);
+          setLoading(false); return;
+        }
+      } catch { /* network blip — fall through, supabase will still gate */ }
+
       // Code is valid — sign up and bake the code into the confirmation email URL
       const { error: err } = await supabase.auth.signUp({
         email: email.trim().toLowerCase(), password,
