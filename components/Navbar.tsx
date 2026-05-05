@@ -290,7 +290,7 @@ export function Navbar({ rightExtra, leftExtra }: { rightExtra?: ReactNode; left
                   <span
                     className="absolute flex items-center justify-center font-bold"
                     style={{
-                      top: 8, left: 6,
+                      top: 8, right: -8,
                       minWidth: 16, height: 16,
                       borderRadius: 99,
                       fontSize: 9,

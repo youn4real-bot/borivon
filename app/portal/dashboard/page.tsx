@@ -1852,12 +1852,18 @@ export default function DashboardPage() {
                       <h2 className="text-[18px] font-semibold tracking-[-0.015em] leading-tight" style={{ color: "var(--w)" }}>
                         {currentPhase.title}
                       </h2>
-                      <span
+                      <button
+                        type="button"
+                        onClick={() => setDocHintOpen({
+                          title: lang === "de" ? "Scan-Qualität" : lang === "fr" ? "Qualité du scan" : "Scan quality",
+                          hint: t.pScanQualityShort,
+                        })}
+                        aria-label={t.pScanQualityShort}
                         title={t.pScanQualityShort}
-                        className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
-                        style={{ background: "var(--info-bg)", color: "var(--info)", border: "1px solid var(--info-border)" }}>
-                        <AlertTriangle size={10} strokeWidth={2} /> {t.pScanQualityShort}
-                      </span>
+                        className="inline-flex items-center justify-center w-5 h-5 rounded-full transition-opacity hover:opacity-80 flex-shrink-0"
+                        style={{ background: "var(--info-bg)", color: "var(--info)", border: "none", cursor: "pointer" }}>
+                        <Info size={11} strokeWidth={2.2} />
+                      </button>
                     </div>
                     {pending > 0 && (
                       <span className="inline-flex items-center gap-1.5 text-[11px] font-medium flex-shrink-0"
