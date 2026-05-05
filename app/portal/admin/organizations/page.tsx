@@ -525,13 +525,24 @@ export default function OrganizationsPage() {
   }
 
   async function downloadQr(url: string, label: string) {
+    // Authenticated fetch — the proxy now requires a Bearer JWT, so a plain
+    // <a href> click won't work; fetch + blob keeps the download UX intact.
     const proxyUrl = `/api/portal/qr?data=${encodeURIComponent(url)}&label=${encodeURIComponent(label)}`;
-    const a = document.createElement("a");
-    a.href = proxyUrl;
-    a.download = label.replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "_") + "_qr.png";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    try {
+      const res = await fetch(proxyUrl, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!res.ok) throw new Error("QR fetch failed");
+      const blob = await res.blob();
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objUrl;
+      a.download = label.replace(/[^\w\s-]/g, "").trim().replace(/\s+/g, "_") + "_qr.png";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objUrl);
+    } catch (e) {
+      console.error("[downloadQr]", e);
+    }
   }
 
   function nameForCandidate(uid: string) {

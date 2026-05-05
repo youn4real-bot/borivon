@@ -43,11 +43,23 @@ export async function POST(req: NextRequest) {
   if (event.type === "checkout.session.completed") {
     const session = event.data.object as Stripe.Checkout.Session;
     const userId  = session.metadata?.userId;
-    const plan    = session.metadata?.plan;
+    const planRaw = session.metadata?.plan;
 
-    if (!userId || !plan) {
+    if (!userId || !planRaw) {
       console.error("[stripe webhook] missing metadata", session.metadata);
       return Response.json({ received: true });
+    }
+
+    // Allowlist — only known plan tiers may be persisted. Stripe metadata is
+    // signed by the webhook secret, but we still gate on values our DB knows
+    // about so a misconfigured price/coupon can't grant arbitrary tiers.
+    // Both 'kandidat' and 'kandidat_installment' resolve to the kandidat tier.
+    let plan: string;
+    if (planRaw === "kandidat" || planRaw === "kandidat_installment") {
+      plan = "kandidat";
+    } else {
+      console.error("[stripe webhook] unknown plan rejected:", planRaw);
+      return Response.json({ error: "Unknown plan" }, { status: 400 });
     }
 
     const db = getServiceSupabase();
@@ -58,6 +70,8 @@ export async function POST(req: NextRequest) {
       .upsert({ user_id: userId, payment_tier: plan }, { onConflict: "user_id" });
 
     if (error) {
+      // 500 forces Stripe to retry — we'd rather double-process than lose a
+      // payment + leave the candidate stranded on the free tier.
       console.error("[stripe webhook] failed to update payment_tier:", error);
       return Response.json({ error: "DB update failed" }, { status: 500 });
     }
