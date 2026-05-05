@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, degrees } from "pdf-lib";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 
@@ -31,15 +31,20 @@ async function fetchPdfBuffer(fileId: string): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-async function resolveFileId(
+async function resolveFileMeta(
   db: ReturnType<typeof getServiceSupabase>,
   driveId: string | null,
   docId: string | null,
-): Promise<string | null> {
-  if (driveId) return driveId;
-  if (!docId) return null;
-  const { data } = await db.from("documents").select("drive_file_id").eq("id", docId).maybeSingle();
-  return data?.drive_file_id ?? null;
+): Promise<{ fileId: string | null; rotation: number }> {
+  const { data } = await db
+    .from("documents")
+    .select("drive_file_id, rotation")
+    .eq(driveId ? "drive_file_id" : "id", driveId ?? docId!)
+    .maybeSingle();
+  if (!data) return { fileId: driveId, rotation: 0 };
+  const row = data as { drive_file_id: string | null; rotation: number | null };
+  const rot = ((row.rotation ?? 0) % 360 + 360) % 360;
+  return { fileId: driveId ?? row.drive_file_id ?? null, rotation: rot };
 }
 
 async function isAuthorised(
@@ -98,18 +103,20 @@ export async function GET(req: NextRequest) {
   const allowed = await isAuthorised(req, origId, transId, origDocId, transDocId);
   if (!allowed) return new NextResponse("Forbidden", { status: 403 });
 
-  // Resolve doc IDs to drive file IDs if needed
+  // Resolve doc IDs to drive file IDs + per-doc rotation.
   const db = getServiceSupabase();
-  const resolvedOrigId  = await resolveFileId(db, origId, origDocId);
-  const resolvedTransId = await resolveFileId(db, transId, transDocId);
-  if (!resolvedOrigId || !resolvedTransId)
+  const [origMeta, transMeta] = await Promise.all([
+    resolveFileMeta(db, origId, origDocId),
+    resolveFileMeta(db, transId, transDocId),
+  ]);
+  if (!origMeta.fileId || !transMeta.fileId)
     return new NextResponse("File not found", { status: 404 });
 
   try {
     // Fetch both PDFs in parallel (übersetzt first, then original)
     const [transBytes, origBytes] = await Promise.all([
-      fetchPdfBuffer(resolvedTransId),
-      fetchPdfBuffer(resolvedOrigId),
+      fetchPdfBuffer(transMeta.fileId),
+      fetchPdfBuffer(origMeta.fileId),
     ]);
 
     // Merge: translated pages first, then original pages
@@ -119,10 +126,22 @@ export async function GET(req: NextRequest) {
     const origPdf  = await PDFDocument.load(origBytes);
 
     const transPages = await merged.copyPages(transPdf, transPdf.getPageIndices());
-    transPages.forEach(p => merged.addPage(p));
+    transPages.forEach(p => {
+      if (transMeta.rotation) {
+        const cur = p.getRotation().angle;
+        p.setRotation(degrees((cur + transMeta.rotation) % 360));
+      }
+      merged.addPage(p);
+    });
 
     const origPages = await merged.copyPages(origPdf, origPdf.getPageIndices());
-    origPages.forEach(p => merged.addPage(p));
+    origPages.forEach(p => {
+      if (origMeta.rotation) {
+        const cur = p.getRotation().angle;
+        p.setRotation(degrees((cur + origMeta.rotation) % 360));
+      }
+      merged.addPage(p);
+    });
 
     const mergedBytes = await merged.save();
 

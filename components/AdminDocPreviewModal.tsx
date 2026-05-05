@@ -332,7 +332,23 @@ export function AdminDocPreviewModal({
         <div className="flex-1" style={{ minHeight: 0, position: "relative" }}>
           {blobUrl ? (() => {
             const ext = (doc.file_name.split(".").pop() ?? "").toLowerCase();
-            if (ext === "pdf") return <PdfViewer src={blobUrl} />;
+            if (ext === "pdf") return (
+              <PdfViewer
+                src={blobUrl}
+                onRotate={() => {
+                  // Don't persist when previewing a synthetic doc (e.g. merged PDF).
+                  if (overrideFetchUrl || !doc.id) return;
+                  fetch(`/api/portal/documents/${doc.id}`, {
+                    method: "PATCH",
+                    headers: {
+                      "Content-Type": "application/json",
+                      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+                    },
+                    body: JSON.stringify({ deltaRotation: 90 }),
+                  }).catch(e => console.error("[rotation] persist failed:", e));
+                }}
+              />
+            );
             if (ext === "docx") return <DocxViewer src={blobUrl} fileName={doc.file_name} />;
             if (["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext)) {
               return (

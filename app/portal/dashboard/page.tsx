@@ -1395,7 +1395,21 @@ export default function DashboardPage() {
               </div>
             ) : (() => {
               const ext = (previewDoc.file_name.split(".").pop() ?? "").toLowerCase();
-              if (ext === "pdf") return <PdfViewer src={previewBlobUrl} />;
+              if (ext === "pdf") return (
+                <PdfViewer
+                  src={previewBlobUrl}
+                  onRotate={() => {
+                    fetch(`/api/portal/documents/${previewDoc.id}`, {
+                      method: "PATCH",
+                      headers: {
+                        "Content-Type": "application/json",
+                        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+                      },
+                      body: JSON.stringify({ deltaRotation: 90 }),
+                    }).catch(e => console.error("[rotation] persist failed:", e));
+                  }}
+                />
+              );
               if (ext === "docx") return <DocxViewer src={previewBlobUrl} fileName={previewDoc.file_name} />;
               if (["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext)) {
                 return (

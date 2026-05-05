@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
+import { PDFDocument, degrees } from "pdf-lib";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 
@@ -58,14 +59,21 @@ export async function GET(req: NextRequest) {
   const allowed = await isAuthorised(req, fileId, docId);
   if (!allowed) return new NextResponse("Forbidden", { status: 403 });
 
-  // If only docId provided, resolve to drive_file_id
-  if (!fileId && docId) {
-    const db = getServiceSupabase();
-    const { data } = await db.from("documents").select("drive_file_id").eq("id", docId).maybeSingle();
-    fileId = data?.drive_file_id ?? null;
-    if (!fileId) return new NextResponse("File not found", { status: 404 });
+  // Resolve drive_file_id + rotation in one shot.
+  const db = getServiceSupabase();
+  let rotation = 0;
+  {
+    const { data } = await db
+      .from("documents")
+      .select("drive_file_id, rotation")
+      .eq(fileId ? "drive_file_id" : "id", fileId ?? docId!)
+      .maybeSingle();
+    if (data) {
+      const row = data as { drive_file_id: string | null; rotation: number | null };
+      if (!fileId) fileId = row.drive_file_id ?? null;
+      rotation = ((row.rotation ?? 0) % 360 + 360) % 360;
+    }
   }
-
   if (!fileId) return new NextResponse("File not found", { status: 404 });
 
   try {
@@ -91,11 +99,29 @@ export async function GET(req: NextRequest) {
       stream.on("error", reject);
     });
 
-    return new NextResponse(Buffer.concat(chunks), {
+    let outBuf = Buffer.concat(chunks);
+
+    // If this is a PDF with a saved rotation, bake it into the file so both
+    // previews and downloads reflect the new orientation.
+    if (rotation !== 0 && mimeType === "application/pdf") {
+      try {
+        const pdfDoc = await PDFDocument.load(outBuf);
+        for (const page of pdfDoc.getPages()) {
+          const cur = page.getRotation().angle;
+          page.setRotation(degrees((cur + rotation) % 360));
+        }
+        outBuf = Buffer.from(await pdfDoc.save());
+      } catch (e) {
+        console.warn("[file proxy] pdf rotate failed, serving original:", e);
+      }
+    }
+
+    return new NextResponse(outBuf, {
       headers: {
         "Content-Type": mimeType,
         "Content-Disposition": "inline",
-        "Cache-Control": "private, max-age=3600",
+        // Don't cache long — rotation can change.
+        "Cache-Control": "private, no-cache",
       },
     });
   } catch (err: unknown) {

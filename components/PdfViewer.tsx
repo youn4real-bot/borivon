@@ -43,7 +43,14 @@ const STEP      = 0.2;
 // PdfViewer
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function PdfViewer({ src }: { src: string }) {
+export function PdfViewer({
+  src,
+  onRotate,
+}: {
+  src: string;
+  /** Fired once per rotate click (always +90°). Parent persists the delta. */
+  onRotate?: () => void;
+}) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const pagesWrapRef  = useRef<HTMLDivElement>(null);
 
@@ -272,7 +279,10 @@ export function PdfViewer({ src }: { src: string }) {
 
   const zoomOut = () => setScale(s => Math.max(MIN_SCALE, Math.round((s - STEP) * 10) / 10));
   const zoomIn  = () => setScale(s => Math.min(MAX_SCALE, Math.round((s + STEP) * 10) / 10));
-  const rotate  = () => setRotation(r => (r + 90) % 360);
+  const rotate  = () => {
+    setRotation(r => (r + 90) % 360);
+    onRotate?.();
+  };
 
   return (
     <div style={{ position: "relative", height: "100%", display: "flex", flexDirection: "column", background: "#525659" }}>

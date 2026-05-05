@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { getServiceSupabase } from "@/lib/supabase";
-import { requireUser } from "@/lib/admin-auth";
+import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -67,4 +67,52 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
   return NextResponse.json({ success: true });
+}
+
+/**
+ * PATCH /api/portal/documents/[id]
+ *
+ * Currently supports updating `rotation` (0/90/180/270). Auth: owner OR
+ * admin/sub-admin (who can act on the doc owner).
+ */
+export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
+  const { id } = await ctx.params;
+  if (!UUID_RE.test(id)) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+
+  let body: { deltaRotation?: number } = {};
+  try { body = await req.json(); } catch { /* empty body */ }
+  const delta = body.deltaRotation;
+  if (typeof delta !== "number" || delta % 90 !== 0) {
+    return NextResponse.json({ error: "Invalid deltaRotation" }, { status: 400 });
+  }
+
+  const db = getServiceSupabase();
+  const { data: doc } = await db
+    .from("documents")
+    .select("id, user_id, rotation")
+    .eq("id", id)
+    .maybeSingle();
+  if (!doc) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const docRow = doc as { user_id: string; rotation: number | null };
+  const ownerId = docRow.user_id;
+
+  // Auth: try admin first, fall back to candidate ownership.
+  let authorised = false;
+  const adminAuth = await requireAdminRole(req);
+  if (adminAuth.ok) {
+    authorised = adminAuth.role === "admin"
+      || (await canActOnCandidate(adminAuth.role, adminAuth.email, ownerId));
+  } else {
+    const userAuth = await requireUser(req);
+    authorised = userAuth.ok && userAuth.userId === ownerId;
+  }
+  if (!authorised) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const next = (((docRow.rotation ?? 0) + delta) % 360 + 360) % 360;
+  const { error } = await db.from("documents").update({ rotation: next }).eq("id", id);
+  if (error) {
+    console.error("[documents PATCH] update failed:", error);
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  }
+  return NextResponse.json({ success: true, rotation: next });
 }
