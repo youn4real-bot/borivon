@@ -1855,28 +1855,35 @@ export default function DashboardPage() {
                       <button
                         type="button"
                         onClick={() => setDocHintOpen({
-                          title: lang === "de" ? "Scan-Qualität" : lang === "fr" ? "Qualité du scan" : "Scan quality",
+                          title: lang === "de" ? "Wichtig" : lang === "fr" ? "Important" : "Important",
                           hint: (
-                            <span className="flex flex-col gap-3">
-                              <span>{t.pScanQualityShort}</span>
+                            <span className="flex flex-col gap-4">
+                              <span className="flex flex-col gap-1">
+                                <span className="font-semibold text-[12px] uppercase tracking-wider" style={{ color: "var(--w3)" }}>
+                                  {lang === "de" ? "Scan" : lang === "fr" ? "Numérisation" : "Scan"}
+                                </span>
+                                <span>{lang === "de" ? "Nur Maschinenscanner. Keine Handyfotos." : lang === "fr" ? "Scanner uniquement. Pas de photos de téléphone." : "Machine scanner only. No phone photos."}</span>
+                              </span>
                               {phase === 1 && (
-                                <span className="flex flex-col gap-2 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
-                                  <span className="font-semibold text-[12px]" style={{ color: "var(--gold)" }}>{t.pOriginalsOnlyShort}</span>
+                                <span className="flex flex-col gap-1.5 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
+                                  <span className="font-semibold text-[12px] uppercase tracking-wider" style={{ color: "var(--w3)" }}>
+                                    {lang === "de" ? "Vereidigte Übersetzer" : lang === "fr" ? "Traducteurs assermentés" : "Sworn translators"}
+                                  </span>
                                   <a href="https://rabat.diplo.de/resource/blob/2417070/461b64d35650206a0f64ffb772feee9f/uebersetzer-liste-data.pdf"
                                     target="_blank" rel="noreferrer" className="underline" style={{ color: "var(--gold)" }}>
-                                    {t.pTransTooltipMoroccoLink}
+                                    {lang === "de" ? "Marokko" : lang === "fr" ? "Maroc" : "Morocco"} ↗
                                   </a>
                                   <a href="https://www.justiz-dolmetscher.de/Recherche/de/Suchen"
                                     target="_blank" rel="noreferrer" className="underline" style={{ color: "var(--gold)" }}>
-                                    {t.pTransTooltipGermanyLink}
+                                    {lang === "de" ? "Deutschland" : lang === "fr" ? "Allemagne" : "Germany"} ↗
                                   </a>
                                 </span>
                               )}
                             </span>
                           ),
                         })}
-                        aria-label={t.pScanQualityShort}
-                        title={t.pScanQualityShort}
+                        aria-label={lang === "de" ? "Wichtig" : lang === "fr" ? "Important" : "Important"}
+                        title={lang === "de" ? "Wichtig" : lang === "fr" ? "Important" : "Important"}
                         className="inline-flex items-center justify-center w-5 h-5 rounded-full transition-opacity hover:opacity-80 flex-shrink-0"
                         style={{ background: "var(--info-bg)", color: "var(--info)", border: "none", cursor: "pointer" }}>
                         <Info size={11} strokeWidth={2.2} />
