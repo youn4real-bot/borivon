@@ -1848,10 +1848,16 @@ export default function DashboardPage() {
                       style={{ background: "var(--gdim)", color: "var(--gold)", borderRadius: "12px" }}>
                       <PhaseIcon kind={currentPhase.kind} size={15} />
                     </span>
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0 flex-1 flex items-center gap-2 flex-wrap">
                       <h2 className="text-[18px] font-semibold tracking-[-0.015em] leading-tight" style={{ color: "var(--w)" }}>
                         {currentPhase.title}
                       </h2>
+                      <span
+                        title={t.pScanQualityShort}
+                        className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
+                        style={{ background: "var(--info-bg)", color: "var(--info)", border: "1px solid var(--info-border)" }}>
+                        <AlertTriangle size={10} strokeWidth={2} /> {t.pScanQualityShort}
+                      </span>
                     </div>
                     {pending > 0 && (
                       <span className="inline-flex items-center gap-1.5 text-[11px] font-medium flex-shrink-0"
@@ -1866,11 +1872,9 @@ export default function DashboardPage() {
 
               <div className="h-px mx-6" style={{ background: "var(--border)" }} />
 
-              {/* Notice strip — scan quality + phase-specific tips */}
+              {/* Notice strip — phase-specific tips (scan-quality is shown
+                  inline as a pill next to the phase title) */}
               <div className="flex flex-col gap-1.5 px-6 pt-4 pb-2">
-                <p className="text-[11px] flex items-center gap-1.5" style={{ color: "var(--danger)" }}>
-                  <AlertTriangle size={11} strokeWidth={1.8} /> {t.pScanQualityShort}
-                </p>
                 {phase === 1 && (
                   <div className="text-[11px] flex flex-col gap-0.5" style={{ color: "var(--gold)" }}>
                     <span className="flex items-center gap-1.5">
