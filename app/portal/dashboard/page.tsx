@@ -1918,18 +1918,28 @@ export default function DashboardPage() {
               return (
                 <div key={item.key}>
                   {idx > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
-                  {/* Master header */}
-                  <div className="px-3 py-3 flex items-center gap-2 cursor-pointer bv-row-hover" style={{ minHeight: 54 }}
+                  {/* Master header — mirrors admin pair master row */}
+                  <div
+                    className={`px-3 py-3 flex items-center gap-2${origDoc && transDoc ? " cursor-pointer bv-row-hover" : ""}`}
                     onClick={() => setExpandedPairs(prev => { const n = new Set(prev); n.has(item.key) ? n.delete(item.key) : n.add(item.key); return n; })}>
                     <div className="flex-1 min-w-0">
                       <p className="text-[11.5px] font-medium tracking-tight" style={{ color: pairColor ?? "var(--w)" }}>{item.label}</p>
+                      {item.optional && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded"
+                          style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>{t.pOptional}</span>
+                      )}
                     </div>
                     {origDoc && transDoc && (
-                      <button onClick={e => { e.stopPropagation(); downloadMergedPdf(item.key, origDoc.id, transDoc.id, item.label); }}
+                      <button type="button"
                         disabled={mergingPair === item.key}
                         title={lang === "de" ? "Kombi-PDF" : "Merged PDF"}
-                        className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full flex-shrink-0" style={{ color: bothApproved ? "var(--success)" : "var(--w2)" }}>
-                        {mergingPair === item.key ? <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" /> : <Download size={15} strokeWidth={1.8} />}
+                        aria-label="Download merged PDF"
+                        className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full disabled:opacity-40 flex-shrink-0"
+                        style={{ color: "var(--w2)" }}
+                        onClick={e => { e.stopPropagation(); downloadMergedPdf(item.key, origDoc.id, transDoc.id, item.label); }}>
+                        {mergingPair === item.key
+                          ? <span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                          : <Download size={13} strokeWidth={1.8} />}
                       </button>
                     )}
                     <button type="button"
