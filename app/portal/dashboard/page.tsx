@@ -379,7 +379,7 @@ export default function DashboardPage() {
   const [infoPassportData, setInfoPassportData] = useState<Record<string, string | null> | null>(null);
   // Document-hint popup state — when set, the row's "What is this?" info icon
   // was clicked. Holds both the title and hint text so the modal can render.
-  const [docHintOpen, setDocHintOpen] = useState<{ title: string; hint: string } | null>(null);
+  const [docHintOpen, setDocHintOpen] = useState<{ title: string; hint: React.ReactNode } | null>(null);
   const [infoPassportLoading, setInfoPassportLoading] = useState(false);
   // passport_status from candidate_profiles — drives info button color independently of doc status
   const [passportStatus, setPassportStatus] = useState<string | null>(null);
@@ -1864,6 +1864,31 @@ export default function DashboardPage() {
                         style={{ background: "var(--info-bg)", color: "var(--info)", border: "none", cursor: "pointer" }}>
                         <Info size={11} strokeWidth={2.2} />
                       </button>
+                      {phase === 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setDocHintOpen({
+                            title: t.pOriginalsOnlyShort,
+                            hint: (
+                              <span className="flex flex-col gap-2">
+                                <a href="https://rabat.diplo.de/resource/blob/2417070/461b64d35650206a0f64ffb772feee9f/uebersetzer-liste-data.pdf"
+                                  target="_blank" rel="noreferrer" className="underline" style={{ color: "var(--gold)" }}>
+                                  {t.pTransTooltipMoroccoLink}
+                                </a>
+                                <a href="https://www.justiz-dolmetscher.de/Recherche/de/Suchen"
+                                  target="_blank" rel="noreferrer" className="underline" style={{ color: "var(--gold)" }}>
+                                  {t.pTransTooltipGermanyLink}
+                                </a>
+                              </span>
+                            ),
+                          })}
+                          aria-label={t.pOriginalsOnlyShort}
+                          title={t.pOriginalsOnlyShort}
+                          className="inline-flex items-center justify-center w-5 h-5 rounded-full transition-opacity hover:opacity-80 flex-shrink-0"
+                          style={{ background: "var(--gdim)", color: "var(--gold)", border: "none", cursor: "pointer" }}>
+                          <Paperclip size={11} strokeWidth={2.2} />
+                        </button>
+                      )}
                     </div>
                     {pending > 0 && (
                       <span className="inline-flex items-center gap-1.5 text-[11px] font-medium flex-shrink-0"
@@ -1878,38 +1903,6 @@ export default function DashboardPage() {
 
               <div className="h-px mx-6" style={{ background: "var(--border)" }} />
 
-              {/* Notice strip — phase-specific tips (scan-quality is shown
-                  inline as a pill next to the phase title) */}
-              <div className="flex flex-col gap-1.5 px-6 pt-4 pb-2">
-                {phase === 1 && (
-                  <div className="text-[11px] flex flex-col gap-0.5" style={{ color: "var(--gold)" }}>
-                    <span className="flex items-center gap-1.5">
-                      <Paperclip size={11} strokeWidth={1.8} /> {t.pOriginalsOnlyShort}
-                    </span>
-                    <a href="https://rabat.diplo.de/resource/blob/2417070/461b64d35650206a0f64ffb772feee9f/uebersetzer-liste-data.pdf"
-                      target="_blank" rel="noreferrer" className="underline ml-5" style={{ color: "var(--gold)" }}>
-                      {t.pTransTooltipMoroccoLink}
-                    </a>
-                    <a href="https://www.justiz-dolmetscher.de/Recherche/de/Suchen"
-                      target="_blank" rel="noreferrer" className="underline ml-5" style={{ color: "var(--gold)" }}>
-                      {t.pTransTooltipGermanyLink}
-                    </a>
-                  </div>
-                )}
-                {currentPhase.isTranslations && (
-                  <div className="text-[11px] flex flex-col gap-0.5" style={{ color: "var(--gold)" }}>
-                    <span className="flex items-center gap-1.5"><Languages size={11} strokeWidth={1.8} /> {t.pTranslationsShort}</span>
-                    <a href="https://rabat.diplo.de/resource/blob/2417070/461b64d35650206a0f64ffb772feee9f/uebersetzer-liste-data.pdf"
-                      target="_blank" rel="noreferrer" className="underline ml-5" style={{ color: "var(--gold)" }}>
-                      {t.pTransTooltipMoroccoLink}
-                    </a>
-                    <a href="https://www.justiz-dolmetscher.de/Recherche/de/Suchen"
-                      target="_blank" rel="noreferrer" className="underline ml-5" style={{ color: "var(--gold)" }}>
-                      {t.pTransTooltipGermanyLink}
-                    </a>
-                  </div>
-                )}
-              </div>
 
               {/* Doc rows — borderless minimalist list */}
               <div className="px-3 pb-2">
