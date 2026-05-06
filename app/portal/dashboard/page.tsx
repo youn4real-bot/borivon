@@ -96,7 +96,7 @@ type Pipeline = {
 const JOURNEY_STAGES = [
   { key: "interview"   as const, kind: "interview"   as PhaseKind },
   { key: "recognition" as const, kind: "recognition" as PhaseKind },
-  { key: "visum"       as const, kind: "visa"        as PhaseKind },
+  { key: "visum"       as const, kind: "embassy"      as PhaseKind },
   { key: "reise"       as const, kind: "flight"      as PhaseKind },
   { key: "integration" as const, kind: "integration" as PhaseKind },
   { key: "start"       as const, kind: "start"       as PhaseKind },
