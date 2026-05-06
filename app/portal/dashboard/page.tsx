@@ -2099,15 +2099,20 @@ export default function DashboardPage() {
             // info, hint) stop propagation so they don't accidentally trigger
             // the preview.
             // Whole-row click: previews when uploaded, opens the file picker
-            // when empty (incl. multi-doc 'other' under the 5-file cap).
-            const rowEmptyUpload = !uploaded && !isOther && item.key !== "cv" && item.key !== "cv_de";
+            // when empty (incl. multi-doc 'other' under the 5-file cap), or
+            // routes to the CV builder for the CV row.
+            const isCv = item.key === "cv" || item.key === "cv_de";
+            const rowEmptyUpload = !uploaded && !isOther && !isCv;
             const rowEmptyOther  = isOther && allOtherDocs.length < 5;
+            const rowEmptyCv     = isCv && !uploaded;
             const rowClickable =
               (!isOther && uploaded && doc?.drive_file_id && !isUploading) ||
-              ((rowEmptyUpload || rowEmptyOther) && !isUploading);
+              ((rowEmptyUpload || rowEmptyOther || rowEmptyCv) && !isUploading);
             const rowOnClick = !rowClickable
               ? undefined
-              : ((!uploaded || isOther) ? () => openPicker(item.key) : () => handlePreview(doc!));
+              : rowEmptyCv ? () => router.push("/portal/cv-builder")
+              : (!uploaded || isOther) ? () => openPicker(item.key)
+              : () => handlePreview(doc!);
 
             return (
               <div key={item.key}>
@@ -2128,23 +2133,15 @@ export default function DashboardPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <p className="text-[11.5px] font-medium tracking-tight" style={{ color: rowColor ?? "var(--w)" }}>{item.label}</p>
-                        {/* "What is this?" — small blue info circle that opens
-                            a popup with the document explanation. The
-                            workcert (Berufserlaubnis) row uses the richer
-                            step-by-step guide modal instead, which lists the
-                            4 documents required by the Moroccan Ministry of
-                            Health in Rabat with maps + example links. */}
-                        {item.hint && (
+                        {/* Per-doc 'What is this?' info button — kept only for
+                            the workcert (Berufserlaubnis) row, which opens the
+                            detailed step-by-step Rabat-ministry guide. All
+                            other rows had their info circles removed by user
+                            request — restore from git when needed. */}
+                        {item.key === "workcert" && (
                           <button
                             type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (item.key === "workcert") {
-                                setShowWorkGuide(true);
-                              } else {
-                                setDocHintOpen({ title: item.label, hint: item.hint });
-                              }
-                            }}
+                            onClick={(e) => { e.stopPropagation(); setShowWorkGuide(true); }}
                             aria-label={t.pWhatIsThis}
                             title={t.pWhatIsThis}
                             className="inline-flex items-center justify-center w-5 h-5 rounded-full transition-opacity hover:opacity-80"
@@ -2275,14 +2272,12 @@ export default function DashboardPage() {
                             CV follows our format. No upload option, just the
                             primary "Build my CV" CTA in gold. */}
                         {!uploaded && (item.key === "cv" || item.key === "cv_de") && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); router.push("/portal/cv-builder"); }}
-                            title={t.pCVBuilderBtn}
-                            aria-label={t.pCVBuilderBtn}
-                            className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full flex-shrink-0"
+                          <span
+                            aria-hidden="true"
+                            className="inline-flex items-center justify-center w-9 h-9 rounded-full flex-shrink-0"
                             style={{ color: "var(--gold)" }}>
                             <Sparkles size={13} strokeWidth={1.8} />
-                          </button>
+                          </span>
                         )}
 
                         {/* Empty state → decorative upload icon. The whole row
