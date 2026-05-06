@@ -436,12 +436,10 @@ export function ProfileIcon() {
                   )}
                 </div>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => { setOpen(false); setPlanModalOpen(true); }}
-                  className="relative w-11 h-11 rounded-full mx-auto mb-2.5 overflow-hidden group block cursor-pointer"
+                <div
+                  className="relative w-11 h-11 rounded-full mx-auto mb-2.5 overflow-hidden block"
                   style={{ background: "none", border: "none", padding: 0 }}
-                  title={gT.profUpgradePlan}
+                  title={user.name}
                 >
                   {user.photo ? (
                     // eslint-disable-next-line @next/next/no-img-element
@@ -454,14 +452,7 @@ export function ProfileIcon() {
                       {user.initials}
                     </div>
                   )}
-                  {/* Star overlay on hover */}
-                  <div className="absolute inset-0 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                    style={{ background: "rgba(0,0,0,0.4)" }}>
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="gold" stroke="none" aria-hidden="true">
-                      <polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/>
-                    </svg>
-                  </div>
-                </button>
+                </div>
               )}
               <p className="text-[13px] font-semibold text-center truncate inline-flex items-center justify-center gap-0.5 w-full" style={{ color: "var(--w)" }}>
                 {user.name}
