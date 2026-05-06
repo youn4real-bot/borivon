@@ -5,7 +5,7 @@ import React from "react";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { CVDocument } from "@/components/CVDocument";
 import type { CVData, CVBrand } from "@/components/CVDocument";
-import { requireUser } from "@/lib/admin-auth";
+import { requireUser, requireAdminRole } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { registerPdfFonts } from "@/lib/pdf-fonts";
 
@@ -89,6 +89,24 @@ export async function POST(req: NextRequest) {
 
   if (rateLimited(auth.userId)) {
     return Response.json({ error: "Rate limit exceeded" }, { status: 429 });
+  }
+
+  // Server-side payment gate — the client redirects free users to the
+  // upgrade modal, but a direct POST would otherwise bypass that. Admins
+  // (full + sub) bypass the gate so they can preview / generate a CV when
+  // editing a candidate's draft.
+  const adminAuth = await requireAdminRole(req);
+  if (!adminAuth.ok) {
+    const dbCheck = getServiceSupabase();
+    const { data: prof } = await dbCheck
+      .from("candidate_profiles")
+      .select("payment_tier")
+      .eq("user_id", auth.userId)
+      .maybeSingle();
+    const tier = (prof as { payment_tier?: string | null } | null)?.payment_tier ?? null;
+    if (tier !== "premium") {
+      return Response.json({ error: "Premium plan required" }, { status: 403 });
+    }
   }
 
   try {
