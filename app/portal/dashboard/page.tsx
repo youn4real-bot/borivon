@@ -1094,9 +1094,9 @@ export default function DashboardPage() {
               </span>
               <span className="flex-1" />
               <div className="flex flex-col items-end leading-tight">
-                <span className="flex items-baseline gap-1">
-                  <span className="text-[20px] font-bold tracking-tight" style={{ color: "var(--w)" }}>€19</span>
-                  <span className="text-[11px]" style={{ color: "var(--w3)" }}>
+                <span className="flex items-end gap-1 leading-none">
+                  <span className="text-[20px] font-bold tracking-tight leading-none" style={{ color: "var(--w)" }}>€19</span>
+                  <span className="text-[11px] leading-none pb-[2px]" style={{ color: "var(--w3)" }}>
                     {lang === "de" ? "/Monat" : lang === "en" ? "/month" : "/mois"}
                   </span>
                 </span>
