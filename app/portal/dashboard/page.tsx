@@ -1094,13 +1094,11 @@ export default function DashboardPage() {
               </span>
               <span className="flex-1" />
               <div className="flex flex-col items-end leading-tight">
-                <span className="flex items-baseline gap-1">
-                  <span className="text-[20px] font-bold tracking-tight" style={{ color: "var(--w)" }}>€19</span>
-                  <span className="text-[11px]" style={{ color: "var(--w3)" }}>
-                    {lang === "de" ? "/Monat" : lang === "en" ? "/month" : "/mois"}
-                  </span>
+                <span className="text-[20px] font-bold tracking-tight" style={{ color: "var(--w)" }}>€19</span>
+                <span className="text-[11px] -mt-0.5" style={{ color: "var(--w3)" }}>
+                  {lang === "de" ? "/Monat" : lang === "en" ? "/month" : "/mois"}
                 </span>
-                <span className="text-[10.5px] mt-0.5 flex items-center gap-1" style={{ color: "var(--w3)" }}>
+                <span className="text-[10.5px] mt-1 flex items-center gap-1" style={{ color: "var(--w3)" }}>
                   {lang === "de" ? "oder €99 einmalig" : lang === "en" ? "or €99 one-time" : "ou 99€ unique"}
                 </span>
               </div>
@@ -1134,26 +1132,30 @@ export default function DashboardPage() {
                 </span>
               </div>
             </div>
-            {/* CTAs — primary monthly (gold) + secondary one-time with savings (outline) */}
+            {/* CTAs — primary one-time (gold, save-13%) + secondary monthly (outline) */}
             <div className="p-5 pt-4 flex flex-col gap-2">
-              <button
-                onClick={() => handleUpgradeToPremium("premium_monthly")}
-                disabled={upgradeLoading}
-                className="w-full py-3 rounded-xl text-[14px] font-semibold tracking-tight transition-all hover:opacity-90"
-                style={{ background: "var(--gold)", color: "#131312", cursor: upgradeLoading ? "wait" : "pointer" }}>
-                {upgradeLoading
-                  ? (lang === "de" ? "Bitte warten…" : lang === "en" ? "Please wait…" : "Veuillez patienter…")
-                  : (lang === "de" ? "€19/Monat — Abo" : lang === "en" ? "€19/month — subscribe" : "19€/mois — abonnement")}
-              </button>
               <button
                 onClick={() => handleUpgradeToPremium("premium_onetime")}
                 disabled={upgradeLoading}
-                className="w-full py-2.5 rounded-xl text-[13px] font-semibold transition-all hover:opacity-90 disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                className="w-full py-3 rounded-xl text-[14px] font-semibold tracking-tight transition-all hover:opacity-90 inline-flex items-center justify-center gap-2"
+                style={{ background: "var(--gold)", color: "#131312", cursor: upgradeLoading ? "wait" : "pointer" }}>
+                {upgradeLoading
+                  ? (lang === "de" ? "Bitte warten…" : lang === "en" ? "Please wait…" : "Veuillez patienter…")
+                  : (
+                    <>
+                      {lang === "de" ? "€99 einmalig" : lang === "en" ? "€99 one-time" : "99€ unique"}
+                      <span className="text-[9.5px] font-bold uppercase px-1.5 py-0.5 rounded-full" style={{ background: "rgba(19,19,18,0.15)", color: "#131312", border: "1px solid rgba(19,19,18,0.25)" }}>
+                        -13%
+                      </span>
+                    </>
+                  )}
+              </button>
+              <button
+                onClick={() => handleUpgradeToPremium("premium_monthly")}
+                disabled={upgradeLoading}
+                className="w-full py-2.5 rounded-xl text-[13px] font-semibold transition-all hover:opacity-90 disabled:opacity-50"
                 style={{ background: "transparent", color: "var(--gold)", border: "1px solid var(--border-gold)", cursor: upgradeLoading ? "wait" : "pointer" }}>
-                {lang === "de" ? "€99 einmalig" : lang === "en" ? "€99 one-time" : "99€ unique"}
-                <span className="text-[9.5px] font-bold uppercase px-1.5 py-0.5 rounded-full" style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
-                  -13%
-                </span>
+                {lang === "de" ? "€19/Monat — Abo" : lang === "en" ? "€19/month — subscribe" : "19€/mois — abonnement"}
               </button>
               <button
                 onClick={() => setUpgradeOpen(false)} disabled={upgradeLoading}
