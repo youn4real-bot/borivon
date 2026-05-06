@@ -2081,14 +2081,15 @@ export default function DashboardPage() {
             // info, hint) stop propagation so they don't accidentally trigger
             // the preview.
             // Whole-row click: previews when uploaded, opens the file picker
-            // when empty. Multi-doc 'other' slot keeps a per-action picker.
+            // when empty (incl. multi-doc 'other' under the 5-file cap).
             const rowEmptyUpload = !uploaded && !isOther && item.key !== "cv" && item.key !== "cv_de";
+            const rowEmptyOther  = isOther && allOtherDocs.length < 5;
             const rowClickable =
               (!isOther && uploaded && doc?.drive_file_id && !isUploading) ||
-              (rowEmptyUpload && !isUploading);
+              ((rowEmptyUpload || rowEmptyOther) && !isUploading);
             const rowOnClick = !rowClickable
               ? undefined
-              : (!uploaded ? () => openPicker(item.key) : () => handlePreview(doc!));
+              : ((!uploaded || isOther) ? () => openPicker(item.key) : () => handlePreview(doc!));
 
             return (
               <div key={item.key}>
@@ -2266,29 +2267,27 @@ export default function DashboardPage() {
                           </button>
                         )}
 
-                        {/* Empty state → minimal upload icon button (matches
-                            the pair sub-rows). Skipped for CV slots (route to
-                            the builder) and for the "other" multi-doc slot. */}
+                        {/* Empty state → decorative upload icon. The whole row
+                            is the click target, so the icon stays purely visual
+                            (no button hover bg). */}
                         {!uploaded && !isOther && item.key !== "cv" && item.key !== "cv_de" && (
-                          <button onClick={(e) => { e.stopPropagation(); openPicker(item.key); }}
-                            title={t.pUploadBtn}
-                            aria-label={t.pUploadBtn}
-                            className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full flex-shrink-0"
+                          <span
+                            aria-hidden="true"
+                            className="inline-flex items-center justify-center w-9 h-9 rounded-full flex-shrink-0"
                             style={{ color: "var(--gold)" }}>
                             <Upload size={13} strokeWidth={1.8} />
-                          </button>
+                          </span>
                         )}
 
-                        {/* "other" key — single icon-only upload, allows
-                            multi-doc up to 5. */}
+                        {/* "other" key — same decorative icon; the row body
+                            triggers the picker. */}
                         {isOther && allOtherDocs.length < 5 && (
-                          <button onClick={(e) => { e.stopPropagation(); openPicker(item.key); }}
-                            title={t.pUploadBtn}
-                            aria-label={t.pUploadBtn}
-                            className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full flex-shrink-0"
+                          <span
+                            aria-hidden="true"
+                            className="inline-flex items-center justify-center w-9 h-9 rounded-full flex-shrink-0"
                             style={{ color: "var(--gold)" }}>
                             <Upload size={13} strokeWidth={1.8} />
-                          </button>
+                          </span>
                         )}
 
                         {/* Uploaded (single-doc, non-other): just two borderless
