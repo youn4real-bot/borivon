@@ -1104,14 +1104,11 @@ export default function DashboardPage() {
                 <span className="flex items-baseline gap-1">
                   <span className="text-[20px] font-bold tracking-tight" style={{ color: "var(--w)" }}>€19</span>
                   <span className="text-[11px]" style={{ color: "var(--w3)" }}>
-                    {lang === "de" ? "/Monat × 6" : lang === "en" ? "/month × 6" : "/mois × 6"}
+                    {lang === "de" ? "/Monat" : lang === "en" ? "/month" : "/mois"}
                   </span>
                 </span>
                 <span className="text-[10.5px] mt-0.5 flex items-center gap-1" style={{ color: "var(--w3)" }}>
                   {lang === "de" ? "oder €99 einmalig" : lang === "en" ? "or €99 one-time" : "ou 99€ unique"}
-                  <span className="text-[9.5px] font-bold uppercase px-1.5 py-0.5 rounded-full" style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
-                    -13%
-                  </span>
                 </span>
               </div>
             </div>
@@ -1153,7 +1150,7 @@ export default function DashboardPage() {
                 style={{ background: "var(--gold)", color: "#131312", cursor: upgradeLoading ? "wait" : "pointer" }}>
                 {upgradeLoading
                   ? (lang === "de" ? "Bitte warten…" : lang === "en" ? "Please wait…" : "Veuillez patienter…")
-                  : (lang === "de" ? "€19/Monat × 6 Raten" : lang === "en" ? "€19/month × 6 instalments" : "19€/mois × 6 fois")}
+                  : (lang === "de" ? "€19/Monat — Abo" : lang === "en" ? "€19/month — subscribe" : "19€/mois — abonnement")}
               </button>
               <button
                 onClick={() => handleUpgradeToPremium("premium_onetime")}

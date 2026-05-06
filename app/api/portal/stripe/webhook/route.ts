@@ -15,7 +15,6 @@ function getStripe() {
  *
  * Events handled:
  *   - checkout.session.completed → set candidate_profiles.payment_tier = 'premium'
- *   - invoice.paid (subscription)  → enforce 6-cycle cap on premium_monthly
  *
  * Register this URL in Stripe Dashboard → Developers → Webhooks:
  *   https://www.borivon.com/api/portal/stripe/webhook
@@ -78,41 +77,6 @@ export async function POST(req: NextRequest) {
     return Response.json({ received: true });
   }
 
-  // ── invoice.paid → cap premium_monthly at 6 cycles ───────────────────────
-  // We can't rely on Stripe's recurring price metadata to limit cycles, so we
-  // count successful invoices on the subscription and cancel it after the 6th.
-  if (event.type === "invoice.paid") {
-    const invoice = event.data.object as Stripe.Invoice;
-    // Subscription invoices have an attached subscription — non-subscription
-    // invoices (e.g. one-off charges) don't.
-    const subId = typeof (invoice as unknown as { subscription?: string | null }).subscription === "string"
-      ? (invoice as unknown as { subscription: string }).subscription
-      : null;
-    if (!subId) return Response.json({ received: true });
-
-    try {
-      const sub = await stripe.subscriptions.retrieve(subId);
-      const max = parseInt(sub.metadata?.max_cycles ?? "0", 10);
-      if (!max || sub.metadata?.plan !== "premium_monthly") {
-        return Response.json({ received: true });
-      }
-
-      // Count paid invoices on this subscription. Stripe paginates at 100,
-      // which is well above our cap (6) — single page is enough.
-      const invoices = await stripe.invoices.list({ subscription: subId, status: "paid", limit: 100 });
-      const paidCount = invoices.data.length;
-
-      if (paidCount >= max && sub.status !== "canceled") {
-        await stripe.subscriptions.cancel(subId);
-        console.log(`[stripe webhook] premium_monthly cap reached (${paidCount}/${max}) — cancelled ${subId}`);
-      }
-    } catch (err) {
-      console.error("[stripe webhook] cycle-cap enforcement failed:", err);
-      // Don't 500 the webhook — Stripe would retry the invoice.paid event
-      // forever and the customer is already paid up.
-    }
-    return Response.json({ received: true });
-  }
 
   return Response.json({ received: true });
 }

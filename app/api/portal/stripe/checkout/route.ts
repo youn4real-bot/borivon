@@ -14,12 +14,12 @@ function getStripe() {
 // lookup_key stays attached to the new price.
 const LOOKUP_KEY: Record<string, string> = {
   premium_onetime: "premium_onetime_99",     // €99 one-off
-  premium_monthly: "premium_monthly_6x",     // €19/month × 6 cycles
+  premium_monthly: "premium_monthly_6x",     // €19/month — open-ended subscription
 };
 
 const LABELS: Record<string, string> = {
   premium_onetime: "Premium — €99",
-  premium_monthly: "Premium — €19/month × 6",
+  premium_monthly: "Premium — €19/month",
 };
 
 type Plan = "premium_onetime" | "premium_monthly";
@@ -30,9 +30,8 @@ type Plan = "premium_onetime" | "premium_monthly";
  * Returns: { url: string }  — Stripe-hosted checkout URL
  *
  * premium_onetime → one-time €99 payment (mode: "payment")
- * premium_monthly → €19/month subscription, capped at 6 cycles (mode:
- *   "subscription"). The cycle cap is enforced by the webhook, which
- *   counts invoice.paid events and cancels the subscription after 6.
+ * premium_monthly → €19/month open-ended subscription (mode:
+ *   "subscription"). Customer cancels via Stripe's customer portal.
  */
 export async function POST(req: NextRequest) {
   const auth = await requireUser(req);
@@ -67,10 +66,10 @@ export async function POST(req: NextRequest) {
     customer_email: auth.email ?? undefined,
     ...(isMonthly
       ? {
-          // Stash plan + cycle cap on the subscription itself so the webhook
-          // can count invoice.paid events and auto-cancel after 6.
+          // Open-ended subscription — runs until candidate cancels via
+          // Stripe's customer portal. No cycle cap on our side.
           subscription_data: {
-            metadata: { userId: auth.userId, plan, max_cycles: "6" },
+            metadata: { userId: auth.userId, plan },
           },
         }
       : {

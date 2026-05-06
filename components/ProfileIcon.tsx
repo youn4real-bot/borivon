@@ -107,7 +107,7 @@ type UserInfo = {
   isSuperAdmin: boolean;
   /** Org name for org_member — shown as "Admin of X" in the profile modal. */
   orgName: string | null;
-  /** Stripe payment tier — null=free, "premium" = €99 one-off OR €19/month × 6.
+  /** Stripe payment tier — null=free, "premium" = €99 one-off OR €19/month subscription.
    *  Used to hide upgrade prompts that the user has already outgrown. */
   paymentTier: string | null;
 };
@@ -984,7 +984,7 @@ export function ProfileIcon() {
                       : (lang === "de" ? "Jetzt zahlen — €99" : lang === "en" ? "Pay now — €99" : "Payer maintenant — 99€")}
                   </button>
 
-                  {/* Secondary — €19/month × 6 cycles */}
+                  {/* Secondary — €19/month open-ended subscription */}
                   <button
                     onClick={() => handleCheckout("premium_monthly")}
                     disabled={!!checkoutPlan}
@@ -992,7 +992,7 @@ export function ProfileIcon() {
                     style={{ background: "transparent", color: "var(--gold)", border: "1px solid var(--border-gold)", cursor: checkoutPlan ? "wait" : "pointer" }}>
                     {checkoutPlan === "premium_monthly"
                       ? (lang === "de" ? "Weiterleitung…" : lang === "en" ? "Redirecting…" : "Redirection…")
-                      : (lang === "de" ? "In 6 Raten zahlen — €19 / Monat" : lang === "en" ? "Pay in 6 instalments — €19 / month" : "Payer en 6 fois — 19€ / mois")}
+                      : (lang === "de" ? "Im Abo zahlen — €19 / Monat" : lang === "en" ? "Subscribe — €19 / month" : "S'abonner — 19€ / mois")}
                   </button>
                 </div>
 
