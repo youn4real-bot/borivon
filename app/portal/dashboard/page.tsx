@@ -928,14 +928,14 @@ export default function DashboardPage() {
       });
   }
 
-  async function handleUpgradeToPremium() {
+  async function handleUpgradeToPremium(plan: "premium_onetime" | "premium_monthly" = "premium_onetime") {
     if (upgradeLoading) return; // double-click guard
     setUpgradeLoading(true);
     try {
       const res = await fetch("/api/portal/stripe/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
-        body: JSON.stringify({ plan: "premium_onetime" }),
+        body: JSON.stringify({ plan }),
       });
       const json = await res.json().catch(() => ({}));
       if (json.url) {
@@ -1092,17 +1092,25 @@ export default function DashboardPage() {
                   : "Le suivi des entretiens, la reconnaissance, le visa et les vols font partie du plan Premium."}
               </p>
             </div>
-            {/* Price box */}
-            <div className="mx-6 my-5 px-4 py-3 rounded-2xl flex items-center gap-3"
+            {/* Price box — two options side by side */}
+            <div className="mx-6 my-5 px-4 py-3 rounded-2xl flex items-center gap-2"
               style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
-              <span className="flex items-center gap-1.5 text-[13px] font-semibold flex-1" style={{ color: "var(--gold)" }}>
+              <span className="flex items-center gap-1.5 text-[13px] font-semibold flex-shrink-0" style={{ color: "var(--gold)" }}>
                 <VerifiedBadge verified size="md" color="gold" />
-                {lang === "de" ? "Premium-Plan" : "Premium Plan"}
+                {lang === "de" ? "Premium" : "Premium"}
               </span>
-              <span className="text-[20px] font-bold tracking-tight" style={{ color: "var(--w)" }}>€99</span>
-              <span className="text-[11px]" style={{ color: "var(--w3)" }}>
-                {lang === "de" ? "einmalig" : lang === "en" ? "one-time" : "paiement unique"}
-              </span>
+              <span className="flex-1" />
+              <div className="flex flex-col items-end leading-tight">
+                <span className="flex items-center gap-1.5">
+                  <span className="text-[18px] font-bold tracking-tight" style={{ color: "var(--w)" }}>€99</span>
+                  <span className="text-[9.5px] font-bold uppercase px-1.5 py-0.5 rounded-full" style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
+                    -13%
+                  </span>
+                </span>
+                <span className="text-[10.5px] mt-0.5" style={{ color: "var(--w3)" }}>
+                  {lang === "de" ? "oder €19/Monat × 6" : lang === "en" ? "or €19/month × 6" : "ou 19€/mois × 6"}
+                </span>
+              </div>
             </div>
             {/* Features */}
             <div className="px-6 pb-2 space-y-2">
@@ -1133,16 +1141,23 @@ export default function DashboardPage() {
                 </span>
               </div>
             </div>
-            {/* CTAs */}
+            {/* CTAs — primary one-off (gold) + secondary monthly (outline) */}
             <div className="p-5 pt-4 flex flex-col gap-2">
               <button
-                onClick={handleUpgradeToPremium}
+                onClick={() => handleUpgradeToPremium("premium_onetime")}
                 disabled={upgradeLoading}
                 className="w-full py-3 rounded-xl text-[14px] font-semibold tracking-tight transition-all hover:opacity-90"
                 style={{ background: "var(--gold)", color: "#131312", cursor: upgradeLoading ? "wait" : "pointer" }}>
                 {upgradeLoading
                   ? (lang === "de" ? "Bitte warten…" : lang === "en" ? "Please wait…" : "Veuillez patienter…")
-                  : (lang === "de" ? "Jetzt upgraden — €99" : lang === "en" ? "Upgrade now — €99" : "Passer au Premium — 99€")}
+                  : (lang === "de" ? "€99 einmalig — 13% sparen" : lang === "en" ? "€99 one-time — save 13%" : "99€ unique — économiser 13%")}
+              </button>
+              <button
+                onClick={() => handleUpgradeToPremium("premium_monthly")}
+                disabled={upgradeLoading}
+                className="w-full py-2.5 rounded-xl text-[13px] font-semibold transition-all hover:opacity-90 disabled:opacity-50"
+                style={{ background: "transparent", color: "var(--gold)", border: "1px solid var(--border-gold)", cursor: upgradeLoading ? "wait" : "pointer" }}>
+                {lang === "de" ? "€19/Monat × 6 Raten" : lang === "en" ? "€19/month × 6 instalments" : "19€/mois × 6 fois"}
               </button>
               <button
                 onClick={() => setUpgradeOpen(false)} disabled={upgradeLoading}
