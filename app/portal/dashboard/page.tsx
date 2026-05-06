@@ -1094,11 +1094,13 @@ export default function DashboardPage() {
               </span>
               <span className="flex-1" />
               <div className="flex flex-col items-end leading-tight">
-                <span className="text-[20px] font-bold tracking-tight" style={{ color: "var(--w)" }}>€19</span>
-                <span className="text-[11px] -mt-0.5" style={{ color: "var(--w3)" }}>
-                  {lang === "de" ? "/Monat" : lang === "en" ? "/month" : "/mois"}
+                <span className="flex items-baseline gap-1">
+                  <span className="text-[20px] font-bold tracking-tight" style={{ color: "var(--w)" }}>€19</span>
+                  <span className="text-[11px]" style={{ color: "var(--w3)" }}>
+                    {lang === "de" ? "/Monat" : lang === "en" ? "/month" : "/mois"}
+                  </span>
                 </span>
-                <span className="text-[10.5px] mt-1 flex items-center gap-1" style={{ color: "var(--w3)" }}>
+                <span className="text-[10.5px] mt-0.5 flex items-center gap-1" style={{ color: "var(--w3)" }}>
                   {lang === "de" ? "oder €99 einmalig" : lang === "en" ? "or €99 one-time" : "ou 99€ unique"}
                 </span>
               </div>
