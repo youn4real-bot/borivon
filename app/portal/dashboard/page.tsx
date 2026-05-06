@@ -1081,16 +1081,9 @@ export default function DashboardPage() {
                 style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
                 <PhaseIcon kind="flight" size={24} style={{ color: "var(--gold)" }} />
               </span>
-              <h3 className="text-[18px] font-semibold tracking-tight mb-2" style={{ color: "var(--w)" }}>
+              <h3 className="text-[18px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>
                 {lang === "de" ? "Premium-Plan erforderlich" : lang === "en" ? "Premium Plan Required" : "Plan Premium requis"}
               </h3>
-              <p className="text-[13px] leading-relaxed mb-1" style={{ color: "var(--w2)" }}>
-                {lang === "de"
-                  ? "Interview-Tracking, Anerkennung, Visum & Flug-Updates sind im Premium-Plan enthalten."
-                  : lang === "en"
-                  ? "Interview tracking, recognition, visa & flight updates are included in the Premium plan."
-                  : "Le suivi des entretiens, la reconnaissance, le visa et les vols font partie du plan Premium."}
-              </p>
             </div>
             {/* Price box — €19/month featured, €99 one-time underneath */}
             <div className="mx-6 my-5 px-4 py-3 rounded-2xl flex items-center gap-2"
