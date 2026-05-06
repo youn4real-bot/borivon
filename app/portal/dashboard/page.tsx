@@ -2133,15 +2133,20 @@ export default function DashboardPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <p className="text-[11.5px] font-medium tracking-tight" style={{ color: rowColor ?? "var(--w)" }}>{item.label}</p>
-                        {/* Per-doc 'What is this?' info button — kept only for
-                            the workcert (Berufserlaubnis) row, which opens the
-                            detailed step-by-step Rabat-ministry guide. All
-                            other rows had their info circles removed by user
-                            request — restore from git when needed. */}
-                        {item.key === "workcert" && (
+                        {/* Per-doc 'What is this?' info button — workcert
+                            opens the detailed Rabat-ministry guide; other
+                            rows pop the simpler doc-hint modal. */}
+                        {(item.hint || item.key === "workcert") && (
                           <button
                             type="button"
-                            onClick={(e) => { e.stopPropagation(); setShowWorkGuide(true); }}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (item.key === "workcert") {
+                                setShowWorkGuide(true);
+                              } else {
+                                setDocHintOpen({ title: item.label, hint: item.hint });
+                              }
+                            }}
                             aria-label={t.pWhatIsThis}
                             title={t.pWhatIsThis}
                             className="inline-flex items-center justify-center w-5 h-5 rounded-full transition-opacity hover:opacity-80"
