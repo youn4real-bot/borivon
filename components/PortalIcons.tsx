@@ -58,7 +58,8 @@ import type { LucideIcon } from "lucide-react";
 // ── Phase / wizard kinds ─────────────────────────────────────────────────────
 export type PhaseKind =
   | "id" | "passport" | "nursing" | "translations" | "others"
-  | "docs" | "interview" | "recognition" | "embassy" | "visa" | "flight";
+  | "docs" | "interview" | "recognition" | "embassy" | "visa" | "flight"
+  | "integration" | "start";
 
 const PHASE_ICONS: Record<PhaseKind, LucideIcon> = {
   id:           IdCard,
@@ -72,6 +73,8 @@ const PHASE_ICONS: Record<PhaseKind, LucideIcon> = {
   embassy:      Landmark,
   visa:         Plane,
   flight:       PlaneTakeoff,
+  integration:  Home,
+  start:        Sparkles,
 };
 
 // ── CV-builder section kinds ────────────────────────────────────────────────

@@ -18,7 +18,7 @@ import {
 } from "@/components/PortalIcons";
 import type { Translation } from "@/lib/translations";
 
-export type JourneyMode = "interview" | "recognition" | "embassy" | "visa" | "flight";
+export type JourneyMode = "interview" | "recognition" | "embassy" | "visa" | "flight" | "visum" | "reise" | "integration" | "start";
 
 /**
  * Pipeline shape — must stay in sync with both:
@@ -36,6 +36,8 @@ export type JourneyPipeline = {
   flight_date?: string | null;
   flight_info?: string | null;
   docs_approved?: boolean;
+  integration_unlocked?: boolean;
+  start_unlocked?: boolean;
 };
 
 // ── Derive the current blocker for a locked stage ──────────────────────────
@@ -47,13 +49,17 @@ function getBlocker(mode: JourneyMode, p: JourneyPipeline | null): Blocker | nul
   if (mode === "embassy")     return p.recognition_unlocked ? null : "recognition";
   if (mode === "visa")        return p.embassy_unlocked ? null : "embassy";
   if (mode === "flight")      return p.visa_granted ? null : "visa";
+  if (mode === "visum")       return p.recognition_unlocked ? null : "recognition";
+  if (mode === "reise")       return p.visa_granted ? null : "visa";
+  if (mode === "integration") return null;
+  if (mode === "start")       return null;
   return null;
 }
 function blockerLabel(b: Blocker, lang: "fr"|"en"|"de"): string {
   const m = {
     docs:        { fr: "Documents",  en: "Documents",  de: "Dokumente" },
     interview:   { fr: "Entretien",  en: "Interview",  de: "Gespräch" },
-    recognition: { fr: "Reconnaissance", en: "Recognition", de: "Anerkennung" },
+    recognition: { fr: "Traitement", en: "Processing", de: "Bearbeitung" },
     embassy:     { fr: "Ambassade",  en: "Embassy",    de: "Botschaft" },
     visa:        { fr: "Visa",       en: "Visa",       de: "Visum" },
   };
@@ -335,6 +341,91 @@ function StageContent({ mode, p, t, lang = "en" }: { mode: JourneyMode; p: Journ
             {p.flight_info}
           </p>
         )}
+      </div>
+    );
+  }
+
+  // ── Visum (merged embassy + visa) ────────────────────────────────────────
+  if (mode === "visum") {
+    if (!p?.embassy_unlocked) return lockCard(t.pEmbassyLockedMsg);
+    return (
+      <div className="space-y-4">
+        <div className="rounded-2xl p-5" style={cardSt}>
+          <p className="text-base font-semibold mb-1 flex items-center gap-2" style={{ color: "var(--w)" }}>
+            <PhaseIcon kind="embassy" size={17} style={{ color: "var(--gold)" }} />
+            {t.pEmbassyTitle}
+          </p>
+          <p className="text-xs mb-5 leading-relaxed" style={{ color: "var(--w3)" }}>{t.pEmbassySub}</p>
+          <div className="space-y-1.5">
+            {embassyDocs.map((item, i) => (
+              <div key={i} className="flex items-start gap-2 text-xs" style={{ color: "var(--w2)" }}>
+                <span className="mt-0.5 flex-shrink-0" style={{ color: "var(--w3)" }}>□</span>
+                <span>{item}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        {p.visa_granted ? (
+          <div className="rounded-2xl px-5 py-10 text-center" style={{ ...cardSt, border: "1px solid var(--success-border)" }}>
+            <HeroIcon Icon={PartyPopper} tone="success" />
+            <p className="text-[18px] font-semibold tracking-[-0.015em] mb-2" style={{ color: "var(--success)" }}>{t.pVisaGrantedTitle}</p>
+            <p className="text-xs leading-relaxed max-w-xs mx-auto mb-3" style={{ color: "var(--w2)" }}>{t.pVisaGrantedSub}</p>
+            {p.visa_date && (
+              <p className="text-xs" style={{ color: "var(--w3)" }}>
+                {t.pVisaDateLabel}: {new Date(p.visa_date).toLocaleDateString(undefined, { dateStyle: "long" })}
+              </p>
+            )}
+          </div>
+        ) : p.visa_date ? (
+          <div className="rounded-2xl px-5 py-10 text-center" style={cardSt}>
+            <HeroIcon Icon={({ size, strokeWidth, color }) => <PhaseIcon kind="visa" size={size} strokeWidth={strokeWidth} style={{ color }} />} tone="neutral" />
+            <p className="text-sm font-semibold mb-1" style={{ color: "var(--w)" }}>{t.pVisaWaitingTitle}</p>
+            <p className="text-xs leading-relaxed max-w-xs mx-auto" style={{ color: "var(--w3)" }}>{t.pVisaWaitingSub}</p>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  // ── Reise ────────────────────────────────────────────────────────────────
+  if (mode === "reise") {
+    if (!p?.flight_date) return lockCard(t.pFlightLockedMsg);
+    return (
+      <div className="rounded-2xl p-5 text-center" style={{ ...cardSt, border: "1px solid var(--border-gold)" }}>
+        <HeroIcon Icon={({ size, strokeWidth, color }) => <PhaseIcon kind="flight" size={size} strokeWidth={strokeWidth} style={{ color }} />} tone="neutral" />
+        <p className="text-[16px] font-semibold tracking-[-0.015em] mb-3" style={{ color: "var(--gold)" }}>{t.pFlightTitle}</p>
+        <p className="text-sm font-semibold mb-1" style={{ color: "var(--w)" }}>
+          {t.pFlightDateLabel}: {new Date(p.flight_date).toLocaleDateString(undefined, { dateStyle: "long" })}
+        </p>
+        {p.flight_info && (
+          <p className="text-xs mt-3 leading-relaxed max-w-xs mx-auto whitespace-pre-line" style={{ color: "var(--w2)" }}>
+            {p.flight_info}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  // ── Integration ──────────────────────────────────────────────────────────
+  if (mode === "integration") {
+    if (!p?.integration_unlocked) return lockCard(t.pIntegrationLockedMsg);
+    return (
+      <div className="rounded-2xl px-5 py-10 text-center" style={cardSt}>
+        <HeroIcon Icon={({ size, strokeWidth, color }) => <PhaseIcon kind="integration" size={size} strokeWidth={strokeWidth} style={{ color }} />} tone="neutral" />
+        <p className="text-sm font-semibold mb-1" style={{ color: "var(--w)" }}>{t.pJourneyIntegration}</p>
+        <p className="text-xs leading-relaxed max-w-xs mx-auto" style={{ color: "var(--w3)" }}>{t.pIntegrationLockedMsg}</p>
+      </div>
+    );
+  }
+
+  // ── Start ────────────────────────────────────────────────────────────────
+  if (mode === "start") {
+    if (!p?.start_unlocked) return lockCard(t.pStartLockedMsg);
+    return (
+      <div className="rounded-2xl px-5 py-10 text-center" style={{ ...cardSt, border: "1px solid var(--success-border)" }}>
+        <HeroIcon Icon={PartyPopper} tone="success" />
+        <p className="text-sm font-semibold mb-1" style={{ color: "var(--success)" }}>{t.pJourneyStart}</p>
+        <p className="text-xs leading-relaxed max-w-xs mx-auto" style={{ color: "var(--w2)" }}>{t.pStartLockedMsg}</p>
       </div>
     );
   }

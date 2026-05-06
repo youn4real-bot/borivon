@@ -180,7 +180,9 @@ export interface Translation {
   // ── Candidate journey stages ────────────────────────────────────────────────
   pJourneyDocs: string; pJourneyInterview: string; pJourneyRecognition: string;
   pJourneyEmbassy: string; pJourneyVisa: string; pJourneyFlight: string;
+  pJourneyVisum: string; pJourneyReise: string; pJourneyIntegration: string; pJourneyStart: string;
   pJourneyLocked: string;
+  pIntegrationLockedMsg: string; pStartLockedMsg: string;
   // Interview
   pInterviewPendingTitle: string; pInterviewPendingSub: string;
   pInterviewScheduledTitle: string; pInterviewJoinBtn: string;
@@ -459,9 +461,12 @@ export const translations: Record<Lang, Translation> = {
     aNew: "Nouveau",
     aWaiting: "en attente", aCandidate: "candidat", aCandidates: "candidats", aDocument: "document", aDocuments: "documents",
     aNoPreview: "Aucun aperçu disponible.",
-    pJourneyDocs: "Documents", pJourneyInterview: "Entretien", pJourneyRecognition: "Reconnaissance",
+    pJourneyDocs: "Documents", pJourneyInterview: "Entretien", pJourneyRecognition: "Traitement",
     pJourneyEmbassy: "Ambassade", pJourneyVisa: "Visa", pJourneyFlight: "Vol",
+    pJourneyVisum: "Visa", pJourneyReise: "Voyage", pJourneyIntegration: "Intégration", pJourneyStart: "Début",
     pJourneyLocked: "Finalisez les étapes précédentes pour débloquer",
+    pIntegrationLockedMsg: "Cette étape se débloque après votre arrivée en Allemagne.",
+    pStartLockedMsg: "Cette étape se débloque une fois installé.",
     pInterviewPendingTitle: "Entretien à venir", pInterviewPendingSub: "Votre lien d'entretien apparaîtra ici dès qu'il sera programmé. Restez disponible.",
     pInterviewScheduledTitle: "Entretien programmé", pInterviewJoinBtn: "Rejoindre l'entretien",
     pInterviewPassedTitle: "Félicitations !", pInterviewPassedSub: "Vous avez réussi votre entretien. La prochaine étape est maintenant débloquée.",
@@ -751,9 +756,12 @@ export const translations: Record<Lang, Translation> = {
     aNew: "New",
     aWaiting: "waiting", aCandidate: "candidate", aCandidates: "candidates", aDocument: "document", aDocuments: "documents",
     aNoPreview: "No preview available.",
-    pJourneyDocs: "Documents", pJourneyInterview: "Interview", pJourneyRecognition: "Recognition",
+    pJourneyDocs: "Documents", pJourneyInterview: "Interview", pJourneyRecognition: "Processing",
     pJourneyEmbassy: "Embassy", pJourneyVisa: "Visa", pJourneyFlight: "Flight",
+    pJourneyVisum: "Visa", pJourneyReise: "Journey", pJourneyIntegration: "Integration", pJourneyStart: "Start",
     pJourneyLocked: "Complete previous steps to unlock",
+    pIntegrationLockedMsg: "This step unlocks after arriving in Germany.",
+    pStartLockedMsg: "This step unlocks once you are settled in.",
     pInterviewPendingTitle: "Interview Coming Up", pInterviewPendingSub: "Your interview link will appear here once scheduled. Stay available.",
     pInterviewScheduledTitle: "Interview Scheduled", pInterviewJoinBtn: "Join Interview",
     pInterviewPassedTitle: "Congratulations!", pInterviewPassedSub: "You passed your interview. The next step is now unlocked.",
@@ -1043,9 +1051,12 @@ export const translations: Record<Lang, Translation> = {
     aNew: "Neu",
     aWaiting: "ausstehend", aCandidate: "Kandidat", aCandidates: "Kandidaten", aDocument: "Dokument", aDocuments: "Dokumente",
     aNoPreview: "Keine Vorschau verfügbar.",
-    pJourneyDocs: "Dokumente", pJourneyInterview: "Gespräch", pJourneyRecognition: "Anerkennung",
+    pJourneyDocs: "Dokumente", pJourneyInterview: "Gespräch", pJourneyRecognition: "Bearbeitung",
     pJourneyEmbassy: "Botschaft", pJourneyVisa: "Visum", pJourneyFlight: "Flug",
+    pJourneyVisum: "Visum", pJourneyReise: "Reise", pJourneyIntegration: "Integration", pJourneyStart: "Start",
     pJourneyLocked: "Schließen Sie die vorherigen Schritte ab",
+    pIntegrationLockedMsg: "Dieser Schritt wird nach Ihrer Ankunft in Deutschland freigeschaltet.",
+    pStartLockedMsg: "Dieser Schritt wird nach der Eingewöhnung freigeschaltet.",
     pInterviewPendingTitle: "Gespräch steht bevor", pInterviewPendingSub: "Ihr Gesprächslink erscheint hier, sobald er geplant ist. Bleiben Sie verfügbar.",
     pInterviewScheduledTitle: "Gespräch geplant", pInterviewJoinBtn: "Gespräch beitreten",
     pInterviewPassedTitle: "Herzlichen Glückwunsch!", pInterviewPassedSub: "Sie haben Ihr Gespräch bestanden. Der nächste Schritt ist jetzt freigeschaltet.",

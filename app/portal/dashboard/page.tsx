@@ -76,7 +76,7 @@ const FILE_KEY_PHASE: Record<string, number> = {
   langcert: 3, other: 3,
 };
 
-type ViewMode = "docs" | "interview" | "recognition" | "embassy" | "visa" | "flight";
+type ViewMode = "docs" | "interview" | "recognition" | "visum" | "reise" | "integration" | "start";
 
 type Pipeline = {
   interview_link: string | null;
@@ -89,14 +89,17 @@ type Pipeline = {
   flight_date: string | null;
   flight_info: string | null;
   docs_approved: boolean;
+  integration_unlocked?: boolean | null;
+  start_unlocked?: boolean | null;
 };
 
 const JOURNEY_STAGES = [
   { key: "interview"   as const, kind: "interview"   as PhaseKind },
   { key: "recognition" as const, kind: "recognition" as PhaseKind },
-  { key: "embassy"     as const, kind: "embassy"     as PhaseKind },
-  { key: "visa"        as const, kind: "visa"        as PhaseKind },
-  { key: "flight"      as const, kind: "flight"      as PhaseKind },
+  { key: "visum"       as const, kind: "visa"        as PhaseKind },
+  { key: "reise"       as const, kind: "flight"      as PhaseKind },
+  { key: "integration" as const, kind: "integration" as PhaseKind },
+  { key: "start"       as const, kind: "start"       as PhaseKind },
 ];
 
 function isJourneyUnlocked(stage: Exclude<ViewMode,"docs">, p: Pipeline | null): boolean {
@@ -104,9 +107,10 @@ function isJourneyUnlocked(stage: Exclude<ViewMode,"docs">, p: Pipeline | null):
   switch (stage) {
     case "interview":   return !!(p.interview_link) || p.interview_status !== "pending";
     case "recognition": return p.recognition_unlocked;
-    case "embassy":     return p.embassy_unlocked;
-    case "visa":        return p.visa_granted || !!(p.visa_date);
-    case "flight":      return !!(p.flight_date);
+    case "visum":       return p.embassy_unlocked;
+    case "reise":       return !!(p.flight_date);
+    case "integration": return !!(p.integration_unlocked);
+    case "start":       return !!(p.start_unlocked);
   }
 }
 
@@ -1659,17 +1663,10 @@ export default function DashboardPage() {
                       {ph.shortTitle}
                     </span>
                   </button>
-                  {i < PHASES.length - 1 && (
-                    <div className="w-px transition-colors duration-500" style={{ height: 18, background: lineColor }} />
-                  )}
+                  <div className="w-px transition-colors duration-500" style={{ height: 18, background: lineColor }} />
                 </div>
               );
             })}
-
-            {/* Separator */}
-            <div className="flex flex-col items-center py-1">
-              <div style={{ width: 1, height: 20, background: "var(--border)" }} />
-            </div>
 
             {/* Journey stage icons */}
             {JOURNEY_STAGES.map((js, ji) => {
@@ -1746,21 +1743,23 @@ export default function DashboardPage() {
                 in the overall journey, clickable per-stage. */}
             {(() => {
               const p = pipeline;
-              type StepKey = "interview" | "recognition" | "embassy" | "visa" | "flight";
+              type StepKey = "interview" | "recognition" | "visum" | "reise" | "integration" | "start";
               const steps: { key: StepKey; label: string; kind: PhaseKind }[] = [
                 { key: "interview",   label: t.pJourneyInterview,   kind: "interview"   as PhaseKind },
                 { key: "recognition", label: t.pJourneyRecognition, kind: "recognition" as PhaseKind },
-                { key: "embassy",     label: t.pJourneyEmbassy,     kind: "embassy"     as PhaseKind },
-                { key: "visa",        label: t.pJourneyVisa,        kind: "visa"        as PhaseKind },
-                { key: "flight",      label: t.pJourneyFlight,      kind: "flight"      as PhaseKind },
+                { key: "visum",       label: t.pJourneyVisum,       kind: "visa"        as PhaseKind },
+                { key: "reise",       label: t.pJourneyReise,       kind: "flight"      as PhaseKind },
+                { key: "integration", label: t.pJourneyIntegration, kind: "integration" as PhaseKind },
+                { key: "start",       label: t.pJourneyStart,       kind: "start"       as PhaseKind },
               ];
               const isDone = (k: StepKey): boolean => {
                 if (!p) return false;
                 if (k === "interview")   return p.interview_status === "passed";
                 if (k === "recognition") return p.embassy_unlocked;
-                if (k === "embassy")     return !!(p.visa_granted || p.visa_date);
-                if (k === "visa")        return !!(p.flight_date);
-                if (k === "flight")      return false; // no "done" state — flight is the final
+                if (k === "visum")       return !!(p.visa_granted || p.flight_date);
+                if (k === "reise")       return false;
+                if (k === "integration") return false;
+                if (k === "start")       return false;
                 return false;
               };
               const isActive = (k: StepKey): boolean => {
