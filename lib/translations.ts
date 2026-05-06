@@ -948,7 +948,7 @@ export const translations: Record<Lang, Translation> = {
     pWizardPhase3: "Beglaubigte Übersetzungen", pWizardPhase3Desc: "Laden Sie Ihre Übersetzungen hoch, falls vorhanden — sonst kommen Sie einfach wieder.",
     pWizardPhase4: "Weitere Unterlagen", pWizardPhase4Desc: "Ihr Anschreiben und Ihr Sprachzertifikat.",
     pWizardNext: "Weiter →", pWizardSkip: "Ich komme später wieder", pWizardDone: "Meine Akte ansehen →", pWizardViewAll: "Gesamte Akte ansehen",
-    pSideID: "Wesentliches", pSideNursing: "Qualifik.", pSideTrans: "Übersetz.", pSideOther: "Sonstiges",
+    pSideID: "Grundlagen", pSideNursing: "Qualifik.", pSideTrans: "Übersetz.", pSideOther: "Sonstiges",
     pWelcomeBack: "Willkommen zurück,", pWelcomeBackSub: "Machen Sie weiter, wo Sie aufgehört haben.",
     pUploadSuccess: "✓ {label} erfolgreich hochgeladen.", pErrPdfOnly: "Nur PDF für diesen Dokumenttyp.", pErrAllTypes: "Nur PDF, JPG, PNG oder DOCX.", pErrSize: "Datei zu groß. Max {size} MB.", pErrImageOnly: "Nur Bild (JPG, PNG) — kein PDF für Reisepass.",
     pErrUpload: "Fehler beim Hochladen.", pErrNetwork: "Netzwerkfehler. Bitte erneut versuchen.", pSkipSaved: "Fortschritt gespeichert — kommen Sie jederzeit wieder!", pDropHere: "Hier ablegen zum Hochladen",
