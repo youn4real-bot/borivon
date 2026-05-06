@@ -1998,6 +1998,14 @@ export default function DashboardPage() {
                                 {isSubUp && <div className="mt-1"><div className="w-full rounded-full h-1" style={{ background: "var(--border)" }}><div className="h-1 rounded-full" style={{ width: `${slotProgress}%`, background: "var(--gold)" }} /></div><p className="text-[9px] mt-0.5" style={{ color: "var(--w3)" }}>{slotProgress}%</p></div>}
                                 {subMsg && <p className="mt-1 text-[9.5px]" style={{ color: subMsg.ok ? "var(--success)" : "var(--danger)" }}>{subMsg.ok ? t.pUploadSuccess.replace("{label}", sub.subLabel) : subMsg.type === "errPdfOnly" ? t.pErrPdfOnly : subMsg.type === "errAllTypes" ? t.pErrAllTypes : subMsg.type === "errSize" ? t.pErrSize : t.pErrUpload}</p>}
                               </div>
+                              {!isSubUp && !sub.subDoc && (
+                                <span
+                                  aria-hidden="true"
+                                  className="inline-flex items-center justify-center w-9 h-9 rounded-full flex-shrink-0"
+                                  style={{ color: "var(--gold)" }}>
+                                  <Upload size={13} strokeWidth={1.8} />
+                                </span>
+                              )}
                               {!isSubUp && sub.subDoc && (
                                 <div className="flex items-center gap-1 flex-shrink-0"
                                   onClick={e => e.stopPropagation()}
