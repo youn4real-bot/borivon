@@ -36,8 +36,8 @@ export type JourneyPipeline = {
   flight_date?: string | null;
   flight_info?: string | null;
   docs_approved?: boolean;
-  integration_unlocked?: boolean;
-  start_unlocked?: boolean;
+  integration_unlocked?: boolean | null;
+  start_unlocked?: boolean | null;
 };
 
 // ── Derive the current blocker for a locked stage ──────────────────────────
