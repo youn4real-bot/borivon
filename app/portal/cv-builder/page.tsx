@@ -2526,50 +2526,11 @@ function CVBuilderInner() {
   // Manual verification override (gold tick granted by supreme admin) also
   // unlocks the builder — otherwise the dashboard's verified state and the
   // CV gate disagree.
-  if (passportStatus !== "approved" && !manuallyVerified) {
-    const gateTitle =
-      passportStatus === null
-        ? (lang === "de" ? "Reisepass erforderlich" : lang === "en" ? "Passport required" : "Passeport requis")
-        : passportStatus === "pending"
-        ? (lang === "de" ? "Passport wird geprüft" : lang === "en" ? "Passport under review" : "Passeport en cours d'examen")
-        : (lang === "de" ? "Passeport abgelehnt" : lang === "en" ? "Passport rejected" : "Passeport refusé");
-    const gateBody =
-      passportStatus === null
-        ? (lang === "de"
-            ? "Laden Sie zuerst Ihren Reisepass hoch. Sobald er genehmigt ist, können Sie Ihren Lebenslauf erstellen."
-            : lang === "en"
-            ? "Please upload your passport first. Once it's approved you can build your CV."
-            : "Veuillez d'abord téléverser votre passeport. Une fois approuvé, vous pourrez créer votre Lebenslauf.")
-        : passportStatus === "pending"
-        ? (lang === "de"
-            ? "Ihr Reisepass wird gerade von unserem Team geprüft. Sobald er genehmigt ist, schalten wir den Lebenslauf-Generator frei."
-            : lang === "en"
-            ? "Your passport is currently under review. Once our team approves it you'll be able to build your CV."
-            : "Votre passeport est en cours d'examen par notre équipe. Dès son approbation, vous pourrez générer votre Lebenslauf.")
-        : (lang === "de"
-            ? "Ihr Reisepass wurde abgelehnt. Bitte laden Sie einen aktualisierten Reisepass hoch, um fortzufahren."
-            : lang === "en"
-            ? "Your passport was rejected. Please upload an updated passport to continue."
-            : "Votre passeport a été refusé. Veuillez téléverser un passeport mis à jour pour continuer.");
-    return (
-      <main className="min-h-screen flex items-center justify-center px-4" style={{ background: "var(--bg)" }}>
-        <div className="w-full max-w-sm text-center">
-          <div className="mx-auto mb-4 w-14 h-14 flex items-center justify-center rounded-2xl"
-            style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
-            <Lock size={24} strokeWidth={1.6} style={{ color: "var(--gold)" }} />
-          </div>
-          <p className="text-base font-semibold mb-2" style={{ color: "var(--w)" }}>{gateTitle}</p>
-          <p className="text-[13px] leading-relaxed mb-6" style={{ color: "var(--w3)" }}>{gateBody}</p>
-          <button onClick={() => router.push("/portal/dashboard")}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm"
-            style={{ background: "var(--gold)", color: "#131312" }}>
-            <ArrowLeft size={14} strokeWidth={2} />
-            {lang === "de" ? "Zurück zum Portal" : lang === "en" ? "Back to portal" : "Retour au portail"}
-          </button>
-        </div>
-      </main>
-    );
-  }
+  // Gate removed — candidates may enter the CV builder at any time and edit
+  // every editable field. Passport-derived fields (name, DOB, nationality,
+  // passport_no, etc.) remain individually locked via PassportLockPopup
+  // until the passport itself is approved, so the CV stays consistent with
+  // the verified passport data the admin reviewed.
 
   const hasErrors = validationErrors.size > 0;
 
