@@ -2250,9 +2250,11 @@ export default function DashboardPage() {
                         {!uploaded && (item.key === "cv" || item.key === "cv_de") && (
                           <button
                             onClick={(e) => { e.stopPropagation(); router.push("/portal/cv-builder"); }}
-                            className="text-xs font-semibold transition-all hover:opacity-90 hover:-translate-y-0.5 px-3 py-1.5 inline-flex items-center gap-1.5"
-                            style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)", boxShadow: "0 4px 12px var(--border-gold)" }}>
-                            <Sparkles size={12} strokeWidth={2} /> {t.pCVBuilderBtn}
+                            title={t.pCVBuilderBtn}
+                            aria-label={t.pCVBuilderBtn}
+                            className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full flex-shrink-0"
+                            style={{ color: "var(--gold)" }}>
+                            <Sparkles size={13} strokeWidth={1.8} />
                           </button>
                         )}
 
