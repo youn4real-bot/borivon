@@ -496,39 +496,6 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
                   {loading ? "…" : mode === "login" ? t.pBtnLogin : mode === "register" ? t.pBtnSignup : (lang === "de" ? "Link senden" : lang === "en" ? "Send link" : "Envoyer le lien")}
                 </button>
 
-                {/* Magic-link fallback — passwordless sign-in when the user
-                    can't remember their password and the reset email isn't
-                    arriving. Sends a one-click sign-in link to their email. */}
-                {mode === "login" && (
-                  <button type="button" disabled={loading || !email.trim()}
-                    onClick={async () => {
-                      if (loading) return;
-                      if (!isValidEmail(email)) { setError(t.pErrEmail); return; }
-                      setLoading(true);
-                      setError("");
-                      const { error: otpErr } = await supabase.auth.signInWithOtp({
-                        email: email.trim().toLowerCase(),
-                        options: { emailRedirectTo: `${window.location.origin}/portal/auth/callback` },
-                      });
-                      setLoading(false);
-                      if (otpErr) {
-                        setError(otpErr.message);
-                      } else {
-                        setCheckEmail(true);
-                      }
-                    }}
-                    className="w-full py-2.5 text-[12.5px] font-medium tracking-wide transition-opacity hover:opacity-80 disabled:opacity-40"
-                    style={{
-                      background: "transparent",
-                      color: "var(--w2)",
-                      border: "1px solid var(--border)",
-                      borderRadius: "12px",
-                      marginTop: "8px",
-                      cursor: "pointer",
-                    }}>
-                    {lang === "de" ? "Anmeldelink per E-Mail erhalten" : lang === "fr" ? "Recevoir un lien de connexion par e-mail" : "Email me a sign-in link"}
-                  </button>
-                )}
               </form>
 
               {/* Consent — register only. Two separate mandatory boxes:

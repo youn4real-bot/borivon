@@ -1943,7 +1943,18 @@ export default function DashboardPage() {
                     className={`px-3 py-3 flex items-center gap-2${origDoc && transDoc ? " cursor-pointer bv-row-hover" : ""}`}
                     onClick={() => setExpandedPairs(prev => { const n = new Set(prev); n.has(item.key) ? n.delete(item.key) : n.add(item.key); return n; })}>
                     <div className="flex-1 min-w-0">
-                      <p className="text-[11.5px] font-medium tracking-tight" style={{ color: pairColor ?? "var(--w)" }}>{item.label}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-[11.5px] font-medium tracking-tight" style={{ color: pairColor ?? "var(--w)" }}>{item.label}</p>
+                        {item.key === "workcert" && (
+                          <button type="button"
+                            onClick={(e) => { e.stopPropagation(); setShowWorkGuide(true); }}
+                            aria-label={t.pWhatIsThis} title={t.pWhatIsThis}
+                            className="inline-flex items-center justify-center w-5 h-5 rounded-full transition-opacity hover:opacity-80"
+                            style={{ background: "var(--info-bg)", color: "var(--info)", border: "none", cursor: "pointer" }}>
+                            <Info size={11} strokeWidth={2.2} />
+                          </button>
+                        )}
+                      </div>
                       {item.optional && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded"
                           style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>{t.pOptional}</span>
@@ -2128,15 +2139,13 @@ export default function DashboardPage() {
                     ...(isDragOver ? { background: "var(--gdim)" } : null),
                   }}>
 
-                  <div className="flex items-start gap-3">
+                  <div className="flex items-center gap-3">
                     {/* Content */}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 min-w-0">
                         <p className="text-[11.5px] font-medium tracking-tight" style={{ color: rowColor ?? "var(--w)" }}>{item.label}</p>
-                        {/* Per-doc 'What is this?' info button — workcert
-                            opens the detailed Rabat-ministry guide; other
-                            rows pop the simpler doc-hint modal. */}
-                        {(item.hint || item.key === "workcert") && (
+                        {/* Per-doc info button — workcert only */}
+                        {item.key === "workcert" && (
                           <button
                             type="button"
                             onClick={(e) => {
@@ -3350,26 +3359,26 @@ export default function DashboardPage() {
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 sticky top-0"
               style={{ background: "var(--card)", borderBottom: "1px solid var(--border)" }}>
-              <p className="text-[14px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>{t.pGuideWorkTitle}</p>
+              <p className="text-[13px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>{t.pGuideWorkTitle}</p>
               <button onClick={() => setShowWorkGuide(false)}
-                className="bv-row-hover text-sm px-3 py-1"
+                className="bv-row-hover text-xs px-3 py-1"
                 style={{ color: "var(--w3)" }}>
                 {t.pExampleClose}
               </button>
             </div>
 
-            <div className="px-5 py-5 space-y-5">
+            <div className="px-4 py-4 space-y-3">
               {/* Intro */}
-              <p className="text-sm" style={{ color: "var(--w2)" }}>{t.pGuideWorkIntro}</p>
+              <p className="text-xs" style={{ color: "var(--w2)" }}>{t.pGuideWorkIntro}</p>
 
               {/* Doc list */}
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {[t.pGuideWorkDoc1, t.pGuideWorkDoc2, t.pGuideWorkDoc3, t.pGuideWorkDoc4].map((doc, i) => (
-                  <div key={i} className="px-4 py-3 rounded-xl"
+                  <div key={i} className="px-3 py-2 rounded-xl"
                     style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                    <div className="flex items-start gap-3">
-                      <span className="text-xs font-bold mt-0.5 w-4 flex-shrink-0" style={{ color: "var(--gold)" }}>{i + 1}</span>
-                      <p className="text-sm" style={{ color: "var(--w)" }}><B text={doc} /></p>
+                    <div className="flex items-start gap-2">
+                      <span className="text-[10px] font-bold mt-0.5 w-3 flex-shrink-0" style={{ color: "var(--gold)" }}>{i + 1}</span>
+                      <p className="text-xs" style={{ color: "var(--w)" }}><B text={doc} /></p>
                     </div>
                     {i === 3 && DEMANDE_EXAMPLE_URL && (
                       <button
