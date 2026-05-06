@@ -104,12 +104,14 @@ type AdminPipeline = {
   flight_date: string;
   flight_info: string;
   docs_approved: boolean;
+  integration_unlocked: boolean;
+  start_unlocked: boolean;
 };
 const DEFAULT_PIPELINE: AdminPipeline = {
   interview_link: "", interview_date: "", interview_status: "pending",
   recognition_unlocked: false, embassy_unlocked: false,
   visa_granted: false, visa_date: "", flight_date: "", flight_info: "",
-  docs_approved: false,
+  docs_approved: false, integration_unlocked: false, start_unlocked: false,
 };
 
 // Editable passport fields for the admin edit form
@@ -589,6 +591,8 @@ export default function AdminPage() {
           flight_date: p.flight_date ?? "",
           flight_info: p.flight_info ?? "",
           docs_approved: p.docs_approved ?? false,
+          integration_unlocked: p.integration_unlocked ?? false,
+          start_unlocked: p.start_unlocked ?? false,
         } : DEFAULT_PIPELINE);
         setPipelineLoaded(true);
       })
@@ -1678,22 +1682,20 @@ export default function AdminPage() {
                         <span className="text-[8px] text-center leading-tight font-medium px-0.5 w-full"
                           style={{ color: isActive ? "var(--gold)" : "var(--w3)" }}>{ph.shortTitle}</span>
                       </button>
-                      {i < PHASE_ITEMS.length - 1 && <div className="w-px" style={{ height: 18, background: "var(--border)" }} />}
+                      <div className="w-px" style={{ height: 18, background: "var(--border)" }} />
                     </div>
                   );
                 })}
 
-                {/* Separator */}
-                <div className="w-full my-2" style={{ height: 1, background: "var(--border)" }} />
-
                 {/* Journey stage icons — click to show that stage on the right */}
                 {([
-                  { key: "docs",        kind: "docs"        as PhaseKind, label: "Docs",      active: pipeline.docs_approved },
-                  { key: "interview",   kind: "interview"   as PhaseKind, label: "Interview", active: pipeline.interview_status === "passed" || pipeline.interview_status === "failed" || !!pipeline.interview_link },
-                  { key: "recognition", kind: "recognition" as PhaseKind, label: "Recog.",    active: pipeline.recognition_unlocked },
-                  { key: "embassy",     kind: "embassy"     as PhaseKind, label: "Embassy",   active: pipeline.embassy_unlocked },
-                  { key: "visa",        kind: "visa"        as PhaseKind, label: "Visa",      active: pipeline.visa_granted },
-                  { key: "flight",      kind: "flight"      as PhaseKind, label: "Flight",    active: !!pipeline.flight_date },
+                  { key: "docs",        kind: "docs"        as PhaseKind, label: "Docs",        active: pipeline.docs_approved },
+                  { key: "interview",   kind: "interview"   as PhaseKind, label: "Gespräch",    active: pipeline.interview_status === "passed" || pipeline.interview_status === "failed" || !!pipeline.interview_link },
+                  { key: "recognition", kind: "recognition" as PhaseKind, label: "Bearbeitung", active: pipeline.recognition_unlocked },
+                  { key: "visum",       kind: "embassy"     as PhaseKind, label: "Visum",       active: pipeline.embassy_unlocked },
+                  { key: "reise",       kind: "flight"      as PhaseKind, label: "Reise",       active: !!pipeline.flight_date },
+                  { key: "integration", kind: "integration" as PhaseKind, label: "Integration", active: pipeline.integration_unlocked },
+                  { key: "start",       kind: "start"       as PhaseKind, label: "Start",       active: pipeline.start_unlocked },
                 ]).map((js, ji, arr) => {
                   const isSel = activePipelineStage === js.key;
                   return (
@@ -1745,11 +1747,12 @@ export default function AdminPage() {
                           <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--w3)" }}>Pipeline stage</p>
                           <h2 className="text-[20px] font-semibold tracking-[-0.015em] leading-tight" style={{ color: "var(--w)" }}>
                             {activePipelineStage === "docs" ? "Documents"
-                              : activePipelineStage === "interview" ? "Interview"
-                              : activePipelineStage === "recognition" ? "Recognition"
-                              : activePipelineStage === "embassy" ? "Embassy"
-                              : activePipelineStage === "visa" ? "Visa"
-                              : "Flight"}
+                              : activePipelineStage === "interview" ? "Gespräch"
+                              : activePipelineStage === "recognition" ? "Bearbeitung"
+                              : activePipelineStage === "visum" ? "Visum"
+                              : activePipelineStage === "reise" ? "Reise"
+                              : activePipelineStage === "integration" ? "Integration"
+                              : "Start"}
                           </h2>
                         </div>
                       </div>
@@ -1841,55 +1844,55 @@ export default function AdminPage() {
                         </button>
                       </div>
                     ); })()}
-                    {activePipelineStage === "embassy" && (() => { const on = pipeline.embassy_unlocked; return (
-                      <div className="flex items-center gap-3 px-4 py-3.5" style={{ background: "var(--card)", border: `1px solid ${on ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-lg)" }}>
-                        <span className="flex items-center justify-center w-9 h-9 flex-shrink-0"
-                          style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-md)" }}>
-                          <PhaseIcon kind="embassy" size={16} />
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[13px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>{t.pJourneyEmbassy}</p>
-                          <p className="text-[11.5px] mt-0.5 inline-flex items-center gap-1" style={{ color: on ? "var(--success)" : "var(--w3)" }}>
-                            {on ? <><CheckCircle2 size={11} strokeWidth={2} /> Unlocked</> : "Locked"}
-                          </p>
-                        </div>
-                        <button onClick={() => setPipeline(p => ({ ...p, embassy_unlocked: !on }))}
-                          className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-3 py-1.5 flex-shrink-0 transition-all"
-                          style={{ background: on ? "var(--success-bg)" : "var(--bg2)", color: on ? "var(--success)" : "var(--w2)", border: `1px solid ${on ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
-                          {on ? <><Lock size={11} strokeWidth={1.8} /> Lock</> : <><Unlock size={11} strokeWidth={1.8} /> Unlock</>}
-                        </button>
-                      </div>
-                    ); })()}
-                    {activePipelineStage === "visa" && (
-                      <div className="overflow-hidden" style={{ background: "var(--card)", border: `1px solid ${pipeline.visa_granted ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-lg)" }}>
-                        <div className="flex items-center gap-3 px-4 py-3.5">
-                          <span className="flex items-center justify-center w-9 h-9 flex-shrink-0"
-                            style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-md)" }}>
-                            <PhaseIcon kind="visa" size={16} />
-                          </span>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[13px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>{t.pJourneyVisa}</p>
-                            <p className="text-[11.5px] mt-0.5 inline-flex items-center gap-1" style={{ color: pipeline.visa_granted ? "var(--success)" : "var(--w3)" }}>
-                              {pipeline.visa_granted ? <><CheckCircle2 size={11} strokeWidth={2} /> Granted</> : "Not granted yet"}
-                            </p>
+                    {activePipelineStage === "visum" && (
+                      <div className="space-y-3">
+                        {(() => { const on = pipeline.embassy_unlocked; return (
+                          <div className="flex items-center gap-3 px-4 py-3.5" style={{ background: "var(--card)", border: `1px solid ${on ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-lg)" }}>
+                            <span className="flex items-center justify-center w-9 h-9 flex-shrink-0"
+                              style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-md)" }}>
+                              <PhaseIcon kind="embassy" size={16} />
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[13px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>Botschaft</p>
+                              <p className="text-[11.5px] mt-0.5 inline-flex items-center gap-1" style={{ color: on ? "var(--success)" : "var(--w3)" }}>
+                                {on ? <><CheckCircle2 size={11} strokeWidth={2} /> Unlocked</> : "Locked"}
+                              </p>
+                            </div>
+                            <button onClick={() => setPipeline(p => ({ ...p, embassy_unlocked: !on }))}
+                              className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-3 py-1.5 flex-shrink-0 transition-all"
+                              style={{ background: on ? "var(--success-bg)" : "var(--bg2)", color: on ? "var(--success)" : "var(--w2)", border: `1px solid ${on ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
+                              {on ? <><Lock size={11} strokeWidth={1.8} /> Lock</> : <><Unlock size={11} strokeWidth={1.8} /> Unlock</>}
+                            </button>
                           </div>
-                          <button onClick={() => setPipeline(p => ({ ...p, visa_granted: !p.visa_granted }))}
-                            className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-3 py-1.5 flex-shrink-0 transition-all"
-                            style={{ background: pipeline.visa_granted ? "var(--success-bg)" : "var(--bg2)", color: pipeline.visa_granted ? "var(--success)" : "var(--w2)", border: `1px solid ${pipeline.visa_granted ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
-                            {pipeline.visa_granted
-                              ? <><XCircle size={11} strokeWidth={1.8} /> Revoke</>
-                              : <><CheckCircle2 size={11} strokeWidth={1.8} /> Grant</>}
-                          </button>
-                        </div>
-                        {pipeline.visa_granted && (
-                          <div className="px-4 pb-3.5 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
-                            <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>{t.aVisaDate}</label>
-                            <input type="datetime-local" value={pipeline.visa_date} onChange={e => setPipeline(p => ({ ...p, visa_date: e.target.value }))} className="w-full px-2.5 py-2 text-[11.5px] outline-none transition-colors" style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: "var(--r-sm)" }} />
+                        ); })()}
+                        <div className="overflow-hidden" style={{ background: "var(--card)", border: `1px solid ${pipeline.visa_granted ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-lg)" }}>
+                          <div className="flex items-center gap-3 px-4 py-3.5">
+                            <span className="flex items-center justify-center w-9 h-9 flex-shrink-0"
+                              style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-md)" }}>
+                              <PhaseIcon kind="visa" size={16} />
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[13px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>Visum</p>
+                              <p className="text-[11.5px] mt-0.5 inline-flex items-center gap-1" style={{ color: pipeline.visa_granted ? "var(--success)" : "var(--w3)" }}>
+                                {pipeline.visa_granted ? <><CheckCircle2 size={11} strokeWidth={2} /> Granted</> : "Not granted yet"}
+                              </p>
+                            </div>
+                            <button onClick={() => setPipeline(p => ({ ...p, visa_granted: !p.visa_granted }))}
+                              className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-3 py-1.5 flex-shrink-0 transition-all"
+                              style={{ background: pipeline.visa_granted ? "var(--success-bg)" : "var(--bg2)", color: pipeline.visa_granted ? "var(--success)" : "var(--w2)", border: `1px solid ${pipeline.visa_granted ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
+                              {pipeline.visa_granted ? <><XCircle size={11} strokeWidth={1.8} /> Revoke</> : <><CheckCircle2 size={11} strokeWidth={1.8} /> Grant</>}
+                            </button>
                           </div>
-                        )}
+                          {pipeline.visa_granted && (
+                            <div className="px-4 pb-3.5 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
+                              <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>{t.aVisaDate}</label>
+                              <input type="datetime-local" value={pipeline.visa_date} onChange={e => setPipeline(p => ({ ...p, visa_date: e.target.value }))} className="w-full px-2.5 py-2 text-[11.5px] outline-none transition-colors" style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: "var(--r-sm)" }} />
+                            </div>
+                          )}
+                        </div>
                       </div>
                     )}
-                    {activePipelineStage === "flight" && (
+                    {activePipelineStage === "reise" && (
                       <div className="overflow-hidden" style={{ background: "var(--card)", border: `1px solid ${pipeline.flight_date ? "var(--border-gold)" : "var(--border)"}`, borderRadius: "var(--r-lg)" }}>
                         <div className="flex items-center gap-3 px-4 py-3.5">
                           <span className="flex items-center justify-center w-9 h-9 flex-shrink-0"
@@ -1897,7 +1900,7 @@ export default function AdminPage() {
                             <PhaseIcon kind="flight" size={16} />
                           </span>
                           <div className="flex-1 min-w-0">
-                            <p className="text-[13px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>{t.pJourneyFlight}</p>
+                            <p className="text-[13px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>Reise</p>
                             <p className="text-[11.5px] mt-0.5" style={{ color: pipeline.flight_date ? "var(--gold)" : "var(--w3)" }}>
                               {pipeline.flight_date ? new Date(pipeline.flight_date).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" }) : "No date set"}
                             </p>
@@ -1915,6 +1918,44 @@ export default function AdminPage() {
                         </div>
                       </div>
                     )}
+                    {activePipelineStage === "integration" && (() => { const on = pipeline.integration_unlocked; return (
+                      <div className="flex items-center gap-3 px-4 py-3.5" style={{ background: "var(--card)", border: `1px solid ${on ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-lg)" }}>
+                        <span className="flex items-center justify-center w-9 h-9 flex-shrink-0"
+                          style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-md)" }}>
+                          <PhaseIcon kind="integration" size={16} />
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[13px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>Integration</p>
+                          <p className="text-[11.5px] mt-0.5 inline-flex items-center gap-1" style={{ color: on ? "var(--success)" : "var(--w3)" }}>
+                            {on ? <><CheckCircle2 size={11} strokeWidth={2} /> Unlocked</> : "Locked"}
+                          </p>
+                        </div>
+                        <button onClick={() => setPipeline(p => ({ ...p, integration_unlocked: !on }))}
+                          className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-3 py-1.5 flex-shrink-0 transition-all"
+                          style={{ background: on ? "var(--success-bg)" : "var(--bg2)", color: on ? "var(--success)" : "var(--w2)", border: `1px solid ${on ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
+                          {on ? <><Lock size={11} strokeWidth={1.8} /> Lock</> : <><Unlock size={11} strokeWidth={1.8} /> Unlock</>}
+                        </button>
+                      </div>
+                    ); })()}
+                    {activePipelineStage === "start" && (() => { const on = pipeline.start_unlocked; return (
+                      <div className="flex items-center gap-3 px-4 py-3.5" style={{ background: "var(--card)", border: `1px solid ${on ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-lg)" }}>
+                        <span className="flex items-center justify-center w-9 h-9 flex-shrink-0"
+                          style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-md)" }}>
+                          <PhaseIcon kind="start" size={16} />
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[13px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>Start</p>
+                          <p className="text-[11.5px] mt-0.5 inline-flex items-center gap-1" style={{ color: on ? "var(--success)" : "var(--w3)" }}>
+                            {on ? <><CheckCircle2 size={11} strokeWidth={2} /> Unlocked</> : "Locked"}
+                          </p>
+                        </div>
+                        <button onClick={() => setPipeline(p => ({ ...p, start_unlocked: !on }))}
+                          className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-3 py-1.5 flex-shrink-0 transition-all"
+                          style={{ background: on ? "var(--success-bg)" : "var(--bg2)", color: on ? "var(--success)" : "var(--w2)", border: `1px solid ${on ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
+                          {on ? <><Lock size={11} strokeWidth={1.8} /> Lock</> : <><Unlock size={11} strokeWidth={1.8} /> Unlock</>}
+                        </button>
+                      </div>
+                    ); })()}
 
                     {/* ── Live candidate preview — shows exactly what the candidate sees
                         for this stage with the current pipeline state ── */}

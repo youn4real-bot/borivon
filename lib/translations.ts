@@ -366,7 +366,7 @@ export const translations: Record<Lang, Translation> = {
     pWizardPhase3: "Traductions certifiées", pWizardPhase3Desc: "Déposez vos traductions certifiées si vous les avez — sinon revenez quand vous êtes prêt.",
     pWizardPhase4: "Documents complémentaires", pWizardPhase4Desc: "Votre lettre de motivation et certificat de langue.",
     pWizardNext: "Continuer →", pWizardSkip: "Je reviendrai plus tard", pWizardDone: "Voir mon dossier →", pWizardViewAll: "Voir tout le dossier",
-    pSideID: "Essentiels", pSideNursing: "Diplômes", pSideTrans: "Traductions", pSideOther: "Autres",
+    pSideID: "Essentiels", pSideNursing: "Qualificat.", pSideTrans: "Traductions", pSideOther: "Autres",
     pWelcomeBack: "Bon retour,", pWelcomeBackSub: "Continuez là où vous en étiez.",
     pUploadSuccess: "✓ {label} déposé avec succès.", pErrPdfOnly: "PDF uniquement pour ce type de document.", pErrAllTypes: "PDF, JPG, PNG ou DOCX uniquement.", pErrSize: "Fichier trop volumineux. Max {size} Mo.", pErrImageOnly: "Image uniquement (JPG, PNG) — pas de PDF pour le passeport.",
     pErrUpload: "Erreur lors de l'envoi.", pErrNetwork: "Erreur réseau. Réessayez.", pSkipSaved: "Progression sauvegardée — revenez quand vous voulez !", pDropHere: "Déposez ici pour envoyer",
