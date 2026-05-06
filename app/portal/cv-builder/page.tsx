@@ -2442,9 +2442,11 @@ function CVBuilderInner() {
     }
 
     // Payment gate — only Premium unlocks CV generation. Skip when admin is
-    // editing a candidate's CV.
+    // editing a candidate's CV. Hand the candidate off to the dashboard with
+    // an explicit '?upsell=premium' so the upgrade modal opens automatically
+    // (instead of dropping them on the dashboard with no context).
     if (paymentTier !== "premium" && !adminCandidateId) {
-      router.push("/portal/dashboard");
+      router.push("/portal/dashboard?upsell=premium");
       return;
     }
 

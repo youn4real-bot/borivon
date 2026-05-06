@@ -749,11 +749,18 @@ export default function DashboardPage() {
     const searchParams = new URLSearchParams(window.location.search);
     const paymentParam = searchParams.get("payment");
     const planParam    = searchParams.get("plan");
+    const upsellParam  = searchParams.get("upsell");
     if (paymentParam === "success" && planParam) {
       setPaymentTier(planParam);
       setPaymentCelebration({ plan: planParam });
       window.history.replaceState({}, "", window.location.pathname);
     } else if (paymentParam === "cancelled") {
+      window.history.replaceState({}, "", window.location.pathname);
+    } else if (upsellParam === "premium") {
+      // Coming back from the CV builder gate (or any other Premium-locked
+      // feature). Auto-open the upgrade modal so the candidate sees why
+      // they were redirected.
+      setUpgradeOpen(true);
       window.history.replaceState({}, "", window.location.pathname);
     }
 
