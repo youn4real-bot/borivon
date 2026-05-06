@@ -1096,11 +1096,7 @@ export default function DashboardPage() {
             <div className="mx-6 my-5 px-4 py-3 rounded-2xl flex items-center gap-3"
               style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
               <span className="flex items-center gap-1.5 text-[13px] font-semibold flex-1" style={{ color: "var(--gold)" }}>
-                {/* Spiked gold badge — shiny, slightly bulky */}
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ filter: "drop-shadow(0 0 3px rgba(201,162,64,0.7))", flexShrink: 0 }}>
-                  <path d="M12 1.5L14.5 5.2L18.8 3.8L17.6 8.2L22 10.2L19.2 13.8L21.6 17.8L16.9 17.5L15.5 22L12 19.5L8.5 22L7.1 17.5L2.4 17.8L4.8 13.8L2 10.2L6.4 8.2L5.2 3.8L9.5 5.2Z" fill="var(--gold)"/>
-                  <path d="M8.5 12.5l3 3 4.5-5.5" stroke="#131312" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
+                <VerifiedBadge verified size="md" color="gold" />
                 {lang === "de" ? "Premium-Plan" : "Premium Plan"}
               </span>
               <span className="text-[20px] font-bold tracking-tight" style={{ color: "var(--w)" }}>€99</span>
