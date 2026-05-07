@@ -2445,42 +2445,6 @@ export default function DashboardPage() {
             </div>
 
 
-        {/* Navigation — Back + Next only */}
-        <div className="flex gap-3">
-          {phase > 0 && (
-            <button onClick={goPrevPhase}
-              className="bv-row-hover py-3 px-5 font-semibold text-sm flex items-center gap-2 flex-shrink-0"
-              style={{ color: "var(--w2)" }}>
-              ← {t.backLabel}
-            </button>
-          )}
-          {phase === PHASES.length - 1 ? (
-            pipeline?.docs_approved ? (
-              <button
-                onClick={() => { setViewMode("interview"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
-                className="flex-1 py-3 rounded-xl font-semibold text-sm transition-opacity hover:opacity-90"
-                style={{ background: "var(--success)", color: "#fff" }}>
-                {t.pWizardNext}
-              </button>
-            ) : (
-              <div className="flex-1 py-3 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 select-none"
-                style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)", cursor: "not-allowed" }}>
-                <Lock size={14} strokeWidth={1.8} /> {t.pWizardNext}
-              </div>
-            )
-          ) : (
-            <button onClick={goNextPhase}
-              className="flex-1 py-3 font-semibold text-[13.5px] tracking-tight transition-opacity hover:opacity-90"
-              style={{
-                background: phaseComplete ? "var(--success)" : "var(--gold)",
-                color: "#131312",
-                borderRadius: "var(--r-md)",
-                boxShadow: "var(--shadow-sm)",
-              }}>
-              {t.pWizardNext}
-            </button>
-          )}
-        </div>
         </div> /* end viewMode === "docs" */}
 
         <p className="mt-10 text-xs text-center" style={{ color: "var(--w3)" }}>
