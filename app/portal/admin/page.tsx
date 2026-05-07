@@ -3162,6 +3162,213 @@ export default function AdminPage() {
           </>,
           document.body,
         )}
+
+      {/* ───── Hidden file inputs + slot/sig modals (also needed in candidate detail view) ───── */}
+      <input
+        ref={adminFileInputRef}
+        type="file"
+        accept=".pdf,application/pdf"
+        style={{ display: "none" }}
+        onChange={e => {
+          const file = e.target.files?.[0];
+          const slotId = adminUploadTargetRef.current;
+          if (file && slotId) adminUploadFile(file, slotId);
+          e.target.value = "";
+        }}
+      />
+      <input
+        ref={sigManualFileRef}
+        type="file"
+        accept=".pdf,application/pdf"
+        style={{ display: "none" }}
+        onChange={e => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = () => {
+            const b64 = (reader.result as string).replace(/^data:[^;]+;base64,/, "");
+            setSigManualPdf(b64);
+            setSigPdfBase64(b64);
+          };
+          reader.readAsDataURL(file);
+          e.target.value = "";
+        }}
+      />
+
+      {/* ── Edit slot label modal ── */}
+      {editingSlotId && (
+        <div className="fixed inset-0 z-[800] flex items-end sm:items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(8px)" }}
+          onClick={() => setEditingSlotId(null)}>
+          <div className="w-full max-w-md rounded-2xl p-6 space-y-4"
+            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)" }}
+            onClick={e => e.stopPropagation()}>
+            <p className="text-[14px] font-semibold" style={{ color: "var(--w)" }}>Edit slot label</p>
+            <input type="text" placeholder="Label" value={editingSlotLabel}
+              onChange={e => setEditingSlotLabel(e.target.value)} autoFocus
+              className="w-full px-3 py-2.5 text-[13px] outline-none"
+              style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--w)" }} />
+            <input type="text" placeholder="Label translated (optional — dual slots)" value={editingSlotLabelTrans}
+              onChange={e => setEditingSlotLabelTrans(e.target.value)}
+              className="w-full px-3 py-2.5 text-[13px] outline-none"
+              style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--w)" }} />
+            <div className="flex gap-3 pt-1">
+              <button onClick={() => setEditingSlotId(null)}
+                className="flex-1 py-3 rounded-xl text-[13px] font-semibold transition-all"
+                style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
+                Cancel
+              </button>
+              <button onClick={() => saveSlotLabel(editingSlotId!, editingSlotLabel, editingSlotLabelTrans)}
+                disabled={!editingSlotLabel.trim()}
+                className="flex-1 py-3 rounded-xl text-[13px] font-semibold transition-all disabled:opacity-40"
+                style={{ background: "var(--gold)", color: "#131312" }}>
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Signature request modal ── */}
+      {sigModal && (
+        <div data-bv-sigmodal="1" className="fixed inset-0 z-[2147483600] flex items-center justify-center p-3 sm:p-6"
+          style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(10px)", position: "fixed", top: 0, left: 0, right: 0, bottom: 0 }}
+          onClick={() => { setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true); setSigZone(null); setSigManualPdf(null); }}>
+          <div className="w-full max-w-2xl rounded-2xl overflow-hidden flex flex-col"
+            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", maxHeight: "92dvh" }}
+            onClick={e => e.stopPropagation()}>
+            <div className="px-4 py-3 flex items-center gap-3 flex-shrink-0"
+              style={{ borderBottom: "1px solid var(--border)", background: "var(--gdim)" }}>
+              <FilePen size={15} strokeWidth={1.8} style={{ color: "var(--gold)", flexShrink: 0 }} />
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-semibold" style={{ color: "var(--gold)" }}>
+                  {lang === "fr" ? "Demande de signature" : lang === "de" ? "Signatur anfordern" : "Signature request"}
+                </p>
+                <p className="text-[11px] truncate mt-0.5" style={{ color: "var(--w3)" }}>{sigModal.label}</p>
+              </div>
+              <button onClick={() => { setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true); setSigZone(null); setSigManualPdf(null); }}
+                className="bv-icon-btn w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0" style={{ color: "var(--w3)" }}>
+                <XIcon size={13} strokeWidth={2} />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              {sigPdfLoading ? (
+                <div className="flex flex-col items-center justify-center py-24 gap-3">
+                  <Spinner size="md" />
+                  <p className="text-[12px]" style={{ color: "var(--w3)" }}>
+                    {lang === "fr" ? "Chargement du PDF…" : lang === "de" ? "PDF wird geladen…" : "Loading PDF…"}
+                  </p>
+                </div>
+              ) : sigPdfBase64 ? (
+                <div className="p-3">
+                  <PdfZonePicker pdfBase64={sigPdfBase64} onChange={z => setSigZone(z)}
+                    onError={() => { setSigPdfBase64(null); setSigManualPdf(null); }} />
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center gap-4 m-4 rounded-2xl cursor-pointer transition-colors"
+                  style={{ minHeight: 280, border: "2.5px dashed var(--border-gold)", background: "var(--gdim)" }}
+                  onClick={() => sigManualFileRef.current?.click()}
+                  onDragOver={e => { e.preventDefault(); (e.currentTarget as HTMLElement).style.background = "rgba(201,162,64,0.18)"; }}
+                  onDragLeave={e => { (e.currentTarget as HTMLElement).style.background = "var(--gdim)"; }}
+                  onDrop={e => {
+                    e.preventDefault();
+                    (e.currentTarget as HTMLElement).style.background = "var(--gdim)";
+                    const file = e.dataTransfer.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      const b64 = (reader.result as string).replace(/^data:[^;]+;base64,/, "");
+                      setSigManualPdf(b64); setSigPdfBase64(b64);
+                    };
+                    reader.readAsDataURL(file);
+                  }}>
+                  <Upload size={36} strokeWidth={1.5} style={{ color: "var(--gold)", opacity: 0.7 }} />
+                  <div className="text-center space-y-1 px-6">
+                    <p className="text-[14px] font-semibold" style={{ color: "var(--gold)" }}>
+                      {lang === "fr" ? "Déposez le PDF ici" : lang === "de" ? "PDF hier ablegen" : "Drop the PDF here"}
+                    </p>
+                    <p className="text-[12px]" style={{ color: "var(--w3)" }}>
+                      {lang === "fr" ? "ou cliquez pour sélectionner" : lang === "de" ? "oder klicken zum Auswählen" : "or click to select"}
+                    </p>
+                    <p className="text-[11px] mt-1" style={{ color: "var(--w3)", opacity: 0.7 }}>
+                      {lang === "fr" ? "Le PDF que le candidat devra signer" : lang === "de" ? "Das zu unterschreibende Dokument" : "The document the candidate needs to sign"}
+                    </p>
+                  </div>
+                  <button type="button" onClick={e => { e.stopPropagation(); sigManualFileRef.current?.click(); }}
+                    className="inline-flex items-center gap-2 px-5 py-2 rounded-full text-[13px] font-semibold transition-opacity hover:opacity-80"
+                    style={{ background: "var(--gold)", color: "#131312" }}>
+                    <Upload size={13} strokeWidth={2} />
+                    {lang === "fr" ? "Choisir un PDF" : lang === "de" ? "PDF auswählen" : "Choose PDF"}
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="px-4 py-3 flex-shrink-0 space-y-3" style={{ borderTop: "1px solid var(--border)", background: "var(--bg2)" }}>
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: "var(--w3)" }}>
+                  {lang === "fr" ? "Signe :" : lang === "de" ? "Signiert:" : "Signs:"}
+                </span>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="checkbox" checked={sigPartyAdmin} onChange={e => setSigPartyAdmin(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded" style={{ accentColor: "var(--gold)" }} />
+                  <span className="text-[12px]" style={{ color: "var(--w)" }}>Admin</span>
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="checkbox" checked={sigPartyCandidate} onChange={e => setSigPartyCandidate(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded" style={{ accentColor: "var(--gold)" }} />
+                  <span className="text-[12px]" style={{ color: "var(--w)" }}>
+                    {lang === "fr" ? "Candidat" : lang === "de" ? "Kandidat" : "Candidate"}
+                  </span>
+                </label>
+              </div>
+              <div className="flex gap-2">
+                <input value={sigNote} onChange={e => setSigNote(e.target.value)}
+                  placeholder={lang === "fr" ? "Note (optionnel)" : lang === "de" ? "Hinweis (optional)" : "Note (optional)"}
+                  className="flex-1 px-3 py-2 text-[12px] rounded-xl outline-none"
+                  style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--w)" }} />
+                <button onClick={async () => {
+                  if (sigSending || (!sigPartyAdmin && !sigPartyCandidate)) return;
+                  if (!sigPdfBase64 && !sigManualPdf) { sigManualFileRef.current?.click(); return; }
+                  setSigSending(true);
+                  try {
+                    const res = await fetch("/api/portal/admin/sign-request", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                      body: JSON.stringify({
+                        candidateId: selectedUser, documentName: sigModal.label,
+                        ...(sigManualPdf ? { pdfBase64: sigManualPdf } : { driveFileId: sigModal.driveFileId }),
+                        note: sigNote.trim() || undefined,
+                        parties: { admin: sigPartyAdmin, candidate: sigPartyCandidate },
+                        signatureZone: sigZone ?? undefined,
+                      }),
+                    });
+                    if (res.ok) {
+                      setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true);
+                      setSigZone(null); setSigManualPdf(null);
+                    }
+                  } catch { /* ignore */ }
+                  setSigSending(false);
+                }}
+                  disabled={sigSending || (!sigPartyAdmin && !sigPartyCandidate)}
+                  className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold transition-opacity disabled:opacity-50"
+                  style={{ background: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "var(--bg2)" : "var(--gold)", color: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "var(--w3)" : "#131312", border: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "1px solid var(--border)" : "none" }}>
+                  {sigSending
+                    ? <><span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" /> {lang === "fr" ? "Envoi…" : lang === "de" ? "Senden…" : "Sending…"}</>
+                    : (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading)
+                      ? <><Upload size={13} strokeWidth={2} /> {lang === "fr" ? "PDF requis" : lang === "de" ? "PDF erforderlich" : "Upload PDF first"}</>
+                      : <><Send size={13} strokeWidth={2} /> {lang === "fr" ? "Envoyer" : lang === "de" ? "Senden" : "Send"}</>
+                  }
+                </button>
+                <button onClick={() => { setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true); setSigZone(null); setSigManualPdf(null); }}
+                  className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-xl transition-opacity hover:opacity-70"
+                  style={{ background: "var(--card)", color: "var(--w3)", border: "1px solid var(--border)" }}>
+                  <XIcon size={14} strokeWidth={2} />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       </>
     );
   }
@@ -3790,11 +3997,6 @@ export default function AdminPage() {
           </div>
         </div>
       )}
-
-      {/* DEBUG: always-visible sigModal state indicator */}
-      <div data-bv-debug-sig style={{position:"fixed", bottom: 8, left: 8, zIndex: 2147483600, background: "#000", color: "#fff", padding: "6px 10px", fontSize: 11, fontFamily: "monospace", borderRadius: 4, pointerEvents: "none"}}>
-        sigModal: {sigModal ? JSON.stringify(sigModal).substring(0, 80) : "null"}
-      </div>
 
       {/* ── Signature request modal — inline render, no portal ── */}
       {sigModal && (
