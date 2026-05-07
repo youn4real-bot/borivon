@@ -1775,7 +1775,7 @@ export default function DashboardPage() {
                     disabled={isInert}
                     title={accessible ? stageLabel : t.pJourneyLocked}
                     aria-label={accessible ? stageLabel : `${stageLabel} — ${t.pJourneyLocked}`}
-                    className={`w-full flex flex-col items-center gap-1 py-1 transition-all duration-200${(unlocked || adminOpen) ? " bv-row-hover" : ""}`}
+                    className="w-full flex flex-col items-center gap-1 py-1 transition-all duration-200 bv-lift-hover"
                     style={{ cursor: isInert ? "not-allowed" : "pointer", opacity: (unlocked || adminOpen) ? 1 : 0.45, WebkitTapHighlightColor: "transparent" }}
                   >
                     <span
