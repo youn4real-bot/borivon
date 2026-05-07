@@ -2187,19 +2187,10 @@ export default function DashboardPage() {
                         </p>
                       )}
 
-                      {/* ── Single-doc status + date (non-other) ──
-                          Compact one-line meta. Status word inherits the
-                          status color (no chip, no border) so it reads as
-                          subtitle text rather than a heavy badge. */}
-                      {!isOther && uploaded && !isUploading && (
-                        <p className="text-[10px] mt-0.5 truncate" style={{ color: "var(--w3)" }}>
-                          <span className="font-semibold" style={{ color: rowColor ?? "inherit" }}>
-                            {statusLabel(doc!.status ?? "pending")}
-                          </span>
-                          <span className="mx-1.5">·</span>
-                          {fmtDate(doc!.uploaded_at)}
-                        </p>
-                      )}
+                      {/* Status conveyed via the row title color (orange/green/red).
+                          Removed redundant "Under review · date" subline so the
+                          row reads cleanly across all phases (essentials,
+                          qualifications, bearbeitung, visum). */}
 
                       {/* Rejection panel (non-other) — structured "What to fix" with re-upload CTA.
                           Also shown when passport data (passport_status) was rejected — candidate
