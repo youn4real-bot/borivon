@@ -3345,8 +3345,17 @@ export default function AdminPage() {
                     if (res.ok) {
                       setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true);
                       setSigZone(null); setSigManualPdf(null);
+                      showError(lang === "fr" ? "Demande envoyée ✓" : lang === "de" ? "Anfrage gesendet ✓" : "Request sent ✓");
+                    } else {
+                      const j = await res.json().catch(() => ({}));
+                      const msg = (j as { error?: string }).error ?? `HTTP ${res.status}`;
+                      console.error("[sign-request] failed:", res.status, msg, j);
+                      showError(`Send failed: ${msg}`);
                     }
-                  } catch { /* ignore */ }
+                  } catch (e) {
+                    console.error("[sign-request] exception:", e);
+                    showError(`Send error: ${e instanceof Error ? e.message : String(e)}`);
+                  }
                   setSigSending(false);
                 }}
                   disabled={sigSending || (!sigPartyAdmin && !sigPartyCandidate)}
