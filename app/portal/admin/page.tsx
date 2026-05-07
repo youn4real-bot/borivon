@@ -2339,7 +2339,7 @@ export default function AdminPage() {
                                   borderRadius: "var(--r-sm)",
                                   cursor: isReise ? "default" : "pointer",
                                 }}>
-                                {unlocked ? <Lock size={11} strokeWidth={1.8} /> : <Unlock size={11} strokeWidth={1.8} />}
+                                {unlocked ? <Unlock size={11} strokeWidth={1.8} /> : <Lock size={11} strokeWidth={1.8} />}
                               </button>
                               {slotPhase && (
                                 <button
