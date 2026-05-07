@@ -3234,8 +3234,8 @@ export default function AdminPage() {
         <div data-bv-sigmodal="1" className="fixed inset-0 z-[2147483600] flex items-center justify-center p-3 sm:p-6"
           style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(10px)", position: "fixed", top: 0, left: 0, right: 0, bottom: 0 }}
           onClick={() => { setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true); setSigZone(null); setSigManualPdf(null); }}>
-          <div className="w-full max-w-2xl rounded-2xl overflow-hidden flex flex-col"
-            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", maxHeight: "92dvh" }}
+          <div className="w-full max-w-4xl rounded-2xl overflow-hidden flex flex-col"
+            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", maxHeight: "calc(100dvh - 80px)" }}
             onClick={e => e.stopPropagation()}>
             <div className="px-4 py-3 flex items-center gap-3 flex-shrink-0"
               style={{ borderBottom: "1px solid var(--border)", background: "var(--gdim)" }}>
@@ -4003,8 +4003,8 @@ export default function AdminPage() {
         <div data-bv-sigmodal="1" className="fixed inset-0 z-[2147483600] flex items-center justify-center p-3 sm:p-6"
           style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(10px)", position: "fixed", top: 0, left: 0, right: 0, bottom: 0 }}
           onClick={() => { setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true); setSigZone(null); setSigManualPdf(null); }}>
-          <div className="w-full max-w-2xl rounded-2xl overflow-hidden flex flex-col"
-            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", maxHeight: "92dvh" }}
+          <div className="w-full max-w-4xl rounded-2xl overflow-hidden flex flex-col"
+            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", maxHeight: "calc(100dvh - 80px)" }}
             onClick={e => e.stopPropagation()}>
 
             {/* ── Header ── */}
