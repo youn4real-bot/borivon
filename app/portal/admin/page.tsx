@@ -3793,7 +3793,7 @@ export default function AdminPage() {
 
       {/* ── Signature request modal ── */}
       {sigModal && typeof window !== "undefined" && createPortal(
-        <div className="fixed inset-0 z-[800] flex items-center justify-center p-3 sm:p-6"
+        <div data-bv-sigmodal="1" className="fixed inset-0 z-[2147483600] flex items-center justify-center p-3 sm:p-6"
           style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(10px)" }}
           onClick={() => { setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true); setSigZone(null); setSigManualPdf(null); }}>
           <div className="w-full max-w-2xl rounded-2xl overflow-hidden flex flex-col"
