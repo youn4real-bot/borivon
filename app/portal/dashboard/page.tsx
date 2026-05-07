@@ -474,6 +474,11 @@ export default function DashboardPage() {
     }
   }, [viewMode, profileLoaded, hasPremium, pipeline]);
 
+  // Auto-dismiss upgrade modal the moment admin unlocks the current stage
+  useEffect(() => {
+    if (upgradeOpen && isAdminUnlocked(viewMode, pipeline)) setUpgradeOpen(false);
+  }, [pipeline, upgradeOpen, viewMode]);
+
   // Issue 4.3: live passport status — no page refresh needed when admin approves/rejects
   useEffect(() => {
     if (!userId) return;
@@ -515,6 +520,23 @@ export default function DashboardPage() {
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [userId]);
+
+  // Realtime: keep pipeline unlock flags in sync when admin changes them
+  useEffect(() => {
+    if (!userId) return;
+    const ch = supabase
+      .channel(`pipeline-unlock-${userId}`)
+      .on("postgres_changes",
+        { event: "UPDATE", schema: "public", table: "candidate_pipeline", filter: `user_id=eq.${userId}` },
+        (payload) => {
+          const row = payload.new as Partial<Pipeline>;
+          setPipeline(prev => prev ? { ...prev, ...row } : (row as Pipeline));
+        },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [userId]);
+
   const [previewDoc, setPreviewDoc]         = useState<Doc | null>(null);
   const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -799,8 +821,9 @@ export default function DashboardPage() {
     } else if (upsellParam === "premium") {
       // Coming back from the CV builder gate (or any other Premium-locked
       // feature). Auto-open the upgrade modal so the candidate sees why
-      // they were redirected.
-      setUpgradeOpen(true);
+      // they were redirected — unless admin has already unlocked this stage.
+      // (Pipeline may still be loading; auto-close effect handles that race.)
+      if (!isAdminUnlocked(viewMode, pipeline)) setUpgradeOpen(true);
       window.history.replaceState({}, "", window.location.pathname);
     }
 
