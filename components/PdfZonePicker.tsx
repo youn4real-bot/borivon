@@ -2,6 +2,7 @@
 
 import { useRef, useState, useEffect } from "react";
 import { Spinner } from "@/components/ui/states";
+import { FilePen } from "@/components/PortalIcons";
 
 export type SigZone = {
   page: number; // 1-indexed
@@ -43,6 +44,8 @@ export function PdfZonePicker({ pdfBase64, onChange, onError }: Props) {
 
   const drawRef = useRef<{ sx: number; sy: number } | null>(null);
   const dragRef = useRef<{ sx: number; sy: number; ox: number; oy: number } | null>(null);
+  type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
+  const resizeRef = useRef<{ sx: number; sy: number; ox: number; oy: number; ow: number; oh: number; handle: ResizeHandle } | null>(null);
 
   // Load PDF from base64
   useEffect(() => {
@@ -127,7 +130,23 @@ export function PdfZonePicker({ pdfBase64, onChange, onError }: Props) {
 
   function onMove(e: React.MouseEvent) {
     const p = relPos(e);
-    if (dragRef.current) {
+    if (resizeRef.current) {
+      const r = resizeRef.current;
+      const dx = p.x - r.sx;
+      const dy = p.y - r.sy;
+      const MIN = 0.04;
+      let nx = r.ox, ny = r.oy, nw = r.ow, nh = r.oh;
+      if (r.handle.includes("w")) { nx = Math.min(r.ox + r.ow - MIN, r.ox + dx); nw = r.ow - (nx - r.ox); }
+      if (r.handle.includes("e")) { nw = Math.max(MIN, r.ow + dx); }
+      if (r.handle.includes("n")) { ny = Math.min(r.oy + r.oh - MIN, r.oy + dy); nh = r.oh - (ny - r.oy); }
+      if (r.handle.includes("s")) { nh = Math.max(MIN, r.oh + dy); }
+      // Clamp inside [0,1]
+      if (nx < 0) { nw += nx; nx = 0; }
+      if (ny < 0) { nh += ny; ny = 0; }
+      if (nx + nw > 1) nw = 1 - nx;
+      if (ny + nh > 1) nh = 1 - ny;
+      emit({ page, x: nx, y: ny, w: nw, h: nh });
+    } else if (dragRef.current) {
       const dx = p.x - dragRef.current.sx;
       const dy = p.y - dragRef.current.sy;
       emit({
@@ -148,6 +167,14 @@ export function PdfZonePicker({ pdfBase64, onChange, onError }: Props) {
   function onUp() {
     drawRef.current = null;
     dragRef.current = null;
+    resizeRef.current = null;
+  }
+
+  function startResize(e: React.MouseEvent, handle: ResizeHandle) {
+    e.preventDefault();
+    e.stopPropagation();
+    const p = relPos(e);
+    resizeRef.current = { sx: p.x, sy: p.y, ox: zone.x, oy: zone.y, ow: zone.w, oh: zone.h, handle };
   }
 
   function changePage(p: number) {
@@ -179,8 +206,11 @@ export function PdfZonePicker({ pdfBase64, onChange, onError }: Props) {
         )}
       </div>
 
-      <div ref={containerRef} className="relative select-none rounded-xl"
-        style={{ border: "1.5px solid var(--border-gold)" }}>
+      <div ref={containerRef} className="relative select-none rounded-xl overflow-hidden"
+        style={{ border: "1.5px solid var(--border-gold)" }}
+        onMouseMove={onMove}
+        onMouseUp={onUp}
+        onMouseLeave={onUp}>
         {loading && (
           <div className="absolute inset-0 z-10 flex items-center justify-center"
             style={{ background: "rgba(0,0,0,0.55)" }}>
@@ -192,28 +222,65 @@ export function PdfZonePicker({ pdfBase64, onChange, onError }: Props) {
           ref={canvasRef}
           style={{ display: "block", width: "100%", height: "auto", cursor: "crosshair" }}
           onMouseDown={onDown}
-          onMouseMove={onMove}
-          onMouseUp={onUp}
-          onMouseLeave={onUp}
         />
 
-        {/* Zone overlay */}
-        <div className="absolute pointer-events-none" style={{
+        {/* Zone overlay — gold box with premium styling + resize handles */}
+        <div className="absolute" style={{
           left:       `${zone.x * 100}%`,
           top:        `${zone.y * 100}%`,
           width:      `${zone.w * 100}%`,
           height:     `${zone.h * 100}%`,
           border:     "2px solid var(--gold)",
           background: "var(--gdim)",
-          borderRadius: 4,
-          display: "flex", alignItems: "center", justifyContent: "center",
+          borderRadius: 6,
+          boxShadow:  "0 4px 14px rgba(201,162,64,0.18)",
+          display:    "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor:     "move",
+          pointerEvents: "none",
         }}>
-          <span style={{
-            fontSize: 10, color: "var(--gold)", fontWeight: 700,
-            textShadow: "0 1px 3px rgba(0,0,0,0.7)",
-          }}>
-            ✍ Sign here
+          <span className="inline-flex items-center gap-1.5 tracking-tight pointer-events-none"
+            style={{
+              fontSize: 11, color: "var(--gold)", fontWeight: 700,
+              textShadow: "0 1px 3px rgba(0,0,0,0.55)",
+              letterSpacing: "0.01em",
+            }}>
+            <FilePen size={12} strokeWidth={2} style={{ color: "var(--gold)" }} />
+            Sign here
           </span>
+
+          {/* Resize handles — 4 corners + 4 edge midpoints */}
+          {(["nw","n","ne","e","se","s","sw","w"] as const).map(h => {
+            const pos: React.CSSProperties = { position: "absolute", pointerEvents: "auto" };
+            const sz = 10;
+            const half = sz / 2;
+            if (h.includes("n")) pos.top = -half;
+            if (h.includes("s")) pos.bottom = -half;
+            if (h.includes("w")) pos.left = -half;
+            if (h.includes("e")) pos.right = -half;
+            if (h === "n" || h === "s") { pos.left = `calc(50% - ${half}px)`; }
+            if (h === "e" || h === "w") { pos.top  = `calc(50% - ${half}px)`; }
+            const cursorMap: Record<typeof h, string> = {
+              nw: "nwse-resize", se: "nwse-resize",
+              ne: "nesw-resize", sw: "nesw-resize",
+              n: "ns-resize",   s:  "ns-resize",
+              e: "ew-resize",   w:  "ew-resize",
+            };
+            return (
+              <div key={h}
+                onMouseDown={(e) => startResize(e, h)}
+                style={{
+                  ...pos,
+                  width: sz, height: sz,
+                  background: "var(--gold)",
+                  border: "1.5px solid #fff",
+                  borderRadius: 3,
+                  boxShadow: "0 1px 3px rgba(0,0,0,0.35)",
+                  cursor: cursorMap[h],
+                }} />
+            );
+          })}
         </div>
       </div>
     </div>
