@@ -824,12 +824,14 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
   const candidateInitial = (candidateName || "?").charAt(0).toUpperCase();
 
   const fetchMsgs = useCallback(async () => {
-    const res = await fetch("/api/portal/messages", { headers: { Authorization: `Bearer ${accessToken}` } });
-    if (!res.ok) return;
-    const json = await res.json();
-    const next: Msg[] = json.messages ?? [];
-    setMsgs(next);
-    setUnread(next.filter(m => m.sender_role === "admin" && !m.read_by_candidate).length);
+    try {
+      const res = await fetch("/api/portal/messages", { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!res.ok) return;
+      const json = await res.json();
+      const next: Msg[] = json.messages ?? [];
+      setMsgs(next);
+      setUnread(next.filter(m => m.sender_role === "admin" && !m.read_by_candidate).length);
+    } catch { /* offline / hot-reload */ }
   }, [accessToken]);
 
   useEffect(() => { fetchMsgs(); const t = setInterval(fetchMsgs, 30_000); return () => clearInterval(t); }, [fetchMsgs]);
@@ -1013,10 +1015,12 @@ function AdminInbox({ accessToken }: { accessToken: string }) {
   }, [accessToken]);
 
   const fetchConvs = useCallback(async () => {
-    const res = await fetch("/api/portal/admin/messages", { headers: { Authorization: `Bearer ${accessToken}` } });
-    if (!res.ok) return;
-    const json = await res.json();
-    setConvs(json.conversations ?? []);
+    try {
+      const res = await fetch("/api/portal/admin/messages", { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!res.ok) return;
+      const json = await res.json();
+      setConvs(json.conversations ?? []);
+    } catch { /* offline / hot-reload */ }
   }, [accessToken]);
 
   useEffect(() => { fetchConvs(); const t = setInterval(fetchConvs, 20_000); return () => clearInterval(t); }, [fetchConvs]);
@@ -1057,12 +1061,14 @@ function AdminInbox({ accessToken }: { accessToken: string }) {
   }, [inboxOpen, activeThread, fetchConvs]);
 
   const fetchThread = useCallback(async (uid: string) => {
-    const res = await fetch(`/api/portal/admin/messages?threadUserId=${encodeURIComponent(uid)}`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (!res.ok) return;
-    const json = await res.json();
-    setThreadMsgs(json.messages ?? []);
+    try {
+      const res = await fetch(`/api/portal/admin/messages?threadUserId=${encodeURIComponent(uid)}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!res.ok) return;
+      const json = await res.json();
+      setThreadMsgs(json.messages ?? []);
+    } catch { /* offline / hot-reload */ }
   }, [accessToken]);
 
   // When activeThread is opened, fetch + mark read.
