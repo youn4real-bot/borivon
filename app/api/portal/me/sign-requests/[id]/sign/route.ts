@@ -15,11 +15,14 @@ const BUCKET = "sign-documents";
  * 4. Uploads the signed PDF back to Supabase Storage
  * 5. Updates sign_requests: status=signed, signed_pdf_path, signed_at
  */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+  if (!UUID_RE.test(id)) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
 
   const auth = await requireUser(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -96,13 +99,16 @@ export async function POST(
   const page = pages[pageIndex];
   const { width: pageW, height: pageH } = page.getSize();
 
-  // Embed the signature PNG
+  // Embed the signature image — support both PNG and JPEG
   const sigDataUri = signatureBase64.startsWith("data:")
     ? signatureBase64
     : `data:image/png;base64,${signatureBase64}`;
+  const isJpeg    = /^data:image\/jpe?g;/i.test(sigDataUri);
   const sigBase64  = sigDataUri.replace(/^data:[^;]+;base64,/, "");
   const sigBytes   = Uint8Array.from(Buffer.from(sigBase64, "base64"));
-  const sigImage   = await pdfDoc.embedPng(sigBytes);
+  const sigImage   = isJpeg
+    ? await pdfDoc.embedJpg(sigBytes)
+    : await pdfDoc.embedPng(sigBytes);
 
   // Compute zone rect in PDF coordinates (origin = bottom-left in pdf-lib)
   let zoneX: number, zoneY: number, zoneW: number, zoneH: number;
@@ -179,8 +185,8 @@ export async function POST(
     return NextResponse.json({ error: "Could not save signed document" }, { status: 500 });
   }
 
-  // Update record
-  await db
+  // Update record — guard against silent failure
+  const { error: updateErr } = await db
     .from("sign_requests")
     .update({
       status:          "signed",
@@ -188,6 +194,11 @@ export async function POST(
       signed_pdf_path: signedPath,
     })
     .eq("id", id);
+
+  if (updateErr) {
+    console.error("[sign] update error:", updateErr);
+    return NextResponse.json({ error: "Could not update signature record" }, { status: 500 });
+  }
 
   // Generate short-lived URL for immediate confirmation
   const { data: urlData } = await db.storage

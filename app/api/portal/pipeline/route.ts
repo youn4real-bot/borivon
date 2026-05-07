@@ -39,7 +39,13 @@ export async function GET(req: NextRequest) {
     console.error("[pipeline GET] failed:", error);
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
-  return NextResponse.json({ pipeline: data ?? null });
+
+  // interview_notes is internal admin-only — strip from sub-admin (org) responses
+  const pipeline = data ? { ...data } : null;
+  if (pipeline && auth.role !== "admin") {
+    delete (pipeline as Record<string, unknown>).interview_notes;
+  }
+  return NextResponse.json({ pipeline });
 }
 
 // PATCH — admin updates a candidate's pipeline
@@ -57,12 +63,19 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  // interview_notes is internal admin-only — sub-admins cannot write it
+  const allowedFields = auth.role === "admin"
+    ? ALLOWED_PIPELINE_FIELDS
+    : new Set([...ALLOWED_PIPELINE_FIELDS].filter(f => f !== "interview_notes"));
+
   // Allowlist filter + sanitise: empty strings → null for date/timestamp cols
   // (Postgres rejects "" for date/timestamptz and returns a type error → 500).
   const DATE_FIELDS = new Set(["interview_date", "visa_date", "flight_date"]);
+  const VALID_INTERVIEW_STATUS = new Set(["pending", "passed", "failed"]);
   const fields: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(rawFields)) {
-    if (!ALLOWED_PIPELINE_FIELDS.has(k)) continue;
+    if (!allowedFields.has(k)) continue;
+    if (k === "interview_status" && typeof v === "string" && !VALID_INTERVIEW_STATUS.has(v)) continue;
     fields[k] = (DATE_FIELDS.has(k) && v === "") ? null : v;
   }
 

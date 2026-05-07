@@ -247,7 +247,7 @@ export async function POST(req: NextRequest) {
       .from("documents")
       .select("user_id, file_name, file_type")
       .eq("id", docId)
-      .single();
+      .maybeSingle();
 
     if (doc) {
       await db.from("notifications").insert({
@@ -482,11 +482,11 @@ export async function PATCH(req: NextRequest) {
       sendDocRejectedEmail(email, passDoc?.file_type ?? "Passport", (cleanProfile.passport_feedback as string | null) ?? null);
     }).catch(() => {});
 
-    // Revoke blue-tick — manually_verified is intentionally outside
-    // ALLOWED_PROFILE_FIELDS so we update it directly here.
+    // Revoke blue-tick + placement-ready — both are outside ALLOWED_PROFILE_FIELDS
+    // so we update them directly here.
     await db
       .from("candidate_profiles")
-      .update({ manually_verified: false })
+      .update({ manually_verified: false, placement_ready: false })
       .eq("user_id", userId);
   }
 

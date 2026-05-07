@@ -159,7 +159,8 @@ export async function PATCH(req: NextRequest) {
           .eq("sub_admin_email", auth.email).eq("org_id", slotOrgId).maybeSingle();
         if (!mem) continue; // not in this org — skip
       }
-      await db.from("phase_slots").update({ position }).eq("id", id);
+      const { error: posErr } = await db.from("phase_slots").update({ position }).eq("id", id);
+      if (posErr) console.error("[phase-slots PATCH reorder]", id, posErr);
     }
     return NextResponse.json({ ok: true });
   }
@@ -224,6 +225,10 @@ export async function DELETE(req: NextRequest) {
     if (!mem) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  await db.from("phase_slots").delete().eq("id", body.id);
+  const { error: delErr } = await db.from("phase_slots").delete().eq("id", body.id);
+  if (delErr) {
+    console.error("[phase-slots DELETE]", delErr);
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  }
   return NextResponse.json({ ok: true });
 }

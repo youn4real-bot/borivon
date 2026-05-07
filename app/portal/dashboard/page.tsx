@@ -59,6 +59,7 @@ type Pipeline = {
   interview_link: string | null;
   interview_date: string | null;
   interview_status: string; // "pending" | "passed" | "failed"
+  interview_type: string | null;
   recognition_unlocked: boolean;
   embassy_unlocked: boolean;
   visa_granted: boolean;
@@ -233,7 +234,6 @@ export default function DashboardPage() {
   const [userName, setUserName]     = useState("");
   const [docs, setDocs]           = useState<Doc[]>([]);
   const [loading, setLoading]     = useState(true);
-  const [mode, setMode]           = useState<"wizard">("wizard");
   const [phase, setPhase]         = useState(0);
   const [isReturn, setIsReturn]   = useState(false);
 
@@ -772,7 +772,6 @@ export default function DashboardPage() {
 
   async function loadDynamicSlots(token: string) {
     if (dynamicSlotsLoaded) return;
-    setDynamicSlotsLoaded(true);
     try {
       const [beaRes, visRes] = await Promise.all([
         fetch("/api/portal/phase-slots?phase=bearbeitung", { headers: { Authorization: `Bearer ${token}` } }),
@@ -781,7 +780,8 @@ export default function DashboardPage() {
       const beaJ = beaRes.ok ? await beaRes.json() : { slots: [] };
       const visJ = visRes.ok ? await visRes.json() : { slots: [] };
       setDynamicSlots({ bea: beaJ.slots ?? [], vis: visJ.slots ?? [] });
-    } catch { /* ignore — slots stay empty */ }
+      setDynamicSlotsLoaded(true); // set only on success — allows retry on failure
+    } catch { /* ignore — slots stay empty; guard stays false so next load retries */ }
   }
 
   async function loadDocs(uid: string, keepPhase = false) {
@@ -853,7 +853,6 @@ export default function DashboardPage() {
         })
       );
       setPhase(firstIncomplete === -1 ? 0 : firstIncomplete);
-      setMode("wizard");
 
       // Deep-link from notification: open doc preview directly
       const navDocId = new URLSearchParams(window.location.search).get("nav_doc_id");
