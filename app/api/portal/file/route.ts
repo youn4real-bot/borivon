@@ -126,7 +126,40 @@ export async function GET(req: NextRequest) {
     });
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error("File proxy error:", msg);
-    return new NextResponse("File not found", { status: 404 });
+    console.warn("[file proxy] Drive fetch failed, trying Storage fallback:", msg);
+
+    // Storage fallback — uploads route mirrors PDFs to sign-documents/doc-cache/{driveFileId}
+    // so the file is still retrievable when the Drive file is deleted/inaccessible.
+    try {
+      const { data: blob, error: dlErr } = await db.storage
+        .from("sign-documents")
+        .download(`doc-cache/${fileId}`);
+      if (dlErr || !blob) {
+        console.error("[file proxy] Storage fallback also failed:", dlErr);
+        return new NextResponse("File not found", { status: 404 });
+      }
+      let outBuf = Buffer.from(await blob.arrayBuffer());
+      // Apply rotation for PDFs (same as Drive path)
+      if (rotation !== 0) {
+        try {
+          const pdfDoc = await PDFDocument.load(outBuf);
+          for (const page of pdfDoc.getPages()) {
+            const cur = page.getRotation().angle;
+            page.setRotation(degrees((cur + rotation) % 360));
+          }
+          outBuf = Buffer.from(await pdfDoc.save());
+        } catch { /* serve original on rotate failure */ }
+      }
+      return new NextResponse(outBuf, {
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": "inline",
+          "Cache-Control": "private, no-store, must-revalidate",
+        },
+      });
+    } catch (fallbackErr) {
+      console.error("[file proxy] Both Drive and Storage failed:", fallbackErr);
+      return new NextResponse("File not found", { status: 404 });
+    }
   }
 }
