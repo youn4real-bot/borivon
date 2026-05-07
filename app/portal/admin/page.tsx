@@ -3791,6 +3791,11 @@ export default function AdminPage() {
         </div>
       )}
 
+      {/* DEBUG: always-visible sigModal state indicator */}
+      <div data-bv-debug-sig style={{position:"fixed", bottom: 8, left: 8, zIndex: 2147483600, background: "#000", color: "#fff", padding: "6px 10px", fontSize: 11, fontFamily: "monospace", borderRadius: 4, pointerEvents: "none"}}>
+        sigModal: {sigModal ? JSON.stringify(sigModal).substring(0, 80) : "null"}
+      </div>
+
       {/* ── Signature request modal — inline render, no portal ── */}
       {sigModal && (
         <div data-bv-sigmodal="1" className="fixed inset-0 z-[2147483600] flex items-center justify-center p-3 sm:p-6"
