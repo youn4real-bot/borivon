@@ -57,10 +57,13 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Allowlist filter
+  // Allowlist filter + sanitise: empty strings → null for date/timestamp cols
+  // (Postgres rejects "" for date/timestamptz and returns a type error → 500).
+  const DATE_FIELDS = new Set(["interview_date", "visa_date", "flight_date"]);
   const fields: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(rawFields)) {
-    if (ALLOWED_PIPELINE_FIELDS.has(k)) fields[k] = v;
+    if (!ALLOWED_PIPELINE_FIELDS.has(k)) continue;
+    fields[k] = (DATE_FIELDS.has(k) && v === "") ? null : v;
   }
 
   const db = getServiceSupabase();
