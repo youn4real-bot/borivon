@@ -594,14 +594,19 @@ export default function AdminPage() {
    *  Merges `update` with current pipeline so stale-closure state is never sent. */
   async function savePipelineField(update: Partial<AdminPipeline>) {
     if (!selectedUser) return;
+    const prev = pipeline;
     setPipeline(p => ({ ...p, ...update }));
     try {
-      await fetch("/api/portal/pipeline", {
+      const res = await fetch("/api/portal/pipeline", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ userId: selectedUser, ...pipeline, ...update }),
       });
-    } catch { /* network error — state already updated optimistically */ }
+      if (!res.ok) {
+        console.error("[savePipelineField] HTTP", res.status, await res.text().catch(() => ""));
+        setPipeline(prev); // rollback optimistic update
+      }
+    } catch { setPipeline(prev); /* network error — rollback */ }
   }
 
   async function savePipeline() {
@@ -1908,16 +1913,6 @@ export default function AdminPage() {
                           <div>
                             <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>Notes (internal)</label>
                             <textarea value={pipeline.interview_notes} onChange={e => setPipeline(p => ({ ...p, interview_notes: e.target.value }))} onBlur={e => savePipelineField({ interview_notes: e.target.value })} placeholder="Internal notes — not visible to candidate…" rows={3} className="w-full px-2.5 py-2 text-[11.5px] outline-none transition-colors resize-none" style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: "var(--r-sm)" }} />
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                    {activePipelineStage === "visum" && (
-                      <div className="overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-lg)" }}>
-                        <div className="px-4 py-3.5 space-y-2.5">
-                          <div>
-                            <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>{t.aVisaDate}</label>
-                            <input type="datetime-local" value={pipeline.visa_date} onChange={e => setPipeline(p => ({ ...p, visa_date: e.target.value }))} onBlur={e => savePipelineField({ visa_date: e.target.value })} className="w-full px-2.5 py-2 text-[11.5px] outline-none transition-colors" style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: "var(--r-sm)" }} />
                           </div>
                         </div>
                       </div>

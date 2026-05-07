@@ -65,7 +65,7 @@ export async function PATCH(req: NextRequest) {
 
   const db = getServiceSupabase();
   const { error } = await db.from("candidate_pipeline").upsert(
-    { user_id: userId, ...fields, updated_at: new Date().toISOString() },
+    { user_id: userId, ...fields },
     { onConflict: "user_id" }
   );
   if (error) {
