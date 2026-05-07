@@ -8,12 +8,12 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // Anything outside this list is silently dropped (mass-assignment prevention).
 const ALLOWED_PIPELINE_FIELDS = new Set<string>([
   "interview_link", "interview_date", "interview_status",
-  "interview_type", "interview_notes",
   "recognition_unlocked", "embassy_unlocked",
   "visa_granted", "visa_date",
   "flight_date", "flight_info",
   "docs_approved",
-  "integration_unlocked", "start_unlocked",
+  // interview_type, interview_notes, integration_unlocked, start_unlocked
+  // require migration pipeline_gespräch.sql — added back once DB is updated
 ]);
 
 // GET — admin reads a candidate's pipeline by userId
@@ -78,7 +78,7 @@ export async function PATCH(req: NextRequest) {
 
   if (updateErr) {
     console.error("[pipeline PATCH] update failed:", updateErr);
-    return NextResponse.json({ error: "Internal error", detail: updateErr.message, code: updateErr.code }, { status: 500 });
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
 
   if (!updated || updated.length === 0) {
@@ -88,7 +88,7 @@ export async function PATCH(req: NextRequest) {
       .insert({ user_id: userId, ...fields });
     if (insertErr) {
       console.error("[pipeline PATCH] insert failed:", insertErr);
-      return NextResponse.json({ error: "Internal error", detail: insertErr.message, code: insertErr.code }, { status: 500 });
+      return NextResponse.json({ error: "Internal error" }, { status: 500 });
     }
   }
 

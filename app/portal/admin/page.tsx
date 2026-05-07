@@ -600,7 +600,7 @@ export default function AdminPage() {
       const res = await fetch("/api/portal/pipeline", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ userId: selectedUser, ...pipeline, ...update }),
+        body: JSON.stringify({ userId: selectedUser, ...update }),
       });
       if (!res.ok) {
         console.error("[savePipelineField] HTTP", res.status, await res.text().catch(() => ""));
