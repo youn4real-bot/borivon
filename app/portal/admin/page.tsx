@@ -428,7 +428,7 @@ export default function AdminPage() {
   // Passport DATA PDF download state (passport info modal)
   const [passportDataPdfDl, setPassportDataPdfDl] = useState(false);
   // Signature request modal
-  const [sigModal, setSigModal] = useState<{ docId: string; driveFileId: string; label: string } | null>(null);
+  const [sigModal, setSigModal] = useState<{ docId: string | null; driveFileId: string | null; label: string } | null>(null);
   const [sigPartyAdmin, setSigPartyAdmin] = useState(false);
   const [sigPartyCandidate, setSigPartyCandidate] = useState(true);
   const [sigNote, setSigNote] = useState("");
@@ -442,22 +442,27 @@ export default function AdminPage() {
   // Fetch PDF for zone picker whenever sign modal opens
   useEffect(() => {
     if (!sigModal) { setSigPdfBase64(null); setSigZone(null); setSigManualPdf(null); return; }
-    let cancelled = false;
-    setSigPdfLoading(true);
     setSigPdfBase64(null);
     setSigZone(null);
     setSigManualPdf(null);
+    // No source doc → skip fetch, go straight to upload drop zone
+    if (!sigModal.driveFileId && !sigModal.docId) {
+      setSigPdfLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setSigPdfLoading(true);
     (async () => {
       try {
         // Match AdminDocPreviewModal exactly: prefer ?id=drive_file_id, fall back to ?docId
         const fetchUrl = sigModal.driveFileId
           ? `/api/portal/file?id=${encodeURIComponent(sigModal.driveFileId)}`
-          : `/api/portal/file?docId=${encodeURIComponent(sigModal.docId)}`;
+          : `/api/portal/file?docId=${encodeURIComponent(sigModal.docId!)}`;
         const res = await fetch(fetchUrl, {
           headers: { Authorization: `Bearer ${accessToken}` },
         });
         if (!res.ok || cancelled) {
-          if (!cancelled) console.error("[sigModal] file fetch failed:", res.status, sigModal.driveFileId || sigModal.docId);
+          if (!cancelled) console.warn("[sigModal] file fetch failed:", res.status, sigModal.driveFileId || sigModal.docId);
           return;
         }
         const buf = await res.arrayBuffer();
@@ -2131,14 +2136,12 @@ export default function AdminPage() {
                                                       style={{ color: "var(--w)" }}>
                                                       <FilePen size={11} strokeWidth={1.8} /> Edit label
                                                     </button>
-                                                    {doc?.drive_file_id && (
-                                                      <button
-                                                        onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ docId: doc!.id, driveFileId: doc!.drive_file_id!, label: slot.label }); }}
-                                                        className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
-                                                        style={{ color: "var(--w)" }}>
-                                                        <FilePen size={11} strokeWidth={1.8} /> Signature
-                                                      </button>
-                                                    )}
+                                                    <button
+                                                      onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ docId: doc?.id ?? null, driveFileId: doc?.drive_file_id ?? null, label: slot.label }); }}
+                                                      className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                                      style={{ color: "var(--w)" }}>
+                                                      <FilePen size={11} strokeWidth={1.8} /> Signature
+                                                    </button>
                                                     {rowSt === "approved" && (
                                                       <button
                                                         onClick={e => { e.stopPropagation(); setRevokeMenu(null); openRejectModal({ kind: "doc", docId: doc!.id, label: slot.label, initialFeedback: doc!.feedback ?? "" }); }}
@@ -2354,14 +2357,12 @@ export default function AdminPage() {
                                                           <div className="fixed inset-0 z-10" onClick={e => { e.stopPropagation(); setRevokeMenu(null); }} />
                                                           <div className="absolute right-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
                                                             style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
-                                                            {subDoc.drive_file_id && (
-                                                              <button
-                                                                onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ docId: subDoc!.id, driveFileId: subDoc!.drive_file_id!, label: subLabel }); }}
-                                                                className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
-                                                                style={{ color: "var(--w)" }}>
-                                                                <FilePen size={11} strokeWidth={1.8} /> Signature
-                                                              </button>
-                                                            )}
+                                                            <button
+                                                              onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ docId: subDoc?.id ?? null, driveFileId: subDoc?.drive_file_id ?? null, label: subLabel }); }}
+                                                              className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                                              style={{ color: "var(--w)" }}>
+                                                              <FilePen size={11} strokeWidth={1.8} /> Signature
+                                                            </button>
                                                             {subSt === "approved" && (
                                                               <button
                                                                 onClick={e => { e.stopPropagation(); setRevokeMenu(null); openRejectModal({ kind: "doc", docId: subDoc!.id, label: subLabel, initialFeedback: subDoc!.feedback ?? "" }); }}
