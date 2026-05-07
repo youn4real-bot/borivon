@@ -78,7 +78,7 @@ export async function PATCH(req: NextRequest) {
 
   if (updateErr) {
     console.error("[pipeline PATCH] update failed:", updateErr);
-    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+    return NextResponse.json({ error: "Internal error", detail: updateErr.message, code: updateErr.code }, { status: 500 });
   }
 
   if (!updated || updated.length === 0) {
@@ -88,7 +88,7 @@ export async function PATCH(req: NextRequest) {
       .insert({ user_id: userId, ...fields });
     if (insertErr) {
       console.error("[pipeline PATCH] insert failed:", insertErr);
-      return NextResponse.json({ error: "Internal error" }, { status: 500 });
+      return NextResponse.json({ error: "Internal error", detail: insertErr.message, code: insertErr.code }, { status: 500 });
     }
   }
 
