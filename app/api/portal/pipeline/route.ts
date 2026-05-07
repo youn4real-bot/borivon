@@ -64,13 +64,29 @@ export async function PATCH(req: NextRequest) {
   }
 
   const db = getServiceSupabase();
-  const { error } = await db.from("candidate_pipeline").upsert(
-    { user_id: userId, ...fields },
-    { onConflict: "user_id" }
-  );
-  if (error) {
-    console.error("[pipeline PATCH] upsert failed:", error);
+
+  // Try UPDATE first; if no row exists yet, INSERT.
+  // Avoids onConflict constraint dependency (schema-agnostic).
+  const { data: updated, error: updateErr } = await db
+    .from("candidate_pipeline")
+    .update(fields)
+    .eq("user_id", userId)
+    .select("user_id");
+
+  if (updateErr) {
+    console.error("[pipeline PATCH] update failed:", updateErr);
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  }
+
+  if (!updated || updated.length === 0) {
+    // Row doesn't exist yet — insert it
+    const { error: insertErr } = await db
+      .from("candidate_pipeline")
+      .insert({ user_id: userId, ...fields });
+    if (insertErr) {
+      console.error("[pipeline PATCH] insert failed:", insertErr);
+      return NextResponse.json({ error: "Internal error" }, { status: 500 });
+    }
   }
 
   // Notify candidate when interview result is set
