@@ -1710,7 +1710,7 @@ export default function DashboardPage() {
                   <button
                     onClick={() => { setPhase(i); setViewMode("docs"); setSlotMsg(null); window.scrollTo({ top: 0, behavior: "smooth" }); }}
                     title={ph.title}
-                    className="bv-lift-hover w-full flex flex-col items-center gap-1 py-1"
+                    className="bv-lift-hover w-full flex flex-col items-center gap-1 py-1 cursor-pointer"
                   >
                     <span
                       className="relative flex items-center justify-center w-8 h-8 rounded-full leading-none select-none transition-all duration-300"
@@ -1775,7 +1775,7 @@ export default function DashboardPage() {
                     disabled={isInert}
                     title={accessible ? stageLabel : t.pJourneyLocked}
                     aria-label={accessible ? stageLabel : `${stageLabel} — ${t.pJourneyLocked}`}
-                    className="w-full flex flex-col items-center gap-1 py-1 bv-lift-hover"
+                    className="w-full flex flex-col items-center gap-1 py-1 bv-lift-hover cursor-pointer"
                     style={{ cursor: isInert ? "not-allowed" : "pointer", opacity: (unlocked || adminOpen) ? 1 : 0.45, WebkitTapHighlightColor: "transparent" }}
                   >
                     <span
