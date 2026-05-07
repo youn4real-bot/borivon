@@ -281,6 +281,8 @@ export default function DashboardPage() {
   // Upgrade modal — shown when candidate tries a Premium-tier feature
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [upgradeLoading, setUpgradeLoading] = useState(false);
+  // Which journey stage triggered the upgrade modal (so auto-close only fires for that stage)
+  const [upgradeTargetStage, setUpgradeTargetStage] = useState<string | null>(null);
   // Payment success toast — shown when user returns from Stripe checkout
   const [paymentCelebration, setPaymentCelebration] = useState<{ plan: string } | null>(null);
   // Helper: does the user have the Premium plan?
@@ -474,10 +476,16 @@ export default function DashboardPage() {
     }
   }, [viewMode, profileLoaded, hasPremium, pipeline]);
 
-  // Auto-dismiss upgrade modal the moment admin unlocks the current stage
+  // Auto-dismiss upgrade modal the moment admin unlocks the specific stage
+  // the candidate was trying to access. Using upgradeTargetStage (not viewMode)
+  // prevents a false-close when the user is already inside an admin-unlocked
+  // stage and clicks a *different* locked stage.
   useEffect(() => {
-    if (upgradeOpen && isAdminUnlocked(viewMode, pipeline)) setUpgradeOpen(false);
-  }, [pipeline, upgradeOpen, viewMode]);
+    if (upgradeOpen && upgradeTargetStage && isAdminUnlocked(upgradeTargetStage, pipeline)) {
+      setUpgradeOpen(false);
+      setUpgradeTargetStage(null);
+    }
+  }, [pipeline, upgradeOpen, upgradeTargetStage]);
 
   // Issue 4.3: live passport status — no page refresh needed when admin approves/rejects
   useEffect(() => {
@@ -823,7 +831,7 @@ export default function DashboardPage() {
       // feature). Auto-open the upgrade modal so the candidate sees why
       // they were redirected — unless admin has already unlocked this stage.
       // (Pipeline may still be loading; auto-close effect handles that race.)
-      if (!isAdminUnlocked(viewMode, pipeline)) setUpgradeOpen(true);
+      if (!isAdminUnlocked(viewMode, pipeline)) { setUpgradeTargetStage(viewMode); setUpgradeOpen(true); }
       window.history.replaceState({}, "", window.location.pathname);
     }
 
@@ -1148,7 +1156,7 @@ export default function DashboardPage() {
             stray click can't cancel the redirect mid-request. */}
         <div className="fixed inset-0 z-[1200]"
           style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", animation: "bvFadeRise 0.2s var(--ease-out)", cursor: upgradeLoading ? "wait" : "pointer" }}
-          onClick={() => { if (!upgradeLoading) setUpgradeOpen(false); }} />
+          onClick={() => { if (!upgradeLoading) { setUpgradeOpen(false); setUpgradeTargetStage(null); } }} />
         <div className="fixed inset-0 z-[1201] flex items-end sm:items-center justify-center p-4 pointer-events-none">
           <div className="w-full max-w-[380px] max-h-[90dvh] overflow-y-auto flex flex-col pointer-events-auto"
             style={{ background: "var(--card)", borderRadius: "24px", boxShadow: "0 24px 64px rgba(0,0,0,0.4)", animation: "bvFadeRise 0.26s var(--ease-out)" }}>
@@ -1754,7 +1762,7 @@ export default function DashboardPage() {
                   <button
                     onClick={() => {
                       // Non-premium + stage not admin-unlocked → show upgrade modal
-                      if (!hasPremium && !adminOpen) { setUpgradeOpen(true); return; }
+                      if (!hasPremium && !adminOpen) { setUpgradeTargetStage(js.key); setUpgradeOpen(true); return; }
                       if (unlocked || adminOpen) {
                         if (isDocsStage) {
                           setPhase(docsPhaseIdx); setViewMode("docs"); setSlotMsg(null);
@@ -1875,7 +1883,7 @@ export default function DashboardPage() {
                         <div key={s.key} className="flex items-center flex-1 min-w-0">
                           <button
                             onClick={() => {
-                              if (!hasPremium && !isAdminUnlocked(s.key, pipeline)) { setUpgradeOpen(true); return; }
+                              if (!hasPremium && !isAdminUnlocked(s.key, pipeline)) { setUpgradeTargetStage(s.key); setUpgradeOpen(true); return; }
                               if (!locked || isAdminUnlocked(s.key, pipeline)) {
                                 if (s.key === "recognition") { setPhase(2); setViewMode("docs"); setSlotMsg(null); }
                                 else if (s.key === "visum")  { setPhase(3); setViewMode("docs"); setSlotMsg(null); }
