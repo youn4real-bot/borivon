@@ -17,6 +17,7 @@ import {
 import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User } from "lucide-react";
 import { Spinner, PageLoader, EmptyState } from "@/components/ui/states";
 import { CandidateStagePreview, type JourneyMode } from "@/components/JourneyView";
+import { PdfZonePicker, type SigZone } from "@/components/PdfZonePicker";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { PortalTopNav } from "@/components/PortalTopNav";
 import { FILE_KEY_ALL_LABELS } from "@/lib/fileKeys";
@@ -426,6 +427,39 @@ export default function AdminPage() {
   const [sigPartyCandidate, setSigPartyCandidate] = useState(true);
   const [sigNote, setSigNote] = useState("");
   const [sigSending, setSigSending] = useState(false);
+  const [sigZone, setSigZone] = useState<SigZone | null>(null);
+  const [sigPdfBase64, setSigPdfBase64] = useState<string | null>(null);
+  const [sigPdfLoading, setSigPdfLoading] = useState(false);
+
+  // Fetch PDF for zone picker whenever sign modal opens
+  useEffect(() => {
+    if (!sigModal) { setSigPdfBase64(null); setSigZone(null); return; }
+    let cancelled = false;
+    setSigPdfLoading(true);
+    setSigPdfBase64(null);
+    setSigZone(null);
+    (async () => {
+      try {
+        const res = await fetch(`/api/portal/file?id=${encodeURIComponent(sigModal.driveFileId)}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!res.ok || cancelled) return;
+        const buf = await res.arrayBuffer();
+        if (cancelled) return;
+        const bytes = new Uint8Array(buf);
+        let binary = "";
+        const CHUNK = 8192;
+        for (let i = 0; i < bytes.length; i += CHUNK) {
+          binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+        }
+        const b64 = btoa(binary);
+        setSigPdfBase64(b64);
+      } catch { /* ignore */ }
+      finally { if (!cancelled) setSigPdfLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [sigModal, accessToken]);
+
   // Delete candidate confirmation
   const [deleteCandidateConfirm, setDeleteCandidateConfirm] = useState(false);
   const [deleteCandidateInput, setDeleteCandidateInput] = useState("");
@@ -3579,11 +3613,11 @@ export default function AdminPage() {
         <div className="fixed inset-0 z-[800] flex items-end sm:items-center justify-center p-4"
           style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(8px)" }}
           onClick={() => setSigModal(null)}>
-          <div className="w-full max-w-sm rounded-2xl overflow-hidden"
-            style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)" }}
+          <div className="w-full max-w-xl rounded-2xl overflow-hidden flex flex-col"
+            style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)", maxHeight: "90dvh" }}
             onClick={e => e.stopPropagation()}>
             {/* Header */}
-            <div className="px-5 py-4 flex items-center gap-3"
+            <div className="px-5 py-4 flex items-center gap-3 flex-shrink-0"
               style={{ borderBottom: "1px solid var(--border)", background: "var(--bg2)" }}>
               <FilePen size={14} strokeWidth={1.8} style={{ color: "var(--gold)", flexShrink: 0 }} />
               <div className="flex-1 min-w-0">
@@ -3598,8 +3632,9 @@ export default function AdminPage() {
                 <XIcon size={13} strokeWidth={2} />
               </button>
             </div>
-            {/* Body */}
-            <div className="p-5 space-y-4">
+            {/* Body — scrollable */}
+            <div className="p-5 space-y-4 overflow-y-auto flex-1">
+              {/* Who signs */}
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.1em] mb-3" style={{ color: "var(--w3)" }}>
                   {lang === "fr" ? "Qui doit signer ?" : lang === "de" ? "Wer unterschreibt?" : "Who needs to sign?"}
@@ -3623,6 +3658,26 @@ export default function AdminPage() {
                   </label>
                 </div>
               </div>
+
+              {/* Signature zone picker */}
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] mb-2" style={{ color: "var(--w3)" }}>
+                  {lang === "fr" ? "Zone de signature" : lang === "de" ? "Signaturfeld" : "Signature zone"}
+                </p>
+                {sigPdfLoading ? (
+                  <div className="flex items-center justify-center py-10 rounded-xl" style={{ background: "var(--bg2)" }}>
+                    <Spinner size="md" />
+                  </div>
+                ) : sigPdfBase64 ? (
+                  <PdfZonePicker pdfBase64={sigPdfBase64} onChange={z => setSigZone(z)} />
+                ) : (
+                  <div className="text-[11.5px] py-3 px-3 rounded-xl" style={{ background: "var(--bg2)", color: "var(--w3)" }}>
+                    {lang === "fr" ? "PDF introuvable — zone par défaut utilisée" : lang === "de" ? "PDF nicht gefunden – Standardzone wird verwendet" : "PDF not found — default zone will be used"}
+                  </div>
+                )}
+              </div>
+
+              {/* Note */}
               <div>
                 <label className="text-[11px] font-medium block mb-1.5" style={{ color: "var(--w3)" }}>
                   {lang === "fr" ? "Note (optionnel)" : lang === "de" ? "Hinweis (optional)" : "Note (optional)"}
@@ -3634,7 +3689,7 @@ export default function AdminPage() {
               </div>
             </div>
             {/* Footer */}
-            <div className="px-5 pb-5 flex gap-2">
+            <div className="px-5 pb-5 pt-3 flex gap-2 flex-shrink-0" style={{ borderTop: "1px solid var(--border)" }}>
               <button
                 onClick={async () => {
                   if (sigSending || (!sigPartyAdmin && !sigPartyCandidate)) return;
@@ -3649,12 +3704,14 @@ export default function AdminPage() {
                         driveFileId: sigModal.driveFileId,
                         note: sigNote.trim() || undefined,
                         parties: { admin: sigPartyAdmin, candidate: sigPartyCandidate },
+                        signatureZone: sigZone ?? undefined,
                       }),
                     });
                     setSigModal(null);
                     setSigNote("");
                     setSigPartyAdmin(false);
                     setSigPartyCandidate(true);
+                    setSigZone(null);
                   } catch { /* ignore */ }
                   setSigSending(false);
                 }}
@@ -3666,7 +3723,7 @@ export default function AdminPage() {
                   : <><Send size={13} strokeWidth={2} /> {lang === "fr" ? "Envoyer" : lang === "de" ? "Senden" : "Send"}</>
                 }
               </button>
-              <button onClick={() => { setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true); }}
+              <button onClick={() => { setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true); setSigZone(null); }}
                 className="px-4 py-2.5 rounded-xl text-[13px] transition-opacity hover:opacity-70"
                 style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
                 <XIcon size={14} strokeWidth={2} />
