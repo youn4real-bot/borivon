@@ -4,12 +4,11 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 
-import { LABEL_TO_FILE_KEY } from "@/lib/fileKeys";
+import { LABEL_TO_FILE_KEY, FILE_KEY_ALL_LABELS } from "@/lib/fileKeys";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { DOC_EXAMPLES } from "@/lib/docExamples";
 import { MAPS_URL, DEMANDE_EXAMPLE_URL } from "@/lib/workLicenseGuide";
-import { translations } from "@/lib/translations";
 import { COUNTRY_MAP, natToLang as natToLangShared } from "@/lib/countries";
 import {
   PhaseIcon, type PhaseKind,
@@ -39,29 +38,7 @@ const OnboardingTour = dynamic(
   { ssr: false, loading: () => null },
 );
 
-// Map every fileKey → all possible translated labels across all languages
-// so getDoc() works regardless of which language was active at upload time
-const FILE_KEY_ALL_LABELS: Record<string, Set<string>> = (() => {
-  const keyToTKey: Record<string, keyof typeof translations.fr> = {
-    id: "pTypeID", cv: "pTypeCV", langcert: "pTypeLangCert",
-    diploma: "pTypeDiploma", studyprog: "pTypeStudyProg", transcript: "pTypeTranscript",
-    abitur: "pTypeAbitur", abitur_transcript: "pTypeAbiturTranscript", praktikum: "pTypePraktikum",
-    workcert: "pTypeWorkCert", letter: "pTypeLetter", other: "pTypeOther",
-    work_experience: "pTypeWorkExp",
-    cv_de: "pTypeCVde", diploma_de: "pTypeDiplomaDE", studyprog_de: "pTypeStudyProgDE",
-    transcript_de: "pTypeTranscriptDE", abitur_de: "pTypeAbiturDE",
-    abitur_transcript_de: "pTypeAbiturTranscriptDE", praktikum_de: "pTypePraktikumDE",
-    workcert_de: "pTypeWorkcertDE", work_experience_de: "pTypeWorkExpDE",
-  };
-  const result: Record<string, Set<string>> = {};
-  for (const [fileKey, tKey] of Object.entries(keyToTKey)) {
-    result[fileKey] = new Set(Object.values(translations).map(lang => lang[tKey] as string));
-  }
-  // Legacy aliases — keep old labels so docs uploaded before a rename are still found
-  result["workcert"].add("Berufserlaubnis");
-  result["abitur_transcript"].add("Abitur Transcript");
-  return result;
-})();
+// FILE_KEY_ALL_LABELS imported from @/lib/fileKeys — shared with admin page.
 
 // Map fileKey → phase index (0-3) for notification deep-linking.
 // cv_de (Lebenslauf) lives in Phase 0 (ID & CV) — it's the candidate's main
@@ -114,6 +91,22 @@ function isJourneyUnlocked(stage: Exclude<ViewMode,"docs">, p: Pipeline | null):
   }
 }
 
+/** Whether admin has explicitly unlocked this stage for the candidate.
+ *  True → candidate bypasses Premium gate for this stage only.
+ *  Never changes payment_tier — purely a temporary access grant. */
+function isAdminUnlocked(stage: string, p: Pipeline | null): boolean {
+  if (!p) return false;
+  switch (stage) {
+    case "interview":   return !!p.docs_approved;
+    case "recognition": return !!p.recognition_unlocked;
+    case "visum":       return !!p.embassy_unlocked;
+    case "reise":       return !!p.flight_date;
+    case "integration": return !!p.integration_unlocked;
+    case "start":       return !!p.start_unlocked;
+    default:            return false;
+  }
+}
+
 type Doc = {
   id: string;
   file_name: string;
@@ -149,6 +142,11 @@ export default function DashboardPage() {
   const router = useRouter();
   const { t, lang } = useLang();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Dynamic phase slots — loaded from API (replaces static bea_*/vis_* placeholders)
+  type PhaseSlot = { id: string; phase: string; type: "simple" | "dual"; label: string; label_trans: string | null; position: number };
+  const [dynamicSlots, setDynamicSlots] = useState<{ bea: PhaseSlot[]; vis: PhaseSlot[] }>({ bea: [], vis: [] });
+  const [dynamicSlotsLoaded, setDynamicSlotsLoaded] = useState(false);
 
   type PhItem = { key: string; label: string; hint: string; optional?: boolean; transKey?: string; transHint?: string; };
   const PHASES: { title: string; shortTitle: string; desc: string; kind: PhaseKind; isTranslations: boolean; items: PhItem[] }[] = [
@@ -186,7 +184,30 @@ export default function DashboardPage() {
         { key: "work_experience",   transKey: "work_experience_de",   label: t.pTypeWorkExp,          hint: t.pHintWorkExp,          transHint: t.pHintWorkExpDE, optional: true as const },
       ],
     },
+    {
+      title: t.pJourneyRecognition, shortTitle: "Bea.",
+      desc: "",
+      kind: "recognition" as PhaseKind,
+      isTranslations: false,
+      items: dynamicSlots.bea.map(s => ({
+        key: s.id, label: s.label, hint: "",
+        ...(s.type === "dual" ? { transKey: s.id + "_de", transHint: "" } : {}),
+      })),
+    },
+    {
+      title: t.pJourneyVisum, shortTitle: "Visum",
+      desc: "",
+      kind: "embassy" as PhaseKind,
+      isTranslations: false,
+      items: dynamicSlots.vis.map(s => ({
+        key: s.id, label: s.label, hint: "",
+        ...(s.type === "dual" ? { transKey: s.id + "_de", transHint: "" } : {}),
+      })),
+    },
   ];
+  // Only the first two phases (Essentielles + Qualifikation) show in the top sidebar rail.
+  // Bearbeitung and Visum are reached via the journey stage sidebar icons below.
+  const DOC_SIDEBAR_PHASES = PHASES.slice(0, 2);
 
   // ALL_ITEMS must include both original and translated keys so the upload
   // handler, progress counter and slot-message renderer can find any key.
@@ -444,14 +465,14 @@ export default function DashboardPage() {
     };
   }, [authToken, userId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Plan-gate fallback: non-Premium users can't reach journey views — bounce
-  // them back to docs the moment they would land on one (race-safe; runs as
-  // an effect, not during render).
+  // Plan-gate fallback: non-Premium users can't reach journey views unless the
+  // admin has explicitly unlocked that specific stage — bounce back to docs if
+  // neither condition is met. Race-safe; runs as an effect, not during render.
   useEffect(() => {
     if (viewMode !== "docs" && profileLoaded && !hasPremium) {
-      setViewMode("docs");
+      if (!isAdminUnlocked(viewMode, pipeline)) setViewMode("docs");
     }
-  }, [viewMode, profileLoaded, hasPremium]);
+  }, [viewMode, profileLoaded, hasPremium, pipeline]);
 
   // Issue 4.3: live passport status — no page refresh needed when admin approves/rejects
   useEffect(() => {
@@ -645,6 +666,7 @@ export default function DashboardPage() {
         } catch { /* ignore corrupt data */ }
       }
       loadDocs(user.id);
+      loadDynamicSlots(session?.access_token ?? "");
       // Load passport_status for info-button color
       // Load profile — passport status + payment tier + verified flag
       (async () => {
@@ -718,6 +740,20 @@ export default function DashboardPage() {
     return () => subscription.unsubscribe();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  async function loadDynamicSlots(token: string) {
+    if (dynamicSlotsLoaded) return;
+    setDynamicSlotsLoaded(true);
+    try {
+      const [beaRes, visRes] = await Promise.all([
+        fetch("/api/portal/phase-slots?phase=bearbeitung", { headers: { Authorization: `Bearer ${token}` } }),
+        fetch("/api/portal/phase-slots?phase=visum",        { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      const beaJ = beaRes.ok ? await beaRes.json() : { slots: [] };
+      const visJ = visRes.ok ? await visRes.json() : { slots: [] };
+      setDynamicSlots({ bea: beaJ.slots ?? [], vis: visJ.slots ?? [] });
+    } catch { /* ignore — slots stay empty */ }
+  }
+
   async function loadDocs(uid: string, keepPhase = false) {
     let fetched: Doc[] = [];
     try {
@@ -770,8 +806,11 @@ export default function DashboardPage() {
 
     if (fetched.length > 0) {
       setIsReturn(true);
-      // Only required (non-optional) items count toward phase completion
-      const firstIncomplete = PHASES.findIndex(p =>
+      // Only check static phases (0=ID&CV, 1=Qualification) for landing step.
+      // Dynamic phases (2=Bearbeitung, 3=Visum) depend on slots that load
+      // asynchronously; including them here would produce wrong results before
+      // dynamicSlotsLoaded is true.
+      const firstIncomplete = PHASES.slice(0, 2).findIndex(p =>
         p.items.filter(i => !i.optional).some(i => {
           const origLabels = FILE_KEY_ALL_LABELS[i.key];
           if (!fetched.find(d => origLabels?.has(d.file_type))) return true;
@@ -796,14 +835,14 @@ export default function DashboardPage() {
 
   function getDoc(key: string, fromDocs = docs): Doc | undefined {
     const labels = FILE_KEY_ALL_LABELS[key];
-    if (!labels) return undefined;
-    return fromDocs.find(d => labels.has(d.file_type));
+    if (labels) return fromDocs.find(d => labels.has(d.file_type));
+    return fromDocs.find(d => d.file_type === key);
   }
 
   function getDocAll(key: string, fromDocs = docs): Doc[] {
     const labels = FILE_KEY_ALL_LABELS[key];
-    if (!labels) return [];
-    return fromDocs.filter(d => labels.has(d.file_type));
+    if (labels) return fromDocs.filter(d => labels.has(d.file_type));
+    return fromDocs.filter(d => d.file_type === key);
   }
 
   // ── Auto-upload (no confirm step) ──────────────────────────────────────────
@@ -830,16 +869,20 @@ export default function DashboardPage() {
     setSlotMsg(null);
 
     const item = ALL_ITEMS.find(i => i.key === key);
-    if (!item) {
+    // Dynamic slot keys are UUIDs (36 chars) or UUID_de — detect by pattern
+    const UUID_PAT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(_de)?$/i;
+    const isDynamic = UUID_PAT.test(key);
+    if (!item && !isDynamic) {
       console.error("[upload] unknown fileKey:", key);
       setUploadingKey(null);
       setSlotMsg({ key, ok: false, type: "errUpload" });
       return;
     }
-    const label = item.label;
+    // Dynamic slots store the UUID as file_type so getDoc(slotId) can match directly
+    const fileType = isDynamic ? key : item!.label;
     const fd = new FormData();
     fd.append("file", file);
-    fd.append("fileType", label);
+    fd.append("fileType", fileType);
     fd.append("fileKey", key);
     fd.append("userId", userId);
     fd.append("firstName", firstName);
@@ -1606,7 +1649,7 @@ export default function DashboardPage() {
               shrinks to 60px on phones so it stays inline with the content. */}
           <aside className={`shrink-0 w-[44px] sm:w-[52px]`}
             style={{ position: "sticky", top: "calc(61px + 1.5rem)" }}>
-            {PHASES.map((ph, i) => {
+            {DOC_SIDEBAR_PHASES.map((ph, i) => {
               const isActive = i === phase && viewMode === "docs";
 
               // Gold on active — minimalist borderless treatment
@@ -1671,25 +1714,38 @@ export default function DashboardPage() {
             {/* Journey stage icons */}
             {JOURNEY_STAGES.map((js, ji) => {
               const unlocked = isJourneyUnlocked(js.key, pipeline);
-              const isActive = viewMode === js.key;
+              const adminOpen = isAdminUnlocked(js.key, pipeline);
+              // recognition → docs phase 2, visum → docs phase 3 (upload-first stages)
+              const isDocsStage = js.key === "recognition" || js.key === "visum";
+              const docsPhaseIdx = js.key === "recognition" ? 2 : 3;
+              const isActive = isDocsStage
+                ? (viewMode === "docs" && phase === docsPhaseIdx)
+                : viewMode === js.key;
               const stageLabel = t[`pJourney${js.key.charAt(0).toUpperCase() + js.key.slice(1)}` as keyof typeof t] as string;
-              // Locked-but-Kandidat: nothing to do → actually disable. Locked
-              // for Starter: still actionable (opens upgrade modal). Unlocked:
-              // navigates. Disabled prop matches reality so keyboard users get
-              // the same blocked behavior as mouse users.
-              const isInert = hasPremium && !unlocked;
+              // Inert = Premium but stage not yet opened by admin
+              const isInert = hasPremium && !unlocked && !adminOpen;
+              // Accessible = Premium user OR admin explicitly unlocked this stage
+              const accessible = hasPremium || adminOpen;
               return (
                 <div key={js.key} className="flex flex-col items-center">
                   <button
                     onClick={() => {
-                      if (!hasPremium) { setUpgradeOpen(true); return; }
-                      if (unlocked) { setViewMode(js.key); window.scrollTo({ top: 0, behavior: "smooth" }); }
+                      // Non-premium + stage not admin-unlocked → show upgrade modal
+                      if (!hasPremium && !adminOpen) { setUpgradeOpen(true); return; }
+                      if (unlocked || adminOpen) {
+                        if (isDocsStage) {
+                          setPhase(docsPhaseIdx); setViewMode("docs"); setSlotMsg(null);
+                        } else {
+                          setViewMode(js.key);
+                        }
+                        window.scrollTo({ top: 0, behavior: "smooth" });
+                      }
                     }}
                     disabled={isInert}
-                    title={unlocked ? stageLabel : t.pJourneyLocked}
-                    aria-label={unlocked ? stageLabel : `${stageLabel} — ${t.pJourneyLocked}`}
-                    className={`w-full flex flex-col items-center gap-1 py-1 transition-all duration-200${unlocked ? " bv-row-hover" : ""}`}
-                    style={{ cursor: isInert ? "not-allowed" : "pointer", opacity: unlocked ? 1 : 0.45, WebkitTapHighlightColor: "transparent" }}
+                    title={accessible ? stageLabel : t.pJourneyLocked}
+                    aria-label={accessible ? stageLabel : `${stageLabel} — ${t.pJourneyLocked}`}
+                    className={`w-full flex flex-col items-center gap-1 py-1 transition-all duration-200${(unlocked || adminOpen) ? " bv-row-hover" : ""}`}
+                    style={{ cursor: isInert ? "not-allowed" : "pointer", opacity: (unlocked || adminOpen) ? 1 : 0.45, WebkitTapHighlightColor: "transparent" }}
                   >
                     <span
                       className="relative flex items-center justify-center w-8 h-8 rounded-full leading-none select-none transition-all duration-300"
@@ -1701,7 +1757,7 @@ export default function DashboardPage() {
                         transition: "color 0.2s, transform 0.15s",
                       }}>
                       <PhaseIcon kind={js.kind} size={13} />
-                      {!unlocked && (
+                      {!unlocked && !adminOpen && (
                         <span className="absolute -top-1 -right-1 flex items-center justify-center w-3.5 h-3.5 rounded-full"
                           style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
                           <Lock size={7} strokeWidth={2.2} style={{ color: "var(--w3)" }} />
@@ -1727,7 +1783,7 @@ export default function DashboardPage() {
             {/* ── Journey stage views ──
                 The plan-gate effect above bounces non-Premium users back to
                 docs; we render JourneyView only when they're allowed in. */}
-            {viewMode !== "docs" && (!profileLoaded || hasPremium) && (
+            {viewMode !== "docs" && (!profileLoaded || hasPremium || isAdminUnlocked(viewMode, pipeline)) && (
               <JourneyView mode={viewMode} pipeline={pipeline} t={t} lang={lang} onBack={() => { setViewMode("docs"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
             )}
 
@@ -1796,9 +1852,11 @@ export default function DashboardPage() {
                         <div key={s.key} className="flex items-center flex-1 min-w-0">
                           <button
                             onClick={() => {
-                              if (!hasPremium) { setUpgradeOpen(true); return; }
-                              if (!locked) {
-                                setViewMode(s.key as ViewMode);
+                              if (!hasPremium && !isAdminUnlocked(s.key, pipeline)) { setUpgradeOpen(true); return; }
+                              if (!locked || isAdminUnlocked(s.key, pipeline)) {
+                                if (s.key === "recognition") { setPhase(2); setViewMode("docs"); setSlotMsg(null); }
+                                else if (s.key === "visum")  { setPhase(3); setViewMode("docs"); setSlotMsg(null); }
+                                else setViewMode(s.key as ViewMode);
                                 window.scrollTo({ top: 0, behavior: "smooth" });
                               }
                             }}
@@ -1919,6 +1977,15 @@ export default function DashboardPage() {
 
               <div className="h-px mx-6" style={{ background: "var(--border)" }} />
 
+
+              {/* Empty state for dynamic phases with no slots configured yet */}
+              {dynamicSlotsLoaded && currentPhase.items.length === 0 && (phase === 2 || phase === 3) && (
+                <div className="px-6 py-10 text-center">
+                  <p className="text-[12px]" style={{ color: "var(--w3)" }}>
+                    {lang === "de" ? "Dokumente werden konfiguriert." : lang === "fr" ? "Documents en cours de configuration." : "Documents being configured."}
+                  </p>
+                </div>
+              )}
 
               {/* Doc rows — borderless minimalist list */}
               <div className="px-3 pb-2">

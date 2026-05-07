@@ -805,12 +805,35 @@ export async function POST(req: NextRequest) {
   );
   const { data: { user }, error: authErr } = await supabase.auth.getUser(jwt);
   if (authErr || !user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  const userId = user.id;
 
   const formData = await req.formData();
   const file      = formData.get("file")     as File | null;
   const fileType  = (formData.get("fileType")  as string) ?? "Autre";
   const fileKey   = (formData.get("fileKey")   as string) ?? "other";
+  const forUserId = (formData.get("forUserId") as string) ?? null;
+
+  // Admin override: allow admins to upload on behalf of a candidate.
+  const UUID_RE_USER = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  let userId = user.id;
+  // When forUserId is set, notifications must use the CANDIDATE's email, not the admin's.
+  let notifEmail = (user.email ?? "").toLowerCase();
+  if (forUserId && UUID_RE_USER.test(forUserId)) {
+    const reqEmail = (user.email ?? "").toLowerCase();
+    const adminEmail = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
+    const dbAdm = getServiceSupabase();
+    const isAdmin = reqEmail === adminEmail;
+    let isSubAdmin = false;
+    if (!isAdmin) {
+      const { data: sub } = await dbAdm.from("sub_admins").select("email").eq("email", reqEmail).maybeSingle();
+      isSubAdmin = !!sub;
+    }
+    if (!isAdmin && !isSubAdmin) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    userId = forUserId;
+    // Resolve candidate's email for the admin_notifications row.
+    const { data: candAuthData } = await getServiceSupabase().auth.admin.getUserById(forUserId);
+    const ce = (candAuthData?.user?.email ?? "").toLowerCase();
+    if (ce) notifEmail = ce;
+  }
 
   // SECURITY: derive firstName/lastName from candidate_profiles (verified user_id),
   // NOT from formData. Otherwise an attacker can supply another candidate's name and
@@ -953,7 +976,8 @@ export async function POST(req: NextRequest) {
   const metaFull  = typeof meta?.full_name  === "string" ? meta.full_name.trim()  : "";
   const metaFirst = typeof meta?.first_name === "string" ? meta.first_name.trim() : "";
   const metaLast  = typeof meta?.last_name  === "string" ? meta.last_name.trim()  : "";
-  const userEmail = (user.email ?? "").toLowerCase();
+  // notifEmail: candidate's email (set above when admin uploads for candidate).
+  const userEmail = notifEmail;
   const emailLocal = userEmail.split("@")[0]?.replace(/[._-]+/g, " ").trim();
   const fullName =
     [firstName.trim(), lastName.trim()].filter(Boolean).join(" ") ||

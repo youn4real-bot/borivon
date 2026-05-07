@@ -497,10 +497,12 @@ function AdminBell({ accessToken }: { accessToken: string }) {
   const t = BELL_T[lang as keyof typeof BELL_T] ?? BELL_T.en;
 
   const fetch_ = useCallback(async () => {
-    const res = await fetch("/api/portal/admin/notifications", { headers: { Authorization: `Bearer ${accessToken}` } });
-    if (!res.ok) return;
-    const json = await res.json();
-    setNotifs(json.notifications ?? []);
+    try {
+      const res = await fetch("/api/portal/admin/notifications", { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!res.ok) return;
+      const json = await res.json();
+      setNotifs(json.notifications ?? []);
+    } catch { /* offline / hot-reload */ }
   }, [accessToken]);
 
   useEffect(() => {
@@ -533,12 +535,13 @@ function AdminBell({ accessToken }: { accessToken: string }) {
   async function markAllRead() {
     const prev = notifs;
     setNotifs(p => p.map(n => ({ ...n, read: true })));
-    const res = await fetch("/api/portal/admin/notifications", {
-      method: "PATCH",
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    // Rollback optimistic update if the server write failed
-    if (!res.ok) setNotifs(prev);
+    try {
+      const res = await fetch("/api/portal/admin/notifications", {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!res.ok) setNotifs(prev);
+    } catch { setNotifs(prev); }
   }
 
   const unread = notifs.filter(n => !n.read).length;

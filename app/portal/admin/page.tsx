@@ -14,39 +14,16 @@ import {
   Lock, Unlock, IdCard, FileText, Folder, FilePen, Save, Eye,
   CheckCircle2, XCircle, AlertTriangle, PartyPopper,
 } from "@/components/PortalIcons";
-import { X as XIcon, RotateCcw, Download, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User } from "lucide-react";
+import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User } from "lucide-react";
 import { Spinner, PageLoader, EmptyState } from "@/components/ui/states";
 import { CandidateStagePreview, type JourneyMode } from "@/components/JourneyView";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { PortalTopNav } from "@/components/PortalTopNav";
-
-// ── File key → all possible translated labels ─────────────────────────────────
-const FILE_KEY_ALL_LABELS: Record<string, Set<string>> = (() => {
-  const keyToTKey: Record<string, keyof typeof translations.fr> = {
-    id: "pTypeID", cv: "pTypeCV", langcert: "pTypeLangCert",
-    diploma: "pTypeDiploma", studyprog: "pTypeStudyProg", transcript: "pTypeTranscript",
-    abitur: "pTypeAbitur", abitur_transcript: "pTypeAbiturTranscript", praktikum: "pTypePraktikum",
-    workcert: "pTypeWorkCert", letter: "pTypeLetter", other: "pTypeOther",
-    work_experience: "pTypeWorkExp",
-    cv_de: "pTypeCVde", diploma_de: "pTypeDiplomaDE", studyprog_de: "pTypeStudyProgDE",
-    transcript_de: "pTypeTranscriptDE", abitur_de: "pTypeAbiturDE",
-    abitur_transcript_de: "pTypeAbiturTranscriptDE", praktikum_de: "pTypePraktikumDE",
-    workcert_de: "pTypeWorkcertDE", work_experience_de: "pTypeWorkExpDE",
-  };
-  const result: Record<string, Set<string>> = {};
-  for (const [fileKey, tKey] of Object.entries(keyToTKey)) {
-    result[fileKey] = new Set(Object.values(translations).map(lang => lang[tKey] as string));
-  }
-  result["workcert"].add("Berufserlaubnis");
-  result["abitur_transcript"].add("Abitur Transcript");
-  return result;
-})();
+import { FILE_KEY_ALL_LABELS } from "@/lib/fileKeys";
 
 const ADMIN_PHASES: { title: string; shortTitle: string; kind: PhaseKind; keys: string[] }[] = [
-  { title: "ID & CV",  shortTitle: "ID",      kind: "id",      keys: ["id", "cv_de", "letter", "langcert", "other"] },
-  // Nursing keys include both originals AND translations so getPhaseIdx routes
-  // translated docs to this phase (no separate Translations phase any more).
-  { title: "Nursing",  shortTitle: "Nursing", kind: "nursing", keys: [
+  { title: "ID & CV",     shortTitle: "ID",      kind: "id",          keys: ["id", "cv_de", "letter", "langcert", "other"] },
+  { title: "Nursing",     shortTitle: "Nursing", kind: "nursing",     keys: [
     "diploma", "studyprog", "transcript", "abitur", "abitur_transcript", "praktikum", "workcert", "work_experience",
     "diploma_de", "studyprog_de", "transcript_de", "abitur_de", "abitur_transcript_de", "praktikum_de", "workcert_de", "work_experience_de",
   ]},
@@ -106,12 +83,15 @@ type AdminPipeline = {
   docs_approved: boolean;
   integration_unlocked: boolean;
   start_unlocked: boolean;
+  interview_type: string;
+  interview_notes: string;
 };
 const DEFAULT_PIPELINE: AdminPipeline = {
   interview_link: "", interview_date: "", interview_status: "pending",
   recognition_unlocked: false, embassy_unlocked: false,
   visa_granted: false, visa_date: "", flight_date: "", flight_info: "",
   docs_approved: false, integration_unlocked: false, start_unlocked: false,
+  interview_type: "", interview_notes: "",
 };
 
 // Editable passport fields for the admin edit form
@@ -165,13 +145,6 @@ function timeAgo(iso: string, lang?: string) {
   if (h < 48) return { isNew: true,  label: h < 1 ? justNow : hAgo(Math.floor(h)) };
   if (d < 7)  return { isNew: false, label: dAgo(Math.floor(d)) };
   return           { isNew: false, label: fmtDate(iso) };
-}
-
-// ── Payment tier badge ────────────────────────────────────────────────────────
-// Starter tier removed; Premium users get the gold verified tick instead.
-// Keeping the component as a no-op so callsites don't have to be touched.
-function PaymentBadge(_: { tier: string | null | undefined }) {
-  return null;
 }
 
 // ── Preview modal moved to components/AdminDocPreviewModal.tsx ────────────────
@@ -232,8 +205,6 @@ export default function AdminPage() {
   const [agenciesLoaded, setAgenciesLoaded]   = useState(false);
   const [newAgencyName, setNewAgencyName]     = useState("");
   const [agencyCreating, setAgencyCreating]   = useState(false);
-  const [showAgencyPanel, setShowAgencyPanel] = useState(false);
-  const [showOrgReqPanel, setShowOrgReqPanel] = useState(false);
 
   async function loadAgencies(token: string) {
     const [ra, rs] = await Promise.all([
@@ -395,6 +366,23 @@ export default function AdminPage() {
   const [passportSaving, setPassportSaving]     = useState(false);
   const [profileSaved, setProfileSaved]         = useState(false);
   const [activePipelineStage, setActivePipelineStage] = useState<string | null>(null);
+
+  // ── Dynamic phase slots (Bearbeitung / Visum) ──────────────────────────────
+  type PhaseSlot = { id: string; org_id: string | null; phase: string; position: number; type: "simple" | "dual"; label: string; label_trans: string | null };
+  const [phaseSlots, setPhaseSlots] = useState<Record<string, PhaseSlot[]>>({ bearbeitung: [], visum: [] });
+  const [phaseSlotsLoaded, setPhaseSlotsLoaded] = useState<Record<string, boolean>>({ bearbeitung: false, visum: false });
+  // Add-slot modal
+  const [addSlotPhase, setAddSlotPhase] = useState<string | null>(null);
+  const [addSlotType, setAddSlotType]   = useState<"simple" | "dual">("simple");
+  const [addSlotLabel, setAddSlotLabel] = useState("");
+  const [addSlotLabelTrans, setAddSlotLabelTrans] = useState("");
+  const [addSlotSaving, setAddSlotSaving] = useState(false);
+  // Drag-to-reorder
+  const dragSlotIdx = React.useRef<number | null>(null);
+  // Admin upload on behalf of candidate
+  const [adminUploadSlotId, setAdminUploadSlotId] = useState<string | null>(null);
+  const adminFileInputRef = React.useRef<HTMLInputElement>(null);
+  const adminUploadTargetRef = React.useRef<string | null>(null);
   const [showPassportInfo, setShowPassportInfo] = useState(false);
   // Auto-open passport data alongside the doc preview during the verification
   // phase. Once both the doc AND the data are approved, this stops triggering
@@ -593,12 +581,28 @@ export default function AdminPage() {
           docs_approved: p.docs_approved ?? false,
           integration_unlocked: p.integration_unlocked ?? false,
           start_unlocked: p.start_unlocked ?? false,
+          interview_type: p.interview_type ?? "",
+          interview_notes: p.interview_notes ?? "",
         } : DEFAULT_PIPELINE);
         setPipelineLoaded(true);
       })
       .catch(err => { if (err.name !== "AbortError") console.error("Pipeline fetch error:", err); });
     return () => { mounted = false; controller.abort(); };
   }, [selectedUser, accessToken]);
+
+  /** Immediately persist a single-field pipeline toggle without waiting for Send.
+   *  Merges `update` with current pipeline so stale-closure state is never sent. */
+  async function savePipelineField(update: Partial<AdminPipeline>) {
+    if (!selectedUser) return;
+    setPipeline(p => ({ ...p, ...update }));
+    try {
+      await fetch("/api/portal/pipeline", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ userId: selectedUser, ...pipeline, ...update }),
+      });
+    } catch { /* network error — state already updated optimistically */ }
+  }
 
   async function savePipeline() {
     if (!selectedUser) return;
@@ -848,6 +852,114 @@ export default function AdminPage() {
     }
   }
 
+  // ── Phase slot CRUD ───────────────────────────────────────────────────────
+  async function loadPhaseSlots(phase: string) {
+    if (!accessToken || phaseSlotsLoaded[phase]) return;
+    // Mark in-flight immediately to prevent concurrent fetches; reset on failure so retry is possible.
+    setPhaseSlotsLoaded(prev => ({ ...prev, [phase]: true }));
+    try {
+      const res = await fetch(`/api/portal/phase-slots?phase=${phase}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (res.ok) {
+        const j = await res.json();
+        setPhaseSlots(prev => ({ ...prev, [phase]: j.slots ?? [] }));
+      } else {
+        setPhaseSlotsLoaded(prev => ({ ...prev, [phase]: false }));
+      }
+    } catch {
+      setPhaseSlotsLoaded(prev => ({ ...prev, [phase]: false }));
+    }
+  }
+
+  async function addPhaseSlot(phase: string, type: "simple" | "dual", label: string, labelTrans: string) {
+    if (!accessToken || !label.trim()) return;
+    setAddSlotSaving(true);
+    try {
+      const res = await fetch("/api/portal/phase-slots", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ phase, type, label: label.trim(), label_trans: labelTrans.trim() || undefined }),
+      });
+      if (res.ok) {
+        const j = await res.json();
+        setPhaseSlots(prev => ({ ...prev, [phase]: [...(prev[phase] ?? []), j.slot] }));
+        setAddSlotPhase(null);
+        setAddSlotLabel("");
+        setAddSlotLabelTrans("");
+      }
+    } catch { /* network error */ }
+    setAddSlotSaving(false);
+  }
+
+  async function deletePhaseSlot(slotId: string, phase: string) {
+    if (!accessToken) return;
+    // Optimistic remove
+    setPhaseSlots(prev => ({ ...prev, [phase]: (prev[phase] ?? []).filter(s => s.id !== slotId) }));
+    try {
+      await fetch("/api/portal/phase-slots", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ id: slotId }),
+      });
+    } catch { /* network error */ }
+  }
+
+  function openAdminUploadPicker(slotId: string) {
+    if (!selectedUser) return;
+    adminUploadTargetRef.current = slotId;
+    adminFileInputRef.current?.click();
+  }
+
+  async function adminUploadFile(file: File, slotId: string) {
+    if (!selectedUser || !accessToken) return;
+    setAdminUploadSlotId(slotId);
+    const fd = new FormData();
+    fd.append("file", file);
+    // Use "other" as fileKey so Drive places file in the sonstiges subfolder
+    // with an incrementing name (avoids collision when all slot UUIDs fell
+    // through to the same "dokument_original" filename).
+    // fileType stays as slotId so the DB lookup by slot ID still works.
+    fd.append("fileKey", "other");
+    fd.append("fileType", slotId);
+    fd.append("forUserId", selectedUser);
+    try {
+      const res = await fetch("/api/portal/upload", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}` },
+        body: fd,
+      });
+      if (res.ok) {
+        // Targeted refetch: only reload docs for this candidate, not all docs.
+        const res2 = await fetch(`/api/portal/admin?userId=${selectedUser}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (res2.ok) {
+          const json2 = await res2.json();
+          const freshDocs: Doc[] = json2.docs ?? [];
+          // Merge: replace this candidate's docs, keep all others intact.
+          setDocs(prev => [
+            ...prev.filter(d => d.user_id !== selectedUser),
+            ...freshDocs,
+          ]);
+        }
+      }
+    } finally {
+      setAdminUploadSlotId(null);
+    }
+  }
+
+  async function saveSlotOrder(phase: string, slots: { id: string; position: number }[]) {
+    if (!accessToken) return;
+    try {
+      await fetch("/api/portal/phase-slots", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ positions: slots }),
+      });
+    } catch { /* network error */ }
+  }
+
   // ── Rejection modal ──────────────────────────────────────────────────────
   // Pops up when admin clicks reject on any doc/passport row. Lets them write
   // optional feedback + attach an optional screenshot (sent to the candidate
@@ -945,14 +1057,16 @@ export default function AdminPage() {
       return lb - la;
     });
 
-  // Archived: candidates with zero pending docs
-  const archivedUserIds = Object.keys(grouped)
-    .filter(uid => !grouped[uid].some(d => d.status === "pending"))
-    .sort((a, b) => {
-      const la = Math.max(...grouped[a].map(d => new Date(d.uploaded_at).getTime()));
-      const lb = Math.max(...grouped[b].map(d => new Date(d.uploaded_at).getTime()));
-      return lb - la;
-    });
+  // Archived: candidates with no pending docs OR who signed up but haven't uploaded yet
+  const zeroDogUserIds = Object.keys(users).filter(uid => !grouped[uid]);
+  const archivedUserIds = [
+    ...Object.keys(grouped).filter(uid => !grouped[uid].some(d => d.status === "pending")),
+    ...zeroDogUserIds,
+  ].sort((a, b) => {
+    const la = grouped[a] ? Math.max(...grouped[a].map(d => new Date(d.uploaded_at).getTime())) : 0;
+    const lb = grouped[b] ? Math.max(...grouped[b].map(d => new Date(d.uploaded_at).getTime())) : 0;
+    return lb - la;
+  });
 
   const totalPending = docs.filter(d => d.status === "pending").length;
 
@@ -983,7 +1097,7 @@ export default function AdminPage() {
       ]},
     ];
 
-    // Helper: get all docs for a file key
+    // Helper: get all docs for a file key (supports static keys + dynamic slot IDs)
     function getAdminDocs(key: string): Doc[] {
       if (key === "passport_data_pdf") {
         const p = profiles[selectedUser ?? ""];
@@ -993,7 +1107,9 @@ export default function AdminPage() {
         return [{ id: "passport_data_pdf", user_id: selectedUser ?? "", file_name: `${fn}_${ln}_reisepass_daten.pdf`, file_type: "Reisepass Daten", uploaded_at: new Date().toISOString(), status: p.passport_status, feedback: null, drive_file_id: null }];
       }
       const labels = FILE_KEY_ALL_LABELS[key];
-      return labels ? allDocs.filter(d => labels.has(d.file_type)) : [];
+      if (labels) return allDocs.filter(d => labels.has(d.file_type));
+      // Dynamic slot IDs stored directly as file_type
+      return allDocs.filter(d => d.file_type === key);
     }
 
     // Sidebar color per phase (same logic as candidate portal)
@@ -1630,7 +1746,6 @@ export default function AdminPage() {
                 <h1 className="text-[20px] font-semibold tracking-[-0.015em] inline-flex items-center gap-1.5 flex-wrap max-w-full" style={{ color: "var(--w)" }}>
                   <span className="truncate">{user.name}</span>
                   <VerifiedBadge verified={!!profiles[selectedUser]?.manually_verified} size="sm" color="gold" />
-                  <PaymentBadge tier={profiles[selectedUser]?.payment_tier} />
                   {/* Org tags inline next to the gold tick — minimalist, no × */}
                   {(candidateOrgs[selectedUser] ?? []).map(org => (
                     <span key={org.id}
@@ -1689,8 +1804,7 @@ export default function AdminPage() {
 
                 {/* Journey stage icons — click to show that stage on the right */}
                 {([
-                  { key: "docs",        kind: "docs"        as PhaseKind, label: "Docs",        active: pipeline.docs_approved },
-                  { key: "interview",   kind: "interview"   as PhaseKind, label: "Gespräch",    active: pipeline.interview_status === "passed" || pipeline.interview_status === "failed" || !!pipeline.interview_link },
+                  { key: "interview",   kind: "interview"   as PhaseKind, label: "Gespräch",    active: pipeline.docs_approved },
                   { key: "recognition", kind: "recognition" as PhaseKind, label: "Bearbeitung", active: pipeline.recognition_unlocked },
                   { key: "visum",       kind: "embassy"     as PhaseKind, label: "Visum",       active: pipeline.embassy_unlocked },
                   { key: "reise",       kind: "flight"      as PhaseKind, label: "Reise",       active: !!pipeline.flight_date },
@@ -1701,7 +1815,13 @@ export default function AdminPage() {
                   return (
                     <div key={js.label} className="flex flex-col items-center">
                       <button
-                        onClick={() => { setActivePipelineStage(isSel ? null : js.key); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                        onClick={() => {
+                          const next = isSel ? null : js.key;
+                          setActivePipelineStage(next);
+                          if (next === "recognition") loadPhaseSlots("bearbeitung");
+                          if (next === "visum") loadPhaseSlots("visum");
+                          window.scrollTo({ top: 0, behavior: "smooth" });
+                        }}
                         title={js.label}
                         className="bv-lift-hover w-full flex flex-col items-center gap-1 py-1"
                         style={{ background: "transparent", border: "none", cursor: "pointer" }}>
@@ -1709,12 +1829,12 @@ export default function AdminPage() {
                           style={{
                             background: "transparent",
                             border: "none",
-                            color: isSel ? "var(--gold)" : js.active ? "var(--success)" : "var(--w3)",
+                            color: isSel ? "var(--gold)" : "var(--w3)",
                             transform: isSel ? "scale(1.08)" : "scale(1)",
                             transition: "color 0.2s, transform 0.15s",
                           }}>
                           <PhaseIcon kind={js.kind} size={13} />
-                          {!js.active && !isSel && (
+                          {!js.active && (
                             <span className="absolute -top-1 -right-1 flex items-center justify-center w-3.5 h-3.5 rounded-full"
                               style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
                               <Lock size={7} strokeWidth={2.2} style={{ color: "var(--w3)" }} />
@@ -1722,7 +1842,7 @@ export default function AdminPage() {
                           )}
                         </span>
                         <span className="text-[8px] text-center leading-tight font-medium"
-                          style={{ color: isSel ? "var(--gold)" : js.active ? "var(--success)" : "var(--w3)" }}>
+                          style={{ color: isSel ? "var(--gold)" : "var(--w3)" }}>
                           {js.label}
                         </span>
                       </button>
@@ -1736,57 +1856,6 @@ export default function AdminPage() {
               <div className="flex-1 min-w-0">
                 {activePipelineStage ? (
                   <div key={activePipelineStage} className="bv-enter">
-                    {/* Pipeline stage header — refined rhythm */}
-                    <div className="flex items-center justify-between mb-5">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <span className="flex items-center justify-center w-9 h-9 flex-shrink-0"
-                          style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-md)" }}>
-                          <PhaseIcon kind={activePipelineStage as PhaseKind} size={17} />
-                        </span>
-                        <div className="min-w-0">
-                          <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--w3)" }}>Pipeline stage</p>
-                          <h2 className="text-[20px] font-semibold tracking-[-0.015em] leading-tight" style={{ color: "var(--w)" }}>
-                            {activePipelineStage === "docs" ? "Documents"
-                              : activePipelineStage === "interview" ? "Gespräch"
-                              : activePipelineStage === "recognition" ? "Bearbeitung"
-                              : activePipelineStage === "visum" ? "Visum"
-                              : activePipelineStage === "reise" ? "Reise"
-                              : activePipelineStage === "integration" ? "Integration"
-                              : "Start"}
-                          </h2>
-                        </div>
-                      </div>
-                      <button onClick={savePipeline} disabled={pipelineSaving || !pipelineLoaded}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 text-[12px] font-semibold transition-all disabled:opacity-40"
-                        style={{
-                          background: pipelineSaved ? "var(--success-border)" : "var(--gold)",
-                          color: pipelineSaved ? "var(--success)" : "#131312",
-                          border: pipelineSaved ? "1px solid var(--success-border)" : "1px solid var(--gold)",
-                          borderRadius: "var(--r-sm)",
-                          boxShadow: pipelineSaved ? "none" : "var(--shadow-sm)",
-                        }}>
-                        {pipelineSaving ? "Saving…" : pipelineSaved ? <><CheckCircle2 size={12} strokeWidth={1.8} /> Saved</> : t.aPipelineSave}
-                      </button>
-                    </div>
-                    {activePipelineStage === "docs" && (() => { const on = pipeline.docs_approved; return (
-                      <div className="flex items-center gap-3 px-4 py-3.5" style={{ background: "var(--card)", border: `1px solid ${on ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-lg)" }}>
-                        <span className="flex items-center justify-center w-9 h-9 flex-shrink-0"
-                          style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-md)" }}>
-                          <Folder size={16} strokeWidth={1.7} />
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[13px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>Documents</p>
-                          <p className="text-[11.5px] mt-0.5 inline-flex items-center gap-1" style={{ color: on ? "var(--success)" : "var(--w3)" }}>
-                            {on ? <><CheckCircle2 size={11} strokeWidth={2} /> Next step unlocked</> : "Next button locked for candidate"}
-                          </p>
-                        </div>
-                        <button onClick={() => setPipeline(p => ({ ...p, docs_approved: !on }))}
-                          className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-3 py-1.5 flex-shrink-0 transition-all"
-                          style={{ background: on ? "var(--success-bg)" : "var(--bg2)", color: on ? "var(--success)" : "var(--w2)", border: `1px solid ${on ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
-                          {on ? <><Lock size={11} strokeWidth={1.8} /> Lock</> : <><Unlock size={11} strokeWidth={1.8} /> Unlock</>}
-                        </button>
-                      </div>
-                    ); })()}
                     {activePipelineStage === "interview" && (
                       <div className="overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-lg)" }}>
                         <div className="flex items-center gap-3 px-4 py-3.5">
@@ -1804,7 +1873,7 @@ export default function AdminPage() {
                           </div>
                           <div className="flex gap-1.5 flex-shrink-0">
                             {(["passed","failed","pending"] as const).map(s => (
-                              <button key={s} onClick={() => setPipeline(p => ({ ...p, interview_status: s }))}
+                              <button key={s} onClick={() => savePipelineField({ interview_status: s })}
                                 title={s} aria-label={s}
                                 className="w-7 h-7 flex items-center justify-center font-semibold transition-all"
                                 style={{ background: pipeline.interview_status === s ? s === "passed" ? "var(--success-border)" : s === "failed" ? "var(--danger-bg)" : "var(--gdim)" : "var(--bg2)", color: pipeline.interview_status === s ? s === "passed" ? "var(--success)" : s === "failed" ? "var(--danger)" : "var(--gold)" : "var(--w3)", border: `1px solid ${pipeline.interview_status === s ? s === "passed" ? "var(--success-border)" : s === "failed" ? "var(--danger-bg)" : "var(--border-gold)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
@@ -1813,153 +1882,417 @@ export default function AdminPage() {
                             ))}
                           </div>
                         </div>
-                        <div className="px-4 pb-3.5 pt-2 grid grid-cols-2 gap-2.5" style={{ borderTop: "1px solid var(--border)" }}>
-                          <div>
-                            <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>Link</label>
-                            <input type="url" value={pipeline.interview_link} onChange={e => setPipeline(p => ({ ...p, interview_link: e.target.value }))} placeholder="https://meet.google.com/..." className="w-full px-2.5 py-2 text-[11.5px] outline-none transition-colors" style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: "var(--r-sm)" }} />
+                        <div className="px-4 pb-3.5 pt-2 space-y-2.5" style={{ borderTop: "1px solid var(--border)" }}>
+                          <div className="grid grid-cols-2 gap-2.5">
+                            <div>
+                              <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>Link</label>
+                              <input type="url" value={pipeline.interview_link} onChange={e => setPipeline(p => ({ ...p, interview_link: e.target.value }))} onBlur={e => savePipelineField({ interview_link: e.target.value })} placeholder="https://meet.google.com/..." className="w-full px-2.5 py-2 text-[11.5px] outline-none transition-colors" style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: "var(--r-sm)" }} />
+                            </div>
+                            <div>
+                              <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>Date</label>
+                              <input type="datetime-local" value={pipeline.interview_date} onChange={e => setPipeline(p => ({ ...p, interview_date: e.target.value }))} onBlur={e => savePipelineField({ interview_date: e.target.value })} className="w-full px-2.5 py-2 text-[11.5px] outline-none transition-colors" style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: "var(--r-sm)" }} />
+                            </div>
                           </div>
                           <div>
-                            <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>Date</label>
-                            <input type="datetime-local" value={pipeline.interview_date} onChange={e => setPipeline(p => ({ ...p, interview_date: e.target.value }))} className="w-full px-2.5 py-2 text-[11.5px] outline-none transition-colors" style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: "var(--r-sm)" }} />
+                            <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>Type</label>
+                            <div className="flex gap-2">
+                              {(["video", "phone", "in-person"] as const).map(tp => (
+                                <button key={tp} type="button" onClick={() => savePipelineField({ interview_type: pipeline.interview_type === tp ? "" : tp })}
+                                  className="flex-1 py-1.5 text-[11px] font-medium transition-all"
+                                  style={{ background: pipeline.interview_type === tp ? "var(--gdim)" : "var(--bg2)", color: pipeline.interview_type === tp ? "var(--gold)" : "var(--w3)", border: `1px solid ${pipeline.interview_type === tp ? "var(--border-gold)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
+                                  {tp === "video" ? "Video" : tp === "phone" ? "Phone" : "In-person"}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>Notes (internal)</label>
+                            <textarea value={pipeline.interview_notes} onChange={e => setPipeline(p => ({ ...p, interview_notes: e.target.value }))} onBlur={e => savePipelineField({ interview_notes: e.target.value })} placeholder="Internal notes — not visible to candidate…" rows={3} className="w-full px-2.5 py-2 text-[11.5px] outline-none transition-colors resize-none" style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: "var(--r-sm)" }} />
                           </div>
                         </div>
                       </div>
                     )}
-                    {activePipelineStage === "recognition" && (() => { const on = pipeline.recognition_unlocked; return (
-                      <div className="flex items-center gap-3 px-4 py-3.5" style={{ background: "var(--card)", border: `1px solid ${on ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-lg)" }}>
-                        <span className="flex items-center justify-center w-9 h-9 flex-shrink-0"
-                          style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-md)" }}>
-                          <PhaseIcon kind="recognition" size={16} />
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[13px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>{t.pJourneyRecognition}</p>
-                          <p className="text-[11.5px] mt-0.5 inline-flex items-center gap-1" style={{ color: on ? "var(--success)" : "var(--w3)" }}>
-                            {on ? <><CheckCircle2 size={11} strokeWidth={2} /> Unlocked</> : "Locked"}
-                          </p>
-                        </div>
-                        <button onClick={() => setPipeline(p => ({ ...p, recognition_unlocked: !on }))}
-                          className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-3 py-1.5 flex-shrink-0 transition-all"
-                          style={{ background: on ? "var(--success-bg)" : "var(--bg2)", color: on ? "var(--success)" : "var(--w2)", border: `1px solid ${on ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
-                          {on ? <><Lock size={11} strokeWidth={1.8} /> Lock</> : <><Unlock size={11} strokeWidth={1.8} /> Unlock</>}
-                        </button>
-                      </div>
-                    ); })()}
                     {activePipelineStage === "visum" && (
-                      <div className="space-y-3">
-                        {(() => { const on = pipeline.embassy_unlocked; return (
-                          <div className="flex items-center gap-3 px-4 py-3.5" style={{ background: "var(--card)", border: `1px solid ${on ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-lg)" }}>
-                            <span className="flex items-center justify-center w-9 h-9 flex-shrink-0"
-                              style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-md)" }}>
-                              <PhaseIcon kind="embassy" size={16} />
-                            </span>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-[13px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>Botschaft</p>
-                              <p className="text-[11.5px] mt-0.5 inline-flex items-center gap-1" style={{ color: on ? "var(--success)" : "var(--w3)" }}>
-                                {on ? <><CheckCircle2 size={11} strokeWidth={2} /> Unlocked</> : "Locked"}
-                              </p>
-                            </div>
-                            <button onClick={() => setPipeline(p => ({ ...p, embassy_unlocked: !on }))}
-                              className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-3 py-1.5 flex-shrink-0 transition-all"
-                              style={{ background: on ? "var(--success-bg)" : "var(--bg2)", color: on ? "var(--success)" : "var(--w2)", border: `1px solid ${on ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
-                              {on ? <><Lock size={11} strokeWidth={1.8} /> Lock</> : <><Unlock size={11} strokeWidth={1.8} /> Unlock</>}
-                            </button>
+                      <div className="overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-lg)" }}>
+                        <div className="px-4 py-3.5 space-y-2.5">
+                          <div>
+                            <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>{t.aVisaDate}</label>
+                            <input type="datetime-local" value={pipeline.visa_date} onChange={e => setPipeline(p => ({ ...p, visa_date: e.target.value }))} onBlur={e => savePipelineField({ visa_date: e.target.value })} className="w-full px-2.5 py-2 text-[11.5px] outline-none transition-colors" style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: "var(--r-sm)" }} />
                           </div>
-                        ); })()}
-                        <div className="overflow-hidden" style={{ background: "var(--card)", border: `1px solid ${pipeline.visa_granted ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-lg)" }}>
-                          <div className="flex items-center gap-3 px-4 py-3.5">
-                            <span className="flex items-center justify-center w-9 h-9 flex-shrink-0"
-                              style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-md)" }}>
-                              <PhaseIcon kind="visa" size={16} />
-                            </span>
-                            <div className="flex-1 min-w-0">
-                              <p className="text-[13px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>Visum</p>
-                              <p className="text-[11.5px] mt-0.5 inline-flex items-center gap-1" style={{ color: pipeline.visa_granted ? "var(--success)" : "var(--w3)" }}>
-                                {pipeline.visa_granted ? <><CheckCircle2 size={11} strokeWidth={2} /> Granted</> : "Not granted yet"}
-                              </p>
-                            </div>
-                            <button onClick={() => setPipeline(p => ({ ...p, visa_granted: !p.visa_granted }))}
-                              className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-3 py-1.5 flex-shrink-0 transition-all"
-                              style={{ background: pipeline.visa_granted ? "var(--success-bg)" : "var(--bg2)", color: pipeline.visa_granted ? "var(--success)" : "var(--w2)", border: `1px solid ${pipeline.visa_granted ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
-                              {pipeline.visa_granted ? <><XCircle size={11} strokeWidth={1.8} /> Revoke</> : <><CheckCircle2 size={11} strokeWidth={1.8} /> Grant</>}
-                            </button>
-                          </div>
-                          {pipeline.visa_granted && (
-                            <div className="px-4 pb-3.5 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
-                              <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>{t.aVisaDate}</label>
-                              <input type="datetime-local" value={pipeline.visa_date} onChange={e => setPipeline(p => ({ ...p, visa_date: e.target.value }))} className="w-full px-2.5 py-2 text-[11.5px] outline-none transition-colors" style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: "var(--r-sm)" }} />
-                            </div>
-                          )}
                         </div>
                       </div>
                     )}
                     {activePipelineStage === "reise" && (
                       <div className="overflow-hidden" style={{ background: "var(--card)", border: `1px solid ${pipeline.flight_date ? "var(--border-gold)" : "var(--border)"}`, borderRadius: "var(--r-lg)" }}>
-                        <div className="flex items-center gap-3 px-4 py-3.5">
-                          <span className="flex items-center justify-center w-9 h-9 flex-shrink-0"
-                            style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-md)" }}>
-                            <PhaseIcon kind="flight" size={16} />
-                          </span>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-[13px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>Reise</p>
-                            <p className="text-[11.5px] mt-0.5" style={{ color: pipeline.flight_date ? "var(--gold)" : "var(--w3)" }}>
-                              {pipeline.flight_date ? new Date(pipeline.flight_date).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" }) : "No date set"}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="px-4 pb-3.5 pt-2 grid grid-cols-2 gap-2.5" style={{ borderTop: "1px solid var(--border)" }}>
+                        <div className="px-4 py-3.5 grid grid-cols-2 gap-2.5">
                           <div>
                             <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>{t.aFlightDate}</label>
-                            <input type="date" value={pipeline.flight_date} onChange={e => setPipeline(p => ({ ...p, flight_date: e.target.value }))} className="w-full px-2.5 py-2 text-[11.5px] outline-none transition-colors" style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: "var(--r-sm)" }} />
+                            <input type="date" value={pipeline.flight_date} onChange={e => setPipeline(p => ({ ...p, flight_date: e.target.value }))} onBlur={e => savePipelineField({ flight_date: e.target.value })} className="w-full px-2.5 py-2 text-[11.5px] outline-none transition-colors" style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: "var(--r-sm)" }} />
                           </div>
                           <div>
                             <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>{t.aFlightInfo}</label>
-                            <input type="text" value={pipeline.flight_info} onChange={e => setPipeline(p => ({ ...p, flight_info: e.target.value }))} placeholder="e.g. RAM 704, CDG → FRA" className="w-full px-2.5 py-2 text-[11.5px] outline-none transition-colors" style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: "var(--r-sm)" }} />
+                            <input type="text" value={pipeline.flight_info} onChange={e => setPipeline(p => ({ ...p, flight_info: e.target.value }))} onBlur={e => savePipelineField({ flight_info: e.target.value })} placeholder="e.g. RAM 704, CDG → FRA" className="w-full px-2.5 py-2 text-[11.5px] outline-none transition-colors" style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: "var(--r-sm)" }} />
                           </div>
                         </div>
                       </div>
                     )}
-                    {activePipelineStage === "integration" && (() => { const on = pipeline.integration_unlocked; return (
-                      <div className="flex items-center gap-3 px-4 py-3.5" style={{ background: "var(--card)", border: `1px solid ${on ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-lg)" }}>
-                        <span className="flex items-center justify-center w-9 h-9 flex-shrink-0"
-                          style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-md)" }}>
-                          <PhaseIcon kind="integration" size={16} />
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[13px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>Integration</p>
-                          <p className="text-[11.5px] mt-0.5 inline-flex items-center gap-1" style={{ color: on ? "var(--success)" : "var(--w3)" }}>
-                            {on ? <><CheckCircle2 size={11} strokeWidth={2} /> Unlocked</> : "Locked"}
-                          </p>
+
+                    {/* ── Dynamic slot management — Bearbeitung / Visum ─────────────────── */}
+                    {(activePipelineStage === "recognition" || activePipelineStage === "visum") && (() => {
+                      const slotPhase = activePipelineStage === "recognition" ? "bearbeitung" : "visum";
+                      const slots = phaseSlots[slotPhase] ?? [];
+                      return (
+                        <div className="mt-4 overflow-hidden" style={{ background: "var(--card)", borderRadius: "var(--r-xl)", border: "1px solid var(--border)" }}>
+                          {/* Slot rows */}
+                          {slots.length === 0 ? (
+                            <div className="px-4 py-1" />
+                          ) : (
+                            <div>
+                              {slots.map((slot, si) => {
+                                const origDocs = getAdminDocs(slot.id);
+                                const transDocs = slot.type === "dual" ? getAdminDocs(slot.id + "_de") : [];
+                                const allSlotDocs = [...origDocs, ...transDocs];
+
+                                const slotDragProps = {
+                                  draggable: true as const,
+                                  onDragStart: () => { dragSlotIdx.current = si; },
+                                  onDragOver: (e: React.DragEvent) => e.preventDefault(),
+                                  onDrop: async () => {
+                                    const from = dragSlotIdx.current;
+                                    if (from === null || from === si) return;
+                                    const reordered = [...slots];
+                                    const [moved] = reordered.splice(from, 1);
+                                    reordered.splice(si, 0, moved);
+                                    const withPos = reordered.map((s, i) => ({ ...s, position: i }));
+                                    setPhaseSlots(prev => ({ ...prev, [slotPhase]: withPos }));
+                                    await saveSlotOrder(slotPhase, withPos.map(s => ({ id: s.id, position: s.position })));
+                                    dragSlotIdx.current = null;
+                                  },
+                                };
+
+                                if (slot.type === "simple") {
+                                  const doc = origDocs[0] ?? null;
+                                  const submitted = !!doc;
+                                  const rowSt = !submitted ? null
+                                    : doc!.status === "approved" ? "approved"
+                                    : doc!.status === "rejected" ? "rejected"
+                                    : "pending";
+                                  const rowColor = rowSt === "approved" ? "#16a34a" : rowSt === "pending" ? "#f59e0b" : null;
+                                  const rowClickable = submitted && !!doc?.drive_file_id;
+                                  const menuId = doc?.id ?? slot.id;
+                                  return (
+                                    <div key={slot.id} {...slotDragProps}>
+                                      {si > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
+                                      <div
+                                        onClick={rowClickable ? () => setPreviewDoc(doc!) : undefined}
+                                        className={`px-3 py-3 transition-colors${rowClickable ? " bv-row-hover cursor-pointer" : ""}`}
+                                        style={{ minHeight: 60 }}>
+                                        <div className="flex items-center gap-3">
+                                          <div className="flex-1 min-w-0">
+                                            <p className="text-[11.5px] font-medium tracking-tight" style={{ color: rowColor ?? "var(--w)" }}>{slot.label}</p>
+                                            {!submitted && <p className="text-[10px] mt-0.5" style={{ color: "var(--w3)" }}>Not submitted yet</p>}
+                                            {doc && doc.status === "rejected" && doc.feedback && (
+                                              <p className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{doc.feedback}</p>
+                                            )}
+                                          </div>
+                                          <div className="flex items-center gap-1.5 flex-shrink-0"
+                                            onClick={e => e.stopPropagation()}
+                                            onMouseDown={e => e.stopPropagation()}>
+                                            {/* Admin upload on behalf of candidate */}
+                                            {adminUploadSlotId === slot.id ? (
+                                              <span className="w-9 h-9 flex items-center justify-center">
+                                                <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: "var(--w3)" }} />
+                                              </span>
+                                            ) : (
+                                              <button type="button"
+                                                onClick={e => { e.stopPropagation(); openAdminUploadPicker(slot.id); }}
+                                                className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
+                                                style={{ color: "var(--w3)" }}>
+                                                <Upload size={13} strokeWidth={1.8} />
+                                              </button>
+                                            )}
+                                            {doc?.drive_file_id && (
+                                              <button type="button"
+                                                onClick={e => { e.stopPropagation(); downloadDoc(doc!); }}
+                                                className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
+                                                style={{ color: "var(--w2)" }}>
+                                                <Download size={13} strokeWidth={1.8} />
+                                              </button>
+                                            )}
+                                            {rowSt === "pending" && (
+                                              <>
+                                                <button type="button"
+                                                  onClick={e => { e.stopPropagation(); openRejectModal({ kind: "doc", docId: doc!.id, label: slot.label, initialFeedback: doc!.feedback ?? "" }); }}
+                                                  disabled={saving[doc!.id]}
+                                                  className="bv-icon-btn bv-icon-btn--reject w-9 h-9 flex items-center justify-center rounded-full disabled:opacity-40">
+                                                  <XCircle size={15} strokeWidth={1.8} />
+                                                </button>
+                                                <button type="button"
+                                                  onClick={e => { e.stopPropagation(); review(doc!.id, "approved"); }}
+                                                  disabled={saving[doc!.id]}
+                                                  className="bv-icon-btn bv-icon-btn--approve w-9 h-9 flex items-center justify-center rounded-full disabled:opacity-40">
+                                                  <CheckCircle2 size={15} strokeWidth={1.8} />
+                                                </button>
+                                              </>
+                                            )}
+                                            <div className="relative flex-shrink-0" style={{ zIndex: revokeMenu === menuId ? 600 : undefined }}>
+                                              <button
+                                                onClick={e => { e.stopPropagation(); setRevokeMenu(prev => prev === menuId ? null : menuId); }}
+                                                className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
+                                                style={{ color: "var(--w2)" }}>
+                                                <MoreHorizontal size={14} strokeWidth={1.8} />
+                                              </button>
+                                              {revokeMenu === menuId && (
+                                                <>
+                                                  <div className="fixed inset-0 z-10" onClick={e => { e.stopPropagation(); setRevokeMenu(null); }} />
+                                                  <div className="absolute right-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
+                                                    style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
+                                                    {doc?.drive_file_id && (
+                                                      <button
+                                                        onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ driveFileId: doc!.drive_file_id!, label: slot.label }); }}
+                                                        className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                                        style={{ color: "var(--w)" }}>
+                                                        <FilePen size={11} strokeWidth={1.8} /> Signature
+                                                      </button>
+                                                    )}
+                                                    {rowSt === "approved" && (
+                                                      <button
+                                                        onClick={e => { e.stopPropagation(); setRevokeMenu(null); openRejectModal({ kind: "doc", docId: doc!.id, label: slot.label, initialFeedback: doc!.feedback ?? "" }); }}
+                                                        disabled={saving[doc!.id]}
+                                                        className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium disabled:opacity-40 inline-flex items-center gap-1.5"
+                                                        style={{ color: "var(--danger)" }}>
+                                                        <RotateCcw size={11} strokeWidth={1.8} /> Revoke
+                                                      </button>
+                                                    )}
+                                                    <button
+                                                      onClick={e => { e.stopPropagation(); setRevokeMenu(null); deletePhaseSlot(slot.id, slotPhase); }}
+                                                      className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                                      style={{ color: "var(--danger)" }}>
+                                                      <Trash2 size={11} strokeWidth={1.8} /> Delete slot
+                                                    </button>
+                                                  </div>
+                                                </>
+                                              )}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                }
+
+                                // DUAL slot
+                                const hasRej = allSlotDocs.some(d => d.status === "rejected");
+                                const hasApp = allSlotDocs.length > 0 && allSlotDocs.every(d => d.status === "approved");
+                                const hasPend = allSlotDocs.some(d => d.status === "pending");
+                                const dualColor = hasRej ? "var(--danger)" : hasApp ? "#16a34a" : hasPend ? "#f59e0b" : null;
+                                const slotSubRows = [
+                                  { subKey: slot.id,           subLabel: slot.label,                      subDoc: origDocs[0]  ?? null },
+                                  { subKey: slot.id + "_de",   subLabel: slot.label_trans ?? "Translated", subDoc: transDocs[0] ?? null },
+                                ];
+                                return (
+                                  <div key={slot.id} {...slotDragProps}>
+                                    {si > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
+                                    {/* Dual header */}
+                                    <div className="px-3 pt-3 pb-1.5">
+                                      <div className="flex items-center gap-3">
+                                        <div className="flex-1 min-w-0">
+                                          <p className="text-[11.5px] font-medium tracking-tight" style={{ color: dualColor ?? "var(--w)" }}>
+                                            {slot.label}{slot.label_trans ? <span style={{ color: dualColor ? undefined : "var(--w3)" }}> / {slot.label_trans}</span> : null}
+                                          </p>
+                                          {allSlotDocs.length === 0 && <p className="text-[10px] mt-0.5" style={{ color: "var(--w3)" }}>Not submitted yet</p>}
+                                        </div>
+                                        <div className="relative flex-shrink-0" style={{ zIndex: revokeMenu === slot.id ? 600 : undefined }}>
+                                          <button
+                                            onClick={e => { e.stopPropagation(); setRevokeMenu(prev => prev === slot.id ? null : slot.id); }}
+                                            className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
+                                            style={{ color: "var(--w2)" }}>
+                                            <MoreHorizontal size={14} strokeWidth={1.8} />
+                                          </button>
+                                          {revokeMenu === slot.id && (
+                                            <>
+                                              <div className="fixed inset-0 z-10" onClick={e => { e.stopPropagation(); setRevokeMenu(null); }} />
+                                              <div className="absolute right-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
+                                                style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
+                                                <button
+                                                  onClick={e => { e.stopPropagation(); setRevokeMenu(null); deletePhaseSlot(slot.id, slotPhase); }}
+                                                  className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                                  style={{ color: "var(--danger)" }}>
+                                                  <Trash2 size={11} strokeWidth={1.8} /> Delete slot
+                                                </button>
+                                              </div>
+                                            </>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    {/* Sub-rows */}
+                                    <div className="px-3 pb-3 space-y-2">
+                                      {slotSubRows.map(({ subKey, subLabel, subDoc }) => {
+                                        const subSt = !subDoc ? null
+                                          : subDoc.status === "approved" ? "approved"
+                                          : subDoc.status === "rejected" ? "rejected"
+                                          : "pending";
+                                        const subColor = subSt === "approved" ? "#16a34a" : subSt === "pending" ? "#f59e0b" : null;
+                                        const subClickable = !!subDoc?.drive_file_id;
+                                        return (
+                                          <div key={subLabel}
+                                            onClick={subClickable ? () => setPreviewDoc(subDoc!) : undefined}
+                                            className={`rounded-xl px-3 py-2.5${subClickable ? " bv-row-hover cursor-pointer" : ""}`}
+                                            style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+                                            <div className="flex items-center gap-2">
+                                              <div className="flex-1 min-w-0">
+                                                <p className="text-[11px] font-medium truncate" style={{ color: subColor ?? "var(--w2)" }}>{subLabel}</p>
+                                                {!subDoc && <p className="text-[10px] mt-0.5" style={{ color: "var(--w3)" }}>Not submitted yet</p>}
+                                                {subDoc?.status === "rejected" && subDoc.feedback && (
+                                                  <p className="text-[10px] mt-0.5" style={{ color: "var(--danger)" }}>{subDoc.feedback}</p>
+                                                )}
+                                              </div>
+                                              <div className="flex items-center gap-1 flex-shrink-0"
+                                                onClick={e => e.stopPropagation()}
+                                                onMouseDown={e => e.stopPropagation()}>
+                                                {adminUploadSlotId === subKey ? (
+                                                  <span className="w-8 h-8 flex items-center justify-center">
+                                                    <span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: "var(--w3)" }} />
+                                                  </span>
+                                                ) : (
+                                                  <button type="button"
+                                                    onClick={e => { e.stopPropagation(); openAdminUploadPicker(subKey); }}
+                                                    className="bv-icon-btn w-8 h-8 flex items-center justify-center rounded-full"
+                                                    style={{ color: "var(--w3)" }}>
+                                                    <Upload size={12} strokeWidth={1.8} />
+                                                  </button>
+                                                )}
+                                                {subDoc?.drive_file_id && (
+                                                  <button type="button"
+                                                    onClick={e => { e.stopPropagation(); downloadDoc(subDoc!); }}
+                                                    className="bv-icon-btn w-8 h-8 flex items-center justify-center rounded-full"
+                                                    style={{ color: "var(--w2)" }}>
+                                                    <Download size={12} strokeWidth={1.8} />
+                                                  </button>
+                                                )}
+                                                {subSt === "pending" && (
+                                                  <>
+                                                    <button type="button"
+                                                      onClick={e => { e.stopPropagation(); openRejectModal({ kind: "doc", docId: subDoc!.id, label: subLabel, initialFeedback: subDoc!.feedback ?? "" }); }}
+                                                      disabled={saving[subDoc!.id]}
+                                                      className="bv-icon-btn bv-icon-btn--reject w-8 h-8 flex items-center justify-center rounded-full disabled:opacity-40">
+                                                      <XCircle size={13} strokeWidth={1.8} />
+                                                    </button>
+                                                    <button type="button"
+                                                      onClick={e => { e.stopPropagation(); review(subDoc!.id, "approved"); }}
+                                                      disabled={saving[subDoc!.id]}
+                                                      className="bv-icon-btn bv-icon-btn--approve w-8 h-8 flex items-center justify-center rounded-full disabled:opacity-40">
+                                                      <CheckCircle2 size={13} strokeWidth={1.8} />
+                                                    </button>
+                                                  </>
+                                                )}
+                                                {subDoc?.drive_file_id && (
+                                                  <div className="relative flex-shrink-0" style={{ zIndex: revokeMenu === subDoc.id ? 600 : undefined }}>
+                                                    <button
+                                                      onClick={e => { e.stopPropagation(); setRevokeMenu(prev => prev === subDoc!.id ? null : subDoc!.id); }}
+                                                      className="bv-icon-btn w-8 h-8 flex items-center justify-center rounded-full"
+                                                      style={{ color: "var(--w2)" }}>
+                                                      <MoreHorizontal size={12} strokeWidth={1.8} />
+                                                    </button>
+                                                    {revokeMenu === subDoc.id && (
+                                                      <>
+                                                        <div className="fixed inset-0 z-10" onClick={e => { e.stopPropagation(); setRevokeMenu(null); }} />
+                                                        <div className="absolute right-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
+                                                          style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
+                                                          <button
+                                                            onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ driveFileId: subDoc!.drive_file_id!, label: subLabel }); }}
+                                                            className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                                            style={{ color: "var(--w)" }}>
+                                                            <FilePen size={11} strokeWidth={1.8} /> Signature
+                                                          </button>
+                                                          {subSt === "approved" && (
+                                                            <button
+                                                              onClick={e => { e.stopPropagation(); setRevokeMenu(null); openRejectModal({ kind: "doc", docId: subDoc!.id, label: subLabel, initialFeedback: subDoc!.feedback ?? "" }); }}
+                                                              disabled={saving[subDoc!.id]}
+                                                              className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium disabled:opacity-40 inline-flex items-center gap-1.5"
+                                                              style={{ color: "var(--danger)" }}>
+                                                              <RotateCcw size={11} strokeWidth={1.8} /> Revoke
+                                                            </button>
+                                                          )}
+                                                        </div>
+                                                      </>
+                                                    )}
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
                         </div>
-                        <button onClick={() => setPipeline(p => ({ ...p, integration_unlocked: !on }))}
-                          className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-3 py-1.5 flex-shrink-0 transition-all"
-                          style={{ background: on ? "var(--success-bg)" : "var(--bg2)", color: on ? "var(--success)" : "var(--w2)", border: `1px solid ${on ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
-                          {on ? <><Lock size={11} strokeWidth={1.8} /> Lock</> : <><Unlock size={11} strokeWidth={1.8} /> Unlock</>}
-                        </button>
-                      </div>
-                    ); })()}
-                    {activePipelineStage === "start" && (() => { const on = pipeline.start_unlocked; return (
-                      <div className="flex items-center gap-3 px-4 py-3.5" style={{ background: "var(--card)", border: `1px solid ${on ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-lg)" }}>
-                        <span className="flex items-center justify-center w-9 h-9 flex-shrink-0"
-                          style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-md)" }}>
-                          <PhaseIcon kind="start" size={16} />
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[13px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>Start</p>
-                          <p className="text-[11.5px] mt-0.5 inline-flex items-center gap-1" style={{ color: on ? "var(--success)" : "var(--w3)" }}>
-                            {on ? <><CheckCircle2 size={11} strokeWidth={2} /> Unlocked</> : "Locked"}
-                          </p>
+                      );
+                    })()}
+
+                    {/* ── Add slot modal ─────────────────────────────────────────────────── */}
+                    {addSlotPhase && (
+                      <>
+                        <div className="fixed inset-0 z-40" style={{ background: "rgba(0,0,0,0.5)" }}
+                          onClick={() => setAddSlotPhase(null)} />
+                        <div className="fixed inset-x-4 top-1/3 z-50 max-w-sm mx-auto rounded-2xl p-5 space-y-4"
+                          style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)" }}>
+                          <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>Add document slot</p>
+                          {/* Type selector */}
+                          <div className="grid grid-cols-2 gap-2">
+                            {(["simple", "dual"] as const).map(tp => (
+                              <button key={tp} type="button" onClick={() => setAddSlotType(tp)}
+                                className="py-3 rounded-xl text-[12px] font-semibold text-center transition-all"
+                                style={{ background: addSlotType === tp ? "var(--gdim)" : "var(--bg2)", color: addSlotType === tp ? "var(--gold)" : "var(--w2)", border: `1.5px solid ${addSlotType === tp ? "var(--border-gold)" : "var(--border)"}` }}>
+                                {tp === "simple" ? "📄 Simple" : "📄📄 Dual (Original + Translated)"}
+                              </button>
+                            ))}
+                          </div>
+                          <input
+                            type="text"
+                            placeholder={addSlotType === "dual" ? "Label (original, e.g. Pflegediplom)" : "Label (e.g. Dokument 1)"}
+                            value={addSlotLabel}
+                            onChange={e => setAddSlotLabel(e.target.value)}
+                            className="w-full px-3 py-2.5 text-[12.5px] outline-none"
+                            style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--w)" }}
+                          />
+                          {addSlotType === "dual" && (
+                            <input
+                              type="text"
+                              placeholder="Label translated (e.g. Pflegediplom Übersetzt)"
+                              value={addSlotLabelTrans}
+                              onChange={e => setAddSlotLabelTrans(e.target.value)}
+                              className="w-full px-3 py-2.5 text-[12.5px] outline-none"
+                              style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--w)" }}
+                            />
+                          )}
+                          <div className="flex gap-2">
+                            <button onClick={() => setAddSlotPhase(null)} disabled={addSlotSaving}
+                              className="flex-1 py-2.5 rounded-xl text-[12.5px] font-semibold transition-all"
+                              style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
+                              Cancel
+                            </button>
+                            <button
+                              onClick={() => addPhaseSlot(addSlotPhase!, addSlotType, addSlotLabel, addSlotLabelTrans)}
+                              disabled={addSlotSaving || !addSlotLabel.trim()}
+                              className="flex-1 py-2.5 rounded-xl text-[12.5px] font-semibold transition-all disabled:opacity-40"
+                              style={{ background: "var(--gold)", color: "#131312" }}>
+                              {addSlotSaving ? "Saving…" : "Add"}
+                            </button>
+                          </div>
                         </div>
-                        <button onClick={() => setPipeline(p => ({ ...p, start_unlocked: !on }))}
-                          className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-3 py-1.5 flex-shrink-0 transition-all"
-                          style={{ background: on ? "var(--success-bg)" : "var(--bg2)", color: on ? "var(--success)" : "var(--w2)", border: `1px solid ${on ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
-                          {on ? <><Lock size={11} strokeWidth={1.8} /> Lock</> : <><Unlock size={11} strokeWidth={1.8} /> Unlock</>}
-                        </button>
-                      </div>
-                    ); })()}
+                      </>
+                    )}
 
                     {/* ── Live candidate preview — shows exactly what the candidate sees
-                        for this stage with the current pipeline state ── */}
-                    {activePipelineStage !== "docs" && (
+                        for this stage with the current pipeline state ──
+                        Hidden for recognition/visum: slot management UI covers those. */}
+                    {activePipelineStage !== "recognition" && activePipelineStage !== "visum" && (
                       <div className="mt-6">
                         <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-3 inline-flex items-center gap-1.5"
                           style={{ color: "var(--w3)" }}>
@@ -1973,10 +2306,59 @@ export default function AdminPage() {
                             pipeline={pipeline}
                             t={t}
                             lang={lang}
+                            adminMode={true}
                           />
                         </div>
                       </div>
                     )}
+
+                    {/* Pipeline stage footer — Lock + Send */}
+                    <div className="flex items-center justify-end mt-5">
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {(() => {
+                          const unlocked =
+                            activePipelineStage === "interview"   ? pipeline.docs_approved
+                          : activePipelineStage === "recognition" ? pipeline.recognition_unlocked
+                          : activePipelineStage === "visum"       ? pipeline.embassy_unlocked
+                          : activePipelineStage === "reise"       ? !!pipeline.flight_date
+                          : activePipelineStage === "integration" ? pipeline.integration_unlocked
+                          : /* start */                             pipeline.start_unlocked;
+                          const isReise = activePipelineStage === "reise";
+                          const slotPhase = activePipelineStage === "recognition" ? "bearbeitung" : activePipelineStage === "visum" ? "visum" : null;
+                          return (
+                            <>
+                              <button
+                                onClick={() => {
+                                  if (isReise) return;
+                                  if      (activePipelineStage === "interview")   savePipelineField({ docs_approved:        !pipeline.docs_approved });
+                                  else if (activePipelineStage === "recognition") savePipelineField({ recognition_unlocked: !pipeline.recognition_unlocked });
+                                  else if (activePipelineStage === "visum")       savePipelineField({ embassy_unlocked:      !pipeline.embassy_unlocked });
+                                  else if (activePipelineStage === "integration") savePipelineField({ integration_unlocked: !pipeline.integration_unlocked });
+                                  else                                            savePipelineField({ start_unlocked:        !pipeline.start_unlocked });
+                                }}
+                                className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-3 py-1.5 flex-shrink-0 transition-all"
+                                style={{
+                                  background: unlocked ? "var(--success-bg)" : "var(--bg2)",
+                                  color: unlocked ? "var(--success)" : "var(--w2)",
+                                  border: `1px solid ${unlocked ? "var(--success-border)" : "var(--border)"}`,
+                                  borderRadius: "var(--r-sm)",
+                                  cursor: isReise ? "default" : "pointer",
+                                }}>
+                                {unlocked ? <Lock size={11} strokeWidth={1.8} /> : <Unlock size={11} strokeWidth={1.8} />}
+                              </button>
+                              {slotPhase && (
+                                <button
+                                  onClick={() => { setAddSlotPhase(slotPhase); setAddSlotType("simple"); setAddSlotLabel(""); setAddSlotLabelTrans(""); }}
+                                  className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 flex-shrink-0 transition-colors"
+                                  style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-sm)" }}>
+                                  <Plus size={11} strokeWidth={2.2} />
+                                </button>
+                              )}
+                            </>
+                          );
+                        })()}
+                      </div>
+                    </div>
                   </div>
                 ) : (
                 <div key={`phase-${activePhase}`} className="bv-enter">
@@ -1990,21 +2372,6 @@ export default function AdminPage() {
                       borderRadius: "20px",
                       boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
                     }}>
-                    {/* Phase header */}
-                    <div className="flex items-center gap-3 px-6 pt-6 pb-3">
-                      <span className="flex items-center justify-center w-9 h-9 flex-shrink-0"
-                        style={{ background: "var(--gdim)", color: "var(--gold)", borderRadius: "12px" }}>
-                        <PhaseIcon kind={PHASE_ITEMS[activePhase].kind} size={15} />
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <h2 className="text-[18px] font-semibold tracking-[-0.015em] leading-tight" style={{ color: "var(--w)" }}>
-                          {PHASE_ITEMS[activePhase].title}
-                        </h2>
-                      </div>
-                    </div>
-
-                    <div className="h-px mx-6" style={{ background: "var(--border)" }} />
-
                     {/* Doc slots — borderless rows inside the card */}
                     <div className="px-2 py-2">
                     {currentItems.map((item, idx) => {
@@ -2705,8 +3072,10 @@ export default function AdminPage() {
             const all = [...pendingUserIds, ...archivedUserIds];
             const HOUR = 60 * 60 * 1000;
             const stuckCount = all.filter(uid => {
-              const recent = Math.max(...grouped[uid].map(d => new Date(d.uploaded_at).getTime()));
-              return grouped[uid].some(d => d.status === "pending") && (Date.now() - recent) / HOUR >= 7 * 24;
+              const docs = grouped[uid];
+              if (!docs?.length) return false;
+              const recent = Math.max(...docs.map(d => new Date(d.uploaded_at).getTime()));
+              return docs.some(d => d.status === "pending") && (Date.now() - recent) / HOUR >= 7 * 24;
             }).length;
             const clearCount = archivedUserIds.length;
             const pendingCount = pendingUserIds.length;
@@ -2770,14 +3139,14 @@ export default function AdminPage() {
             return (
             <div className="bv-enter-stagger" style={{ borderTop: "1px solid var(--border)" }}>
               {visibleIds.map(uid => {
-                const allDocs    = grouped[uid];
+                const allDocs    = grouped[uid] ?? [];
                 const pendingDocs = allDocs.filter(d => d.status === "pending");
                 const pendingCnt = pendingDocs.length;
                 const isClear    = pendingCnt === 0;
                 const user       = users[uid] ?? { name: uid, email: uid };
-                const mostRecent = pendingDocs
-                  .reduce((latest, d) => new Date(d.uploaded_at) > new Date(latest) ? d.uploaded_at : latest,
-                    allDocs[0].uploaded_at);
+                const mostRecent = allDocs.length > 0
+                  ? pendingDocs.reduce((latest, d) => new Date(d.uploaded_at) > new Date(latest) ? d.uploaded_at : latest, allDocs[0].uploaded_at)
+                  : "";
                 const isExpanded = expandedRow === uid;
                 const openPanel = () => { setSelectedUser(uid); setActivePhase(0); setPassportDataFeedback(profiles[uid]?.passport_feedback ?? ""); window.scrollTo({ top: 0, behavior: "smooth" }); };
 
@@ -2806,7 +3175,6 @@ export default function AdminPage() {
                         <p className="text-[13.5px] font-semibold truncate inline-flex items-center gap-0.5 flex-wrap" style={{ color: "var(--w)" }}>
                           {user.name}
                           <VerifiedBadge verified={!!profiles[uid]?.manually_verified} size="xs" color="gold" />
-                          <PaymentBadge tier={profiles[uid]?.payment_tier} />
                         </p>
                         <p className="text-[11.5px] truncate mt-0.5" style={{ color: "var(--w3)" }}>
                           {user.email}
@@ -3072,7 +3440,7 @@ export default function AdminPage() {
               {showArchive && (
                 <div style={{ borderTop: "1px solid var(--border)" }}>
                   {archivedUserIds.map(uid => {
-                    const allDocs    = grouped[uid];
+                    const allDocs    = grouped[uid] ?? [];
                     const approvedCnt = allDocs.filter(d => d.status === "approved").length;
                     const rejectedCnt = allDocs.filter(d => d.status === "rejected").length;
                     const user       = users[uid] ?? { name: uid, email: uid };
@@ -3096,8 +3464,7 @@ export default function AdminPage() {
                           <p className="text-[12.5px] font-medium truncate tracking-tight inline-flex items-center gap-0.5 flex-wrap" style={{ color: "var(--w)" }}>
                             {user.name}
                             <VerifiedBadge verified={!!profiles[uid]?.manually_verified} size="xs" color="gold" />
-                            <PaymentBadge tier={profiles[uid]?.payment_tier} />
-                          </p>
+                            </p>
                           <p className="text-[11px] truncate mt-0.5" style={{ color: "var(--w3)" }}>{user.email}</p>
                         </div>
                         <div className="flex items-center gap-3 flex-shrink-0">
@@ -3197,6 +3564,20 @@ export default function AdminPage() {
           onSubmit={(text, shot) => submitReject(text, shot)}
         />
       )}
+
+      {/* Hidden file input for admin upload on behalf of candidate */}
+      <input
+        ref={adminFileInputRef}
+        type="file"
+        accept=".pdf,application/pdf"
+        style={{ display: "none" }}
+        onChange={e => {
+          const file = e.target.files?.[0];
+          const slotId = adminUploadTargetRef.current;
+          if (file && slotId) adminUploadFile(file, slotId);
+          e.target.value = "";
+        }}
+      />
 
       {/* ── Signature request modal ── */}
       {sigModal && (

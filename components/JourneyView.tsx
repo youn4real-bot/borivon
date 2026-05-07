@@ -38,6 +38,7 @@ export type JourneyPipeline = {
   docs_approved?: boolean;
   integration_unlocked?: boolean | null;
   start_unlocked?: boolean | null;
+  interview_type?: string | null;
 };
 
 // ── Derive the current blocker for a locked stage ──────────────────────────
@@ -165,7 +166,20 @@ const embassyDocs = [
 ];
 
 // ── Single-stage renderer (shared kernel) ───────────────────────────────────
-function StageContent({ mode, p, t, lang = "en" }: { mode: JourneyMode; p: JourneyPipeline | null; t: Translation; lang?: "fr"|"en"|"de" }) {
+function StageContent({ mode, p: rawP, t, lang = "en", adminMode = false }: { mode: JourneyMode; p: JourneyPipeline | null; t: Translation; lang?: "fr"|"en"|"de"; adminMode?: boolean }) {
+  // In adminMode all gates open — show full content unconditionally
+  const p: JourneyPipeline | null = adminMode && rawP ? {
+    ...rawP,
+    docs_approved: true,
+    recognition_unlocked: true,
+    embassy_unlocked: true,
+    integration_unlocked: true,
+    start_unlocked: true,
+    // Keep real dates; fallback sentinel so date-gated stages don't lock in admin
+    flight_date: rawP.flight_date ?? "__admin__",
+    visa_date:   rawP.visa_date,
+    visa_granted: rawP.visa_granted,
+  } : rawP;
   const lockCard = (msg: string) => {
     const blocker = getBlocker(mode, p);
     return (
@@ -194,12 +208,47 @@ function StageContent({ mode, p, t, lang = "en" }: { mode: JourneyMode; p: Journ
 
   // ── Interview ───────────────────────────────────────────────────────────
   if (mode === "interview") {
+    const prepTips = lang === "de" ? [
+      "Lebenslauf und Pflegediplom in digitaler Form bereithalten",
+      "Kamera und Mikrofon vorher testen",
+      "Sprachzertifikat griffbereit haben",
+      "Fragen zur Stelle und zur Einrichtung vorbereiten",
+      "Wenige Minuten vor dem Termin bereit sein",
+    ] : lang === "fr" ? [
+      "Avoir votre CV et diplôme infirmier en version numérique",
+      "Tester votre caméra et microphone à l'avance",
+      "Avoir votre certificat de langue à portée de main",
+      "Préparer des questions sur le poste et l'établissement",
+      "Se connecter quelques minutes avant l'heure prévue",
+    ] : [
+      "Have your CV and nursing diploma in digital form",
+      "Test your camera and microphone in advance",
+      "Keep your language certificate handy",
+      "Prepare questions about the role and the facility",
+      "Be ready a few minutes before the scheduled time",
+    ];
+
     if (!p || (!p.interview_link && (p.interview_status ?? "pending") === "pending")) {
       return (
-        <div className="rounded-2xl px-5 py-10 text-center" style={cardSt}>
-          <HeroIcon Icon={({ size, strokeWidth, color }) => <PhaseIcon kind="interview" size={size} strokeWidth={strokeWidth} style={{ color }} />} tone="neutral" />
-          <p className="text-sm font-semibold mb-1" style={{ color: "var(--w)" }}>{t.pInterviewPendingTitle}</p>
-          <p className="text-xs leading-relaxed max-w-xs mx-auto" style={{ color: "var(--w3)" }}>{t.pInterviewPendingSub}</p>
+        <div className="space-y-3">
+          <div className="rounded-2xl px-5 py-8 text-center" style={cardSt}>
+            <HeroIcon Icon={({ size, strokeWidth, color }) => <PhaseIcon kind="interview" size={size} strokeWidth={strokeWidth} style={{ color }} />} tone="neutral" />
+            <p className="text-sm font-semibold mb-1" style={{ color: "var(--w)" }}>{t.pInterviewPendingTitle}</p>
+            <p className="text-xs leading-relaxed max-w-xs mx-auto" style={{ color: "var(--w3)" }}>{t.pInterviewPendingSub}</p>
+          </div>
+          <div className="rounded-2xl p-5" style={cardSt}>
+            <p className="text-xs font-semibold mb-3" style={{ color: "var(--gold)" }}>
+              {lang === "de" ? "Vorbereitung" : lang === "fr" ? "Préparation" : "Preparation"}
+            </p>
+            <div className="space-y-2">
+              {prepTips.map((tip, i) => (
+                <div key={i} className="flex items-start gap-2 text-xs" style={{ color: "var(--w2)" }}>
+                  <span className="mt-0.5 flex-shrink-0" style={{ color: "var(--gold)" }}>✓</span>
+                  <span>{tip}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       );
     }
@@ -222,25 +271,53 @@ function StageContent({ mode, p, t, lang = "en" }: { mode: JourneyMode; p: Journ
       );
     }
     // Scheduled: link set, status still pending
+    const typeLabel = p.interview_type === "video"
+      ? (lang === "de" ? "Videogespräch" : lang === "fr" ? "Entretien vidéo" : "Video interview")
+      : p.interview_type === "phone"
+      ? (lang === "de" ? "Telefonisches Gespräch" : lang === "fr" ? "Entretien téléphonique" : "Phone interview")
+      : p.interview_type === "in-person"
+      ? (lang === "de" ? "Persönliches Gespräch" : lang === "fr" ? "Entretien en personne" : "In-person interview")
+      : null;
     return (
-      <div className="rounded-2xl p-5" style={cardSt}>
-        <p className="text-sm font-semibold mb-4 flex items-center gap-2" style={{ color: "var(--w)" }}>
-          <PhaseIcon kind="interview" size={16} style={{ color: "var(--gold)" }} />
-          {t.pInterviewScheduledTitle}
-        </p>
-        {p.interview_date && (
-          <div className="flex items-center gap-2 mb-4 text-xs" style={{ color: "var(--w2)" }}>
-            <Calendar size={13} strokeWidth={1.7} />
-            <span>{new Date(p.interview_date).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</span>
+      <div className="space-y-3">
+        <div className="rounded-2xl p-5" style={cardSt}>
+          <p className="text-sm font-semibold mb-4 flex items-center gap-2" style={{ color: "var(--w)" }}>
+            <PhaseIcon kind="interview" size={16} style={{ color: "var(--gold)" }} />
+            {t.pInterviewScheduledTitle}
+          </p>
+          {typeLabel && (
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full mb-3 text-[11px] font-medium"
+              style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+              {typeLabel}
+            </div>
+          )}
+          {p.interview_date && (
+            <div className="flex items-center gap-2 mb-4 text-xs" style={{ color: "var(--w2)" }}>
+              <Calendar size={13} strokeWidth={1.7} />
+              <span>{new Date(p.interview_date).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</span>
+            </div>
+          )}
+          {p.interview_link && (
+            <a href={p.interview_link} target="_blank" rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 w-full py-3 rounded-xl text-sm font-semibold transition-opacity hover:opacity-90"
+              style={{ background: "var(--gold)", color: "#131312" }}>
+              <ExternalLink size={14} strokeWidth={2} /> {t.pInterviewJoinBtn}
+            </a>
+          )}
+        </div>
+        <div className="rounded-2xl p-5" style={cardSt}>
+          <p className="text-xs font-semibold mb-3" style={{ color: "var(--gold)" }}>
+            {lang === "de" ? "Vorbereitung" : lang === "fr" ? "Préparation" : "Preparation"}
+          </p>
+          <div className="space-y-2">
+            {prepTips.map((tip, i) => (
+              <div key={i} className="flex items-start gap-2 text-xs" style={{ color: "var(--w2)" }}>
+                <span className="mt-0.5 flex-shrink-0" style={{ color: "var(--gold)" }}>✓</span>
+                <span>{tip}</span>
+              </div>
+            ))}
           </div>
-        )}
-        {p.interview_link && (
-          <a href={p.interview_link} target="_blank" rel="noopener noreferrer"
-            className="flex items-center justify-center gap-2 w-full py-3 rounded-xl text-sm font-semibold transition-opacity hover:opacity-90"
-            style={{ background: "var(--gold)", color: "#131312" }}>
-            <ExternalLink size={14} strokeWidth={2} /> {t.pInterviewJoinBtn}
-          </a>
-        )}
+        </div>
       </div>
     );
   }
@@ -334,7 +411,7 @@ function StageContent({ mode, p, t, lang = "en" }: { mode: JourneyMode; p: Journ
         <HeroIcon Icon={({ size, strokeWidth, color }) => <PhaseIcon kind="flight" size={size} strokeWidth={strokeWidth} style={{ color }} />} tone="neutral" />
         <p className="text-[16px] font-semibold tracking-[-0.015em] mb-3" style={{ color: "var(--gold)" }}>{t.pFlightTitle}</p>
         <p className="text-sm font-semibold mb-1" style={{ color: "var(--w)" }}>
-          {t.pFlightDateLabel}: {new Date(p.flight_date).toLocaleDateString(undefined, { dateStyle: "long" })}
+          {t.pFlightDateLabel}: {p.flight_date && p.flight_date !== "__admin__" ? new Date(p.flight_date).toLocaleDateString(undefined, { dateStyle: "long" }) : "—"}
         </p>
         {p.flight_info && (
           <p className="text-xs mt-3 leading-relaxed max-w-xs mx-auto whitespace-pre-line" style={{ color: "var(--w2)" }}>
@@ -395,7 +472,7 @@ function StageContent({ mode, p, t, lang = "en" }: { mode: JourneyMode; p: Journ
         <HeroIcon Icon={({ size, strokeWidth, color }) => <PhaseIcon kind="flight" size={size} strokeWidth={strokeWidth} style={{ color }} />} tone="neutral" />
         <p className="text-[16px] font-semibold tracking-[-0.015em] mb-3" style={{ color: "var(--gold)" }}>{t.pFlightTitle}</p>
         <p className="text-sm font-semibold mb-1" style={{ color: "var(--w)" }}>
-          {t.pFlightDateLabel}: {new Date(p.flight_date).toLocaleDateString(undefined, { dateStyle: "long" })}
+          {t.pFlightDateLabel}: {p.flight_date && p.flight_date !== "__admin__" ? new Date(p.flight_date).toLocaleDateString(undefined, { dateStyle: "long" }) : "—"}
         </p>
         {p.flight_info && (
           <p className="text-xs mt-3 leading-relaxed max-w-xs mx-auto whitespace-pre-line" style={{ color: "var(--w2)" }}>
@@ -454,11 +531,12 @@ export function JourneyView({ mode, pipeline, t, lang = "en", onBack }: {
 }
 
 // ── Public: single-stage preview (admin pipeline editor uses this) ─────────
-export function CandidateStagePreview({ mode, pipeline, t, lang = "en" }: {
+export function CandidateStagePreview({ mode, pipeline, t, lang = "en", adminMode = false }: {
   mode: JourneyMode;
   pipeline: JourneyPipeline | null;
   t: Translation;
   lang?: "fr"|"en"|"de";
+  adminMode?: boolean;
 }) {
-  return <StageContent mode={mode} p={pipeline} t={t} lang={lang} />;
+  return <StageContent mode={mode} p={pipeline} t={t} lang={lang} adminMode={adminMode} />;
 }

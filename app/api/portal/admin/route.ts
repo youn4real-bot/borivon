@@ -6,20 +6,29 @@ import { DOC_STATUSES, ALLOWED_PROFILE_FIELDS } from "@/lib/constants";
 import { sendDocApprovedEmail, sendDocRejectedEmail, sendVerifiedEmail } from "@/lib/email";
 
 // GET — fetch candidates + their docs (filtered for sub-admins)
+// Optional ?userId=X — return only docs for that candidate (used by targeted
+// post-upload refreshes so we don't reload the entire admin payload).
 export async function GET(req: NextRequest) {
   const auth = await requireAdminRole(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
   const { role, email: token } = auth;
 
+  const targetUserId = req.nextUrl.searchParams.get("userId") ?? null;
+  const UUID_RE_ADMIN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  // Validate to prevent injection via the query param.
+  const filteredUserId = targetUserId && UUID_RE_ADMIN.test(targetUserId) ? targetUserId : null;
+
   const db = getServiceSupabase();
 
   let docs;
   if (role === "admin") {
-    // Full admin — all docs
-    const { data, error } = await db
+    // Full admin — all docs (or filtered to one user)
+    let q = db
       .from("documents")
       .select("id, user_id, file_name, file_type, uploaded_at, status, feedback, drive_file_id")
       .order("uploaded_at", { ascending: false });
+    if (filteredUserId) q = q.eq("user_id", filteredUserId);
+    const { data, error } = await q;
     if (error) { console.error("[admin GET] documents query failed:", error); return NextResponse.json({ error: "Internal error" }, { status: 500 }); }
     docs = data ?? [];
   } else if (auth.isAgencyAdmin && auth.agencyId) {
@@ -32,10 +41,12 @@ export async function GET(req: NextRequest) {
     if (agencyIds.length === 0) {
       return NextResponse.json({ docs: [], users: {}, role });
     }
+    const allowedIds = filteredUserId ? [filteredUserId].filter(id => agencyIds.includes(id)) : agencyIds;
+    if (allowedIds.length === 0) return NextResponse.json({ docs: [], users: {}, role });
     const { data, error } = await db
       .from("documents")
       .select("id, user_id, file_name, file_type, uploaded_at, status, feedback, drive_file_id")
-      .in("user_id", agencyIds)
+      .in("user_id", allowedIds)
       .order("uploaded_at", { ascending: false });
     if (error) { console.error("[admin GET] documents query (agency) failed:", error); return NextResponse.json({ error: "Internal error" }, { status: 500 }); }
     docs = data ?? [];
@@ -48,10 +59,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ docs: [], users: {}, role });
     }
 
+    const allowedIds = filteredUserId ? [filteredUserId].filter(id => assignedIds.includes(id)) : assignedIds;
+    if (allowedIds.length === 0) return NextResponse.json({ docs: [], users: {}, role });
+
     const { data, error } = await db
       .from("documents")
       .select("id, user_id, file_name, file_type, uploaded_at, status, feedback, drive_file_id")
-      .in("user_id", assignedIds)
+      .in("user_id", allowedIds)
       .order("uploaded_at", { ascending: false });
 
     if (error) { console.error("[admin GET] documents query failed:", error); return NextResponse.json({ error: "Internal error" }, { status: 500 }); }
@@ -66,16 +80,23 @@ export async function GET(req: NextRequest) {
 
   // For full admins, surface candidates who have signed up but not yet
   // uploaded anything — otherwise they're invisible until their first
-  // document lands. Sub-admins / agency admins keep the doc-scoped list.
-  if (role === "admin") {
+  // document lands. Skip this expensive scan when ?userId is set (targeted
+  // refresh) or for sub-admins / agency admins.
+  if (role === "admin" && !filteredUserId) {
+    // Collect all admin/sub-admin emails to exclude them from the candidate list.
+    const { data: subAdminRows } = await db.from("sub_admins").select("email");
+    const adminEmailSet = new Set((subAdminRows ?? []).map((r: { email: string }) => r.email.toLowerCase()));
+    // Also exclude the current requester (the supreme admin).
+    if (auth.email) adminEmailSet.add(auth.email.toLowerCase());
+
     let page = 1;
     while (true) {
       const { data: batch } = await adminClient.auth.admin.listUsers({ page, perPage: 50 });
       const list = batch?.users ?? [];
       for (const u of list) {
-        // Skip the supreme admin's own account + any non-candidate roles
-        // already represented in admin/sub_admins tables. Keep all others.
         if (!u.id || !u.email) continue;
+        // Skip admin/sub-admin accounts — only candidates belong in this list.
+        if (adminEmailSet.has(u.email.toLowerCase())) continue;
         if (!userIds.includes(u.id)) userIds.push(u.id);
         users[u.id] = {
           email: u.email,

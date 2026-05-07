@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { Plus, Minus, X as XIcon, Building2, CheckCircle, Clock, Users, FileText, Calendar, Pencil } from "lucide-react";
+import { Plus, Minus, X as XIcon, Building2, CheckCircle, Clock, Users, FileText, Calendar, Pencil, ChevronDown, ChevronUp, Save, Video, Phone, MapPin } from "lucide-react";
 import { PageLoader, Spinner } from "@/components/ui/states";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { useLang } from "@/components/LangContext";
@@ -73,6 +73,24 @@ const t = {
     timelineHide: "− Hide dates",
     saveChanges: "Save changes",
     edit: "Edit",
+    gesprachTitle: "Interview",
+    gesprachLink: "Interview link",
+    gesprachLinkPh: "https://meet.google.com/…",
+    gesprachDate: "Interview date",
+    gesprachType: "Type",
+    gesprachTypeVideo: "Video",
+    gesprachTypePhone: "Phone",
+    gesprachTypePerson: "In-person",
+    gesprachStatus: "Result",
+    gesprachPassed: "Passed",
+    gesprachFailed: "Failed",
+    gesprachPending: "Pending",
+    gesprachNotes: "Internal notes",
+    gesprachNotesPh: "Confidential — not visible to candidate",
+    gesprachSave: "Save",
+    gesprachSaving: "Saving…",
+    gesprachSaved: "Saved",
+    gesprachError: "Could not save",
   },
   fr: {
     ourNeeds: "Nos besoins",
@@ -137,6 +155,24 @@ const t = {
     timelineHide: "− Masquer les dates",
     saveChanges: "Enregistrer",
     edit: "Modifier",
+    gesprachTitle: "Entretien",
+    gesprachLink: "Lien de l'entretien",
+    gesprachLinkPh: "https://meet.google.com/…",
+    gesprachDate: "Date de l'entretien",
+    gesprachType: "Type",
+    gesprachTypeVideo: "Vidéo",
+    gesprachTypePhone: "Téléphone",
+    gesprachTypePerson: "Présentiel",
+    gesprachStatus: "Résultat",
+    gesprachPassed: "Réussi",
+    gesprachFailed: "Échoué",
+    gesprachPending: "En attente",
+    gesprachNotes: "Notes internes",
+    gesprachNotesPh: "Confidentiel — non visible par le candidat",
+    gesprachSave: "Enregistrer",
+    gesprachSaving: "Enregistrement…",
+    gesprachSaved: "Enregistré",
+    gesprachError: "Impossible d'enregistrer",
   },
   de: {
 
@@ -202,6 +238,24 @@ const t = {
     timelineHide: "− Daten ausblenden",
     saveChanges: "Änderungen speichern",
     edit: "Bearbeiten",
+    gesprachTitle: "Gespräch",
+    gesprachLink: "Interview-Link",
+    gesprachLinkPh: "https://meet.google.com/…",
+    gesprachDate: "Gesprächsdatum",
+    gesprachType: "Typ",
+    gesprachTypeVideo: "Video",
+    gesprachTypePhone: "Telefon",
+    gesprachTypePerson: "Persönlich",
+    gesprachStatus: "Ergebnis",
+    gesprachPassed: "Bestanden",
+    gesprachFailed: "Nicht bestanden",
+    gesprachPending: "Ausstehend",
+    gesprachNotes: "Interne Notizen",
+    gesprachNotesPh: "Vertraulich — für Kandidat nicht sichtbar",
+    gesprachSave: "Speichern",
+    gesprachSaving: "Speichern…",
+    gesprachSaved: "Gespeichert",
+    gesprachError: "Speichern fehlgeschlagen",
   },
 };
 
@@ -302,6 +356,14 @@ type OrgData = {
   candidates: Candidate[];
 };
 
+type CandidatePipeline = {
+  interview_link: string;
+  interview_date: string;
+  interview_type: string;
+  interview_status: string;
+  interview_notes: string;
+};
+
 export default function OrgDashboardPage() {
   const router = useRouter();
   const { lang } = useLang();
@@ -333,11 +395,133 @@ export default function OrgDashboardPage() {
   // Edit existing requirement
   const [editReqId, setEditReqId]       = useState<string | null>(null);
 
+  // Gespräch (interview) pipeline per candidate
+  const [expandedCandidate, setExpandedCandidate] = useState<string | null>(null);
+  const [candidatePipelines, setCandidatePipelines] = useState<Record<string, CandidatePipeline>>({});
+  const [pipelineLoading, setPipelineLoading] = useState<Record<string, boolean>>({});
+  const [pipelineSaving, setPipelineSaving] = useState<Record<string, "idle" | "saving" | "saved" | "error">>({});
+
+  // Dynamic phase slots (Bearbeitung / Visum) — org-scoped
+  type PhaseSlot = { id: string; org_id: string | null; phase: string; type: "simple" | "dual"; label: string; label_trans: string | null; position: number };
+  const [orgSlots, setOrgSlots] = useState<{ bea: PhaseSlot[]; vis: PhaseSlot[] }>({ bea: [], vis: [] });
+  const [orgSlotsLoaded, setOrgSlotsLoaded] = useState(false);
+  const [activeSlotTab, setActiveSlotTab] = useState<"bea" | "vis">("bea");
+  const [addSlotPhase, setAddSlotPhase] = useState<string | null>(null);
+  const [addSlotType, setAddSlotType]   = useState<"simple" | "dual">("simple");
+  const [addSlotLabel, setAddSlotLabel] = useState("");
+  const [addSlotLabelTrans, setAddSlotLabelTrans] = useState("");
+  const [addSlotSaving, setAddSlotSaving] = useState(false);
+  const orgDragIdx = useRef<number | null>(null);
+
   async function loadData(tk: string) {
     const res = await fetch("/api/portal/org/me", { headers: { Authorization: `Bearer ${tk}` } });
     if (!res.ok) { router.replace("/portal"); return; }
     const json = await res.json();
     setData(json);
+    // Load org-specific phase slots
+    const orgId = json?.org?.id;
+    if (orgId && !orgSlotsLoaded) {
+      setOrgSlotsLoaded(true);
+      const [beaRes, visRes] = await Promise.all([
+        fetch(`/api/portal/phase-slots?phase=bearbeitung&orgId=${orgId}`, { headers: { Authorization: `Bearer ${tk}` } }),
+        fetch(`/api/portal/phase-slots?phase=visum&orgId=${orgId}`,       { headers: { Authorization: `Bearer ${tk}` } }),
+      ]);
+      const beaJ = beaRes.ok ? await beaRes.json() : { slots: [] };
+      const visJ = visRes.ok ? await visRes.json() : { slots: [] };
+      setOrgSlots({ bea: beaJ.slots ?? [], vis: visJ.slots ?? [] });
+    }
+  }
+
+  async function addOrgSlot(phase: string, type: "simple" | "dual", label: string, labelTrans: string, orgId: string) {
+    if (!token || !label.trim()) return;
+    setAddSlotSaving(true);
+    const res = await fetch("/api/portal/phase-slots", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ phase, type, label: label.trim(), label_trans: labelTrans.trim() || undefined, orgId }),
+    });
+    if (res.ok) {
+      const j = await res.json();
+      const key = phase === "bearbeitung" ? "bea" : "vis";
+      setOrgSlots(prev => ({ ...prev, [key]: [...prev[key], j.slot] }));
+      setAddSlotPhase(null);
+      setAddSlotLabel("");
+      setAddSlotLabelTrans("");
+    }
+    setAddSlotSaving(false);
+  }
+
+  async function deleteOrgSlot(slotId: string, phase: string) {
+    if (!token) return;
+    await fetch("/api/portal/phase-slots", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ id: slotId }),
+    });
+    const key = phase === "bearbeitung" ? "bea" : "vis";
+    setOrgSlots(prev => ({ ...prev, [key]: prev[key].filter(s => s.id !== slotId) }));
+  }
+
+  async function saveOrgSlotOrder(phase: string, slotList: { id: string; position: number }[]) {
+    if (!token) return;
+    await fetch("/api/portal/phase-slots", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ positions: slotList }),
+    });
+  }
+
+  async function loadCandidatePipeline(userId: string) {
+    if (candidatePipelines[userId] || pipelineLoading[userId]) return;
+    setPipelineLoading(prev => ({ ...prev, [userId]: true }));
+    const res = await fetch(`/api/portal/pipeline?userId=${userId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) {
+      const j = await res.json();
+      const p = j.pipeline ?? {};
+      setCandidatePipelines(prev => ({
+        ...prev,
+        [userId]: {
+          interview_link:   p.interview_link   ?? "",
+          interview_date:   p.interview_date   ?? "",
+          interview_type:   p.interview_type   ?? "",
+          interview_status: p.interview_status ?? "",
+          interview_notes:  p.interview_notes  ?? "",
+        },
+      }));
+    }
+    setPipelineLoading(prev => ({ ...prev, [userId]: false }));
+  }
+
+  async function saveCandidatePipeline(userId: string) {
+    const pl = candidatePipelines[userId];
+    if (!pl) return;
+    setPipelineSaving(prev => ({ ...prev, [userId]: "saving" }));
+    const res = await fetch("/api/portal/pipeline", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        userId,
+        interview_link:   pl.interview_link   || null,
+        interview_date:   pl.interview_date   || null,
+        interview_type:   pl.interview_type   || null,
+        interview_status: pl.interview_status || null,
+        interview_notes:  pl.interview_notes  || null,
+      }),
+    });
+    setPipelineSaving(prev => ({ ...prev, [userId]: res.ok ? "saved" : "error" }));
+    if (res.ok) {
+      setTimeout(() => setPipelineSaving(prev => ({ ...prev, [userId]: "idle" })), 2000);
+    }
+  }
+
+  function updatePipeline(userId: string, patch: Partial<CandidatePipeline>) {
+    setCandidatePipelines(prev => ({
+      ...prev,
+      [userId]: { ...prev[userId], ...patch },
+    }));
+    setPipelineSaving(prev => ({ ...prev, [userId]: "idle" }));
   }
 
   useEffect(() => {
@@ -864,41 +1048,313 @@ export default function OrgDashboardPage() {
             </div>
           ) : (
             <div className="space-y-2">
-              {candidates.map(c => (
-                <button key={c.userId} type="button"
-                  onClick={() => router.push(`/portal/admin?nav_email=${encodeURIComponent(c.email)}`)}
-                  className="w-full flex items-center gap-3.5 px-4 py-3.5 rounded-2xl text-left transition-colors hover:opacity-90"
-                  style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-                  <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden"
-                    style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
-                    {c.profilePhoto
-                      // eslint-disable-next-line @next/next/no-img-element
-                      ? <img src={c.profilePhoto} alt={c.name} className="w-full h-full object-cover" />
-                      : <span className="text-[13px] font-semibold" style={{ color: "var(--gold)" }}>
-                          {c.name.charAt(0).toUpperCase()}
-                        </span>
-                    }
+              {candidates.map(c => {
+                const isOpen = expandedCandidate === c.userId;
+                const pl = candidatePipelines[c.userId];
+                const plLoading = pipelineLoading[c.userId];
+                const saveState = pipelineSaving[c.userId] ?? "idle";
+                const btnInp: React.CSSProperties = {
+                  background: "var(--bg2)", border: "1px solid var(--border)",
+                  borderRadius: "8px", padding: "6px 10px", color: "var(--w)",
+                  fontSize: "12.5px", outline: "none", width: "100%",
+                };
+                return (
+                  <div key={c.userId} style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "16px", overflow: "hidden" }}>
+                    {/* Header row */}
+                    <button type="button"
+                      onClick={() => {
+                        if (isOpen) { setExpandedCandidate(null); return; }
+                        setExpandedCandidate(c.userId);
+                        loadCandidatePipeline(c.userId);
+                      }}
+                      className="w-full flex items-center gap-3.5 px-4 py-3.5 text-left transition-colors hover:opacity-90">
+                      <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden"
+                        style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
+                        {c.profilePhoto
+                          // eslint-disable-next-line @next/next/no-img-element
+                          ? <img src={c.profilePhoto} alt={c.name} className="w-full h-full object-cover" />
+                          : <span className="text-[13px] font-semibold" style={{ color: "var(--gold)" }}>
+                              {c.name.charAt(0).toUpperCase()}
+                            </span>
+                        }
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-[13.5px] font-semibold" style={{ color: "var(--w)" }}>{c.name}</p>
+                          {c.verified && <VerifiedBadge verified={true} size="xs" color="gold" />}
+                        </div>
+                        <p className="text-[11.5px] mt-0.5"
+                          style={{ color: c.verified ? "var(--success)" : "var(--w3)" }}>
+                          {c.verified
+                            ? <><CheckCircle size={10} strokeWidth={2} style={{ display: "inline", marginRight: 4 }} />{T.profileVerified}</>
+                            : T.verificationInProgress
+                          }
+                        </p>
+                      </div>
+                      {isOpen ? <ChevronUp size={16} style={{ color: "var(--w3)", flexShrink: 0 }} /> : <ChevronDown size={16} style={{ color: "var(--w3)", flexShrink: 0 }} />}
+                    </button>
+
+                    {/* Gespräch panel */}
+                    {isOpen && (
+                      <div style={{ borderTop: "1px solid var(--border)", padding: "16px 16px 20px" }}>
+                        {plLoading && !pl ? (
+                          <div className="flex justify-center py-4"><Spinner /></div>
+                        ) : pl ? (
+                          <div className="space-y-3">
+                            <p className="text-[11px] font-bold uppercase tracking-wider" style={{ color: "var(--gold)" }}>{T.gesprachTitle}</p>
+
+                            {/* Link */}
+                            <div>
+                              <label className="block text-[11.5px] mb-1" style={{ color: "var(--w3)" }}>{T.gesprachLink}</label>
+                              <input style={btnInp} type="url" placeholder={T.gesprachLinkPh}
+                                value={pl.interview_link}
+                                onChange={e => updatePipeline(c.userId, { interview_link: e.target.value })} />
+                            </div>
+
+                            {/* Date */}
+                            <div>
+                              <label className="block text-[11.5px] mb-1" style={{ color: "var(--w3)" }}>{T.gesprachDate}</label>
+                              <input style={{ ...btnInp, colorScheme: "dark", cursor: "pointer" }} type="date"
+                                value={pl.interview_date}
+                                onChange={e => updatePipeline(c.userId, { interview_date: e.target.value })} />
+                            </div>
+
+                            {/* Type */}
+                            <div>
+                              <label className="block text-[11.5px] mb-1.5" style={{ color: "var(--w3)" }}>{T.gesprachType}</label>
+                              <div className="flex gap-2">
+                                {(["video", "phone", "in-person"] as const).map(tp => {
+                                  const label = tp === "video" ? T.gesprachTypeVideo : tp === "phone" ? T.gesprachTypePhone : T.gesprachTypePerson;
+                                  const Icon = tp === "video" ? Video : tp === "phone" ? Phone : MapPin;
+                                  const active = pl.interview_type === tp;
+                                  return (
+                                    <button key={tp} type="button"
+                                      onClick={() => updatePipeline(c.userId, { interview_type: active ? "" : tp })}
+                                      style={{
+                                        padding: "5px 10px", borderRadius: "8px", fontSize: "12px",
+                                        display: "flex", alignItems: "center", gap: "5px",
+                                        background: active ? "var(--gdim)" : "var(--bg2)",
+                                        border: `1px solid ${active ? "var(--border-gold)" : "var(--border)"}`,
+                                        color: active ? "var(--gold)" : "var(--w3)",
+                                        cursor: "pointer",
+                                      }}>
+                                      <Icon size={12} />{label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            {/* Status */}
+                            <div>
+                              <label className="block text-[11.5px] mb-1.5" style={{ color: "var(--w3)" }}>{T.gesprachStatus}</label>
+                              <div className="flex gap-2">
+                                {(["passed", "failed", ""] as const).map(st => {
+                                  const label = st === "passed" ? T.gesprachPassed : st === "failed" ? T.gesprachFailed : T.gesprachPending;
+                                  const active = pl.interview_status === st;
+                                  const color = st === "passed" ? "var(--success)" : st === "failed" ? "var(--error, #ef4444)" : "var(--w3)";
+                                  const bg = st === "passed" ? "var(--success-bg, rgba(34,197,94,0.1))" : st === "failed" ? "rgba(239,68,68,0.1)" : "var(--bg2)";
+                                  const border = st === "passed" ? "var(--success-border, rgba(34,197,94,0.3))" : st === "failed" ? "rgba(239,68,68,0.3)" : "var(--border)";
+                                  return (
+                                    <button key={st} type="button"
+                                      onClick={() => updatePipeline(c.userId, { interview_status: active ? "" : st })}
+                                      style={{
+                                        padding: "5px 12px", borderRadius: "8px", fontSize: "12px",
+                                        background: active ? bg : "var(--bg2)",
+                                        border: `1px solid ${active ? border : "var(--border)"}`,
+                                        color: active ? color : "var(--w3)",
+                                        cursor: "pointer",
+                                      }}>
+                                      {label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            {/* Notes */}
+                            <div>
+                              <label className="block text-[11.5px] mb-1" style={{ color: "var(--w3)" }}>{T.gesprachNotes}</label>
+                              <textarea style={{ ...btnInp, resize: "vertical", minHeight: "72px" }}
+                                placeholder={T.gesprachNotesPh}
+                                value={pl.interview_notes}
+                                onChange={e => updatePipeline(c.userId, { interview_notes: e.target.value })} />
+                            </div>
+
+                            {/* Save */}
+                            <div className="flex items-center justify-between pt-1">
+                              <button type="button"
+                                onClick={() => saveCandidatePipeline(c.userId)}
+                                disabled={saveState === "saving"}
+                                style={{
+                                  display: "flex", alignItems: "center", gap: "6px",
+                                  padding: "7px 16px", borderRadius: "10px", fontSize: "12.5px", fontWeight: 600,
+                                  background: saveState === "saved" ? "var(--success-bg, rgba(34,197,94,0.1))" : "var(--gdim)",
+                                  border: `1px solid ${saveState === "saved" ? "var(--success-border, rgba(34,197,94,0.3))" : "var(--border-gold)"}`,
+                                  color: saveState === "saved" ? "var(--success)" : "var(--gold)",
+                                  cursor: saveState === "saving" ? "not-allowed" : "pointer",
+                                  opacity: saveState === "saving" ? 0.6 : 1,
+                                }}>
+                                <Save size={13} />
+                                {saveState === "saving" ? T.gesprachSaving : saveState === "saved" ? T.gesprachSaved : T.gesprachSave}
+                              </button>
+                              {saveState === "error" && (
+                                <span className="text-[11.5px]" style={{ color: "var(--error, #ef4444)" }}>{T.gesprachError}</span>
+                              )}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <p className="text-[13.5px] font-semibold" style={{ color: "var(--w)" }}>{c.name}</p>
-                      {c.verified && <VerifiedBadge verified={true} size="xs" color="gold" />}
-                    </div>
-                    <p className="text-[11.5px] mt-0.5"
-                      style={{ color: c.verified ? "var(--success)" : "var(--w3)" }}>
-                      {c.verified
-                        ? <><CheckCircle size={10} strokeWidth={2} style={{ display: "inline", marginRight: 4 }} />{T.profileVerified}</>
-                        : T.verificationInProgress
-                      }
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* ── Document Templates — Bearbeitung & Visum ─────────────────────── */}
+        <div className="mt-10">
+          <div className="flex items-center gap-2 mb-4">
+            <span className="text-[14px] font-semibold" style={{ color: "var(--w)" }}>
+              Dokument-Templates
+            </span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
+              style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+              Admin only
+            </span>
+          </div>
+
+          {/* Tab selector */}
+          <div className="flex gap-2 mb-3">
+            {(["bea", "vis"] as const).map(tab => (
+              <button key={tab} type="button" onClick={() => setActiveSlotTab(tab)}
+                className="px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-all"
+                style={{
+                  background: activeSlotTab === tab ? "var(--gdim)" : "var(--card)",
+                  color: activeSlotTab === tab ? "var(--gold)" : "var(--w2)",
+                  border: `1px solid ${activeSlotTab === tab ? "var(--border-gold)" : "var(--border)"}`,
+                }}>
+                {tab === "bea" ? "Bearbeitung" : "Visum"}
+              </button>
+            ))}
+          </div>
+
+          {/* Slot list */}
+          {(() => {
+            const phase = activeSlotTab === "bea" ? "bearbeitung" : "visum";
+            const slotList = orgSlots[activeSlotTab];
+            const orgId = org.id;
+            return (
+              <div className="overflow-hidden rounded-2xl" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+                {/* Header */}
+                <div className="flex items-center gap-2 px-4 py-3 border-b" style={{ borderColor: "var(--border)" }}>
+                  <span className="flex-1 text-[11px] font-semibold uppercase tracking-[0.12em]" style={{ color: "var(--w3)" }}>
+                    {slotList.length} document{slotList.length !== 1 ? "s" : ""} configured
+                  </span>
+                  <button
+                    onClick={() => { setAddSlotPhase(phase); setAddSlotType("simple"); setAddSlotLabel(""); setAddSlotLabelTrans(""); }}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-lg"
+                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                    <Plus size={11} strokeWidth={2.2} /> Add document
+                  </button>
+                </div>
+
+                {slotList.length === 0 ? (
+                  <div className="px-4 py-8 text-center">
+                    <p className="text-[12px]" style={{ color: "var(--w3)" }}>
+                      No documents yet. Click "+ Add document" to configure what candidates must upload.
                     </p>
                   </div>
-                  {/* Chevron — indicates clickable */}
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--w3)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                    <polyline points="9 18 15 12 9 6"/>
-                  </svg>
-                </button>
-              ))}
-            </div>
+                ) : (
+                  <div>
+                    {slotList.map((slot, si) => (
+                      <div key={slot.id}
+                        draggable
+                        onDragStart={() => { orgDragIdx.current = si; }}
+                        onDragOver={e => e.preventDefault()}
+                        onDrop={async () => {
+                          const from = orgDragIdx.current;
+                          if (from === null || from === si) return;
+                          const reordered = [...slotList];
+                          const [moved] = reordered.splice(from, 1);
+                          reordered.splice(si, 0, moved);
+                          const withPos = reordered.map((s, i) => ({ ...s, position: i }));
+                          setOrgSlots(prev => ({ ...prev, [activeSlotTab]: withPos }));
+                          await saveOrgSlotOrder(phase, withPos.map(s => ({ id: s.id, position: s.position })));
+                          orgDragIdx.current = null;
+                        }}>
+                        {si > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
+                        <div className="flex items-center gap-2.5 px-4 py-3 cursor-grab active:cursor-grabbing">
+                          <span style={{ color: "var(--w3)", fontSize: 14, cursor: "grab", userSelect: "none" }}>⠿</span>
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded flex-shrink-0"
+                            style={{ background: slot.type === "dual" ? "var(--info-bg)" : "var(--bg2)", color: slot.type === "dual" ? "var(--info)" : "var(--w3)", border: "1px solid var(--border)" }}>
+                            {slot.type === "dual" ? "DUAL" : "DOC"}
+                          </span>
+                          <span className="flex-1 text-[12.5px] font-medium min-w-0 truncate" style={{ color: "var(--w)" }}>
+                            {slot.label}{slot.type === "dual" && slot.label_trans ? <span style={{ color: "var(--w3)" }}> / {slot.label_trans}</span> : null}
+                          </span>
+                          <button onClick={() => deleteOrgSlot(slot.id, phase)} title="Delete"
+                            className="w-7 h-7 flex items-center justify-center rounded-full transition-opacity hover:opacity-70 flex-shrink-0"
+                            style={{ color: "var(--w3)", background: "transparent", border: "none", cursor: "pointer" }}>
+                            <XIcon size={13} strokeWidth={1.8} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
+          {/* Add slot modal */}
+          {addSlotPhase && (
+            <>
+              <div className="fixed inset-0 z-40" style={{ background: "rgba(0,0,0,0.5)" }}
+                onClick={() => setAddSlotPhase(null)} />
+              <div className="fixed inset-x-4 top-1/3 z-50 max-w-sm mx-auto rounded-2xl p-5 space-y-4"
+                style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }}>
+                <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>Add document slot</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {(["simple", "dual"] as const).map(tp => (
+                    <button key={tp} type="button" onClick={() => setAddSlotType(tp)}
+                      className="py-3 rounded-xl text-[12px] font-semibold text-center transition-all"
+                      style={{ background: addSlotType === tp ? "var(--gdim)" : "var(--bg2)", color: addSlotType === tp ? "var(--gold)" : "var(--w2)", border: `1.5px solid ${addSlotType === tp ? "var(--border-gold)" : "var(--border)"}` }}>
+                      {tp === "simple" ? "📄 Simple" : "📄📄 Dual (Original + Translated)"}
+                    </button>
+                  ))}
+                </div>
+                <input type="text"
+                  placeholder={addSlotType === "dual" ? "Label (original)" : "Label (e.g. Dokument 1)"}
+                  value={addSlotLabel} onChange={e => setAddSlotLabel(e.target.value)}
+                  className="w-full px-3 py-2.5 text-[12.5px] outline-none"
+                  style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--w)" }}
+                />
+                {addSlotType === "dual" && (
+                  <input type="text"
+                    placeholder="Label translated"
+                    value={addSlotLabelTrans} onChange={e => setAddSlotLabelTrans(e.target.value)}
+                    className="w-full px-3 py-2.5 text-[12.5px] outline-none"
+                    style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--w)" }}
+                  />
+                )}
+                <div className="flex gap-2">
+                  <button onClick={() => setAddSlotPhase(null)} disabled={addSlotSaving}
+                    className="flex-1 py-2.5 rounded-xl text-[12.5px] font-semibold"
+                    style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => addOrgSlot(addSlotPhase!, addSlotType, addSlotLabel, addSlotLabelTrans, org.id)}
+                    disabled={addSlotSaving || !addSlotLabel.trim()}
+                    className="flex-1 py-2.5 rounded-xl text-[12.5px] font-semibold disabled:opacity-40"
+                    style={{ background: "var(--gold)", color: "#131312" }}>
+                    {addSlotSaving ? "Saving…" : "Add"}
+                  </button>
+                </div>
+              </div>
+            </>
           )}
         </div>
 

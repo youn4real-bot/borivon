@@ -40,3 +40,10 @@ export const LABEL_TO_FILE_KEY: Record<string, string> = {};
 for (const [key, labels] of Object.entries(FILE_KEY_LABELS)) {
   for (const lbl of labels) LABEL_TO_FILE_KEY[lbl] = key;
 }
+
+/** fileKey → Set of all translated labels (every supported language).
+ *  Used by admin + dashboard getDoc() to match docs regardless of upload language. */
+export const FILE_KEY_ALL_LABELS: Record<string, Set<string>> = {};
+for (const [key, labels] of Object.entries(FILE_KEY_LABELS)) {
+  FILE_KEY_ALL_LABELS[key] = new Set(labels);
+}

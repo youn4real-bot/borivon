@@ -8,10 +8,12 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // Anything outside this list is silently dropped (mass-assignment prevention).
 const ALLOWED_PIPELINE_FIELDS = new Set<string>([
   "interview_link", "interview_date", "interview_status",
+  "interview_type", "interview_notes",
   "recognition_unlocked", "embassy_unlocked",
   "visa_granted", "visa_date",
   "flight_date", "flight_info",
   "docs_approved",
+  "integration_unlocked", "start_unlocked",
 ]);
 
 // GET — admin reads a candidate's pipeline by userId
