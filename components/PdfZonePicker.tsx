@@ -185,10 +185,10 @@ export function PdfZonePicker({ pdfBase64, onChange, onError }: Props) {
   }
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
+    <div>
+      <div className="flex items-center justify-between px-3 py-2">
         <span className="text-[11px]" style={{ color: "var(--w3)" }}>
-          Drag to draw the zone · Move the gold box to reposition
+          Drag to draw · Move the gold box · Resize via handles
         </span>
         {pageCount > 1 && (
           <div className="flex gap-1">
@@ -206,8 +206,8 @@ export function PdfZonePicker({ pdfBase64, onChange, onError }: Props) {
         )}
       </div>
 
-      <div ref={containerRef} className="relative select-none rounded-xl overflow-hidden"
-        style={{ border: "1.5px solid var(--border-gold)" }}
+      <div ref={containerRef} className="relative select-none overflow-hidden"
+        style={{ borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}
         onMouseMove={onMove}
         onMouseUp={onUp}
         onMouseLeave={onUp}>

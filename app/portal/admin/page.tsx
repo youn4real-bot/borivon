@@ -3260,10 +3260,8 @@ export default function AdminPage() {
                   </p>
                 </div>
               ) : sigPdfBase64 ? (
-                <div className="p-3">
-                  <PdfZonePicker pdfBase64={sigPdfBase64} onChange={z => setSigZone(z)}
-                    onError={() => { setSigPdfBase64(null); setSigManualPdf(null); }} />
-                </div>
+                <PdfZonePicker pdfBase64={sigPdfBase64} onChange={z => setSigZone(z)}
+                  onError={() => { setSigPdfBase64(null); setSigManualPdf(null); }} />
               ) : (
                 <div className="flex flex-col items-center justify-center gap-4 m-4 rounded-2xl cursor-pointer transition-colors"
                   style={{ minHeight: 280, border: "2.5px dashed var(--border-gold)", background: "var(--gdim)" }}
