@@ -1,15 +1,23 @@
 "use client";
 
 import { useRef, useState, useEffect } from "react";
+import { ZoomIn, ZoomOut } from "lucide-react";
 import { Spinner } from "@/components/ui/states";
 
 export type SigZone = {
   page: number; // 1-indexed
-  x: number;    // normalized 0-1 from left
-  y: number;    // normalized 0-1 from top
+  x: number;    // normalized 0-1 from left of page
+  y: number;    // normalized 0-1 from top of page
   w: number;    // normalized 0-1
   h: number;    // normalized 0-1
 };
+
+// Matches PdfViewer layout constants exactly
+const PADDING_TOP = 16;
+const PAGE_GAP    = 12;
+const MIN_SCALE   = 0.4;
+const MAX_SCALE   = 4.0;
+const SCALE_STEP  = 0.2;
 
 function defaultZone(page: number): SigZone {
   return { page, x: 0.48, y: 0.74, w: 0.44, h: 0.13 };
@@ -26,10 +34,12 @@ async function getPdfJs() {
 }
 
 const T = {
-  en: { hint: "Draw zone · Drag gold box to reposition · Drag to top/bottom edge to change page", signHere: "✍ Sign here", prevPage: "↑ Release → page", nextPage: "↓ Release → page" },
-  fr: { hint: "Dessinez la zone · Déplacez le cadre · Glissez au bord pour changer de page", signHere: "✍ Signer ici", prevPage: "↑ Relâcher → page", nextPage: "↓ Relâcher → page" },
-  de: { hint: "Zone zeichnen · Rahmen verschieben · An Rand ziehen für Seitenwechsel", signHere: "✍ Hier unterschreiben", prevPage: "↑ Loslassen → Seite", nextPage: "↓ Loslassen → Seite" },
+  en: { signHere: "✍ Sign here" },
+  fr: { signHere: "✍ Signer ici" },
+  de: { signHere: "✍ Hier unterschreiben" },
 } as const;
+
+type AbsRect = { top: number; left: number; w: number; h: number };
 
 type Props = {
   pdfBase64: string;
@@ -39,30 +49,117 @@ type Props = {
 };
 
 export function PdfZonePicker({ pdfBase64, onChange, onError, lang = "en" }: Props) {
-  const canvasRef    = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [pdfDoc, setPdfDoc]     = useState<import("pdfjs-dist").PDFDocumentProxy | null>(null);
-  const [pageCount, setPageCount] = useState(1);
-  const [page, setPage]           = useState(1);
-  const [loading, setLoading]     = useState(true);
-  const [zone, setZone]           = useState<SigZone>(defaultZone(1));
-  const [edgeHint, setEdgeHint]   = useState<"prev" | "next" | null>(null);
+  const pagesWrapRef = useRef<HTMLDivElement>(null);
 
-  // Stable refs so global handlers never have stale closure state
-  const zoneRef      = useRef(zone);
-  const pageRef      = useRef(page);
-  const pageCountRef = useRef(pageCount);
-  const edgeHintRef  = useRef<"prev" | "next" | null>(null);
-  const onChangeRef  = useRef(onChange);
-  const drawRef = useRef<{ sx: number; sy: number } | null>(null);
-  const dragRef = useRef<{ sx: number; sy: number; ox: number; oy: number } | null>(null);
+  const [pdfDoc,     setPdfDoc]     = useState<import("pdfjs-dist").PDFDocumentProxy | null>(null);
+  const [pageSizes,  setPageSizes]  = useState<{ w: number; h: number }[]>([]);
+  const [scale,      setScale]      = useState(1.0);
+  const [loading,    setLoading]    = useState(true);
+  const [zone,       setZone]       = useState<SigZone>(defaultZone(1));
 
-  useEffect(() => { onChangeRef.current = onChange; });
-  useEffect(() => { zoneRef.current = zone; }, [zone]);
-  useEffect(() => { pageRef.current = page; }, [page]);
-  useEffect(() => { pageCountRef.current = pageCount; }, [pageCount]);
+  // Refs so global handlers never read stale values
+  const scaleRef      = useRef(scale);
+  const zoneRef       = useRef(zone);
+  const pageSizesRef  = useRef(pageSizes);
+  const onChangeRef   = useRef(onChange);
+  const containerWRef = useRef(0);
 
-  // Load PDF
+  // Drag / resize / draw state — pure refs (no re-render during drag)
+  const dragRef = useRef<{
+    mode: "move" | "resize";
+    handle?: string;
+    startMouse: { x: number; y: number };
+    startAbs: AbsRect;
+  } | null>(null);
+  const drawStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  useEffect(() => { scaleRef.current = scale; }, [scale]);
+  useEffect(() => { zoneRef.current  = zone;  }, [zone]);
+  useEffect(() => { pageSizesRef.current = pageSizes; }, [pageSizes]);
+  useEffect(() => { onChangeRef.current  = onChange;  });
+
+  // Track container clientWidth for page centering
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    containerWRef.current = el.clientWidth;
+    const ro = new ResizeObserver(() => { containerWRef.current = el.clientWidth; });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  // ── Coordinate helpers (use only refs → safe inside effect closures) ────────
+
+  function dispSizesOf(ps: { w: number; h: number }[], sc: number) {
+    return ps.map(s => ({ w: Math.round(s.w * sc), h: Math.round(s.h * sc) }));
+  }
+
+  // Top of page[i] in pagesWrap scroll-content space
+  function pageTopOf(i: number, ds: { w: number; h: number }[]) {
+    let y = PADDING_TOP;
+    for (let j = 0; j < i; j++) y += ds[j].h + PAGE_GAP;
+    return y;
+  }
+
+  // Left offset of (uniformly-sized) pages — centered in container
+  function pageLeftOf(ds: { w: number; h: number }[]) {
+    if (!ds.length) return 12;
+    const cw = containerWRef.current || (containerRef.current?.clientWidth ?? 400);
+    return Math.max(12, (cw - ds[0].w) / 2);
+  }
+
+  // Client coords → pagesWrap scroll-content space
+  function contentPos(clientX: number, clientY: number): { x: number; y: number } {
+    const el = containerRef.current!;
+    const r  = el.getBoundingClientRect();
+    return { x: clientX - r.left + el.scrollLeft, y: clientY - r.top + el.scrollTop };
+  }
+
+  // SigZone → absolute pixel rect in pagesWrap
+  function zoneToAbs(z: SigZone, ds: { w: number; h: number }[]): AbsRect | null {
+    const pi = z.page - 1;
+    if (pi < 0 || pi >= ds.length) return null;
+    const pt = pageTopOf(pi, ds);
+    const pl = pageLeftOf(ds);
+    return {
+      top:  pt + z.y * ds[pi].h,
+      left: pl + z.x * ds[pi].w,
+      w:    z.w * ds[pi].w,
+      h:    z.h * ds[pi].h,
+    };
+  }
+
+  // Absolute rect → SigZone (page chosen by zone center Y)
+  function absToZone(abs: AbsRect, ds: { w: number; h: number }[]): SigZone {
+    if (!ds.length) return zoneRef.current;
+    const cy = abs.top + abs.h / 2;
+    const pl = pageLeftOf(ds);
+    const pw = ds[0].w;
+
+    let pi = ds.length - 1, cumY = PADDING_TOP;
+    for (let i = 0; i < ds.length; i++) {
+      if (cy <= cumY + ds[i].h || i === ds.length - 1) { pi = i; break; }
+      cumY += ds[i].h + PAGE_GAP;
+    }
+    const pt = pageTopOf(pi, ds);
+    const ph = ds[pi].h;
+    const MIN_W = 0.05, MIN_H = 0.03;
+
+    const x = Math.max(0, Math.min(1 - MIN_W, (abs.left - pl) / pw));
+    const y = Math.max(0, Math.min(1 - MIN_H, (abs.top  - pt) / ph));
+    const w = Math.max(MIN_W, Math.min(1 - x, abs.w / pw));
+    const h = Math.max(MIN_H, Math.min(1 - y, abs.h / ph));
+    return { page: pi + 1, x, y, w, h };
+  }
+
+  function emitZone(z: SigZone) {
+    zoneRef.current = z;
+    setZone(z);
+    onChangeRef.current(z);
+  }
+
+  // ── Load PDF ────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!pdfBase64) return;
     let active = true;
@@ -72,15 +169,19 @@ export function PdfZonePicker({ pdfBase64, onChange, onError, lang = "en" }: Pro
         const bytes = Uint8Array.from(atob(pdfBase64), c => c.charCodeAt(0));
         const doc   = await lib.getDocument({ data: bytes }).promise;
         if (!active) return;
-        const pc = doc.numPages;
+        const sizes: { w: number; h: number }[] = [];
+        for (let i = 1; i <= doc.numPages; i++) {
+          const pg = await doc.getPage(i);
+          const vp = pg.getViewport({ scale: 1.0 });
+          sizes.push({ w: vp.width, h: vp.height });
+        }
+        if (!active) return;
         setPdfDoc(doc);
-        setPageCount(pc);
-        pageCountRef.current = pc;
-        setPage(pc);
-        pageRef.current = pc;
-        const z = defaultZone(pc);
-        setZone(z);
-        zoneRef.current = z;
+        setPageSizes(sizes);
+        pageSizesRef.current = sizes;
+        setLoading(false);
+        const z = defaultZone(doc.numPages);
+        setZone(z); zoneRef.current = z;
         onChange(z);
       } catch (e) {
         console.error("[PdfZonePicker] load error", e);
@@ -90,128 +191,55 @@ export function PdfZonePicker({ pdfBase64, onChange, onError, lang = "en" }: Pro
     return () => { active = false; };
   }, [pdfBase64]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Render page
-  useEffect(() => {
-    if (!pdfDoc) return;
-    let active = true;
-    setLoading(true);
-    (async () => {
-      try {
-        const pg        = await pdfDoc.getPage(page);
-        if (!active) return;
-        const container = containerRef.current;
-        const canvas    = canvasRef.current;
-        if (!canvas || !container) return;
-        const cw        = container.clientWidth || 400;
-        const baseVp    = pg.getViewport({ scale: 1 });
-        const vp        = pg.getViewport({ scale: cw / baseVp.width });
-        canvas.width    = vp.width;
-        canvas.height   = vp.height;
-        const ctx       = canvas.getContext("2d")!;
-        ctx.clearRect(0, 0, vp.width, vp.height);
-        await pg.render({ canvasContext: ctx, viewport: vp, canvas }).promise;
-        if (active) setLoading(false);
-      } catch {
-        if (active) setLoading(false);
-      }
-    })();
-    return () => { active = false; };
-  }, [pdfDoc, page]);
-
-  // Get normalized position relative to canvas (raw = unclamped, for edge detection)
-  function getRawPos(clientX: number, clientY: number) {
-    const r = canvasRef.current!.getBoundingClientRect();
-    return {
-      x: (clientX - r.left) / r.width,
-      y: (clientY - r.top)  / r.height,
-    };
-  }
-
-  function emitZone(z: SigZone) {
-    zoneRef.current = z;
-    setZone(z);
-    onChangeRef.current(z);
-  }
-
-  // Global handlers — active for the full lifecycle of a drag/draw.
-  // Attaching to window (not canvas) means:
-  //   - drag never dies if mouse briefly exits canvas
-  //   - e.preventDefault() kills any parent scroll during drag
+  // ── Global mouse handlers (drag/resize/draw, prevents outer scroll) ─────────
   useEffect(() => {
     function onMove(e: MouseEvent) {
-      if (!dragRef.current && !drawRef.current) return;
-      e.preventDefault(); // block outer modal scroll during drag
+      if (!dragRef.current && !drawStartRef.current) return;
+      e.preventDefault();
 
-      const canvas = canvasRef.current;
-      if (!canvas) return;
+      const pos = contentPos(e.clientX, e.clientY);
+      const ds  = dispSizesOf(pageSizesRef.current, scaleRef.current);
 
-      const raw = getRawPos(e.clientX, e.clientY);
-      const px  = Math.max(0, Math.min(1, raw.x));
-      const py  = Math.max(0, Math.min(1, raw.y));
-      const z   = zoneRef.current;
-      const cur = pageRef.current;
-      const pc  = pageCountRef.current;
+      if (dragRef.current?.mode === "move") {
+        const { startMouse, startAbs } = dragRef.current;
+        emitZone(absToZone({
+          top:  startAbs.top  + (pos.y - startMouse.y),
+          left: startAbs.left + (pos.x - startMouse.x),
+          w: startAbs.w, h: startAbs.h,
+        }, ds));
 
-      if (dragRef.current) {
-        const dx = px - dragRef.current.sx;
-        const dy = py - dragRef.current.sy;
+      } else if (dragRef.current?.mode === "resize") {
+        const { handle, startMouse, startAbs } = dragRef.current;
+        const dx = pos.x - startMouse.x;
+        const dy = pos.y - startMouse.y;
+        const MIN_PX = 24;
+        let { top, left, w, h } = startAbs;
 
-        // Edge zones: mouse above/below canvas → page flip hint
-        if (raw.y < -0.08 && cur > 1) {
-          edgeHintRef.current = "prev";
-          setEdgeHint("prev");
-        } else if (raw.y > 1.08 && cur < pc) {
-          edgeHintRef.current = "next";
-          setEdgeHint("next");
-        } else {
-          edgeHintRef.current = null;
-          setEdgeHint(null);
-          emitZone({
-            ...z,
-            x: Math.max(0, Math.min(1 - z.w, dragRef.current.ox + dx)),
-            y: Math.max(0, Math.min(1 - z.h, dragRef.current.oy + dy)),
-            page: cur,
-          });
-        }
-      } else if (drawRef.current) {
-        const x = Math.min(drawRef.current.sx, px);
-        const y = Math.min(drawRef.current.sy, py);
-        const w = Math.abs(px - drawRef.current.sx);
-        const h = Math.abs(py - drawRef.current.sy);
-        if (w > 0.03 && h > 0.02) emitZone({ page: cur, x, y, w, h });
+        if (handle!.includes("n")) { top += dy; h -= dy; }
+        if (handle!.includes("s")) { h  += dy; }
+        if (handle!.includes("w")) { left += dx; w -= dx; }
+        if (handle!.includes("e")) { w  += dx; }
+
+        if (h < MIN_PX) { if (handle!.includes("n")) top = startAbs.top + startAbs.h - MIN_PX; h = MIN_PX; }
+        if (w < MIN_PX) { if (handle!.includes("w")) left = startAbs.left + startAbs.w - MIN_PX; w = MIN_PX; }
+
+        emitZone(absToZone({ top, left, w, h }, ds));
+
+      } else if (drawStartRef.current) {
+        const s = drawStartRef.current;
+        const abs: AbsRect = {
+          top:  Math.min(s.y, pos.y),
+          left: Math.min(s.x, pos.x),
+          w:    Math.abs(pos.x - s.x),
+          h:    Math.abs(pos.y - s.y),
+        };
+        if (abs.w > 10 && abs.h > 10) emitZone(absToZone(abs, ds));
       }
     }
 
-    function onUp(e: MouseEvent) {
-      if (!dragRef.current && !drawRef.current) return;
-
-      const hint = edgeHintRef.current;
-      const cur  = pageRef.current;
-      const pc   = pageCountRef.current;
-      const z    = zoneRef.current;
-
-      // Page flip: place zone at the near edge of the new page
-      if (dragRef.current && hint) {
-        if (hint === "prev" && cur > 1) {
-          const newPage = cur - 1;
-          const newZ = { ...z, page: newPage, y: Math.min(0.85, 1 - z.h - 0.02) };
-          pageRef.current = newPage;
-          setPage(newPage);
-          emitZone(newZ);
-        } else if (hint === "next" && cur < pc) {
-          const newPage = cur + 1;
-          const newZ = { ...z, page: newPage, y: 0.02 };
-          pageRef.current = newPage;
-          setPage(newPage);
-          emitZone(newZ);
-        }
-      }
-
+    function onUp() {
       dragRef.current    = null;
-      drawRef.current    = null;
-      edgeHintRef.current = null;
-      setEdgeHint(null);
-      void e; // suppress lint
+      drawStartRef.current = null;
     }
 
     window.addEventListener("mousemove", onMove, { passive: false });
@@ -222,104 +250,231 @@ export function PdfZonePicker({ pdfBase64, onChange, onError, lang = "en" }: Pro
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function onCanvasDown(e: React.MouseEvent) {
-    e.preventDefault();
-    const raw = getRawPos(e.clientX, e.clientY);
-    const px  = Math.max(0, Math.min(1, raw.x));
-    const py  = Math.max(0, Math.min(1, raw.y));
-    const z   = zoneRef.current;
-    if (px >= z.x && px <= z.x + z.w && py >= z.y && py <= z.y + z.h) {
-      dragRef.current = { sx: px, sy: py, ox: z.x, oy: z.y };
-    } else {
-      drawRef.current = { sx: px, sy: py };
-    }
-  }
+  // ── Render ──────────────────────────────────────────────────────────────────
+  const dispSizes = dispSizesOf(pageSizes, scale);
+  const zoneAbs   = dispSizes.length > 0 ? zoneToAbs(zone, dispSizes) : null;
 
-  function changePage(p: number) {
-    pageRef.current = p;
-    setPage(p);
-    // Preserve zone x/y/w/h — only page changes
-    const z = { ...zoneRef.current, page: p };
-    emitZone(z);
-  }
+  const HANDLES = [
+    { id: "nw", top: "0%",   left: "0%",   cursor: "nw-resize" },
+    { id: "n",  top: "0%",   left: "50%",  cursor: "n-resize"  },
+    { id: "ne", top: "0%",   left: "100%", cursor: "ne-resize" },
+    { id: "e",  top: "50%",  left: "100%", cursor: "e-resize"  },
+    { id: "se", top: "100%", left: "100%", cursor: "se-resize" },
+    { id: "s",  top: "100%", left: "50%",  cursor: "s-resize"  },
+    { id: "sw", top: "100%", left: "0%",   cursor: "sw-resize" },
+    { id: "w",  top: "50%",  left: "0%",   cursor: "w-resize"  },
+  ];
 
   return (
-    // onWheel stopPropagation prevents outer modal scroll when wheeling over the picker
-    <div className="space-y-2" onWheel={e => e.stopPropagation()}>
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <span className="text-[11px]" style={{ color: "var(--w3)" }}>
-          {T[lang].hint}
-        </span>
-        {pageCount > 1 && (
-          <div className="flex gap-1 flex-shrink-0">
-            {Array.from({ length: pageCount }, (_, i) => i + 1).map(p => (
-              <button key={p} type="button" onClick={() => changePage(p)}
-                className="w-6 h-6 rounded text-[10px] font-bold transition-colors"
-                style={{
-                  background: p === page ? "var(--gold)" : "var(--bg2)",
-                  color:      p === page ? "#131312"     : "var(--w3)",
-                }}>
-                {p}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div ref={containerRef} className="relative select-none rounded-xl"
-        style={{ border: `1.5px solid ${edgeHint ? "var(--gold)" : "var(--border-gold)"}`, transition: "border-color 0.1s" }}>
-
-        {/* Prev-page edge hint */}
-        {edgeHint === "prev" && page > 1 && (
-          <div className="absolute inset-x-0 top-0 z-20 flex items-center justify-center py-1.5 pointer-events-none"
-            style={{ background: "rgba(201,162,64,0.9)", borderRadius: "10px 10px 0 0" }}>
-            <span className="text-[11px] font-bold" style={{ color: "#131312" }}>
-              {T[lang].prevPage} {page - 1}
-            </span>
-          </div>
-        )}
-
-        {/* Next-page edge hint */}
-        {edgeHint === "next" && page < pageCount && (
-          <div className="absolute inset-x-0 bottom-0 z-20 flex items-center justify-center py-1.5 pointer-events-none"
-            style={{ background: "rgba(201,162,64,0.9)", borderRadius: "0 0 10px 10px" }}>
-            <span className="text-[11px] font-bold" style={{ color: "#131312" }}>
-              {T[lang].nextPage} {page + 1}
-            </span>
-          </div>
-        )}
-
+    // Outer shell matches PdfSignModal's zone viewer wrapper exactly
+    <div style={{
+      position: "relative", display: "flex", flexDirection: "column",
+      background: "#525659", borderRadius: 12, overflow: "hidden",
+      border: "1px solid var(--border)", height: "62dvh",
+    }}>
+      {/* Scrollable pages */}
+      <div
+        ref={containerRef}
+        style={{ flex: 1, overflow: "auto", overscrollBehavior: "contain", cursor: "crosshair" }}
+        onWheel={e => e.stopPropagation()}
+        onMouseDown={e => {
+          if (e.button !== 0) return;
+          // Only start a draw when clicking on the background / page canvas
+          // Zone box and handles use stopPropagation so they won't reach here
+          e.preventDefault();
+          drawStartRef.current = contentPos(e.clientX, e.clientY);
+        }}
+      >
         {loading && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center"
-            style={{ background: "rgba(0,0,0,0.55)" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
             <Spinner size="md" />
           </div>
         )}
 
-        <canvas
-          ref={canvasRef}
-          style={{ display: "block", width: "100%", height: "auto", cursor: "crosshair" }}
-          onMouseDown={onCanvasDown}
-        />
+        {!loading && pdfDoc && pageSizes.length > 0 && (
+          <div
+            ref={pagesWrapRef}
+            style={{
+              display: "flex", flexDirection: "column", alignItems: "center",
+              padding: `${PADDING_TOP}px 12px 96px`,
+              gap: PAGE_GAP,
+              position: "relative", // so absolute zone box is relative to this
+              minHeight: "100%",
+            }}
+          >
+            {/* All pages rendered simultaneously */}
+            {pageSizes.map((_, i) => (
+              <ZPickerPage
+                key={i}
+                pdf={pdfDoc}
+                pageNum={i + 1}
+                dispW={dispSizes[i]?.w ?? 0}
+                dispH={dispSizes[i]?.h ?? 0}
+                scale={scale}
+              />
+            ))}
 
-        {/* Signature zone overlay — shown only on current page */}
-        {zone.page === page && (
-          <div className="absolute pointer-events-none" style={{
-            left:       `${zone.x * 100}%`,
-            top:        `${zone.y * 100}%`,
-            width:      `${zone.w * 100}%`,
-            height:     `${zone.h * 100}%`,
-            border:     "2px solid var(--gold)",
-            background: "var(--gdim)",
-            borderRadius: 4,
-            display: "flex", alignItems: "center", justifyContent: "center",
-          }}>
-            <span style={{ fontSize: 10, color: "var(--gold)", fontWeight: 700, textShadow: "0 1px 3px rgba(0,0,0,0.7)" }}>
-              {T[lang].signHere}
-            </span>
+            {/* Draggable + resizable zone overlay — single div spanning pagesWrap */}
+            {zoneAbs && (
+              <div
+                style={{
+                  position: "absolute",
+                  top:    zoneAbs.top,
+                  left:   zoneAbs.left,
+                  width:  zoneAbs.w,
+                  height: zoneAbs.h,
+                  border: "2.5px solid var(--gold)",
+                  background: "rgba(201,162,64,0.15)",
+                  borderRadius: 4,
+                  cursor: "move",
+                  boxSizing: "border-box",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+                onMouseDown={e => {
+                  if (e.button !== 0) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  dragRef.current = {
+                    mode: "move",
+                    startMouse: contentPos(e.clientX, e.clientY),
+                    startAbs:   { ...zoneAbs },
+                  };
+                }}
+              >
+                <span style={{
+                  fontSize: 11, color: "var(--gold)", fontWeight: 700,
+                  textShadow: "0 1px 4px rgba(0,0,0,0.8)",
+                  pointerEvents: "none", userSelect: "none",
+                }}>
+                  {T[lang].signHere}
+                </span>
+
+                {/* 8 resize handles */}
+                {HANDLES.map(h => (
+                  <div
+                    key={h.id}
+                    style={{
+                      position: "absolute",
+                      top: h.top, left: h.left,
+                      transform: "translate(-50%, -50%)",
+                      width: 10, height: 10,
+                      background: "var(--gold)",
+                      border: "2px solid #131312",
+                      borderRadius: 2,
+                      cursor: h.cursor,
+                      zIndex: 1,
+                    }}
+                    onMouseDown={e => {
+                      if (e.button !== 0) return;
+                      e.preventDefault();
+                      e.stopPropagation();
+                      dragRef.current = {
+                        mode: "resize",
+                        handle: h.id,
+                        startMouse: contentPos(e.clientX, e.clientY),
+                        startAbs:   { ...zoneAbs },
+                      };
+                    }}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
+
+      {/* Zoom toolbar — identical to PdfViewer */}
+      {!loading && pdfDoc && (
+        <div style={{
+          position: "absolute", bottom: 16, left: "50%",
+          transform: "translateX(-50%)", zIndex: 10,
+          display: "flex", alignItems: "center", gap: 2,
+          padding: "6px 8px",
+          background: "var(--card)", border: "1px solid var(--border)",
+          borderRadius: 12, boxShadow: "0 4px 20px rgba(0,0,0,0.35)",
+          whiteSpace: "nowrap",
+        }}>
+          <ZBtn onClick={() => setScale(s => Math.max(MIN_SCALE, +(s - SCALE_STEP).toFixed(1)))}>
+            <ZoomOut size={15} strokeWidth={1.8} />
+          </ZBtn>
+          <span style={{ fontSize: 11, fontWeight: 600, minWidth: 38, textAlign: "center", color: "var(--w3)", userSelect: "none" }}>
+            {Math.round(scale * 100)}%
+          </span>
+          <ZBtn onClick={() => setScale(s => Math.min(MAX_SCALE, +(s + SCALE_STEP).toFixed(1)))}>
+            <ZoomIn size={15} strokeWidth={1.8} />
+          </ZBtn>
+        </div>
+      )}
     </div>
+  );
+}
+
+// ── Page renderer ─────────────────────────────────────────────────────────────
+
+function ZPickerPage({ pdf, pageNum, dispW, dispH, scale }: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  pdf: any;
+  pageNum: number;
+  dispW: number;
+  dispH: number;
+  scale: number;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    if (!dispW || !dispH) return;
+    let cancelled = false;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    pdf.getPage(pageNum).then((page: any) => {
+      if (cancelled) return;
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const vp  = page.getViewport({ scale: scale * dpr });
+      const cw  = Math.round(dispW * dpr);
+      const ch  = Math.round(dispH * dpr);
+      canvas.width  = cw;
+      canvas.height = ch;
+      const ctx = canvas.getContext("2d");
+      if (!ctx || cancelled) return;
+      page.render({ canvasContext: ctx, viewport: vp }).promise.catch(() => {});
+    });
+
+    return () => { cancelled = true; };
+  }, [pdf, pageNum, dispW, dispH, scale]);
+
+  return (
+    <div style={{ position: "relative", flexShrink: 0, width: dispW, height: dispH }}>
+      <canvas
+        ref={canvasRef}
+        style={{
+          display: "block", width: dispW, height: dispH,
+          boxShadow: "0 2px 8px rgba(0,0,0,0.4)", borderRadius: 2,
+        }}
+      />
+    </div>
+  );
+}
+
+// ── Zoom button ───────────────────────────────────────────────────────────────
+
+function ZBtn({ onClick, children }: { onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        width: 32, height: 32,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        border: "none", background: "transparent", borderRadius: 8,
+        color: "var(--w2)", cursor: "pointer", transition: "background 0.15s",
+      }}
+      onMouseEnter={e => (e.currentTarget.style.background = "var(--bg2)")}
+      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+    >
+      {children}
+    </button>
   );
 }
