@@ -1904,13 +1904,7 @@ export default function DashboardPage() {
                         <Info size={11} strokeWidth={2.2} />
                       </button>
                     </div>
-                    {pending > 0 && (
-                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium flex-shrink-0"
-                        style={{ color: "var(--gold)" }}>
-                        <span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--gold)" }} />
-                        {pending} {lang === "de" ? "in Prüfung" : lang === "en" ? "pending" : "en attente"}
-                      </span>
-                    )}
+                    {/* Pending counter removed — clutter, status visible via row colors */}
                   </div>
                 );
               })()}
