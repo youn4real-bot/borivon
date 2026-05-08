@@ -351,12 +351,27 @@ export function PdfZonePicker({ pdfBase64, onChange, onError, lang = "en" }: Pro
   }
 
   return (
-    <div style={{ position: "relative" }}>
-      {/* Floating "+" — add another zone */}
+    <div
+      style={{ position: "relative", height: "62dvh", borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)" }}
+      onWheel={e => e.stopPropagation()}
+    >
+      <PdfViewer
+        src={blobUrl}
+        hideRotate
+        pageOverlay={pageOverlay}
+        onPagesLoaded={count => {
+          setPageCount(count);
+          const z: SigZone = { page: count, x: 0.48, y: 0.74, w: 0.44, h: 0.13, party: "candidate" };
+          emitZones([z]);
+          setActiveIdx(0);
+        }}
+      />
+      {/* "+" button rendered after PdfViewer so it naturally sits on top in stacking order */}
       <button
         onClick={addZone}
+        onMouseDown={e => e.stopPropagation()}
         style={{
-          position: "absolute", top: 10, right: 10, zIndex: 10,
+          position: "absolute", top: 10, right: 10, zIndex: 100,
           width: 28, height: 28, borderRadius: 8,
           background: "var(--gold)", color: "#131312",
           border: "none", cursor: "pointer",
@@ -368,22 +383,6 @@ export function PdfZonePicker({ pdfBase64, onChange, onError, lang = "en" }: Pro
       >
         +
       </button>
-      <div
-        style={{ height: "62dvh", borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)" }}
-        onWheel={e => e.stopPropagation()}
-      >
-        <PdfViewer
-          src={blobUrl}
-          hideRotate
-          pageOverlay={pageOverlay}
-          onPagesLoaded={count => {
-            setPageCount(count);
-            const z: SigZone = { page: count, x: 0.48, y: 0.74, w: 0.44, h: 0.13, party: "candidate" };
-            emitZones([z]);
-            setActiveIdx(0);
-          }}
-        />
-      </div>
     </div>
   );
 }
