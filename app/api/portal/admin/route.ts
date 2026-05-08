@@ -247,7 +247,7 @@ export async function POST(req: NextRequest) {
       .from("documents")
       .select("user_id, file_name, file_type")
       .eq("id", docId)
-      .single();
+      .maybeSingle();
 
     if (doc) {
       await db.from("notifications").insert({
@@ -307,11 +307,14 @@ async function maybeGrantVerified(
   // current value of manually_verified so concurrent calls (passport doc and
   // passport data approved at almost the same moment) don't both fall through
   // to insert duplicate notifications + send duplicate verified emails.
+  // Catch both manually_verified=false AND NULL (newly-created rows where the
+  // column was never set) — eq("manually_verified", false) misses NULL and
+  // would let two concurrent grants both win the race.
   const { data: updated } = await db
     .from("candidate_profiles")
     .update({ manually_verified: true, placement_ready: true })
     .eq("user_id", userId)
-    .eq("manually_verified", false)
+    .not("manually_verified", "is", true)
     .select("user_id");
   if (!updated?.length) return; // lost the race — someone else already verified
 
@@ -440,6 +443,19 @@ export async function PATCH(req: NextRequest) {
   }
 
   const db = getServiceSupabase();
+
+  // Read prior passport_status so we can suppress duplicate reject notifications
+  // when admin re-clicks reject on an already-rejected profile.
+  let prevPassportStatus: string | null = null;
+  if (newPassportStatus === "rejected" || newPassportStatus === "approved") {
+    const { data: prior } = await db
+      .from("candidate_profiles")
+      .select("passport_status")
+      .eq("user_id", userId)
+      .maybeSingle();
+    prevPassportStatus = (prior as { passport_status?: string | null } | null)?.passport_status ?? null;
+  }
+
   const { data: updatedRows, error } = await db
     .from("candidate_profiles")
     .update(cleanProfile)
@@ -454,8 +470,9 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Profile not found" }, { status: 404 });
   }
 
-  // Notify candidate when passport data is rejected
-  if (newPassportStatus === "rejected") {
+  // Notify candidate when passport data is rejected — only on actual transition
+  // into 'rejected' (admin re-clicking same button no longer resends).
+  if (newPassportStatus === "rejected" && prevPassportStatus !== "rejected") {
     // Find the passport doc to link the notification to it
     const { data: passDocs } = await db
       .from("documents")
@@ -482,11 +499,11 @@ export async function PATCH(req: NextRequest) {
       sendDocRejectedEmail(email, passDoc?.file_type ?? "Passport", (cleanProfile.passport_feedback as string | null) ?? null);
     }).catch(() => {});
 
-    // Revoke blue-tick — manually_verified is intentionally outside
-    // ALLOWED_PROFILE_FIELDS so we update it directly here.
+    // Revoke blue-tick + placement-ready — both are outside ALLOWED_PROFILE_FIELDS
+    // so we update them directly here.
     await db
       .from("candidate_profiles")
-      .update({ manually_verified: false })
+      .update({ manually_verified: false, placement_ready: false })
       .eq("user_id", userId);
   }
 

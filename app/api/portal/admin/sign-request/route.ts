@@ -47,7 +47,8 @@ export async function GET(req: NextRequest) {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const candidateId = req.nextUrl.searchParams.get("candidateId");
-  if (!candidateId) return NextResponse.json({ error: "Missing candidateId" }, { status: 400 });
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!candidateId || !UUID_RE.test(candidateId)) return NextResponse.json({ error: "Invalid candidateId" }, { status: 400 });
 
   if (!(await canActOnCandidate(auth.role, auth.email, candidateId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -83,43 +84,81 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ requests });
 }
 
+export const maxDuration = 60;
+
 export async function POST(req: NextRequest) {
   const auth = await requireAdminRole(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-  const raw = await req.text();
-  if (raw.length > MAX_PDF_BYTES * 1.5) {
-    return NextResponse.json({ error: "Payload too large" }, { status: 413 });
+  // Accept BOTH JSON (small payloads, driveFileId path) and multipart/form-data
+  // (file uploads — bypasses Vercel's 4.5MB JSON body limit).
+  const ct = req.headers.get("content-type") ?? "";
+  let candidateId = "", documentName = "", driveFileId = "", note = "";
+  let pdfBuffer: Buffer | null = null;
+  let signatureZone: unknown = undefined;
+  let parties: { admin?: boolean; candidate?: boolean } | undefined;
+
+  if (ct.includes("multipart/form-data")) {
+    const fd = await req.formData();
+    candidateId  = String(fd.get("candidateId")  ?? "");
+    documentName = String(fd.get("documentName") ?? "");
+    driveFileId  = String(fd.get("driveFileId")  ?? "");
+    note         = String(fd.get("note")         ?? "");
+    const zoneStr = fd.get("signatureZone");
+    if (typeof zoneStr === "string" && zoneStr) {
+      try { signatureZone = JSON.parse(zoneStr); } catch { /* ignore */ }
+    }
+    const partiesStr = fd.get("parties");
+    if (typeof partiesStr === "string" && partiesStr) {
+      try { parties = JSON.parse(partiesStr); } catch { /* ignore */ }
+    }
+    const pdfFile = fd.get("pdf");
+    if (pdfFile instanceof File) {
+      const ab = await pdfFile.arrayBuffer();
+      if (ab.byteLength > MAX_PDF_BYTES) {
+        return NextResponse.json({ error: `PDF too large (max ${MAX_PDF_BYTES / 1_000_000} MB)` }, { status: 413 });
+      }
+      pdfBuffer = Buffer.from(ab);
+    }
+  } else {
+    const raw = await req.text();
+    if (raw.length > MAX_PDF_BYTES * 1.5) {
+      return NextResponse.json({ error: "Payload too large" }, { status: 413 });
+    }
+    let body: { candidateId?: string; documentName?: string; pdfBase64?: string; driveFileId?: string; note?: string; signatureZone?: unknown; parties?: { admin?: boolean; candidate?: boolean } };
+    try { body = JSON.parse(raw); } catch {
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+    candidateId  = body.candidateId ?? "";
+    documentName = body.documentName ?? "";
+    driveFileId  = body.driveFileId ?? "";
+    note         = body.note ?? "";
+    signatureZone = body.signatureZone;
+    parties      = body.parties;
+    if (body.pdfBase64) {
+      pdfBuffer = Buffer.from(body.pdfBase64.replace(/^data:[^;]+;base64,/, ""), "base64");
+    }
   }
 
-  let body: { candidateId?: string; documentName?: string; pdfBase64?: string; driveFileId?: string; note?: string; signatureZone?: unknown; parties?: { admin?: boolean; candidate?: boolean } };
-  try { body = JSON.parse(raw); } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
-  }
-
-  const { candidateId, documentName, pdfBase64, driveFileId, note, signatureZone, parties } = body;
-  if (!candidateId || !documentName || (!pdfBase64 && !driveFileId)) {
-    return NextResponse.json({ error: "Missing fields" }, { status: 400 });
+  if (!candidateId || !documentName || (!pdfBuffer && !driveFileId)) {
+    return NextResponse.json({ error: "Missing fields (candidateId, documentName, and pdf or driveFileId)" }, { status: 400 });
   }
 
   if (!(await canActOnCandidate(auth.role, auth.email, candidateId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Get PDF bytes — either from inline base64 or from Google Drive
-  let pdfBuffer: Buffer;
-  if (driveFileId) {
+  // If we don't have the bytes yet, fetch from Drive
+  if (!pdfBuffer && driveFileId) {
     try {
       pdfBuffer = await fetchPdfBuffer(driveFileId);
     } catch (err) {
       console.error("[sign-request POST] drive fetch error:", err);
       return NextResponse.json({ error: "Could not fetch file from Drive" }, { status: 502 });
     }
-  } else {
-    pdfBuffer = Buffer.from(
-      pdfBase64!.replace(/^data:[^;]+;base64,/, ""),
-      "base64",
-    );
+  }
+  if (!pdfBuffer) {
+    return NextResponse.json({ error: "No PDF bytes" }, { status: 400 });
   }
 
   // Insert sign_request first to get the ID for the storage path
@@ -130,17 +169,16 @@ export async function POST(req: NextRequest) {
       candidate_user_id: candidateId,
       created_by_email:  auth.email,
       document_name:     documentName,
-      note:              note ?? null,
+      note:              note || null,
       status:            "pending",
       signature_zone:    signatureZone ? JSON.stringify(signatureZone) : null,
-      parties:           parties ? JSON.stringify(parties) : null,
     })
     .select("id")
     .single();
 
   if (insertErr || !row) {
     console.error("[sign-request POST] insert error:", insertErr);
-    return NextResponse.json({ error: "DB error" }, { status: 500 });
+    return NextResponse.json({ error: `DB error: ${insertErr?.message ?? "unknown"}` }, { status: 500 });
   }
 
   const requestId = (row as { id: string }).id;
@@ -167,16 +205,21 @@ export async function POST(req: NextRequest) {
     .update({ pdf_storage_path: storagePath })
     .eq("id", requestId);
 
-  // Insert candidate notification so it shows up in their bell
-  await db.from("notifications").insert({
+  // Insert candidate notification so it shows up in their bell.
+  // Store the sign_request id in `doc_id` so the bell can deep-link to it.
+  // If this fails (e.g. action CHECK constraint not yet migrated to allow
+  // 'sign_request') we log + still return success — the sign request itself
+  // is created and the candidate can see it on /portal/dashboard.
+  const { error: notifErr } = await db.from("notifications").insert({
     user_id:  candidateId,
-    doc_id:   null,
+    doc_id:   requestId,
     doc_name: documentName,
     doc_type: "sign_request",
     action:   "sign_request",
     feedback: null,
     read:     false,
-  }); // non-blocking, best-effort — ignore errors
+  });
+  if (notifErr) console.error("[sign-request POST] notification insert failed:", notifErr);
 
   return NextResponse.json({ id: requestId });
 }

@@ -131,6 +131,18 @@ export async function POST(req: NextRequest) {
     await safeDelete("candidate_organizations", db.from("candidate_organizations").delete().eq("candidate_user_id", userId));
     await safeDelete("documents",              db.from("documents").delete().eq("user_id", userId));
     await safeDelete("notifications",          db.from("notifications").delete().eq("user_id", userId));
+    // sign_requests + signed PDFs in storage — orphaned otherwise.
+    {
+      const { data: sigReqs } = await db
+        .from("sign_requests")
+        .select("pdf_storage_path, signed_pdf_path")
+        .eq("candidate_user_id", userId);
+      const paths = (sigReqs ?? []).flatMap(r => [r.pdf_storage_path, r.signed_pdf_path].filter(Boolean) as string[]);
+      if (paths.length) {
+        await db.storage.from("sign-documents").remove(paths).catch(() => {});
+      }
+      await safeDelete("sign_requests", db.from("sign_requests").delete().eq("candidate_user_id", userId));
+    }
     // Messages: delete whole thread AND any messages sent by this user in other threads
     await safeDelete("messages (thread)",      db.from("messages").delete().eq("thread_user_id", userId));
     await safeDelete("messages (sender)",      db.from("messages").delete().eq("sender_user_id", userId));

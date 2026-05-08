@@ -111,15 +111,22 @@ function PortalPageInner() {
       } catch { /* network blip — fall through, supabase will still gate */ }
 
       // Code is valid — sign up and bake the code into the confirmation email URL
-      const { error: err } = await supabase.auth.signUp({
-        email: email.trim().toLowerCase(), password,
-        options: {
-          data: { first_name: firstName.trim(), last_name: lastName.trim(), full_name: `${firstName.trim()} ${lastName.trim()}` },
-          emailRedirectTo: `${window.location.origin}/portal/auth/callback?invite=${encodeURIComponent(code)}`,
-        },
-      });
-      if (err) {
-        setError(err.message === "User already registered" ? t.pErrExists : err.message);
+      try {
+        const { error: err } = await supabase.auth.signUp({
+          email: email.trim().toLowerCase(), password,
+          options: {
+            data: { first_name: firstName.trim(), last_name: lastName.trim(), full_name: `${firstName.trim()} ${lastName.trim()}` },
+            emailRedirectTo: `${window.location.origin}/portal/auth/callback?invite=${encodeURIComponent(code)}`,
+          },
+        });
+        if (err) {
+          const m = err.message;
+          const isNetwork = /failed to fetch|networkerror|network request failed|load failed/i.test(m);
+          setError(isNetwork ? t.pErrNetwork : m === "User already registered" ? t.pErrExists : m);
+          setLoading(false); return;
+        }
+      } catch {
+        setError(t.pErrNetwork);
         setLoading(false); return;
       }
       // Keep code in localStorage as belt-and-suspenders fallback
@@ -129,12 +136,22 @@ function PortalPageInner() {
 
     // ── Login ─────────────────────────────────────────────────────────────────
     setLoading(true);
-    const { error: err } = await supabase.auth.signInWithPassword({
-      email: email.trim().toLowerCase(), password,
-    });
-    if (err) {
-      const m = err.message;
-      setError(m === "Invalid login credentials" ? t.pErrWrong : m === "Email not confirmed" ? t.pErrNotConfirmed : m);
+    try {
+      const { error: err } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(), password,
+      });
+      if (err) {
+        const m = err.message;
+        const isNetwork = /failed to fetch|networkerror|network request failed|load failed/i.test(m);
+        setError(
+          isNetwork                          ? t.pErrNetwork :
+          m === "Invalid login credentials"  ? t.pErrWrong :
+          m === "Email not confirmed"        ? t.pErrNotConfirmed : m
+        );
+        setLoading(false); return;
+      }
+    } catch {
+      setError(t.pErrNetwork);
       setLoading(false); return;
     }
 

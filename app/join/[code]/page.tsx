@@ -32,6 +32,8 @@ const T = {
     alreadyHaveAccount: "I already have an account",
     termsPrefix: "By joining, you agree to Borivon's",
     termsLink: "Terms",
+    errGeneric: "Something went wrong. Please try again.",
+    errConnection: "Connection error. Please try again.",
   },
   fr: {
     alreadyUsedTitle: "Cette invitation a déjà été utilisée",
@@ -53,6 +55,8 @@ const T = {
     alreadyHaveAccount: "J'ai déjà un compte",
     termsPrefix: "En rejoignant, vous acceptez les",
     termsLink: "Conditions d'utilisation",
+    errGeneric: "Une erreur est survenue. Veuillez réessayer.",
+    errConnection: "Erreur de connexion. Veuillez réessayer.",
   },
   de: {
     alreadyUsedTitle: "Diese Einladung wurde bereits verwendet",
@@ -74,6 +78,8 @@ const T = {
     alreadyHaveAccount: "Ich habe bereits ein Konto",
     termsPrefix: "Mit dem Beitreten stimmen Sie",
     termsLink: "Nutzungsbedingungen von Borivon",
+    errGeneric: "Ein Fehler ist aufgetreten. Bitte erneut versuchen.",
+    errConnection: "Verbindungsfehler. Bitte erneut versuchen.",
   },
 };
 
@@ -122,10 +128,10 @@ export default function JoinPage() {
             } else {
               const json = await res.json().catch(() => ({}));
               if (json?.error === "already_used") setAlreadyUsed(true);
-              else setError("Something went wrong. Please try again.");
+              else setError(i18n.errGeneric);
             }
           } catch {
-            setError("Connection error. Please try again.");
+            setError(i18n.errConnection);
           }
           setRedeeming(false);
         }

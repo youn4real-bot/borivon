@@ -17,6 +17,7 @@ import {
 import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User } from "lucide-react";
 import { Spinner, PageLoader, EmptyState } from "@/components/ui/states";
 import { CandidateStagePreview, type JourneyMode } from "@/components/JourneyView";
+import { PdfZonePicker, type SigZone } from "@/components/PdfZonePicker";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { PortalTopNav } from "@/components/PortalTopNav";
 import { FILE_KEY_ALL_LABELS } from "@/lib/fileKeys";
@@ -377,6 +378,12 @@ export default function AdminPage() {
   const [addSlotLabel, setAddSlotLabel] = useState("");
   const [addSlotLabelTrans, setAddSlotLabelTrans] = useState("");
   const [addSlotSaving, setAddSlotSaving] = useState(false);
+  // Expanded DUAL slot IDs (collapsed by default, like static paired rows)
+  const [expandedDualSlots, setExpandedDualSlots] = useState<Set<string>>(new Set());
+  // Inline slot label editing
+  const [editingSlotId, setEditingSlotId] = useState<string | null>(null);
+  const [editingSlotLabel, setEditingSlotLabel] = useState("");
+  const [editingSlotLabelTrans, setEditingSlotLabelTrans] = useState("");
   // Drag-to-reorder
   const dragSlotIdx = React.useRef<number | null>(null);
   // Admin upload on behalf of candidate
@@ -421,11 +428,61 @@ export default function AdminPage() {
   // Passport DATA PDF download state (passport info modal)
   const [passportDataPdfDl, setPassportDataPdfDl] = useState(false);
   // Signature request modal
-  const [sigModal, setSigModal] = useState<{ driveFileId: string; label: string } | null>(null);
+  const [sigModal, setSigModal] = useState<{ docId: string | null; driveFileId: string | null; label: string } | null>(null);
   const [sigPartyAdmin, setSigPartyAdmin] = useState(false);
   const [sigPartyCandidate, setSigPartyCandidate] = useState(true);
   const [sigNote, setSigNote] = useState("");
   const [sigSending, setSigSending] = useState(false);
+  const [sigZone, setSigZone] = useState<SigZone | null>(null);
+  const [sigPdfBase64, setSigPdfBase64] = useState<string | null>(null);
+  const [sigPdfLoading, setSigPdfLoading] = useState(false);
+  const [sigManualPdf, setSigManualPdf] = useState<string | null>(null); // base64 when admin uploads PDF manually
+  const sigManualFileRef = React.useRef<HTMLInputElement>(null);
+
+  // Fetch PDF for zone picker whenever sign modal opens
+  useEffect(() => {
+    if (!sigModal) { setSigPdfBase64(null); setSigZone(null); setSigManualPdf(null); return; }
+    setSigPdfBase64(null);
+    setSigZone(null);
+    setSigManualPdf(null);
+    // No source doc → skip fetch, go straight to upload drop zone
+    if (!sigModal.driveFileId && !sigModal.docId) {
+      setSigPdfLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setSigPdfLoading(true);
+    (async () => {
+      try {
+        // Match AdminDocPreviewModal exactly: prefer ?id=drive_file_id, fall back to ?docId
+        const fetchUrl = sigModal.driveFileId
+          ? `/api/portal/file?id=${encodeURIComponent(sigModal.driveFileId)}`
+          : `/api/portal/file?docId=${encodeURIComponent(sigModal.docId!)}`;
+        const res = await fetch(fetchUrl, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!res.ok || cancelled) {
+          if (!cancelled) console.warn("[sigModal] file fetch failed:", res.status, sigModal.driveFileId || sigModal.docId);
+          return;
+        }
+        const buf = await res.arrayBuffer();
+        if (cancelled) return;
+        const bytes = new Uint8Array(buf);
+        let binary = "";
+        const CHUNK = 8192;
+        for (let i = 0; i < bytes.length; i += CHUNK) {
+          binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+        }
+        const b64 = btoa(binary);
+        setSigPdfBase64(b64);
+      } catch (e) {
+        console.error("[sigModal] fetch exception:", e);
+      }
+      finally { if (!cancelled) setSigPdfLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [sigModal, accessToken]);
+
   // Delete candidate confirmation
   const [deleteCandidateConfirm, setDeleteCandidateConfirm] = useState(false);
   const [deleteCandidateInput, setDeleteCandidateInput] = useState("");
@@ -455,6 +512,13 @@ export default function AdminPage() {
         .then(r => r.ok ? r.json() : null)
         .then(j => { if (j?.orgs) setAllOrgs(j.orgs); })
         .catch(() => {});
+      // Eagerly prefetch both dynamic phase slots so the tab is instant
+      for (const ph of ["bearbeitung", "visum"] as const) {
+        fetch(`/api/portal/phase-slots?phase=${ph}`, { headers: { Authorization: `Bearer ${token}` } })
+          .then(r => r.ok ? r.json() : null)
+          .then(j => { if (j?.slots) { setPhaseSlots(prev => ({ ...prev, [ph]: j.slots })); setPhaseSlotsLoaded(prev => ({ ...prev, [ph]: true })); } })
+          .catch(() => {});
+      }
       try {
         const res = await fetch("/api/portal/admin", { headers: { Authorization: `Bearer ${token}` } });
         if (res.status === 401 || res.status === 403) { router.replace("/portal/dashboard"); return; }
@@ -897,6 +961,27 @@ export default function AdminPage() {
     setAddSlotSaving(false);
   }
 
+  async function saveSlotLabel(slotId: string, label: string, labelTrans: string) {
+    if (!accessToken || !label.trim()) return;
+    try {
+      const res = await fetch("/api/portal/phase-slots", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ id: slotId, label: label.trim(), label_trans: labelTrans.trim() || null }),
+      });
+      if (res.ok) {
+        setPhaseSlots(prev => {
+          const updated: Record<string, typeof prev.bearbeitung> = {};
+          for (const [ph, slots] of Object.entries(prev)) {
+            updated[ph] = (slots ?? []).map(s => s.id === slotId ? { ...s, label: label.trim(), label_trans: labelTrans.trim() || null } : s);
+          }
+          return updated as typeof prev;
+        });
+      }
+    } catch { /* network error */ }
+    setEditingSlotId(null);
+  }
+
   async function deletePhaseSlot(slotId: string, phase: string) {
     if (!accessToken) return;
     // Optimistic remove
@@ -1254,7 +1339,7 @@ export default function AdminPage() {
           <div
             style={{
               position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
-              zIndex: 9999, pointerEvents: "none",
+              zIndex: 2147483601, pointerEvents: "none",
               background: "var(--danger-bg)", color: "var(--danger)",
               border: "1px solid var(--danger-border)", borderRadius: 10,
               padding: "10px 16px", fontSize: 12.5, fontWeight: 600,
@@ -1788,7 +1873,7 @@ export default function AdminPage() {
                     <div key={i} className="flex flex-col items-center">
                       <button onClick={() => { setActivePhase(i); setActivePipelineStage(null); window.scrollTo({ top: 0, behavior: "smooth" }); }}
                         title={ph.title}
-                        className="bv-lift-hover w-full flex flex-col items-center gap-1 py-1">
+                        className="bv-lift-hover w-full flex flex-col items-center gap-1 py-1 cursor-pointer">
                         <span className="relative flex items-center justify-center w-8 h-8 rounded-full leading-none select-none transition-all duration-300"
                           style={{
                             background: "transparent",
@@ -1828,8 +1913,8 @@ export default function AdminPage() {
                           window.scrollTo({ top: 0, behavior: "smooth" });
                         }}
                         title={js.label}
-                        className="bv-lift-hover w-full flex flex-col items-center gap-1 py-1"
-                        style={{ background: "transparent", border: "none", cursor: "pointer" }}>
+                        className="bv-lift-hover w-full flex flex-col items-center gap-1 py-1 cursor-pointer"
+                        style={{ background: "transparent", border: "none" }}>
                         <span className="relative flex items-center justify-center w-8 h-8 rounded-full leading-none select-none transition-all duration-300"
                           style={{
                             background: "transparent",
@@ -1871,9 +1956,9 @@ export default function AdminPage() {
                           <div className="flex-1 min-w-0">
                             <p className="text-[13px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>{t.pJourneyInterview}</p>
                             <p className="text-[11.5px] mt-0.5 inline-flex items-center gap-1" style={{ color: pipeline.interview_status === "passed" ? "var(--success)" : pipeline.interview_status === "failed" ? "var(--danger)" : pipeline.interview_link ? "var(--gold)" : "var(--w3)" }}>
-                              {pipeline.interview_status === "passed" ? <><CheckCircle2 size={11} strokeWidth={2} /> Passed</>
-                                : pipeline.interview_status === "failed" ? <><XCircle size={11} strokeWidth={2} /> Failed</>
-                                : pipeline.interview_link ? "Scheduled" : "Not scheduled yet"}
+                              {pipeline.interview_status === "passed" ? <><CheckCircle2 size={11} strokeWidth={2} /> {t.aInterviewPassedLabel}</>
+                                : pipeline.interview_status === "failed" ? <><XCircle size={11} strokeWidth={2} /> {t.aInterviewFailedLabel}</>
+                                : pipeline.interview_link ? t.aInterviewScheduled : t.aInterviewNotScheduled}
                             </p>
                           </div>
                           <div className="flex gap-1.5 flex-shrink-0">
@@ -1890,29 +1975,29 @@ export default function AdminPage() {
                         <div className="px-4 pb-3.5 pt-2 space-y-2.5" style={{ borderTop: "1px solid var(--border)" }}>
                           <div className="grid grid-cols-2 gap-2.5">
                             <div>
-                              <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>Link</label>
+                              <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>{t.aInterviewLink}</label>
                               <input type="url" value={pipeline.interview_link} onChange={e => setPipeline(p => ({ ...p, interview_link: e.target.value }))} onBlur={e => savePipelineField({ interview_link: e.target.value })} placeholder="https://meet.google.com/..." className="w-full px-2.5 py-2 text-[11.5px] outline-none transition-colors" style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: "var(--r-sm)" }} />
                             </div>
                             <div>
-                              <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>Date</label>
+                              <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>{t.aInterviewDate}</label>
                               <input type="datetime-local" value={pipeline.interview_date} onChange={e => setPipeline(p => ({ ...p, interview_date: e.target.value }))} onBlur={e => savePipelineField({ interview_date: e.target.value })} className="w-full px-2.5 py-2 text-[11.5px] outline-none transition-colors" style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: "var(--r-sm)" }} />
                             </div>
                           </div>
                           <div>
-                            <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>Type</label>
+                            <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>{t.aInterviewType}</label>
                             <div className="flex gap-2">
                               {(["video", "phone", "in-person"] as const).map(tp => (
                                 <button key={tp} type="button" onClick={() => savePipelineField({ interview_type: pipeline.interview_type === tp ? "" : tp })}
                                   className="flex-1 py-1.5 text-[11px] font-medium transition-all"
                                   style={{ background: pipeline.interview_type === tp ? "var(--gdim)" : "var(--bg2)", color: pipeline.interview_type === tp ? "var(--gold)" : "var(--w3)", border: `1px solid ${pipeline.interview_type === tp ? "var(--border-gold)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
-                                  {tp === "video" ? "Video" : tp === "phone" ? "Phone" : "In-person"}
+                                  {tp === "video" ? t.aInterviewTypeVideo : tp === "phone" ? t.aInterviewTypePhone : t.aInterviewTypeInPerson}
                                 </button>
                               ))}
                             </div>
                           </div>
                           <div>
-                            <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>Notes (internal)</label>
-                            <textarea value={pipeline.interview_notes} onChange={e => setPipeline(p => ({ ...p, interview_notes: e.target.value }))} onBlur={e => savePipelineField({ interview_notes: e.target.value })} placeholder="Internal notes — not visible to candidate…" rows={3} className="w-full px-2.5 py-2 text-[11.5px] outline-none transition-colors resize-none" style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: "var(--r-sm)" }} />
+                            <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>{t.aInterviewNotes}</label>
+                            <textarea value={pipeline.interview_notes} onChange={e => setPipeline(p => ({ ...p, interview_notes: e.target.value }))} onBlur={e => savePipelineField({ interview_notes: e.target.value })} placeholder={t.aInterviewNotesPlaceholder} rows={3} className="w-full px-2.5 py-2 text-[11.5px] outline-none transition-colors resize-none" style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: "var(--r-sm)" }} />
                           </div>
                         </div>
                       </div>
@@ -1937,10 +2022,13 @@ export default function AdminPage() {
                       const slotPhase = activePipelineStage === "recognition" ? "bearbeitung" : "visum";
                       const slots = phaseSlots[slotPhase] ?? [];
                       return (
-                        <div className="mt-4 overflow-hidden" style={{ background: "var(--card)", borderRadius: "var(--r-xl)", border: "1px solid var(--border)" }}>
+                        <div className="mt-4" style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+                          <div className="px-2 py-2">
                           {/* Slot rows */}
                           {slots.length === 0 ? (
-                            <div className="px-4 py-1" />
+                            <div className="px-3 py-5 text-center">
+                              <p className="text-[11px]" style={{ color: "var(--w3)" }}>No document slots — click <span style={{ color: "var(--gold)", fontWeight: 600 }}>+</span> to add one.</p>
+                            </div>
                           ) : (
                             <div>
                               {slots.map((slot, si) => {
@@ -1981,7 +2069,7 @@ export default function AdminPage() {
                                       <div
                                         onClick={rowClickable ? () => setPreviewDoc(doc!) : undefined}
                                         className={`px-3 py-3 transition-colors${rowClickable ? " bv-row-hover cursor-pointer" : ""}`}
-                                        style={{ minHeight: 60 }}>
+                                        style={{ minHeight: 60, ...(revokeMenu === menuId ? { position: "relative", zIndex: 10 } : {}) }}>
                                         <div className="flex items-center gap-3">
                                           <div className="flex-1 min-w-0">
                                             <p className="text-[11.5px] font-medium tracking-tight" style={{ color: rowColor ?? "var(--w)" }}>{slot.label}</p>
@@ -1993,8 +2081,8 @@ export default function AdminPage() {
                                           <div className="flex items-center gap-1.5 flex-shrink-0"
                                             onClick={e => e.stopPropagation()}
                                             onMouseDown={e => e.stopPropagation()}>
-                                            {/* Admin upload on behalf of candidate */}
-                                            {adminUploadSlotId === slot.id ? (
+                                            {/* Admin upload on behalf of candidate — hidden once doc exists */}
+                                            {!submitted && (adminUploadSlotId === slot.id ? (
                                               <span className="w-9 h-9 flex items-center justify-center">
                                                 <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: "var(--w3)" }} />
                                               </span>
@@ -2005,7 +2093,7 @@ export default function AdminPage() {
                                                 style={{ color: "var(--w3)" }}>
                                                 <Upload size={13} strokeWidth={1.8} />
                                               </button>
-                                            )}
+                                            ))}
                                             {doc?.drive_file_id && (
                                               <button type="button"
                                                 onClick={e => { e.stopPropagation(); downloadDoc(doc!); }}
@@ -2030,7 +2118,7 @@ export default function AdminPage() {
                                                 </button>
                                               </>
                                             )}
-                                            <div className="relative flex-shrink-0" style={{ zIndex: revokeMenu === menuId ? 600 : undefined }}>
+                                            <div className="relative flex-shrink-0">
                                               <button
                                                 onClick={e => { e.stopPropagation(); setRevokeMenu(prev => prev === menuId ? null : menuId); }}
                                                 className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
@@ -2042,14 +2130,18 @@ export default function AdminPage() {
                                                   <div className="fixed inset-0 z-10" onClick={e => { e.stopPropagation(); setRevokeMenu(null); }} />
                                                   <div className="absolute right-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
                                                     style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
-                                                    {doc?.drive_file_id && (
-                                                      <button
-                                                        onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ driveFileId: doc!.drive_file_id!, label: slot.label }); }}
-                                                        className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
-                                                        style={{ color: "var(--w)" }}>
-                                                        <FilePen size={11} strokeWidth={1.8} /> Signature
-                                                      </button>
-                                                    )}
+                                                    <button
+                                                      onClick={e => { e.stopPropagation(); setRevokeMenu(null); setEditingSlotId(slot.id); setEditingSlotLabel(slot.label); setEditingSlotLabelTrans(""); }}
+                                                      className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                                      style={{ color: "var(--w)" }}>
+                                                      <FilePen size={11} strokeWidth={1.8} /> Edit label
+                                                    </button>
+                                                    <button
+                                                      onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ docId: doc?.id ?? null, driveFileId: doc?.drive_file_id ?? null, label: slot.label }); }}
+                                                      className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                                      style={{ color: "var(--w)" }}>
+                                                      <FilePen size={11} strokeWidth={1.8} /> Signature
+                                                    </button>
                                                     {rowSt === "approved" && (
                                                       <button
                                                         onClick={e => { e.stopPropagation(); setRevokeMenu(null); openRejectModal({ kind: "doc", docId: doc!.id, label: slot.label, initialFeedback: doc!.feedback ?? "" }); }}
@@ -2085,147 +2177,219 @@ export default function AdminPage() {
                                   { subKey: slot.id,           subLabel: slot.label,                      subDoc: origDocs[0]  ?? null },
                                   { subKey: slot.id + "_de",   subLabel: slot.label_trans ?? "Translated", subDoc: transDocs[0] ?? null },
                                 ];
+                                const canDualMerge = !!(origDocs[0]?.drive_file_id && transDocs[0]?.drive_file_id);
+                                const isDualExpanded = expandedDualSlots.has(slot.id);
+                                const isDualMergeDl = mergePdfDl.has(slot.id);
+                                const isDualMenuOpen = revokeMenu === slot.id ||
+                                  (origDocs[0] && revokeMenu === origDocs[0].id) ||
+                                  (transDocs[0] && revokeMenu === transDocs[0].id);
                                 return (
                                   <div key={slot.id} {...slotDragProps}>
                                     {si > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
-                                    {/* Dual header */}
-                                    <div className="px-3 pt-3 pb-1.5">
-                                      <div className="flex items-center gap-3">
-                                        <div className="flex-1 min-w-0">
-                                          <p className="text-[11.5px] font-medium tracking-tight" style={{ color: dualColor ?? "var(--w)" }}>
-                                            {slot.label}{slot.label_trans ? <span style={{ color: dualColor ? undefined : "var(--w3)" }}> / {slot.label_trans}</span> : null}
-                                          </p>
-                                          {allSlotDocs.length === 0 && <p className="text-[10px] mt-0.5" style={{ color: "var(--w3)" }}>Not submitted yet</p>}
-                                        </div>
-                                        <div className="relative flex-shrink-0" style={{ zIndex: revokeMenu === slot.id ? 600 : undefined }}>
-                                          <button
-                                            onClick={e => { e.stopPropagation(); setRevokeMenu(prev => prev === slot.id ? null : slot.id); }}
-                                            className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
-                                            style={{ color: "var(--w2)" }}>
-                                            <MoreHorizontal size={14} strokeWidth={1.8} />
-                                          </button>
-                                          {revokeMenu === slot.id && (
-                                            <>
-                                              <div className="fixed inset-0 z-10" onClick={e => { e.stopPropagation(); setRevokeMenu(null); }} />
-                                              <div className="absolute right-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
-                                                style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
-                                                <button
-                                                  onClick={e => { e.stopPropagation(); setRevokeMenu(null); deletePhaseSlot(slot.id, slotPhase); }}
-                                                  className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
-                                                  style={{ color: "var(--danger)" }}>
-                                                  <Trash2 size={11} strokeWidth={1.8} /> Delete slot
-                                                </button>
-                                              </div>
-                                            </>
-                                          )}
-                                        </div>
+                                    {/* Dual header — click to preview merged PDF when both docs ready */}
+                                    <div
+                                      className={`px-3 py-3 flex items-center gap-2${canDualMerge ? " cursor-pointer bv-row-hover" : ""}`}
+                                      style={isDualMenuOpen ? { position: "relative", zIndex: 10 } : undefined}
+                                      onClick={() => {
+                                        if (canDualMerge) setMergePreview({ origDocId: origDocs[0].id, transDocId: transDocs[0].id, label: slot.label });
+                                      }}>
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-[11.5px] font-medium tracking-tight" style={{ color: dualColor ?? "var(--w)" }}>
+                                          {slot.label}{slot.label_trans ? <span style={{ color: dualColor ? undefined : "var(--w3)" }}> / {slot.label_trans}</span> : null}
+                                        </p>
+                                        {allSlotDocs.length === 0 && <p className="text-[10px] mt-0.5" style={{ color: "var(--w3)" }}>Not submitted yet</p>}
+                                      </div>
+                                      {/* Merged PDF download */}
+                                      {canDualMerge && (
+                                        <button type="button"
+                                          disabled={isDualMergeDl}
+                                          title="Download merged PDF"
+                                          className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full disabled:opacity-40 flex-shrink-0"
+                                          style={{ color: "var(--w2)" }}
+                                          onClick={async e => {
+                                            e.stopPropagation();
+                                            if (isDualMergeDl) return;
+                                            setMergePdfDl(prev => new Set(prev).add(slot.id));
+                                            try {
+                                              const res = await fetch(
+                                                `/api/portal/documents/merge-pdf?origDocId=${origDocs[0].id}&transDocId=${transDocs[0].id}`,
+                                                { headers: { Authorization: `Bearer ${accessToken}` } }
+                                              );
+                                              if (!res.ok) throw new Error("Failed");
+                                              const blob = await res.blob();
+                                              const url = URL.createObjectURL(blob);
+                                              const a = document.createElement("a");
+                                              a.href = url;
+                                              a.download = `${slot.label.replace(/\s+/g, "_")}_merged.pdf`;
+                                              a.click();
+                                              URL.revokeObjectURL(url);
+                                            } catch (e) { console.error(e); }
+                                            setMergePdfDl(prev => { const n = new Set(prev); n.delete(slot.id); return n; });
+                                          }}>
+                                          {isDualMergeDl
+                                            ? <span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                                            : <Download size={13} strokeWidth={1.8} />}
+                                        </button>
+                                      )}
+                                      {/* Expand/collapse chevron */}
+                                      <button type="button"
+                                        className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full flex-shrink-0"
+                                        style={{ color: "var(--w3)" }}
+                                        aria-label={isDualExpanded ? "Collapse" : "Expand"}
+                                        onClick={e => {
+                                          e.stopPropagation();
+                                          setExpandedDualSlots(prev => {
+                                            const n = new Set(prev);
+                                            n.has(slot.id) ? n.delete(slot.id) : n.add(slot.id);
+                                            return n;
+                                          });
+                                        }}>
+                                        <ChevronDown size={13} strokeWidth={1.8}
+                                          style={{ transition: "transform 0.2s", transform: isDualExpanded ? "rotate(180deg)" : "rotate(0deg)" }} />
+                                      </button>
+                                      {/* Three-dots — Edit label + Delete */}
+                                      <div className="relative flex-shrink-0">
+                                        <button
+                                          onClick={e => { e.stopPropagation(); setRevokeMenu(prev => prev === slot.id ? null : slot.id); }}
+                                          className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
+                                          style={{ color: "var(--w2)" }}>
+                                          <MoreHorizontal size={14} strokeWidth={1.8} />
+                                        </button>
+                                        {revokeMenu === slot.id && (
+                                          <>
+                                            <div className="fixed inset-0 z-10" onClick={e => { e.stopPropagation(); setRevokeMenu(null); }} />
+                                            <div className="absolute right-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
+                                              style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
+                                              <button
+                                                onClick={e => { e.stopPropagation(); setRevokeMenu(null); setEditingSlotId(slot.id); setEditingSlotLabel(slot.label); setEditingSlotLabelTrans(slot.label_trans ?? ""); }}
+                                                className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                                style={{ color: "var(--w)" }}>
+                                                <FilePen size={11} strokeWidth={1.8} /> Edit label
+                                              </button>
+                                              <button
+                                                onClick={e => { e.stopPropagation(); setRevokeMenu(null); deletePhaseSlot(slot.id, slotPhase); }}
+                                                className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                                style={{ color: "var(--danger)" }}>
+                                                <Trash2 size={11} strokeWidth={1.8} /> Delete slot
+                                              </button>
+                                            </div>
+                                          </>
+                                        )}
                                       </div>
                                     </div>
-                                    {/* Sub-rows */}
-                                    <div className="px-3 pb-3 space-y-2">
-                                      {slotSubRows.map(({ subKey, subLabel, subDoc }) => {
-                                        const subSt = !subDoc ? null
-                                          : subDoc.status === "approved" ? "approved"
-                                          : subDoc.status === "rejected" ? "rejected"
-                                          : "pending";
-                                        const subColor = subSt === "approved" ? "#16a34a" : subSt === "pending" ? "#f59e0b" : null;
-                                        const subClickable = !!subDoc?.drive_file_id;
-                                        return (
-                                          <div key={subLabel}
-                                            onClick={subClickable ? () => setPreviewDoc(subDoc!) : undefined}
-                                            className={`rounded-xl px-3 py-2.5${subClickable ? " bv-row-hover cursor-pointer" : ""}`}
-                                            style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                                            <div className="flex items-center gap-2">
-                                              <div className="flex-1 min-w-0">
-                                                <p className="text-[11px] font-medium truncate" style={{ color: subColor ?? "var(--w2)" }}>{subLabel}</p>
-                                                {!subDoc && <p className="text-[10px] mt-0.5" style={{ color: "var(--w3)" }}>Not submitted yet</p>}
-                                                {subDoc?.status === "rejected" && subDoc.feedback && (
-                                                  <p className="text-[10px] mt-0.5" style={{ color: "var(--danger)" }}>{subDoc.feedback}</p>
-                                                )}
-                                              </div>
-                                              <div className="flex items-center gap-1 flex-shrink-0"
-                                                onClick={e => e.stopPropagation()}
-                                                onMouseDown={e => e.stopPropagation()}>
-                                                {adminUploadSlotId === subKey ? (
-                                                  <span className="w-8 h-8 flex items-center justify-center">
-                                                    <span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: "var(--w3)" }} />
-                                                  </span>
-                                                ) : (
-                                                  <button type="button"
-                                                    onClick={e => { e.stopPropagation(); openAdminUploadPicker(subKey); }}
-                                                    className="bv-icon-btn w-8 h-8 flex items-center justify-center rounded-full"
-                                                    style={{ color: "var(--w3)" }}>
-                                                    <Upload size={12} strokeWidth={1.8} />
-                                                  </button>
-                                                )}
-                                                {subDoc?.drive_file_id && (
-                                                  <button type="button"
-                                                    onClick={e => { e.stopPropagation(); downloadDoc(subDoc!); }}
-                                                    className="bv-icon-btn w-8 h-8 flex items-center justify-center rounded-full"
-                                                    style={{ color: "var(--w2)" }}>
-                                                    <Download size={12} strokeWidth={1.8} />
-                                                  </button>
-                                                )}
-                                                {subSt === "pending" && (
-                                                  <>
+                                    {/* Sub-rows — only shown when expanded */}
+                                    {isDualExpanded && (
+                                      <div className="px-3 pb-3 space-y-1.5">
+                                        {slotSubRows.map(({ subKey, subLabel, subDoc }) => {
+                                          const subSt = !subDoc ? null
+                                            : subDoc.status === "approved" ? "approved"
+                                            : subDoc.status === "rejected" ? "rejected"
+                                            : "pending";
+                                          const subColor = subSt === "approved" ? "#16a34a" : subSt === "pending" ? "#f59e0b" : null;
+                                          const subClickable = !!subDoc?.drive_file_id;
+                                          const isSubMenuOpen = subDoc && revokeMenu === subDoc.id;
+                                          return (
+                                            <div key={subLabel}
+                                              onClick={subClickable ? () => setPreviewDoc(subDoc!) : undefined}
+                                              className={`rounded-xl px-3 py-3${subClickable ? " bv-row-hover cursor-pointer" : ""}`}
+                                              style={{ background: "var(--bg2)", border: "1px solid var(--border)", minHeight: 60, ...(isSubMenuOpen ? { position: "relative", zIndex: 10 } : {}) }}>
+                                              <div className="flex items-center gap-1.5">
+                                                <div className="flex-1 min-w-0">
+                                                  <p className="text-[11.5px] font-medium tracking-tight truncate" style={{ color: subColor ?? "var(--w2)" }}>{subLabel}</p>
+                                                  {!subDoc && <p className="text-[10px] mt-0.5" style={{ color: "var(--w3)" }}>Not submitted yet</p>}
+                                                  {subDoc?.status === "rejected" && subDoc.feedback && (
+                                                    <p className="text-[10px] mt-0.5 truncate" style={{ color: "var(--danger)" }}>{subDoc.feedback}</p>
+                                                  )}
+                                                </div>
+                                                <div className="flex items-center gap-1 flex-shrink-0"
+                                                  onClick={e => e.stopPropagation()}
+                                                  onMouseDown={e => e.stopPropagation()}>
+                                                  {/* Upload */}
+                                                  {adminUploadSlotId === subKey ? (
+                                                    <span className="w-8 h-8 flex items-center justify-center">
+                                                      <span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: "var(--w3)" }} />
+                                                    </span>
+                                                  ) : (
                                                     <button type="button"
-                                                      onClick={e => { e.stopPropagation(); openRejectModal({ kind: "doc", docId: subDoc!.id, label: subLabel, initialFeedback: subDoc!.feedback ?? "" }); }}
-                                                      disabled={saving[subDoc!.id]}
-                                                      className="bv-icon-btn bv-icon-btn--reject w-8 h-8 flex items-center justify-center rounded-full disabled:opacity-40">
-                                                      <XCircle size={13} strokeWidth={1.8} />
+                                                      onClick={e => { e.stopPropagation(); openAdminUploadPicker(subKey); }}
+                                                      className="bv-icon-btn w-8 h-8 flex items-center justify-center rounded-full"
+                                                      style={{ color: "var(--w3)" }}>
+                                                      <Upload size={12} strokeWidth={1.8} />
                                                     </button>
+                                                  )}
+                                                  {/* Download */}
+                                                  {subDoc?.drive_file_id && (
                                                     <button type="button"
-                                                      onClick={e => { e.stopPropagation(); review(subDoc!.id, "approved"); }}
-                                                      disabled={saving[subDoc!.id]}
-                                                      className="bv-icon-btn bv-icon-btn--approve w-8 h-8 flex items-center justify-center rounded-full disabled:opacity-40">
-                                                      <CheckCircle2 size={13} strokeWidth={1.8} />
-                                                    </button>
-                                                  </>
-                                                )}
-                                                {subDoc?.drive_file_id && (
-                                                  <div className="relative flex-shrink-0" style={{ zIndex: revokeMenu === subDoc.id ? 600 : undefined }}>
-                                                    <button
-                                                      onClick={e => { e.stopPropagation(); setRevokeMenu(prev => prev === subDoc!.id ? null : subDoc!.id); }}
+                                                      onClick={e => { e.stopPropagation(); downloadDoc(subDoc!); }}
                                                       className="bv-icon-btn w-8 h-8 flex items-center justify-center rounded-full"
                                                       style={{ color: "var(--w2)" }}>
-                                                      <MoreHorizontal size={12} strokeWidth={1.8} />
+                                                      <Download size={12} strokeWidth={1.8} />
                                                     </button>
-                                                    {revokeMenu === subDoc.id && (
-                                                      <>
-                                                        <div className="fixed inset-0 z-10" onClick={e => { e.stopPropagation(); setRevokeMenu(null); }} />
-                                                        <div className="absolute right-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
-                                                          style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
-                                                          <button
-                                                            onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ driveFileId: subDoc!.drive_file_id!, label: subLabel }); }}
-                                                            className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
-                                                            style={{ color: "var(--w)" }}>
-                                                            <FilePen size={11} strokeWidth={1.8} /> Signature
-                                                          </button>
-                                                          {subSt === "approved" && (
+                                                  )}
+                                                  {/* Reject / Approve */}
+                                                  {subSt === "pending" && (
+                                                    <>
+                                                      <button type="button"
+                                                        onClick={e => { e.stopPropagation(); openRejectModal({ kind: "doc", docId: subDoc!.id, label: subLabel, initialFeedback: subDoc!.feedback ?? "" }); }}
+                                                        disabled={saving[subDoc!.id]}
+                                                        className="bv-icon-btn bv-icon-btn--reject w-8 h-8 flex items-center justify-center rounded-full disabled:opacity-40">
+                                                        <XCircle size={13} strokeWidth={1.8} />
+                                                      </button>
+                                                      <button type="button"
+                                                        onClick={e => { e.stopPropagation(); review(subDoc!.id, "approved"); }}
+                                                        disabled={saving[subDoc!.id]}
+                                                        className="bv-icon-btn bv-icon-btn--approve w-8 h-8 flex items-center justify-center rounded-full disabled:opacity-40">
+                                                        <CheckCircle2 size={13} strokeWidth={1.8} />
+                                                      </button>
+                                                    </>
+                                                  )}
+                                                  {/* Three-dots — Sign + Revoke (shown when doc exists) */}
+                                                  {subDoc && (
+                                                    <div className="relative flex-shrink-0">
+                                                      <button
+                                                        onClick={e => { e.stopPropagation(); setRevokeMenu(prev => prev === subDoc!.id ? null : subDoc!.id); }}
+                                                        className="bv-icon-btn w-8 h-8 flex items-center justify-center rounded-full"
+                                                        style={{ color: "var(--w2)" }}>
+                                                        <MoreHorizontal size={12} strokeWidth={1.8} />
+                                                      </button>
+                                                      {revokeMenu === subDoc.id && (
+                                                        <>
+                                                          <div className="fixed inset-0 z-10" onClick={e => { e.stopPropagation(); setRevokeMenu(null); }} />
+                                                          <div className="absolute right-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
+                                                            style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
                                                             <button
-                                                              onClick={e => { e.stopPropagation(); setRevokeMenu(null); openRejectModal({ kind: "doc", docId: subDoc!.id, label: subLabel, initialFeedback: subDoc!.feedback ?? "" }); }}
-                                                              disabled={saving[subDoc!.id]}
-                                                              className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium disabled:opacity-40 inline-flex items-center gap-1.5"
-                                                              style={{ color: "var(--danger)" }}>
-                                                              <RotateCcw size={11} strokeWidth={1.8} /> Revoke
+                                                              onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ docId: subDoc?.id ?? null, driveFileId: subDoc?.drive_file_id ?? null, label: subLabel }); }}
+                                                              className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                                              style={{ color: "var(--w)" }}>
+                                                              <FilePen size={11} strokeWidth={1.8} /> Signature
                                                             </button>
-                                                          )}
-                                                        </div>
-                                                      </>
-                                                    )}
-                                                  </div>
-                                                )}
+                                                            {subSt === "approved" && (
+                                                              <button
+                                                                onClick={e => { e.stopPropagation(); setRevokeMenu(null); openRejectModal({ kind: "doc", docId: subDoc!.id, label: subLabel, initialFeedback: subDoc!.feedback ?? "" }); }}
+                                                                disabled={saving[subDoc!.id]}
+                                                                className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium disabled:opacity-40 inline-flex items-center gap-1.5"
+                                                                style={{ color: "var(--danger)" }}>
+                                                                <RotateCcw size={11} strokeWidth={1.8} /> Revoke
+                                                              </button>
+                                                            )}
+                                                          </div>
+                                                        </>
+                                                      )}
+                                                    </div>
+                                                  )}
+                                                </div>
                                               </div>
                                             </div>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
                                   </div>
                                 );
                               })}
                             </div>
                           )}
+                          </div>{/* end px-2 py-2 */}
                         </div>
                       );
                     })()}
@@ -2284,6 +2448,8 @@ export default function AdminPage() {
                       </>
                     )}
 
+                    {/* ── Edit slot label modal ─────────────────────────────────────── */}
+
                     {/* ── Live candidate preview — shows exactly what the candidate sees
                         for this stage with the current pipeline state ──
                         Hidden for recognition/visum: slot management UI covers those. */}
@@ -2339,7 +2505,7 @@ export default function AdminPage() {
                                   borderRadius: "var(--r-sm)",
                                   cursor: isReise ? "default" : "pointer",
                                 }}>
-                                {unlocked ? <Lock size={11} strokeWidth={1.8} /> : <Unlock size={11} strokeWidth={1.8} />}
+                                {unlocked ? <Unlock size={11} strokeWidth={1.8} /> : <Lock size={11} strokeWidth={1.8} />}
                               </button>
                               {slotPhase && (
                                 <button
@@ -2539,8 +2705,7 @@ export default function AdminPage() {
                                       </>
                                     )}
                                     {subDoc.drive_file_id && (
-                                      <div className="relative flex-shrink-0"
-                                        style={{ zIndex: revokeMenu === subDoc.id ? 600 : undefined }}>
+                                      <div className="relative flex-shrink-0">
                                         <button
                                           onClick={e => { e.stopPropagation(); setRevokeMenu(prev => prev === subDoc.id ? null : subDoc.id); }}
                                           className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
@@ -2554,7 +2719,7 @@ export default function AdminPage() {
                                             <div className="absolute right-0 top-full mt-1 rounded-xl overflow-hidden"
                                               style={{ zIndex: 600, background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
                                               <button
-                                                onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ driveFileId: subDoc.drive_file_id!, label: subLabel }); }}
+                                                onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ docId: subDoc.id, driveFileId: subDoc.drive_file_id!, label: subLabel }); }}
                                                 className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
                                                 style={{ color: "var(--w)" }}>
                                                 <FilePen size={11} strokeWidth={1.8} /> Signature
@@ -2783,12 +2948,6 @@ export default function AdminPage() {
                                                     <div className="fixed inset-0 z-10" onClick={() => setRevokeMenu(null)} />
                                                     <div className="absolute right-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
                                                       style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
-                                                      <button
-                                                        onClick={() => { setRevokeMenu(null); setSigModal({ driveFileId: d.drive_file_id!, label: d.file_name }); }}
-                                                        className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
-                                                        style={{ color: "var(--w)" }}>
-                                                        <FilePen size={11} strokeWidth={1.8} /> Signature
-                                                      </button>
                                                       {d.status === "approved" && (
                                                         <button
                                                           onClick={() => { setRevokeMenu(null); openRejectModal({ kind: "doc", docId: d.id, label: d.file_name, initialFeedback: d.feedback ?? "" }); }}
@@ -2871,12 +3030,6 @@ export default function AdminPage() {
                                                 <FilePen size={11} strokeWidth={1.8} /> Edit CV
                                               </button>
                                             )}
-                                            <button
-                                              onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ driveFileId: doc.drive_file_id!, label: item.label }); }}
-                                              className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
-                                              style={{ color: "var(--w)" }}>
-                                              <FilePen size={11} strokeWidth={1.8} /> Signature
-                                            </button>
                                             {doc.status === "approved" && (
                                               <button
                                                 onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); openRejectModal({ kind: "doc", docId: doc.id, label: item.label, initialFeedback: doc.feedback ?? "" }); }}
@@ -3009,6 +3162,240 @@ export default function AdminPage() {
           </>,
           document.body,
         )}
+
+      {/* ───── Hidden file inputs + slot/sig modals (also needed in candidate detail view) ───── */}
+      <input
+        ref={adminFileInputRef}
+        type="file"
+        accept=".pdf,application/pdf"
+        style={{ display: "none" }}
+        onChange={e => {
+          const file = e.target.files?.[0];
+          const slotId = adminUploadTargetRef.current;
+          if (file && slotId) adminUploadFile(file, slotId);
+          e.target.value = "";
+        }}
+      />
+      <input
+        ref={sigManualFileRef}
+        type="file"
+        accept=".pdf,application/pdf"
+        style={{ display: "none" }}
+        onChange={e => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = () => {
+            const b64 = (reader.result as string).replace(/^data:[^;]+;base64,/, "");
+            setSigManualPdf(b64);
+            setSigPdfBase64(b64);
+          };
+          reader.readAsDataURL(file);
+          e.target.value = "";
+        }}
+      />
+
+      {/* ── Edit slot label modal ── */}
+      {editingSlotId && (
+        <div className="fixed inset-0 z-[800] flex items-end sm:items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(8px)" }}
+          onClick={() => setEditingSlotId(null)}>
+          <div className="w-full max-w-md rounded-2xl p-6 space-y-4"
+            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)" }}
+            onClick={e => e.stopPropagation()}>
+            <p className="text-[14px] font-semibold" style={{ color: "var(--w)" }}>Edit slot label</p>
+            <input type="text" placeholder="Label" value={editingSlotLabel}
+              onChange={e => setEditingSlotLabel(e.target.value)} autoFocus
+              className="w-full px-3 py-2.5 text-[13px] outline-none"
+              style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--w)" }} />
+            <input type="text" placeholder="Label translated (optional — dual slots)" value={editingSlotLabelTrans}
+              onChange={e => setEditingSlotLabelTrans(e.target.value)}
+              className="w-full px-3 py-2.5 text-[13px] outline-none"
+              style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--w)" }} />
+            <div className="flex gap-3 pt-1">
+              <button onClick={() => setEditingSlotId(null)}
+                className="flex-1 py-3 rounded-xl text-[13px] font-semibold transition-all"
+                style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
+                Cancel
+              </button>
+              <button onClick={() => saveSlotLabel(editingSlotId!, editingSlotLabel, editingSlotLabelTrans)}
+                disabled={!editingSlotLabel.trim()}
+                className="flex-1 py-3 rounded-xl text-[13px] font-semibold transition-all disabled:opacity-40"
+                style={{ background: "var(--gold)", color: "#131312" }}>
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Signature request modal ── */}
+      {sigModal && (
+        <div data-bv-sigmodal="1" className="fixed inset-0 z-[2147483600] flex items-center justify-center p-3 sm:p-6"
+          style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(10px)", position: "fixed", top: 0, left: 0, right: 0, bottom: 0 }}
+          onClick={() => { setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true); setSigZone(null); setSigManualPdf(null); }}>
+          <div className="w-full max-w-4xl rounded-2xl overflow-hidden flex flex-col"
+            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", maxHeight: "calc(100dvh - 80px)" }}
+            onClick={e => e.stopPropagation()}>
+            <div className="px-4 py-3 flex items-center gap-3 flex-shrink-0"
+              style={{ borderBottom: "1px solid var(--border)", background: "var(--gdim)" }}>
+              <FilePen size={15} strokeWidth={1.8} style={{ color: "var(--gold)", flexShrink: 0 }} />
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] font-semibold" style={{ color: "var(--gold)" }}>
+                  {lang === "fr" ? "Demande de signature" : lang === "de" ? "Signatur anfordern" : "Signature request"}
+                </p>
+                <p className="text-[11px] truncate mt-0.5" style={{ color: "var(--w3)" }}>{sigModal.label}</p>
+              </div>
+              <button onClick={() => { setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true); setSigZone(null); setSigManualPdf(null); }}
+                className="bv-icon-btn w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0" style={{ color: "var(--w3)" }}>
+                <XIcon size={13} strokeWidth={2} />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              {sigPdfLoading ? (
+                <div className="flex flex-col items-center justify-center py-24 gap-3">
+                  <Spinner size="md" />
+                  <p className="text-[12px]" style={{ color: "var(--w3)" }}>
+                    {lang === "fr" ? "Chargement du PDF…" : lang === "de" ? "PDF wird geladen…" : "Loading PDF…"}
+                  </p>
+                </div>
+              ) : sigPdfBase64 ? (
+                <PdfZonePicker pdfBase64={sigPdfBase64} onChange={z => setSigZone(z)}
+                  onError={() => { setSigPdfBase64(null); setSigManualPdf(null); }} />
+              ) : (
+                <div className="flex flex-col items-center justify-center gap-4 m-4 rounded-2xl cursor-pointer transition-colors"
+                  style={{ minHeight: 280, border: "2.5px dashed var(--border-gold)", background: "var(--gdim)" }}
+                  onClick={() => sigManualFileRef.current?.click()}
+                  onDragOver={e => { e.preventDefault(); (e.currentTarget as HTMLElement).style.background = "rgba(201,162,64,0.18)"; }}
+                  onDragLeave={e => { (e.currentTarget as HTMLElement).style.background = "var(--gdim)"; }}
+                  onDrop={e => {
+                    e.preventDefault();
+                    (e.currentTarget as HTMLElement).style.background = "var(--gdim)";
+                    const file = e.dataTransfer.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      const b64 = (reader.result as string).replace(/^data:[^;]+;base64,/, "");
+                      setSigManualPdf(b64); setSigPdfBase64(b64);
+                    };
+                    reader.readAsDataURL(file);
+                  }}>
+                  <Upload size={36} strokeWidth={1.5} style={{ color: "var(--gold)", opacity: 0.7 }} />
+                  <div className="text-center space-y-1 px-6">
+                    <p className="text-[14px] font-semibold" style={{ color: "var(--gold)" }}>
+                      {lang === "fr" ? "Déposez le PDF ici" : lang === "de" ? "PDF hier ablegen" : "Drop the PDF here"}
+                    </p>
+                    <p className="text-[12px]" style={{ color: "var(--w3)" }}>
+                      {lang === "fr" ? "ou cliquez pour sélectionner" : lang === "de" ? "oder klicken zum Auswählen" : "or click to select"}
+                    </p>
+                    <p className="text-[11px] mt-1" style={{ color: "var(--w3)", opacity: 0.7 }}>
+                      {lang === "fr" ? "Le PDF que le candidat devra signer" : lang === "de" ? "Das zu unterschreibende Dokument" : "The document the candidate needs to sign"}
+                    </p>
+                  </div>
+                  <button type="button" onClick={e => { e.stopPropagation(); sigManualFileRef.current?.click(); }}
+                    className="inline-flex items-center gap-2 px-5 py-2 rounded-full text-[13px] font-semibold transition-opacity hover:opacity-80"
+                    style={{ background: "var(--gold)", color: "#131312" }}>
+                    <Upload size={13} strokeWidth={2} />
+                    {lang === "fr" ? "Choisir un PDF" : lang === "de" ? "PDF auswählen" : "Choose PDF"}
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className="px-4 py-3 flex-shrink-0 space-y-3" style={{ borderTop: "1px solid var(--border)", background: "var(--bg2)" }}>
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: "var(--w3)" }}>
+                  {lang === "fr" ? "Signe :" : lang === "de" ? "Signiert:" : "Signs:"}
+                </span>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="checkbox" checked={sigPartyAdmin} onChange={e => setSigPartyAdmin(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded" style={{ accentColor: "var(--gold)" }} />
+                  <span className="text-[12px]" style={{ color: "var(--w)" }}>Admin</span>
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="checkbox" checked={sigPartyCandidate} onChange={e => setSigPartyCandidate(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded" style={{ accentColor: "var(--gold)" }} />
+                  <span className="text-[12px]" style={{ color: "var(--w)" }}>
+                    {lang === "fr" ? "Candidat" : lang === "de" ? "Kandidat" : "Candidate"}
+                  </span>
+                </label>
+              </div>
+              <div className="flex gap-2">
+                <input value={sigNote} onChange={e => setSigNote(e.target.value)}
+                  placeholder={lang === "fr" ? "Note (optionnel)" : lang === "de" ? "Hinweis (optional)" : "Note (optional)"}
+                  className="flex-1 px-3 py-2 text-[12px] rounded-xl outline-none"
+                  style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--w)" }} />
+                <button onClick={async () => {
+                  if (sigSending || (!sigPartyAdmin && !sigPartyCandidate)) return;
+                  if (!sigPdfBase64 && !sigManualPdf) { sigManualFileRef.current?.click(); return; }
+                  setSigSending(true);
+                  try {
+                    let res: Response;
+                    if (sigManualPdf) {
+                      // Use FormData for file uploads (bypasses Vercel's 4.5MB JSON body limit)
+                      const fd = new FormData();
+                      fd.append("candidateId", selectedUser ?? "");
+                      fd.append("documentName", sigModal.label);
+                      const bin = atob(sigManualPdf);
+                      const arr = new Uint8Array(bin.length);
+                      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+                      fd.append("pdf", new Blob([arr], { type: "application/pdf" }), "signature-document.pdf");
+                      if (sigNote.trim()) fd.append("note", sigNote.trim());
+                      fd.append("parties", JSON.stringify({ admin: sigPartyAdmin, candidate: sigPartyCandidate }));
+                      if (sigZone) fd.append("signatureZone", JSON.stringify(sigZone));
+                      res = await fetch("/api/portal/admin/sign-request", {
+                        method: "POST",
+                        headers: { Authorization: `Bearer ${accessToken}` },
+                        body: fd,
+                      });
+                    } else {
+                      res = await fetch("/api/portal/admin/sign-request", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                        body: JSON.stringify({
+                          candidateId: selectedUser, documentName: sigModal.label,
+                          driveFileId: sigModal.driveFileId,
+                          note: sigNote.trim() || undefined,
+                          parties: { admin: sigPartyAdmin, candidate: sigPartyCandidate },
+                          signatureZone: sigZone ?? undefined,
+                        }),
+                      });
+                    }
+                    if (res.ok) {
+                      setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true);
+                      setSigZone(null); setSigManualPdf(null);
+                      showError(lang === "fr" ? "Demande envoyée ✓" : lang === "de" ? "Anfrage gesendet ✓" : "Request sent ✓");
+                    } else {
+                      const j = await res.json().catch(() => ({}));
+                      const msg = (j as { error?: string }).error ?? `HTTP ${res.status}`;
+                      console.error("[sign-request] failed:", res.status, msg, j);
+                      showError(`Send failed: ${msg}`);
+                    }
+                  } catch (e) {
+                    console.error("[sign-request] exception:", e);
+                    showError(`Send error: ${e instanceof Error ? e.message : String(e)}`);
+                  }
+                  setSigSending(false);
+                }}
+                  disabled={sigSending || (!sigPartyAdmin && !sigPartyCandidate)}
+                  className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold transition-opacity disabled:opacity-50"
+                  style={{ background: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "var(--bg2)" : "var(--gold)", color: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "var(--w3)" : "#131312", border: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "1px solid var(--border)" : "none" }}>
+                  {sigSending
+                    ? <><span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" /> {lang === "fr" ? "Envoi…" : lang === "de" ? "Senden…" : "Sending…"}</>
+                    : (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading)
+                      ? <><Upload size={13} strokeWidth={2} /> {lang === "fr" ? "PDF requis" : lang === "de" ? "PDF erforderlich" : "Upload PDF first"}</>
+                      : <><Send size={13} strokeWidth={2} /> {lang === "fr" ? "Envoyer" : lang === "de" ? "Senden" : "Send"}</>
+                  }
+                </button>
+                <button onClick={() => { setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true); setSigZone(null); setSigManualPdf(null); }}
+                  className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-xl transition-opacity hover:opacity-70"
+                  style={{ background: "var(--card)", color: "var(--w3)", border: "1px solid var(--border)" }}>
+                  <XIcon size={14} strokeWidth={2} />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       </>
     );
   }
@@ -3574,103 +3961,257 @@ export default function AdminPage() {
         }}
       />
 
-      {/* ── Signature request modal ── */}
-      {sigModal && (
+      {/* Hidden file input for manual PDF upload inside sig modal */}
+      <input
+        ref={sigManualFileRef}
+        type="file"
+        accept=".pdf,application/pdf"
+        style={{ display: "none" }}
+        onChange={e => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = () => {
+            const b64 = (reader.result as string).replace(/^data:[^;]+;base64,/, "");
+            setSigManualPdf(b64);
+            setSigPdfBase64(b64);
+          };
+          reader.readAsDataURL(file);
+          e.target.value = "";
+        }}
+      />
+
+      {/* ── Edit slot label modal ── */}
+      {editingSlotId && (
         <div className="fixed inset-0 z-[800] flex items-end sm:items-center justify-center p-4"
           style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(8px)" }}
-          onClick={() => setSigModal(null)}>
-          <div className="w-full max-w-sm rounded-2xl overflow-hidden"
-            style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)" }}
+          onClick={() => setEditingSlotId(null)}>
+          <div className="w-full max-w-md rounded-2xl p-6 space-y-4"
+            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)" }}
             onClick={e => e.stopPropagation()}>
-            {/* Header */}
-            <div className="px-5 py-4 flex items-center gap-3"
-              style={{ borderBottom: "1px solid var(--border)", background: "var(--bg2)" }}>
-              <FilePen size={14} strokeWidth={1.8} style={{ color: "var(--gold)", flexShrink: 0 }} />
+            <p className="text-[14px] font-semibold" style={{ color: "var(--w)" }}>Edit slot label</p>
+            <input
+              type="text"
+              placeholder="Label"
+              value={editingSlotLabel}
+              onChange={e => setEditingSlotLabel(e.target.value)}
+              autoFocus
+              className="w-full px-3 py-2.5 text-[13px] outline-none"
+              style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--w)" }}
+            />
+            <input
+              type="text"
+              placeholder="Label translated (optional — dual slots)"
+              value={editingSlotLabelTrans}
+              onChange={e => setEditingSlotLabelTrans(e.target.value)}
+              className="w-full px-3 py-2.5 text-[13px] outline-none"
+              style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--w)" }}
+            />
+            <div className="flex gap-3 pt-1">
+              <button onClick={() => setEditingSlotId(null)}
+                className="flex-1 py-3 rounded-xl text-[13px] font-semibold transition-all"
+                style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
+                Cancel
+              </button>
+              <button
+                onClick={() => saveSlotLabel(editingSlotId!, editingSlotLabel, editingSlotLabelTrans)}
+                disabled={!editingSlotLabel.trim()}
+                className="flex-1 py-3 rounded-xl text-[13px] font-semibold transition-all disabled:opacity-40"
+                style={{ background: "var(--gold)", color: "#131312" }}>
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Signature request modal — inline render, no portal ── */}
+      {sigModal && (
+        <div data-bv-sigmodal="1" className="fixed inset-0 z-[2147483600] flex items-center justify-center p-3 sm:p-6"
+          style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(10px)", position: "fixed", top: 0, left: 0, right: 0, bottom: 0 }}
+          onClick={() => { setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true); setSigZone(null); setSigManualPdf(null); }}>
+          <div className="w-full max-w-4xl rounded-2xl overflow-hidden flex flex-col"
+            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", maxHeight: "calc(100dvh - 80px)" }}
+            onClick={e => e.stopPropagation()}>
+
+            {/* ── Header ── */}
+            <div className="px-4 py-3 flex items-center gap-3 flex-shrink-0"
+              style={{ borderBottom: "1px solid var(--border)", background: "var(--gdim)" }}>
+              <FilePen size={15} strokeWidth={1.8} style={{ color: "var(--gold)", flexShrink: 0 }} />
               <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>
-                  {lang === "fr" ? "Demande de signature" : lang === "de" ? "Signatur anfordern" : "Request signature"}
+                <p className="text-[13px] font-semibold" style={{ color: "var(--gold)" }}>
+                  {lang === "fr" ? "Demande de signature" : lang === "de" ? "Signatur anfordern" : "Signature request"}
                 </p>
                 <p className="text-[11px] truncate mt-0.5" style={{ color: "var(--w3)" }}>{sigModal.label}</p>
               </div>
-              <button onClick={() => setSigModal(null)}
+              <button onClick={() => { setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true); setSigZone(null); setSigManualPdf(null); }}
                 className="bv-icon-btn w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
                 style={{ color: "var(--w3)" }}>
                 <XIcon size={13} strokeWidth={2} />
               </button>
             </div>
-            {/* Body */}
-            <div className="p-5 space-y-4">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] mb-3" style={{ color: "var(--w3)" }}>
-                  {lang === "fr" ? "Qui doit signer ?" : lang === "de" ? "Wer unterschreibt?" : "Who needs to sign?"}
-                </p>
-                <div className="space-y-2.5">
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input type="checkbox" checked={sigPartyAdmin}
-                      onChange={e => setSigPartyAdmin(e.target.checked)}
-                      className="w-4 h-4 rounded" style={{ accentColor: "var(--gold)" }} />
-                    <span className="text-[12.5px]" style={{ color: "var(--w)" }}>
-                      {lang === "fr" ? "Admin / Admin d'organisation" : lang === "de" ? "Admin / Org-Admin" : "Admin / Org admin"}
-                    </span>
-                  </label>
-                  <label className="flex items-center gap-3 cursor-pointer">
-                    <input type="checkbox" checked={sigPartyCandidate}
-                      onChange={e => setSigPartyCandidate(e.target.checked)}
-                      className="w-4 h-4 rounded" style={{ accentColor: "var(--gold)" }} />
-                    <span className="text-[12.5px]" style={{ color: "var(--w)" }}>
-                      {lang === "fr" ? "Candidat" : lang === "de" ? "Kandidat" : "Candidate"}
-                    </span>
-                  </label>
+
+            {/* ── PDF Zone picker — main body ── */}
+            <div className="overflow-y-auto flex-1">
+              {sigPdfLoading ? (
+                <div className="flex flex-col items-center justify-center py-24 gap-3">
+                  <Spinner size="md" />
+                  <p className="text-[12px]" style={{ color: "var(--w3)" }}>
+                    {lang === "fr" ? "Chargement du PDF…" : lang === "de" ? "PDF wird geladen…" : "Loading PDF…"}
+                  </p>
                 </div>
-              </div>
-              <div>
-                <label className="text-[11px] font-medium block mb-1.5" style={{ color: "var(--w3)" }}>
-                  {lang === "fr" ? "Note (optionnel)" : lang === "de" ? "Hinweis (optional)" : "Note (optional)"}
-                </label>
-                <input value={sigNote} onChange={e => setSigNote(e.target.value)}
-                  placeholder={lang === "fr" ? "ex. Veuillez signer avant vendredi" : lang === "de" ? "z.B. Bitte bis Freitag unterschreiben" : "e.g. Please sign before Friday"}
-                  className="w-full px-3 py-2 text-[12.5px] rounded-xl outline-none"
-                  style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", fontSize: 16 }} />
-              </div>
+              ) : sigPdfBase64 ? (
+                <div className="p-3">
+                  <PdfZonePicker
+                    pdfBase64={sigPdfBase64}
+                    onChange={z => setSigZone(z)}
+                    onError={() => { setSigPdfBase64(null); setSigManualPdf(null); }}
+                  />
+                </div>
+              ) : (
+                /* Big drop zone — primary action when Drive fails */
+                <div
+                  className="flex flex-col items-center justify-center gap-4 m-4 rounded-2xl cursor-pointer transition-colors"
+                  style={{ minHeight: 280, border: "2.5px dashed var(--border-gold)", background: "var(--gdim)" }}
+                  onClick={() => sigManualFileRef.current?.click()}
+                  onDragOver={e => { e.preventDefault(); (e.currentTarget as HTMLElement).style.background = "rgba(201,162,64,0.18)"; }}
+                  onDragLeave={e => { (e.currentTarget as HTMLElement).style.background = "var(--gdim)"; }}
+                  onDrop={e => {
+                    e.preventDefault();
+                    (e.currentTarget as HTMLElement).style.background = "var(--gdim)";
+                    const file = e.dataTransfer.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      const b64 = (reader.result as string).replace(/^data:[^;]+;base64,/, "");
+                      setSigManualPdf(b64);
+                      setSigPdfBase64(b64);
+                    };
+                    reader.readAsDataURL(file);
+                  }}>
+                  <Upload size={36} strokeWidth={1.5} style={{ color: "var(--gold)", opacity: 0.7 }} />
+                  <div className="text-center space-y-1 px-6">
+                    <p className="text-[14px] font-semibold" style={{ color: "var(--gold)" }}>
+                      {lang === "fr" ? "Déposez le PDF ici" : lang === "de" ? "PDF hier ablegen" : "Drop the PDF here"}
+                    </p>
+                    <p className="text-[12px]" style={{ color: "var(--w3)" }}>
+                      {lang === "fr" ? "ou cliquez pour sélectionner" : lang === "de" ? "oder klicken zum Auswählen" : "or click to select"}
+                    </p>
+                    <p className="text-[11px] mt-1" style={{ color: "var(--w3)", opacity: 0.7 }}>
+                      {lang === "fr" ? "Le PDF que le candidat devra signer" : lang === "de" ? "Das zu unterschreibende Dokument" : "The document the candidate needs to sign"}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={e => { e.stopPropagation(); sigManualFileRef.current?.click(); }}
+                    className="inline-flex items-center gap-2 px-5 py-2 rounded-full text-[13px] font-semibold transition-opacity hover:opacity-80"
+                    style={{ background: "var(--gold)", color: "#131312" }}>
+                    <Upload size={13} strokeWidth={2} />
+                    {lang === "fr" ? "Choisir un PDF" : lang === "de" ? "PDF auswählen" : "Choose PDF"}
+                  </button>
+                </div>
+              )}
             </div>
-            {/* Footer */}
-            <div className="px-5 pb-5 flex gap-2">
-              <button
-                onClick={async () => {
-                  if (sigSending || (!sigPartyAdmin && !sigPartyCandidate)) return;
-                  setSigSending(true);
-                  try {
-                    await fetch("/api/portal/admin/sign-request", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-                      body: JSON.stringify({
-                        candidateId: selectedUser,
-                        documentName: sigModal.label,
-                        driveFileId: sigModal.driveFileId,
-                        note: sigNote.trim() || undefined,
-                        parties: { admin: sigPartyAdmin, candidate: sigPartyCandidate },
-                      }),
-                    });
-                    setSigModal(null);
-                    setSigNote("");
-                    setSigPartyAdmin(false);
-                    setSigPartyCandidate(true);
-                  } catch { /* ignore */ }
-                  setSigSending(false);
-                }}
-                disabled={sigSending || (!sigPartyAdmin && !sigPartyCandidate)}
-                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-[13px] font-semibold transition-opacity disabled:opacity-50"
-                style={{ background: "var(--gold)", color: "#131312" }}>
-                {sigSending
-                  ? <><span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" /> {lang === "fr" ? "Envoi…" : lang === "de" ? "Senden…" : "Sending…"}</>
-                  : <><Send size={13} strokeWidth={2} /> {lang === "fr" ? "Envoyer" : lang === "de" ? "Senden" : "Send"}</>
-                }
-              </button>
-              <button onClick={() => { setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true); }}
-                className="px-4 py-2.5 rounded-xl text-[13px] transition-opacity hover:opacity-70"
-                style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
-                <XIcon size={14} strokeWidth={2} />
-              </button>
+
+            {/* ── Compact footer: who signs + note + send ── */}
+            <div className="px-4 py-3 flex-shrink-0 space-y-3"
+              style={{ borderTop: "1px solid var(--border)", background: "var(--bg2)" }}>
+              {/* Who signs — horizontal chips */}
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: "var(--w3)" }}>
+                  {lang === "fr" ? "Signe :" : lang === "de" ? "Signiert:" : "Signs:"}
+                </span>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="checkbox" checked={sigPartyAdmin}
+                    onChange={e => setSigPartyAdmin(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded" style={{ accentColor: "var(--gold)" }} />
+                  <span className="text-[12px]" style={{ color: "var(--w)" }}>
+                    {lang === "fr" ? "Admin" : lang === "de" ? "Admin" : "Admin"}
+                  </span>
+                </label>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="checkbox" checked={sigPartyCandidate}
+                    onChange={e => setSigPartyCandidate(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded" style={{ accentColor: "var(--gold)" }} />
+                  <span className="text-[12px]" style={{ color: "var(--w)" }}>
+                    {lang === "fr" ? "Candidat" : lang === "de" ? "Kandidat" : "Candidate"}
+                  </span>
+                </label>
+              </div>
+              {/* Note + send row */}
+              <div className="flex gap-2">
+                <input value={sigNote} onChange={e => setSigNote(e.target.value)}
+                  placeholder={lang === "fr" ? "Note (optionnel)" : lang === "de" ? "Hinweis (optional)" : "Note (optional)"}
+                  className="flex-1 px-3 py-2 text-[12px] rounded-xl outline-none"
+                  style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--w)" }} />
+                <button
+                  onClick={async () => {
+                    if (sigSending || (!sigPartyAdmin && !sigPartyCandidate)) return;
+                    if (!sigPdfBase64 && !sigManualPdf) { sigManualFileRef.current?.click(); return; }
+                    setSigSending(true);
+                    try {
+                      let res: Response;
+                      if (sigManualPdf) {
+                        const fd = new FormData();
+                        fd.append("candidateId", selectedUser ?? "");
+                        fd.append("documentName", sigModal.label);
+                        const bin = atob(sigManualPdf);
+                        const arr = new Uint8Array(bin.length);
+                        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+                        fd.append("pdf", new Blob([arr], { type: "application/pdf" }), "signature-document.pdf");
+                        if (sigNote.trim()) fd.append("note", sigNote.trim());
+                        fd.append("parties", JSON.stringify({ admin: sigPartyAdmin, candidate: sigPartyCandidate }));
+                        if (sigZone) fd.append("signatureZone", JSON.stringify(sigZone));
+                        res = await fetch("/api/portal/admin/sign-request", {
+                          method: "POST",
+                          headers: { Authorization: `Bearer ${accessToken}` },
+                          body: fd,
+                        });
+                      } else {
+                        res = await fetch("/api/portal/admin/sign-request", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                          body: JSON.stringify({
+                            candidateId: selectedUser, documentName: sigModal.label,
+                            driveFileId: sigModal.driveFileId,
+                            note: sigNote.trim() || undefined,
+                            parties: { admin: sigPartyAdmin, candidate: sigPartyCandidate },
+                            signatureZone: sigZone ?? undefined,
+                          }),
+                        });
+                      }
+                      if (res.ok) {
+                        setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true);
+                        setSigZone(null); setSigManualPdf(null);
+                        showError(lang === "fr" ? "Demande envoyée ✓" : lang === "de" ? "Anfrage gesendet ✓" : "Request sent ✓");
+                      } else {
+                        const j = await res.json().catch(() => ({}));
+                        const msg = (j as { error?: string }).error ?? `HTTP ${res.status}`;
+                        console.error("[sign-request] failed:", res.status, msg, j);
+                        showError(`Send failed: ${msg}`);
+                      }
+                    } catch (e) {
+                      console.error("[sign-request] exception:", e);
+                      showError(`Send error: ${e instanceof Error ? e.message : String(e)}`);
+                    }
+                    setSigSending(false);
+                  }}
+                  disabled={sigSending || (!sigPartyAdmin && !sigPartyCandidate)}
+                  className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold transition-opacity disabled:opacity-50"
+                  style={{ background: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "var(--bg2)" : "var(--gold)", color: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "var(--w3)" : "#131312", border: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "1px solid var(--border)" : "none" }}>
+                  {sigSending
+                    ? <><span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" /> {lang === "fr" ? "Envoi…" : lang === "de" ? "Senden…" : "Sending…"}</>
+                    : (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading)
+                      ? <><Upload size={13} strokeWidth={2} /> {lang === "fr" ? "PDF requis" : lang === "de" ? "PDF erforderlich" : "Upload PDF first"}</>
+                      : <><Send size={13} strokeWidth={2} /> {lang === "fr" ? "Envoyer" : lang === "de" ? "Senden" : "Send"}</>
+                  }
+                </button>
+                <button onClick={() => { setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true); setSigZone(null); setSigManualPdf(null); }}
+                  className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-xl transition-opacity hover:opacity-70"
+                  style={{ background: "var(--card)", color: "var(--w3)", border: "1px solid var(--border)" }}>
+                  <XIcon size={14} strokeWidth={2} />
+                </button>
+              </div>
             </div>
           </div>
         </div>

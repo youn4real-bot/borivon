@@ -77,6 +77,16 @@ export async function POST(req: NextRequest) {
     return Response.json({ received: true });
   }
 
+  // ── invoice.paid → recurring monthly cycle ───────────────────────────────
+  // Monthly subscriptions run uncapped (founder decision). This handler is
+  // log-only for visibility in Vercel logs.
+  if (event.type === "invoice.paid") {
+    const inv = event.data.object as Stripe.Invoice & { subscription?: string | { id: string } };
+    const subRaw = inv.subscription;
+    const subId = typeof subRaw === "string" ? subRaw : subRaw?.id ?? null;
+    console.log(`[stripe webhook] invoice.paid sub=${subId} amount=${inv.amount_paid} cycle=${inv.metadata?.cycle ?? "?"} event=${event.id}`);
+    return Response.json({ received: true });
+  }
 
   return Response.json({ received: true });
 }

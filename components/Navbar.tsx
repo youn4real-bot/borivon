@@ -76,17 +76,31 @@ export function Navbar({ rightExtra, leftExtra }: { rightExtra?: ReactNode; left
   const dashHref = isAdmin ? "/portal/admin"
                  : isOrg   ? "/portal/org/dashboard"
                  :            "/portal/dashboard";
-  const portalTabs = useBottomBar ? [
+  // Tabs only render once we have a verified session. authTk drives this so
+  // logout immediately hides Dashboard + Community even though we're still on
+  // /portal/* (the login page lives there).
+  const portalTabs = useBottomBar && authTk ? [
     { label: PNT.dashboard, href: dashHref,        active: !isFeed },
     { label: PNT.community, href: "/portal/feed",  active: isFeed  },
   ] : null;
 
   // Community unread badge ────────────────────────────────────────────────────
+  // Track session via getSession + onAuthStateChange so signout cleanly hides
+  // the portalTabs (Dashboard/Community) and stops the unread poll. Without the
+  // listener the navbar held a stale token across logout — community bar +
+  // badge kept ticking on the unauthenticated landing page.
   useEffect(() => {
-    if (!useBottomBar) return;
+    if (!useBottomBar) { setAuthTk(""); return; }
+    let mounted = true;
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.access_token) setAuthTk(session.access_token);
+      if (mounted) setAuthTk(session?.access_token ?? "");
     });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((evt, session) => {
+      if (!mounted) return;
+      if (evt === "SIGNED_OUT" || !session) setAuthTk("");
+      else setAuthTk(session.access_token ?? "");
+    });
+    return () => { mounted = false; subscription.unsubscribe(); };
   }, [useBottomBar]);
 
   useEffect(() => {
@@ -97,7 +111,8 @@ export function Navbar({ rightExtra, leftExtra }: { rightExtra?: ReactNode; left
   }, [isFeed]);
 
   useEffect(() => {
-    if (!authTk || isFeed) return;
+    if (!authTk) { setCommunityUnread(0); return; }
+    if (isFeed) return;
     const poll = async () => {
       const since = (typeof localStorage !== "undefined"
         ? localStorage.getItem("community_last_visited")

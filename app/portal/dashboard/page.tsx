@@ -59,6 +59,7 @@ type Pipeline = {
   interview_link: string | null;
   interview_date: string | null;
   interview_status: string; // "pending" | "passed" | "failed"
+  interview_type: string | null;
   recognition_unlocked: boolean;
   embassy_unlocked: boolean;
   visa_granted: boolean;
@@ -233,7 +234,6 @@ export default function DashboardPage() {
   const [userName, setUserName]     = useState("");
   const [docs, setDocs]           = useState<Doc[]>([]);
   const [loading, setLoading]     = useState(true);
-  const [mode, setMode]           = useState<"wizard">("wizard");
   const [phase, setPhase]         = useState(0);
   const [isReturn, setIsReturn]   = useState(false);
 
@@ -281,6 +281,8 @@ export default function DashboardPage() {
   // Upgrade modal — shown when candidate tries a Premium-tier feature
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [upgradeLoading, setUpgradeLoading] = useState(false);
+  // Which journey stage triggered the upgrade modal (so auto-close only fires for that stage)
+  const [upgradeTargetStage, setUpgradeTargetStage] = useState<string | null>(null);
   // Payment success toast — shown when user returns from Stripe checkout
   const [paymentCelebration, setPaymentCelebration] = useState<{ plan: string } | null>(null);
   // Helper: does the user have the Premium plan?
@@ -289,6 +291,13 @@ export default function DashboardPage() {
   // Sign requests — documents sent for digital signature
   type SignReq = { id: string; document_name: string; note: string | null; status: "pending" | "signed" | "declined"; signed_at: string | null; created_at: string; signature_zone: { page: number; x: number; y: number; w: number; h: number } | null; pdf_preview_url: string | null; };
   const [signRequests, setSignRequests] = useState<SignReq[]>([]);
+  // Bell deep-link: ?sign=<requestId> → auto-open that sign request
+  const [autoOpenSignId, setAutoOpenSignId] = useState<string | null>(null);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const id = new URLSearchParams(window.location.search).get("sign");
+    if (id) setAutoOpenSignId(id);
+  }, []);
 
   // (Mobile drawer + bottom-bar hamburger removed — sidebar is now always
   // visible on every breakpoint, matching the admin dashboard layout.)
@@ -474,10 +483,16 @@ export default function DashboardPage() {
     }
   }, [viewMode, profileLoaded, hasPremium, pipeline]);
 
-  // Auto-dismiss upgrade modal the moment admin unlocks the current stage
+  // Auto-dismiss upgrade modal the moment admin unlocks the specific stage
+  // the candidate was trying to access. Using upgradeTargetStage (not viewMode)
+  // prevents a false-close when the user is already inside an admin-unlocked
+  // stage and clicks a *different* locked stage.
   useEffect(() => {
-    if (upgradeOpen && isAdminUnlocked(viewMode, pipeline)) setUpgradeOpen(false);
-  }, [pipeline, upgradeOpen, viewMode]);
+    if (upgradeOpen && upgradeTargetStage && isAdminUnlocked(upgradeTargetStage, pipeline)) {
+      setUpgradeOpen(false);
+      setUpgradeTargetStage(null);
+    }
+  }, [pipeline, upgradeOpen, upgradeTargetStage]);
 
   // Issue 4.3: live passport status — no page refresh needed when admin approves/rejects
   useEffect(() => {
@@ -764,7 +779,6 @@ export default function DashboardPage() {
 
   async function loadDynamicSlots(token: string) {
     if (dynamicSlotsLoaded) return;
-    setDynamicSlotsLoaded(true);
     try {
       const [beaRes, visRes] = await Promise.all([
         fetch("/api/portal/phase-slots?phase=bearbeitung", { headers: { Authorization: `Bearer ${token}` } }),
@@ -773,7 +787,8 @@ export default function DashboardPage() {
       const beaJ = beaRes.ok ? await beaRes.json() : { slots: [] };
       const visJ = visRes.ok ? await visRes.json() : { slots: [] };
       setDynamicSlots({ bea: beaJ.slots ?? [], vis: visJ.slots ?? [] });
-    } catch { /* ignore — slots stay empty */ }
+      setDynamicSlotsLoaded(true); // set only on success — allows retry on failure
+    } catch { /* ignore — slots stay empty; guard stays false so next load retries */ }
   }
 
   async function loadDocs(uid: string, keepPhase = false) {
@@ -823,7 +838,7 @@ export default function DashboardPage() {
       // feature). Auto-open the upgrade modal so the candidate sees why
       // they were redirected — unless admin has already unlocked this stage.
       // (Pipeline may still be loading; auto-close effect handles that race.)
-      if (!isAdminUnlocked(viewMode, pipeline)) setUpgradeOpen(true);
+      if (!isAdminUnlocked(viewMode, pipeline)) { setUpgradeTargetStage(viewMode); setUpgradeOpen(true); }
       window.history.replaceState({}, "", window.location.pathname);
     }
 
@@ -845,7 +860,6 @@ export default function DashboardPage() {
         })
       );
       setPhase(firstIncomplete === -1 ? 0 : firstIncomplete);
-      setMode("wizard");
 
       // Deep-link from notification: open doc preview directly
       const navDocId = new URLSearchParams(window.location.search).get("nav_doc_id");
@@ -1148,7 +1162,7 @@ export default function DashboardPage() {
             stray click can't cancel the redirect mid-request. */}
         <div className="fixed inset-0 z-[1200]"
           style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", animation: "bvFadeRise 0.2s var(--ease-out)", cursor: upgradeLoading ? "wait" : "pointer" }}
-          onClick={() => { if (!upgradeLoading) setUpgradeOpen(false); }} />
+          onClick={() => { if (!upgradeLoading) { setUpgradeOpen(false); setUpgradeTargetStage(null); } }} />
         <div className="fixed inset-0 z-[1201] flex items-end sm:items-center justify-center p-4 pointer-events-none">
           <div className="w-full max-w-[380px] max-h-[90dvh] overflow-y-auto flex flex-col pointer-events-auto"
             style={{ background: "var(--card)", borderRadius: "24px", boxShadow: "0 24px 64px rgba(0,0,0,0.4)", animation: "bvFadeRise 0.26s var(--ease-out)" }}>
@@ -1625,6 +1639,16 @@ export default function DashboardPage() {
               lang={(lang as "en" | "fr" | "de") in { en: 1, fr: 1, de: 1 } ? lang as "en" | "fr" | "de" : "en"}
               authToken={authToken}
               onSigned={(id) => setSignRequests(prev => prev.map(r => r.id === id ? { ...r, status: "signed" } : r))}
+              autoOpenId={autoOpenSignId}
+              onAutoOpenConsumed={() => {
+                setAutoOpenSignId(null);
+                // Clean the ?sign= param from URL so refreshing doesn't reopen it
+                if (typeof window !== "undefined") {
+                  const url = new URL(window.location.href);
+                  url.searchParams.delete("sign");
+                  window.history.replaceState({}, "", url.toString());
+                }
+              }}
             />
           </div>
         )}
@@ -1702,7 +1726,7 @@ export default function DashboardPage() {
                   <button
                     onClick={() => { setPhase(i); setViewMode("docs"); setSlotMsg(null); window.scrollTo({ top: 0, behavior: "smooth" }); }}
                     title={ph.title}
-                    className="bv-lift-hover w-full flex flex-col items-center gap-1 py-1"
+                    className="bv-lift-hover w-full flex flex-col items-center gap-1 py-1 cursor-pointer"
                   >
                     <span
                       className="relative flex items-center justify-center w-8 h-8 rounded-full leading-none select-none transition-all duration-300"
@@ -1754,7 +1778,7 @@ export default function DashboardPage() {
                   <button
                     onClick={() => {
                       // Non-premium + stage not admin-unlocked → show upgrade modal
-                      if (!hasPremium && !adminOpen) { setUpgradeOpen(true); return; }
+                      if (!hasPremium && !adminOpen) { setUpgradeTargetStage(js.key); setUpgradeOpen(true); return; }
                       if (unlocked || adminOpen) {
                         if (isDocsStage) {
                           setPhase(docsPhaseIdx); setViewMode("docs"); setSlotMsg(null);
@@ -1767,7 +1791,7 @@ export default function DashboardPage() {
                     disabled={isInert}
                     title={accessible ? stageLabel : t.pJourneyLocked}
                     aria-label={accessible ? stageLabel : `${stageLabel} — ${t.pJourneyLocked}`}
-                    className={`w-full flex flex-col items-center gap-1 py-1 transition-all duration-200${(unlocked || adminOpen) ? " bv-row-hover" : ""}`}
+                    className="w-full flex flex-col items-center gap-1 py-1 bv-lift-hover cursor-pointer"
                     style={{ cursor: isInert ? "not-allowed" : "pointer", opacity: (unlocked || adminOpen) ? 1 : 0.45, WebkitTapHighlightColor: "transparent" }}
                   >
                     <span
@@ -1815,113 +1839,6 @@ export default function DashboardPage() {
                 for minimalism — the active phase is already indicated by the
                 gold icon in the left rail, that's enough context. */}
             {viewMode === "docs" && <div key={`docs-phase-${phase}`} className="bv-enter">
-
-            {/* ── Pipeline progress banner ───────────────────────────────────
-                Always visible when pipeline data exists (even if all locked).
-                Compact horizontal stepper — shows candidates where they stand
-                in the overall journey, clickable per-stage. */}
-            {(() => {
-              const p = pipeline;
-              type StepKey = "interview" | "recognition" | "visum" | "reise" | "integration" | "start";
-              const steps: { key: StepKey; label: string; kind: PhaseKind }[] = [
-                { key: "interview",   label: t.pJourneyInterview,   kind: "interview"   as PhaseKind },
-                { key: "recognition", label: t.pJourneyRecognition, kind: "recognition" as PhaseKind },
-                { key: "visum",       label: t.pJourneyVisum,       kind: "visa"        as PhaseKind },
-                { key: "reise",       label: t.pJourneyReise,       kind: "flight"      as PhaseKind },
-                { key: "integration", label: t.pJourneyIntegration, kind: "integration" as PhaseKind },
-                { key: "start",       label: t.pJourneyStart,       kind: "start"       as PhaseKind },
-              ];
-              const isDone = (k: StepKey): boolean => {
-                if (!p) return false;
-                if (k === "interview")   return p.interview_status === "passed";
-                if (k === "recognition") return p.embassy_unlocked;
-                if (k === "visum")       return !!(p.visa_granted || p.flight_date);
-                if (k === "reise")       return false;
-                if (k === "integration") return false;
-                if (k === "start")       return false;
-                return false;
-              };
-              const isActive = (k: StepKey): boolean => {
-                if (!p) return false;
-                return isJourneyUnlocked(k, p) && !isDone(k);
-              };
-              const isUnlocked = (k: StepKey): boolean => isJourneyUnlocked(k, p);
-              // Only render if at least one stage is active or done
-              const anyProgress = steps.some(s => isDone(s.key) || isActive(s.key));
-              if (!anyProgress) return null;
-              return (
-                <div className="mb-4 overflow-hidden"
-                  style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-                  {/* Header */}
-                  <div className="px-5 pt-4 pb-3 flex items-center gap-2 border-b" style={{ borderColor: "var(--border)" }}>
-                    <span className="flex items-center justify-center w-7 h-7 rounded-lg flex-shrink-0"
-                      style={{ background: "var(--gdim)" }}>
-                      <PhaseIcon kind="flight" size={13} style={{ color: "var(--gold)" }} />
-                    </span>
-                    <span className="text-[12px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>
-                      {lang === "de" ? "Dein Fortschritt" : lang === "en" ? "Your Journey" : "Votre parcours"}
-                    </span>
-                  </div>
-                  {/* Steps */}
-                  <div className="flex items-stretch px-3 py-3 gap-0.5 overflow-x-auto">
-                    {steps.map((s, si) => {
-                      const done    = isDone(s.key);
-                      const active  = isActive(s.key);
-                      const locked  = !isUnlocked(s.key);
-                      const color   = done ? "var(--success)" : active ? "var(--gold)" : "var(--w3)";
-                      const bg      = done ? "var(--success-bg)" : active ? "var(--gdim)" : "var(--bg2)";
-                      const border  = done ? "var(--success-border)" : active ? "var(--border-gold)" : "var(--border)";
-                      return (
-                        <div key={s.key} className="flex items-center flex-1 min-w-0">
-                          <button
-                            onClick={() => {
-                              if (!hasPremium && !isAdminUnlocked(s.key, pipeline)) { setUpgradeOpen(true); return; }
-                              if (!locked || isAdminUnlocked(s.key, pipeline)) {
-                                if (s.key === "recognition") { setPhase(2); setViewMode("docs"); setSlotMsg(null); }
-                                else if (s.key === "visum")  { setPhase(3); setViewMode("docs"); setSlotMsg(null); }
-                                else setViewMode(s.key as ViewMode);
-                                window.scrollTo({ top: 0, behavior: "smooth" });
-                              }
-                            }}
-                            title={locked ? t.pJourneyLocked : s.label}
-                            className="flex-1 min-w-0 flex flex-col items-center gap-1.5 px-2 py-2 rounded-xl transition-all duration-150"
-                            style={{
-                              background: bg,
-                              border: `1px solid ${border}`,
-                              cursor: locked ? "default" : "pointer",
-                              opacity: locked ? 0.38 : 1,
-                            }}>
-                            <span className="relative flex items-center justify-center w-8 h-8 rounded-full"
-                              style={{ background: done ? "var(--success-bg)" : active ? "var(--gdim)" : "var(--bg2)" }}>
-                              {done ? (
-                                <CheckCircle2 size={16} strokeWidth={1.8} style={{ color: "var(--success)" }} />
-                              ) : (
-                                <PhaseIcon kind={s.kind} size={14} style={{ color }} />
-                              )}
-                              {locked && !done && (
-                                <span className="absolute -top-0.5 -right-0.5 flex items-center justify-center w-3.5 h-3.5 rounded-full"
-                                  style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-                                  <Lock size={7} strokeWidth={2.2} style={{ color: "var(--w3)" }} />
-                                </span>
-                              )}
-                            </span>
-                            <span className="text-[9px] font-medium text-center leading-tight w-full truncate px-1"
-                              style={{ color }}>
-                              {s.label}
-                            </span>
-                          </button>
-                          {si < steps.length - 1 && (
-                            <div className="flex-shrink-0 w-3 flex items-center justify-center">
-                              <div className="w-2 h-px" style={{ background: "var(--border)" }} />
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })()}
 
             {/* Premium phase card — mirrors the admin candidate-detail panel
                 so both sides share one visual language. Header inside the
@@ -1987,13 +1904,7 @@ export default function DashboardPage() {
                         <Info size={11} strokeWidth={2.2} />
                       </button>
                     </div>
-                    {pending > 0 && (
-                      <span className="inline-flex items-center gap-1.5 text-[11px] font-medium flex-shrink-0"
-                        style={{ color: "var(--gold)" }}>
-                        <span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--gold)" }} />
-                        {pending} {lang === "de" ? "in Prüfung" : lang === "en" ? "pending" : "en attente"}
-                      </span>
-                    )}
+                    {/* Pending counter removed — clutter, status visible via row colors */}
                   </div>
                 );
               })()}
@@ -2287,19 +2198,10 @@ export default function DashboardPage() {
                         </p>
                       )}
 
-                      {/* ── Single-doc status + date (non-other) ──
-                          Compact one-line meta. Status word inherits the
-                          status color (no chip, no border) so it reads as
-                          subtitle text rather than a heavy badge. */}
-                      {!isOther && uploaded && !isUploading && (
-                        <p className="text-[10px] mt-0.5 truncate" style={{ color: "var(--w3)" }}>
-                          <span className="font-semibold" style={{ color: rowColor ?? "inherit" }}>
-                            {statusLabel(doc!.status ?? "pending")}
-                          </span>
-                          <span className="mx-1.5">·</span>
-                          {fmtDate(doc!.uploaded_at)}
-                        </p>
-                      )}
+                      {/* Status conveyed via the row title color (orange/green/red).
+                          Removed redundant "Under review · date" subline so the
+                          row reads cleanly across all phases (essentials,
+                          qualifications, bearbeitung, visum). */}
 
                       {/* Rejection panel (non-other) — structured "What to fix" with re-upload CTA.
                           Also shown when passport data (passport_status) was rejected — candidate
@@ -2544,42 +2446,6 @@ export default function DashboardPage() {
             </div>
 
 
-        {/* Navigation — Back + Next only */}
-        <div className="flex gap-3">
-          {phase > 0 && (
-            <button onClick={goPrevPhase}
-              className="bv-row-hover py-3 px-5 font-semibold text-sm flex items-center gap-2 flex-shrink-0"
-              style={{ color: "var(--w2)" }}>
-              ← {t.backLabel}
-            </button>
-          )}
-          {phase === PHASES.length - 1 ? (
-            pipeline?.docs_approved ? (
-              <button
-                onClick={() => { setViewMode("interview"); window.scrollTo({ top: 0, behavior: "smooth" }); }}
-                className="flex-1 py-3 rounded-xl font-semibold text-sm transition-opacity hover:opacity-90"
-                style={{ background: "var(--success)", color: "#fff" }}>
-                {t.pWizardNext}
-              </button>
-            ) : (
-              <div className="flex-1 py-3 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 select-none"
-                style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)", cursor: "not-allowed" }}>
-                <Lock size={14} strokeWidth={1.8} /> {t.pWizardNext}
-              </div>
-            )
-          ) : (
-            <button onClick={goNextPhase}
-              className="flex-1 py-3 font-semibold text-[13.5px] tracking-tight transition-opacity hover:opacity-90"
-              style={{
-                background: phaseComplete ? "var(--success)" : "var(--gold)",
-                color: "#131312",
-                borderRadius: "var(--r-md)",
-                boxShadow: "var(--shadow-sm)",
-              }}>
-              {t.pWizardNext}
-            </button>
-          )}
-        </div>
         </div> /* end viewMode === "docs" */}
 
         <p className="mt-10 text-xs text-center" style={{ color: "var(--w3)" }}>

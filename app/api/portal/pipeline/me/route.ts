@@ -16,11 +16,16 @@ export async function GET(req: NextRequest) {
   // Use verified user.id — ignore any uid param from client
   const db = getServiceSupabase();
   // interview_notes is intentionally excluded — internal admin use only
-  const { data } = await db
+  const { data, error } = await db
     .from("candidate_pipeline")
     .select("interview_link, interview_date, interview_status, interview_type, recognition_unlocked, embassy_unlocked, visa_granted, visa_date, flight_date, flight_info, docs_approved, integration_unlocked, start_unlocked")
     .eq("user_id", user.id)
     .maybeSingle();
+
+  if (error) {
+    console.error("[pipeline/me GET] db error:", error);
+    return NextResponse.json({ pipeline: null }, { status: 500 });
+  }
 
   return NextResponse.json({ pipeline: data ?? null });
 }

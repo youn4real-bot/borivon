@@ -2,7 +2,7 @@
 
 import { FilePen, CheckCircle2, Clock } from "lucide-react";
 import { PdfSignModal, type SignRequestFull } from "@/components/PdfSignModal";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const T = {
   en: { title: "Documents to sign", sign: "Sign now", signed: "Signed", note: "Note:" },
@@ -16,16 +16,41 @@ type Props = {
   lang:      Lang;
   authToken: string;
   onSigned?: (id: string) => void;
+  /** When set, auto-opens the matching sign request in PdfSignModal. */
+  autoOpenId?: string | null;
+  onAutoOpenConsumed?: () => void;
 };
 
-export function PendingSignatures({ requests, lang, authToken, onSigned }: Props) {
+export function PendingSignatures({ requests, lang, authToken, onSigned, autoOpenId, onAutoOpenConsumed }: Props) {
   const t = T[lang] ?? T.en;
   const [active, setActive] = useState<SignRequestFull | null>(null);
 
-  const pending = requests.filter(r => r.status === "pending");
-  const signed  = requests.filter(r => r.status === "signed");
+  // Auto-open the requested sign request (e.g. arriving from a bell deep-link)
+  useEffect(() => {
+    if (!autoOpenId) return;
+    const r = requests.find(x => x.id === autoOpenId && x.status === "pending");
+    if (r) {
+      setActive(r);
+      onAutoOpenConsumed?.();
+    }
+  }, [autoOpenId, requests, onAutoOpenConsumed]);
 
-  if (requests.length === 0) return null;
+  const pending = requests.filter(r => r.status === "pending");
+
+  // Once everything is signed, hide the section entirely.
+  if (pending.length === 0) {
+    // Still need to render the modal in case autoOpen was triggered for an
+    // already-signed request — in that case it's a no-op.
+    return active ? (
+      <PdfSignModal
+        request={active}
+        lang={lang}
+        authToken={authToken}
+        onSigned={id => { onSigned?.(id); setActive(null); }}
+        onClose={() => setActive(null)}
+      />
+    ) : null;
+  }
 
   return (
     <>
@@ -65,18 +90,7 @@ export function PendingSignatures({ requests, lang, authToken, onSigned }: Props
           </div>
         ))}
 
-        {signed.map(r => (
-          <div key={r.id} className="flex items-center gap-3 px-4 py-3"
-            style={{ background: "var(--card)", borderBottom: "1px solid var(--border)", opacity: 0.7 }}>
-            <CheckCircle2 size={15} strokeWidth={2} style={{ color: "var(--success)", flexShrink: 0 }} />
-            <div className="flex-1 min-w-0">
-              <p className="text-[13px] font-medium" style={{ color: "var(--w)" }}>{r.document_name}</p>
-              <p className="text-[11px] mt-0.5" style={{ color: "var(--success)" }}>
-                {t.signed}{r.signed_at ? ` · ${new Date(r.signed_at).toLocaleDateString()}` : ""}
-              </p>
-            </div>
-          </div>
-        ))}
+        {/* Signed docs no longer shown on dashboard — section disappears once all signed. */}
       </div>
 
       {active && (

@@ -15,11 +15,14 @@ const BUCKET = "sign-documents";
  * 4. Uploads the signed PDF back to Supabase Storage
  * 5. Updates sign_requests: status=signed, signed_pdf_path, signed_at
  */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   const { id } = await params;
+  if (!UUID_RE.test(id)) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
 
   const auth = await requireUser(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -86,7 +89,19 @@ export async function POST(
   type SigZone = { page: number; x: number; y: number; w: number; h: number };
   let zone: SigZone | null = null;
   if (r.signature_zone) {
-    try { zone = JSON.parse(r.signature_zone) as SigZone; } catch { /* use default */ }
+    try {
+      const parsed = JSON.parse(r.signature_zone) as Partial<SigZone>;
+      // Validate ranges; ignore malformed zones rather than stamping outside the page.
+      if (
+        Number.isFinite(parsed.page) && (parsed.page as number) >= 1 &&
+        Number.isFinite(parsed.x) && (parsed.x as number) >= 0 && (parsed.x as number) <= 1 &&
+        Number.isFinite(parsed.y) && (parsed.y as number) >= 0 && (parsed.y as number) <= 1 &&
+        Number.isFinite(parsed.w) && (parsed.w as number) > 0 && (parsed.w as number) <= 1 &&
+        Number.isFinite(parsed.h) && (parsed.h as number) > 0 && (parsed.h as number) <= 1
+      ) {
+        zone = parsed as SigZone;
+      }
+    } catch { /* use default */ }
   }
 
   // Select the target page (zone.page is 1-indexed; clamp to valid range)
@@ -96,13 +111,16 @@ export async function POST(
   const page = pages[pageIndex];
   const { width: pageW, height: pageH } = page.getSize();
 
-  // Embed the signature PNG
+  // Embed the signature image — support both PNG and JPEG
   const sigDataUri = signatureBase64.startsWith("data:")
     ? signatureBase64
     : `data:image/png;base64,${signatureBase64}`;
+  const isJpeg    = /^data:image\/jpe?g;/i.test(sigDataUri);
   const sigBase64  = sigDataUri.replace(/^data:[^;]+;base64,/, "");
   const sigBytes   = Uint8Array.from(Buffer.from(sigBase64, "base64"));
-  const sigImage   = await pdfDoc.embedPng(sigBytes);
+  const sigImage   = isJpeg
+    ? await pdfDoc.embedJpg(sigBytes)
+    : await pdfDoc.embedPng(sigBytes);
 
   // Compute zone rect in PDF coordinates (origin = bottom-left in pdf-lib)
   let zoneX: number, zoneY: number, zoneW: number, zoneH: number;
@@ -179,15 +197,44 @@ export async function POST(
     return NextResponse.json({ error: "Could not save signed document" }, { status: 500 });
   }
 
-  // Update record
-  await db
+  // Update record — atomic conditional update guards the SELECT/UPDATE race.
+  // If another concurrent sign request already flipped status, this returns
+  // 0 rows and we 409 instead of double-stamping.
+  const { data: updated, error: updateErr } = await db
     .from("sign_requests")
     .update({
       status:          "signed",
       signed_at:       new Date().toISOString(),
       signed_pdf_path: signedPath,
     })
-    .eq("id", id);
+    .eq("id", id)
+    .eq("status", "pending")
+    .select("id")
+    .maybeSingle();
+
+  if (updateErr) {
+    console.error("[sign] update error:", updateErr);
+    return NextResponse.json({ error: "Could not update signature record" }, { status: 500 });
+  }
+  if (!updated) {
+    return NextResponse.json({ error: "Already signed" }, { status: 409 });
+  }
+
+  // Notify the supreme admin (and any org admin assigned to this candidate)
+  // that the document was signed. Best-effort — don't fail the sign if this
+  // breaks. The admin_notifications table powers the admin bell with realtime.
+  try {
+    const { error: notifErr } = await db.from("admin_notifications").insert({
+      type:        "doc-signed",
+      user_name:   signerName,
+      user_email:  auth.email,
+      doc_type:    "sign_request",
+      doc_name:    r.document_name,
+    });
+    if (notifErr) console.warn("[sign] admin notification insert failed (non-fatal):", notifErr);
+  } catch (e) {
+    console.warn("[sign] admin notification exception (non-fatal):", e);
+  }
 
   // Generate short-lived URL for immediate confirmation
   const { data: urlData } = await db.storage

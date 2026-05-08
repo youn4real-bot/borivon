@@ -114,11 +114,21 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
         return;
       }
       setLoading(true);
-      const { error: resetErr } = await supabase.auth.resetPasswordForEmail(
-        email.trim().toLowerCase(),
-        { redirectTo: `${window.location.origin}/portal/auth/callback` },
-      );
-      if (resetErr) { setError(resetErr.message); setLoading(false); return; }
+      try {
+        const { error: resetErr } = await supabase.auth.resetPasswordForEmail(
+          email.trim().toLowerCase(),
+          { redirectTo: `${window.location.origin}/portal/auth/callback` },
+        );
+        if (resetErr) {
+          const m = resetErr.message;
+          const isNetwork = /failed to fetch|networkerror|network request failed|load failed/i.test(m);
+          setError(isNetwork ? t.pErrNetwork : m);
+          setLoading(false); return;
+        }
+      } catch {
+        setError(t.pErrNetwork);
+        setLoading(false); return;
+      }
       setResetSent(true); setLoading(false); return;
     }
 
@@ -187,19 +197,28 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
       } catch {
         // If the check fails, let Supabase handle it below
       }
-      const { data: signUpData, error: err } = await supabase.auth.signUp({
-        email: email.trim().toLowerCase(), password,
-        options: {
-          data: {
-            first_name: firstName.trim(), last_name: lastName.trim(),
-            full_name: `${firstName.trim()} ${lastName.trim()}`,
-            invite_code: finalCode,
+      let signUpData: Awaited<ReturnType<typeof supabase.auth.signUp>>["data"] | null = null;
+      try {
+        const res = await supabase.auth.signUp({
+          email: email.trim().toLowerCase(), password,
+          options: {
+            data: {
+              first_name: firstName.trim(), last_name: lastName.trim(),
+              full_name: `${firstName.trim()} ${lastName.trim()}`,
+              invite_code: finalCode,
+            },
+            emailRedirectTo: `${window.location.origin}/portal/auth/callback`,
           },
-          emailRedirectTo: `${window.location.origin}/portal/auth/callback`,
-        },
-      });
-      if (err) {
-        setError(err.message === "User already registered" ? t.pErrExists : err.message);
+        });
+        if (res.error) {
+          const m = res.error.message;
+          const isNetwork = /failed to fetch|networkerror|network request failed|load failed/i.test(m);
+          setError(isNetwork ? t.pErrNetwork : m === "User already registered" ? t.pErrExists : m);
+          setLoading(false); return;
+        }
+        signUpData = res.data;
+      } catch {
+        setError(t.pErrNetwork);
         setLoading(false); return;
       }
       // Supabase silently accepts signUp for an existing email when confirmation
@@ -220,17 +239,24 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
     }
 
     // Login
-    const { error: err } = await supabase.auth.signInWithPassword({
-      email: email.trim().toLowerCase(), password,
-    });
-    if (err) {
-      const m = err.message;
-      const isNetwork = /failed to fetch|networkerror|network request failed|load failed/i.test(m);
-      setError(
-        isNetwork                          ? t.pErrNetwork :
-        m === "Invalid login credentials"  ? t.pErrWrong :
-        m === "Email not confirmed"        ? t.pErrNotConfirmed : m
-      );
+    try {
+      const { error: err } = await supabase.auth.signInWithPassword({
+        email: email.trim().toLowerCase(), password,
+      });
+      if (err) {
+        const m = err.message;
+        // supabase-js wraps network errors as { error: { message: "Failed to fetch" } }
+        // instead of throwing — match that here so we don't show the raw browser message.
+        const isNetwork = /failed to fetch|networkerror|network request failed|load failed/i.test(m);
+        setError(
+          isNetwork                          ? t.pErrNetwork :
+          m === "Invalid login credentials"  ? t.pErrWrong :
+          m === "Email not confirmed"        ? t.pErrNotConfirmed : m
+        );
+        setLoading(false); return;
+      }
+    } catch {
+      setError(t.pErrNetwork);
       setLoading(false); return;
     }
     onClose();

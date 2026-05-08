@@ -925,16 +925,52 @@ export async function POST(req: NextRequest) {
       structuredName = buildFileName(firstName, lastName, fileKey, ext);
     }
 
-    const stream = new PassThrough();
-    stream.end(buffer);
-    const driveRes = await drive.files.create({
-      requestBody: { name: structuredName, parents: [folderId] },
-      media: { mimeType: file.type, body: stream },
-      fields: "id",
-      supportsAllDrives: true,
-    });
-    driveFileId = driveRes.data.id ?? null;
-    if (driveFileId) await makeDrivePublic(drive, driveFileId);
+    // Drive create with retry — handles transient 5xx / network blips so the
+    // user doesn't have to retry the whole upload manually.
+    let createdId: string | null = null;
+    let lastDriveErr: unknown = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const stream = new PassThrough();
+        stream.end(buffer);
+        const r = await drive.files.create({
+          requestBody: { name: structuredName, parents: [folderId] },
+          media: { mimeType: file.type, body: stream },
+          fields: "id",
+          supportsAllDrives: true,
+        });
+        createdId = r.data.id ?? null;
+        break; // success
+      } catch (e: unknown) {
+        lastDriveErr = e;
+        const msg = e instanceof Error ? e.message : String(e);
+        const status = (e as { code?: number; response?: { status?: number } })?.code
+          ?? (e as { response?: { status?: number } })?.response?.status;
+        const retriable = !status || status >= 500 || status === 429 || /ECONN|ETIMEDOUT|ENOTFOUND|socket hang up/i.test(msg);
+        console.warn(`[upload] Drive create attempt ${attempt}/3 failed (status=${status}): ${msg}`);
+        if (!retriable || attempt === 3) throw e;
+        await new Promise(r => setTimeout(r, 400 * attempt)); // 400ms, 800ms backoff
+      }
+    }
+    if (!createdId) throw lastDriveErr ?? new Error("Drive upload failed after retries");
+    driveFileId = createdId;
+    await makeDrivePublic(drive, driveFileId);
+
+    // Supabase Storage backup — best-effort, non-fatal. Lets the file proxy
+    // fall back to Storage when Drive returns 404 (deleted/inaccessible file).
+    // Only PDFs are backed up since that's what signature/preview flows need.
+    if (driveFileId && file.type === "application/pdf") {
+      try {
+        const sb = getServiceSupabase();
+        const cachePath = `doc-cache/${driveFileId}`;
+        await sb.storage.from("sign-documents").upload(cachePath, buffer, {
+          contentType: "application/pdf",
+          upsert: true,
+        });
+      } catch (cacheErr) {
+        console.warn("[upload] Storage backup failed (non-fatal):", cacheErr);
+      }
+    }
 
     // Delete the previous Drive file for this slot now that the new one is
     // safely uploaded. Failure is non-fatal — log and continue.
