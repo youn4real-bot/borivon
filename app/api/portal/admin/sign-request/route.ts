@@ -84,43 +84,81 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ requests });
 }
 
+export const maxDuration = 60;
+
 export async function POST(req: NextRequest) {
   const auth = await requireAdminRole(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-  const raw = await req.text();
-  if (raw.length > MAX_PDF_BYTES * 1.5) {
-    return NextResponse.json({ error: "Payload too large" }, { status: 413 });
+  // Accept BOTH JSON (small payloads, driveFileId path) and multipart/form-data
+  // (file uploads — bypasses Vercel's 4.5MB JSON body limit).
+  const ct = req.headers.get("content-type") ?? "";
+  let candidateId = "", documentName = "", driveFileId = "", note = "";
+  let pdfBuffer: Buffer | null = null;
+  let signatureZone: unknown = undefined;
+  let parties: { admin?: boolean; candidate?: boolean } | undefined;
+
+  if (ct.includes("multipart/form-data")) {
+    const fd = await req.formData();
+    candidateId  = String(fd.get("candidateId")  ?? "");
+    documentName = String(fd.get("documentName") ?? "");
+    driveFileId  = String(fd.get("driveFileId")  ?? "");
+    note         = String(fd.get("note")         ?? "");
+    const zoneStr = fd.get("signatureZone");
+    if (typeof zoneStr === "string" && zoneStr) {
+      try { signatureZone = JSON.parse(zoneStr); } catch { /* ignore */ }
+    }
+    const partiesStr = fd.get("parties");
+    if (typeof partiesStr === "string" && partiesStr) {
+      try { parties = JSON.parse(partiesStr); } catch { /* ignore */ }
+    }
+    const pdfFile = fd.get("pdf");
+    if (pdfFile instanceof File) {
+      const ab = await pdfFile.arrayBuffer();
+      if (ab.byteLength > MAX_PDF_BYTES) {
+        return NextResponse.json({ error: `PDF too large (max ${MAX_PDF_BYTES / 1_000_000} MB)` }, { status: 413 });
+      }
+      pdfBuffer = Buffer.from(ab);
+    }
+  } else {
+    const raw = await req.text();
+    if (raw.length > MAX_PDF_BYTES * 1.5) {
+      return NextResponse.json({ error: "Payload too large" }, { status: 413 });
+    }
+    let body: { candidateId?: string; documentName?: string; pdfBase64?: string; driveFileId?: string; note?: string; signatureZone?: unknown; parties?: { admin?: boolean; candidate?: boolean } };
+    try { body = JSON.parse(raw); } catch {
+      return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
+    }
+    candidateId  = body.candidateId ?? "";
+    documentName = body.documentName ?? "";
+    driveFileId  = body.driveFileId ?? "";
+    note         = body.note ?? "";
+    signatureZone = body.signatureZone;
+    parties      = body.parties;
+    if (body.pdfBase64) {
+      pdfBuffer = Buffer.from(body.pdfBase64.replace(/^data:[^;]+;base64,/, ""), "base64");
+    }
   }
 
-  let body: { candidateId?: string; documentName?: string; pdfBase64?: string; driveFileId?: string; note?: string; signatureZone?: unknown; parties?: { admin?: boolean; candidate?: boolean } };
-  try { body = JSON.parse(raw); } catch {
-    return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
-  }
-
-  const { candidateId, documentName, pdfBase64, driveFileId, note, signatureZone, parties } = body;
-  if (!candidateId || !documentName || (!pdfBase64 && !driveFileId)) {
-    return NextResponse.json({ error: "Missing fields" }, { status: 400 });
+  if (!candidateId || !documentName || (!pdfBuffer && !driveFileId)) {
+    return NextResponse.json({ error: "Missing fields (candidateId, documentName, and pdf or driveFileId)" }, { status: 400 });
   }
 
   if (!(await canActOnCandidate(auth.role, auth.email, candidateId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Get PDF bytes — either from inline base64 or from Google Drive
-  let pdfBuffer: Buffer;
-  if (driveFileId) {
+  // If we don't have the bytes yet, fetch from Drive
+  if (!pdfBuffer && driveFileId) {
     try {
       pdfBuffer = await fetchPdfBuffer(driveFileId);
     } catch (err) {
       console.error("[sign-request POST] drive fetch error:", err);
       return NextResponse.json({ error: "Could not fetch file from Drive" }, { status: 502 });
     }
-  } else {
-    pdfBuffer = Buffer.from(
-      pdfBase64!.replace(/^data:[^;]+;base64,/, ""),
-      "base64",
-    );
+  }
+  if (!pdfBuffer) {
+    return NextResponse.json({ error: "No PDF bytes" }, { status: 400 });
   }
 
   // Insert sign_request first to get the ID for the storage path

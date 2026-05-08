@@ -1339,7 +1339,7 @@ export default function AdminPage() {
           <div
             style={{
               position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
-              zIndex: 9999, pointerEvents: "none",
+              zIndex: 2147483601, pointerEvents: "none",
               background: "var(--danger-bg)", color: "var(--danger)",
               border: "1px solid var(--danger-border)", borderRadius: 10,
               padding: "10px 16px", fontSize: 12.5, fontWeight: 600,
@@ -3329,17 +3329,37 @@ export default function AdminPage() {
                   if (!sigPdfBase64 && !sigManualPdf) { sigManualFileRef.current?.click(); return; }
                   setSigSending(true);
                   try {
-                    const res = await fetch("/api/portal/admin/sign-request", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-                      body: JSON.stringify({
-                        candidateId: selectedUser, documentName: sigModal.label,
-                        ...(sigManualPdf ? { pdfBase64: sigManualPdf } : { driveFileId: sigModal.driveFileId }),
-                        note: sigNote.trim() || undefined,
-                        parties: { admin: sigPartyAdmin, candidate: sigPartyCandidate },
-                        signatureZone: sigZone ?? undefined,
-                      }),
-                    });
+                    let res: Response;
+                    if (sigManualPdf) {
+                      // Use FormData for file uploads (bypasses Vercel's 4.5MB JSON body limit)
+                      const fd = new FormData();
+                      fd.append("candidateId", selectedUser ?? "");
+                      fd.append("documentName", sigModal.label);
+                      const bin = atob(sigManualPdf);
+                      const arr = new Uint8Array(bin.length);
+                      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+                      fd.append("pdf", new Blob([arr], { type: "application/pdf" }), "signature-document.pdf");
+                      if (sigNote.trim()) fd.append("note", sigNote.trim());
+                      fd.append("parties", JSON.stringify({ admin: sigPartyAdmin, candidate: sigPartyCandidate }));
+                      if (sigZone) fd.append("signatureZone", JSON.stringify(sigZone));
+                      res = await fetch("/api/portal/admin/sign-request", {
+                        method: "POST",
+                        headers: { Authorization: `Bearer ${accessToken}` },
+                        body: fd,
+                      });
+                    } else {
+                      res = await fetch("/api/portal/admin/sign-request", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                        body: JSON.stringify({
+                          candidateId: selectedUser, documentName: sigModal.label,
+                          driveFileId: sigModal.driveFileId,
+                          note: sigNote.trim() || undefined,
+                          parties: { admin: sigPartyAdmin, candidate: sigPartyCandidate },
+                          signatureZone: sigZone ?? undefined,
+                        }),
+                      });
+                    }
                     if (res.ok) {
                       setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true);
                       setSigZone(null); setSigManualPdf(null);
