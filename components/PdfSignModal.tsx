@@ -1,13 +1,13 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import {
   FilePen, CheckCircle2, X as XIcon, Download, Save,
-  ChevronLeft, ChevronRight, RotateCcw,
 } from "lucide-react";
 import { SignaturePad } from "@/components/SignaturePad";
 import { Spinner } from "@/components/ui/states";
+import { PdfViewer } from "@/components/PdfViewer";
 import type { SigZone } from "@/components/PdfZonePicker";
 
 export type SignRequestFull = {
@@ -64,16 +64,6 @@ const T = {
 } as const;
 type Lang = keyof typeof T;
 
-let _pdfjs: typeof import("pdfjs-dist") | null = null;
-async function getPdfJs() {
-  if (_pdfjs) return _pdfjs;
-  const lib = await import("pdfjs-dist");
-  lib.GlobalWorkerOptions.workerSrc =
-    `https://unpkg.com/pdfjs-dist@${lib.version}/build/pdf.worker.min.mjs`;
-  _pdfjs = lib;
-  return lib;
-}
-
 type Props = {
   request: SignRequestFull;
   lang: Lang;
@@ -84,15 +74,6 @@ type Props = {
 
 export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Props) {
   const t = T[lang] ?? T.en;
-
-  // PDF rendering
-  const canvasRef    = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [pdfDoc, setPdfDoc]       = useState<import("pdfjs-dist").PDFDocumentProxy | null>(null);
-  const [pageCount, setPageCount] = useState(1);
-  const [page, setPage]           = useState(1);
-  const [pdfLoading, setPdfLoading] = useState(true);
-  const [zoom, setZoom]           = useState(1);   // user-controlled zoom (0.6..3)
 
   // Signature state
   const [savedSig, setSavedSig]     = useState<string | null>(null);
@@ -109,7 +90,6 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
   const [signedUrl, setSignedUrl]       = useState<string | null>(null);
 
   const zone = request.signature_zone;
-  const targetPage = zone?.page ?? 1;
 
   // Load saved signature
   useEffect(() => {
@@ -127,63 +107,6 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
       })
       .catch(() => {});
   }, [authToken]);
-
-  // Load PDF
-  useEffect(() => {
-    if (!request.pdf_preview_url) { setPdfLoading(false); return; }
-    let active = true;
-    (async () => {
-      try {
-        const lib = await getPdfJs();
-        const doc = await lib.getDocument(request.pdf_preview_url!).promise;
-        if (!active) return;
-        setPdfDoc(doc);
-        setPageCount(doc.numPages);
-        setPage(targetPage);
-      } catch (e) {
-        console.error("[PdfSignModal] load error", e);
-        if (active) setPdfLoading(false);
-      }
-    })();
-    return () => { active = false; };
-  }, [request.pdf_preview_url]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Render current page
-  useEffect(() => {
-    if (!pdfDoc) return;
-    let active = true;
-    setPdfLoading(true);
-    (async () => {
-      try {
-        const pg        = await pdfDoc.getPage(page);
-        if (!active) return;
-        const container = containerRef.current;
-        const canvas    = canvasRef.current;
-        if (!canvas || !container) return;
-        await new Promise(r => requestAnimationFrame(r));
-        if (!active) return;
-        const cssW = container.clientWidth || 440;
-        // Render at 3× internal resolution so even when zoomed up, text stays
-        // sharp. Browser scales the dense bitmap down for normal display.
-        const QUALITY = 3;
-        const baseVp = pg.getViewport({ scale: 1 });
-        const vp     = pg.getViewport({ scale: (cssW * QUALITY) / baseVp.width });
-        canvas.width  = vp.width;
-        canvas.height = vp.height;
-        canvas.style.width  = cssW + "px";
-        canvas.style.height = (vp.height / QUALITY) + "px";
-        const ctx = canvas.getContext("2d")!;
-        ctx.clearRect(0, 0, vp.width, vp.height);
-        await pg.render({ canvasContext: ctx, viewport: vp, canvas }).promise;
-        if (active) setPdfLoading(false);
-      } catch {
-        if (active) setPdfLoading(false);
-      }
-    })();
-    return () => { active = false; };
-  }, [pdfDoc, page]);
-
-  const isTargetPage = page === targetPage;
 
   async function handleConfirm() {
     if (signing) return; // double-submit guard
@@ -326,164 +249,90 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
             </div>
           ) : (
             <>
-              {/* ── PDF VIEWER ── */}
-              <div>
-                {/* Page navigation + zoom controls */}
-                <div className="flex items-center justify-between mb-2 gap-2">
-                  {pageCount > 1 ? (
-                    <button
-                      disabled={page <= 1}
-                      onClick={() => setPage(p => p - 1)}
-                      className="flex items-center gap-1 text-[11.5px] px-2 py-1 rounded-lg disabled:opacity-30 transition-opacity hover:opacity-70"
-                      style={{ background: "var(--bg2)", color: "var(--w3)" }}>
-                      <ChevronLeft size={12} />
-                    </button>
-                  ) : <span />}
-                  <span className="text-[11.5px] flex-1 text-center" style={{ color: "var(--w3)" }}>
-                    {pageCount > 1 && t.pageOf(page, pageCount)}
-                    {pageCount > 1 && !isTargetPage && (
-                      <button
-                        onClick={() => setPage(targetPage)}
-                        className="ml-2 underline"
-                        style={{ color: "var(--gold)" }}>
-                        {t.goToSign}
-                      </button>
-                    )}
-                  </span>
-                  {/* Zoom controls */}
-                  <div className="flex items-center gap-0.5 rounded-lg" style={{ background: "var(--bg2)" }}>
-                    <button
-                      onClick={() => setZoom(z => Math.max(0.6, +(z - 0.25).toFixed(2)))}
-                      disabled={zoom <= 0.6}
-                      className="px-2 py-1 text-[14px] leading-none disabled:opacity-30 hover:opacity-70"
-                      style={{ color: "var(--w3)" }} aria-label="Zoom out">−</button>
-                    <span className="text-[10.5px] px-1.5 font-medium" style={{ color: "var(--w3)", minWidth: 32, textAlign: "center" }}>
-                      {Math.round(zoom * 100)}%
-                    </span>
-                    <button
-                      onClick={() => setZoom(z => Math.min(3, +(z + 0.25).toFixed(2)))}
-                      disabled={zoom >= 3}
-                      className="px-2 py-1 text-[14px] leading-none disabled:opacity-30 hover:opacity-70"
-                      style={{ color: "var(--w3)" }} aria-label="Zoom in">+</button>
+              {/* ── PDF VIEWER (unified — pinch/wheel zoom built in) ── */}
+              <div style={{ height: "62dvh", borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)" }}>
+                {request.pdf_preview_url ? (
+                  <PdfViewer
+                    src={request.pdf_preview_url}
+                    hideRotate
+                    pageOverlay={({ pageNum }) => {
+                      if (!zone || zone.page !== pageNum) return null;
+                      return (
+                        <div
+                          className={!sigPlaced && !dragOverZone ? "bv-sig-zone-pulse" : ""}
+                          style={{
+                            position: "absolute",
+                            left:       `${zone.x * 100}%`,
+                            top:        `${zone.y * 100}%`,
+                            width:      `${zone.w * 100}%`,
+                            height:     `${zone.h * 100}%`,
+                            border:     `2.5px ${dragOverZone ? "solid" : "dashed"} var(--gold)`,
+                            background: dragOverZone
+                              ? "var(--border-gold)"
+                              : sigPlaced
+                                ? "var(--gdim)"
+                                : "rgba(201,162,64,0.14)",
+                            borderRadius: 6,
+                            cursor: "pointer",
+                            overflow: "hidden",
+                            transition: "background 0.15s, border 0.15s",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                          }}
+                          onDragOver={e => { e.preventDefault(); setDragOverZone(true); }}
+                          onDragLeave={() => setDragOverZone(false)}
+                          onDrop={e => {
+                            e.preventDefault();
+                            setDragOverZone(false);
+                            if (e.dataTransfer.getData("bv-sig") === "saved" && savedSig) {
+                              setSigData(savedSig);
+                              setUsingSaved(true);
+                              setSigPlaced(true);
+                            }
+                          }}
+                          onClick={() => {
+                            if (savedSig && !sigPlaced) {
+                              setSigData(savedSig);
+                              setUsingSaved(true);
+                              setSigPlaced(true);
+                            }
+                          }}
+                        >
+                          {sigPlaced && sigData ? (
+                            <>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={sigData}
+                                alt="signature"
+                                style={{ width: "90%", height: "90%", objectFit: "contain" }}
+                              />
+                              <button
+                                onClick={e => { e.stopPropagation(); clearSig(); }}
+                                className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center"
+                                style={{ background: "rgba(0,0,0,0.5)" }}>
+                                <XIcon size={8} strokeWidth={2.5} style={{ color: "#fff" }} />
+                              </button>
+                            </>
+                          ) : (
+                            <span style={{
+                              fontSize: 11, color: "var(--gold)", fontWeight: 700,
+                              textShadow: "0 1px 3px rgba(0,0,0,0.6)",
+                              pointerEvents: "none",
+                            }}>
+                              ✍ {t.dropHere}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    }}
+                  />
+                ) : (
+                  <div className="flex items-center justify-center h-full text-[12.5px]"
+                    style={{ color: "var(--w3)" }}>
+                    {t.noPreview}
                   </div>
-                  {pageCount > 1 ? (
-                    <button
-                      disabled={page >= pageCount}
-                      onClick={() => setPage(p => p + 1)}
-                      className="flex items-center gap-1 text-[11.5px] px-2 py-1 rounded-lg disabled:opacity-30 transition-opacity hover:opacity-70"
-                      style={{ background: "var(--bg2)", color: "var(--w3)" }}>
-                      <ChevronRight size={12} />
-                    </button>
-                  ) : <span />}
-                </div>
-
-                {/* Scrollable PDF area — pans when zoomed past viewport */}
-                <div className="relative rounded-xl overflow-auto"
-                  style={{ border: "1px solid var(--border)", background: "#f5f5f5", maxHeight: "62dvh" }}>
-                  {pdfLoading && (
-                    <div className="absolute inset-0 z-20 flex items-center justify-center"
-                      style={{ background: "rgba(0,0,0,0.45)" }}>
-                      <Spinner size="md" />
-                    </div>
-                  )}
-
-                  {!request.pdf_preview_url && !pdfLoading && (
-                    <div className="flex items-center justify-center py-12 text-[12.5px]"
-                      style={{ color: "var(--w3)" }}>
-                      {t.noPreview}
-                    </div>
-                  )}
-
-                  <div ref={containerRef} className="relative select-none"
-                    style={{ transformOrigin: "top left", transform: `scale(${zoom})`, width: "100%" }}>
-                  <canvas ref={canvasRef}
-                    style={{ display: "block", width: "100%", height: "auto" }} />
-
-                  {/* Sign-zone overlay — only on target page. Pulses to grab
-                      attention until the signature is placed, then settles. */}
-                  {isTargetPage && zone && !pdfLoading && (
-                    <div
-                      className={!sigPlaced && !dragOverZone ? "bv-sig-zone-pulse" : ""}
-                      style={{
-                        position: "absolute",
-                        left:       `${zone.x * 100}%`,
-                        top:        `${zone.y * 100}%`,
-                        width:      `${zone.w * 100}%`,
-                        height:     `${zone.h * 100}%`,
-                        border:     `2.5px ${dragOverZone ? "solid" : "dashed"} var(--gold)`,
-                        background: dragOverZone
-                          ? "var(--border-gold)"
-                          : sigPlaced
-                            ? "var(--gdim)"
-                            : "rgba(201,162,64,0.14)",
-                        borderRadius: 6,
-                        cursor: "pointer",
-                        overflow: "hidden",
-                        transition: "background 0.15s, border 0.15s",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                      onDragOver={e => { e.preventDefault(); setDragOverZone(true); }}
-                      onDragLeave={() => setDragOverZone(false)}
-                      onDrop={e => {
-                        e.preventDefault();
-                        setDragOverZone(false);
-                        if (e.dataTransfer.getData("bv-sig") === "saved" && savedSig) {
-                          setSigData(savedSig);
-                          setUsingSaved(true);
-                          setSigPlaced(true);
-                        }
-                      }}
-                      onClick={() => {
-                        if (savedSig && !sigPlaced) {
-                          setSigData(savedSig);
-                          setUsingSaved(true);
-                          setSigPlaced(true);
-                        }
-                      }}
-                    >
-                      {sigPlaced && sigData ? (
-                        /* Show placed signature as preview */
-                        <>
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={sigData}
-                            alt="signature"
-                            style={{
-                              width: "90%", height: "90%",
-                              objectFit: "contain",
-                              filter: "invert(0)",
-                            }}
-                          />
-                          <button
-                            onClick={e => { e.stopPropagation(); clearSig(); }}
-                            className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center"
-                            style={{ background: "rgba(0,0,0,0.5)" }}>
-                            <XIcon size={8} strokeWidth={2.5} style={{ color: "#fff" }} />
-                          </button>
-                        </>
-                      ) : (
-                        <span style={{
-                          fontSize: 11, color: "var(--gold)", fontWeight: 700,
-                          textShadow: "0 1px 3px rgba(0,0,0,0.6)",
-                          pointerEvents: "none",
-                        }}>
-                          ✍ {t.dropHere}
-                        </span>
-                      )}
-                    </div>
-                  )}
-
-                  {/* No-zone fallback label on last page */}
-                  {isTargetPage && !zone && !pdfLoading && (
-                    <div className="absolute bottom-4 right-4 px-3 py-1.5 rounded-lg text-[11px] font-semibold"
-                      style={{ background: "rgba(201,162,64,0.85)", color: "#131312" }}>
-                      ✍ {t.sigAppears}
-                    </div>
-                  )}
-                  </div>{/* /scaled inner wrapper */}
-                </div>{/* /scrollable PDF area */}
+                )}
               </div>
 
               {/* ── SIGNATURE SECTION ── */}
