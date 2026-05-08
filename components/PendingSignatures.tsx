@@ -2,7 +2,7 @@
 
 import { FilePen, CheckCircle2, Clock } from "lucide-react";
 import { PdfSignModal, type SignRequestFull } from "@/components/PdfSignModal";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const T = {
   en: { title: "Documents to sign", sign: "Sign now", signed: "Signed", note: "Note:" },
@@ -16,11 +16,24 @@ type Props = {
   lang:      Lang;
   authToken: string;
   onSigned?: (id: string) => void;
+  /** When set, auto-opens the matching sign request in PdfSignModal. */
+  autoOpenId?: string | null;
+  onAutoOpenConsumed?: () => void;
 };
 
-export function PendingSignatures({ requests, lang, authToken, onSigned }: Props) {
+export function PendingSignatures({ requests, lang, authToken, onSigned, autoOpenId, onAutoOpenConsumed }: Props) {
   const t = T[lang] ?? T.en;
   const [active, setActive] = useState<SignRequestFull | null>(null);
+
+  // Auto-open the requested sign request (e.g. arriving from a bell deep-link)
+  useEffect(() => {
+    if (!autoOpenId) return;
+    const r = requests.find(x => x.id === autoOpenId && x.status === "pending");
+    if (r) {
+      setActive(r);
+      onAutoOpenConsumed?.();
+    }
+  }, [autoOpenId, requests, onAutoOpenConsumed]);
 
   const pending = requests.filter(r => r.status === "pending");
   const signed  = requests.filter(r => r.status === "signed");

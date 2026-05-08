@@ -168,10 +168,11 @@ export async function POST(req: NextRequest) {
     .update({ pdf_storage_path: storagePath })
     .eq("id", requestId);
 
-  // Insert candidate notification so it shows up in their bell
+  // Insert candidate notification so it shows up in their bell.
+  // Store the sign_request id in `doc_id` so the bell can deep-link to it.
   await db.from("notifications").insert({
     user_id:  candidateId,
-    doc_id:   null,
+    doc_id:   requestId,
     doc_name: documentName,
     doc_type: "sign_request",
     action:   "sign_request",

@@ -339,8 +339,15 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
     markOneRead(n);
     setOpen(false);
 
-    // "placed" and "sign_request" notifications — just go to dashboard
-    if (n.action === "placed" || n.action === "sign_request") {
+    // "sign_request" — deep-link to the dashboard with the sign-request id
+    // so PendingSignatures auto-opens the PdfSignModal for that request.
+    if (n.action === "sign_request") {
+      const sid = n.doc_id ?? "";
+      router.push(`/portal/dashboard${sid ? `?sign=${encodeURIComponent(sid)}` : ""}`);
+      return;
+    }
+    // "placed" — just go to dashboard
+    if (n.action === "placed") {
       router.push("/portal/dashboard");
       return;
     }

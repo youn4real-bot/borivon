@@ -291,6 +291,13 @@ export default function DashboardPage() {
   // Sign requests — documents sent for digital signature
   type SignReq = { id: string; document_name: string; note: string | null; status: "pending" | "signed" | "declined"; signed_at: string | null; created_at: string; signature_zone: { page: number; x: number; y: number; w: number; h: number } | null; pdf_preview_url: string | null; };
   const [signRequests, setSignRequests] = useState<SignReq[]>([]);
+  // Bell deep-link: ?sign=<requestId> → auto-open that sign request
+  const [autoOpenSignId, setAutoOpenSignId] = useState<string | null>(null);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const id = new URLSearchParams(window.location.search).get("sign");
+    if (id) setAutoOpenSignId(id);
+  }, []);
 
   // (Mobile drawer + bottom-bar hamburger removed — sidebar is now always
   // visible on every breakpoint, matching the admin dashboard layout.)
@@ -1632,6 +1639,16 @@ export default function DashboardPage() {
               lang={(lang as "en" | "fr" | "de") in { en: 1, fr: 1, de: 1 } ? lang as "en" | "fr" | "de" : "en"}
               authToken={authToken}
               onSigned={(id) => setSignRequests(prev => prev.map(r => r.id === id ? { ...r, status: "signed" } : r))}
+              autoOpenId={autoOpenSignId}
+              onAutoOpenConsumed={() => {
+                setAutoOpenSignId(null);
+                // Clean the ?sign= param from URL so refreshing doesn't reopen it
+                if (typeof window !== "undefined") {
+                  const url = new URL(window.location.href);
+                  url.searchParams.delete("sign");
+                  window.history.replaceState({}, "", url.toString());
+                }
+              }}
             />
           </div>
         )}
