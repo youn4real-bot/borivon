@@ -207,7 +207,10 @@ export async function POST(req: NextRequest) {
 
   // Insert candidate notification so it shows up in their bell.
   // Store the sign_request id in `doc_id` so the bell can deep-link to it.
-  await db.from("notifications").insert({
+  // If this fails (e.g. action CHECK constraint not yet migrated to allow
+  // 'sign_request') we log + still return success — the sign request itself
+  // is created and the candidate can see it on /portal/dashboard.
+  const { error: notifErr } = await db.from("notifications").insert({
     user_id:  candidateId,
     doc_id:   requestId,
     doc_name: documentName,
@@ -215,7 +218,8 @@ export async function POST(req: NextRequest) {
     action:   "sign_request",
     feedback: null,
     read:     false,
-  }); // non-blocking, best-effort — ignore errors
+  });
+  if (notifErr) console.error("[sign-request POST] notification insert failed:", notifErr);
 
   return NextResponse.json({ id: requestId });
 }

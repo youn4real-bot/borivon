@@ -4150,30 +4150,50 @@ export default function AdminPage() {
                     if (!sigPdfBase64 && !sigManualPdf) { sigManualFileRef.current?.click(); return; }
                     setSigSending(true);
                     try {
-                      const res = await fetch("/api/portal/admin/sign-request", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-                        body: JSON.stringify({
-                          candidateId: selectedUser,
-                          documentName: sigModal.label,
-                          ...(sigManualPdf
-                            ? { pdfBase64: sigManualPdf }
-                            : { driveFileId: sigModal.driveFileId }
-                          ),
-                          note: sigNote.trim() || undefined,
-                          parties: { admin: sigPartyAdmin, candidate: sigPartyCandidate },
-                          signatureZone: sigZone ?? undefined,
-                        }),
-                      });
-                      if (res.ok) {
-                        setSigModal(null);
-                        setSigNote("");
-                        setSigPartyAdmin(false);
-                        setSigPartyCandidate(true);
-                        setSigZone(null);
-                        setSigManualPdf(null);
+                      let res: Response;
+                      if (sigManualPdf) {
+                        const fd = new FormData();
+                        fd.append("candidateId", selectedUser ?? "");
+                        fd.append("documentName", sigModal.label);
+                        const bin = atob(sigManualPdf);
+                        const arr = new Uint8Array(bin.length);
+                        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+                        fd.append("pdf", new Blob([arr], { type: "application/pdf" }), "signature-document.pdf");
+                        if (sigNote.trim()) fd.append("note", sigNote.trim());
+                        fd.append("parties", JSON.stringify({ admin: sigPartyAdmin, candidate: sigPartyCandidate }));
+                        if (sigZone) fd.append("signatureZone", JSON.stringify(sigZone));
+                        res = await fetch("/api/portal/admin/sign-request", {
+                          method: "POST",
+                          headers: { Authorization: `Bearer ${accessToken}` },
+                          body: fd,
+                        });
+                      } else {
+                        res = await fetch("/api/portal/admin/sign-request", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                          body: JSON.stringify({
+                            candidateId: selectedUser, documentName: sigModal.label,
+                            driveFileId: sigModal.driveFileId,
+                            note: sigNote.trim() || undefined,
+                            parties: { admin: sigPartyAdmin, candidate: sigPartyCandidate },
+                            signatureZone: sigZone ?? undefined,
+                          }),
+                        });
                       }
-                    } catch { /* ignore */ }
+                      if (res.ok) {
+                        setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true);
+                        setSigZone(null); setSigManualPdf(null);
+                        showError(lang === "fr" ? "Demande envoyée ✓" : lang === "de" ? "Anfrage gesendet ✓" : "Request sent ✓");
+                      } else {
+                        const j = await res.json().catch(() => ({}));
+                        const msg = (j as { error?: string }).error ?? `HTTP ${res.status}`;
+                        console.error("[sign-request] failed:", res.status, msg, j);
+                        showError(`Send failed: ${msg}`);
+                      }
+                    } catch (e) {
+                      console.error("[sign-request] exception:", e);
+                      showError(`Send error: ${e instanceof Error ? e.message : String(e)}`);
+                    }
                     setSigSending(false);
                   }}
                   disabled={sigSending || (!sigPartyAdmin && !sigPartyCandidate)}

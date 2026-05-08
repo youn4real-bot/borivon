@@ -206,7 +206,7 @@ export function PdfZonePicker({ pdfBase64, onChange, onError }: Props) {
         )}
       </div>
 
-      <div ref={containerRef} className="relative select-none overflow-hidden"
+      <div ref={containerRef} className="relative select-none"
         style={{ borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}
         onMouseMove={onMove}
         onMouseUp={onUp}
@@ -224,21 +224,29 @@ export function PdfZonePicker({ pdfBase64, onChange, onError }: Props) {
           onMouseDown={onDown}
         />
 
-        {/* Zone overlay — gold box with premium styling + resize handles */}
-        <div className="absolute" style={{
-          left:       `${zone.x * 100}%`,
-          top:        `${zone.y * 100}%`,
-          width:      `${zone.w * 100}%`,
-          height:     `${zone.h * 100}%`,
-          border:     "2px solid var(--gold)",
-          background: "var(--gdim)",
-          borderRadius: 6,
-          boxShadow:  "0 4px 14px rgba(201,162,64,0.18)",
-          display:    "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          cursor:     "move",
-          pointerEvents: "none",
+        {/* Zone overlay — gold box with premium styling + resize handles.
+            pointerEvents: auto so cursor shows "move" inside zone. Drag-to-move
+            handled here; resize handled by inner handle elements. */}
+        <div className="absolute"
+          onMouseDown={e => {
+            e.preventDefault();
+            e.stopPropagation();
+            const p = relPos(e);
+            dragRef.current = { sx: p.x, sy: p.y, ox: zone.x, oy: zone.y };
+          }}
+          style={{
+            left:       `${zone.x * 100}%`,
+            top:        `${zone.y * 100}%`,
+            width:      `${zone.w * 100}%`,
+            height:     `${zone.h * 100}%`,
+            border:     "2px solid var(--gold)",
+            background: "var(--gdim)",
+            borderRadius: 6,
+            boxShadow:  "0 4px 14px rgba(201,162,64,0.18)",
+            display:    "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor:     "move",
         }}>
           <span className="inline-flex items-center gap-1.5 tracking-tight pointer-events-none"
             style={{
