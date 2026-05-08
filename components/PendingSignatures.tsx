@@ -36,9 +36,21 @@ export function PendingSignatures({ requests, lang, authToken, onSigned, autoOpe
   }, [autoOpenId, requests, onAutoOpenConsumed]);
 
   const pending = requests.filter(r => r.status === "pending");
-  const signed  = requests.filter(r => r.status === "signed");
 
-  if (requests.length === 0) return null;
+  // Once everything is signed, hide the section entirely.
+  if (pending.length === 0) {
+    // Still need to render the modal in case autoOpen was triggered for an
+    // already-signed request — in that case it's a no-op.
+    return active ? (
+      <PdfSignModal
+        request={active}
+        lang={lang}
+        authToken={authToken}
+        onSigned={id => { onSigned?.(id); setActive(null); }}
+        onClose={() => setActive(null)}
+      />
+    ) : null;
+  }
 
   return (
     <>
@@ -78,18 +90,7 @@ export function PendingSignatures({ requests, lang, authToken, onSigned, autoOpe
           </div>
         ))}
 
-        {signed.map(r => (
-          <div key={r.id} className="flex items-center gap-3 px-4 py-3"
-            style={{ background: "var(--card)", borderBottom: "1px solid var(--border)", opacity: 0.7 }}>
-            <CheckCircle2 size={15} strokeWidth={2} style={{ color: "var(--success)", flexShrink: 0 }} />
-            <div className="flex-1 min-w-0">
-              <p className="text-[13px] font-medium" style={{ color: "var(--w)" }}>{r.document_name}</p>
-              <p className="text-[11px] mt-0.5" style={{ color: "var(--success)" }}>
-                {t.signed}{r.signed_at ? ` · ${new Date(r.signed_at).toLocaleDateString()}` : ""}
-              </p>
-            </div>
-          </div>
-        ))}
+        {/* Signed docs no longer shown on dashboard — section disappears once all signed. */}
       </div>
 
       {active && (
