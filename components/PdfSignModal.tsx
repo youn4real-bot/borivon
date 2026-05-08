@@ -194,27 +194,29 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
         }
       `}</style>
       <div
-        className="bv-sign-modal-card w-full sm:max-w-2xl rounded-2xl overflow-hidden flex flex-col"
+        className="bv-sign-modal-card w-full max-w-3xl rounded-2xl overflow-hidden flex flex-col"
         style={{
           background: "var(--card)",
-          border: "1px solid var(--border-gold)",
+          border: "1px solid var(--border)",
           boxShadow: "var(--shadow-lg)",
         }}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 flex-shrink-0"
-          style={{ background: "var(--gdim)", borderBottom: "1px solid var(--border-gold)" }}>
-          <div className="flex items-center gap-2 min-w-0">
-            <FilePen size={14} strokeWidth={1.8} style={{ color: "var(--gold)", flexShrink: 0 }} />
-            <span className="text-[13.5px] font-semibold truncate" style={{ color: "var(--gold)" }}>
+        <div className="flex items-center justify-between px-5 py-3.5 flex-shrink-0"
+          style={{ borderBottom: "1px solid var(--border)" }}>
+          <div className="min-w-0 flex-1 mr-3">
+            <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-0.5" style={{ color: "var(--w3)" }}>
+              {lang === "fr" ? "Demande de signature" : lang === "de" ? "Signaturanfrage" : "Signature request"}
+            </p>
+            <p className="text-[13.5px] font-semibold truncate tracking-tight" style={{ color: "var(--w)" }}>
               {request.document_name}
-            </span>
+            </p>
           </div>
           <button onClick={onClose} disabled={signing}
-            className="w-7 h-7 flex-shrink-0 flex items-center justify-center rounded-full transition-opacity hover:opacity-70 disabled:opacity-40 disabled:cursor-not-allowed"
-            style={{ background: "var(--bg2)" }}>
-            <XIcon size={14} strokeWidth={2} style={{ color: "var(--w3)" }} />
+            className="bv-icon-btn w-8 h-8 flex-shrink-0 flex items-center justify-center rounded-full transition-opacity hover:opacity-70 disabled:opacity-40 disabled:cursor-not-allowed"
+            style={{ color: "var(--w3)" }}>
+            <XIcon size={14} strokeWidth={1.8} />
           </button>
         </div>
 

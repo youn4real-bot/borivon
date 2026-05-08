@@ -3235,20 +3235,19 @@ export default function AdminPage() {
           style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(10px)", position: "fixed", top: 0, left: 0, right: 0, bottom: 0 }}
           onClick={() => { setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true); setSigZone(null); setSigManualPdf(null); }}>
           <div className="w-full max-w-4xl rounded-2xl overflow-hidden flex flex-col"
-            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", maxHeight: "calc(100dvh - 80px)" }}
+            style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)", maxHeight: "calc(100dvh - 80px)" }}
             onClick={e => e.stopPropagation()}>
-            <div className="px-4 py-3 flex items-center gap-3 flex-shrink-0"
-              style={{ borderBottom: "1px solid var(--border-gold)", background: "var(--gdim)" }}>
-              <FilePen size={15} strokeWidth={1.8} style={{ color: "var(--gold)", flexShrink: 0 }} />
-              <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-semibold" style={{ color: "var(--gold)" }}>
-                  {lang === "fr" ? "Demande de signature" : lang === "de" ? "Signatur anfordern" : "Signature request"}
+            <div className="px-5 py-3.5 flex items-center justify-between flex-shrink-0"
+              style={{ borderBottom: "1px solid var(--border)" }}>
+              <div className="min-w-0 flex-1 mr-3">
+                <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-0.5" style={{ color: "var(--w3)" }}>
+                  {lang === "fr" ? "Demande de signature" : lang === "de" ? "Signaturanfrage" : "Signature request"}
                 </p>
-                <p className="text-[11px] truncate mt-0.5" style={{ color: "var(--w3)" }}>{sigModal.label}</p>
+                <p className="text-[13.5px] font-semibold truncate tracking-tight" style={{ color: "var(--w)" }}>{sigModal.label}</p>
               </div>
               <button onClick={() => { setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true); setSigZone(null); setSigManualPdf(null); }}
-                className="bv-icon-btn w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0" style={{ color: "var(--w3)" }}>
-                <XIcon size={13} strokeWidth={2} />
+                className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ color: "var(--w3)" }}>
+                <XIcon size={14} strokeWidth={1.8} />
               </button>
             </div>
             <div className="overflow-y-auto flex-1">
@@ -3303,7 +3302,7 @@ export default function AdminPage() {
                 </div>
               )}
             </div>
-            <div className="px-4 py-3 flex-shrink-0 space-y-3" style={{ borderTop: "1px solid var(--border-gold)" }}>
+            <div className="px-4 py-3 flex-shrink-0 space-y-3" style={{ borderTop: "1px solid var(--border)" }}>
               <div className="flex items-center gap-3 flex-wrap">
                 <span className="text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: "var(--w3)" }}>
                   {lang === "fr" ? "Signe :" : lang === "de" ? "Signiert:" : "Signs:"}
@@ -4033,23 +4032,22 @@ export default function AdminPage() {
           style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(10px)", position: "fixed", top: 0, left: 0, right: 0, bottom: 0 }}
           onClick={() => { setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true); setSigZone(null); setSigManualPdf(null); }}>
           <div className="w-full max-w-4xl rounded-2xl overflow-hidden flex flex-col"
-            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", maxHeight: "calc(100dvh - 80px)" }}
+            style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)", maxHeight: "calc(100dvh - 80px)" }}
             onClick={e => e.stopPropagation()}>
 
             {/* ── Header ── */}
-            <div className="px-4 py-3 flex items-center gap-3 flex-shrink-0"
-              style={{ borderBottom: "1px solid var(--border-gold)", background: "var(--gdim)" }}>
-              <FilePen size={15} strokeWidth={1.8} style={{ color: "var(--gold)", flexShrink: 0 }} />
-              <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-semibold" style={{ color: "var(--gold)" }}>
-                  {lang === "fr" ? "Demande de signature" : lang === "de" ? "Signatur anfordern" : "Signature request"}
+            <div className="px-5 py-3.5 flex items-center justify-between flex-shrink-0"
+              style={{ borderBottom: "1px solid var(--border)" }}>
+              <div className="min-w-0 flex-1 mr-3">
+                <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-0.5" style={{ color: "var(--w3)" }}>
+                  {lang === "fr" ? "Demande de signature" : lang === "de" ? "Signaturanfrage" : "Signature request"}
                 </p>
-                <p className="text-[11px] truncate mt-0.5" style={{ color: "var(--w3)" }}>{sigModal.label}</p>
+                <p className="text-[13.5px] font-semibold truncate tracking-tight" style={{ color: "var(--w)" }}>{sigModal.label}</p>
               </div>
               <button onClick={() => { setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true); setSigZone(null); setSigManualPdf(null); }}
-                className="bv-icon-btn w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
+                className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
                 style={{ color: "var(--w3)" }}>
-                <XIcon size={13} strokeWidth={2} />
+                <XIcon size={14} strokeWidth={1.8} />
               </button>
             </div>
 
@@ -4117,7 +4115,7 @@ export default function AdminPage() {
 
             {/* ── Compact footer: who signs + note + send ── */}
             <div className="px-4 py-3 flex-shrink-0 space-y-3"
-              style={{ borderTop: "1px solid var(--border-gold)" }}>
+              style={{ borderTop: "1px solid var(--border)" }}>
               {/* Who signs — horizontal chips */}
               <div className="flex items-center gap-3 flex-wrap">
                 <span className="text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: "var(--w3)" }}>
