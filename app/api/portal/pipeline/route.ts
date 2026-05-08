@@ -81,6 +81,18 @@ export async function PATCH(req: NextRequest) {
 
   const db = getServiceSupabase();
 
+  // Read prior interview_status so we can suppress duplicate notifications
+  // when the same value is re-saved (admin clicks the same button twice).
+  let prevInterviewStatus: string | null = null;
+  if (fields.interview_status === "passed" || fields.interview_status === "failed") {
+    const { data: prev } = await db
+      .from("candidate_pipeline")
+      .select("interview_status")
+      .eq("user_id", userId)
+      .maybeSingle();
+    prevInterviewStatus = (prev as { interview_status?: string | null } | null)?.interview_status ?? null;
+  }
+
   // Try UPDATE first; if no row exists yet, INSERT.
   // Avoids onConflict constraint dependency (schema-agnostic).
   const { data: updated, error: updateErr } = await db
@@ -105,10 +117,13 @@ export async function PATCH(req: NextRequest) {
     }
   }
 
-  // Notify candidate when interview result is set
-  // Map "passed" → "approved" and "failed" → "rejected" to match the bell's
-  // supported action values ("approved" | "rejected" | "verified" | "placed").
-  if (fields.interview_status === "passed" || fields.interview_status === "failed") {
+  // Notify candidate when interview result transitions into passed/failed.
+  // Suppress when the value didn't actually change — admin re-clicks the same
+  // button shouldn't spam the candidate.
+  if (
+    (fields.interview_status === "passed" || fields.interview_status === "failed") &&
+    fields.interview_status !== prevInterviewStatus
+  ) {
     const notifAction = fields.interview_status === "passed" ? "approved" : "rejected";
     await db.from("notifications").insert({
       user_id: userId,
