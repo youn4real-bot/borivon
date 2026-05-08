@@ -303,6 +303,7 @@ export function SignRequestPanel({ candidateId, authToken, lang }: Props) {
             <PdfZonePicker
               pdfBase64={pdfBase64}
               onChange={z => setSigZone(z)}
+              lang={lang}
             />
           )}
 

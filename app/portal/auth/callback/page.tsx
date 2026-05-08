@@ -45,9 +45,17 @@ function CallbackInner() {
     (async () => {
       const code = params.get("code");
       if (code) {
-        const { data: sessionData, error } = await supabase.auth.exchangeCodeForSession(code);
-        if (cancelled) return;
-        if (error) {
+        let sessionData: Awaited<ReturnType<typeof supabase.auth.exchangeCodeForSession>>["data"] | null = null;
+        try {
+          const res = await supabase.auth.exchangeCodeForSession(code);
+          if (cancelled) return;
+          if (res.error) {
+            setError(cbT.invalid);
+            return;
+          }
+          sessionData = res.data;
+        } catch {
+          if (cancelled) return;
           setError(cbT.invalid);
           return;
         }

@@ -30,6 +30,10 @@ const T = {
     clear: "Clear", dropHere: "Drop or click to sign",
     dragHint: "Drag your signature onto the zone above, or draw below",
     note: "Note:",
+    pageOf: (p: number, n: number) => `Page ${p} of ${n}`,
+    goToSign: "Go to sign page",
+    sigAppears: "Signature will appear here",
+    noPreview: "No PDF preview available",
   },
   fr: {
     close: "Fermer", confirm: "Confirmer & signer", signing: "Signature…",
@@ -39,6 +43,10 @@ const T = {
     clear: "Effacer", dropHere: "Déposez ou cliquez pour signer",
     dragHint: "Glissez votre signature sur la zone ou dessinez ci-dessous",
     note: "Note :",
+    pageOf: (p: number, n: number) => `Page ${p} sur ${n}`,
+    goToSign: "Aller à la page de signature",
+    sigAppears: "La signature apparaîtra ici",
+    noPreview: "Aperçu PDF indisponible",
   },
   de: {
     close: "Schließen", confirm: "Bestätigen & unterschreiben", signing: "Wird unterschrieben…",
@@ -48,6 +56,10 @@ const T = {
     clear: "Löschen", dropHere: "Ablegen oder klicken zum Unterschreiben",
     dragHint: "Unterschrift auf Zone ziehen oder unten zeichnen",
     note: "Hinweis:",
+    pageOf: (p: number, n: number) => `Seite ${p} von ${n}`,
+    goToSign: "Zur Signaturseite",
+    sigAppears: "Unterschrift erscheint hier",
+    noPreview: "PDF-Vorschau nicht verfügbar",
   },
 } as const;
 type Lang = keyof typeof T;
@@ -328,13 +340,13 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                     </button>
                   ) : <span />}
                   <span className="text-[11.5px] flex-1 text-center" style={{ color: "var(--w3)" }}>
-                    {pageCount > 1 && <>Page {page} of {pageCount}</>}
+                    {pageCount > 1 && t.pageOf(page, pageCount)}
                     {pageCount > 1 && !isTargetPage && (
                       <button
                         onClick={() => setPage(targetPage)}
                         className="ml-2 underline"
                         style={{ color: "var(--gold)" }}>
-                        Go to sign page
+                        {t.goToSign}
                       </button>
                     )}
                   </span>
@@ -378,7 +390,7 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                   {!request.pdf_preview_url && !pdfLoading && (
                     <div className="flex items-center justify-center py-12 text-[12.5px]"
                       style={{ color: "var(--w3)" }}>
-                      No PDF preview available
+                      {t.noPreview}
                     </div>
                   )}
 
@@ -467,7 +479,7 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                   {isTargetPage && !zone && !pdfLoading && (
                     <div className="absolute bottom-4 right-4 px-3 py-1.5 rounded-lg text-[11px] font-semibold"
                       style={{ background: "rgba(201,162,64,0.85)", color: "#131312" }}>
-                      ✍ Signature will appear here
+                      ✍ {t.sigAppears}
                     </div>
                   )}
                   </div>{/* /scaled inner wrapper */}

@@ -16,13 +16,22 @@ function defaultZone(page: number): SigZone {
   return { page, x: 0.48, y: 0.74, w: 0.44, h: 0.13 };
 }
 
+const T = {
+  en: { hint: "Drag to draw · Move the gold box · Resize via handles", signHere: "Sign here" },
+  fr: { hint: "Glissez pour dessiner · Déplacez la zone dorée · Redimensionnez via les poignées", signHere: "Signez ici" },
+  de: { hint: "Ziehen zum Zeichnen · Goldfeld verschieben · Über Griffe skalieren", signHere: "Hier unterschreiben" },
+} as const;
+type Lang = keyof typeof T;
+
 type Props = {
   pdfBase64: string;         // raw base64, no "data:" prefix
   onChange: (z: SigZone) => void;
   onError?: () => void;
+  lang?: Lang;
 };
 
-export function PdfZonePicker({ pdfBase64, onChange, onError }: Props) {
+export function PdfZonePicker({ pdfBase64, onChange, onError, lang = "en" }: Props) {
+  const t = T[lang] ?? T.en;
   const [pdfUrl, setPdfUrl] = useState<string>("");
   const [zone, setZone]     = useState<SigZone>(defaultZone(1));
   const onChangeRef = useRef(onChange);
@@ -58,7 +67,7 @@ export function PdfZonePicker({ pdfBase64, onChange, onError }: Props) {
     <div>
       <div className="flex items-center justify-between px-3 py-2">
         <span className="text-[11px]" style={{ color: "var(--w3)" }}>
-          Drag to draw · Move the gold box · Resize via handles
+          {t.hint}
         </span>
       </div>
 
@@ -76,6 +85,7 @@ export function PdfZonePicker({ pdfBase64, onChange, onError }: Props) {
                 pageNum={pageNum}
                 zone={zone.page === pageNum ? zone : null}
                 onZone={emit}
+                signHereLabel={t.signHere}
               />
             )}
           />
@@ -99,11 +109,12 @@ type Gesture =
   | { type: "resize"; sx: number; sy: number; ox: number; oy: number; ow: number; oh: number; handle: ResizeHandle };
 
 function ZoneLayer({
-  pageNum, zone, onZone,
+  pageNum, zone, onZone, signHereLabel,
 }: {
   pageNum: number;
   zone: SigZone | null;
   onZone: (z: SigZone) => void;
+  signHereLabel: string;
 }) {
   const layerRef   = useRef<HTMLDivElement>(null);
   const gestureRef = useRef<Gesture | null>(null);
@@ -230,7 +241,7 @@ function ZoneLayer({
               letterSpacing: "0.01em",
             }}>
             <FilePen size={12} strokeWidth={2} style={{ color: "var(--gold)" }} />
-            Sign here
+            {signHereLabel}
           </span>
 
           {(["nw","n","ne","e","se","s","sw","w"] as const).map(h => {

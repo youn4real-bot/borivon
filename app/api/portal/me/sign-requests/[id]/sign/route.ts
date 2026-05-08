@@ -89,7 +89,19 @@ export async function POST(
   type SigZone = { page: number; x: number; y: number; w: number; h: number };
   let zone: SigZone | null = null;
   if (r.signature_zone) {
-    try { zone = JSON.parse(r.signature_zone) as SigZone; } catch { /* use default */ }
+    try {
+      const parsed = JSON.parse(r.signature_zone) as Partial<SigZone>;
+      // Validate ranges; ignore malformed zones rather than stamping outside the page.
+      if (
+        Number.isFinite(parsed.page) && (parsed.page as number) >= 1 &&
+        Number.isFinite(parsed.x) && (parsed.x as number) >= 0 && (parsed.x as number) <= 1 &&
+        Number.isFinite(parsed.y) && (parsed.y as number) >= 0 && (parsed.y as number) <= 1 &&
+        Number.isFinite(parsed.w) && (parsed.w as number) > 0 && (parsed.w as number) <= 1 &&
+        Number.isFinite(parsed.h) && (parsed.h as number) > 0 && (parsed.h as number) <= 1
+      ) {
+        zone = parsed as SigZone;
+      }
+    } catch { /* use default */ }
   }
 
   // Select the target page (zone.page is 1-indexed; clamp to valid range)
@@ -185,19 +197,27 @@ export async function POST(
     return NextResponse.json({ error: "Could not save signed document" }, { status: 500 });
   }
 
-  // Update record — guard against silent failure
-  const { error: updateErr } = await db
+  // Update record — atomic conditional update guards the SELECT/UPDATE race.
+  // If another concurrent sign request already flipped status, this returns
+  // 0 rows and we 409 instead of double-stamping.
+  const { data: updated, error: updateErr } = await db
     .from("sign_requests")
     .update({
       status:          "signed",
       signed_at:       new Date().toISOString(),
       signed_pdf_path: signedPath,
     })
-    .eq("id", id);
+    .eq("id", id)
+    .eq("status", "pending")
+    .select("id")
+    .maybeSingle();
 
   if (updateErr) {
     console.error("[sign] update error:", updateErr);
     return NextResponse.json({ error: "Could not update signature record" }, { status: 500 });
+  }
+  if (!updated) {
+    return NextResponse.json({ error: "Already signed" }, { status: 409 });
   }
 
   // Notify the supreme admin (and any org admin assigned to this candidate)
