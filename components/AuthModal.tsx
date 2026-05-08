@@ -225,9 +225,11 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
     });
     if (err) {
       const m = err.message;
+      const isNetwork = /failed to fetch|networkerror|network request failed|load failed/i.test(m);
       setError(
-        m === "Invalid login credentials" ? t.pErrWrong :
-        m === "Email not confirmed"       ? t.pErrNotConfirmed : m
+        isNetwork                          ? t.pErrNetwork :
+        m === "Invalid login credentials"  ? t.pErrWrong :
+        m === "Email not confirmed"        ? t.pErrNotConfirmed : m
       );
       setLoading(false); return;
     }
