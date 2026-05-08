@@ -29,9 +29,10 @@ async function getPdfJs() {
 type Props = {
   pdfBase64: string;         // raw base64, no "data:" prefix
   onChange: (z: SigZone) => void;
+  onError?: () => void;
 };
 
-export function PdfZonePicker({ pdfBase64, onChange }: Props) {
+export function PdfZonePicker({ pdfBase64, onChange, onError }: Props) {
   const canvasRef    = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [pdfDoc, setPdfDoc]     = useState<import("pdfjs-dist").PDFDocumentProxy | null>(null);
@@ -62,7 +63,7 @@ export function PdfZonePicker({ pdfBase64, onChange }: Props) {
         onChange(z);
       } catch (e) {
         console.error("[PdfZonePicker] load error", e);
-        if (active) setLoading(false);
+        if (active) { setLoading(false); onError?.(); }
       }
     })();
     return () => { active = false; };
