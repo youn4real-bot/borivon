@@ -169,17 +169,16 @@ export async function POST(req: NextRequest) {
       candidate_user_id: candidateId,
       created_by_email:  auth.email,
       document_name:     documentName,
-      note:              note ?? null,
+      note:              note || null,
       status:            "pending",
       signature_zone:    signatureZone ? JSON.stringify(signatureZone) : null,
-      parties:           parties ? JSON.stringify(parties) : null,
     })
     .select("id")
     .single();
 
   if (insertErr || !row) {
     console.error("[sign-request POST] insert error:", insertErr);
-    return NextResponse.json({ error: "DB error" }, { status: 500 });
+    return NextResponse.json({ error: `DB error: ${insertErr?.message ?? "unknown"}` }, { status: 500 });
   }
 
   const requestId = (row as { id: string }).id;
