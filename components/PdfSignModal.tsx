@@ -230,6 +230,25 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
             max-height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 6px - 72px - 6px - env(safe-area-inset-bottom, 0px)) !important;
           }
         }
+        /* Pulsing glow on the signature zone — draws candidate's eye to where
+           they need to sign. Stops once the signature is placed. */
+        @keyframes bvSigPulse {
+          0%, 100% {
+            box-shadow:
+              0 0 0 0 rgba(201, 162, 64, 0.55),
+              0 0 18px 2px rgba(201, 162, 64, 0.35);
+            background: rgba(201, 162, 64, 0.18) !important;
+          }
+          50% {
+            box-shadow:
+              0 0 0 8px rgba(201, 162, 64, 0),
+              0 0 26px 6px rgba(201, 162, 64, 0.55);
+            background: rgba(201, 162, 64, 0.32) !important;
+          }
+        }
+        .bv-sig-zone-pulse {
+          animation: bvSigPulse 1.6s ease-in-out infinite;
+        }
       `}</style>
       <div
         className="bv-sign-modal-card w-full sm:max-w-2xl rounded-2xl overflow-hidden flex flex-col"
@@ -340,11 +359,13 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                   <canvas ref={canvasRef}
                     style={{ display: "block", width: "100%", height: "auto" }} />
 
-                  {/* Sign-zone overlay — only on target page */}
+                  {/* Sign-zone overlay — only on target page. Pulses to grab
+                      attention until the signature is placed, then settles. */}
                   {isTargetPage && zone && !pdfLoading && (
                     <div
-                      className="absolute"
+                      className={!sigPlaced && !dragOverZone ? "bv-sig-zone-pulse" : ""}
                       style={{
+                        position: "absolute",
                         left:       `${zone.x * 100}%`,
                         top:        `${zone.y * 100}%`,
                         width:      `${zone.w * 100}%`,
