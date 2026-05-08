@@ -39,6 +39,15 @@ const MIN_SCALE = 0.4;
 const MAX_SCALE = 5.0;
 const STEP      = 0.2;
 
+export type PageOverlayInfo = {
+  pageNum: number;     // 1-indexed
+  dispW: number;       // displayed width in CSS px
+  dispH: number;       // displayed height in CSS px
+  rotation: number;    // total rotation applied (0/90/180/270)
+  scale: number;       // current scale factor
+};
+export type PageOverlayFn = (info: PageOverlayInfo) => React.ReactNode;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // PdfViewer
 // ─────────────────────────────────────────────────────────────────────────────
@@ -46,10 +55,19 @@ const STEP      = 0.2;
 export function PdfViewer({
   src,
   onRotate,
+  pageOverlay,
+  onPagesLoaded,
+  hideRotate,
 }: {
   src: string;
   /** Fired once per rotate click (always +90°). Parent persists the delta. */
   onRotate?: () => void;
+  /** Render absolute-positioned content on top of each page. */
+  pageOverlay?: PageOverlayFn;
+  /** Fired once after PDF loads with total page count. */
+  onPagesLoaded?: (count: number) => void;
+  /** Hide rotate button (e.g. zone picker — rotation breaks coord mapping). */
+  hideRotate?: boolean;
 }) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const pagesWrapRef  = useRef<HTMLDivElement>(null);
@@ -142,6 +160,7 @@ export function PdfViewer({
           setPageSizes(sizes);
           setIntrinsicRotations(intrinsics);
           setLoading(false);
+          onPagesLoaded?.(doc.numPages);
         })
         .catch(() => {
           if (!cancelled) { setError(true); setLoading(false); }
@@ -213,8 +232,10 @@ export function PdfViewer({
         // Anchor to the canvas element under the cursor.
         // CSS transform scales padding/gaps too but real layout doesn't, so
         // the scroll formula must be relative to the canvas, not the wrapper.
-        const hit = document.elementFromPoint(e.clientX, e.clientY);
-        const anchorEl = hit instanceof HTMLCanvasElement ? hit : null;
+        // elementsFromPoint walks the stack — overlay divs (zone picker) sit
+        // above the canvas, so plain elementFromPoint would miss it.
+        const hits = document.elementsFromPoint(e.clientX, e.clientY);
+        const anchorEl = (hits.find(el => el instanceof HTMLCanvasElement) as HTMLCanvasElement | undefined) ?? null;
         let canvas_ox = 0, canvas_oy = 0;
         if (anchorEl) {
           const cr = anchorEl.getBoundingClientRect();
@@ -330,6 +351,7 @@ export function PdfViewer({
                 naturalSize={size}
                 scale={scale}
                 rotation={(rotation + (intrinsicRotations[i] ?? 0)) % 360}
+                overlay={pageOverlay}
               />
             ))}
           </div>
@@ -361,8 +383,12 @@ export function PdfViewer({
             {Math.round(scale * 100)}%
           </span>
           <ToolBtn onClick={zoomIn} label="Zoom in"><ZoomIn size={15} strokeWidth={1.8} /></ToolBtn>
-          <div style={{ width: 1, height: 18, background: "var(--border)", margin: "0 4px" }} />
-          <ToolBtn onClick={rotate} label="Rotate"><RotateCw size={15} strokeWidth={1.8} /></ToolBtn>
+          {!hideRotate && (
+            <>
+              <div style={{ width: 1, height: 18, background: "var(--border)", margin: "0 4px" }} />
+              <ToolBtn onClick={rotate} label="Rotate"><RotateCw size={15} strokeWidth={1.8} /></ToolBtn>
+            </>
+          )}
         </div>
       )}
     </div>
@@ -404,13 +430,14 @@ function ToolBtn({
 // ─────────────────────────────────────────────────────────────────────────────
 
 function PdfPage({
-  pdf, pageNum, naturalSize, scale, rotation,
+  pdf, pageNum, naturalSize, scale, rotation, overlay,
 }: {
   pdf: PdfDoc;
   pageNum: number;
   naturalSize: NaturalSize;
   scale: number;
   rotation: number;
+  overlay?: PageOverlayFn;
 }) {
   const canvasRef     = useRef<HTMLCanvasElement>(null);
   const renderTaskRef = useRef<{ cancel: () => void } | null>(null);
@@ -500,17 +527,26 @@ function PdfPage({
     };
   }, [pdf, pageNum, scale, rotation, dpr, canvW, canvH]);
 
+  const overlayNode = overlay?.({ pageNum, dispW, dispH, rotation, scale });
+
   return (
-    <canvas
-      ref={canvasRef}
-      // width / height intentionally omitted — managed by useLayoutEffect above.
-      style={{
-        display: "block",
-        width:  `${dispW}px`,
-        height: `${dispH}px`,
-        boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
-        borderRadius: 2,
-      }}
-    />
+    <div style={{ position: "relative", width: dispW, height: dispH }}>
+      <canvas
+        ref={canvasRef}
+        // width / height intentionally omitted — managed by useLayoutEffect above.
+        style={{
+          display: "block",
+          width:  `${dispW}px`,
+          height: `${dispH}px`,
+          boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+          borderRadius: 2,
+        }}
+      />
+      {overlayNode != null && (
+        <div style={{ position: "absolute", inset: 0 }}>
+          {overlayNode}
+        </div>
+      )}
+    </div>
   );
 }

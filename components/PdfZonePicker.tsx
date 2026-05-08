@@ -1,8 +1,8 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
-import { Spinner } from "@/components/ui/states";
+import { useEffect, useRef, useState } from "react";
 import { FilePen } from "@/components/PortalIcons";
+import { PdfViewer } from "@/components/PdfViewer";
 
 export type SigZone = {
   page: number; // 1-indexed
@@ -16,177 +16,42 @@ function defaultZone(page: number): SigZone {
   return { page, x: 0.48, y: 0.74, w: 0.44, h: 0.13 };
 }
 
-// Lazy singleton so the worker is configured only once
-let _pdfjs: typeof import("pdfjs-dist") | null = null;
-async function getPdfJs() {
-  if (_pdfjs) return _pdfjs;
-  const lib = await import("pdfjs-dist");
-  lib.GlobalWorkerOptions.workerSrc =
-    `https://unpkg.com/pdfjs-dist@${lib.version}/build/pdf.worker.min.mjs`;
-  _pdfjs = lib;
-  return lib;
-}
-
 type Props = {
   pdfBase64: string;         // raw base64, no "data:" prefix
   onChange: (z: SigZone) => void;
-  onError?: () => void;      // called when PDF fails to parse
+  onError?: () => void;
 };
 
 export function PdfZonePicker({ pdfBase64, onChange, onError }: Props) {
-  const canvasRef    = useRef<HTMLCanvasElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [pdfDoc, setPdfDoc]     = useState<import("pdfjs-dist").PDFDocumentProxy | null>(null);
-  const [pageCount, setPageCount] = useState(1);
-  const [page, setPage]         = useState(1);
-  const [loading, setLoading]   = useState(true);
-  const [zone, setZone]         = useState<SigZone>(defaultZone(1));
+  const [pdfUrl, setPdfUrl] = useState<string>("");
+  const [zone, setZone]     = useState<SigZone>(defaultZone(1));
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
 
-  const drawRef = useRef<{ sx: number; sy: number } | null>(null);
-  const dragRef = useRef<{ sx: number; sy: number; ox: number; oy: number } | null>(null);
-  type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
-  const resizeRef = useRef<{ sx: number; sy: number; ox: number; oy: number; ow: number; oh: number; handle: ResizeHandle } | null>(null);
-
-  // Load PDF from base64
+  // base64 → blob URL (PdfViewer expects a URL src). Revoke on unmount/swap.
   useEffect(() => {
     if (!pdfBase64) return;
-    let active = true;
-    (async () => {
-      try {
-        const lib   = await getPdfJs();
-        const bytes = Uint8Array.from(atob(pdfBase64), c => c.charCodeAt(0));
-        const doc   = await lib.getDocument({ data: bytes }).promise;
-        if (!active) return;
-        const pc = doc.numPages;
-        setPdfDoc(doc);
-        setPageCount(pc);
-        setPage(pc);
-        const z = defaultZone(pc);
-        setZone(z);
-        onChange(z);
-      } catch (e) {
-        console.error("[PdfZonePicker] load error", e);
-        if (active) { setLoading(false); onError?.(); }
-      }
-    })();
-    return () => { active = false; };
-  }, [pdfBase64]); // eslint-disable-line react-hooks/exhaustive-deps
+    try {
+      const bytes = Uint8Array.from(atob(pdfBase64), c => c.charCodeAt(0));
+      const blob  = new Blob([bytes], { type: "application/pdf" });
+      const url   = URL.createObjectURL(blob);
+      setPdfUrl(url);
+      return () => URL.revokeObjectURL(url);
+    } catch (e) {
+      console.error("[PdfZonePicker] base64 decode error", e);
+      onError?.();
+    }
+  }, [pdfBase64, onError]);
 
-  // Render current page when doc or page changes
+  // Push initial zone to parent
   useEffect(() => {
-    if (!pdfDoc) return;
-    let active = true;
-    setLoading(true);
-    (async () => {
-      try {
-        const pg        = await pdfDoc.getPage(page);
-        if (!active) return;
-        const container = containerRef.current;
-        const canvas    = canvasRef.current;
-        if (!canvas || !container) return;
-        await new Promise(r => requestAnimationFrame(r));
-        if (!active) return;
-        const cssW   = container.clientWidth || 400;
-        const dpr    = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
-        const baseVp = pg.getViewport({ scale: 1 });
-        const vp     = pg.getViewport({ scale: (cssW * dpr) / baseVp.width });
-        canvas.width  = vp.width;
-        canvas.height = vp.height;
-        canvas.style.width  = cssW + "px";
-        canvas.style.height = (vp.height / dpr) + "px";
-        const ctx = canvas.getContext("2d")!;
-        ctx.clearRect(0, 0, vp.width, vp.height);
-        await pg.render({ canvasContext: ctx, viewport: vp, canvas }).promise;
-        if (active) setLoading(false);
-      } catch {
-        if (active) setLoading(false);
-      }
-    })();
-    return () => { active = false; };
-  }, [pdfDoc, page]);
-
-  function relPos(e: React.MouseEvent) {
-    const r = canvasRef.current!.getBoundingClientRect();
-    return {
-      x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)),
-      y: Math.max(0, Math.min(1, (e.clientY - r.top)  / r.height)),
-    };
-  }
-
-  function inZone(px: number, py: number) {
-    return px >= zone.x && px <= zone.x + zone.w
-        && py >= zone.y && py <= zone.y + zone.h;
-  }
+    onChangeRef.current(zone);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function emit(z: SigZone) {
     setZone(z);
-    onChange(z);
-  }
-
-  function onDown(e: React.MouseEvent) {
-    e.preventDefault();
-    const p = relPos(e);
-    if (inZone(p.x, p.y)) {
-      dragRef.current = { sx: p.x, sy: p.y, ox: zone.x, oy: zone.y };
-    } else {
-      drawRef.current = { sx: p.x, sy: p.y };
-    }
-  }
-
-  function onMove(e: React.MouseEvent) {
-    const p = relPos(e);
-    if (resizeRef.current) {
-      const r = resizeRef.current;
-      const dx = p.x - r.sx;
-      const dy = p.y - r.sy;
-      const MIN = 0.04;
-      let nx = r.ox, ny = r.oy, nw = r.ow, nh = r.oh;
-      if (r.handle.includes("w")) { nx = Math.min(r.ox + r.ow - MIN, r.ox + dx); nw = r.ow - (nx - r.ox); }
-      if (r.handle.includes("e")) { nw = Math.max(MIN, r.ow + dx); }
-      if (r.handle.includes("n")) { ny = Math.min(r.oy + r.oh - MIN, r.oy + dy); nh = r.oh - (ny - r.oy); }
-      if (r.handle.includes("s")) { nh = Math.max(MIN, r.oh + dy); }
-      // Clamp inside [0,1]
-      if (nx < 0) { nw += nx; nx = 0; }
-      if (ny < 0) { nh += ny; ny = 0; }
-      if (nx + nw > 1) nw = 1 - nx;
-      if (ny + nh > 1) nh = 1 - ny;
-      emit({ page, x: nx, y: ny, w: nw, h: nh });
-    } else if (dragRef.current) {
-      const dx = p.x - dragRef.current.sx;
-      const dy = p.y - dragRef.current.sy;
-      emit({
-        ...zone,
-        x: Math.max(0, Math.min(1 - zone.w, dragRef.current.ox + dx)),
-        y: Math.max(0, Math.min(1 - zone.h, dragRef.current.oy + dy)),
-        page,
-      });
-    } else if (drawRef.current) {
-      const x = Math.min(drawRef.current.sx, p.x);
-      const y = Math.min(drawRef.current.sy, p.y);
-      const w = Math.abs(p.x - drawRef.current.sx);
-      const h = Math.abs(p.y - drawRef.current.sy);
-      if (w > 0.03 && h > 0.02) emit({ page, x, y, w, h });
-    }
-  }
-
-  function onUp() {
-    drawRef.current = null;
-    dragRef.current = null;
-    resizeRef.current = null;
-  }
-
-  function startResize(e: React.MouseEvent, handle: ResizeHandle) {
-    e.preventDefault();
-    e.stopPropagation();
-    const p = relPos(e);
-    resizeRef.current = { sx: p.x, sy: p.y, ox: zone.x, oy: zone.y, ow: zone.w, oh: zone.h, handle };
-  }
-
-  function changePage(p: number) {
-    setPage(p);
-    const z = { ...defaultZone(p), page: p };
-    setZone(z);
-    onChange(z);
+    onChangeRef.current(z);
   }
 
   return (
@@ -195,51 +60,155 @@ export function PdfZonePicker({ pdfBase64, onChange, onError }: Props) {
         <span className="text-[11px]" style={{ color: "var(--w3)" }}>
           Drag to draw · Move the gold box · Resize via handles
         </span>
-        {pageCount > 1 && (
-          <div className="flex gap-1">
-            {Array.from({ length: pageCount }, (_, i) => i + 1).map(p => (
-              <button key={p} type="button" onClick={() => changePage(p)}
-                className="w-6 h-6 rounded text-[10px] font-bold transition-colors"
-                style={{
-                  background: p === page ? "var(--gold)" : "var(--bg2)",
-                  color:      p === page ? "#131312"     : "var(--w3)",
-                }}>
-                {p}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
-      <div ref={containerRef} className="relative select-none"
-        style={{ borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}
-        onMouseMove={onMove}
-        onMouseUp={onUp}
-        onMouseLeave={onUp}>
-        {loading && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center"
-            style={{ background: "rgba(0,0,0,0.55)" }}>
-            <Spinner size="md" />
-          </div>
+      <div style={{
+        height: "62dvh",
+        borderTop: "1px solid var(--border)",
+        borderBottom: "1px solid var(--border)",
+      }}>
+        {pdfUrl && (
+          <PdfViewer
+            src={pdfUrl}
+            hideRotate
+            pageOverlay={({ pageNum }) => (
+              <ZoneLayer
+                pageNum={pageNum}
+                zone={zone.page === pageNum ? zone : null}
+                onZone={emit}
+              />
+            )}
+          />
         )}
+      </div>
+    </div>
+  );
+}
 
-        <canvas
-          ref={canvasRef}
-          style={{ display: "block", width: "100%", height: "auto", cursor: "crosshair" }}
-          onMouseDown={onDown}
-        />
+// ─────────────────────────────────────────────────────────────────────────────
+// ZoneLayer — full-page transparent overlay; renders gold zone box if
+// this page owns the active zone. Handles draw/drag/resize via window
+// listeners so the gesture survives mouse moves outside the page.
+// ─────────────────────────────────────────────────────────────────────────────
 
-        {/* Zone overlay — gold box with premium styling + resize handles.
-            pointerEvents: auto so cursor shows "move" inside zone. Drag-to-move
-            handled here; resize handled by inner handle elements. */}
-        <div className="absolute"
+type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
+
+type Gesture =
+  | { type: "draw"; sx: number; sy: number }
+  | { type: "drag"; sx: number; sy: number; ox: number; oy: number }
+  | { type: "resize"; sx: number; sy: number; ox: number; oy: number; ow: number; oh: number; handle: ResizeHandle };
+
+function ZoneLayer({
+  pageNum, zone, onZone,
+}: {
+  pageNum: number;
+  zone: SigZone | null;
+  onZone: (z: SigZone) => void;
+}) {
+  const layerRef   = useRef<HTMLDivElement>(null);
+  const gestureRef = useRef<Gesture | null>(null);
+  const zoneRef    = useRef<SigZone | null>(zone);
+  zoneRef.current  = zone;
+
+  function relPos(clientX: number, clientY: number) {
+    const r = layerRef.current!.getBoundingClientRect();
+    return {
+      x: Math.max(0, Math.min(1, (clientX - r.left) / r.width)),
+      y: Math.max(0, Math.min(1, (clientY - r.top)  / r.height)),
+    };
+  }
+
+  function inZone(px: number, py: number, z: SigZone) {
+    return px >= z.x && px <= z.x + z.w && py >= z.y && py <= z.y + z.h;
+  }
+
+  useEffect(() => {
+    function onMove(e: MouseEvent) {
+      const g = gestureRef.current;
+      if (!g) return;
+      e.preventDefault();
+      const p = relPos(e.clientX, e.clientY);
+
+      if (g.type === "drag") {
+        const z = zoneRef.current!;
+        onZone({
+          ...z,
+          page: pageNum,
+          x: Math.max(0, Math.min(1 - z.w, g.ox + p.x - g.sx)),
+          y: Math.max(0, Math.min(1 - z.h, g.oy + p.y - g.sy)),
+        });
+      } else if (g.type === "draw") {
+        const x = Math.min(g.sx, p.x);
+        const y = Math.min(g.sy, p.y);
+        const w = Math.abs(p.x - g.sx);
+        const h = Math.abs(p.y - g.sy);
+        if (w > 0.03 && h > 0.02) onZone({ page: pageNum, x, y, w, h });
+      } else if (g.type === "resize") {
+        const dx = p.x - g.sx;
+        const dy = p.y - g.sy;
+        const MIN = 0.04;
+        let nx = g.ox, ny = g.oy, nw = g.ow, nh = g.oh;
+        if (g.handle.includes("w")) { nx = Math.min(g.ox + g.ow - MIN, g.ox + dx); nw = g.ow - (nx - g.ox); }
+        if (g.handle.includes("e")) { nw = Math.max(MIN, g.ow + dx); }
+        if (g.handle.includes("n")) { ny = Math.min(g.oy + g.oh - MIN, g.oy + dy); nh = g.oh - (ny - g.oy); }
+        if (g.handle.includes("s")) { nh = Math.max(MIN, g.oh + dy); }
+        if (nx < 0) { nw += nx; nx = 0; }
+        if (ny < 0) { nh += ny; ny = 0; }
+        if (nx + nw > 1) nw = 1 - nx;
+        if (ny + nh > 1) nh = 1 - ny;
+        onZone({ page: pageNum, x: nx, y: ny, w: nw, h: nh });
+      }
+    }
+    function onUp() { gestureRef.current = null; }
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup",   onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup",   onUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pageNum]);
+
+  function onLayerDown(e: React.MouseEvent) {
+    e.preventDefault();
+    const p = relPos(e.clientX, e.clientY);
+    const z = zoneRef.current;
+    if (z && inZone(p.x, p.y, z)) {
+      gestureRef.current = { type: "drag", sx: p.x, sy: p.y, ox: z.x, oy: z.y };
+    } else {
+      gestureRef.current = { type: "draw", sx: p.x, sy: p.y };
+    }
+  }
+
+  function startResize(e: React.MouseEvent, handle: ResizeHandle) {
+    e.preventDefault();
+    e.stopPropagation();
+    const z = zoneRef.current;
+    if (!z) return;
+    const p = relPos(e.clientX, e.clientY);
+    gestureRef.current = { type: "resize", sx: p.x, sy: p.y, ox: z.x, oy: z.y, ow: z.w, oh: z.h, handle };
+  }
+
+  return (
+    <div
+      ref={layerRef}
+      onMouseDown={onLayerDown}
+      style={{
+        position: "absolute", inset: 0,
+        cursor: zone ? "crosshair" : "crosshair",
+        userSelect: "none",
+      }}
+    >
+      {zone && (
+        <div
           onMouseDown={e => {
             e.preventDefault();
             e.stopPropagation();
-            const p = relPos(e);
-            dragRef.current = { sx: p.x, sy: p.y, ox: zone.x, oy: zone.y };
+            const p = relPos(e.clientX, e.clientY);
+            gestureRef.current = { type: "drag", sx: p.x, sy: p.y, ox: zone.x, oy: zone.y };
           }}
           style={{
+            position: "absolute",
             left:       `${zone.x * 100}%`,
             top:        `${zone.y * 100}%`,
             width:      `${zone.w * 100}%`,
@@ -252,7 +221,8 @@ export function PdfZonePicker({ pdfBase64, onChange, onError }: Props) {
             alignItems: "center",
             justifyContent: "center",
             cursor:     "move",
-        }}>
+          }}
+        >
           <span className="inline-flex items-center gap-1.5 tracking-tight pointer-events-none"
             style={{
               fontSize: 11, color: "var(--gold)", fontWeight: 700,
@@ -263,26 +233,25 @@ export function PdfZonePicker({ pdfBase64, onChange, onError }: Props) {
             Sign here
           </span>
 
-          {/* Resize handles — 4 corners + 4 edge midpoints */}
           {(["nw","n","ne","e","se","s","sw","w"] as const).map(h => {
             const pos: React.CSSProperties = { position: "absolute", pointerEvents: "auto" };
             const sz = 10;
             const half = sz / 2;
-            if (h.includes("n")) pos.top = -half;
+            if (h.includes("n")) pos.top    = -half;
             if (h.includes("s")) pos.bottom = -half;
-            if (h.includes("w")) pos.left = -half;
-            if (h.includes("e")) pos.right = -half;
-            if (h === "n" || h === "s") { pos.left = `calc(50% - ${half}px)`; }
-            if (h === "e" || h === "w") { pos.top  = `calc(50% - ${half}px)`; }
+            if (h.includes("w")) pos.left   = -half;
+            if (h.includes("e")) pos.right  = -half;
+            if (h === "n" || h === "s") pos.left = `calc(50% - ${half}px)`;
+            if (h === "e" || h === "w") pos.top  = `calc(50% - ${half}px)`;
             const cursorMap: Record<typeof h, string> = {
               nw: "nwse-resize", se: "nwse-resize",
               ne: "nesw-resize", sw: "nesw-resize",
-              n: "ns-resize",   s:  "ns-resize",
-              e: "ew-resize",   w:  "ew-resize",
+              n: "ns-resize",   s: "ns-resize",
+              e: "ew-resize",   w: "ew-resize",
             };
             return (
               <div key={h}
-                onMouseDown={(e) => startResize(e, h)}
+                onMouseDown={e => startResize(e, h)}
                 style={{
                   ...pos,
                   width: sz, height: sz,
@@ -295,7 +264,8 @@ export function PdfZonePicker({ pdfBase64, onChange, onError }: Props) {
             );
           })}
         </div>
-      </div>
+      )}
+
     </div>
   );
 }
