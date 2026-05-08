@@ -170,9 +170,23 @@ export function PdfZonePicker({ pdfBase64, onChange, onError, lang = "en" }: Pro
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  function getVisiblePage(): number {
+    let bestPage = pageCount;
+    let bestArea = 0;
+    for (const [pageNum, el] of pageElsRef.current) {
+      const r = el.getBoundingClientRect();
+      const visH = Math.max(0, Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0));
+      const visW = Math.max(0, Math.min(r.right,  window.innerWidth)  - Math.max(r.left, 0));
+      const area = visH * visW;
+      if (area > bestArea) { bestArea = area; bestPage = pageNum; }
+    }
+    return bestPage;
+  }
+
   function addZone() {
     const zs = zonesRef.current;
-    const newZone: SigZone = { page: pageCount, x: 0.08, y: 0.1, w: 0.44, h: 0.13, party: "candidate" };
+    const page = getVisiblePage();
+    const newZone: SigZone = { page, x: 0.08, y: 0.1, w: 0.44, h: 0.13, party: "candidate" };
     const next = [...zs, newZone];
     emitZones(next);
     setActiveIdx(next.length - 1);
