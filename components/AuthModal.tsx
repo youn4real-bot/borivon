@@ -119,7 +119,12 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
           email.trim().toLowerCase(),
           { redirectTo: `${window.location.origin}/portal/auth/callback` },
         );
-        if (resetErr) { setError(resetErr.message); setLoading(false); return; }
+        if (resetErr) {
+          const m = resetErr.message;
+          const isNetwork = /failed to fetch|networkerror|network request failed|load failed/i.test(m);
+          setError(isNetwork ? t.pErrNetwork : m);
+          setLoading(false); return;
+        }
       } catch {
         setError(t.pErrNetwork);
         setLoading(false); return;
@@ -206,7 +211,9 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
           },
         });
         if (res.error) {
-          setError(res.error.message === "User already registered" ? t.pErrExists : res.error.message);
+          const m = res.error.message;
+          const isNetwork = /failed to fetch|networkerror|network request failed|load failed/i.test(m);
+          setError(isNetwork ? t.pErrNetwork : m === "User already registered" ? t.pErrExists : m);
           setLoading(false); return;
         }
         signUpData = res.data;
@@ -238,9 +245,13 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
       });
       if (err) {
         const m = err.message;
+        // supabase-js wraps network errors as { error: { message: "Failed to fetch" } }
+        // instead of throwing — match that here so we don't show the raw browser message.
+        const isNetwork = /failed to fetch|networkerror|network request failed|load failed/i.test(m);
         setError(
-          m === "Invalid login credentials" ? t.pErrWrong :
-          m === "Email not confirmed"       ? t.pErrNotConfirmed : m
+          isNetwork                          ? t.pErrNetwork :
+          m === "Invalid login credentials"  ? t.pErrWrong :
+          m === "Email not confirmed"        ? t.pErrNotConfirmed : m
         );
         setLoading(false); return;
       }

@@ -120,7 +120,9 @@ function PortalPageInner() {
           },
         });
         if (err) {
-          setError(err.message === "User already registered" ? t.pErrExists : err.message);
+          const m = err.message;
+          const isNetwork = /failed to fetch|networkerror|network request failed|load failed/i.test(m);
+          setError(isNetwork ? t.pErrNetwork : m === "User already registered" ? t.pErrExists : m);
           setLoading(false); return;
         }
       } catch {
@@ -140,7 +142,12 @@ function PortalPageInner() {
       });
       if (err) {
         const m = err.message;
-        setError(m === "Invalid login credentials" ? t.pErrWrong : m === "Email not confirmed" ? t.pErrNotConfirmed : m);
+        const isNetwork = /failed to fetch|networkerror|network request failed|load failed/i.test(m);
+        setError(
+          isNetwork                          ? t.pErrNetwork :
+          m === "Invalid login credentials"  ? t.pErrWrong :
+          m === "Email not confirmed"        ? t.pErrNotConfirmed : m
+        );
         setLoading(false); return;
       }
     } catch {
