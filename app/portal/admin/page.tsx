@@ -3238,7 +3238,7 @@ export default function AdminPage() {
             style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", maxHeight: "calc(100dvh - 80px)" }}
             onClick={e => e.stopPropagation()}>
             <div className="px-4 py-3 flex items-center gap-3 flex-shrink-0"
-              style={{ borderBottom: "1px solid var(--border)", background: "var(--gdim)" }}>
+              style={{ borderBottom: "1px solid var(--border-gold)", background: "var(--gdim)" }}>
               <FilePen size={15} strokeWidth={1.8} style={{ color: "var(--gold)", flexShrink: 0 }} />
               <div className="flex-1 min-w-0">
                 <p className="text-[13px] font-semibold" style={{ color: "var(--gold)" }}>
@@ -3260,8 +3260,10 @@ export default function AdminPage() {
                   </p>
                 </div>
               ) : sigPdfBase64 ? (
-                <PdfZonePicker pdfBase64={sigPdfBase64} onChange={z => setSigZone(z)}
-                  onError={() => { setSigPdfBase64(null); setSigManualPdf(null); }} />
+                <div className="p-3">
+                  <PdfZonePicker pdfBase64={sigPdfBase64} onChange={z => setSigZone(z)}
+                    onError={() => { setSigPdfBase64(null); setSigManualPdf(null); }} />
+                </div>
               ) : (
                 <div className="flex flex-col items-center justify-center gap-4 m-4 rounded-2xl cursor-pointer transition-colors"
                   style={{ minHeight: 280, border: "2.5px dashed var(--border-gold)", background: "var(--gdim)" }}
@@ -3301,7 +3303,7 @@ export default function AdminPage() {
                 </div>
               )}
             </div>
-            <div className="px-4 py-3 flex-shrink-0 space-y-3" style={{ borderTop: "1px solid var(--border)", background: "var(--bg2)" }}>
+            <div className="px-4 py-3 flex-shrink-0 space-y-3" style={{ borderTop: "1px solid var(--border-gold)" }}>
               <div className="flex items-center gap-3 flex-wrap">
                 <span className="text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: "var(--w3)" }}>
                   {lang === "fr" ? "Signe :" : lang === "de" ? "Signiert:" : "Signs:"}
@@ -4036,7 +4038,7 @@ export default function AdminPage() {
 
             {/* ── Header ── */}
             <div className="px-4 py-3 flex items-center gap-3 flex-shrink-0"
-              style={{ borderBottom: "1px solid var(--border)", background: "var(--gdim)" }}>
+              style={{ borderBottom: "1px solid var(--border-gold)", background: "var(--gdim)" }}>
               <FilePen size={15} strokeWidth={1.8} style={{ color: "var(--gold)", flexShrink: 0 }} />
               <div className="flex-1 min-w-0">
                 <p className="text-[13px] font-semibold" style={{ color: "var(--gold)" }}>
@@ -4115,7 +4117,7 @@ export default function AdminPage() {
 
             {/* ── Compact footer: who signs + note + send ── */}
             <div className="px-4 py-3 flex-shrink-0 space-y-3"
-              style={{ borderTop: "1px solid var(--border)", background: "var(--bg2)" }}>
+              style={{ borderTop: "1px solid var(--border-gold)" }}>
               {/* Who signs — horizontal chips */}
               <div className="flex items-center gap-3 flex-wrap">
                 <span className="text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: "var(--w3)" }}>
