@@ -78,10 +78,8 @@ export async function POST(req: NextRequest) {
   }
 
   // ── invoice.paid → recurring monthly cycle ───────────────────────────────
-  // Logs each cycle for visibility. The 6-cycle cap requires a tracking
-  // table (stripe_invoice_events keyed on event.id) to prevent double-count
-  // on Stripe retries. Until that migration exists we just log so the founder
-  // can monitor cycles via Vercel logs and intervene manually.
+  // Monthly subscriptions run uncapped (founder decision). This handler is
+  // log-only for visibility in Vercel logs.
   if (event.type === "invoice.paid") {
     const inv = event.data.object as Stripe.Invoice & { subscription?: string | { id: string } };
     const subRaw = inv.subscription;
