@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, forwardRef, useImperativeHandle } from "react";
 import { PdfViewer, PageOverlayFn } from "@/components/PdfViewer";
 import { Spinner } from "@/components/ui/states";
 
@@ -18,6 +18,8 @@ type Props = {
   onError?: () => void;
   lang?: keyof typeof T;
 };
+
+export type PdfZonePickerHandle = { addZone: () => void };
 
 const PARTY_COLORS = {
   candidate: { border: "var(--gold)", bg: "rgba(201,162,64,0.15)", text: "var(--gold)" },
@@ -40,7 +42,7 @@ const HANDLES = [
   { id: "w",  top: "50%",  left: "0%",   cursor: "w-resize"  },
 ] as const;
 
-export function PdfZonePicker({ pdfBase64, onChange, onError, lang = "en" }: Props) {
+export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function PdfZonePicker({ pdfBase64, onChange, onError, lang = "en" }, ref) {
   const [blobUrl, setBlobUrl]     = useState<string | null>(null);
   const [zones, setZones]         = useState<SigZone[]>([{ page: 1, x: 0.48, y: 0.74, w: 0.44, h: 0.13, party: "candidate" }]);
   const [activeIdx, setActiveIdx] = useState<number | null>(0);
@@ -205,6 +207,8 @@ export function PdfZonePicker({ pdfBase64, onChange, onError, lang = "en" }: Pro
     next[i] = { ...next[i], party: next[i].party === "admin" ? "candidate" : "admin" };
     emitZones(next);
   }
+
+  useImperativeHandle(ref, () => ({ addZone }), []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pageOverlay: PageOverlayFn = ({ pageNum }) => {
     const zs = zones;
@@ -380,23 +384,6 @@ export function PdfZonePicker({ pdfBase64, onChange, onError, lang = "en" }: Pro
           setActiveIdx(0);
         }}
       />
-      {/* "+" button rendered after PdfViewer so it naturally sits on top in stacking order */}
-      <button
-        onClick={addZone}
-        onMouseDown={e => e.stopPropagation()}
-        style={{
-          position: "absolute", top: 10, right: 10, zIndex: 100,
-          width: 28, height: 28, borderRadius: 8,
-          background: "var(--gold)", color: "#131312",
-          border: "none", cursor: "pointer",
-          display: "flex", alignItems: "center", justifyContent: "center",
-          fontWeight: 800, fontSize: 16, lineHeight: 1,
-          boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
-        }}
-        title="Add signature zone"
-      >
-        +
-      </button>
     </div>
   );
-}
+});

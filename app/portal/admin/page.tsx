@@ -435,7 +435,8 @@ export default function AdminPage() {
   const [sigPdfBase64, setSigPdfBase64] = useState<string | null>(null);
   const [sigPdfLoading, setSigPdfLoading] = useState(false);
   const [sigManualPdf, setSigManualPdf] = useState<string | null>(null); // base64 when admin uploads PDF manually
-  const sigManualFileRef = React.useRef<HTMLInputElement>(null);
+  const sigManualFileRef  = React.useRef<HTMLInputElement>(null);
+  const sigZonePickerRef  = React.useRef<import("@/components/PdfZonePicker").PdfZonePickerHandle>(null);
 
   // Fetch PDF for zone picker whenever sign modal opens
   useEffect(() => {
@@ -3243,6 +3244,15 @@ export default function AdminPage() {
                 </p>
                 <p className="text-[13.5px] font-semibold truncate tracking-tight" style={{ color: "var(--w)" }}>{sigModal.label}</p>
               </div>
+              {sigPdfBase64 && (
+                <button
+                  onClick={() => sigZonePickerRef.current?.addZone()}
+                  className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-semibold mr-2 transition-opacity hover:opacity-80"
+                  style={{ background: "var(--gold)", color: "#131312", border: "none", cursor: "pointer" }}>
+                  <Plus size={11} strokeWidth={2.5} />
+                  {lang === "de" ? "Signatur" : lang === "fr" ? "Signature" : "Add signature"}
+                </button>
+              )}
               <button onClick={() => { setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null); }}
                 className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ color: "var(--w3)" }}>
                 <XIcon size={14} strokeWidth={1.8} />
@@ -3258,7 +3268,7 @@ export default function AdminPage() {
                 </div>
               ) : sigPdfBase64 ? (
                 <div className="p-3">
-                  <PdfZonePicker pdfBase64={sigPdfBase64} onChange={zones => setSigZones(zones)}
+                  <PdfZonePicker ref={sigZonePickerRef} pdfBase64={sigPdfBase64} onChange={zones => setSigZones(zones)}
                     onError={() => { setSigPdfBase64(null); setSigManualPdf(null); }} />
                 </div>
               ) : (
@@ -4028,6 +4038,15 @@ export default function AdminPage() {
                 </p>
                 <p className="text-[13.5px] font-semibold truncate tracking-tight" style={{ color: "var(--w)" }}>{sigModal.label}</p>
               </div>
+              {sigPdfBase64 && (
+                <button
+                  onClick={() => sigZonePickerRef.current?.addZone()}
+                  className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-semibold mr-2 transition-opacity hover:opacity-80"
+                  style={{ background: "var(--gold)", color: "#131312", border: "none", cursor: "pointer" }}>
+                  <Plus size={11} strokeWidth={2.5} />
+                  {lang === "de" ? "Signatur" : lang === "fr" ? "Signature" : "Add signature"}
+                </button>
+              )}
               <button onClick={() => { setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null); }}
                 className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
                 style={{ color: "var(--w3)" }}>
@@ -4046,7 +4065,7 @@ export default function AdminPage() {
                 </div>
               ) : sigPdfBase64 ? (
                 <div className="p-3">
-                  <PdfZonePicker
+                  <PdfZonePicker ref={sigZonePickerRef}
                     pdfBase64={sigPdfBase64}
                     onChange={zones => setSigZones(zones)}
                     onError={() => { setSigPdfBase64(null); setSigManualPdf(null); }}
