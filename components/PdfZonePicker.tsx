@@ -26,13 +26,20 @@ async function getPdfJs() {
   return lib;
 }
 
+const T = {
+  en: { hint: "Drag to draw the zone · Move the gold box to reposition", signHere: "✍ Sign here" },
+  fr: { hint: "Dessinez la zone · Déplacez le cadre doré pour repositionner", signHere: "✍ Signer ici" },
+  de: { hint: "Zone zeichnen · Goldenen Rahmen verschieben", signHere: "✍ Hier unterschreiben" },
+} as const;
+
 type Props = {
   pdfBase64: string;         // raw base64, no "data:" prefix
   onChange: (z: SigZone) => void;
   onError?: () => void;
+  lang?: keyof typeof T;
 };
 
-export function PdfZonePicker({ pdfBase64, onChange, onError }: Props) {
+export function PdfZonePicker({ pdfBase64, onChange, onError, lang = "en" }: Props) {
   const canvasRef    = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [pdfDoc, setPdfDoc]     = useState<import("pdfjs-dist").PDFDocumentProxy | null>(null);
@@ -161,7 +168,7 @@ export function PdfZonePicker({ pdfBase64, onChange, onError }: Props) {
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <span className="text-[11px]" style={{ color: "var(--w3)" }}>
-          Drag to draw the zone · Move the gold box to reposition
+          {T[lang].hint}
         </span>
         {pageCount > 1 && (
           <div className="flex gap-1">
@@ -212,7 +219,7 @@ export function PdfZonePicker({ pdfBase64, onChange, onError }: Props) {
             fontSize: 10, color: "var(--gold)", fontWeight: 700,
             textShadow: "0 1px 3px rgba(0,0,0,0.7)",
           }}>
-            ✍ Sign here
+            {T[lang].signHere}
           </span>
         </div>
       </div>
