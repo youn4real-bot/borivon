@@ -429,11 +429,9 @@ export default function AdminPage() {
   const [passportDataPdfDl, setPassportDataPdfDl] = useState(false);
   // Signature request modal
   const [sigModal, setSigModal] = useState<{ docId: string | null; driveFileId: string | null; label: string } | null>(null);
-  const [sigPartyAdmin, setSigPartyAdmin] = useState(false);
-  const [sigPartyCandidate, setSigPartyCandidate] = useState(true);
   const [sigNote, setSigNote] = useState("");
   const [sigSending, setSigSending] = useState(false);
-  const [sigZone, setSigZone] = useState<SigZone | null>(null);
+  const [sigZones, setSigZones] = useState<SigZone[]>([]);
   const [sigPdfBase64, setSigPdfBase64] = useState<string | null>(null);
   const [sigPdfLoading, setSigPdfLoading] = useState(false);
   const [sigManualPdf, setSigManualPdf] = useState<string | null>(null); // base64 when admin uploads PDF manually
@@ -441,9 +439,9 @@ export default function AdminPage() {
 
   // Fetch PDF for zone picker whenever sign modal opens
   useEffect(() => {
-    if (!sigModal) { setSigPdfBase64(null); setSigZone(null); setSigManualPdf(null); return; }
+    if (!sigModal) { setSigPdfBase64(null); setSigZones([]); setSigManualPdf(null); return; }
     setSigPdfBase64(null);
-    setSigZone(null);
+    setSigZones([]);
     setSigManualPdf(null);
     // No source doc → skip fetch, go straight to upload drop zone
     if (!sigModal.driveFileId && !sigModal.docId) {
@@ -3233,7 +3231,7 @@ export default function AdminPage() {
       {sigModal && (
         <div data-bv-sigmodal="1" className="fixed inset-0 z-[2147483600] flex items-center justify-center p-3 sm:p-6"
           style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(10px)", position: "fixed", top: 0, left: 0, right: 0, bottom: 0 }}
-          onClick={() => { setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true); setSigZone(null); setSigManualPdf(null); }}>
+          onClick={() => { setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null); }}>
           <div className="w-full max-w-4xl rounded-2xl overflow-hidden flex flex-col"
             style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)", maxHeight: "calc(100dvh - 80px)" }}
             onClick={e => e.stopPropagation()}>
@@ -3245,7 +3243,7 @@ export default function AdminPage() {
                 </p>
                 <p className="text-[13.5px] font-semibold truncate tracking-tight" style={{ color: "var(--w)" }}>{sigModal.label}</p>
               </div>
-              <button onClick={() => { setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true); setSigZone(null); setSigManualPdf(null); }}
+              <button onClick={() => { setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null); }}
                 className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ color: "var(--w3)" }}>
                 <XIcon size={14} strokeWidth={1.8} />
               </button>
@@ -3260,7 +3258,7 @@ export default function AdminPage() {
                 </div>
               ) : sigPdfBase64 ? (
                 <div className="p-3">
-                  <PdfZonePicker pdfBase64={sigPdfBase64} onChange={z => setSigZone(z)}
+                  <PdfZonePicker pdfBase64={sigPdfBase64} onChange={zones => setSigZones(zones)}
                     onError={() => { setSigPdfBase64(null); setSigManualPdf(null); }} />
                 </div>
               ) : (
@@ -3303,32 +3301,19 @@ export default function AdminPage() {
               )}
             </div>
             <div className="px-4 py-3 flex-shrink-0 space-y-3" style={{ borderTop: "1px solid var(--border)" }}>
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: "var(--w3)" }}>
-                  {lang === "fr" ? "Signe :" : lang === "de" ? "Signiert:" : "Signs:"}
-                </span>
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input type="checkbox" checked={sigPartyAdmin} onChange={e => setSigPartyAdmin(e.target.checked)}
-                    className="w-3.5 h-3.5 rounded" style={{ accentColor: "var(--gold)" }} />
-                  <span className="text-[12px]" style={{ color: "var(--w)" }}>Admin</span>
-                </label>
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input type="checkbox" checked={sigPartyCandidate} onChange={e => setSigPartyCandidate(e.target.checked)}
-                    className="w-3.5 h-3.5 rounded" style={{ accentColor: "var(--gold)" }} />
-                  <span className="text-[12px]" style={{ color: "var(--w)" }}>
-                    {lang === "fr" ? "Candidat" : lang === "de" ? "Kandidat" : "Candidate"}
-                  </span>
-                </label>
-              </div>
               <div className="flex gap-2">
                 <input value={sigNote} onChange={e => setSigNote(e.target.value)}
                   placeholder={lang === "fr" ? "Note (optionnel)" : lang === "de" ? "Hinweis (optional)" : "Note (optional)"}
                   className="flex-1 px-3 py-2 text-[12px] rounded-xl outline-none"
                   style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--w)" }} />
                 <button onClick={async () => {
-                  if (sigSending || (!sigPartyAdmin && !sigPartyCandidate)) return;
+                  if (sigSending) return;
                   if (!sigPdfBase64 && !sigManualPdf) { sigManualFileRef.current?.click(); return; }
                   setSigSending(true);
+                  const parties = {
+                    admin: sigZones.some(z => z.party === "admin"),
+                    candidate: sigZones.some(z => z.party === "candidate"),
+                  };
                   try {
                     let res: Response;
                     if (sigManualPdf) {
@@ -3341,8 +3326,8 @@ export default function AdminPage() {
                       for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
                       fd.append("pdf", new Blob([arr], { type: "application/pdf" }), "signature-document.pdf");
                       if (sigNote.trim()) fd.append("note", sigNote.trim());
-                      fd.append("parties", JSON.stringify({ admin: sigPartyAdmin, candidate: sigPartyCandidate }));
-                      if (sigZone) fd.append("signatureZone", JSON.stringify(sigZone));
+                      fd.append("parties", JSON.stringify(parties));
+                      if (sigZones.length) fd.append("signatureZones", JSON.stringify(sigZones));
                       res = await fetch("/api/portal/admin/sign-request", {
                         method: "POST",
                         headers: { Authorization: `Bearer ${accessToken}` },
@@ -3356,14 +3341,13 @@ export default function AdminPage() {
                           candidateId: selectedUser, documentName: sigModal.label,
                           driveFileId: sigModal.driveFileId,
                           note: sigNote.trim() || undefined,
-                          parties: { admin: sigPartyAdmin, candidate: sigPartyCandidate },
-                          signatureZone: sigZone ?? undefined,
+                          parties,
+                          signatureZones: sigZones.length ? sigZones : undefined,
                         }),
                       });
                     }
                     if (res.ok) {
-                      setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true);
-                      setSigZone(null); setSigManualPdf(null);
+                      setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null);
                       showError(lang === "fr" ? "Demande envoyée ✓" : lang === "de" ? "Anfrage gesendet ✓" : "Request sent ✓");
                     } else {
                       const j = await res.json().catch(() => ({}));
@@ -3377,7 +3361,7 @@ export default function AdminPage() {
                   }
                   setSigSending(false);
                 }}
-                  disabled={sigSending || (!sigPartyAdmin && !sigPartyCandidate)}
+                  disabled={sigSending}
                   className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold transition-opacity disabled:opacity-50"
                   style={{ background: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "var(--bg2)" : "var(--gold)", color: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "var(--w3)" : "#131312", border: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "1px solid var(--border)" : "none" }}>
                   {sigSending
@@ -3387,7 +3371,7 @@ export default function AdminPage() {
                       : <><Send size={13} strokeWidth={2} /> {lang === "fr" ? "Envoyer" : lang === "de" ? "Senden" : "Send"}</>
                   }
                 </button>
-                <button onClick={() => { setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true); setSigZone(null); setSigManualPdf(null); }}
+                <button onClick={() => { setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null); }}
                   className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-xl transition-opacity hover:opacity-70"
                   style={{ background: "var(--card)", color: "var(--w3)", border: "1px solid var(--border)" }}>
                   <XIcon size={14} strokeWidth={2} />
@@ -4030,7 +4014,7 @@ export default function AdminPage() {
       {sigModal && (
         <div data-bv-sigmodal="1" className="fixed inset-0 z-[2147483600] flex items-center justify-center p-3 sm:p-6"
           style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(10px)", position: "fixed", top: 0, left: 0, right: 0, bottom: 0 }}
-          onClick={() => { setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true); setSigZone(null); setSigManualPdf(null); }}>
+          onClick={() => { setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null); }}>
           <div className="w-full max-w-4xl rounded-2xl overflow-hidden flex flex-col"
             style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)", maxHeight: "calc(100dvh - 80px)" }}
             onClick={e => e.stopPropagation()}>
@@ -4044,7 +4028,7 @@ export default function AdminPage() {
                 </p>
                 <p className="text-[13.5px] font-semibold truncate tracking-tight" style={{ color: "var(--w)" }}>{sigModal.label}</p>
               </div>
-              <button onClick={() => { setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true); setSigZone(null); setSigManualPdf(null); }}
+              <button onClick={() => { setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null); }}
                 className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
                 style={{ color: "var(--w3)" }}>
                 <XIcon size={14} strokeWidth={1.8} />
@@ -4064,7 +4048,7 @@ export default function AdminPage() {
                 <div className="p-3">
                   <PdfZonePicker
                     pdfBase64={sigPdfBase64}
-                    onChange={z => setSigZone(z)}
+                    onChange={zones => setSigZones(zones)}
                     onError={() => { setSigPdfBase64(null); setSigManualPdf(null); }}
                   />
                 </div>
@@ -4113,32 +4097,9 @@ export default function AdminPage() {
               )}
             </div>
 
-            {/* ── Compact footer: who signs + note + send ── */}
+            {/* ── Compact footer: note + send ── */}
             <div className="px-4 py-3 flex-shrink-0 space-y-3"
               style={{ borderTop: "1px solid var(--border)" }}>
-              {/* Who signs — horizontal chips */}
-              <div className="flex items-center gap-3 flex-wrap">
-                <span className="text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: "var(--w3)" }}>
-                  {lang === "fr" ? "Signe :" : lang === "de" ? "Signiert:" : "Signs:"}
-                </span>
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input type="checkbox" checked={sigPartyAdmin}
-                    onChange={e => setSigPartyAdmin(e.target.checked)}
-                    className="w-3.5 h-3.5 rounded" style={{ accentColor: "var(--gold)" }} />
-                  <span className="text-[12px]" style={{ color: "var(--w)" }}>
-                    {lang === "fr" ? "Admin" : lang === "de" ? "Admin" : "Admin"}
-                  </span>
-                </label>
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input type="checkbox" checked={sigPartyCandidate}
-                    onChange={e => setSigPartyCandidate(e.target.checked)}
-                    className="w-3.5 h-3.5 rounded" style={{ accentColor: "var(--gold)" }} />
-                  <span className="text-[12px]" style={{ color: "var(--w)" }}>
-                    {lang === "fr" ? "Candidat" : lang === "de" ? "Kandidat" : "Candidate"}
-                  </span>
-                </label>
-              </div>
-              {/* Note + send row */}
               <div className="flex gap-2">
                 <input value={sigNote} onChange={e => setSigNote(e.target.value)}
                   placeholder={lang === "fr" ? "Note (optionnel)" : lang === "de" ? "Hinweis (optional)" : "Note (optional)"}
@@ -4146,9 +4107,13 @@ export default function AdminPage() {
                   style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--w)" }} />
                 <button
                   onClick={async () => {
-                    if (sigSending || (!sigPartyAdmin && !sigPartyCandidate)) return;
+                    if (sigSending) return;
                     if (!sigPdfBase64 && !sigManualPdf) { sigManualFileRef.current?.click(); return; }
                     setSigSending(true);
+                    const parties = {
+                      admin: sigZones.some(z => z.party === "admin"),
+                      candidate: sigZones.some(z => z.party === "candidate"),
+                    };
                     try {
                       let res: Response;
                       if (sigManualPdf) {
@@ -4160,8 +4125,8 @@ export default function AdminPage() {
                         for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
                         fd.append("pdf", new Blob([arr], { type: "application/pdf" }), "signature-document.pdf");
                         if (sigNote.trim()) fd.append("note", sigNote.trim());
-                        fd.append("parties", JSON.stringify({ admin: sigPartyAdmin, candidate: sigPartyCandidate }));
-                        if (sigZone) fd.append("signatureZone", JSON.stringify(sigZone));
+                        fd.append("parties", JSON.stringify(parties));
+                        if (sigZones.length) fd.append("signatureZones", JSON.stringify(sigZones));
                         res = await fetch("/api/portal/admin/sign-request", {
                           method: "POST",
                           headers: { Authorization: `Bearer ${accessToken}` },
@@ -4175,14 +4140,13 @@ export default function AdminPage() {
                             candidateId: selectedUser, documentName: sigModal.label,
                             driveFileId: sigModal.driveFileId,
                             note: sigNote.trim() || undefined,
-                            parties: { admin: sigPartyAdmin, candidate: sigPartyCandidate },
-                            signatureZone: sigZone ?? undefined,
+                            parties,
+                            signatureZones: sigZones.length ? sigZones : undefined,
                           }),
                         });
                       }
                       if (res.ok) {
-                        setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true);
-                        setSigZone(null); setSigManualPdf(null);
+                        setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null);
                         showError(lang === "fr" ? "Demande envoyée ✓" : lang === "de" ? "Anfrage gesendet ✓" : "Request sent ✓");
                       } else {
                         const j = await res.json().catch(() => ({}));
@@ -4196,7 +4160,7 @@ export default function AdminPage() {
                     }
                     setSigSending(false);
                   }}
-                  disabled={sigSending || (!sigPartyAdmin && !sigPartyCandidate)}
+                  disabled={sigSending}
                   className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold transition-opacity disabled:opacity-50"
                   style={{ background: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "var(--bg2)" : "var(--gold)", color: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "var(--w3)" : "#131312", border: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "1px solid var(--border)" : "none" }}>
                   {sigSending
@@ -4206,7 +4170,7 @@ export default function AdminPage() {
                       : <><Send size={13} strokeWidth={2} /> {lang === "fr" ? "Envoyer" : lang === "de" ? "Senden" : "Send"}</>
                   }
                 </button>
-                <button onClick={() => { setSigModal(null); setSigNote(""); setSigPartyAdmin(false); setSigPartyCandidate(true); setSigZone(null); setSigManualPdf(null); }}
+                <button onClick={() => { setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null); }}
                   className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-xl transition-opacity hover:opacity-70"
                   style={{ background: "var(--card)", color: "var(--w3)", border: "1px solid var(--border)" }}>
                   <XIcon size={14} strokeWidth={2} />

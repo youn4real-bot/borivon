@@ -85,101 +85,83 @@ export async function POST(
   const pdfDoc = await PDFDocument.load(originalBytes);
   const pages  = pdfDoc.getPages();
 
-  // Parse zone (stored as JSON string, normalized 0-1 coords)
-  type SigZone = { page: number; x: number; y: number; w: number; h: number };
-  let zone: SigZone | null = null;
+  // Parse zones — stored as JSON string; may be array (new) or single object (legacy)
+  type SigZone = { page: number; x: number; y: number; w: number; h: number; party?: string };
+  function isValidZone(z: Partial<SigZone>): z is SigZone {
+    return (
+      Number.isFinite(z.page) && (z.page as number) >= 1 &&
+      Number.isFinite(z.x) && (z.x as number) >= 0 && (z.x as number) <= 1 &&
+      Number.isFinite(z.y) && (z.y as number) >= 0 && (z.y as number) <= 1 &&
+      Number.isFinite(z.w) && (z.w as number) > 0 && (z.w as number) <= 1 &&
+      Number.isFinite(z.h) && (z.h as number) > 0 && (z.h as number) <= 1
+    );
+  }
+  let allZones: SigZone[] = [];
   if (r.signature_zone) {
     try {
-      const parsed = JSON.parse(r.signature_zone) as Partial<SigZone>;
-      // Validate ranges; ignore malformed zones rather than stamping outside the page.
-      if (
-        Number.isFinite(parsed.page) && (parsed.page as number) >= 1 &&
-        Number.isFinite(parsed.x) && (parsed.x as number) >= 0 && (parsed.x as number) <= 1 &&
-        Number.isFinite(parsed.y) && (parsed.y as number) >= 0 && (parsed.y as number) <= 1 &&
-        Number.isFinite(parsed.w) && (parsed.w as number) > 0 && (parsed.w as number) <= 1 &&
-        Number.isFinite(parsed.h) && (parsed.h as number) > 0 && (parsed.h as number) <= 1
-      ) {
-        zone = parsed as SigZone;
+      const parsed = JSON.parse(r.signature_zone);
+      if (Array.isArray(parsed)) {
+        allZones = parsed.filter(isValidZone);
+      } else if (isValidZone(parsed as Partial<SigZone>)) {
+        allZones = [parsed as SigZone];
       }
     } catch { /* use default */ }
   }
-
-  // Select the target page (zone.page is 1-indexed; clamp to valid range)
-  const pageIndex = zone
-    ? Math.max(0, Math.min(pages.length - 1, zone.page - 1))
-    : pages.length - 1;
-  const page = pages[pageIndex];
-  const { width: pageW, height: pageH } = page.getSize();
+  // Only stamp candidate zones (no party = legacy, treat as candidate)
+  const candidateZones = allZones.filter(z => !z.party || z.party === "candidate");
 
   // Embed the signature image — support both PNG and JPEG
   const sigDataUri = signatureBase64.startsWith("data:")
     ? signatureBase64
     : `data:image/png;base64,${signatureBase64}`;
-  const isJpeg    = /^data:image\/jpe?g;/i.test(sigDataUri);
-  const sigBase64  = sigDataUri.replace(/^data:[^;]+;base64,/, "");
-  const sigBytes   = Uint8Array.from(Buffer.from(sigBase64, "base64"));
-  const sigImage   = isJpeg
+  const isJpeg   = /^data:image\/jpe?g;/i.test(sigDataUri);
+  const sigBase64 = sigDataUri.replace(/^data:[^;]+;base64,/, "");
+  const sigBytes  = Uint8Array.from(Buffer.from(sigBase64, "base64"));
+  const sigImage  = isJpeg
     ? await pdfDoc.embedJpg(sigBytes)
     : await pdfDoc.embedPng(sigBytes);
 
-  // Compute zone rect in PDF coordinates (origin = bottom-left in pdf-lib)
-  let zoneX: number, zoneY: number, zoneW: number, zoneH: number;
-  if (zone) {
-    zoneW = zone.w * pageW;
-    zoneH = zone.h * pageH;
-    zoneX = zone.x * pageW;
-    // PDF origin is bottom-left; zone.y is from the top
-    zoneY = pageH - (zone.y + zone.h) * pageH;
-  } else {
-    // Default: bottom-right corner
-    zoneW = 200; zoneH = 72;
-    zoneX = pageW - zoneW - 28;
-    zoneY = 28;
-  }
-
-  // Scale signature image to fit inside the zone
-  const sigDims = sigImage.scaleToFit(zoneW * 0.92, zoneH * 0.62);
-  const imgX    = zoneX + (zoneW - sigDims.width) / 2;
-  const imgY    = zoneY + zoneH * 0.3; // leave room for name/date below
-
-  // Light background rect for the entire zone
-  page.drawRectangle({
-    x: zoneX, y: zoneY,
-    width: zoneW, height: zoneH,
-    color: rgb(0.97, 0.97, 0.97),
-    borderColor: rgb(0.75, 0.75, 0.75),
-    borderWidth: 0.5,
-    opacity: 0.92,
-  });
-
-  // Signature image
-  page.drawImage(sigImage, {
-    x: imgX, y: imgY,
-    width: sigDims.width, height: sigDims.height,
-  });
-
-  // Divider line + name + date
   const font    = await pdfDoc.embedFont(StandardFonts.Helvetica);
   const dateStr = new Date().toLocaleDateString("en-GB");
-  const lineY   = zoneY + zoneH * 0.28;
 
-  page.drawLine({
-    start: { x: zoneX + 4, y: lineY },
-    end:   { x: zoneX + zoneW - 4, y: lineY },
-    thickness: 0.4,
-    color: rgb(0.7, 0.7, 0.7),
-  });
+  function stampZone(pg: ReturnType<typeof pdfDoc.getPages>[number], zone: SigZone | null) {
+    const { width: pageW, height: pageH } = pg.getSize();
+    let zoneX: number, zoneY: number, zoneW: number, zoneH: number;
+    if (zone) {
+      zoneW = zone.w * pageW;
+      zoneH = zone.h * pageH;
+      zoneX = zone.x * pageW;
+      zoneY = pageH - (zone.y + zone.h) * pageH; // pdf-lib origin = bottom-left
+    } else {
+      zoneW = 200; zoneH = 72;
+      zoneX = pageW - zoneW - 28;
+      zoneY = 28;
+    }
+    const sigDims = sigImage.scaleToFit(zoneW * 0.92, zoneH * 0.62);
+    const imgX    = zoneX + (zoneW - sigDims.width) / 2;
+    const imgY    = zoneY + zoneH * 0.3;
+    pg.drawRectangle({
+      x: zoneX, y: zoneY, width: zoneW, height: zoneH,
+      color: rgb(0.97, 0.97, 0.97), borderColor: rgb(0.75, 0.75, 0.75),
+      borderWidth: 0.5, opacity: 0.92,
+    });
+    pg.drawImage(sigImage, { x: imgX, y: imgY, width: sigDims.width, height: sigDims.height });
+    const lineY    = zoneY + zoneH * 0.28;
+    const fontSize = Math.max(5, Math.min(7, zoneW / 30));
+    pg.drawLine({ start: { x: zoneX + 4, y: lineY }, end: { x: zoneX + zoneW - 4, y: lineY }, thickness: 0.4, color: rgb(0.7, 0.7, 0.7) });
+    pg.drawText(signerName, { x: zoneX + 5, y: lineY - fontSize - 2, size: fontSize, font, color: rgb(0.3, 0.3, 0.3), maxWidth: zoneW - 10 });
+    pg.drawText(dateStr,    { x: zoneX + 5, y: zoneY + 3, size: fontSize, font, color: rgb(0.5, 0.5, 0.5) });
+  }
 
-  const fontSize = Math.max(5, Math.min(7, zoneW / 30));
-  page.drawText(signerName, {
-    x: zoneX + 5, y: lineY - fontSize - 2,
-    size: fontSize, font, color: rgb(0.3, 0.3, 0.3),
-    maxWidth: zoneW - 10,
-  });
-  page.drawText(dateStr, {
-    x: zoneX + 5, y: zoneY + 3,
-    size: fontSize, font, color: rgb(0.5, 0.5, 0.5),
-  });
+  if (candidateZones.length > 0) {
+    for (const zone of candidateZones) {
+      const pageIndex = Math.max(0, Math.min(pages.length - 1, zone.page - 1));
+      stampZone(pages[pageIndex], zone);
+    }
+  } else {
+    // No zones defined — stamp default bottom-right of last page
+    stampZone(pages[pages.length - 1], null);
+  }
 
   const signedBytes = await pdfDoc.save();
 

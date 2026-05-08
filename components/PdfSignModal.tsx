@@ -17,7 +17,7 @@ export type SignRequestFull = {
   status: "pending" | "signed" | "declined";
   signed_at: string | null;
   created_at: string;
-  signature_zone: SigZone | null;
+  signature_zone: SigZone | SigZone[] | null;
   pdf_preview_url: string | null;
 };
 
@@ -89,7 +89,14 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
   const [err, setErr]                   = useState("");
   const [signedUrl, setSignedUrl]       = useState<string | null>(null);
 
-  const zone = request.signature_zone;
+  // Normalize to array of candidate zones (backward compat: single zone with no party = candidate)
+  const candidateZones: SigZone[] = (() => {
+    const raw = request.signature_zone;
+    if (!raw) return [];
+    if (Array.isArray(raw)) return raw.filter(z => !z.party || z.party === "candidate");
+    if (!raw.party || raw.party === "candidate") return [raw];
+    return [];
+  })();
 
   // Load saved signature
   useEffect(() => {
@@ -261,74 +268,82 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                     src={request.pdf_preview_url}
                     hideRotate
                     pageOverlay={({ pageNum }) => {
-                      if (!zone || zone.page !== pageNum) return null;
+                      const pageZones = candidateZones.filter(z => z.page === pageNum);
+                      if (pageZones.length === 0) return null;
                       return (
-                        <div
-                          className={!sigPlaced && !dragOverZone ? "bv-sig-zone-pulse" : ""}
-                          style={{
-                            position: "absolute",
-                            left:       `${zone.x * 100}%`,
-                            top:        `${zone.y * 100}%`,
-                            width:      `${zone.w * 100}%`,
-                            height:     `${zone.h * 100}%`,
-                            border:     `2.5px ${dragOverZone ? "solid" : "dashed"} var(--gold)`,
-                            background: dragOverZone
-                              ? "var(--border-gold)"
-                              : sigPlaced
-                                ? "var(--gdim)"
-                                : "rgba(201,162,64,0.14)",
-                            borderRadius: 6,
-                            cursor: "pointer",
-                            overflow: "hidden",
-                            transition: "background 0.15s, border 0.15s",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                          }}
-                          onDragOver={e => { e.preventDefault(); setDragOverZone(true); }}
-                          onDragLeave={() => setDragOverZone(false)}
-                          onDrop={e => {
-                            e.preventDefault();
-                            setDragOverZone(false);
-                            if (e.dataTransfer.getData("bv-sig") === "saved" && savedSig) {
-                              setSigData(savedSig);
-                              setUsingSaved(true);
-                              setSigPlaced(true);
-                            }
-                          }}
-                          onClick={() => {
-                            if (savedSig && !sigPlaced) {
-                              setSigData(savedSig);
-                              setUsingSaved(true);
-                              setSigPlaced(true);
-                            }
-                          }}
-                        >
-                          {sigPlaced && sigData ? (
-                            <>
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={sigData}
-                                alt="signature"
-                                style={{ width: "90%", height: "90%", objectFit: "contain" }}
-                              />
-                              <button
-                                onClick={e => { e.stopPropagation(); clearSig(); }}
-                                className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center"
-                                style={{ background: "rgba(0,0,0,0.5)" }}>
-                                <XIcon size={8} strokeWidth={2.5} style={{ color: "#fff" }} />
-                              </button>
-                            </>
-                          ) : (
-                            <span style={{
-                              fontSize: 11, color: "var(--gold)", fontWeight: 700,
-                              textShadow: "0 1px 3px rgba(0,0,0,0.6)",
-                              pointerEvents: "none",
-                            }}>
-                              ✍ {t.dropHere}
-                            </span>
-                          )}
-                        </div>
+                        <>
+                          {pageZones.map((zone, zi) => (
+                            <div
+                              key={zi}
+                              className={!sigPlaced && !dragOverZone ? "bv-sig-zone-pulse" : ""}
+                              style={{
+                                position: "absolute",
+                                left:       `${zone.x * 100}%`,
+                                top:        `${zone.y * 100}%`,
+                                width:      `${zone.w * 100}%`,
+                                height:     `${zone.h * 100}%`,
+                                border:     `2.5px ${dragOverZone ? "solid" : "dashed"} var(--gold)`,
+                                background: dragOverZone
+                                  ? "var(--border-gold)"
+                                  : sigPlaced
+                                    ? "var(--gdim)"
+                                    : "rgba(201,162,64,0.14)",
+                                borderRadius: 6,
+                                cursor: "pointer",
+                                overflow: "hidden",
+                                transition: "background 0.15s, border 0.15s",
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                              }}
+                              onDragOver={e => { e.preventDefault(); setDragOverZone(true); }}
+                              onDragLeave={() => setDragOverZone(false)}
+                              onDrop={e => {
+                                e.preventDefault();
+                                setDragOverZone(false);
+                                if (e.dataTransfer.getData("bv-sig") === "saved" && savedSig) {
+                                  setSigData(savedSig);
+                                  setUsingSaved(true);
+                                  setSigPlaced(true);
+                                }
+                              }}
+                              onClick={() => {
+                                if (savedSig && !sigPlaced) {
+                                  setSigData(savedSig);
+                                  setUsingSaved(true);
+                                  setSigPlaced(true);
+                                }
+                              }}
+                            >
+                              {sigPlaced && sigData ? (
+                                <>
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    src={sigData}
+                                    alt="signature"
+                                    style={{ width: "90%", height: "90%", objectFit: "contain" }}
+                                  />
+                                  {zi === 0 && (
+                                    <button
+                                      onClick={e => { e.stopPropagation(); clearSig(); }}
+                                      className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center"
+                                      style={{ background: "rgba(0,0,0,0.5)" }}>
+                                      <XIcon size={8} strokeWidth={2.5} style={{ color: "#fff" }} />
+                                    </button>
+                                  )}
+                                </>
+                              ) : (
+                                <span style={{
+                                  fontSize: 11, color: "var(--gold)", fontWeight: 700,
+                                  textShadow: "0 1px 3px rgba(0,0,0,0.6)",
+                                  pointerEvents: "none",
+                                }}>
+                                  ✍ {t.dropHere}
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </>
                       );
                     }}
                   />

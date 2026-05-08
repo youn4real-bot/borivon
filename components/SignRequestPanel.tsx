@@ -120,7 +120,7 @@ export function SignRequestPanel({ candidateId, authToken, lang }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr]           = useState("");
   const [dragOver, setDragOver] = useState(false);
-  const [sigZone, setSigZone]   = useState<SigZone | null>(null);
+  const [sigZones, setSigZones] = useState<SigZone[]>([]);
   const [pdfBase64, setPdfBase64] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -167,13 +167,13 @@ export function SignRequestPanel({ candidateId, authToken, lang }: Props) {
           documentName: docName.trim(),
           pdfBase64: base64,
           note: note.trim() || undefined,
-          signatureZone: sigZone ?? undefined,
+          signatureZones: sigZones.length ? sigZones : undefined,
         }),
       });
       const j = await res.json() as { error?: string };
       if (!res.ok) { setErr(j.error ?? t.errFallback); return; }
       setShowForm(false);
-      setDocName(""); setNote(""); setPdfFile(null); setPdfBase64(null); setSigZone(null);
+      setDocName(""); setNote(""); setPdfFile(null); setPdfBase64(null); setSigZones([]);
       await load();
     } catch (e) {
       setErr(String(e));
@@ -302,7 +302,7 @@ export function SignRequestPanel({ candidateId, authToken, lang }: Props) {
           {pdfBase64 && (
             <PdfZonePicker
               pdfBase64={pdfBase64}
-              onChange={z => setSigZone(z)}
+              onChange={zones => setSigZones(zones)}
               lang={lang}
             />
           )}
@@ -320,7 +320,7 @@ export function SignRequestPanel({ candidateId, authToken, lang }: Props) {
               {submitting ? t.submitting : t.submit}
             </button>
             <button
-              onClick={() => { setShowForm(false); setErr(""); setDocName(""); setNote(""); setPdfFile(null); setPdfBase64(null); setSigZone(null); }}
+              onClick={() => { setShowForm(false); setErr(""); setDocName(""); setNote(""); setPdfFile(null); setPdfBase64(null); setSigZones([]); }}
               className="px-4 py-2.5 rounded-xl text-[13px] font-medium transition-opacity hover:opacity-70"
               style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}
             >

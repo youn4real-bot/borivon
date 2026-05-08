@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
   const ct = req.headers.get("content-type") ?? "";
   let candidateId = "", documentName = "", driveFileId = "", note = "";
   let pdfBuffer: Buffer | null = null;
-  let signatureZone: unknown = undefined;
+  let signatureZones: unknown = undefined; // array of zones (new) or single zone (legacy)
   let parties: { admin?: boolean; candidate?: boolean } | undefined;
 
   if (ct.includes("multipart/form-data")) {
@@ -104,9 +104,10 @@ export async function POST(req: NextRequest) {
     documentName = String(fd.get("documentName") ?? "");
     driveFileId  = String(fd.get("driveFileId")  ?? "");
     note         = String(fd.get("note")         ?? "");
-    const zoneStr = fd.get("signatureZone");
-    if (typeof zoneStr === "string" && zoneStr) {
-      try { signatureZone = JSON.parse(zoneStr); } catch { /* ignore */ }
+    // Accept signatureZones (array) or legacy signatureZone (single)
+    const zonesStr = fd.get("signatureZones") ?? fd.get("signatureZone");
+    if (typeof zonesStr === "string" && zonesStr) {
+      try { signatureZones = JSON.parse(zonesStr); } catch { /* ignore */ }
     }
     const partiesStr = fd.get("parties");
     if (typeof partiesStr === "string" && partiesStr) {
@@ -125,7 +126,7 @@ export async function POST(req: NextRequest) {
     if (raw.length > MAX_PDF_BYTES * 1.5) {
       return NextResponse.json({ error: "Payload too large" }, { status: 413 });
     }
-    let body: { candidateId?: string; documentName?: string; pdfBase64?: string; driveFileId?: string; note?: string; signatureZone?: unknown; parties?: { admin?: boolean; candidate?: boolean } };
+    let body: { candidateId?: string; documentName?: string; pdfBase64?: string; driveFileId?: string; note?: string; signatureZones?: unknown; signatureZone?: unknown; parties?: { admin?: boolean; candidate?: boolean } };
     try { body = JSON.parse(raw); } catch {
       return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
     }
@@ -133,8 +134,9 @@ export async function POST(req: NextRequest) {
     documentName = body.documentName ?? "";
     driveFileId  = body.driveFileId ?? "";
     note         = body.note ?? "";
-    signatureZone = body.signatureZone;
-    parties      = body.parties;
+    // Prefer signatureZones (array), fall back to legacy signatureZone (single)
+    signatureZones = body.signatureZones ?? body.signatureZone;
+    parties        = body.parties;
     if (body.pdfBase64) {
       pdfBuffer = Buffer.from(body.pdfBase64.replace(/^data:[^;]+;base64,/, ""), "base64");
     }
@@ -171,7 +173,7 @@ export async function POST(req: NextRequest) {
       document_name:     documentName,
       note:              note || null,
       status:            "pending",
-      signature_zone:    signatureZone ? JSON.stringify(signatureZone) : null,
+      signature_zone:    signatureZones != null ? JSON.stringify(signatureZones) : null,
     })
     .select("id")
     .single();
