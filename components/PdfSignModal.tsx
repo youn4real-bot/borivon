@@ -147,11 +147,19 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
         const container = containerRef.current;
         const canvas    = canvasRef.current;
         if (!canvas || !container) return;
-        const cw     = container.clientWidth || 440;
+        // Wait one frame so the container has its real laid-out width
+        await new Promise(r => requestAnimationFrame(r));
+        if (!active) return;
+        const cssW   = container.clientWidth || 440;
+        const dpr    = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
         const baseVp = pg.getViewport({ scale: 1 });
-        const vp     = pg.getViewport({ scale: cw / baseVp.width });
+        // Render at devicePixelRatio for crisp text on retina/high-DPI screens
+        const vp     = pg.getViewport({ scale: (cssW * dpr) / baseVp.width });
         canvas.width  = vp.width;
         canvas.height = vp.height;
+        // Display at CSS pixels, but the bitmap is dpr× denser
+        canvas.style.width  = cssW + "px";
+        canvas.style.height = (vp.height / dpr) + "px";
         const ctx = canvas.getContext("2d")!;
         ctx.clearRect(0, 0, vp.width, vp.height);
         await pg.render({ canvasContext: ctx, viewport: vp, canvas }).promise;
