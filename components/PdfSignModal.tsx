@@ -80,6 +80,7 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
   const [pageCount, setPageCount] = useState(1);
   const [page, setPage]           = useState(1);
   const [pdfLoading, setPdfLoading] = useState(true);
+  const [zoom, setZoom]           = useState(1);   // user-controlled zoom (0.6..3)
 
   // Signature state
   const [savedSig, setSavedSig]     = useState<string | null>(null);
@@ -147,19 +148,18 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
         const container = containerRef.current;
         const canvas    = canvasRef.current;
         if (!canvas || !container) return;
-        // Wait one frame so the container has its real laid-out width
         await new Promise(r => requestAnimationFrame(r));
         if (!active) return;
-        const cssW   = container.clientWidth || 440;
-        const dpr    = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
+        const cssW = container.clientWidth || 440;
+        // Render at 3× internal resolution so even when zoomed up, text stays
+        // sharp. Browser scales the dense bitmap down for normal display.
+        const QUALITY = 3;
         const baseVp = pg.getViewport({ scale: 1 });
-        // Render at devicePixelRatio for crisp text on retina/high-DPI screens
-        const vp     = pg.getViewport({ scale: (cssW * dpr) / baseVp.width });
+        const vp     = pg.getViewport({ scale: (cssW * QUALITY) / baseVp.width });
         canvas.width  = vp.width;
         canvas.height = vp.height;
-        // Display at CSS pixels, but the bitmap is dpr× denser
         canvas.style.width  = cssW + "px";
-        canvas.style.height = (vp.height / dpr) + "px";
+        canvas.style.height = (vp.height / QUALITY) + "px";
         const ctx = canvas.getContext("2d")!;
         ctx.clearRect(0, 0, vp.width, vp.height);
         await pg.render({ canvasContext: ctx, viewport: vp, canvas }).promise;
@@ -316,9 +316,9 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
             <>
               {/* ── PDF VIEWER ── */}
               <div>
-                {/* Page navigation */}
-                {pageCount > 1 && (
-                  <div className="flex items-center justify-between mb-2">
+                {/* Page navigation + zoom controls */}
+                <div className="flex items-center justify-between mb-2 gap-2">
+                  {pageCount > 1 ? (
                     <button
                       disabled={page <= 1}
                       onClick={() => setPage(p => p - 1)}
@@ -326,17 +326,35 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                       style={{ background: "var(--bg2)", color: "var(--w3)" }}>
                       <ChevronLeft size={12} />
                     </button>
-                    <span className="text-[11.5px]" style={{ color: "var(--w3)" }}>
-                      Page {page} of {pageCount}
-                      {!isTargetPage && (
-                        <button
-                          onClick={() => setPage(targetPage)}
-                          className="ml-2 underline"
-                          style={{ color: "var(--gold)" }}>
-                          Go to sign page
-                        </button>
-                      )}
+                  ) : <span />}
+                  <span className="text-[11.5px] flex-1 text-center" style={{ color: "var(--w3)" }}>
+                    {pageCount > 1 && <>Page {page} of {pageCount}</>}
+                    {pageCount > 1 && !isTargetPage && (
+                      <button
+                        onClick={() => setPage(targetPage)}
+                        className="ml-2 underline"
+                        style={{ color: "var(--gold)" }}>
+                        Go to sign page
+                      </button>
+                    )}
+                  </span>
+                  {/* Zoom controls */}
+                  <div className="flex items-center gap-0.5 rounded-lg" style={{ background: "var(--bg2)" }}>
+                    <button
+                      onClick={() => setZoom(z => Math.max(0.6, +(z - 0.25).toFixed(2)))}
+                      disabled={zoom <= 0.6}
+                      className="px-2 py-1 text-[14px] leading-none disabled:opacity-30 hover:opacity-70"
+                      style={{ color: "var(--w3)" }} aria-label="Zoom out">−</button>
+                    <span className="text-[10.5px] px-1.5 font-medium" style={{ color: "var(--w3)", minWidth: 32, textAlign: "center" }}>
+                      {Math.round(zoom * 100)}%
                     </span>
+                    <button
+                      onClick={() => setZoom(z => Math.min(3, +(z + 0.25).toFixed(2)))}
+                      disabled={zoom >= 3}
+                      className="px-2 py-1 text-[14px] leading-none disabled:opacity-30 hover:opacity-70"
+                      style={{ color: "var(--w3)" }} aria-label="Zoom in">+</button>
+                  </div>
+                  {pageCount > 1 ? (
                     <button
                       disabled={page >= pageCount}
                       onClick={() => setPage(p => p + 1)}
@@ -344,14 +362,14 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                       style={{ background: "var(--bg2)", color: "var(--w3)" }}>
                       <ChevronRight size={12} />
                     </button>
-                  </div>
-                )}
+                  ) : <span />}
+                </div>
 
-                {/* Canvas */}
-                <div ref={containerRef} className="relative select-none rounded-xl overflow-hidden"
-                  style={{ border: "1px solid var(--border)", background: "#f5f5f5" }}>
+                {/* Scrollable PDF area — pans when zoomed past viewport */}
+                <div className="relative rounded-xl overflow-auto"
+                  style={{ border: "1px solid var(--border)", background: "#f5f5f5", maxHeight: "62dvh" }}>
                   {pdfLoading && (
-                    <div className="absolute inset-0 z-10 flex items-center justify-center"
+                    <div className="absolute inset-0 z-20 flex items-center justify-center"
                       style={{ background: "rgba(0,0,0,0.45)" }}>
                       <Spinner size="md" />
                     </div>
@@ -364,6 +382,8 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                     </div>
                   )}
 
+                  <div ref={containerRef} className="relative select-none"
+                    style={{ transformOrigin: "top left", transform: `scale(${zoom})`, width: "100%" }}>
                   <canvas ref={canvasRef}
                     style={{ display: "block", width: "100%", height: "auto" }} />
 
@@ -450,7 +470,8 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                       ✍ Signature will appear here
                     </div>
                   )}
-                </div>
+                  </div>{/* /scaled inner wrapper */}
+                </div>{/* /scrollable PDF area */}
               </div>
 
               {/* ── SIGNATURE SECTION ── */}
