@@ -214,31 +214,6 @@ export function SignaturePad({
           {clearLabel}
         </button>
       )}
-      {/* Mode toggle + typed-name input — keyboard fallback for assistive
-          tech and users with no pointing device. */}
-      <div className="mt-2 flex items-center gap-2">
-        <button type="button"
-          onClick={() => { setMode(m => m === "draw" ? "type" : "draw"); clear(); setTypedName(""); }}
-          aria-pressed={mode === "type"}
-          className="inline-flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full transition-opacity hover:opacity-80"
-          style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
-          {mode === "draw"
-            ? <><Type size={11} strokeWidth={1.8} aria-hidden="true" /> {labels.typeMode}</>
-            : <><Pencil size={11} strokeWidth={1.8} aria-hidden="true" /> {labels.drawMode}</>}
-        </button>
-        {mode === "type" && (
-          <input
-            type="text"
-            value={typedName}
-            onChange={e => setTypedName(e.target.value)}
-            placeholder={labels.typedPh}
-            aria-label={labels.typedPh}
-            autoComplete="off"
-            className="flex-1 text-[13px] px-3 py-1 rounded-md outline-none"
-            style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }}
-          />
-        )}
-      </div>
     </div>
   );
 }

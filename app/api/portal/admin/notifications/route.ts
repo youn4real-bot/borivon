@@ -1,19 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
-import { requireAdminRole } from "@/lib/admin-auth";
+import { requireAdminRole, getVisibleCandidateIds } from "@/lib/admin-auth";
 
-// GET — fetch latest admin notifications (admins only — sub-admins see nothing here)
+// GET — fetch latest admin notifications.
+// Full admins see everything. Sub-admins / org admins see only notifications
+// for candidates they're assigned to (via direct assignment or org membership).
 export async function GET(req: NextRequest) {
   const auth = await requireAdminRole(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
-  if (auth.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const db = getServiceSupabase();
-  const { data, error } = await db
+
+  // Build the query — sub-admins get filtered by their visible candidates' emails
+  let query = db
     .from("admin_notifications")
     .select("id, type, user_name, user_email, doc_type, doc_name, read, created_at")
     .order("created_at", { ascending: false })
     .limit(40);
+
+  if (auth.role !== "admin") {
+    const visibleIds = await getVisibleCandidateIds(auth.email);
+    if (visibleIds.length === 0) return NextResponse.json({ notifications: [] });
+    // Resolve those user_ids to emails so we can filter admin_notifications.
+    let emails: string[] = [];
+    let page = 1;
+    while (true) {
+      const { data: batch } = await db.auth.admin.listUsers({ page, perPage: 50 });
+      const list = batch?.users ?? [];
+      for (const u of list) {
+        if (u.id && u.email && visibleIds.includes(u.id)) emails.push(u.email);
+      }
+      if (list.length < 50) break;
+      page++;
+    }
+    if (emails.length === 0) return NextResponse.json({ notifications: [] });
+    query = query.in("user_email", emails);
+  }
+
+  const { data, error } = await query;
 
   if (error) {
     console.error("[admin notifications GET] failed:", error);

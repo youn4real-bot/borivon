@@ -200,6 +200,22 @@ export async function POST(
     return NextResponse.json({ error: "Could not update signature record" }, { status: 500 });
   }
 
+  // Notify the supreme admin (and any org admin assigned to this candidate)
+  // that the document was signed. Best-effort — don't fail the sign if this
+  // breaks. The admin_notifications table powers the admin bell with realtime.
+  try {
+    const { error: notifErr } = await db.from("admin_notifications").insert({
+      type:        "doc-signed",
+      user_name:   signerName,
+      user_email:  auth.email,
+      doc_type:    "sign_request",
+      doc_name:    r.document_name,
+    });
+    if (notifErr) console.warn("[sign] admin notification insert failed (non-fatal):", notifErr);
+  } catch (e) {
+    console.warn("[sign] admin notification exception (non-fatal):", e);
+  }
+
   // Generate short-lived URL for immediate confirmation
   const { data: urlData } = await db.storage
     .from(BUCKET)
