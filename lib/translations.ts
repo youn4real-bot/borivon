@@ -201,6 +201,10 @@ export interface Translation {
   aJourneySection: string;
   aInterviewLink: string; aInterviewDate: string; aInterviewStatus: string;
   aInterviewPassBtn: string; aInterviewFailBtn: string; aInterviewResetBtn: string;
+  aInterviewType: string; aInterviewTypeVideo: string; aInterviewTypePhone: string; aInterviewTypeInPerson: string;
+  aInterviewNotes: string; aInterviewNotesPlaceholder: string;
+  aInterviewScheduled: string; aInterviewNotScheduled: string;
+  aInterviewPassedLabel: string; aInterviewFailedLabel: string;
   aUnlockRecognition: string; aLockRecognition: string;
   aUnlockEmbassy: string; aLockEmbassy: string;
   aVisaGrant: string; aVisaRevoke: string; aVisaDate: string;
@@ -477,6 +481,10 @@ export const translations: Record<Lang, Translation> = {
     pFlightLockedMsg: "Votre date de départ sera communiquée ici dès qu'elle est confirmée.", pFlightTitle: "Votre vol vers l'Allemagne ✈️", pFlightDateLabel: "Date de départ", pFlightInfoLabel: "Informations de vol",
     aJourneySection: "Parcours candidat",
     aInterviewLink: "Lien d'entretien", aInterviewDate: "Date d'entretien", aInterviewStatus: "Statut",
+    aInterviewType: "Type", aInterviewTypeVideo: "Vidéo", aInterviewTypePhone: "Téléphone", aInterviewTypeInPerson: "En personne",
+    aInterviewNotes: "Notes (interne)", aInterviewNotesPlaceholder: "Notes internes — non visibles par le candidat…",
+    aInterviewScheduled: "Programmé", aInterviewNotScheduled: "Pas encore programmé",
+    aInterviewPassedLabel: "Réussi", aInterviewFailedLabel: "Échoué",
     aInterviewPassBtn: "✓ Réussi", aInterviewFailBtn: "✕ Échoué", aInterviewResetBtn: "Réinitialiser",
     aUnlockRecognition: "Débloquer Reconnaissance", aLockRecognition: "Verrouiller Reconnaissance",
     aUnlockEmbassy: "Débloquer Ambassade", aLockEmbassy: "Verrouiller Ambassade",
@@ -772,6 +780,10 @@ export const translations: Record<Lang, Translation> = {
     pFlightLockedMsg: "Your departure date will appear here once confirmed.", pFlightTitle: "Your Flight to Germany ✈️", pFlightDateLabel: "Departure date", pFlightInfoLabel: "Flight details",
     aJourneySection: "Candidate Journey",
     aInterviewLink: "Interview link", aInterviewDate: "Interview date", aInterviewStatus: "Status",
+    aInterviewType: "Type", aInterviewTypeVideo: "Video", aInterviewTypePhone: "Phone", aInterviewTypeInPerson: "In-person",
+    aInterviewNotes: "Notes (internal)", aInterviewNotesPlaceholder: "Internal notes — not visible to candidate…",
+    aInterviewScheduled: "Scheduled", aInterviewNotScheduled: "Not scheduled yet",
+    aInterviewPassedLabel: "Passed", aInterviewFailedLabel: "Failed",
     aInterviewPassBtn: "✓ Passed", aInterviewFailBtn: "✕ Failed", aInterviewResetBtn: "Reset",
     aUnlockRecognition: "Unlock Recognition", aLockRecognition: "Lock Recognition",
     aUnlockEmbassy: "Unlock Embassy", aLockEmbassy: "Lock Embassy",
@@ -1067,6 +1079,10 @@ export const translations: Record<Lang, Translation> = {
     pFlightLockedMsg: "Ihr Abreisedatum erscheint hier, sobald es bestätigt ist.", pFlightTitle: "Ihr Flug nach Deutschland ✈️", pFlightDateLabel: "Abreisedatum", pFlightInfoLabel: "Flugdetails",
     aJourneySection: "Kandidatenreise",
     aInterviewLink: "Gesprächslink", aInterviewDate: "Gesprächsdatum", aInterviewStatus: "Status",
+    aInterviewType: "Art", aInterviewTypeVideo: "Video", aInterviewTypePhone: "Telefon", aInterviewTypeInPerson: "Vor Ort",
+    aInterviewNotes: "Notizen (intern)", aInterviewNotesPlaceholder: "Interne Notizen — für Kandidaten nicht sichtbar…",
+    aInterviewScheduled: "Geplant", aInterviewNotScheduled: "Noch nicht geplant",
+    aInterviewPassedLabel: "Bestanden", aInterviewFailedLabel: "Nicht bestanden",
     aInterviewPassBtn: "✓ Bestanden", aInterviewFailBtn: "✕ Nicht bestanden", aInterviewResetBtn: "Zurücksetzen",
     aUnlockRecognition: "Anerkennung freischalten", aLockRecognition: "Anerkennung sperren",
     aUnlockEmbassy: "Botschaft freischalten", aLockEmbassy: "Botschaft sperren",

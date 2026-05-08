@@ -1956,9 +1956,9 @@ export default function AdminPage() {
                           <div className="flex-1 min-w-0">
                             <p className="text-[13px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>{t.pJourneyInterview}</p>
                             <p className="text-[11.5px] mt-0.5 inline-flex items-center gap-1" style={{ color: pipeline.interview_status === "passed" ? "var(--success)" : pipeline.interview_status === "failed" ? "var(--danger)" : pipeline.interview_link ? "var(--gold)" : "var(--w3)" }}>
-                              {pipeline.interview_status === "passed" ? <><CheckCircle2 size={11} strokeWidth={2} /> Passed</>
-                                : pipeline.interview_status === "failed" ? <><XCircle size={11} strokeWidth={2} /> Failed</>
-                                : pipeline.interview_link ? "Scheduled" : "Not scheduled yet"}
+                              {pipeline.interview_status === "passed" ? <><CheckCircle2 size={11} strokeWidth={2} /> {t.aInterviewPassedLabel}</>
+                                : pipeline.interview_status === "failed" ? <><XCircle size={11} strokeWidth={2} /> {t.aInterviewFailedLabel}</>
+                                : pipeline.interview_link ? t.aInterviewScheduled : t.aInterviewNotScheduled}
                             </p>
                           </div>
                           <div className="flex gap-1.5 flex-shrink-0">
@@ -1975,29 +1975,29 @@ export default function AdminPage() {
                         <div className="px-4 pb-3.5 pt-2 space-y-2.5" style={{ borderTop: "1px solid var(--border)" }}>
                           <div className="grid grid-cols-2 gap-2.5">
                             <div>
-                              <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>Link</label>
+                              <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>{t.aInterviewLink}</label>
                               <input type="url" value={pipeline.interview_link} onChange={e => setPipeline(p => ({ ...p, interview_link: e.target.value }))} onBlur={e => savePipelineField({ interview_link: e.target.value })} placeholder="https://meet.google.com/..." className="w-full px-2.5 py-2 text-[11.5px] outline-none transition-colors" style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: "var(--r-sm)" }} />
                             </div>
                             <div>
-                              <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>Date</label>
+                              <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>{t.aInterviewDate}</label>
                               <input type="datetime-local" value={pipeline.interview_date} onChange={e => setPipeline(p => ({ ...p, interview_date: e.target.value }))} onBlur={e => savePipelineField({ interview_date: e.target.value })} className="w-full px-2.5 py-2 text-[11.5px] outline-none transition-colors" style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: "var(--r-sm)" }} />
                             </div>
                           </div>
                           <div>
-                            <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>Type</label>
+                            <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>{t.aInterviewType}</label>
                             <div className="flex gap-2">
                               {(["video", "phone", "in-person"] as const).map(tp => (
                                 <button key={tp} type="button" onClick={() => savePipelineField({ interview_type: pipeline.interview_type === tp ? "" : tp })}
                                   className="flex-1 py-1.5 text-[11px] font-medium transition-all"
                                   style={{ background: pipeline.interview_type === tp ? "var(--gdim)" : "var(--bg2)", color: pipeline.interview_type === tp ? "var(--gold)" : "var(--w3)", border: `1px solid ${pipeline.interview_type === tp ? "var(--border-gold)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
-                                  {tp === "video" ? "Video" : tp === "phone" ? "Phone" : "In-person"}
+                                  {tp === "video" ? t.aInterviewTypeVideo : tp === "phone" ? t.aInterviewTypePhone : t.aInterviewTypeInPerson}
                                 </button>
                               ))}
                             </div>
                           </div>
                           <div>
-                            <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>Notes (internal)</label>
-                            <textarea value={pipeline.interview_notes} onChange={e => setPipeline(p => ({ ...p, interview_notes: e.target.value }))} onBlur={e => savePipelineField({ interview_notes: e.target.value })} placeholder="Internal notes — not visible to candidate…" rows={3} className="w-full px-2.5 py-2 text-[11.5px] outline-none transition-colors resize-none" style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: "var(--r-sm)" }} />
+                            <label className="text-[10px] font-medium uppercase tracking-wide mb-1.5 block" style={{ color: "var(--w3)" }}>{t.aInterviewNotes}</label>
+                            <textarea value={pipeline.interview_notes} onChange={e => setPipeline(p => ({ ...p, interview_notes: e.target.value }))} onBlur={e => savePipelineField({ interview_notes: e.target.value })} placeholder={t.aInterviewNotesPlaceholder} rows={3} className="w-full px-2.5 py-2 text-[11.5px] outline-none transition-colors resize-none" style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: "var(--r-sm)" }} />
                           </div>
                         </div>
                       </div>
