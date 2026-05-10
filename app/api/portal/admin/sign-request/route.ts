@@ -196,20 +196,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No PDF bytes" }, { status: 400 });
   }
 
-  // Helper: stamp a set of zones onto the PDF buffer with a given signature image
-  async function stampZonesOnBuffer(buf: Buffer, sigDataUri: string, _signerEmail: string, zones: { page: number; x: number; y: number; w: number; h: number }[]): Promise<Buffer> {
+  // Helper: stamp zones onto PDF. If zones is empty and useDefaultPos=true, stamps bottom-right of last page.
+  async function stampZonesOnBuffer(buf: Buffer, sigDataUri: string, _signerEmail: string, zones: { page: number; x: number; y: number; w: number; h: number }[], useDefaultPos = false): Promise<Buffer> {
     const pdfDoc = await PDFDocument.load(new Uint8Array(buf));
     const pages  = pdfDoc.getPages();
     const isJpeg = /^data:image\/jpe?g;/i.test(sigDataUri);
     const sigBase64 = sigDataUri.replace(/^data:[^;]+;base64,/, "");
     const sigBytes  = Uint8Array.from(Buffer.from(sigBase64, "base64"));
     const sigImage  = isJpeg ? await pdfDoc.embedJpg(sigBytes) : await pdfDoc.embedPng(sigBytes);
-    for (const zone of zones) {
-      const pageIndex = Math.max(0, Math.min(pages.length - 1, zone.page - 1));
-      const pg = pages[pageIndex];
+    if (zones.length > 0) {
+      for (const zone of zones) {
+        const pageIndex = Math.max(0, Math.min(pages.length - 1, zone.page - 1));
+        const pg = pages[pageIndex];
+        const { width: pageW, height: pageH } = pg.getSize();
+        const zW = zone.w * pageW, zH = zone.h * pageH;
+        const zX = zone.x * pageW, zY = pageH - (zone.y + zone.h) * pageH;
+        const sigDims = sigImage.scaleToFit(zW, zH);
+        pg.drawImage(sigImage, { x: zX + (zW - sigDims.width) / 2, y: zY + (zH - sigDims.height) / 2, width: sigDims.width, height: sigDims.height });
+      }
+    } else if (useDefaultPos) {
+      // No explicit zones — stamp bottom-right of last page
+      const pg = pages[pages.length - 1];
       const { width: pageW, height: pageH } = pg.getSize();
-      const zW = zone.w * pageW, zH = zone.h * pageH;
-      const zX = zone.x * pageW, zY = pageH - (zone.y + zone.h) * pageH;
+      const zW = 200, zH = 72;
+      const zX = pageW - zW - 28, zY = 28;
       const sigDims = sigImage.scaleToFit(zW, zH);
       pg.drawImage(sigImage, { x: zX + (zW - sigDims.width) / 2, y: zY + (zH - sigDims.height) / 2, width: sigDims.width, height: sigDims.height });
     }
@@ -230,18 +240,18 @@ export async function POST(req: NextRequest) {
     return [];
   }
 
-  // Stamp admin zones (adminOnly/adminSave → stamp all zones regardless of party)
-  if (adminSignatureBase64 && signatureZones) {
-    const allZones = parseZones(signatureZones);
+  // Stamp admin signature — runs whenever adminSignatureBase64 is provided.
+  // In with-candidate mode, only admin-party zones are used; if none exist, stamps at default bottom-right.
+  // In adminOnly/adminSave mode, all zones are stamped (or default if none drawn).
+  if (adminSignatureBase64) {
+    const allZones = signatureZones ? parseZones(signatureZones) : [];
     const zones = (adminOnly || adminSave) ? allZones : allZones.filter(z => z.party === "admin");
-    if (zones.length > 0) {
-      try {
-        const sigUri = adminSignatureBase64.startsWith("data:") ? adminSignatureBase64 : `data:image/png;base64,${adminSignatureBase64}`;
-        pdfBuffer = await stampZonesOnBuffer(pdfBuffer!, sigUri, auth.email, zones);
-      } catch (e) {
-        console.error("[sign-request POST] admin stamp error:", e);
-        return NextResponse.json({ error: "Could not stamp admin signature onto PDF. The PDF may be encrypted or in an unsupported format." }, { status: 422 });
-      }
+    try {
+      const sigUri = adminSignatureBase64.startsWith("data:") ? adminSignatureBase64 : `data:image/png;base64,${adminSignatureBase64}`;
+      pdfBuffer = await stampZonesOnBuffer(pdfBuffer!, sigUri, auth.email, zones, true);
+    } catch (e) {
+      console.error("[sign-request POST] admin stamp error:", e);
+      return NextResponse.json({ error: "Could not stamp admin signature onto PDF. The PDF may be encrypted or in an unsupported format." }, { status: 422 });
     }
   }
 

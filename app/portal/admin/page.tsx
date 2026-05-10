@@ -3628,7 +3628,7 @@ export default function AdminPage() {
               )}
             </div>
             {/* ── Sticky sig section (admin — covers org + supreme admin zones) ── */}
-            {sigPdfBase64 && (sigMode === "admin-only" || sigZones.some(z => z.party === "admin")) && (
+            {sigPdfBase64 && (
               <div className="flex-shrink-0 px-3 pt-3 pb-1" style={{ borderTop: "1px solid var(--border)" }}>
                 <AdminSigSection party="admin" lang={lang}
                   sig={sigAdminSig} wantSave={sigAdminWantSave} bgRemoving={sigAdminBgRemoving}
@@ -4506,7 +4506,7 @@ export default function AdminPage() {
             </div>
 
             {/* ── Sticky sig section (admin — covers org + supreme admin zones) ── */}
-            {sigPdfBase64 && (sigMode === "admin-only" || sigZones.some(z => z.party === "admin")) && (
+            {sigPdfBase64 && (
               <div className="flex-shrink-0 px-3 pt-3 pb-1" style={{ borderTop: "1px solid var(--border)" }}>
                 <AdminSigSection party="admin" lang={lang}
                   sig={sigAdminSig} wantSave={sigAdminWantSave} bgRemoving={sigAdminBgRemoving}
