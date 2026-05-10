@@ -307,40 +307,40 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
           </button>
         </div>
 
-        {/* Scrollable body */}
-        <div className="overflow-y-auto flex-1 p-4 space-y-4">
-
-          {/* Note */}
-          {request.note && (
+        {/* Note — pinned below header, no scroll needed */}
+        {!signedUrl && request.note && (
+          <div className="flex-shrink-0 px-4 pt-3">
             <p className="text-[12.5px] px-3 py-2 rounded-xl"
               style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
               <span style={{ color: "var(--gold)", fontWeight: 600 }}>{t.note} </span>
               {request.note}
             </p>
-          )}
+          </div>
+        )}
 
-          {/* Success state */}
-          {signedUrl ? (
-            <div className="text-center space-y-3 py-4">
-              <CheckCircle2 size={44} strokeWidth={1.5} className="mx-auto" style={{ color: "var(--success)" }} />
-              <p className="text-[14px] font-semibold" style={{ color: "var(--w)" }}>{t.signed}</p>
-              <a href={signedUrl} target="_blank" rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-[13px] font-semibold transition-opacity hover:opacity-80"
-                style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
-                <Download size={14} strokeWidth={2} />
-                {t.download}
-              </a>
-              <button onClick={onClose}
-                className="block w-full py-2 text-[13px] font-medium transition-opacity hover:opacity-70"
-                style={{ color: "var(--w3)" }}>
-                {t.close}
-              </button>
-            </div>
-          ) : (
-            <>
-              {/* ── PDF VIEWER (unified — pinch/wheel zoom built in) ── */}
+        {/* Success state */}
+        {signedUrl ? (
+          <div className="overflow-y-auto flex-1 p-4 text-center space-y-3 py-4">
+            <CheckCircle2 size={44} strokeWidth={1.5} className="mx-auto" style={{ color: "var(--success)" }} />
+            <p className="text-[14px] font-semibold" style={{ color: "var(--w)" }}>{t.signed}</p>
+            <a href={signedUrl} target="_blank" rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-[13px] font-semibold transition-opacity hover:opacity-80"
+              style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
+              <Download size={14} strokeWidth={2} />
+              {t.download}
+            </a>
+            <button onClick={onClose}
+              className="block w-full py-2 text-[13px] font-medium transition-opacity hover:opacity-70"
+              style={{ color: "var(--w3)" }}>
+              {t.close}
+            </button>
+          </div>
+        ) : (
+          <>
+            {/* ── PDF VIEWER — flex-1 grows to fill space ── */}
+            <div className="flex-1 min-h-0 px-4 pt-3 pb-0">
               <div
-                style={{ height: "62dvh", borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)" }}
+                style={{ height: "100%", borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)" }}
                 onWheel={e => e.stopPropagation()}
               >
                 {request.pdf_preview_url ? (
@@ -434,9 +434,10 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                   </div>
                 )}
               </div>
+            </div>{/* end flex-1 PDF wrapper */}
 
-              {/* ── SIGNATURE SECTION ── */}
-              <div className="space-y-3 pt-1">
+            {/* ── SIGNATURE SECTION — flex-shrink-0, always on screen ── */}
+            <div className="flex-shrink-0 overflow-y-auto px-4 py-3 space-y-2" style={{ borderTop: "1px solid var(--border)", maxHeight: "44vh" }}>
                 {/* Hidden file input */}
                 <input
                   ref={uploadRef}
@@ -503,14 +504,14 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                       >
                         <SignaturePad
                           key="draw"
-                          height={140}
+                          height={100}
                           onCapture={d => { setSigData(d); if (d) setSigPlaced(true); else setSigPlaced(false); }}
                           clearLabel={t.clear}
                         />
                       </div>
                       <div
                         className="rounded-xl flex flex-col items-center justify-center gap-2 cursor-pointer transition-all"
-                        style={{ minHeight: 88, border: "2px dashed var(--border-gold)", background: "var(--gdim)" }}
+                        style={{ minHeight: 64, border: "2px dashed var(--border-gold)", background: "var(--gdim)" }}
                         onClick={() => uploadRef.current?.click()}
                         onDragOver={e => { e.preventDefault(); (e.currentTarget as HTMLElement).style.borderStyle = "solid"; }}
                         onDragLeave={e => { (e.currentTarget as HTMLElement).style.borderStyle = "dashed"; }}
@@ -538,9 +539,9 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                   {/* Sig exists: preview + action buttons */}
                   {sigData && !bgRemoving && (
                     <>
-                      <div className="rounded-xl overflow-hidden flex items-center justify-center" style={{ background: "#fff", minHeight: 100, border: "1px solid var(--border)" }}>
+                      <div className="rounded-xl overflow-hidden flex items-center justify-center" style={{ background: "#fff", minHeight: 72, border: "1px solid var(--border)" }}>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={sigData} alt="signature" style={{ maxWidth: "100%", maxHeight: 130, objectFit: "contain" }} />
+                        <img src={sigData} alt="signature" style={{ maxWidth: "100%", maxHeight: 90, objectFit: "contain" }} />
                       </div>
                       <div className="flex items-center gap-2 flex-wrap">
                         {savedSig && sigData !== savedSig && (
@@ -597,10 +598,9 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                 </div>
 
                 {err && <p className="text-[12px]" style={{ color: "var(--error, #e03030)" }}>{err}</p>}
-              </div>
-            </>
-          )}
-        </div>
+            </div>{/* end sig section */}
+          </>
+        )}
 
         {/* Footer */}
         {!signedUrl && (
