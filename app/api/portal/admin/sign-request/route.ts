@@ -33,8 +33,9 @@ async function fetchPdfBuffer(fileId: string): Promise<Buffer> {
 
 async function updateDriveFile(fileId: string, buffer: Buffer): Promise<void> {
   const drive = getDriveClient();
-  const { Readable } = await import("stream");
-  const stream = Readable.from(buffer);
+  const { PassThrough } = await import("stream");
+  const stream = new PassThrough();
+  stream.end(buffer);
   await drive.files.update({
     fileId,
     supportsAllDrives: true,
