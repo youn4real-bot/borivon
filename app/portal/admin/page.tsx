@@ -310,6 +310,15 @@ function AdminSigSection({ lang, sig, wantSave, bgRemoving, onSig, onWantSave, o
 
         {/* Upload dropzone — shown when no sig yet */}
         {!sig && (
+          <>
+          {savedSig && (
+            <button type="button"
+              onClick={() => onSig(savedSig)}
+              className="w-full py-2 text-[12px] font-semibold rounded-xl transition-opacity hover:opacity-80"
+              style={{ background: "rgba(91,155,213,0.14)", color: meta.accent, border: `1.5px solid ${meta.border}` }}>
+              ✓ {lbl("Use saved", "Utiliser enregistrée", "Gespeicherte nutzen")}
+            </button>
+          )}
           <div
             onClick={() => { if (!bgRemoving) onUpload(); }}
             onDragOver={e => { e.preventDefault(); setDragOver(true); }}
@@ -338,6 +347,7 @@ function AdminSigSection({ lang, sig, wantSave, bgRemoving, onSig, onWantSave, o
               </>
             )}
           </div>
+          </>
         )}
 
         {/* Action buttons when sig exists */}
