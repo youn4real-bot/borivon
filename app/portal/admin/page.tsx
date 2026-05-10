@@ -349,7 +349,7 @@ function AdminSigSection({ lang, sig, wantSave, bgRemoving, onSig, onWantSave, o
                 onClick={() => onSig(savedSig)}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80"
                 style={{ background: meta.bg, color: meta.accent, border: `1px solid ${meta.border}` }}>
-                ↩ {lbl("Use saved", "Utiliser enregistrée", "Gespeicherte nutzen")}
+                {lbl("Use saved", "Utiliser enregistrée", "Gespeicherte nutzen")}
               </button>
             )}
             <button
