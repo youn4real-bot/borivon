@@ -815,6 +815,7 @@ export async function POST(req: NextRequest) {
   // Admin override: allow admins to upload on behalf of a candidate.
   const UUID_RE_USER = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   let userId = user.id;
+  let uploadedByAdmin = false;
   // When forUserId is set, notifications must use the CANDIDATE's email, not the admin's.
   let notifEmail = (user.email ?? "").toLowerCase();
   if (forUserId && UUID_RE_USER.test(forUserId)) {
@@ -829,6 +830,7 @@ export async function POST(req: NextRequest) {
     }
     if (!isAdmin && !isSubAdmin) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     userId = forUserId;
+    uploadedByAdmin = true;
     // Resolve candidate's email for the admin_notifications row.
     const { data: candAuthData } = await getServiceSupabase().auth.admin.getUserById(forUserId);
     const ce = (candAuthData?.user?.email ?? "").toLowerCase();
@@ -993,6 +995,7 @@ export async function POST(req: NextRequest) {
     user_id: userId, file_name: structuredName,
     file_path: `gdrive/${userId}/${Date.now()}`,
     file_type: fileType, drive_file_id: driveFileId,
+    uploaded_by_admin: uploadedByAdmin,
   });
   if (dbErr) {
     console.error("DB insert error:", dbErr);

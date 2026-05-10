@@ -65,6 +65,7 @@ type Doc = {
   status: string;
   feedback: string | null;
   drive_file_id: string | null;
+  uploaded_by_admin?: boolean;
 };
 
 export function AdminDocPreviewModal({
@@ -177,7 +178,7 @@ export function AdminDocPreviewModal({
     }
   }
 
-  const canReview = !savedAs && doc.status !== "approved";
+  const canReview = !savedAs && doc.status !== "approved" && !doc.uploaded_by_admin;
 
   // Portal to document.body so this modal always escapes any ancestor
   // stacking-context created by backdrop-filter (e.g. the mobile bottom bar).
