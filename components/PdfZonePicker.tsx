@@ -490,10 +490,10 @@ export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function Pdf
                 {label}
               </button>
 
-              {/* Remove × — top-right */}
+              {/* Remove × — inside top-right, clear of corner handles */}
               <button
                 style={{
-                  position: "absolute", top: -7, right: -7,
+                  position: "absolute", top: 3, right: 3,
                   width: 18, height: 18,
                   borderRadius: "50%",
                   background: "rgba(20,20,20,0.82)",
@@ -552,13 +552,13 @@ export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function Pdf
                     position: "absolute",
                     top: h.top, left: h.left,
                     transform: "translate(-50%, -50%)",
-                    width: 12, height: 12,
+                    width: 16, height: 16,
                     background: "#fff",
-                    border: `2.5px solid ${colors.border}`,
+                    border: `3px solid ${colors.border}`,
                     borderRadius: "50%",
                     cursor: h.cursor,
                     zIndex: 4,
-                    boxShadow: `0 2px 8px rgba(0,0,0,0.4), 0 0 0 1px ${colors.border}30`,
+                    boxShadow: `0 2px 10px rgba(0,0,0,0.55), 0 0 0 1.5px ${colors.border}`,
                   }}
                   onMouseDown={e => {
                     if (e.button !== 0) return;
