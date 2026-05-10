@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { FilePen, CheckCircle2, X as XIcon, Download, Save, Upload } from "lucide-react";
+import { FilePen, CheckCircle2, X as XIcon, Download, Upload } from "lucide-react";
 import { Spinner } from "@/components/ui/states";
 import { PdfViewer } from "@/components/PdfViewer";
 import type { SigZone } from "@/components/PdfZonePicker";
@@ -386,9 +386,9 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                       }}
                       className="rounded-xl flex flex-col items-center justify-center gap-2 cursor-pointer transition-all"
                       style={{
-                        minHeight: 88,
+                        minHeight: 110,
                         border: `2px dashed ${dropDragOver ? G.accent : G.border}`,
-                        background: dropDragOver ? G.bgHover : bgRemoving ? G.bg : "#fff",
+                        background: dropDragOver ? G.bg : "#fff",
                       }}
                     >
                       {bgRemoving ? (
@@ -446,7 +446,6 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                   <span className="text-[11px]" style={{ color: "var(--w3)" }}>
                     {savingSig ? t.saving : t.saveForNext}
                   </span>
-                  <Save size={11} strokeWidth={2} style={{ color: "var(--w3)" }} />
                 </label>
               </div>
 
