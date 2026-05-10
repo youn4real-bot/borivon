@@ -126,7 +126,6 @@ export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function Pdf
     onChangeRef.current(z);
   }
 
->>>>>>> origin/claude/sweet-meitner-5aef65
   useEffect(() => {
     if (!pdfBase64) return;
     try {

@@ -123,11 +123,6 @@ export async function POST(req: NextRequest) {
     documentName = String(fd.get("documentName") ?? "");
     driveFileId  = String(fd.get("driveFileId")  ?? "");
     note         = String(fd.get("note")         ?? "");
-<<<<<<< HEAD
-    const zoneStr = fd.get("signatureZone");
-    if (typeof zoneStr === "string" && zoneStr) {
-      try { signatureZone = JSON.parse(zoneStr); } catch { /* ignore */ }
-=======
     adminOnly    = fd.get("adminOnly") === "true";
     adminSave    = fd.get("adminSave")  === "true";
     // Accept signatureZones (array) or legacy signatureZone (single)
