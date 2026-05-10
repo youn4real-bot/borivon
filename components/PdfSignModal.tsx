@@ -158,6 +158,8 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
   }, [authToken]);
 
   function applyBgRemoval(dataUri: string) {
+    setSigData(null);
+    setSigPlaced(false);
     setBgRemoving(true);
     setUsingSaved(false);
     Promise.all([removeImageBg(dataUri), new Promise(r => setTimeout(r, 2200))])
@@ -403,14 +405,9 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                   </>
                 )}
 
-                {/* ── Sig exists: preview + action buttons (matches admin Replace/Clear layout) ── */}
+                {/* ── Sig exists: action buttons only (sig visible in PDF zone) ── */}
                 {sigData && !bgRemoving && (
                   <>
-                    <div className="rounded-xl overflow-hidden flex items-center justify-center"
-                      style={{ background: "#fff", minHeight: 80, border: "1px solid var(--border)" }}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={sigData} alt="signature" style={{ maxWidth: "100%", maxHeight: 90, objectFit: "contain" }} />
-                    </div>
                     <div className="flex items-center gap-2 flex-wrap">
                       {savedSig && sigData !== savedSig && (
                         <button type="button"
