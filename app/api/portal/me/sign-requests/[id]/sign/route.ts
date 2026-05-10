@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
-import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import { PDFDocument } from "pdf-lib";
 
 const BUCKET = "sign-documents";
 
@@ -121,9 +121,6 @@ export async function POST(
     ? await pdfDoc.embedJpg(sigBytes)
     : await pdfDoc.embedPng(sigBytes);
 
-  const font    = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const dateStr = new Date().toLocaleDateString("en-GB");
-
   function stampZone(pg: ReturnType<typeof pdfDoc.getPages>[number], zone: SigZone | null) {
     const { width: pageW, height: pageH } = pg.getSize();
     let zoneX: number, zoneY: number, zoneW: number, zoneH: number;
@@ -131,26 +128,14 @@ export async function POST(
       zoneW = zone.w * pageW;
       zoneH = zone.h * pageH;
       zoneX = zone.x * pageW;
-      zoneY = pageH - (zone.y + zone.h) * pageH; // pdf-lib origin = bottom-left
+      zoneY = pageH - (zone.y + zone.h) * pageH;
     } else {
       zoneW = 200; zoneH = 72;
       zoneX = pageW - zoneW - 28;
       zoneY = 28;
     }
-    const sigDims = sigImage.scaleToFit(zoneW * 0.92, zoneH * 0.62);
-    const imgX    = zoneX + (zoneW - sigDims.width) / 2;
-    const imgY    = zoneY + zoneH * 0.3;
-    pg.drawRectangle({
-      x: zoneX, y: zoneY, width: zoneW, height: zoneH,
-      color: rgb(0.97, 0.97, 0.97), borderColor: rgb(0.75, 0.75, 0.75),
-      borderWidth: 0.5, opacity: 0.92,
-    });
-    pg.drawImage(sigImage, { x: imgX, y: imgY, width: sigDims.width, height: sigDims.height });
-    const lineY    = zoneY + zoneH * 0.28;
-    const fontSize = Math.max(5, Math.min(7, zoneW / 30));
-    pg.drawLine({ start: { x: zoneX + 4, y: lineY }, end: { x: zoneX + zoneW - 4, y: lineY }, thickness: 0.4, color: rgb(0.7, 0.7, 0.7) });
-    pg.drawText(signerName, { x: zoneX + 5, y: lineY - fontSize - 2, size: fontSize, font, color: rgb(0.3, 0.3, 0.3), maxWidth: zoneW - 10 });
-    pg.drawText(dateStr,    { x: zoneX + 5, y: zoneY + 3, size: fontSize, font, color: rgb(0.5, 0.5, 0.5) });
+    const sigDims = sigImage.scaleToFit(zoneW, zoneH);
+    pg.drawImage(sigImage, { x: zoneX + (zoneW - sigDims.width) / 2, y: zoneY + (zoneH - sigDims.height) / 2, width: sigDims.width, height: sigDims.height });
   }
 
   if (candidateZones.length > 0) {
