@@ -135,6 +135,7 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
   const cropImgRef    = useRef<HTMLImageElement | null>(null);
   const cropZoneElRef = useRef<HTMLElement | null>(null);
   const cropInsetsRef = useRef<CropInsets>({ t: 0, r: 0, b: 0, l: 0 });
+  const uploadRef     = useRef<HTMLInputElement>(null);
 
   const [sigPlaced, setSigPlaced] = useState(false);
   const [signing, setSigning]     = useState(false);
