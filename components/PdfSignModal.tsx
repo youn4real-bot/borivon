@@ -63,39 +63,33 @@ export type SignRequestFull = {
 const T = {
   en: {
     close: "Close", confirm: "Confirm & sign", signing: "Signing…",
-    drawHint: "Draw your signature below", noSig: "Please add your signature first",
-    useSaved: "Use saved", drawNew: "Draw new", saveForNext: "Save for next time",
+    noSig: "Please add your signature first",
+    useSaved: "Use saved", saveForNext: "Save for next time",
     saving: "Saving…", download: "Download signed copy", signed: "Signed",
     clear: "Clear", dropHere: "Drop or click to sign",
     note: "Note:",
     noPreview: "No PDF preview available",
-    uploadImg: "Upload image", cropImg: "Crop",
     replace: "Replace", removingBg: "Removing background…",
-    dropUpload: "Drop signature photo or click to upload",
   },
   fr: {
     close: "Fermer", confirm: "Confirmer & signer", signing: "Signature…",
-    drawHint: "Dessinez votre signature ci-dessous", noSig: "Veuillez d'abord signer",
-    useSaved: "Utiliser la sauvegardée", drawNew: "Dessiner", saveForNext: "Enregistrer pour la prochaine fois",
+    noSig: "Veuillez d'abord signer",
+    useSaved: "Utiliser la sauvegardée", saveForNext: "Enregistrer pour la prochaine fois",
     saving: "Enregistrement…", download: "Télécharger la copie signée", signed: "Signé",
     clear: "Effacer", dropHere: "Déposez ou cliquez pour signer",
     note: "Note :",
     noPreview: "Aperçu PDF indisponible",
-    uploadImg: "Importer image", cropImg: "Recadrer",
     replace: "Remplacer", removingBg: "Suppression du fond…",
-    dropUpload: "Déposez une photo ou cliquez pour importer",
   },
   de: {
     close: "Schließen", confirm: "Bestätigen & unterschreiben", signing: "Wird unterschrieben…",
-    drawHint: "Zeichnen Sie Ihre Unterschrift", noSig: "Bitte zuerst unterschreiben",
-    useSaved: "Gespeicherte verwenden", drawNew: "Neu zeichnen", saveForNext: "Für nächstes Mal speichern",
+    noSig: "Bitte zuerst unterschreiben",
+    useSaved: "Gespeicherte verwenden", saveForNext: "Für nächstes Mal speichern",
     saving: "Speichern…", download: "Unterschriebene Kopie herunterladen", signed: "Unterschrieben",
     clear: "Löschen", dropHere: "Ablegen oder klicken zum Unterschreiben",
     note: "Hinweis:",
     noPreview: "PDF-Vorschau nicht verfügbar",
-    uploadImg: "Bild hochladen", cropImg: "Zuschneiden",
     replace: "Ersetzen", removingBg: "Hintergrund wird entfernt…",
-    dropUpload: "Unterschrift ablegen oder klicken",
   },
 } as const;
 type Lang = keyof typeof T;
@@ -108,13 +102,21 @@ type Props = {
   onClose: () => void;
 };
 
-// Gold palette — mirrors admin blue palette
 const G = {
   accent: "var(--gold)",
   bg: "rgba(201,162,64,0.06)",
   border: "var(--border-gold)",
   bgHover: "rgba(201,162,64,0.14)",
 };
+
+const HANDLES = [
+  { id: "nw", top: "0%",   left: "0%",   cursor: "nw-resize" },
+  { id: "ne", top: "0%",   left: "100%", cursor: "ne-resize" },
+  { id: "sw", top: "100%", left: "0%",   cursor: "sw-resize" },
+  { id: "se", top: "100%", left: "100%", cursor: "se-resize" },
+] as const;
+
+type CropInsets = { t: number; r: number; b: number; l: number };
 
 export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Props) {
   const t = T[lang] ?? T.en;
@@ -126,20 +128,21 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
   const [savingSig, setSavingSig]   = useState(false);
   const [bgRemoving, setBgRemoving] = useState(false);
   const [dropDragOver, setDropDragOver] = useState(false);
-  const [cropMode, setCropMode]     = useState(false);
-  const [cropDrag, setCropDrag]     = useState<{ sx: number; sy: number; ex: number; ey: number } | null>(null);
-  const [cropDragging, setCropDragging] = useState(false);
-  const cropImgRef      = useRef<HTMLImageElement>(null);
-  const cropContainerRef = useRef<HTMLDivElement>(null);
-  const uploadRef       = useRef<HTMLInputElement>(null);
 
-  const [dragOverZone, setDragOverZone] = useState(false);
-  const [sigPlaced, setSigPlaced]       = useState(false);
-  const [signing, setSigning]           = useState(false);
-  const [err, setErr]                   = useState("");
-  const [signedUrl, setSignedUrl]       = useState<string | null>(null);
+  // Inline crop state — exact match to PdfZonePicker
+  const [cropZoneIdx, setCropZoneIdx] = useState<number | null>(null);
+  const [cropInsets, setCropInsets]   = useState<CropInsets>({ t: 0, r: 0, b: 0, l: 0 });
+  const cropImgRef    = useRef<HTMLImageElement | null>(null);
+  const cropZoneElRef = useRef<HTMLElement | null>(null);
+  const cropInsetsRef = useRef<CropInsets>({ t: 0, r: 0, b: 0, l: 0 });
 
-  // Mutable local zones — candidate can resize/move before submitting
+  const uploadRef = useRef<HTMLInputElement>(null);
+
+  const [sigPlaced, setSigPlaced] = useState(false);
+  const [signing, setSigning]     = useState(false);
+  const [err, setErr]             = useState("");
+  const [signedUrl, setSignedUrl] = useState<string | null>(null);
+
   const [localZones, setLocalZones] = useState<SigZone[]>(() => {
     const raw = request.signature_zone;
     if (!raw) return [];
@@ -147,12 +150,21 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
     if (!raw.party || raw.party === "candidate") return [raw as SigZone];
     return [];
   });
+  const localZonesRef = useRef<SigZone[]>([]);
+  useEffect(() => { localZonesRef.current = localZones; }, [localZones]);
+
   const [activeZoneIdx, setActiveZoneIdx] = useState<number | null>(null);
   const pageElsRef = useRef<Map<number, HTMLElement>>(new Map());
+
   type ZDrag =
     | { mode: "move"; idx: number; startClientX: number; startClientY: number; startCx: number; startCy: number; startZone: SigZone }
     | { mode: "resize"; idx: number; handle: string; startClientX: number; startClientY: number; startZone: SigZone; pageW: number; pageH: number };
   const zoneDragRef = useRef<ZDrag | null>(null);
+
+  function updateCropInsets(ins: CropInsets) {
+    cropInsetsRef.current = ins;
+    setCropInsets(ins);
+  }
 
   useEffect(() => {
     if (!authToken) return;
@@ -164,7 +176,6 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
       .catch(() => {});
   }, [authToken]);
 
-  // Global listeners for zone move/resize drag
   useEffect(() => {
     const MIN_PX = 16;
     function onMove(e: MouseEvent) {
@@ -210,39 +221,61 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
     return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
   }, []);
 
+  // Inline crop — exact copy from PdfZonePicker
+  function applyCrop() {
+    const img = cropImgRef.current;
+    const el  = cropZoneElRef.current;
+    const zoneIdx = cropZoneIdx;
+    if (zoneIdx === null) { setCropZoneIdx(null); return; }
+    const z   = localZonesRef.current[zoneIdx];
+    const ins = { ...cropInsetsRef.current };
+    setCropZoneIdx(null);
+    updateCropInsets({ t: 0, r: 0, b: 0, l: 0 });
+    if (!img || !el) return;
+    const renderedW = el.offsetWidth, renderedH = el.offsetHeight;
+    const imgW = img.naturalWidth, imgH = img.naturalHeight;
+    if (!imgW || !imgH) return;
+    const scale   = Math.min(renderedW / imgW, renderedH / imgH);
+    const scaledW = imgW * scale, scaledH = imgH * scale;
+    const offX    = (renderedW - scaledW) / 2, offY = (renderedH - scaledH) / 2;
+    const startX  = Math.max(offX,           ins.l * renderedW);
+    const startY  = Math.max(offY,           ins.t * renderedH);
+    const endX    = Math.min(offX + scaledW, (1 - ins.r) * renderedW);
+    const endY    = Math.min(offY + scaledH, (1 - ins.b) * renderedH);
+    if (endX <= startX || endY <= startY) return;
+    if (z) {
+      const lf = startX / renderedW, tf = startY / renderedH;
+      const wf = (endX - startX) / renderedW, hf = (endY - startY) / renderedH;
+      setLocalZones(prev => {
+        const next = [...prev];
+        next[zoneIdx] = { ...z, x: z.x + lf * z.w, y: z.y + tf * z.h, w: Math.max(0.02, wf * z.w), h: Math.max(0.02, hf * z.h) };
+        return next;
+      });
+    }
+    const pixX = (startX - offX) / scale, pixY = (startY - offY) / scale;
+    const pixW = (endX - startX) / scale,  pixH = (endY - startY) / scale;
+    const canvas = document.createElement("canvas");
+    canvas.width  = Math.round(pixW);
+    canvas.height = Math.round(pixH);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(img, Math.round(pixX), Math.round(pixY), Math.round(pixW), Math.round(pixH), 0, 0, canvas.width, canvas.height);
+    setSigData(canvas.toDataURL("image/png"));
+  }
+
   function applyBgRemoval(dataUri: string) {
-    setSigData(null);
-    setSigPlaced(false);
+    setSigData(dataUri);
+    setSigPlaced(true);
     setBgRemoving(true);
     setUsingSaved(false);
     Promise.all([removeImageBg(dataUri), new Promise(r => setTimeout(r, 2200))])
-      .then(([clean]) => { setSigData(clean as string); setSigPlaced(true); setBgRemoving(false); });
+      .then(([clean]) => { setSigData(clean as string); setBgRemoving(false); });
   }
 
   function handleFileRead(file: File) {
     const reader = new FileReader();
     reader.onload = () => applyBgRemoval(reader.result as string);
     reader.readAsDataURL(file);
-  }
-
-  function applyCrop() {
-    if (!cropDrag || !cropImgRef.current || !cropContainerRef.current || !sigData) return;
-    const cw = cropContainerRef.current.offsetWidth;
-    const ch = cropContainerRef.current.offsetHeight;
-    const img = cropImgRef.current;
-    const scaleX = img.naturalWidth / cw, scaleY = img.naturalHeight / ch;
-    const x = Math.max(0, Math.round(Math.min(cropDrag.sx, cropDrag.ex) * scaleX));
-    const y = Math.max(0, Math.round(Math.min(cropDrag.sy, cropDrag.ey) * scaleY));
-    const w = Math.min(img.naturalWidth - x, Math.round(Math.abs(cropDrag.ex - cropDrag.sx) * scaleX));
-    const h = Math.min(img.naturalHeight - y, Math.round(Math.abs(cropDrag.ey - cropDrag.sy) * scaleY));
-    if (w < 5 || h < 5) return;
-    const canvas = document.createElement("canvas");
-    canvas.width = w; canvas.height = h;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.drawImage(img, x, y, w, h, 0, 0, w, h);
-    setSigData(canvas.toDataURL("image/png"));
-    setCropMode(false); setCropDrag(null);
   }
 
   async function handleConfirm() {
@@ -291,11 +324,8 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
             max-height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 6px - 72px - 6px - env(safe-area-inset-bottom, 0px)) !important;
           }
         }
-        @keyframes bvSigPulse {
-          0%, 100% { box-shadow: 0 0 0 0 rgba(201,162,64,0.55), 0 0 18px 2px rgba(201,162,64,0.35); background: rgba(201,162,64,0.18) !important; }
-          50%       { box-shadow: 0 0 0 8px rgba(201,162,64,0), 0 0 26px 6px rgba(201,162,64,0.55); background: rgba(201,162,64,0.32) !important; }
-        }
-        .bv-sig-zone-pulse { animation: bvSigPulse 1.6s ease-in-out infinite; }
+        @keyframes bvScan { 0% { top: -35%; } 100% { top: 100%; } }
+        @keyframes bvSparkle { 0% { opacity: 0.4; } 100% { opacity: 1; } }
       `}</style>
 
       <div
@@ -303,7 +333,7 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
         style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)" }}
         onClick={e => e.stopPropagation()}
       >
-        {/* ── Header ── */}
+        {/* Header */}
         <div className="flex items-center justify-between px-5 py-3.5 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
           <div className="min-w-0 flex-1 mr-3">
             <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-0.5" style={{ color: "var(--w3)" }}>
@@ -318,7 +348,7 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
           </button>
         </div>
 
-        {/* ── Note ── */}
+        {/* Note */}
         {!signedUrl && request.note && (
           <div className="flex-shrink-0 px-4 pt-3">
             <p className="text-[12.5px] px-3 py-2 rounded-xl" style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
@@ -328,7 +358,7 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
           </div>
         )}
 
-        {/* ── Body ── */}
+        {/* Body */}
         {signedUrl ? (
           <div className="overflow-y-auto flex-1 p-4 text-center space-y-3 py-8">
             <CheckCircle2 size={44} strokeWidth={1.5} className="mx-auto" style={{ color: "var(--success)" }} />
@@ -344,7 +374,7 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
           </div>
         ) : (
           <>
-            {/* PDF viewer — fixed height so sig section always visible below */}
+            {/* PDF viewer */}
             <div className="flex-shrink-0 px-4 pt-3 pb-0" style={{ height: "55dvh" }}>
               <div style={{ height: "100%", borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)" }} onWheel={e => e.stopPropagation()}>
                 {request.pdf_preview_url ? (
@@ -352,97 +382,203 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                     src={request.pdf_preview_url}
                     hideRotate
                     pageOverlay={({ pageNum }) => {
-                      const pageZones = localZones.map((zone, idx) => ({ zone, idx })).filter(({ zone }) => zone.page === pageNum);
+                      const pageZones = localZones
+                        .map((zone, idx) => ({ zone, idx }))
+                        .filter(({ zone }) => zone.page === pageNum);
                       return (
                         <div
                           ref={el => { if (el) pageElsRef.current.set(pageNum, el); else pageElsRef.current.delete(pageNum); }}
                           style={{ position: "absolute", inset: 0 }}
-                          onClick={() => setActiveZoneIdx(null)}
+                          onClick={() => { if (cropZoneIdx !== null) applyCrop(); else setActiveZoneIdx(null); }}
                         >
                           {pageZones.map(({ zone, idx: zi }) => {
-                            const isActive = activeZoneIdx === zi;
+                            const isActive   = activeZoneIdx === zi;
+                            const inCropMode = cropZoneIdx === zi;
                             const pageEl = pageElsRef.current.get(pageNum);
                             const pxW = pageEl ? zone.w * pageEl.offsetWidth  : 200;
                             const pxH = pageEl ? zone.h * pageEl.offsetHeight : 80;
                             const sc  = Math.max(0.28, Math.min(1, pxW / 160, pxH / 52));
+
+                            function makeCropDragDown(hId: string) {
+                              return (e: React.MouseEvent) => {
+                                if (e.button !== 0) return;
+                                e.preventDefault(); e.stopPropagation();
+                                const el = pageElsRef.current.get(pageNum); if (!el) return;
+                                const rect = el.getBoundingClientRect();
+                                const startX = e.clientX, startY = e.clientY;
+                                const si = { ...cropInsetsRef.current };
+                                const pw = rect.width * zone.w, ph = rect.height * zone.h;
+                                function mv(ev: MouseEvent) {
+                                  ev.preventDefault();
+                                  const dx = (ev.clientX - startX) / pw;
+                                  const dy = (ev.clientY - startY) / ph;
+                                  const n = { ...si };
+                                  if (hId.includes("n")) n.t = Math.max(0, Math.min(0.85 - si.b, si.t + dy));
+                                  if (hId.includes("s")) n.b = Math.max(0, Math.min(0.85 - si.t, si.b - dy));
+                                  if (hId.includes("w")) n.l = Math.max(0, Math.min(0.85 - si.r, si.l + dx));
+                                  if (hId.includes("e")) n.r = Math.max(0, Math.min(0.85 - si.l, si.r - dx));
+                                  updateCropInsets(n);
+                                }
+                                function up() { document.removeEventListener("mousemove", mv); document.removeEventListener("mouseup", up); }
+                                document.addEventListener("mousemove", mv, { passive: false });
+                                document.addEventListener("mouseup", up);
+                              };
+                            }
+
+                            const { t: ct, r: cr, b: cb, l: cl } = cropInsets;
+                            const tp = `${ct*100}%`, bp = `${cb*100}%`, lp = `${cl*100}%`, rp = `${cr*100}%`;
+                            const t1 = `${(1-cb)*100}%`, l1 = `${(1-cr)*100}%`;
+
                             return (
-                              <div key={zi}
+                              <div
+                                key={zi}
+                                ref={inCropMode ? (el => { cropZoneElRef.current = el; }) : undefined}
                                 style={{
                                   position: "absolute",
-                                  left: `${zone.x * 100}%`, top: `${zone.y * 100}%`,
-                                  width: `${zone.w * 100}%`, height: `${zone.h * 100}%`,
-                                  cursor: "move", boxSizing: "border-box",
+                                  left:   `${zone.x * 100}%`,
+                                  top:    `${zone.y * 100}%`,
+                                  width:  `${zone.w * 100}%`,
+                                  height: `${zone.h * 100}%`,
+                                  border: inCropMode
+                                    ? `2px solid rgba(255,255,255,0.9)`
+                                    : `1.5px solid ${isActive ? "rgba(201,162,64,0.6)" : "rgba(201,162,64,0.35)"}`,
+                                  background: "rgba(201,162,64,0.07)",
+                                  borderRadius: 5,
+                                  cursor: inCropMode ? "default" : "move",
+                                  boxSizing: "border-box",
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  gap: 2,
                                   zIndex: isActive ? 2 : 1,
+                                  boxShadow: inCropMode
+                                    ? "0 0 0 1px rgba(0,0,0,0.5), 0 6px 28px rgba(0,0,0,0.45)"
+                                    : isActive
+                                      ? "0 0 0 1px rgba(201,162,64,0.35), 0 2px 12px rgba(0,0,0,0.15)"
+                                      : "none",
+                                  transition: "box-shadow 0.15s, border-color 0.15s",
                                 }}
                                 onMouseDown={e => {
                                   if (e.button !== 0) return;
                                   e.preventDefault(); e.stopPropagation();
+                                  if (inCropMode) return;
                                   setActiveZoneIdx(zi);
                                   const el = pageElsRef.current.get(pageNum); if (!el) return;
                                   const rect = el.getBoundingClientRect();
                                   zoneDragRef.current = { mode: "move", idx: zi, startClientX: e.clientX, startClientY: e.clientY, startCx: rect.left + (zone.x + zone.w / 2) * rect.width, startCy: rect.top + (zone.y + zone.h / 2) * rect.height, startZone: { ...zone } };
                                 }}
-                                onClick={e => { e.stopPropagation(); if (savedSig && !sigPlaced) { setSigData(savedSig); setUsingSaved(true); setSigPlaced(true); } }}
+                                onClick={e => e.stopPropagation()}
+                                onDoubleClick={e => {
+                                  if (!sigPlaced || !sigData || bgRemoving) return;
+                                  e.stopPropagation();
+                                  if (inCropMode) {
+                                    applyCrop();
+                                  } else {
+                                    setCropZoneIdx(zi);
+                                    updateCropInsets({ t: 0, r: 0, b: 0, l: 0 });
+                                    setActiveZoneIdx(zi);
+                                  }
+                                }}
                               >
-                                {/* Inner styled box — clips content, excludes handles */}
-                                <div
-                                  className={!sigPlaced && !dragOverZone && !isActive ? "bv-sig-zone-pulse" : ""}
-                                  style={{
-                                    position: "absolute", inset: 0,
-                                    border: `2.5px ${dragOverZone ? "solid" : isActive ? "solid" : "dashed"} ${G.accent}`,
-                                    background: dragOverZone ? G.bgHover : sigPlaced ? G.bg : "rgba(201,162,64,0.14)",
-                                    borderRadius: 6, overflow: "hidden",
-                                    boxShadow: isActive ? `0 0 0 1px rgba(201,162,64,0.35), 0 2px 12px rgba(0,0,0,0.15)` : "none",
-                                    transition: "background 0.15s, border-color 0.15s, box-shadow 0.15s",
-                                    display: "flex", alignItems: "center", justifyContent: "center",
-                                    cursor: sigPlaced && sigData ? "zoom-in" : "move",
-                                  }}
-                                  onDoubleClick={e => { e.stopPropagation(); if (sigPlaced && sigData) { setCropMode(true); setCropDrag(null); } }}
-                                  onDragOver={e => { e.preventDefault(); setDragOverZone(true); }}
-                                  onDragLeave={() => setDragOverZone(false)}
-                                  onDrop={e => {
-                                    e.preventDefault(); setDragOverZone(false);
-                                    if (e.dataTransfer.getData("bv-sig") === "saved" && savedSig) { setSigData(savedSig); setUsingSaved(true); setSigPlaced(true); }
-                                  }}
-                                >
+                                {/* Centre content */}
+                                <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, overflow: "hidden" }}>
                                   {sigPlaced && sigData ? (
                                     <>
                                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                                      <img src={sigData} alt="signature" style={{ width: "90%", height: "90%", objectFit: "contain", pointerEvents: "none", userSelect: "none" }} />
-                                      {zi === 0 && (
-                                        <button onClick={e => { e.stopPropagation(); clearSig(); }}
-                                          className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center"
-                                          style={{ background: "rgba(0,0,0,0.5)" }}>
-                                          <XIcon size={8} strokeWidth={2.5} style={{ color: "#fff" }} />
-                                        </button>
+                                      <img
+                                        ref={inCropMode ? (el => { cropImgRef.current = el; }) : undefined}
+                                        src={sigData} alt="signature"
+                                        style={{
+                                          width: "100%", height: "100%",
+                                          objectFit: "contain",
+                                          pointerEvents: "none", userSelect: "none",
+                                          filter: bgRemoving ? "brightness(1.08) contrast(0.9)" : undefined,
+                                          clipPath: inCropMode
+                                            ? `inset(${cropInsets.t*100}% ${cropInsets.r*100}% ${cropInsets.b*100}% ${cropInsets.l*100}%)`
+                                            : undefined,
+                                          transition: inCropMode ? "none" : "clip-path 0.05s",
+                                        }}
+                                      />
+                                      {bgRemoving && (
+                                        <div style={{ position: "absolute", inset: 0, overflow: "hidden", borderRadius: 3, pointerEvents: "none" }}>
+                                          <div style={{ position: "absolute", left: 0, right: 0, height: "35%", background: "linear-gradient(to bottom, transparent 0%, rgba(120,200,255,0.55) 45%, rgba(80,180,255,0.75) 50%, rgba(120,200,255,0.55) 55%, transparent 100%)", animation: "bvScan 1.1s ease-in-out infinite alternate", boxShadow: "0 0 12px 4px rgba(80,180,255,0.4)" }} />
+                                          <div style={{ position: "absolute", inset: 0, background: "radial-gradient(circle at 30% 60%, rgba(255,255,255,0.18) 0%, transparent 60%), radial-gradient(circle at 70% 30%, rgba(255,255,255,0.14) 0%, transparent 50%)", animation: "bvSparkle 0.8s ease-in-out infinite alternate" }} />
+                                        </div>
                                       )}
                                     </>
                                   ) : (
-                                    <span style={{ fontSize: 11, color: G.accent, fontWeight: 700, textShadow: "0 1px 3px rgba(0,0,0,0.6)", pointerEvents: "none" }}>
+                                    <span style={{ fontSize: 11, color: "var(--gold)", fontWeight: 800, textShadow: "0 1px 4px rgba(0,0,0,0.7)", pointerEvents: "none", userSelect: "none", letterSpacing: "0.03em", whiteSpace: "nowrap" }}>
                                       ✍ {t.dropHere}
                                     </span>
                                   )}
                                 </div>
 
-                                {/* 4-corner resize handles — always visible */}
-                                {([
-                                  { id: "nw", top: "0%",   left: "0%",   cursor: "nw-resize" },
-                                  { id: "ne", top: "0%",   left: "100%", cursor: "ne-resize" },
-                                  { id: "sw", top: "100%", left: "0%",   cursor: "sw-resize" },
-                                  { id: "se", top: "100%", left: "100%", cursor: "se-resize" },
-                                ] as const).map(h => (
-                                  <div key={h.id}
+                                {/* × button to clear sig — same style as PdfZonePicker's × */}
+                                {sigPlaced && sigData && !bgRemoving && !inCropMode && (
+                                  <div style={{ position: "absolute", top: -1, left: -1, display: "flex", alignItems: "stretch", zIndex: 5, boxShadow: "0 1px 6px rgba(0,0,0,0.35)", borderRadius: "4px 4px 5px 0" }}>
+                                    <button
+                                      style={{
+                                        padding: `${Math.max(1, Math.round(2 * sc))}px ${Math.max(3, Math.round(5 * sc))}px`,
+                                        borderRadius: "4px",
+                                        background: "rgba(15,15,15,0.75)",
+                                        backdropFilter: "blur(4px)",
+                                        color: "rgba(255,255,255,0.85)", border: "none", cursor: "pointer",
+                                        display: "flex", alignItems: "center", justifyContent: "center",
+                                        fontSize: Math.max(7, Math.round(9 * sc)), fontWeight: 700, lineHeight: 1,
+                                      }}
+                                      onMouseDown={e => e.stopPropagation()}
+                                      onClick={e => { e.stopPropagation(); clearSig(); }}
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                )}
+
+                                {/* Inline crop mode — exact copy from PdfZonePicker */}
+                                {inCropMode && (
+                                  <>
+                                    {/* Dark overlay outside crop frame */}
+                                    <div style={{ position:"absolute", top:0, left:0, right:0, height:tp, background:"rgba(0,0,0,0.42)", pointerEvents:"none", zIndex:2 }} />
+                                    <div style={{ position:"absolute", bottom:0, left:0, right:0, height:bp, background:"rgba(0,0,0,0.42)", pointerEvents:"none", zIndex:2 }} />
+                                    <div style={{ position:"absolute", top:tp, bottom:bp, left:0, width:lp, background:"rgba(0,0,0,0.42)", pointerEvents:"none", zIndex:2 }} />
+                                    <div style={{ position:"absolute", top:tp, bottom:bp, right:0, width:rp, background:"rgba(0,0,0,0.42)", pointerEvents:"none", zIndex:2 }} />
+                                    {/* Moving crop frame lines */}
+                                    <div style={{ position:"absolute", top:tp, left:lp, right:rp, height:2, background:"#fff", boxShadow:"0 0 6px rgba(0,0,0,0.5)", pointerEvents:"none", zIndex:3 }} />
+                                    <div style={{ position:"absolute", bottom:bp, left:lp, right:rp, height:2, background:"#fff", boxShadow:"0 0 6px rgba(0,0,0,0.5)", pointerEvents:"none", zIndex:3 }} />
+                                    <div style={{ position:"absolute", top:tp, bottom:bp, left:lp, width:2, background:"#fff", boxShadow:"0 0 6px rgba(0,0,0,0.5)", pointerEvents:"none", zIndex:3 }} />
+                                    <div style={{ position:"absolute", top:tp, bottom:bp, right:rp, width:2, background:"#fff", boxShadow:"0 0 6px rgba(0,0,0,0.5)", pointerEvents:"none", zIndex:3 }} />
+                                    {/* Corner handle dots at crop frame corners */}
+                                    {([["nw",tp,lp],["ne",tp,l1],["sw",t1,lp],["se",t1,l1]] as [string,string,string][]).map(([id,cy,cx]) => (
+                                      <div key={`cv-${id}`} style={{ position:"absolute", top:cy, left:cx, transform:"translate(-50%,-50%)", width:16, height:16, background:"#fff", border:"2.5px solid rgba(0,0,0,0.45)", borderRadius:"50%", boxShadow:"0 2px 8px rgba(0,0,0,0.5)", pointerEvents:"none", zIndex:4 }} />
+                                    ))}
+                                    {/* Transparent drag strips */}
+                                    <div style={{ position:"absolute", top:tp, left:lp, right:rp, height:24, transform:"translateY(-50%)", cursor:"n-resize", zIndex:5 }} onMouseDown={makeCropDragDown("n")} />
+                                    <div style={{ position:"absolute", bottom:bp, left:lp, right:rp, height:24, transform:"translateY(50%)", cursor:"s-resize", zIndex:5 }} onMouseDown={makeCropDragDown("s")} />
+                                    <div style={{ position:"absolute", top:tp, bottom:bp, left:lp, width:24, transform:"translateX(-50%)", cursor:"w-resize", zIndex:5 }} onMouseDown={makeCropDragDown("w")} />
+                                    <div style={{ position:"absolute", top:tp, bottom:bp, right:rp, width:24, transform:"translateX(50%)", cursor:"e-resize", zIndex:5 }} onMouseDown={makeCropDragDown("e")} />
+                                    <div style={{ position:"absolute", top:tp, left:lp, transform:"translate(-50%,-50%)", width:28, height:28, cursor:"nw-resize", zIndex:6 }} onMouseDown={makeCropDragDown("nw")} />
+                                    <div style={{ position:"absolute", top:tp, left:l1, transform:"translate(-50%,-50%)", width:28, height:28, cursor:"ne-resize", zIndex:6 }} onMouseDown={makeCropDragDown("ne")} />
+                                    <div style={{ position:"absolute", top:t1, left:lp, transform:"translate(-50%,-50%)", width:28, height:28, cursor:"sw-resize", zIndex:6 }} onMouseDown={makeCropDragDown("sw")} />
+                                    <div style={{ position:"absolute", top:t1, left:l1, transform:"translate(-50%,-50%)", width:28, height:28, cursor:"se-resize", zIndex:6 }} onMouseDown={makeCropDragDown("se")} />
+                                  </>
+                                )}
+
+                                {/* Resize handles — active only, not in crop mode */}
+                                {isActive && !inCropMode && HANDLES.map(h => (
+                                  <div
+                                    key={h.id}
                                     style={{
                                       position: "absolute",
                                       top: h.top, left: h.left,
                                       transform: "translate(-50%, -50%)",
                                       width: Math.max(7, Math.round(16 * sc)), height: Math.max(7, Math.round(16 * sc)),
                                       background: "#fff",
-                                      border: `${Math.max(1.5, 3 * sc)}px solid ${G.accent}`,
+                                      border: `${Math.max(1.5, 3 * sc)}px solid var(--gold)`,
                                       borderRadius: "50%",
                                       cursor: h.cursor,
                                       zIndex: 4,
-                                      boxShadow: `0 2px 8px rgba(0,0,0,0.5), 0 0 0 ${Math.max(0.8, 1.5 * sc)}px ${G.accent}`,
+                                      boxShadow: `0 2px 8px rgba(0,0,0,0.5), 0 0 0 ${Math.max(0.8, 1.5 * sc)}px var(--gold)`,
                                     }}
                                     onMouseDown={e => {
                                       if (e.button !== 0) return;
@@ -466,9 +602,8 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
               </div>
             </div>
 
-            {/* ── Signature section — flex-1 fills remaining space, scrolls if needed ── */}
+            {/* Signature section */}
             <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3" style={{ borderTop: "1px solid var(--border)" }}>
-              {/* hidden file input */}
               <input ref={uploadRef} type="file" accept="image/*" style={{ display: "none" }}
                 onChange={e => { const f = e.target.files?.[0]; if (f) handleFileRead(f); e.target.value = ""; }} />
 
@@ -477,15 +612,10 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                   ✍ {lang === "fr" ? "Votre signature" : lang === "de" ? "Ihre Unterschrift" : "Your signature"}
                 </p>
 
-                {/* ── Removing bg: spinner only, no white box ── */}
                 {bgRemoving && (
-                  <div className="flex flex-col items-center justify-center gap-2" style={{ minHeight: 110 }}>
-                    <span className="w-6 h-6 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: G.accent }} />
-                    <p className="text-[11px]" style={{ color: "var(--w3)" }}>{t.removingBg}</p>
-                  </div>
+                  <p className="text-[11px] text-center py-1" style={{ color: "var(--w3)" }}>{t.removingBg}</p>
                 )}
 
-                {/* ── No sig and not removing bg: Use Saved + upload dropzone ── */}
                 {!sigData && !bgRemoving && (
                   <>
                     {savedSig && (
@@ -496,7 +626,6 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                         ✓ {t.useSaved}
                       </button>
                     )}
-
                     <div
                       onClick={() => uploadRef.current?.click()}
                       onDragOver={e => { e.preventDefault(); setDropDragOver(true); }}
@@ -507,50 +636,39 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                         if (file?.type.startsWith("image/")) handleFileRead(file);
                       }}
                       className="rounded-xl flex flex-col items-center justify-center gap-2 cursor-pointer transition-all"
-                      style={{
-                        minHeight: 110,
-                        border: `2px dashed ${dropDragOver ? G.accent : G.border}`,
-                        background: dropDragOver ? G.bg : "#fff",
-                      }}
+                      style={{ minHeight: 110, border: `2px dashed ${dropDragOver ? G.accent : G.border}`, background: dropDragOver ? G.bg : "#fff" }}
                     >
                       <Upload size={20} strokeWidth={1.5} style={{ color: G.accent, opacity: 0.7 }} />
-                      <p className="text-[12px] text-center px-4" style={{ color: "var(--w3)" }}>{t.dropUpload}</p>
+                      <p className="text-[12px] text-center px-4" style={{ color: "var(--w3)" }}>
+                        {lang === "fr" ? "Déposez une photo ou cliquez pour importer" : lang === "de" ? "Unterschrift ablegen oder klicken" : "Drop signature photo or click to upload"}
+                      </p>
                     </div>
                   </>
                 )}
 
-                {/* ── Sig exists: action buttons only (sig visible in PDF zone) ── */}
                 {sigData && !bgRemoving && (
-                  <>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {savedSig && sigData !== savedSig && (
-                        <button type="button"
-                          onClick={() => { setSigData(savedSig); setUsingSaved(true); setSigPlaced(true); }}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80"
-                          style={{ background: G.bg, color: G.accent, border: `1px solid ${G.border}` }}>
-                          {t.useSaved}
-                        </button>
-                      )}
-                      <button type="button" onClick={() => uploadRef.current?.click()}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {savedSig && sigData !== savedSig && (
+                      <button type="button"
+                        onClick={() => { setSigData(savedSig); setUsingSaved(true); setSigPlaced(true); }}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80"
                         style={{ background: G.bg, color: G.accent, border: `1px solid ${G.border}` }}>
-                        <Upload size={11} strokeWidth={2} />{t.replace}
+                        {t.useSaved}
                       </button>
-                      <button type="button" onClick={() => { setCropMode(true); setCropDrag(null); }}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80"
-                        style={{ background: G.bg, color: G.accent, border: `1px solid ${G.border}` }}>
-                        ✂ {t.cropImg}
-                      </button>
-                      <button type="button" onClick={clearSig}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80"
-                        style={{ background: G.bg, color: G.accent, border: `1px solid ${G.border}` }}>
-                        ✕ {t.clear}
-                      </button>
-                    </div>
-                  </>
+                    )}
+                    <button type="button" onClick={() => uploadRef.current?.click()}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80"
+                      style={{ background: G.bg, color: G.accent, border: `1px solid ${G.border}` }}>
+                      <Upload size={11} strokeWidth={2} />{t.replace}
+                    </button>
+                    <button type="button" onClick={clearSig}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80"
+                      style={{ background: G.bg, color: G.accent, border: `1px solid ${G.border}` }}>
+                      ✕ {t.clear}
+                    </button>
+                  </div>
                 )}
 
-                {/* Save for next time */}
                 <label className="flex items-center gap-2 cursor-pointer select-none">
                   <input type="checkbox" checked={wantSave} onChange={e => setWantSave(e.target.checked)}
                     className="rounded" style={{ accentColor: G.accent }} />
@@ -565,7 +683,7 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
           </>
         )}
 
-        {/* ── Footer ── */}
+        {/* Footer */}
         {!signedUrl && (
           <div className="flex-shrink-0 px-4 py-3 flex gap-2" style={{ borderTop: "1px solid var(--border)" }}>
             <button onClick={handleConfirm} disabled={signing || !sigData || bgRemoving}
@@ -585,59 +703,5 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
     document.body,
   );
 
-  function CropPortal() {
-    if (!cropMode || !sigData) return null;
-    return createPortal(
-      <div className="fixed inset-0 z-[2000] flex flex-col items-center justify-center gap-4"
-        style={{ background: "rgba(0,0,0,0.92)" }}
-        onClick={e => { if (e.target === e.currentTarget) { setCropMode(false); setCropDrag(null); } }}>
-        <p className="text-[12px] font-semibold select-none" style={{ color: "rgba(255,255,255,0.6)" }}>
-          {lang === "fr" ? "Faites glisser pour sélectionner" : lang === "de" ? "Bereich ziehen zum Zuschneiden" : "Drag to select crop area"}
-        </p>
-        <div ref={cropContainerRef} className="relative select-none"
-          style={{ cursor: "crosshair", background: "#fff" }}
-          onMouseDown={e => {
-            const r = cropContainerRef.current!.getBoundingClientRect();
-            const sx = e.clientX - r.left, sy = e.clientY - r.top;
-            setCropDrag({ sx, sy, ex: sx, ey: sy }); setCropDragging(true);
-          }}
-          onMouseMove={e => {
-            if (!cropDragging) return;
-            const r = cropContainerRef.current!.getBoundingClientRect();
-            setCropDrag(d => d ? { ...d, ex: e.clientX - r.left, ey: e.clientY - r.top } : null);
-          }}
-          onMouseUp={() => setCropDragging(false)}
-          onMouseLeave={() => setCropDragging(false)}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img ref={cropImgRef} src={sigData} alt="crop" draggable={false}
-            style={{ display: "block", maxWidth: "80vw", maxHeight: "65vh", userSelect: "none", pointerEvents: "none" }} />
-          {cropDrag && (
-            <div style={{
-              position: "absolute",
-              left: Math.min(cropDrag.sx, cropDrag.ex), top: Math.min(cropDrag.sy, cropDrag.ey),
-              width: Math.abs(cropDrag.ex - cropDrag.sx), height: Math.abs(cropDrag.ey - cropDrag.sy),
-              border: "2px solid #fff", background: "rgba(255,255,255,0.08)",
-              boxShadow: "0 0 0 9999px rgba(0,0,0,0.5)", pointerEvents: "none",
-            }} />
-          )}
-        </div>
-        <div className="flex gap-3">
-          <button onClick={applyCrop}
-            disabled={!cropDrag || Math.abs(cropDrag.ex - cropDrag.sx) < 5 || Math.abs(cropDrag.ey - cropDrag.sy) < 5}
-            className="px-6 py-2 rounded-full text-[12.5px] font-semibold disabled:opacity-40 transition-opacity hover:opacity-80"
-            style={{ background: "var(--gold)", color: "#131312" }}>
-            {lang === "fr" ? "Appliquer" : lang === "de" ? "Zuschneiden" : "Apply crop"}
-          </button>
-          <button onClick={() => { setCropMode(false); setCropDrag(null); }}
-            className="px-6 py-2 rounded-full text-[12.5px] font-semibold transition-opacity hover:opacity-80"
-            style={{ background: "rgba(255,255,255,0.12)", color: "#fff" }}>
-            {lang === "fr" ? "Annuler" : lang === "de" ? "Abbrechen" : "Cancel"}
-          </button>
-        </div>
-      </div>,
-      document.body,
-    );
-  }
-
-  return <>{modal}<CropPortal /></>;
+  return modal;
 }

@@ -71,7 +71,7 @@ export async function GET(req: NextRequest) {
   const db = getServiceSupabase();
   const { data, error } = await db
     .from("sign_requests")
-    .select("id, document_name, note, status, signed_at, signed_pdf_path, viewed_at, created_at")
+    .select("id, document_name, note, status, signed_at, signed_pdf_path, viewed_at, created_at, review_status, review_feedback")
     .eq("candidate_user_id", candidateId)
     .order("created_at", { ascending: false });
 
@@ -83,6 +83,7 @@ export async function GET(req: NextRequest) {
       id: string; document_name: string; note: string | null;
       status: string; signed_at: string | null;
       signed_pdf_path: string | null; viewed_at: string | null; created_at: string;
+      review_status: string | null; review_feedback: string | null;
     }) => {
       let signedPdfUrl: string | null = null;
       if (r.signed_pdf_path) {

@@ -3495,7 +3495,7 @@ export default function AdminPage() {
             if (sigUploadTarget === "org") {
               setSigOrgSig(result);
             } else {
-              setSigAdminSig(result);
+              setSigAdminSig(null);
               setSigAdminBgRemoving(true);
               Promise.all([removeImageBg(result), new Promise(r => setTimeout(r, 2200))])
                 .then(([clean]) => { setSigAdminSig(clean); setSigAdminBgRemoving(false); });
@@ -3638,7 +3638,7 @@ export default function AdminPage() {
                     const reader = new FileReader();
                     reader.onload = () => {
                       const result = reader.result as string;
-                      setSigAdminSig(result);
+                      setSigAdminSig(null);
                       setSigAdminBgRemoving(true);
                       Promise.all([removeImageBg(result), new Promise(r => setTimeout(r, 2200))])
                         .then(([clean]) => { setSigAdminSig(clean); setSigAdminBgRemoving(false); });
@@ -4516,7 +4516,7 @@ export default function AdminPage() {
                     const reader = new FileReader();
                     reader.onload = () => {
                       const result = reader.result as string;
-                      setSigAdminSig(result);
+                      setSigAdminSig(null);
                       setSigAdminBgRemoving(true);
                       Promise.all([removeImageBg(result), new Promise(r => setTimeout(r, 2200))])
                         .then(([clean]) => { setSigAdminSig(clean); setSigAdminBgRemoving(false); });

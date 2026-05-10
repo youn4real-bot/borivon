@@ -37,8 +37,10 @@ const BELL_T = {
     tapToReview: "Appuyer pour voir →",
     justSignedUp: "vient de s'inscrire",
     uploadedDoc: "a téléversé un document",
+    signedDoc: "a signé un document",
     viewCandidate: "Voir le candidat →",
     quickReview: "Révision rapide →",
+    reviewNow: "Réviser maintenant →",
     waiting48h: (n: number) => `${n} candidat${n !== 1 ? "s" : ""} en attente > 48 h`,
   },
   en: {
@@ -66,8 +68,10 @@ const BELL_T = {
     tapToReview: "Tap to review →",
     justSignedUp: "just signed up",
     uploadedDoc: "uploaded a document",
+    signedDoc: "signed a document",
     viewCandidate: "View candidate →",
     quickReview: "Quick review →",
+    reviewNow: "Review now →",
     waiting48h: (n: number) => `${n} candidate${n !== 1 ? "s" : ""} waiting > 48 hours`,
   },
   de: {
@@ -95,8 +99,10 @@ const BELL_T = {
     tapToReview: "Tippen zum Überprüfen →",
     justSignedUp: "hat sich gerade registriert",
     uploadedDoc: "hat ein Dokument hochgeladen",
+    signedDoc: "hat ein Dokument unterschrieben",
     viewCandidate: "Kandidaten anzeigen →",
     quickReview: "Schnellprüfung →",
+    reviewNow: "Jetzt prüfen →",
     waiting48h: (n: number) => `${n} Kandidat${n !== 1 ? "en" : ""} wartet seit > 48 Stunden`,
   },
 } as const;
@@ -115,7 +121,7 @@ type CandidateNotif = {
 
 type AdminNotif = {
   id: string;
-  type: "signup" | "upload";
+  type: "signup" | "upload" | "doc-signed";
   user_name: string;
   user_email: string;
   doc_type: string | null;
@@ -606,6 +612,17 @@ function AdminBell({ accessToken }: { accessToken: string }) {
       return;
     }
 
+    // Doc-signed → navigate to candidate and scroll to sign request panel
+    if (n.type === "doc-signed") {
+      router.push(`/portal/admin?nav_email=${encodeURIComponent(n.user_email)}`);
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("bv-admin-deep-link", {
+          detail: { email: n.user_email, docId: null, scrollTo: "sign-requests" },
+        }));
+      }, 30);
+      return;
+    }
+
     // Upload → resolve the doc, navigate AND dispatch event. The admin page
     // listens for the event and opens the same preview popup the admin gets
     // from a normal row click. URL is also updated so a refresh works.
@@ -656,10 +673,13 @@ function AdminBell({ accessToken }: { accessToken: string }) {
             {displayed.length === 0 ? (
               <EmptyState msg={tab === "unread" ? t.noUnreadActivity : t.noActivityYet} />
             ) : displayed.map((n, i) => {
-              const isSignup = n.type === "signup";
+              const isSignup   = n.type === "signup";
+              const isDocSigned = n.type === "doc-signed";
               const iconSt = isSignup
-                ? { bg: "var(--info-bg)",  color: "var(--info)",     border: "1px solid var(--info-border)",  Icon: User }
-                : { bg: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)",  Icon: Paperclip };
+                ? { bg: "var(--info-bg)",  color: "var(--info)",     border: "1px solid var(--info-border)" }
+                : isDocSigned
+                ? { bg: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }
+                : { bg: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" };
               return (
                 <div key={n.id}>
                   {i > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
@@ -680,7 +700,7 @@ function AdminBell({ accessToken }: { accessToken: string }) {
                           style={{ border: "1px solid var(--border)" }} />
                       ) : (
                         <div className="w-8 h-8 rounded-full flex items-center justify-center text-[12px] font-semibold"
-                          style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                          style={{ background: iconSt.bg, color: iconSt.color, border: iconSt.border }}>
                           {n.user_name.charAt(0).toUpperCase()}
                         </div>
                       )}
@@ -695,6 +715,21 @@ function AdminBell({ accessToken }: { accessToken: string }) {
                           </p>
                           {n.user_email && (
                             <p className="text-[11px] mt-0.5 truncate" style={{ color: "var(--w3)" }}>{n.user_email}</p>
+                          )}
+                        </>
+                      ) : isDocSigned ? (
+                        <>
+                          <p className="text-xs leading-snug flex items-center gap-1" style={{ color: "var(--w)" }}>
+                            <span className="font-semibold">{n.user_name}</span>
+                            {n.user_verified && <VerifiedBadge verified size="xs" color="gold" />}
+                            {t.signedDoc}
+                          </p>
+                          {n.doc_name && (
+                            <p className="text-[11px] mt-0.5 px-2 py-1 rounded-lg leading-snug"
+                              style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                              <FilePen size={10} strokeWidth={1.8} className="inline mr-1" />
+                              {n.doc_name}
+                            </p>
                           )}
                         </>
                       ) : (
@@ -716,7 +751,7 @@ function AdminBell({ accessToken }: { accessToken: string }) {
                         {relTime(n.created_at, t.justNow)}
                         <span style={{ color: "var(--border)" }}>·</span>
                         <span style={{ color: "var(--gold)" }}>
-                          {isSignup ? t.viewCandidate : t.quickReview}
+                          {isSignup ? t.viewCandidate : isDocSigned ? t.reviewNow : t.quickReview}
                         </span>
                       </p>
                     </div>
