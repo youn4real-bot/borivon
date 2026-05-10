@@ -364,8 +364,16 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                   ✍ {lang === "fr" ? "Votre signature" : lang === "de" ? "Ihre Unterschrift" : "Your signature"}
                 </p>
 
-                {/* ── No sig: draw pad + upload dropzone ── */}
-                {!sigData && (
+                {/* ── Removing bg: spinner only, no white box ── */}
+                {bgRemoving && (
+                  <div className="flex flex-col items-center justify-center gap-2" style={{ minHeight: 110 }}>
+                    <span className="w-6 h-6 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: G.accent }} />
+                    <p className="text-[11px]" style={{ color: "var(--w3)" }}>{t.removingBg}</p>
+                  </div>
+                )}
+
+                {/* ── No sig and not removing bg: Use Saved + upload dropzone ── */}
+                {!sigData && !bgRemoving && (
                   <>
                     {savedSig && (
                       <button type="button"
@@ -376,9 +384,8 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                       </button>
                     )}
 
-                    {/* Upload dropzone — spinner inside when removing bg (matches admin) */}
                     <div
-                      onClick={() => { if (!bgRemoving) uploadRef.current?.click(); }}
+                      onClick={() => uploadRef.current?.click()}
                       onDragOver={e => { e.preventDefault(); setDropDragOver(true); }}
                       onDragLeave={() => setDropDragOver(false)}
                       onDrop={e => {
@@ -393,14 +400,8 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                         background: dropDragOver ? G.bg : "#fff",
                       }}
                     >
-                      {bgRemoving ? (
-                        <span className="w-5 h-5 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: G.accent }} />
-                      ) : (
-                        <>
-                          <Upload size={20} strokeWidth={1.5} style={{ color: G.accent, opacity: 0.7 }} />
-                          <p className="text-[12px] text-center px-4" style={{ color: "var(--w3)" }}>{t.dropUpload}</p>
-                        </>
-                      )}
+                      <Upload size={20} strokeWidth={1.5} style={{ color: G.accent, opacity: 0.7 }} />
+                      <p className="text-[12px] text-center px-4" style={{ color: "var(--w3)" }}>{t.dropUpload}</p>
                     </div>
                   </>
                 )}
