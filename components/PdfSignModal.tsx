@@ -514,24 +514,41 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                                   )}
                                 </div>
 
-                                {/* × button to clear sig — same style as PdfZonePicker's × */}
-                                {sigPlaced && sigData && !bgRemoving && !inCropMode && (
+                                {/* Pill [label][×] — exact same structure as PdfZonePicker admin pill */}
+                                {!inCropMode && (
                                   <div style={{ position: "absolute", top: -1, left: -1, display: "flex", alignItems: "stretch", zIndex: 5, boxShadow: "0 1px 6px rgba(0,0,0,0.35)", borderRadius: "4px 4px 5px 0" }}>
-                                    <button
+                                    <div
                                       style={{
-                                        padding: `${Math.max(1, Math.round(2 * sc))}px ${Math.max(3, Math.round(5 * sc))}px`,
-                                        borderRadius: "4px",
-                                        background: "rgba(15,15,15,0.75)",
-                                        backdropFilter: "blur(4px)",
-                                        color: "rgba(255,255,255,0.85)", border: "none", cursor: "pointer",
-                                        display: "flex", alignItems: "center", justifyContent: "center",
-                                        fontSize: Math.max(7, Math.round(9 * sc)), fontWeight: 700, lineHeight: 1,
+                                        fontSize: Math.max(6, Math.round(8 * sc)), fontWeight: 800,
+                                        padding: `${Math.max(1, Math.round(2 * sc))}px ${Math.max(4, Math.round(7 * sc))}px`,
+                                        borderRadius: "4px 0 0 0",
+                                        background: "var(--gold)",
+                                        color: "#131312",
+                                        lineHeight: 1.7,
+                                        letterSpacing: "0.07em", textTransform: "uppercase",
+                                        display: "flex", alignItems: "center",
+                                        userSelect: "none",
                                       }}
-                                      onMouseDown={e => e.stopPropagation()}
-                                      onClick={e => { e.stopPropagation(); clearSig(); }}
                                     >
-                                      ✕
-                                    </button>
+                                      {lang === "fr" ? "Candidat" : lang === "de" ? "Kandidat" : "Candidate"}
+                                    </div>
+                                    {sigPlaced && sigData && !bgRemoving && (
+                                      <button
+                                        style={{
+                                          padding: `${Math.max(1, Math.round(2 * sc))}px ${Math.max(3, Math.round(5 * sc))}px`,
+                                          borderRadius: "0 4px 4px 0",
+                                          background: "rgba(15,15,15,0.75)",
+                                          backdropFilter: "blur(4px)",
+                                          color: "rgba(255,255,255,0.85)", border: "none", cursor: "pointer",
+                                          display: "flex", alignItems: "center", justifyContent: "center",
+                                          fontSize: Math.max(7, Math.round(9 * sc)), fontWeight: 700, lineHeight: 1,
+                                        }}
+                                        onMouseDown={e => e.stopPropagation()}
+                                        onClick={e => { e.stopPropagation(); clearSig(); }}
+                                      >
+                                        ✕
+                                      </button>
+                                    )}
                                   </div>
                                 )}
 
