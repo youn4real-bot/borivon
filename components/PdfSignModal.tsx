@@ -437,59 +437,7 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
 
               {/* ── SIGNATURE SECTION ── */}
               <div className="space-y-3 pt-1">
-                {/* Saved signature — draggable */}
-                {savedSig && (
-                  <div className="space-y-2">
-                    <p className="text-[11.5px] font-semibold" style={{ color: "var(--w3)" }}>
-                      {t.dragHint}
-                    </p>
-                    <div className="flex items-center gap-3">
-                      {/* Draggable saved sig chip */}
-                      <div
-                        draggable
-                        onDragStart={e => {
-                          e.dataTransfer.setData("bv-sig", "saved");
-                          e.dataTransfer.effectAllowed = "copy";
-                        }}
-                        className="flex-shrink-0 rounded-xl overflow-hidden cursor-grab active:cursor-grabbing"
-                        style={{
-                          border: "1.5px solid var(--border-gold)",
-                          background: "#fff",
-                          width: 120, height: 48,
-                        }}
-                        title="Drag onto the zone above"
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={savedSig} alt="saved signature"
-                          style={{ width: "100%", height: "100%", objectFit: "contain" }} />
-                      </div>
-                      <div className="flex-1 space-y-1">
-                        <button
-                          onClick={() => { setSigData(savedSig); setUsingSaved(true); setSigPlaced(true); }}
-                          className="w-full py-1.5 text-[11.5px] font-semibold rounded-full transition-all"
-                          style={{
-                            background: usingSaved ? "var(--gold)" : "var(--bg2)",
-                            color:      usingSaved ? "#131312"     : "var(--w3)",
-                            border: usingSaved ? "none" : "1px solid var(--border)",
-                          }}>
-                          {t.useSaved}
-                        </button>
-                        <button
-                          onClick={() => { setUsingSaved(false); setSigData(null); setSigPlaced(false); }}
-                          className="w-full py-1.5 text-[11.5px] font-semibold rounded-full transition-all"
-                          style={{
-                            background: !usingSaved ? "var(--gold)" : "var(--bg2)",
-                            color:      !usingSaved ? "#131312"     : "var(--w3)",
-                            border: !usingSaved ? "none" : "1px solid var(--border)",
-                          }}>
-                          {t.drawNew}
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Hidden file input for signature upload */}
+                {/* Hidden file input */}
                 <input
                   ref={uploadRef}
                   type="file"
@@ -500,13 +448,10 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                     if (!file) return;
                     const reader = new FileReader();
                     reader.onload = () => {
-                      const result = reader.result as string;
                       setBgRemoving(true);
                       setUsingSaved(false);
-                      removeImageBg(result).then(clean => {
-                        setSigData(clean);
-                        setSigPlaced(true);
-                        setBgRemoving(false);
+                      removeImageBg(reader.result as string).then(clean => {
+                        setSigData(clean); setSigPlaced(true); setBgRemoving(false);
                       });
                     };
                     reader.readAsDataURL(file);
@@ -514,85 +459,142 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                   }}
                 />
 
-                {/* Draw pad — shown when not using saved OR no saved sig */}
-                {!usingSaved && (
-                  <>
-                    <p className="text-[12px]" style={{ color: "var(--w3)" }}>{t.drawHint}</p>
-                    {bgRemoving ? (
-                      <div className="rounded-xl flex items-center justify-center gap-2" style={{ height: 120, border: "1.5px dashed var(--border-gold)", background: "var(--gdim)" }}>
-                        <span className="w-4 h-4 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: "var(--gold)" }} />
-                        <span className="text-[11.5px] font-semibold" style={{ color: "var(--gold)" }}>
-                          {lang === "fr" ? "Suppression du fond…" : lang === "de" ? "Hintergrund wird entfernt…" : "Removing background…"}
-                        </span>
-                      </div>
-                    ) : (
+                {/* ── Signature card (mirrors AdminSigSection, gold theme) ── */}
+                <div className="rounded-2xl p-4 space-y-3" style={{ background: "rgba(201,162,64,0.06)", border: "1.5px solid var(--border-gold)" }}>
+                  <p className="text-[11.5px] font-semibold" style={{ color: "var(--gold)" }}>
+                    ✍ {lang === "fr" ? "Votre signature" : lang === "de" ? "Ihre Unterschrift" : "Your signature"}
+                  </p>
+
+                  {/* BG removing */}
+                  {bgRemoving && (
+                    <div className="rounded-xl flex items-center justify-center gap-2" style={{ height: 140, border: "1.5px dashed var(--border-gold)", background: "var(--gdim)" }}>
+                      <span className="w-4 h-4 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: "var(--gold)" }} />
+                      <span className="text-[11.5px] font-semibold" style={{ color: "var(--gold)" }}>
+                        {lang === "fr" ? "Suppression du fond…" : lang === "de" ? "Hintergrund wird entfernt…" : "Removing background…"}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* No sig: draw pad + upload dropzone */}
+                  {!sigData && !bgRemoving && (
+                    <>
+                      {savedSig && (
+                        <button type="button"
+                          onClick={() => { setSigData(savedSig); setUsingSaved(true); setSigPlaced(true); }}
+                          className="w-full py-2 text-[12px] font-semibold rounded-xl transition-opacity hover:opacity-80"
+                          style={{ background: "var(--gdim)", color: "var(--gold)", border: "1.5px solid var(--border-gold)" }}>
+                          ✓ {t.useSaved}
+                        </button>
+                      )}
+                      <p className="text-[12px]" style={{ color: "var(--w3)" }}>{t.drawHint}</p>
                       <div
-                        onDragOver={e => { e.preventDefault(); }}
+                        onDragOver={e => e.preventDefault()}
                         onDrop={e => {
                           e.preventDefault();
                           const file = e.dataTransfer.files[0];
                           if (!file || !file.type.startsWith("image/")) return;
                           const reader = new FileReader();
                           reader.onload = () => {
-                            setBgRemoving(true);
-                            setUsingSaved(false);
-                            removeImageBg(reader.result as string).then(clean => {
-                              setSigData(clean);
-                              setSigPlaced(true);
-                              setBgRemoving(false);
-                            });
+                            setBgRemoving(true); setUsingSaved(false);
+                            removeImageBg(reader.result as string).then(clean => { setSigData(clean); setSigPlaced(true); setBgRemoving(false); });
                           };
                           reader.readAsDataURL(file);
                         }}
                       >
                         <SignaturePad
-                          key={sigData ?? "empty"}
-                          height={120}
-                          defaultValue={sigData}
+                          key="draw"
+                          height={140}
                           onCapture={d => { setSigData(d); if (d) setSigPlaced(true); else setSigPlaced(false); }}
                           clearLabel={t.clear}
                         />
                       </div>
-                    )}
-                  </>
-                )}
-
-                {/* Upload + crop buttons */}
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() => uploadRef.current?.click()}
-                    disabled={bgRemoving}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-50"
-                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                    <Upload size={11} strokeWidth={2} />
-                    {t.uploadImg}
-                  </button>
-                  {sigData && !bgRemoving && (
-                    <button
-                      type="button"
-                      onClick={() => { setCropMode(true); setCropDrag(null); }}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80"
-                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                      ✂ {t.cropImg ?? "Crop"}
-                    </button>
+                      <div
+                        className="rounded-xl flex flex-col items-center justify-center gap-2 cursor-pointer transition-all"
+                        style={{ minHeight: 88, border: "2px dashed var(--border-gold)", background: "var(--gdim)" }}
+                        onClick={() => uploadRef.current?.click()}
+                        onDragOver={e => { e.preventDefault(); (e.currentTarget as HTMLElement).style.borderStyle = "solid"; }}
+                        onDragLeave={e => { (e.currentTarget as HTMLElement).style.borderStyle = "dashed"; }}
+                        onDrop={e => {
+                          e.preventDefault();
+                          (e.currentTarget as HTMLElement).style.borderStyle = "dashed";
+                          const file = e.dataTransfer.files[0];
+                          if (!file || !file.type.startsWith("image/")) return;
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            setBgRemoving(true); setUsingSaved(false);
+                            removeImageBg(reader.result as string).then(clean => { setSigData(clean); setSigPlaced(true); setBgRemoving(false); });
+                          };
+                          reader.readAsDataURL(file);
+                        }}
+                      >
+                        <Upload size={18} strokeWidth={1.5} style={{ color: "var(--gold)", opacity: 0.7 }} />
+                        <p className="text-[12px] text-center px-4" style={{ color: "var(--w3)" }}>
+                          {lang === "fr" ? "Déposez une photo ou cliquez pour importer" : lang === "de" ? "Unterschrift ablegen oder klicken" : "Drop signature photo or click to upload"}
+                        </p>
+                      </div>
+                    </>
                   )}
-                </div>
 
-                {/* Save for next time */}
-                <label className="flex items-center gap-2 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={wantSave}
-                    onChange={e => setWantSave(e.target.checked)}
-                    className="w-4 h-4 rounded"
-                    style={{ accentColor: "var(--gold)" }}
-                  />
-                  <span className="text-[12px]" style={{ color: "var(--w3)" }}>
-                    {savingSig ? t.saving : t.saveForNext}
-                  </span>
-                  <Save size={11} strokeWidth={2} style={{ color: "var(--w3)" }} />
-                </label>
+                  {/* Sig exists: preview + action buttons */}
+                  {sigData && !bgRemoving && (
+                    <>
+                      <div className="rounded-xl overflow-hidden flex items-center justify-center" style={{ background: "#fff", minHeight: 100, border: "1px solid var(--border)" }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={sigData} alt="signature" style={{ maxWidth: "100%", maxHeight: 130, objectFit: "contain" }} />
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {savedSig && sigData !== savedSig && (
+                          <button type="button"
+                            onClick={() => { setSigData(savedSig); setUsingSaved(true); setSigPlaced(true); }}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80"
+                            style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                            {t.useSaved}
+                          </button>
+                        )}
+                        <button type="button"
+                          onClick={() => { setSigData(null); setUsingSaved(false); setSigPlaced(false); }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80"
+                          style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                          ✏ {t.drawNew}
+                        </button>
+                        <button type="button"
+                          onClick={() => uploadRef.current?.click()}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80"
+                          style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                          <Upload size={11} strokeWidth={2} />
+                          {lang === "fr" ? "Remplacer" : lang === "de" ? "Ersetzen" : "Replace"}
+                        </button>
+                        <button type="button"
+                          onClick={() => { setCropMode(true); setCropDrag(null); }}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80"
+                          style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                          ✂ {t.cropImg}
+                        </button>
+                        <button type="button"
+                          onClick={clearSig}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80"
+                          style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                          ✕ {t.clear}
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Save for next time */}
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={wantSave}
+                      onChange={e => setWantSave(e.target.checked)}
+                      className="w-4 h-4 rounded"
+                      style={{ accentColor: "var(--gold)" }}
+                    />
+                    <span className="text-[12px]" style={{ color: "var(--w3)" }}>
+                      {savingSig ? t.saving : t.saveForNext}
+                    </span>
+                    <Save size={11} strokeWidth={2} style={{ color: "var(--w3)" }} />
+                  </label>
+                </div>
 
                 {err && <p className="text-[12px]" style={{ color: "var(--error, #e03030)" }}>{err}</p>}
               </div>
