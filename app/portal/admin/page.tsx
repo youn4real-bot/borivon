@@ -14,7 +14,7 @@ import {
   Lock, Unlock, IdCard, FileText, Folder, FilePen, Save, Eye,
   CheckCircle2, XCircle, AlertTriangle, PartyPopper,
 } from "@/components/PortalIcons";
-import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User } from "lucide-react";
+import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save } from "lucide-react";
 import { Spinner, PageLoader, EmptyState } from "@/components/ui/states";
 import { CandidateStagePreview, type JourneyMode } from "@/components/JourneyView";
 import { PdfZonePicker, type SigZone } from "@/components/PdfZonePicker";
@@ -3528,7 +3528,7 @@ export default function AdminPage() {
 
               </div>
             )}
-            <div className="px-4 py-3 flex-shrink-0 space-y-3" style={{ borderTop: "1px solid var(--border)" }}>
+            <div className="px-4 py-3 flex-shrink-0" style={{ borderTop: "1px solid var(--border)" }}>
               <div className="flex gap-2">
                 {sigMode === "with-candidate" && (
                   <input value={sigNote} onChange={e => setSigNote(e.target.value)}
@@ -3536,89 +3536,114 @@ export default function AdminPage() {
                     className="flex-1 px-3 py-2 text-[12px] rounded-xl outline-none"
                     style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--w)" }} />
                 )}
-                <button onClick={async () => {
-                  if (sigSending) return;
-                  if (!sigPdfBase64 && !sigManualPdf) { sigManualFileRef.current?.click(); return; }
-                  setSigSending(true);
-                  const parties = {
-                    admin: sigZones.some(z => z.party === "admin"),
-                    candidate: sigZones.some(z => z.party === "candidate"),
-                  };
-                  try {
-                    let res: Response;
-                    if (sigManualPdf) {
-                      const fd = new FormData();
-                      if (sigMode === "with-candidate") fd.append("candidateId", selectedUser ?? "");
-                      fd.append("documentName", sigModal.label);
-                      if (sigMode === "admin-only") fd.append("adminOnly", "true");
-                      const bin = atob(sigManualPdf);
-                      const arr = new Uint8Array(bin.length);
-                      for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-                      fd.append("pdf", new Blob([arr], { type: "application/pdf" }), "signature-document.pdf");
-                      if (sigMode === "with-candidate" && sigNote.trim()) fd.append("note", sigNote.trim());
-                      fd.append("parties", JSON.stringify(parties));
-                      if (sigZones.length) fd.append("signatureZones", JSON.stringify(sigZones));
-                      if (sigAdminSig) fd.append("adminSignatureBase64", sigAdminSig);
-                      if (sigAdminSig) fd.append("orgSignatureBase64", sigAdminSig);
-                      res = await fetch("/api/portal/admin/sign-request", {
-                        method: "POST",
-                        headers: { Authorization: `Bearer ${accessToken}` },
-                        body: fd,
-                      });
-                    } else {
-                      res = await fetch("/api/portal/admin/sign-request", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-                        body: JSON.stringify({
-                          candidateId: sigMode === "with-candidate" ? selectedUser : undefined,
-                          documentName: sigModal.label,
-                          driveFileId: sigModal.driveFileId,
-                          adminOnly: sigMode === "admin-only",
-                          note: sigMode === "with-candidate" ? (sigNote.trim() || undefined) : undefined,
-                          parties,
-                          signatureZones: sigZones.length ? sigZones : undefined,
-                          adminSignatureBase64: sigAdminSig || undefined,
-                          orgSignatureBase64: sigAdminSig || undefined,
-                        }),
-                      });
-                    }
-                    if (res.ok) {
-                      if (sigMode === "admin-only") {
-                        const blob = await res.blob();
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement("a");
-                        a.href = url; a.download = `${sigModal.label}.pdf`; a.click();
-                        URL.revokeObjectURL(url);
-                        showError(lang === "fr" ? "PDF téléchargé ✓" : lang === "de" ? "PDF heruntergeladen ✓" : "Signed PDF downloaded ✓");
+                {sigMode === "admin-only" ? (() => {
+                  const hasPdf = !!(sigPdfBase64 || sigManualPdf);
+                  const spin = <span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" />;
+                  const doSubmit = async (action: "save" | "download") => {
+                    if (sigSending) return;
+                    if (!hasPdf) { sigManualFileRef.current?.click(); return; }
+                    setSigSending(true);
+                    const parties = { admin: sigZones.some(z => z.party === "admin"), candidate: sigZones.some(z => z.party === "candidate") };
+                    try {
+                      let res: Response;
+                      if (sigManualPdf) {
+                        const fd = new FormData();
+                        if (action === "save") fd.append("candidateId", selectedUser ?? "");
+                        fd.append("documentName", sigModal.label);
+                        fd.append(action === "download" ? "adminOnly" : "adminSave", "true");
+                        const bin = atob(sigManualPdf); const arr = new Uint8Array(bin.length);
+                        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+                        fd.append("pdf", new Blob([arr], { type: "application/pdf" }), "signature-document.pdf");
+                        fd.append("parties", JSON.stringify(parties));
+                        if (sigZones.length) fd.append("signatureZones", JSON.stringify(sigZones));
+                        if (sigAdminSig) { fd.append("adminSignatureBase64", sigAdminSig); fd.append("orgSignatureBase64", sigAdminSig); }
+                        res = await fetch("/api/portal/admin/sign-request", { method: "POST", headers: { Authorization: `Bearer ${accessToken}` }, body: fd });
                       } else {
-                        showError(lang === "fr" ? "Demande envoyée ✓" : lang === "de" ? "Anfrage gesendet ✓" : "Request sent ✓");
+                        res = await fetch("/api/portal/admin/sign-request", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                          body: JSON.stringify({ candidateId: action === "save" ? selectedUser : undefined, documentName: sigModal.label, driveFileId: sigModal.driveFileId, adminOnly: action === "download", adminSave: action === "save", parties, signatureZones: sigZones.length ? sigZones : undefined, adminSignatureBase64: sigAdminSig || undefined, orgSignatureBase64: sigAdminSig || undefined }),
+                        });
                       }
-                      setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null);
-                      setSigAdminSig(null); setSigAdminWantSave(true); setSigOrgSig(null); setSigOrgWantSave(true);
-                    } else {
-                      const j = await res.json().catch(() => ({}));
-                      const msg = (j as { error?: string }).error ?? `HTTP ${res.status}`;
-                      console.error("[sign-request] failed:", res.status, msg, j);
-                      showError(`${sigMode === "admin-only" ? "Download" : "Send"} failed: ${msg}`);
-                    }
-                  } catch (e) {
-                    console.error("[sign-request] exception:", e);
-                    showError(`Error: ${e instanceof Error ? e.message : String(e)}`);
-                  }
-                  setSigSending(false);
-                }}
-                  disabled={sigSending}
-                  className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold transition-opacity disabled:opacity-50"
-                  style={{ background: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "var(--bg2)" : "var(--gold)", color: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "var(--w3)" : "#131312", border: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "1px solid var(--border)" : "none" }}>
-                  {sigSending
-                    ? <><span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" /> {lang === "fr" ? "En cours…" : lang === "de" ? "Lädt…" : "Working…"}</>
-                    : (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading)
-                      ? <><Upload size={13} strokeWidth={2} /> {lang === "fr" ? "PDF requis" : lang === "de" ? "PDF erforderlich" : "Upload PDF first"}</>
-                      : sigMode === "admin-only"
-                        ? <><Download size={13} strokeWidth={2} /> {lang === "fr" ? "Signer & télécharger" : lang === "de" ? "Signieren & laden" : "Sign & Download"}</>
+                      if (res.ok) {
+                        if (action === "download") {
+                          const blob = await res.blob(); const url = URL.createObjectURL(blob);
+                          const a = document.createElement("a"); a.href = url; a.download = `${sigModal.label}.pdf`; a.click(); URL.revokeObjectURL(url);
+                          showError(lang === "fr" ? "PDF téléchargé ✓" : lang === "de" ? "PDF heruntergeladen ✓" : "Signed PDF downloaded ✓");
+                        } else {
+                          showError(lang === "fr" ? "PDF enregistré ✓" : lang === "de" ? "PDF gespeichert ✓" : "Signed PDF saved ✓");
+                        }
+                        setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null);
+                        setSigAdminSig(null); setSigAdminWantSave(true); setSigOrgSig(null); setSigOrgWantSave(true);
+                      } else {
+                        const j = await res.json().catch(() => ({}));
+                        showError(`${action === "download" ? "Download" : "Save"} failed: ${(j as { error?: string }).error ?? `HTTP ${res.status}`}`);
+                      }
+                    } catch (e) { showError(`Error: ${e instanceof Error ? e.message : String(e)}`); }
+                    setSigSending(false);
+                  };
+                  return (
+                    <>
+                      <button onClick={() => doSubmit("save")} disabled={sigSending || !selectedUser || !hasPdf}
+                        className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold transition-opacity disabled:opacity-40"
+                        style={{ background: "var(--gold)", color: "#131312" }}>
+                        {sigSending ? spin : <><Save size={13} strokeWidth={2} /> {lang === "fr" ? "Sauvegarder" : lang === "de" ? "Speichern" : "Save"}</>}
+                      </button>
+                      <button onClick={() => doSubmit("download")} disabled={sigSending || !hasPdf}
+                        className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold transition-opacity disabled:opacity-40"
+                        style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }}>
+                        {sigSending ? spin : <><Download size={13} strokeWidth={2} /> {lang === "fr" ? "Télécharger" : lang === "de" ? "Herunterladen" : "Download"}</>}
+                      </button>
+                    </>
+                  );
+                })() : (
+                  <button onClick={async () => {
+                    if (sigSending) return;
+                    if (!sigPdfBase64 && !sigManualPdf) { sigManualFileRef.current?.click(); return; }
+                    setSigSending(true);
+                    const parties = { admin: sigZones.some(z => z.party === "admin"), candidate: sigZones.some(z => z.party === "candidate") };
+                    try {
+                      let res: Response;
+                      if (sigManualPdf) {
+                        const fd = new FormData();
+                        fd.append("candidateId", selectedUser ?? ""); fd.append("documentName", sigModal.label);
+                        const bin = atob(sigManualPdf); const arr = new Uint8Array(bin.length);
+                        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+                        fd.append("pdf", new Blob([arr], { type: "application/pdf" }), "signature-document.pdf");
+                        if (sigNote.trim()) fd.append("note", sigNote.trim());
+                        fd.append("parties", JSON.stringify(parties));
+                        if (sigZones.length) fd.append("signatureZones", JSON.stringify(sigZones));
+                        if (sigAdminSig) { fd.append("adminSignatureBase64", sigAdminSig); fd.append("orgSignatureBase64", sigAdminSig); }
+                        res = await fetch("/api/portal/admin/sign-request", { method: "POST", headers: { Authorization: `Bearer ${accessToken}` }, body: fd });
+                      } else {
+                        res = await fetch("/api/portal/admin/sign-request", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                          body: JSON.stringify({ candidateId: selectedUser, documentName: sigModal.label, driveFileId: sigModal.driveFileId, note: sigNote.trim() || undefined, parties, signatureZones: sigZones.length ? sigZones : undefined, adminSignatureBase64: sigAdminSig || undefined, orgSignatureBase64: sigAdminSig || undefined }),
+                        });
+                      }
+                      if (res.ok) {
+                        showError(lang === "fr" ? "Demande envoyée ✓" : lang === "de" ? "Anfrage gesendet ✓" : "Request sent ✓");
+                        setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null);
+                        setSigAdminSig(null); setSigAdminWantSave(true); setSigOrgSig(null); setSigOrgWantSave(true);
+                      } else {
+                        const j = await res.json().catch(() => ({}));
+                        showError(`Send failed: ${(j as { error?: string }).error ?? `HTTP ${res.status}`}`);
+                      }
+                    } catch (e) { showError(`Error: ${e instanceof Error ? e.message : String(e)}`); }
+                    setSigSending(false);
+                  }}
+                    disabled={sigSending}
+                    className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold transition-opacity disabled:opacity-50"
+                    style={{ background: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "var(--bg2)" : "var(--gold)", color: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "var(--w3)" : "#131312", border: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "1px solid var(--border)" : "none" }}>
+                    {sigSending
+                      ? <><span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" /> {lang === "fr" ? "En cours…" : lang === "de" ? "Lädt…" : "Working…"}</>
+                      : (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading)
+                        ? <><Upload size={13} strokeWidth={2} /> {lang === "fr" ? "PDF requis" : lang === "de" ? "PDF erforderlich" : "Upload PDF first"}</>
                         : <><Send size={13} strokeWidth={2} /> {lang === "fr" ? "Envoyer" : lang === "de" ? "Senden" : "Send"}</>
-                  }
-                </button>
+                    }
+                  </button>
+                )}
                 <button onClick={() => { setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null); }}
                   className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-xl transition-opacity hover:opacity-70"
                   style={{ background: "var(--card)", color: "var(--w3)", border: "1px solid var(--border)" }}>
@@ -4382,8 +4407,7 @@ export default function AdminPage() {
             )}
 
             {/* ── Compact footer: note + send ── */}
-            <div className="px-4 py-3 flex-shrink-0 space-y-3"
-              style={{ borderTop: "1px solid var(--border)" }}>
+            <div className="px-4 py-3 flex-shrink-0" style={{ borderTop: "1px solid var(--border)" }}>
               <div className="flex gap-2">
                 {sigMode === "with-candidate" && (
                   <input value={sigNote} onChange={e => setSigNote(e.target.value)}
@@ -4391,90 +4415,114 @@ export default function AdminPage() {
                     className="flex-1 px-3 py-2 text-[12px] rounded-xl outline-none"
                     style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--w)" }} />
                 )}
-                <button
-                  onClick={async () => {
+                {sigMode === "admin-only" ? (() => {
+                  const hasPdf = !!(sigPdfBase64 || sigManualPdf);
+                  const spin = <span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" />;
+                  const doSubmit = async (action: "save" | "download") => {
                     if (sigSending) return;
-                    if (!sigPdfBase64 && !sigManualPdf) { sigManualFileRef.current?.click(); return; }
+                    if (!hasPdf) { sigManualFileRef.current?.click(); return; }
                     setSigSending(true);
-                    const parties = {
-                      admin: sigZones.some(z => z.party === "admin"),
-                      candidate: sigZones.some(z => z.party === "candidate"),
-                    };
+                    const parties = { admin: sigZones.some(z => z.party === "admin"), candidate: sigZones.some(z => z.party === "candidate") };
                     try {
                       let res: Response;
                       if (sigManualPdf) {
                         const fd = new FormData();
-                        if (sigMode === "with-candidate") fd.append("candidateId", selectedUser ?? "");
+                        if (action === "save") fd.append("candidateId", selectedUser ?? "");
                         fd.append("documentName", sigModal.label);
-                        if (sigMode === "admin-only") fd.append("adminOnly", "true");
-                        const bin = atob(sigManualPdf);
-                        const arr = new Uint8Array(bin.length);
+                        fd.append(action === "download" ? "adminOnly" : "adminSave", "true");
+                        const bin = atob(sigManualPdf); const arr = new Uint8Array(bin.length);
                         for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
                         fd.append("pdf", new Blob([arr], { type: "application/pdf" }), "signature-document.pdf");
-                        if (sigMode === "with-candidate" && sigNote.trim()) fd.append("note", sigNote.trim());
                         fd.append("parties", JSON.stringify(parties));
                         if (sigZones.length) fd.append("signatureZones", JSON.stringify(sigZones));
-                        if (sigAdminSig) fd.append("adminSignatureBase64", sigAdminSig);
-                        if (sigAdminSig) fd.append("orgSignatureBase64", sigAdminSig);
-                        res = await fetch("/api/portal/admin/sign-request", {
-                          method: "POST",
-                          headers: { Authorization: `Bearer ${accessToken}` },
-                          body: fd,
-                        });
+                        if (sigAdminSig) { fd.append("adminSignatureBase64", sigAdminSig); fd.append("orgSignatureBase64", sigAdminSig); }
+                        res = await fetch("/api/portal/admin/sign-request", { method: "POST", headers: { Authorization: `Bearer ${accessToken}` }, body: fd });
                       } else {
                         res = await fetch("/api/portal/admin/sign-request", {
                           method: "POST",
                           headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-                          body: JSON.stringify({
-                            candidateId: sigMode === "with-candidate" ? selectedUser : undefined,
-                            documentName: sigModal.label,
-                            driveFileId: sigModal.driveFileId,
-                            adminOnly: sigMode === "admin-only",
-                            note: sigMode === "with-candidate" ? (sigNote.trim() || undefined) : undefined,
-                            parties,
-                            signatureZones: sigZones.length ? sigZones : undefined,
-                            adminSignatureBase64: sigAdminSig || undefined,
-                            orgSignatureBase64: sigAdminSig || undefined,
-                          }),
+                          body: JSON.stringify({ candidateId: action === "save" ? selectedUser : undefined, documentName: sigModal.label, driveFileId: sigModal.driveFileId, adminOnly: action === "download", adminSave: action === "save", parties, signatureZones: sigZones.length ? sigZones : undefined, adminSignatureBase64: sigAdminSig || undefined, orgSignatureBase64: sigAdminSig || undefined }),
                         });
                       }
                       if (res.ok) {
-                        if (sigMode === "admin-only") {
-                          const blob = await res.blob();
-                          const url = URL.createObjectURL(blob);
-                          const a = document.createElement("a");
-                          a.href = url; a.download = `${sigModal.label}.pdf`; a.click();
-                          URL.revokeObjectURL(url);
+                        if (action === "download") {
+                          const blob = await res.blob(); const url = URL.createObjectURL(blob);
+                          const a = document.createElement("a"); a.href = url; a.download = `${sigModal.label}.pdf`; a.click(); URL.revokeObjectURL(url);
                           showError(lang === "fr" ? "PDF téléchargé ✓" : lang === "de" ? "PDF heruntergeladen ✓" : "Signed PDF downloaded ✓");
                         } else {
-                          showError(lang === "fr" ? "Demande envoyée ✓" : lang === "de" ? "Anfrage gesendet ✓" : "Request sent ✓");
+                          showError(lang === "fr" ? "PDF enregistré ✓" : lang === "de" ? "PDF gespeichert ✓" : "Signed PDF saved ✓");
                         }
                         setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null);
                         setSigAdminSig(null); setSigAdminWantSave(true); setSigOrgSig(null); setSigOrgWantSave(true);
                       } else {
                         const j = await res.json().catch(() => ({}));
-                        const msg = (j as { error?: string }).error ?? `HTTP ${res.status}`;
-                        console.error("[sign-request] failed:", res.status, msg, j);
-                        showError(`${sigMode === "admin-only" ? "Download" : "Send"} failed: ${msg}`);
+                        showError(`${action === "download" ? "Download" : "Save"} failed: ${(j as { error?: string }).error ?? `HTTP ${res.status}`}`);
                       }
-                    } catch (e) {
-                      console.error("[sign-request] exception:", e);
-                      showError(`Error: ${e instanceof Error ? e.message : String(e)}`);
-                    }
+                    } catch (e) { showError(`Error: ${e instanceof Error ? e.message : String(e)}`); }
+                    setSigSending(false);
+                  };
+                  return (
+                    <>
+                      <button onClick={() => doSubmit("save")} disabled={sigSending || !selectedUser || !hasPdf}
+                        className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold transition-opacity disabled:opacity-40"
+                        style={{ background: "var(--gold)", color: "#131312" }}>
+                        {sigSending ? spin : <><Save size={13} strokeWidth={2} /> {lang === "fr" ? "Sauvegarder" : lang === "de" ? "Speichern" : "Save"}</>}
+                      </button>
+                      <button onClick={() => doSubmit("download")} disabled={sigSending || !hasPdf}
+                        className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold transition-opacity disabled:opacity-40"
+                        style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }}>
+                        {sigSending ? spin : <><Download size={13} strokeWidth={2} /> {lang === "fr" ? "Télécharger" : lang === "de" ? "Herunterladen" : "Download"}</>}
+                      </button>
+                    </>
+                  );
+                })() : (
+                  <button onClick={async () => {
+                    if (sigSending) return;
+                    if (!sigPdfBase64 && !sigManualPdf) { sigManualFileRef.current?.click(); return; }
+                    setSigSending(true);
+                    const parties = { admin: sigZones.some(z => z.party === "admin"), candidate: sigZones.some(z => z.party === "candidate") };
+                    try {
+                      let res: Response;
+                      if (sigManualPdf) {
+                        const fd = new FormData();
+                        fd.append("candidateId", selectedUser ?? ""); fd.append("documentName", sigModal.label);
+                        const bin = atob(sigManualPdf); const arr = new Uint8Array(bin.length);
+                        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+                        fd.append("pdf", new Blob([arr], { type: "application/pdf" }), "signature-document.pdf");
+                        if (sigNote.trim()) fd.append("note", sigNote.trim());
+                        fd.append("parties", JSON.stringify(parties));
+                        if (sigZones.length) fd.append("signatureZones", JSON.stringify(sigZones));
+                        if (sigAdminSig) { fd.append("adminSignatureBase64", sigAdminSig); fd.append("orgSignatureBase64", sigAdminSig); }
+                        res = await fetch("/api/portal/admin/sign-request", { method: "POST", headers: { Authorization: `Bearer ${accessToken}` }, body: fd });
+                      } else {
+                        res = await fetch("/api/portal/admin/sign-request", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                          body: JSON.stringify({ candidateId: selectedUser, documentName: sigModal.label, driveFileId: sigModal.driveFileId, note: sigNote.trim() || undefined, parties, signatureZones: sigZones.length ? sigZones : undefined, adminSignatureBase64: sigAdminSig || undefined, orgSignatureBase64: sigAdminSig || undefined }),
+                        });
+                      }
+                      if (res.ok) {
+                        showError(lang === "fr" ? "Demande envoyée ✓" : lang === "de" ? "Anfrage gesendet ✓" : "Request sent ✓");
+                        setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null);
+                        setSigAdminSig(null); setSigAdminWantSave(true); setSigOrgSig(null); setSigOrgWantSave(true);
+                      } else {
+                        const j = await res.json().catch(() => ({}));
+                        showError(`Send failed: ${(j as { error?: string }).error ?? `HTTP ${res.status}`}`);
+                      }
+                    } catch (e) { showError(`Error: ${e instanceof Error ? e.message : String(e)}`); }
                     setSigSending(false);
                   }}
-                  disabled={sigSending}
-                  className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold transition-opacity disabled:opacity-50"
-                  style={{ background: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "var(--bg2)" : "var(--gold)", color: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "var(--w3)" : "#131312", border: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "1px solid var(--border)" : "none" }}>
-                  {sigSending
-                    ? <><span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" /> {lang === "fr" ? "En cours…" : lang === "de" ? "Lädt…" : "Working…"}</>
-                    : (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading)
-                      ? <><Upload size={13} strokeWidth={2} /> {lang === "fr" ? "PDF requis" : lang === "de" ? "PDF erforderlich" : "Upload PDF first"}</>
-                      : sigMode === "admin-only"
-                        ? <><Download size={13} strokeWidth={2} /> {lang === "fr" ? "Signer & télécharger" : lang === "de" ? "Signieren & laden" : "Sign & Download"}</>
+                    disabled={sigSending}
+                    className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold transition-opacity disabled:opacity-50"
+                    style={{ background: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "var(--bg2)" : "var(--gold)", color: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "var(--w3)" : "#131312", border: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "1px solid var(--border)" : "none" }}>
+                    {sigSending
+                      ? <><span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" /> {lang === "fr" ? "En cours…" : lang === "de" ? "Lädt…" : "Working…"}</>
+                      : (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading)
+                        ? <><Upload size={13} strokeWidth={2} /> {lang === "fr" ? "PDF requis" : lang === "de" ? "PDF erforderlich" : "Upload PDF first"}</>
                         : <><Send size={13} strokeWidth={2} /> {lang === "fr" ? "Envoyer" : lang === "de" ? "Senden" : "Send"}</>
-                  }
-                </button>
+                    }
+                  </button>
+                )}
                 <button onClick={() => { setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null); }}
                   className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-xl transition-opacity hover:opacity-70"
                   style={{ background: "var(--card)", color: "var(--w3)", border: "1px solid var(--border)" }}>

@@ -101,6 +101,7 @@ export async function POST(req: NextRequest) {
   let adminSignatureBase64: string | undefined;
   let orgSignatureBase64: string | undefined;
   let adminOnly = false;
+  let adminSave = false;
 
   if (ct.includes("multipart/form-data")) {
     const fd = await req.formData();
@@ -109,6 +110,7 @@ export async function POST(req: NextRequest) {
     driveFileId  = String(fd.get("driveFileId")  ?? "");
     note         = String(fd.get("note")         ?? "");
     adminOnly    = fd.get("adminOnly") === "true";
+    adminSave    = fd.get("adminSave")  === "true";
     // Accept signatureZones (array) or legacy signatureZone (single)
     const zonesStr = fd.get("signatureZones") ?? fd.get("signatureZone");
     if (typeof zonesStr === "string" && zonesStr) {
@@ -135,7 +137,7 @@ export async function POST(req: NextRequest) {
     if (raw.length > MAX_PDF_BYTES * 1.5) {
       return NextResponse.json({ error: "Payload too large" }, { status: 413 });
     }
-    let body: { candidateId?: string; documentName?: string; pdfBase64?: string; driveFileId?: string; note?: string; signatureZones?: unknown; signatureZone?: unknown; parties?: { admin?: boolean; candidate?: boolean }; adminSignatureBase64?: string; orgSignatureBase64?: string; adminOnly?: boolean };
+    let body: { candidateId?: string; documentName?: string; pdfBase64?: string; driveFileId?: string; note?: string; signatureZones?: unknown; signatureZone?: unknown; parties?: { admin?: boolean; candidate?: boolean }; adminSignatureBase64?: string; orgSignatureBase64?: string; adminOnly?: boolean; adminSave?: boolean };
     try { body = JSON.parse(raw); } catch {
       return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
     }
@@ -144,6 +146,7 @@ export async function POST(req: NextRequest) {
     driveFileId  = body.driveFileId ?? "";
     note         = body.note ?? "";
     adminOnly    = body.adminOnly === true;
+    adminSave    = body.adminSave  === true;
     // Prefer signatureZones (array), fall back to legacy signatureZone (single)
     signatureZones       = body.signatureZones ?? body.signatureZone;
     parties              = body.parties;
@@ -179,29 +182,6 @@ export async function POST(req: NextRequest) {
   if (!pdfBuffer) {
     return NextResponse.json({ error: "No PDF bytes" }, { status: 400 });
   }
-
-  // Insert sign_request first to get the ID for the storage path
-  const db = getServiceSupabase();
-  const { data: row, error: insertErr } = await db
-    .from("sign_requests")
-    .insert({
-      candidate_user_id: candidateId,
-      created_by_email:  auth.email,
-      document_name:     documentName,
-      note:              note || null,
-      status:            "pending",
-      signature_zone:    signatureZones != null ? JSON.stringify(signatureZones) : null,
-    })
-    .select("id")
-    .single();
-
-  if (insertErr || !row) {
-    console.error("[sign-request POST] insert error:", insertErr);
-    return NextResponse.json({ error: `DB error: ${insertErr?.message ?? "unknown"}` }, { status: 500 });
-  }
-
-  const requestId = (row as { id: string }).id;
-  const storagePath = `${candidateId}/${requestId}.pdf`;
 
   // Helper: stamp a set of zones onto the PDF buffer with a given signature image
   async function stampZonesOnBuffer(buf: Buffer, sigDataUri: string, signerEmail: string, zones: { page: number; x: number; y: number; w: number; h: number }[]): Promise<Buffer> {
@@ -244,11 +224,11 @@ export async function POST(req: NextRequest) {
     return [];
   }
 
-  // Stamp admin zones (in adminOnly mode, stamp all zones regardless of party)
+  // Stamp admin zones (adminOnly/adminSave → stamp all zones regardless of party)
   if (adminSignatureBase64 && signatureZones) {
     try {
       const allZones = parseZones(signatureZones);
-      const zones = adminOnly ? allZones : allZones.filter(z => z.party === "admin");
+      const zones = (adminOnly || adminSave) ? allZones : allZones.filter(z => z.party === "admin");
       if (zones.length > 0) {
         const sigUri = adminSignatureBase64.startsWith("data:") ? adminSignatureBase64 : `data:image/png;base64,${adminSignatureBase64}`;
         pdfBuffer = await stampZonesOnBuffer(pdfBuffer!, sigUri, auth.email, zones);
@@ -256,8 +236,8 @@ export async function POST(req: NextRequest) {
     } catch (e) { console.warn("[sign-request POST] admin stamp failed (non-fatal):", e); }
   }
 
-  // Stamp org zones (skip in adminOnly — all zones already stamped above)
-  if (!adminOnly && orgSignatureBase64 && signatureZones) {
+  // Stamp org zones (skip in adminOnly/adminSave — all zones already stamped above)
+  if (!adminOnly && !adminSave && orgSignatureBase64 && signatureZones) {
     try {
       const zones = parseZones(signatureZones).filter(z => z.party === "org");
       if (zones.length > 0) {
@@ -277,6 +257,29 @@ export async function POST(req: NextRequest) {
       },
     });
   }
+
+  // DB save path (with-candidate + adminSave)
+  const db = getServiceSupabase();
+  const { data: row, error: insertErr } = await db
+    .from("sign_requests")
+    .insert({
+      candidate_user_id: candidateId,
+      created_by_email:  auth.email,
+      document_name:     documentName,
+      note:              note || null,
+      status:            "pending",
+      signature_zone:    signatureZones != null ? JSON.stringify(signatureZones) : null,
+    })
+    .select("id")
+    .single();
+
+  if (insertErr || !row) {
+    console.error("[sign-request POST] insert error:", insertErr);
+    return NextResponse.json({ error: `DB error: ${insertErr?.message ?? "unknown"}` }, { status: 500 });
+  }
+
+  const requestId = (row as { id: string }).id;
+  const storagePath = `${candidateId}/${requestId}.pdf`;
 
   // Upload to Supabase Storage
   const { error: uploadErr } = await db.storage
@@ -299,21 +302,19 @@ export async function POST(req: NextRequest) {
     .update({ pdf_storage_path: storagePath })
     .eq("id", requestId);
 
-  // Insert candidate notification so it shows up in their bell.
-  // Store the sign_request id in `doc_id` so the bell can deep-link to it.
-  // If this fails (e.g. action CHECK constraint not yet migrated to allow
-  // 'sign_request') we log + still return success — the sign request itself
-  // is created and the candidate can see it on /portal/dashboard.
-  const { error: notifErr } = await db.from("notifications").insert({
-    user_id:  candidateId,
-    doc_id:   requestId,
-    doc_name: documentName,
-    doc_type: "sign_request",
-    action:   "sign_request",
-    feedback: null,
-    read:     false,
-  });
-  if (notifErr) console.error("[sign-request POST] notification insert failed:", notifErr);
+  // Notify candidate (skip for adminSave — admin is saving for own records, not requesting signature)
+  if (!adminSave) {
+    const { error: notifErr } = await db.from("notifications").insert({
+      user_id:  candidateId,
+      doc_id:   requestId,
+      doc_name: documentName,
+      doc_type: "sign_request",
+      action:   "sign_request",
+      feedback: null,
+      read:     false,
+    });
+    if (notifErr) console.error("[sign-request POST] notification insert failed:", notifErr);
+  }
 
   return NextResponse.json({ id: requestId });
 }
