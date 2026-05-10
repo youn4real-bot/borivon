@@ -324,6 +324,16 @@ export async function POST(req: NextRequest) {
     .update({ pdf_storage_path: storagePath })
     .eq("id", requestId);
 
+  // For adminSave: stamp the signed path onto the documents row so the normal
+  // PDF popup serves the signed version instead of the Drive original.
+  if (adminSave && driveFileId && candidateId) {
+    await db
+      .from("documents")
+      .update({ signed_storage_path: storagePath })
+      .eq("drive_file_id", driveFileId)
+      .eq("user_id", candidateId);
+  }
+
   // Notify candidate (skip for adminSave — admin is saving for own records, not requesting signature)
   if (!adminSave) {
     const { error: notifErr } = await db.from("notifications").insert({
