@@ -5,6 +5,54 @@ import { createPortal } from "react-dom";
 import {
   FilePen, CheckCircle2, X as XIcon, Download, Save, Upload,
 } from "lucide-react";
+
+function removeImageBg(dataUri: string): Promise<string> {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { resolve(dataUri); return; }
+        ctx.drawImage(img, 0, 0);
+        const id = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const d = id.data;
+        const n = canvas.width * canvas.height;
+        const hist = new Array(256).fill(0);
+        for (let i = 0; i < d.length; i += 4) {
+          hist[Math.round((d[i] + d[i+1] + d[i+2]) / 3)]++;
+        }
+        let sumAll = 0;
+        for (let k = 0; k < 256; k++) sumAll += k * hist[k];
+        let sumB = 0, cntB = 0, bestT = 128, maxVar = 0;
+        for (let T = 0; T < 256; T++) {
+          cntB += hist[T];
+          if (!cntB || cntB === n) continue;
+          sumB += T * hist[T];
+          const mB = sumB / cntB, mA = (sumAll - sumB) / (n - cntB);
+          const v = cntB * (n - cntB) * (mB - mA) ** 2;
+          if (v > maxVar) { maxVar = v; bestT = T; }
+        }
+        const lo = bestT;
+        const hi = bestT + 0.15 * (255 - bestT);
+        for (let i = 0; i < d.length; i += 4) {
+          const b = (d[i] + d[i+1] + d[i+2]) / 3;
+          if (b >= hi) {
+            d[i+3] = 0;
+          } else if (b >= lo) {
+            d[i+3] = Math.round((hi - b) / (hi - lo) * 255);
+          }
+        }
+        ctx.putImageData(id, 0, 0);
+        resolve(canvas.toDataURL("image/png"));
+      } catch { resolve(dataUri); }
+    };
+    img.onerror = () => resolve(dataUri);
+    img.src = dataUri;
+  });
+}
 import { SignaturePad } from "@/components/SignaturePad";
 import { Spinner } from "@/components/ui/states";
 import { PdfViewer } from "@/components/PdfViewer";
@@ -453,9 +501,13 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                     const reader = new FileReader();
                     reader.onload = () => {
                       const result = reader.result as string;
-                      setSigData(result);
-                      setSigPlaced(true);
+                      setBgRemoving(true);
                       setUsingSaved(false);
+                      removeImageBg(result).then(clean => {
+                        setSigData(clean);
+                        setSigPlaced(true);
+                        setBgRemoving(false);
+                      });
                     };
                     reader.readAsDataURL(file);
                     e.target.value = "";
@@ -466,22 +518,52 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                 {!usingSaved && (
                   <>
                     <p className="text-[12px]" style={{ color: "var(--w3)" }}>{t.drawHint}</p>
-                    <SignaturePad
-                      key={sigData ?? "empty"}
-                      height={120}
-                      defaultValue={sigData}
-                      onCapture={d => { setSigData(d); if (d) setSigPlaced(true); else setSigPlaced(false); }}
-                      clearLabel={t.clear}
-                    />
+                    {bgRemoving ? (
+                      <div className="rounded-xl flex items-center justify-center gap-2" style={{ height: 120, border: "1.5px dashed var(--border-gold)", background: "var(--gdim)" }}>
+                        <span className="w-4 h-4 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: "var(--gold)" }} />
+                        <span className="text-[11.5px] font-semibold" style={{ color: "var(--gold)" }}>
+                          {lang === "fr" ? "Suppression du fond…" : lang === "de" ? "Hintergrund wird entfernt…" : "Removing background…"}
+                        </span>
+                      </div>
+                    ) : (
+                      <div
+                        onDragOver={e => { e.preventDefault(); }}
+                        onDrop={e => {
+                          e.preventDefault();
+                          const file = e.dataTransfer.files[0];
+                          if (!file || !file.type.startsWith("image/")) return;
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            setBgRemoving(true);
+                            setUsingSaved(false);
+                            removeImageBg(reader.result as string).then(clean => {
+                              setSigData(clean);
+                              setSigPlaced(true);
+                              setBgRemoving(false);
+                            });
+                          };
+                          reader.readAsDataURL(file);
+                        }}
+                      >
+                        <SignaturePad
+                          key={sigData ?? "empty"}
+                          height={120}
+                          defaultValue={sigData}
+                          onCapture={d => { setSigData(d); if (d) setSigPlaced(true); else setSigPlaced(false); }}
+                          clearLabel={t.clear}
+                        />
+                      </div>
+                    )}
                   </>
                 )}
 
-                {/* Upload + remove bg buttons */}
+                {/* Upload + crop buttons */}
                 <div className="flex items-center gap-2 flex-wrap">
                   <button
                     type="button"
                     onClick={() => uploadRef.current?.click()}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80"
+                    disabled={bgRemoving}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-50"
                     style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
                     <Upload size={11} strokeWidth={2} />
                     {t.uploadImg}
