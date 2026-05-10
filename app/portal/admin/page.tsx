@@ -1361,7 +1361,7 @@ export default function AdminPage() {
         if (!p || !p.passport_status) return [];
         const fn = (p.first_name ?? "vorname").toLowerCase().replace(/\s+/g, "_");
         const ln = (p.last_name  ?? "nachname").toLowerCase().replace(/\s+/g, "_");
-        return [{ id: "passport_data_pdf", user_id: selectedUser ?? "", file_name: `${fn}_${ln}_reisepass_daten.pdf`, file_type: "Reisepass Daten", uploaded_at: new Date().toISOString(), status: p.passport_status, feedback: null, drive_file_id: null }];
+        return [{ id: "passport_data_pdf", user_id: selectedUser ?? "", file_name: `${fn}_${ln}_reisepass_daten.pdf`, file_type: "Reisepass Daten", uploaded_at: new Date().toISOString(), status: p.passport_status, feedback: null, drive_file_id: null, uploaded_by_admin: false }];
       }
       const labels = FILE_KEY_ALL_LABELS[key];
       if (labels) return allDocs.filter(d => labels.has(d.file_type));
