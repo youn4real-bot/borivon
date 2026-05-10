@@ -290,8 +290,8 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
           </div>
         ) : (
           <>
-            {/* PDF viewer — flex-1 */}
-            <div className="flex-1 min-h-0 px-4 pt-3 pb-0">
+            {/* PDF viewer — fixed height so sig section always visible below */}
+            <div className="flex-shrink-0 px-4 pt-3 pb-0" style={{ height: "55dvh" }}>
               <div style={{ height: "100%", borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)" }} onWheel={e => e.stopPropagation()}>
                 {request.pdf_preview_url ? (
                   <PdfViewer
@@ -352,8 +352,8 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
               </div>
             </div>
 
-            {/* ── Signature section — pinned, always visible ── */}
-            <div className="flex-shrink-0 overflow-y-auto px-4 py-3" style={{ borderTop: "1px solid var(--border)", maxHeight: "44vh" }}>
+            {/* ── Signature section — flex-1 fills remaining space, scrolls if needed ── */}
+            <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3" style={{ borderTop: "1px solid var(--border)" }}>
               {/* hidden file input */}
               <input ref={uploadRef} type="file" accept="image/*" style={{ display: "none" }}
                 onChange={e => { const f = e.target.files?.[0]; if (f) handleFileRead(f); e.target.value = ""; }} />
