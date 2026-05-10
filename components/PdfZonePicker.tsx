@@ -350,7 +350,6 @@ export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function Pdf
                 alignItems: "center",
                 justifyContent: "center",
                 gap: 2,
-                overflow: "hidden",
                 zIndex: isActive ? 2 : 1,
                 boxShadow: cropZoneIdx === i
                   ? "0 0 0 1px rgba(0,0,0,0.5), 0 6px 28px rgba(0,0,0,0.45)"
@@ -391,6 +390,8 @@ export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function Pdf
                 }
               }}
             >
+              {/* Centre — overflow wrapper so text never escapes the box */}
+              <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, overflow: "hidden" }}>
               {/* Centre — show sig preview if available, else label */}
               {partyPreviews?.[party] ? (
                 <>
@@ -468,47 +469,41 @@ export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function Pdf
                   )}
                 </>
               )}
+              </div>{/* end overflow wrapper */}
 
-              {/* Party pill — top-left, click cycles candidate → org → admin */}
-              <button
-                style={{
-                  position: "absolute", top: -1, left: -1,
-                  fontSize: 8, fontWeight: 800, padding: "2px 8px",
-                  borderRadius: "4px 0 5px 0",
-                  background: colors.border,
-                  color: party === "candidate" ? "#131312" : "#fff",
-                  border: "none",
-                  cursor: "pointer", lineHeight: 1.7, zIndex: 3,
-                  letterSpacing: "0.07em",
-                  textTransform: "uppercase",
-                  boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
-                }}
-                onMouseDown={e => e.stopPropagation()}
-                onClick={e => { e.stopPropagation(); toggleParty(i); }}
-                title={lang === "fr" ? "Changer de partie" : lang === "de" ? "Partei wechseln" : "Click to change party"}
-              >
-                {label}
-              </button>
-
-              {/* Remove × — inside top-right, clear of corner handles */}
-              <button
-                style={{
-                  position: "absolute", top: 3, right: 3,
-                  width: 18, height: 18,
-                  borderRadius: "50%",
-                  background: "rgba(20,20,20,0.82)",
-                  backdropFilter: "blur(6px)",
-                  color: "#fff", border: "1.5px solid rgba(255,255,255,0.18)", cursor: "pointer",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  zIndex: 5,
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.45)",
-                  transition: "background 0.12s",
-                }}
-                onMouseDown={e => e.stopPropagation()}
-                onClick={e => { e.stopPropagation(); removeZone(i); }}
-              >
-                <span style={{ fontSize: 8, fontWeight: 900, lineHeight: 1 }}>✕</span>
-              </button>
+              {/* Party pill + × — joined at top-left */}
+              <div style={{ position: "absolute", top: -1, left: -1, display: "flex", alignItems: "stretch", zIndex: 5, boxShadow: "0 1px 6px rgba(0,0,0,0.35)", borderRadius: "4px 4px 5px 0" }}>
+                <button
+                  style={{
+                    fontSize: 8, fontWeight: 800, padding: "2px 7px",
+                    borderRadius: "4px 0 0 0",
+                    background: colors.border,
+                    color: party === "candidate" ? "#131312" : "#fff",
+                    border: "none", cursor: "pointer", lineHeight: 1.7,
+                    letterSpacing: "0.07em", textTransform: "uppercase",
+                  }}
+                  onMouseDown={e => e.stopPropagation()}
+                  onClick={e => { e.stopPropagation(); toggleParty(i); }}
+                  title={lang === "fr" ? "Changer de partie" : lang === "de" ? "Partei wechseln" : "Click to change party"}
+                >
+                  {label}
+                </button>
+                <button
+                  style={{
+                    padding: "2px 5px",
+                    borderRadius: "0 4px 4px 0",
+                    background: "rgba(15,15,15,0.75)",
+                    backdropFilter: "blur(4px)",
+                    color: "rgba(255,255,255,0.85)", border: "none", cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: 9, fontWeight: 700, lineHeight: 1,
+                  }}
+                  onMouseDown={e => e.stopPropagation()}
+                  onClick={e => { e.stopPropagation(); removeZone(i); }}
+                >
+                  ✕
+                </button>
+              </div>
 
               {/* Crop-mode UI: moving frame + dim + drag targets */}
               {inCropMode && (() => {
