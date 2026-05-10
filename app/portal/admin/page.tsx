@@ -14,7 +14,7 @@ import {
   Lock, Unlock, IdCard, FileText, Folder, FilePen, Save, Eye,
   CheckCircle2, XCircle, AlertTriangle, PartyPopper,
 } from "@/components/PortalIcons";
-import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save } from "lucide-react";
+import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon } from "lucide-react";
 import { Spinner, PageLoader, EmptyState } from "@/components/ui/states";
 import { CandidateStagePreview, type JourneyMode } from "@/components/JourneyView";
 import { PdfZonePicker, type SigZone } from "@/components/PdfZonePicker";
@@ -3587,7 +3587,7 @@ export default function AdminPage() {
                       <button onClick={() => doSubmit("save")} disabled={sigSending || !selectedUser || !hasPdf}
                         className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold transition-opacity disabled:opacity-40"
                         style={{ background: "var(--gold)", color: "#131312" }}>
-                        {sigSending ? spin : <><Save size={13} strokeWidth={2} /> {lang === "fr" ? "Sauvegarder" : lang === "de" ? "Speichern" : "Save"}</>}
+                        {sigSending ? spin : <><SaveIcon size={13} strokeWidth={2} /> {lang === "fr" ? "Sauvegarder" : lang === "de" ? "Speichern" : "Save"}</>}
                       </button>
                       <button onClick={() => doSubmit("download")} disabled={sigSending || !hasPdf}
                         className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold transition-opacity disabled:opacity-40"
@@ -4466,7 +4466,7 @@ export default function AdminPage() {
                       <button onClick={() => doSubmit("save")} disabled={sigSending || !selectedUser || !hasPdf}
                         className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold transition-opacity disabled:opacity-40"
                         style={{ background: "var(--gold)", color: "#131312" }}>
-                        {sigSending ? spin : <><Save size={13} strokeWidth={2} /> {lang === "fr" ? "Sauvegarder" : lang === "de" ? "Speichern" : "Save"}</>}
+                        {sigSending ? spin : <><SaveIcon size={13} strokeWidth={2} /> {lang === "fr" ? "Sauvegarder" : lang === "de" ? "Speichern" : "Save"}</>}
                       </button>
                       <button onClick={() => doSubmit("download")} disabled={sigSending || !hasPdf}
                         className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold transition-opacity disabled:opacity-40"
