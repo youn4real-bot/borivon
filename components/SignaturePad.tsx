@@ -21,6 +21,7 @@ export function SignaturePad({
   const canvasRef  = useRef<HTMLCanvasElement>(null);
   const drawing    = useRef(false);
   const lastPos    = useRef<{ x: number; y: number } | null>(null);
+  const canvasW    = useRef<number>(width); // actual rendered CSS pixel width
   const [isEmpty, setIsEmpty] = useState(!defaultValue);
   // Keyboard / typed-name fallback — for users who can't draw with a pointer
   // (assistive tech, no touchscreen + no mouse, etc.). Renders the typed name
@@ -41,8 +42,11 @@ export function SignaturePad({
     const canvas = canvasRef.current;
     if (!canvas) return;
     const dpr = window.devicePixelRatio || 1;
-    canvas.width  = width  * dpr;
-    canvas.height = height * dpr;
+    // Use actual rendered CSS width so internal pixels match display pixels (no horizontal stretch)
+    const cssW = canvas.clientWidth || width;
+    canvasW.current = cssW;
+    canvas.width  = cssW    * dpr;
+    canvas.height = height  * dpr;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.scale(dpr, dpr);
@@ -54,8 +58,12 @@ export function SignaturePad({
     if (defaultValue) {
       const img = new Image();
       img.onload = () => {
-        ctx.clearRect(0, 0, width, height);
-        ctx.drawImage(img, 0, 0, width, height);
+        const w = canvasW.current;
+        ctx.clearRect(0, 0, w, height);
+        const scale = Math.min(w / img.naturalWidth, height / img.naturalHeight);
+        const dw = img.naturalWidth * scale;
+        const dh = img.naturalHeight * scale;
+        ctx.drawImage(img, (w - dw) / 2, (height - dh) / 2, dw, dh);
         setIsEmpty(false);
         onCapture(defaultValue);
       };
@@ -66,8 +74,8 @@ export function SignaturePad({
   function getPos(e: MouseEvent | Touch, canvas: HTMLCanvasElement) {
     const rect = canvas.getBoundingClientRect();
     return {
-      x: (e.clientX - rect.left) * (width  / rect.width),
-      y: (e.clientY - rect.top)  * (height / rect.height),
+      x: (e.clientX - rect.left) * (canvasW.current / rect.width),
+      y: (e.clientY - rect.top)  * (height           / rect.height),
     };
   }
 
@@ -142,7 +150,7 @@ export function SignaturePad({
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, width, height);
+    ctx.clearRect(0, 0, canvasW.current, height);
     setIsEmpty(true);
     onCapture(null);
   }
@@ -153,14 +161,15 @@ export function SignaturePad({
     if (!canvas || !name.trim()) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
-    ctx.clearRect(0, 0, width, height);
+    const w = canvasW.current;
+    ctx.clearRect(0, 0, w, height);
     ctx.fillStyle = "#0a0a0a";
     // Use a cursive system font; fall back gracefully if unavailable.
     const fontSize = Math.min(48, Math.max(24, height * 0.5));
     ctx.font = `italic ${fontSize}px "Brush Script MT", "Lucida Handwriting", cursive`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText(name.trim(), width / 2, height / 2);
+    ctx.fillText(name.trim(), w / 2, height / 2);
     setIsEmpty(false);
     onCapture(canvas.toDataURL("image/png"));
   }

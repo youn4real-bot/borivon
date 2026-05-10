@@ -31,6 +31,18 @@ async function fetchPdfBuffer(fileId: string): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
+async function updateDriveFile(fileId: string, buffer: Buffer): Promise<void> {
+  const drive = getDriveClient();
+  const { Readable } = await import("stream");
+  const stream = Readable.from(buffer);
+  await drive.files.update({
+    fileId,
+    supportsAllDrives: true,
+    requestBody: {},
+    media: { mimeType: "application/pdf", body: stream },
+  });
+}
+
 const MAX_PDF_BYTES = 10_000_000; // 10 MB
 const BUCKET = "sign-documents";
 
@@ -245,6 +257,15 @@ export async function POST(req: NextRequest) {
         pdfBuffer = await stampZonesOnBuffer(pdfBuffer!, sigUri, auth.email, zones);
       }
     } catch (e) { console.warn("[sign-request POST] org stamp failed (non-fatal):", e); }
+  }
+
+  // Write signed bytes back to the original Drive file so the "normal pdf popup" shows signatures
+  if (driveFileId && (adminOnly || adminSave)) {
+    try {
+      await updateDriveFile(driveFileId, pdfBuffer!);
+    } catch (e) {
+      console.warn("[sign-request POST] Drive write-back failed (non-fatal):", e);
+    }
   }
 
   // Admin-only mode: return the stamped PDF directly for download — no DB record

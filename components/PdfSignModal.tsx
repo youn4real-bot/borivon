@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import {
-  FilePen, CheckCircle2, X as XIcon, Download, Save,
+  FilePen, CheckCircle2, X as XIcon, Download, Save, Upload,
 } from "lucide-react";
 import { SignaturePad } from "@/components/SignaturePad";
 import { Spinner } from "@/components/ui/states";
@@ -34,6 +34,7 @@ const T = {
     goToSign: "Go to sign page",
     sigAppears: "Signature will appear here",
     noPreview: "No PDF preview available",
+    uploadImg: "Upload image", removeBg: "Remove background", cropImg: "Crop",
   },
   fr: {
     close: "Fermer", confirm: "Confirmer & signer", signing: "Signature…",
@@ -47,6 +48,7 @@ const T = {
     goToSign: "Aller à la page de signature",
     sigAppears: "La signature apparaîtra ici",
     noPreview: "Aperçu PDF indisponible",
+    uploadImg: "Importer image", removeBg: "Supprimer le fond", cropImg: "Recadrer",
   },
   de: {
     close: "Schließen", confirm: "Bestätigen & unterschreiben", signing: "Wird unterschrieben…",
@@ -60,6 +62,7 @@ const T = {
     goToSign: "Zur Signaturseite",
     sigAppears: "Unterschrift erscheint hier",
     noPreview: "PDF-Vorschau nicht verfügbar",
+    uploadImg: "Bild hochladen", removeBg: "Hintergrund entfernen", cropImg: "Zuschneiden",
   },
 } as const;
 type Lang = keyof typeof T;
@@ -81,6 +84,35 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
   const [usingSaved, setUsingSaved] = useState(false);
   const [wantSave, setWantSave]     = useState(true);   // pre-checked
   const [savingSig, setSavingSig]   = useState(false);
+  const [bgRemoving, setBgRemoving] = useState(false);
+  const [cropMode, setCropMode] = useState(false);
+  const [cropDrag, setCropDrag] = useState<{ sx: number; sy: number; ex: number; ey: number } | null>(null);
+  const [cropDragging, setCropDragging] = useState(false);
+  const cropImgRef = useRef<HTMLImageElement>(null);
+  const cropContainerRef = useRef<HTMLDivElement>(null);
+  const uploadRef = useRef<HTMLInputElement>(null);
+
+  function applyCrop() {
+    if (!cropDrag || !cropImgRef.current || !cropContainerRef.current || !sigData) return;
+    const cw = cropContainerRef.current.offsetWidth;
+    const ch = cropContainerRef.current.offsetHeight;
+    const img = cropImgRef.current;
+    const scaleX = img.naturalWidth / cw;
+    const scaleY = img.naturalHeight / ch;
+    const x = Math.max(0, Math.round(Math.min(cropDrag.sx, cropDrag.ex) * scaleX));
+    const y = Math.max(0, Math.round(Math.min(cropDrag.sy, cropDrag.ey) * scaleY));
+    const w = Math.min(img.naturalWidth - x, Math.round(Math.abs(cropDrag.ex - cropDrag.sx) * scaleX));
+    const h = Math.min(img.naturalHeight - y, Math.round(Math.abs(cropDrag.ey - cropDrag.sy) * scaleY));
+    if (w < 5 || h < 5) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(img, x, y, w, h, 0, 0, w, h);
+    setSigData(canvas.toDataURL("image/png"));
+    setCropMode(false);
+    setCropDrag(null);
+  }
 
   // Flow state
   const [dragOverZone, setDragOverZone] = useState(false);
@@ -158,7 +190,7 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
 
   if (typeof document === "undefined") return null;
 
-  return createPortal(
+  const modal = createPortal(
     <div
       className="fixed inset-x-0 z-[1300] flex items-center justify-center px-2 bv-sign-modal-outer"
       style={{
@@ -409,17 +441,61 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                   </div>
                 )}
 
+                {/* Hidden file input for signature upload */}
+                <input
+                  ref={uploadRef}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: "none" }}
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      const result = reader.result as string;
+                      setSigData(result);
+                      setSigPlaced(true);
+                      setUsingSaved(false);
+                    };
+                    reader.readAsDataURL(file);
+                    e.target.value = "";
+                  }}
+                />
+
                 {/* Draw pad — shown when not using saved OR no saved sig */}
                 {!usingSaved && (
                   <>
                     <p className="text-[12px]" style={{ color: "var(--w3)" }}>{t.drawHint}</p>
                     <SignaturePad
+                      key={sigData ?? "empty"}
                       height={120}
+                      defaultValue={sigData}
                       onCapture={d => { setSigData(d); if (d) setSigPlaced(true); else setSigPlaced(false); }}
                       clearLabel={t.clear}
                     />
                   </>
                 )}
+
+                {/* Upload + remove bg buttons */}
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => uploadRef.current?.click()}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80"
+                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                    <Upload size={11} strokeWidth={2} />
+                    {t.uploadImg}
+                  </button>
+                  {sigData && !bgRemoving && (
+                    <button
+                      type="button"
+                      onClick={() => { setCropMode(true); setCropDrag(null); }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80"
+                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                      ✂ {t.cropImg ?? "Crop"}
+                    </button>
+                  )}
+                </div>
 
                 {/* Save for next time */}
                 <label className="flex items-center gap-2 cursor-pointer select-none">
@@ -467,5 +543,83 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
       </div>
     </div>,
     document.body,
+  );
+
+  function CropPortal() {
+    if (!cropMode || !sigData) return null;
+    return createPortal(
+      <div
+        className="fixed inset-0 z-[2000] flex flex-col items-center justify-center gap-4"
+        style={{ background: "rgba(0,0,0,0.92)" }}
+        onClick={e => { if (e.target === e.currentTarget) { setCropMode(false); setCropDrag(null); } }}
+      >
+        <p className="text-[12px] font-semibold select-none" style={{ color: "rgba(255,255,255,0.6)" }}>
+          {lang === "fr" ? "Faites glisser pour sélectionner" : lang === "de" ? "Bereich ziehen zum Zuschneiden" : "Drag to select crop area"}
+        </p>
+        <div
+          ref={cropContainerRef}
+          className="relative select-none"
+          style={{ cursor: "crosshair", background: "#fff" }}
+          onMouseDown={e => {
+            const r = cropContainerRef.current!.getBoundingClientRect();
+            const sx = e.clientX - r.left, sy = e.clientY - r.top;
+            setCropDrag({ sx, sy, ex: sx, ey: sy });
+            setCropDragging(true);
+          }}
+          onMouseMove={e => {
+            if (!cropDragging) return;
+            const r = cropContainerRef.current!.getBoundingClientRect();
+            setCropDrag(d => d ? { ...d, ex: e.clientX - r.left, ey: e.clientY - r.top } : null);
+          }}
+          onMouseUp={() => setCropDragging(false)}
+          onMouseLeave={() => setCropDragging(false)}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            ref={cropImgRef}
+            src={sigData}
+            alt="crop"
+            draggable={false}
+            style={{ display: "block", maxWidth: "80vw", maxHeight: "65vh", userSelect: "none", pointerEvents: "none" }}
+          />
+          {cropDrag && (
+            <div style={{
+              position: "absolute",
+              left: Math.min(cropDrag.sx, cropDrag.ex),
+              top: Math.min(cropDrag.sy, cropDrag.ey),
+              width: Math.abs(cropDrag.ex - cropDrag.sx),
+              height: Math.abs(cropDrag.ey - cropDrag.sy),
+              border: "2px solid #fff",
+              background: "rgba(255,255,255,0.08)",
+              boxShadow: "0 0 0 9999px rgba(0,0,0,0.5)",
+              pointerEvents: "none",
+            }} />
+          )}
+        </div>
+        <div className="flex gap-3">
+          <button
+            onClick={applyCrop}
+            disabled={!cropDrag || Math.abs(cropDrag.ex - cropDrag.sx) < 5 || Math.abs(cropDrag.ey - cropDrag.sy) < 5}
+            className="px-6 py-2 rounded-full text-[12.5px] font-semibold disabled:opacity-40 transition-opacity hover:opacity-80"
+            style={{ background: "var(--gold)", color: "#131312" }}>
+            {lang === "fr" ? "Appliquer" : lang === "de" ? "Zuschneiden" : "Apply crop"}
+          </button>
+          <button
+            onClick={() => { setCropMode(false); setCropDrag(null); }}
+            className="px-6 py-2 rounded-full text-[12.5px] font-semibold transition-opacity hover:opacity-80"
+            style={{ background: "rgba(255,255,255,0.12)", color: "#fff" }}>
+            {lang === "fr" ? "Annuler" : lang === "de" ? "Abbrechen" : "Cancel"}
+          </button>
+        </div>
+      </div>,
+      document.body,
+    );
+  }
+
+  return (
+    <>
+      {modal}
+      <CropPortal />
+    </>
   );
 }
