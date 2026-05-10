@@ -221,7 +221,88 @@ function AdminSigSection({ lang, sig, wantSave, bgRemoving, onSig, onWantSave, o
   const title = lbl("Your signature (Admin)", "Votre signature (Admin)", "Ihre Unterschrift (Admin)");
   const [dragOver, setDragOver] = useState(false);
 
+  // Crop state
+  const [cropMode, setCropMode]         = useState(false);
+  const [cropDrag, setCropDrag]         = useState<{ sx: number; sy: number; ex: number; ey: number } | null>(null);
+  const [cropDragging, setCropDragging] = useState(false);
+  const cropImgRef       = useRef<HTMLImageElement>(null);
+  const cropContainerRef = useRef<HTMLDivElement>(null);
+
+  // Saved sig from localStorage (read at render — updates when wantSave checkbox changes)
+  const savedSig = typeof window !== "undefined" ? localStorage.getItem(meta.storageKey) : null;
+
+  function applyCrop() {
+    if (!cropDrag || !cropImgRef.current || !cropContainerRef.current || !sig) return;
+    const cw = cropContainerRef.current.offsetWidth;
+    const ch = cropContainerRef.current.offsetHeight;
+    const img = cropImgRef.current;
+    const scaleX = img.naturalWidth / cw;
+    const scaleY = img.naturalHeight / ch;
+    const x = Math.max(0, Math.round(Math.min(cropDrag.sx, cropDrag.ex) * scaleX));
+    const y = Math.max(0, Math.round(Math.min(cropDrag.sy, cropDrag.ey) * scaleY));
+    const w = Math.min(img.naturalWidth - x, Math.round(Math.abs(cropDrag.ex - cropDrag.sx) * scaleX));
+    const h = Math.min(img.naturalHeight - y, Math.round(Math.abs(cropDrag.ey - cropDrag.sy) * scaleY));
+    if (w < 5 || h < 5) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    canvas.getContext("2d")!.drawImage(img, x, y, w, h, 0, 0, w, h);
+    onSig(canvas.toDataURL("image/png"));
+    setCropMode(false); setCropDrag(null);
+  }
+
+  const cropPortal = cropMode && sig ? createPortal(
+    <div className="fixed inset-0 z-[2000] flex flex-col items-center justify-center gap-4"
+      style={{ background: "rgba(0,0,0,0.92)" }}
+      onClick={e => { if (e.target === e.currentTarget) { setCropMode(false); setCropDrag(null); } }}>
+      <p className="text-[12px] font-semibold select-none" style={{ color: "rgba(255,255,255,0.6)" }}>
+        {lbl("Drag to select crop area", "Faites glisser pour sélectionner", "Bereich ziehen zum Zuschneiden")}
+      </p>
+      <div ref={cropContainerRef} className="relative select-none"
+        style={{ cursor: "crosshair", background: "#fff" }}
+        onMouseDown={e => {
+          const r = cropContainerRef.current!.getBoundingClientRect();
+          const sx = e.clientX - r.left, sy = e.clientY - r.top;
+          setCropDrag({ sx, sy, ex: sx, ey: sy }); setCropDragging(true);
+        }}
+        onMouseMove={e => {
+          if (!cropDragging) return;
+          const r = cropContainerRef.current!.getBoundingClientRect();
+          setCropDrag(d => d ? { ...d, ex: e.clientX - r.left, ey: e.clientY - r.top } : null);
+        }}
+        onMouseUp={() => setCropDragging(false)}
+        onMouseLeave={() => setCropDragging(false)}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img ref={cropImgRef} src={sig} alt="crop" draggable={false}
+          style={{ display: "block", maxWidth: "80vw", maxHeight: "65vh", userSelect: "none", pointerEvents: "none" }} />
+        {cropDrag && (
+          <div style={{
+            position: "absolute",
+            left: Math.min(cropDrag.sx, cropDrag.ex), top: Math.min(cropDrag.sy, cropDrag.ey),
+            width: Math.abs(cropDrag.ex - cropDrag.sx), height: Math.abs(cropDrag.ey - cropDrag.sy),
+            border: "2px solid #fff", background: "rgba(255,255,255,0.08)",
+            boxShadow: "0 0 0 9999px rgba(0,0,0,0.5)", pointerEvents: "none",
+          }} />
+        )}
+      </div>
+      <div className="flex gap-3">
+        <button onClick={applyCrop}
+          disabled={!cropDrag || Math.abs(cropDrag.ex - cropDrag.sx) < 5 || Math.abs(cropDrag.ey - cropDrag.sy) < 5}
+          className="px-6 py-2 rounded-full text-[12.5px] font-semibold disabled:opacity-40 transition-opacity hover:opacity-80"
+          style={{ background: meta.accent, color: "#fff" }}>
+          {lbl("Apply crop", "Appliquer", "Zuschneiden")}
+        </button>
+        <button onClick={() => { setCropMode(false); setCropDrag(null); }}
+          className="px-6 py-2 rounded-full text-[12.5px] font-semibold transition-opacity hover:opacity-80"
+          style={{ background: "rgba(255,255,255,0.12)", color: "#fff" }}>
+          {lbl("Cancel", "Annuler", "Abbrechen")}
+        </button>
+      </div>
+    </div>,
+    document.body,
+  ) : null;
+
   return (
+    <>
     <div className="rounded-2xl p-4 space-y-3" style={{ background: meta.bg, border: `1.5px solid ${meta.border}` }}>
         <p className="text-[11.5px] font-semibold" style={{ color: meta.accent }}>
           ✍ {title}
@@ -230,7 +311,7 @@ function AdminSigSection({ lang, sig, wantSave, bgRemoving, onSig, onWantSave, o
         {/* Upload dropzone — shown when no sig yet */}
         {!sig && (
           <div
-            onClick={onUpload}
+            onClick={() => { if (!bgRemoving) onUpload(); }}
             onDragOver={e => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
             onDrop={e => {
@@ -260,8 +341,17 @@ function AdminSigSection({ lang, sig, wantSave, bgRemoving, onSig, onWantSave, o
         )}
 
         {/* Action buttons when sig exists */}
-        {sig && (
+        {sig && !bgRemoving && (
           <div className="flex items-center gap-2 flex-wrap">
+            {savedSig && sig !== savedSig && (
+              <button
+                type="button"
+                onClick={() => onSig(savedSig)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80"
+                style={{ background: meta.bg, color: meta.accent, border: `1px solid ${meta.border}` }}>
+                ↩ {lbl("Use saved", "Utiliser enregistrée", "Gespeicherte nutzen")}
+              </button>
+            )}
             <button
               type="button"
               onClick={onUpload}
@@ -269,6 +359,13 @@ function AdminSigSection({ lang, sig, wantSave, bgRemoving, onSig, onWantSave, o
               style={{ background: meta.bg, color: meta.accent, border: `1px solid ${meta.border}` }}>
               <Upload size={11} strokeWidth={2} />
               {lbl("Replace", "Remplacer", "Ersetzen")}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setCropMode(true); setCropDrag(null); }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80"
+              style={{ background: meta.bg, color: meta.accent, border: `1px solid ${meta.border}` }}>
+              ✂ {lbl("Crop", "Recadrer", "Zuschneiden")}
             </button>
             <button
               type="button"
@@ -297,6 +394,8 @@ function AdminSigSection({ lang, sig, wantSave, bgRemoving, onSig, onWantSave, o
           </span>
         </label>
     </div>
+    {cropPortal}
+    </>
   );
 }
 
