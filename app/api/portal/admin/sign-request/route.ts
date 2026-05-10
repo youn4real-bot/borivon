@@ -232,25 +232,31 @@ export async function POST(req: NextRequest) {
 
   // Stamp admin zones (adminOnly/adminSave → stamp all zones regardless of party)
   if (adminSignatureBase64 && signatureZones) {
-    try {
-      const allZones = parseZones(signatureZones);
-      const zones = (adminOnly || adminSave) ? allZones : allZones.filter(z => z.party === "admin");
-      if (zones.length > 0) {
+    const allZones = parseZones(signatureZones);
+    const zones = (adminOnly || adminSave) ? allZones : allZones.filter(z => z.party === "admin");
+    if (zones.length > 0) {
+      try {
         const sigUri = adminSignatureBase64.startsWith("data:") ? adminSignatureBase64 : `data:image/png;base64,${adminSignatureBase64}`;
         pdfBuffer = await stampZonesOnBuffer(pdfBuffer!, sigUri, auth.email, zones);
+      } catch (e) {
+        console.error("[sign-request POST] admin stamp error:", e);
+        return NextResponse.json({ error: "Could not stamp admin signature onto PDF. The PDF may be encrypted or in an unsupported format." }, { status: 422 });
       }
-    } catch (e) { console.warn("[sign-request POST] admin stamp failed (non-fatal):", e); }
+    }
   }
 
   // Stamp org zones (skip in adminOnly/adminSave — all zones already stamped above)
   if (!adminOnly && !adminSave && orgSignatureBase64 && signatureZones) {
-    try {
-      const zones = parseZones(signatureZones).filter(z => z.party === "org");
-      if (zones.length > 0) {
+    const zones = parseZones(signatureZones).filter(z => z.party === "org");
+    if (zones.length > 0) {
+      try {
         const sigUri = orgSignatureBase64.startsWith("data:") ? orgSignatureBase64 : `data:image/png;base64,${orgSignatureBase64}`;
         pdfBuffer = await stampZonesOnBuffer(pdfBuffer!, sigUri, auth.email, zones);
+      } catch (e) {
+        console.error("[sign-request POST] org stamp error:", e);
+        return NextResponse.json({ error: "Could not stamp org signature onto PDF." }, { status: 422 });
       }
-    } catch (e) { console.warn("[sign-request POST] org stamp failed (non-fatal):", e); }
+    }
   }
 
   // Write signed bytes back to the original Drive file so the "normal pdf popup" shows signatures

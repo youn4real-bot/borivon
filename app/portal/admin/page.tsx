@@ -228,8 +228,18 @@ function AdminSigSection({ lang, sig, wantSave, bgRemoving, onSig, onWantSave, o
   const cropImgRef       = useRef<HTMLImageElement>(null);
   const cropContainerRef = useRef<HTMLDivElement>(null);
 
-  // Saved sig from localStorage (read at render — updates when wantSave checkbox changes)
-  const savedSig = typeof window !== "undefined" ? localStorage.getItem(meta.storageKey) : null;
+  // Saved sig — reactive so "Use Saved" always reflects the latest saved value
+  const [savedSig, setSavedSig] = useState<string | null>(() =>
+    typeof window !== "undefined" ? localStorage.getItem(meta.storageKey) : null
+  );
+  // Auto-sync: when sig changes and wantSave is on, persist immediately so
+  // "Use Saved" on the next sign request loads the freshest sig (not a stale one).
+  useEffect(() => {
+    if (wantSave && sig) {
+      localStorage.setItem(meta.storageKey, sig);
+      setSavedSig(sig);
+    }
+  }, [sig, wantSave]);
 
   function applyCrop() {
     if (!cropDrag || !cropImgRef.current || !cropContainerRef.current || !sig) return;
@@ -393,8 +403,8 @@ function AdminSigSection({ lang, sig, wantSave, bgRemoving, onSig, onWantSave, o
             checked={wantSave}
             onChange={e => {
               onWantSave(e.target.checked);
-              if (e.target.checked && sig) localStorage.setItem(meta.storageKey, sig);
-              else if (!e.target.checked) localStorage.removeItem(meta.storageKey);
+              if (e.target.checked && sig) { localStorage.setItem(meta.storageKey, sig); setSavedSig(sig); }
+              else if (!e.target.checked) { localStorage.removeItem(meta.storageKey); setSavedSig(null); }
             }}
             className="rounded"
             style={{ accentColor: meta.accent }}
