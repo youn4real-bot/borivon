@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
-import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
+import { PDFDocument } from "pdf-lib";
 
 function getDriveClient() {
   const auth = new google.auth.GoogleAuth({
@@ -197,28 +197,21 @@ export async function POST(req: NextRequest) {
   }
 
   // Helper: stamp a set of zones onto the PDF buffer with a given signature image
-  async function stampZonesOnBuffer(buf: Buffer, sigDataUri: string, signerEmail: string, zones: { page: number; x: number; y: number; w: number; h: number }[]): Promise<Buffer> {
+  async function stampZonesOnBuffer(buf: Buffer, sigDataUri: string, _signerEmail: string, zones: { page: number; x: number; y: number; w: number; h: number }[]): Promise<Buffer> {
     const pdfDoc = await PDFDocument.load(new Uint8Array(buf));
     const pages  = pdfDoc.getPages();
     const isJpeg = /^data:image\/jpe?g;/i.test(sigDataUri);
     const sigBase64 = sigDataUri.replace(/^data:[^;]+;base64,/, "");
     const sigBytes  = Uint8Array.from(Buffer.from(sigBase64, "base64"));
     const sigImage  = isJpeg ? await pdfDoc.embedJpg(sigBytes) : await pdfDoc.embedPng(sigBytes);
-    const font      = await pdfDoc.embedFont(StandardFonts.Helvetica);
-    const dateStr   = new Date().toLocaleDateString("en-GB");
     for (const zone of zones) {
       const pageIndex = Math.max(0, Math.min(pages.length - 1, zone.page - 1));
       const pg = pages[pageIndex];
       const { width: pageW, height: pageH } = pg.getSize();
       const zW = zone.w * pageW, zH = zone.h * pageH;
       const zX = zone.x * pageW, zY = pageH - (zone.y + zone.h) * pageH;
-      const sigDims = sigImage.scaleToFit(zW * 0.92, zH * 0.62);
-      pg.drawRectangle({ x: zX, y: zY, width: zW, height: zH, color: rgb(0.97, 0.97, 0.97), borderColor: rgb(0.75, 0.75, 0.75), borderWidth: 0.5, opacity: 0.92 });
-      pg.drawImage(sigImage, { x: zX + (zW - sigDims.width) / 2, y: zY + zH * 0.3, width: sigDims.width, height: sigDims.height });
-      const lineY = zY + zH * 0.28, fontSize = Math.max(5, Math.min(7, zW / 30));
-      pg.drawLine({ start: { x: zX + 4, y: lineY }, end: { x: zX + zW - 4, y: lineY }, thickness: 0.4, color: rgb(0.7, 0.7, 0.7) });
-      pg.drawText(signerEmail, { x: zX + 5, y: lineY - fontSize - 2, size: fontSize, font, color: rgb(0.3, 0.3, 0.3), maxWidth: zW - 10 });
-      pg.drawText(dateStr,     { x: zX + 5, y: zY + 3,              size: fontSize, font, color: rgb(0.5, 0.5, 0.5) });
+      const sigDims = sigImage.scaleToFit(zW, zH);
+      pg.drawImage(sigImage, { x: zX + (zW - sigDims.width) / 2, y: zY + (zH - sigDims.height) / 2, width: sigDims.width, height: sigDims.height });
     }
     return Buffer.from(await pdfDoc.save());
   }
