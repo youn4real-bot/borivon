@@ -304,6 +304,12 @@ export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function Pdf
           const isActive    = i === activeIdx;
           const inCropMode  = cropZoneIdx === i;
 
+          // Scale UI chrome (handles, pill, ×) to the zone's rendered pixel size
+          const pageEl = pageElsRef.current.get(pageNum);
+          const pxW = pageEl ? z.w * pageEl.offsetWidth  : 200;
+          const pxH = pageEl ? z.h * pageEl.offsetHeight : 80;
+          const sc  = Math.max(0.28, Math.min(1, pxW / 160, pxH / 52));
+
           function makeCropDragDown(hId: string) {
             return (e: React.MouseEvent) => {
               if (e.button !== 0) return;
@@ -471,11 +477,12 @@ export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function Pdf
               )}
               </div>{/* end overflow wrapper */}
 
-              {/* Party pill + × — joined at top-left */}
+              {/* Party pill + × — joined at top-left, scaled to zone size */}
               <div style={{ position: "absolute", top: -1, left: -1, display: "flex", alignItems: "stretch", zIndex: 5, boxShadow: "0 1px 6px rgba(0,0,0,0.35)", borderRadius: "4px 4px 5px 0" }}>
                 <button
                   style={{
-                    fontSize: 8, fontWeight: 800, padding: "2px 7px",
+                    fontSize: Math.max(6, Math.round(8 * sc)), fontWeight: 800,
+                    padding: `${Math.max(1, Math.round(2 * sc))}px ${Math.max(4, Math.round(7 * sc))}px`,
                     borderRadius: "4px 0 0 0",
                     background: colors.border,
                     color: party === "candidate" ? "#131312" : "#fff",
@@ -490,13 +497,13 @@ export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function Pdf
                 </button>
                 <button
                   style={{
-                    padding: "2px 5px",
+                    padding: `${Math.max(1, Math.round(2 * sc))}px ${Math.max(3, Math.round(5 * sc))}px`,
                     borderRadius: "0 4px 4px 0",
                     background: "rgba(15,15,15,0.75)",
                     backdropFilter: "blur(4px)",
                     color: "rgba(255,255,255,0.85)", border: "none", cursor: "pointer",
                     display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: 9, fontWeight: 700, lineHeight: 1,
+                    fontSize: Math.max(7, Math.round(9 * sc)), fontWeight: 700, lineHeight: 1,
                   }}
                   onMouseDown={e => e.stopPropagation()}
                   onClick={e => { e.stopPropagation(); removeZone(i); }}
@@ -547,13 +554,13 @@ export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function Pdf
                     position: "absolute",
                     top: h.top, left: h.left,
                     transform: "translate(-50%, -50%)",
-                    width: 16, height: 16,
+                    width: Math.max(7, Math.round(16 * sc)), height: Math.max(7, Math.round(16 * sc)),
                     background: "#fff",
-                    border: `3px solid ${colors.border}`,
+                    border: `${Math.max(1.5, 3 * sc)}px solid ${colors.border}`,
                     borderRadius: "50%",
                     cursor: h.cursor,
                     zIndex: 4,
-                    boxShadow: `0 2px 10px rgba(0,0,0,0.55), 0 0 0 1.5px ${colors.border}`,
+                    boxShadow: `0 2px 8px rgba(0,0,0,0.5), 0 0 0 ${Math.max(0.8, 1.5 * sc)}px ${colors.border}`,
                   }}
                   onMouseDown={e => {
                     if (e.button !== 0) return;
