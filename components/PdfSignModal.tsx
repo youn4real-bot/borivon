@@ -395,7 +395,9 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                                     boxShadow: isActive ? `0 0 0 1px rgba(201,162,64,0.35), 0 2px 12px rgba(0,0,0,0.15)` : "none",
                                     transition: "background 0.15s, border-color 0.15s, box-shadow 0.15s",
                                     display: "flex", alignItems: "center", justifyContent: "center",
+                                    cursor: sigPlaced && sigData ? "zoom-in" : "move",
                                   }}
+                                  onDoubleClick={e => { e.stopPropagation(); if (sigPlaced && sigData) { setCropMode(true); setCropDrag(null); } }}
                                   onDragOver={e => { e.preventDefault(); setDragOverZone(true); }}
                                   onDragLeave={() => setDragOverZone(false)}
                                   onDrop={e => {
@@ -422,8 +424,8 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                                   )}
                                 </div>
 
-                                {/* 4-corner resize handles — only on active zone */}
-                                {isActive && ([
+                                {/* 4-corner resize handles — always visible */}
+                                {([
                                   { id: "nw", top: "0%",   left: "0%",   cursor: "nw-resize" },
                                   { id: "ne", top: "0%",   left: "100%", cursor: "ne-resize" },
                                   { id: "sw", top: "100%", left: "0%",   cursor: "sw-resize" },
