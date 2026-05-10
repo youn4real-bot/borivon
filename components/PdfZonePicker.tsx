@@ -8,9 +8,9 @@ export type SigZone = { page: number; x: number; y: number; w: number; h: number
 
 const PARTY_CYCLE: SigZone["party"][] = ["candidate", "admin"];
 
-const PARTY_COLORS: Record<NonNullable<SigZone["party"]>, { border: string; bg: string; text: string }> = {
-  candidate: { border: "var(--gold)",  bg: "rgba(201,162,64,0.15)",  text: "var(--gold)"  },
-  admin:     { border: "#5b9bd5",      bg: "rgba(91,155,213,0.15)",  text: "#5b9bd5"      },
+const PARTY_COLORS: Record<NonNullable<SigZone["party"]>, { border: string; faintBorder: string; activeBorder: string; bg: string; text: string }> = {
+  candidate: { border: "var(--gold)", faintBorder: "rgba(201,162,64,0.35)", activeBorder: "rgba(201,162,64,0.6)", bg: "rgba(201,162,64,0.07)", text: "var(--gold)" },
+  admin:     { border: "#5b9bd5",     faintBorder: "rgba(91,155,213,0.35)", activeBorder: "rgba(91,155,213,0.6)", bg: "rgba(91,155,213,0.07)",  text: "#5b9bd5"    },
 };
 
 const PARTY_LABELS: Record<NonNullable<SigZone["party"]>, { en: string; fr: string; de: string }> = {
@@ -346,7 +346,7 @@ export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function Pdf
                 top:    `${z.y * 100}%`,
                 width:  `${z.w * 100}%`,
                 height: `${z.h * 100}%`,
-                border: cropZoneIdx === i ? `2px solid rgba(255,255,255,0.9)` : `2px solid ${colors.border}`,
+                border: cropZoneIdx === i ? `2px solid rgba(255,255,255,0.9)` : `1.5px solid ${isActive ? colors.activeBorder : colors.faintBorder}`,
                 background: colors.bg,
                 borderRadius: 5,
                 cursor: cropZoneIdx === i ? "default" : "move",
@@ -360,8 +360,8 @@ export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function Pdf
                 boxShadow: cropZoneIdx === i
                   ? "0 0 0 1px rgba(0,0,0,0.5), 0 6px 28px rgba(0,0,0,0.45)"
                   : isActive
-                    ? `0 0 0 1px ${colors.border}40, 0 4px 20px rgba(0,0,0,0.3)`
-                    : "0 2px 8px rgba(0,0,0,0.18)",
+                    ? `0 0 0 1px ${colors.faintBorder}, 0 2px 12px rgba(0,0,0,0.15)`
+                    : "none",
                 transition: "box-shadow 0.15s, border-color 0.15s",
               }}
               onMouseDown={e => {
