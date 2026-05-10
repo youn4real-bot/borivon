@@ -165,19 +165,21 @@ export async function POST(
 
   const signedBytes = await pdfDoc.save();
 
-  // Upload signed PDF
+  // Upload signed PDF to its own path
   const signedPath = r.pdf_storage_path.replace(/\.pdf$/, "-signed.pdf");
   const { error: upErr } = await db.storage
     .from(BUCKET)
-    .upload(signedPath, signedBytes, {
-      contentType: "application/pdf",
-      upsert: true,
-    });
+    .upload(signedPath, signedBytes, { contentType: "application/pdf", upsert: true });
 
   if (upErr) {
     console.error("[sign] upload error:", upErr);
     return NextResponse.json({ error: "Could not save signed document" }, { status: 500 });
   }
+
+  // Also overwrite the original path so pdf_storage_path always has the latest signed version
+  await db.storage
+    .from(BUCKET)
+    .upload(r.pdf_storage_path, signedBytes, { contentType: "application/pdf", upsert: true });
 
   // Update record — atomic conditional update guards the SELECT/UPDATE race.
   // If another concurrent sign request already flipped status, this returns
