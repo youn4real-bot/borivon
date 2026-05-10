@@ -1,282 +1,625 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { FilePen } from "@/components/PortalIcons";
-import { PdfViewer } from "@/components/PdfViewer";
+import { useRef, useState, useEffect, forwardRef, useImperativeHandle } from "react";
+import { PdfViewer, PageOverlayFn } from "@/components/PdfViewer";
+import { Spinner } from "@/components/ui/states";
 
-export type SigZone = {
-  page: number; // 1-indexed
-  x: number;    // normalized 0-1 from left
-  y: number;    // normalized 0-1 from top
-  w: number;    // normalized 0-1
-  h: number;    // normalized 0-1
+export type SigZone = { page: number; x: number; y: number; w: number; h: number; party?: "candidate" | "admin" };
+
+const PARTY_CYCLE: SigZone["party"][] = ["candidate", "admin"];
+
+const PARTY_COLORS: Record<NonNullable<SigZone["party"]>, { border: string; faintBorder: string; activeBorder: string; bg: string; text: string }> = {
+  candidate: { border: "var(--gold)", faintBorder: "rgba(201,162,64,0.35)", activeBorder: "rgba(201,162,64,0.6)", bg: "rgba(201,162,64,0.07)", text: "var(--gold)" },
+  admin:     { border: "#5b9bd5",     faintBorder: "rgba(91,155,213,0.35)", activeBorder: "rgba(91,155,213,0.6)", bg: "rgba(91,155,213,0.07)",  text: "#5b9bd5"    },
 };
 
-function defaultZone(page: number): SigZone {
-  return { page, x: 0.48, y: 0.74, w: 0.44, h: 0.13 };
-}
+const PARTY_LABELS: Record<NonNullable<SigZone["party"]>, { en: string; fr: string; de: string }> = {
+  candidate: { en: "Candidate", fr: "Candidat", de: "Kandidat" },
+  admin:     { en: "Admin",     fr: "Admin",     de: "Admin"    },
+};
 
 const T = {
-  en: { hint: "Drag to draw · Move the gold box · Resize via handles", signHere: "Sign here" },
-  fr: { hint: "Glissez pour dessiner · Déplacez la zone dorée · Redimensionnez via les poignées", signHere: "Signez ici" },
-  de: { hint: "Ziehen zum Zeichnen · Goldfeld verschieben · Über Griffe skalieren", signHere: "Hier unterschreiben" },
+  en: { drawHint: "Draw a box on the document to place a signature zone" },
+  fr: { drawHint: "Tracez un cadre sur le document pour placer une zone de signature" },
+  de: { drawHint: "Zeichnen Sie einen Bereich auf dem Dokument für eine Unterschriftenzone" },
 } as const;
-type Lang = keyof typeof T;
 
 type Props = {
-  pdfBase64: string;         // raw base64, no "data:" prefix
-  onChange: (z: SigZone) => void;
+  pdfBase64: string;
+  onChange: (zones: SigZone[]) => void;
   onError?: () => void;
-  lang?: Lang;
+  lang?: keyof typeof T;
+  /** Default party for newly drawn/added zones */
+  defaultParty?: SigZone["party"];
+  /** Live signature previews to show inside each party's zones */
+  partyPreviews?: Partial<Record<NonNullable<SigZone["party"]>, string>>;
+  /** Which parties are currently removing background (shows scanner animation) */
+  partyBgRemoving?: Partial<Record<NonNullable<SigZone["party"]>, boolean>>;
+  /** Called when user crops a party signature via double-click crop mode */
+  onPartyImageCrop?: (party: string, dataUri: string) => void;
 };
 
-export function PdfZonePicker({ pdfBase64, onChange, onError, lang = "en" }: Props) {
-  const t = T[lang] ?? T.en;
-  const [pdfUrl, setPdfUrl] = useState<string>("");
-  const [zone, setZone]     = useState<SigZone>(defaultZone(1));
-  const onChangeRef = useRef(onChange);
-  onChangeRef.current = onChange;
+export type PdfZonePickerHandle = { addZone: () => void };
 
-  // base64 → blob URL (PdfViewer expects a URL src). Revoke on unmount/swap.
+type CropInsets = { t: number; r: number; b: number; l: number };
+
+type DragState =
+  | { mode: "move"; idx: number; startClientX: number; startClientY: number; startCx: number; startCy: number; startZone: SigZone }
+  | { mode: "resize"; idx: number; handle: string; startClientX: number; startClientY: number; startZone: SigZone; pageW: number; pageH: number; page: number }
+  | { mode: "draw"; startClientX: number; startClientY: number; page: number }
+
+const HANDLES = [
+  { id: "nw", top: "0%",   left: "0%",   cursor: "nw-resize" },
+  { id: "ne", top: "0%",   left: "100%", cursor: "ne-resize" },
+  { id: "sw", top: "100%", left: "0%",   cursor: "sw-resize" },
+  { id: "se", top: "100%", left: "100%", cursor: "se-resize" },
+] as const;
+
+export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function PdfZonePicker({ pdfBase64, onChange, onError, lang = "en", defaultParty = "candidate", partyPreviews, partyBgRemoving, onPartyImageCrop }, ref) {
+  const [blobUrl, setBlobUrl]     = useState<string | null>(null);
+  const [zones, setZones]         = useState<SigZone[]>([]);
+  const [activeIdx, setActiveIdx] = useState<number | null>(null);
+  const [pageCount, setPageCount] = useState(1);
+  const [cropZoneIdx, setCropZoneIdx] = useState<number | null>(null);
+  const [cropInsets, setCropInsets]   = useState<CropInsets>({ t: 0, r: 0, b: 0, l: 0 });
+
+  const zonesRef    = useRef(zones);
+  const onChangeRef = useRef(onChange);
+  useEffect(() => { onChangeRef.current = onChange; });
+  useEffect(() => { zonesRef.current = zones; }, [zones]);
+
+  const pageElsRef    = useRef<Map<number, HTMLElement>>(new Map());
+  const dragRef       = useRef<DragState | null>(null);
+  const cropImgRef    = useRef<HTMLImageElement | null>(null);
+  const cropZoneElRef = useRef<HTMLElement | null>(null);
+  const cropInsetsRef = useRef<CropInsets>({ t: 0, r: 0, b: 0, l: 0 });
+
+  function updateCropInsets(ins: CropInsets) {
+    cropInsetsRef.current = ins;
+    setCropInsets(ins);
+  }
+
+  function applyCrop() {
+    const img = cropImgRef.current;
+    const el  = cropZoneElRef.current;
+    const zoneIdx = cropZoneIdx;
+    if (zoneIdx === null) { setCropZoneIdx(null); return; }
+    const z     = zonesRef.current[zoneIdx];
+    const party = z?.party ?? "candidate";
+    const ins   = { ...cropInsetsRef.current }; // read BEFORE reset
+    setCropZoneIdx(null);
+    updateCropInsets({ t: 0, r: 0, b: 0, l: 0 });
+    if (!img || !el || !onPartyImageCrop) return;
+    const renderedW = el.offsetWidth, renderedH = el.offsetHeight;
+    const imgW = img.naturalWidth, imgH = img.naturalHeight;
+    if (!imgW || !imgH) return;
+    const scale   = Math.min(renderedW / imgW, renderedH / imgH);
+    const scaledW = imgW * scale, scaledH = imgH * scale;
+    const offX    = (renderedW - scaledW) / 2, offY = (renderedH - scaledH) / 2;
+    const startX  = Math.max(offX,           ins.l * renderedW);
+    const startY  = Math.max(offY,           ins.t * renderedH);
+    const endX    = Math.min(offX + scaledW, (1 - ins.r) * renderedW);
+    const endY    = Math.min(offY + scaledH, (1 - ins.b) * renderedH);
+    if (endX <= startX || endY <= startY) return;
+    // Resize zone box to match the cropped content area
+    if (z) {
+      const lf = startX / renderedW, tf = startY / renderedH;
+      const wf = (endX - startX) / renderedW, hf = (endY - startY) / renderedH;
+      const next = [...zonesRef.current];
+      next[zoneIdx] = { ...z, x: z.x + lf * z.w, y: z.y + tf * z.h, w: Math.max(0.02, wf * z.w), h: Math.max(0.02, hf * z.h) };
+      emitZones(next);
+    }
+    const pixX = (startX - offX) / scale, pixY = (startY - offY) / scale;
+    const pixW = (endX - startX) / scale,  pixH = (endY - startY) / scale;
+    const canvas = document.createElement("canvas");
+    canvas.width  = Math.round(pixW);
+    canvas.height = Math.round(pixH);
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.drawImage(img, Math.round(pixX), Math.round(pixY), Math.round(pixW), Math.round(pixH), 0, 0, canvas.width, canvas.height);
+    onPartyImageCrop(party, canvas.toDataURL("image/png"));
+  }
+
+  function emitZones(z: SigZone[]) {
+    zonesRef.current = z;
+    setZones(z);
+    onChangeRef.current(z);
+  }
+
+>>>>>>> origin/claude/sweet-meitner-5aef65
   useEffect(() => {
     if (!pdfBase64) return;
     try {
       const bytes = Uint8Array.from(atob(pdfBase64), c => c.charCodeAt(0));
       const blob  = new Blob([bytes], { type: "application/pdf" });
       const url   = URL.createObjectURL(blob);
-      setPdfUrl(url);
+      setBlobUrl(url);
       return () => URL.revokeObjectURL(url);
-    } catch (e) {
-      console.error("[PdfZonePicker] base64 decode error", e);
+    } catch {
       onError?.();
     }
-  }, [pdfBase64, onError]);
+  }, [pdfBase64]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Push initial zone to parent
-  useEffect(() => {
-    onChangeRef.current(zone);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
-  function emit(z: SigZone) {
-    setZone(z);
-    onChangeRef.current(z);
-  }
-
-  return (
-    <div>
-      <div className="flex items-center justify-between px-3 py-2">
-        <span className="text-[11px]" style={{ color: "var(--w3)" }}>
-          {t.hint}
-        </span>
-      </div>
-
-      <div style={{
-        height: "62dvh",
-        borderTop: "1px solid var(--border)",
-        borderBottom: "1px solid var(--border)",
-      }}>
-        {pdfUrl && (
-          <PdfViewer
-            src={pdfUrl}
-            hideRotate
-            pageOverlay={({ pageNum }) => (
-              <ZoneLayer
-                pageNum={pageNum}
-                zone={zone.page === pageNum ? zone : null}
-                onZone={emit}
-                signHereLabel={t.signHere}
-              />
-            )}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ZoneLayer — full-page transparent overlay; renders gold zone box if
-// this page owns the active zone. Handles draw/drag/resize via window
-// listeners so the gesture survives mouse moves outside the page.
-// ─────────────────────────────────────────────────────────────────────────────
-
-type ResizeHandle = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
-
-type Gesture =
-  | { type: "draw"; sx: number; sy: number }
-  | { type: "drag"; sx: number; sy: number; ox: number; oy: number }
-  | { type: "resize"; sx: number; sy: number; ox: number; oy: number; ow: number; oh: number; handle: ResizeHandle };
-
-function ZoneLayer({
-  pageNum, zone, onZone, signHereLabel,
-}: {
-  pageNum: number;
-  zone: SigZone | null;
-  onZone: (z: SigZone) => void;
-  signHereLabel: string;
-}) {
-  const layerRef   = useRef<HTMLDivElement>(null);
-  const gestureRef = useRef<Gesture | null>(null);
-  const zoneRef    = useRef<SigZone | null>(zone);
-  zoneRef.current  = zone;
-
-  function relPos(clientX: number, clientY: number) {
-    const r = layerRef.current!.getBoundingClientRect();
-    return {
-      x: Math.max(0, Math.min(1, (clientX - r.left) / r.width)),
-      y: Math.max(0, Math.min(1, (clientY - r.top)  / r.height)),
-    };
-  }
-
-  function inZone(px: number, py: number, z: SigZone) {
-    return px >= z.x && px <= z.x + z.w && py >= z.y && py <= z.y + z.h;
+  function pageFromClient(clientX: number, clientY: number): { pageNum: number; rect: DOMRect } | null {
+    let best: { pageNum: number; rect: DOMRect; dist: number } | null = null;
+    for (const [pageNum, el] of pageElsRef.current) {
+      const rect = el.getBoundingClientRect();
+      if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) {
+        return { pageNum, rect };
+      }
+      const dy   = Math.max(rect.top - clientY, 0, clientY - rect.bottom);
+      const dx   = Math.max(rect.left - clientX, 0, clientX - rect.right);
+      const dist = Math.hypot(dx, dy);
+      if (!best || dist < best.dist) best = { pageNum, rect, dist };
+    }
+    return best ? { pageNum: best.pageNum, rect: best.rect } : null;
   }
 
   useEffect(() => {
+    const MIN_PX = 16;
+
     function onMove(e: MouseEvent) {
-      const g = gestureRef.current;
-      if (!g) return;
+      const drag = dragRef.current;
+      if (!drag) return;
       e.preventDefault();
-      const p = relPos(e.clientX, e.clientY);
+      const zs = zonesRef.current;
 
-      if (g.type === "drag") {
-        const z = zoneRef.current!;
-        onZone({
-          ...z,
+      if (drag.mode === "move") {
+        const { idx, startClientX, startClientY, startCx, startCy, startZone } = drag;
+        const dx  = e.clientX - startClientX;
+        const dy  = e.clientY - startClientY;
+        const hit = pageFromClient(startCx + dx, startCy + dy);
+        if (!hit) return;
+        const { pageNum, rect } = hit;
+        const next = [...zs];
+        next[idx] = {
+          ...startZone,
           page: pageNum,
-          x: Math.max(0, Math.min(1 - z.w, g.ox + p.x - g.sx)),
-          y: Math.max(0, Math.min(1 - z.h, g.oy + p.y - g.sy)),
-        });
-      } else if (g.type === "draw") {
-        const x = Math.min(g.sx, p.x);
-        const y = Math.min(g.sy, p.y);
-        const w = Math.abs(p.x - g.sx);
-        const h = Math.abs(p.y - g.sy);
-        if (w > 0.03 && h > 0.02) onZone({ page: pageNum, x, y, w, h });
-      } else if (g.type === "resize") {
-        const dx = p.x - g.sx;
-        const dy = p.y - g.sy;
-        const MIN = 0.04;
-        let nx = g.ox, ny = g.oy, nw = g.ow, nh = g.oh;
-        if (g.handle.includes("w")) { nx = Math.min(g.ox + g.ow - MIN, g.ox + dx); nw = g.ow - (nx - g.ox); }
-        if (g.handle.includes("e")) { nw = Math.max(MIN, g.ow + dx); }
-        if (g.handle.includes("n")) { ny = Math.min(g.oy + g.oh - MIN, g.oy + dy); nh = g.oh - (ny - g.oy); }
-        if (g.handle.includes("s")) { nh = Math.max(MIN, g.oh + dy); }
-        if (nx < 0) { nw += nx; nx = 0; }
-        if (ny < 0) { nh += ny; ny = 0; }
-        if (nx + nw > 1) nw = 1 - nx;
-        if (ny + nh > 1) nh = 1 - ny;
-        onZone({ page: pageNum, x: nx, y: ny, w: nw, h: nh });
+          x: Math.max(0, Math.min(1 - startZone.w, (startCx + dx - rect.left) / rect.width  - startZone.w / 2)),
+          y: Math.max(0, Math.min(1 - startZone.h, (startCy + dy - rect.top)  / rect.height - startZone.h / 2)),
+        };
+        emitZones(next);
+
+      } else if (drag.mode === "resize") {
+        const { idx, handle, startClientX, startClientY, startZone, pageW, pageH, page } = drag;
+        const dx = (e.clientX - startClientX) / pageW;
+        const dy = (e.clientY - startClientY) / pageH;
+        const { x: sx, y: sy, w: sw, h: sh } = startZone;
+        // Proportional (aspect-ratio-locked) scale from dragged corner
+        const sf_w = handle.includes("w") ? (sw - dx) / sw : (sw + dx) / sw;
+        const sf_h = handle.includes("n") ? (sh - dy) / sh : (sh + dy) / sh;
+        const scale = Math.max((sf_w + sf_h) / 2, Math.max(MIN_PX / pageW / sw, MIN_PX / pageH / sh));
+        const newW  = sw * scale;
+        const newH  = sh * scale;
+        const newX  = handle.includes("w") ? sx + sw - newW : sx;
+        const newY  = handle.includes("n") ? sy + sh - newH : sy;
+        const next = [...zs];
+        next[idx] = { ...startZone, page, x: Math.max(0, newX), y: Math.max(0, newY), w: Math.min(1 - Math.max(0, newX), newW), h: Math.min(1 - Math.max(0, newY), newH) };
+        emitZones(next);
+
+      } else if (drag.mode === "draw") {
+        const { startClientX, startClientY, page } = drag;
+        const el = pageElsRef.current.get(page);
+        if (!el) return;
+        const rect = el.getBoundingClientRect();
+        const x1 = (startClientX - rect.left) / rect.width;
+        const y1 = (startClientY - rect.top)  / rect.height;
+        const x2 = (e.clientX   - rect.left) / rect.width;
+        const y2 = (e.clientY   - rect.top)  / rect.height;
+        const x  = Math.min(x1, x2), y = Math.min(y1, y2);
+        const w  = Math.abs(x2 - x1), h = Math.abs(y2 - y1);
+        const drawIdx = zs.length - 1;
+        const next = [...zs];
+        next[drawIdx] = { ...next[drawIdx], x: Math.max(0, x), y: Math.max(0, y), w: Math.min(1 - Math.max(0, x), w), h: Math.min(1 - Math.max(0, y), h) };
+        emitZones(next);
       }
     }
-    function onUp() { gestureRef.current = null; }
-    window.addEventListener("mousemove", onMove);
+
+    function onUp() {
+      const drag = dragRef.current;
+      dragRef.current = null;
+      if (drag?.mode === "draw") {
+        const zs = zonesRef.current;
+        const drawIdx = zs.length - 1;
+        const z = zs[drawIdx];
+        if (z && (z.w < 0.02 || z.h < 0.01)) {
+          const trimmed = zs.filter((_, i) => i !== drawIdx);
+          emitZones(trimmed);
+          setActiveIdx(trimmed.length > 0 ? trimmed.length - 1 : null);
+        }
+      }
+    }
+
+    window.addEventListener("mousemove", onMove, { passive: false });
     window.addEventListener("mouseup",   onUp);
     return () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup",   onUp);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageNum]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function onLayerDown(e: React.MouseEvent) {
-    e.preventDefault();
-    const p = relPos(e.clientX, e.clientY);
-    const z = zoneRef.current;
-    if (z && inZone(p.x, p.y, z)) {
-      gestureRef.current = { type: "drag", sx: p.x, sy: p.y, ox: z.x, oy: z.y };
-    } else {
-      gestureRef.current = { type: "draw", sx: p.x, sy: p.y };
+  function getVisiblePage(): number {
+    let bestPage = pageCount;
+    let bestArea = 0;
+    for (const [pageNum, el] of pageElsRef.current) {
+      const r = el.getBoundingClientRect();
+      const visH = Math.max(0, Math.min(r.bottom, window.innerHeight) - Math.max(r.top, 0));
+      const visW = Math.max(0, Math.min(r.right,  window.innerWidth)  - Math.max(r.left, 0));
+      const area = visH * visW;
+      if (area > bestArea) { bestArea = area; bestPage = pageNum; }
     }
+    return bestPage;
   }
 
-  function startResize(e: React.MouseEvent, handle: ResizeHandle) {
-    e.preventDefault();
-    e.stopPropagation();
-    const z = zoneRef.current;
-    if (!z) return;
-    const p = relPos(e.clientX, e.clientY);
-    gestureRef.current = { type: "resize", sx: p.x, sy: p.y, ox: z.x, oy: z.y, ow: z.w, oh: z.h, handle };
+  function addZone() {
+    const zs = zonesRef.current;
+    const page = getVisiblePage();
+    const newZone: SigZone = { page, x: 0.08, y: 0.1, w: 0.44, h: 0.13, party: defaultParty };
+    const next = [...zs, newZone];
+    emitZones(next);
+    setActiveIdx(next.length - 1);
+  }
+
+  function removeZone(i: number) {
+    const zs = zonesRef.current;
+    const next = zs.filter((_, idx) => idx !== i);
+    emitZones(next);
+    setActiveIdx(next.length > 0 ? Math.min(i, next.length - 1) : null);
+  }
+
+  function toggleParty(i: number) {
+    const zs = zonesRef.current;
+    const next = [...zs];
+    const current = next[i].party ?? "candidate";
+    const idx = PARTY_CYCLE.indexOf(current);
+    next[i] = { ...next[i], party: PARTY_CYCLE[(idx + 1) % PARTY_CYCLE.length] };
+    emitZones(next);
+  }
+
+  useImperativeHandle(ref, () => ({ addZone }), []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pageOverlay: PageOverlayFn = ({ pageNum }) => {
+    const zs = zones;
+    return (
+      <div
+        ref={el => {
+          if (el) pageElsRef.current.set(pageNum, el);
+          else    pageElsRef.current.delete(pageNum);
+        }}
+        style={{ position: "absolute", inset: 0, cursor: "crosshair" }}
+        onMouseDown={e => {
+          if (e.button !== 0) return;
+          e.preventDefault();
+          const placeholder: SigZone = { page: pageNum, x: 0, y: 0, w: 0, h: 0, party: defaultParty };
+          const next = [...zonesRef.current, placeholder];
+          emitZones(next);
+          setActiveIdx(next.length - 1);
+          dragRef.current = { mode: "draw", startClientX: e.clientX, startClientY: e.clientY, page: pageNum };
+        }}
+      >
+        {zs.map((z, i) => {
+          if (z.page !== pageNum) return null;
+          const party    = z.party ?? "candidate";
+          const colors   = PARTY_COLORS[party];
+          const label    = PARTY_LABELS[party][lang === "fr" ? "fr" : lang === "de" ? "de" : "en"];
+          const isActive    = i === activeIdx;
+          const inCropMode  = cropZoneIdx === i;
+
+          // Scale UI chrome (handles, pill, ×) to the zone's rendered pixel size
+          const pageEl = pageElsRef.current.get(pageNum);
+          const pxW = pageEl ? z.w * pageEl.offsetWidth  : 200;
+          const pxH = pageEl ? z.h * pageEl.offsetHeight : 80;
+          const sc  = Math.max(0.28, Math.min(1, pxW / 160, pxH / 52));
+
+          function makeCropDragDown(hId: string) {
+            return (e: React.MouseEvent) => {
+              if (e.button !== 0) return;
+              e.preventDefault(); e.stopPropagation();
+              const el = pageElsRef.current.get(pageNum); if (!el) return;
+              const rect = el.getBoundingClientRect();
+              const startX = e.clientX, startY = e.clientY;
+              const si = { ...cropInsetsRef.current };
+              const pw = rect.width * z.w, ph = rect.height * z.h;
+              function mv(ev: MouseEvent) {
+                ev.preventDefault();
+                const dx = (ev.clientX - startX) / pw;
+                const dy = (ev.clientY - startY) / ph;
+                const n = { ...si };
+                if (hId.includes("n")) n.t = Math.max(0, Math.min(0.85 - si.b, si.t + dy));
+                if (hId.includes("s")) n.b = Math.max(0, Math.min(0.85 - si.t, si.b - dy));
+                if (hId.includes("w")) n.l = Math.max(0, Math.min(0.85 - si.r, si.l + dx));
+                if (hId.includes("e")) n.r = Math.max(0, Math.min(0.85 - si.l, si.r - dx));
+                updateCropInsets(n);
+              }
+              function up() { document.removeEventListener("mousemove", mv); document.removeEventListener("mouseup", up); }
+              document.addEventListener("mousemove", mv, { passive: false });
+              document.addEventListener("mouseup", up);
+            };
+          }
+
+          return (
+            <div
+              key={i}
+              ref={cropZoneIdx === i ? (el => { cropZoneElRef.current = el; }) : undefined}
+              style={{
+                position: "absolute",
+                left:   `${z.x * 100}%`,
+                top:    `${z.y * 100}%`,
+                width:  `${z.w * 100}%`,
+                height: `${z.h * 100}%`,
+                border: cropZoneIdx === i ? `2px solid rgba(255,255,255,0.9)` : `1.5px solid ${isActive ? colors.activeBorder : colors.faintBorder}`,
+                background: colors.bg,
+                borderRadius: 5,
+                cursor: cropZoneIdx === i ? "default" : "move",
+                boxSizing: "border-box",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 2,
+                zIndex: isActive ? 2 : 1,
+                boxShadow: cropZoneIdx === i
+                  ? "0 0 0 1px rgba(0,0,0,0.5), 0 6px 28px rgba(0,0,0,0.45)"
+                  : isActive
+                    ? `0 0 0 1px ${colors.faintBorder}, 0 2px 12px rgba(0,0,0,0.15)`
+                    : "none",
+                transition: "box-shadow 0.15s, border-color 0.15s",
+              }}
+              onMouseDown={e => {
+                if (e.button !== 0) return;
+                e.preventDefault();
+                e.stopPropagation();
+                if (cropZoneIdx === i) return; // no move in crop mode
+                setActiveIdx(i);
+                const el = pageElsRef.current.get(pageNum);
+                if (!el) return;
+                const rect = el.getBoundingClientRect();
+                dragRef.current = {
+                  mode: "move",
+                  idx: i,
+                  startClientX: e.clientX,
+                  startClientY: e.clientY,
+                  startCx: rect.left + (z.x + z.w / 2) * rect.width,
+                  startCy: rect.top  + (z.y + z.h / 2) * rect.height,
+                  startZone: { ...z },
+                };
+              }}
+              onClick={e => e.stopPropagation()}
+              onDoubleClick={e => {
+                if (!partyPreviews?.[party] || partyBgRemoving?.[party]) return;
+                e.stopPropagation();
+                if (cropZoneIdx === i) {
+                  applyCrop();
+                } else {
+                  setCropZoneIdx(i);
+                  updateCropInsets({ t: 0, r: 0, b: 0, l: 0 });
+                  setActiveIdx(i);
+                }
+              }}
+            >
+              {/* Centre — overflow wrapper so text never escapes the box */}
+              <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, overflow: "hidden" }}>
+              {/* Centre — show sig preview if available, else label */}
+              {partyPreviews?.[party] ? (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    ref={cropZoneIdx === i ? (el => {
+                      cropImgRef.current = el;
+                      // also grab the zone element from parent div
+                    }) : undefined}
+                    src={partyPreviews[party]}
+                    alt="signature preview"
+                    style={{
+                      width: "100%", height: "100%",
+                      objectFit: "contain",
+                      pointerEvents: "none", userSelect: "none",
+                      filter: partyBgRemoving?.[party] ? "brightness(1.08) contrast(0.9)" : undefined,
+                      clipPath: cropZoneIdx === i
+                        ? `inset(${cropInsets.t*100}% ${cropInsets.r*100}% ${cropInsets.b*100}% ${cropInsets.l*100}%)`
+                        : undefined,
+                      transition: cropZoneIdx === i ? "none" : "clip-path 0.05s",
+                    }}
+                  />
+                  {partyBgRemoving?.[party] && (
+                    <div style={{
+                      position: "absolute", inset: 0,
+                      overflow: "hidden",
+                      borderRadius: 3,
+                      pointerEvents: "none",
+                    }}>
+                      {/* Scanner beam */}
+                      <div style={{
+                        position: "absolute",
+                        left: 0, right: 0,
+                        height: "35%",
+                        background: "linear-gradient(to bottom, transparent 0%, rgba(120,200,255,0.55) 45%, rgba(80,180,255,0.75) 50%, rgba(120,200,255,0.55) 55%, transparent 100%)",
+                        animation: "bvScan 1.1s ease-in-out infinite alternate",
+                        boxShadow: "0 0 12px 4px rgba(80,180,255,0.4)",
+                      }} />
+                      {/* Sparkle dots */}
+                      <div style={{
+                        position: "absolute", inset: 0,
+                        background: "radial-gradient(circle at 30% 60%, rgba(255,255,255,0.18) 0%, transparent 60%), radial-gradient(circle at 70% 30%, rgba(255,255,255,0.14) 0%, transparent 50%)",
+                        animation: "bvSparkle 0.8s ease-in-out infinite alternate",
+                      }} />
+                      <style>{`
+                        @keyframes bvScan {
+                          0%   { top: -35%; }
+                          100% { top: 100%; }
+                        }
+                        @keyframes bvSparkle {
+                          0%   { opacity: 0.4; }
+                          100% { opacity: 1; }
+                        }
+                      `}</style>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <span style={{
+                    fontSize: 11, color: colors.text, fontWeight: 800,
+                    textShadow: "0 1px 4px rgba(0,0,0,0.7)",
+                    pointerEvents: "none", userSelect: "none", letterSpacing: "0.03em",
+                    whiteSpace: "nowrap",
+                  }}>
+                    ✍ {label}
+                  </span>
+                  {(z.w >= 0.15 && z.h >= 0.07) && (
+                    <span style={{
+                      fontSize: 8, color: colors.text, opacity: 0.7,
+                      pointerEvents: "none", userSelect: "none", whiteSpace: "nowrap",
+                    }}>
+                      {lang === "fr" ? "cliquer pour changer" : lang === "de" ? "klicken zum Ändern" : "click pill to change"}
+                    </span>
+                  )}
+                </>
+              )}
+              </div>{/* end overflow wrapper */}
+
+              {/* Party pill + × — joined at top-left, scaled to zone size */}
+              <div style={{ position: "absolute", top: -1, left: -1, display: "flex", alignItems: "stretch", zIndex: 5, boxShadow: "0 1px 6px rgba(0,0,0,0.35)", borderRadius: "4px 4px 5px 0" }}>
+                <button
+                  style={{
+                    fontSize: Math.max(6, Math.round(8 * sc)), fontWeight: 800,
+                    padding: `${Math.max(1, Math.round(2 * sc))}px ${Math.max(4, Math.round(7 * sc))}px`,
+                    borderRadius: "4px 0 0 0",
+                    background: colors.border,
+                    color: party === "candidate" ? "#131312" : "#fff",
+                    border: "none", cursor: "pointer", lineHeight: 1.7,
+                    letterSpacing: "0.07em", textTransform: "uppercase",
+                  }}
+                  onMouseDown={e => e.stopPropagation()}
+                  onClick={e => { e.stopPropagation(); toggleParty(i); }}
+                  title={lang === "fr" ? "Changer de partie" : lang === "de" ? "Partei wechseln" : "Click to change party"}
+                >
+                  {label}
+                </button>
+                <button
+                  style={{
+                    padding: `${Math.max(1, Math.round(2 * sc))}px ${Math.max(3, Math.round(5 * sc))}px`,
+                    borderRadius: "0 4px 4px 0",
+                    background: "rgba(15,15,15,0.75)",
+                    backdropFilter: "blur(4px)",
+                    color: "rgba(255,255,255,0.85)", border: "none", cursor: "pointer",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    fontSize: Math.max(7, Math.round(9 * sc)), fontWeight: 700, lineHeight: 1,
+                  }}
+                  onMouseDown={e => e.stopPropagation()}
+                  onClick={e => { e.stopPropagation(); removeZone(i); }}
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Crop-mode UI: moving frame + dim + drag targets */}
+              {inCropMode && (() => {
+                const t = cropInsets.t, b = cropInsets.b, l = cropInsets.l, r = cropInsets.r;
+                const tp = `${t*100}%`, bp = `${b*100}%`, lp = `${l*100}%`, rp = `${r*100}%`;
+                const t1 = `${(1-b)*100}%`, l1 = `${(1-r)*100}%`;
+                return (
+                  <>
+                    {/* Dark overlay outside crop frame */}
+                    <div style={{ position:"absolute", top:0, left:0, right:0, height:tp, background:"rgba(0,0,0,0.42)", pointerEvents:"none", zIndex:2 }} />
+                    <div style={{ position:"absolute", bottom:0, left:0, right:0, height:bp, background:"rgba(0,0,0,0.42)", pointerEvents:"none", zIndex:2 }} />
+                    <div style={{ position:"absolute", top:tp, bottom:bp, left:0, width:lp, background:"rgba(0,0,0,0.42)", pointerEvents:"none", zIndex:2 }} />
+                    <div style={{ position:"absolute", top:tp, bottom:bp, right:0, width:rp, background:"rgba(0,0,0,0.42)", pointerEvents:"none", zIndex:2 }} />
+                    {/* Moving crop frame lines */}
+                    <div style={{ position:"absolute", top:tp, left:lp, right:rp, height:2, background:"#fff", boxShadow:"0 0 6px rgba(0,0,0,0.5)", pointerEvents:"none", zIndex:3 }} />
+                    <div style={{ position:"absolute", bottom:bp, left:lp, right:rp, height:2, background:"#fff", boxShadow:"0 0 6px rgba(0,0,0,0.5)", pointerEvents:"none", zIndex:3 }} />
+                    <div style={{ position:"absolute", top:tp, bottom:bp, left:lp, width:2, background:"#fff", boxShadow:"0 0 6px rgba(0,0,0,0.5)", pointerEvents:"none", zIndex:3 }} />
+                    <div style={{ position:"absolute", top:tp, bottom:bp, right:rp, width:2, background:"#fff", boxShadow:"0 0 6px rgba(0,0,0,0.5)", pointerEvents:"none", zIndex:3 }} />
+                    {/* Corner handles at crop frame corners */}
+                    {([["nw",tp,lp],["ne",tp,l1],["sw",t1,lp],["se",t1,l1]] as [string,string,string][]).map(([id,cy,cx]) => (
+                      <div key={`cv-${id}`} style={{ position:"absolute", top:cy, left:cx, transform:"translate(-50%,-50%)", width:16, height:16, background:"#fff", border:"2.5px solid rgba(0,0,0,0.45)", borderRadius:"50%", boxShadow:"0 2px 8px rgba(0,0,0,0.5)", pointerEvents:"none", zIndex:4 }} />
+                    ))}
+                    {/* Transparent drag strips — positioned at the moving crop frame */}
+                    <div style={{ position:"absolute", top:tp, left:lp, right:rp, height:24, transform:"translateY(-50%)", cursor:"n-resize", zIndex:5 }} onMouseDown={makeCropDragDown("n")} />
+                    <div style={{ position:"absolute", bottom:bp, left:lp, right:rp, height:24, transform:"translateY(50%)", cursor:"s-resize", zIndex:5 }} onMouseDown={makeCropDragDown("s")} />
+                    <div style={{ position:"absolute", top:tp, bottom:bp, left:lp, width:24, transform:"translateX(-50%)", cursor:"w-resize", zIndex:5 }} onMouseDown={makeCropDragDown("w")} />
+                    <div style={{ position:"absolute", top:tp, bottom:bp, right:rp, width:24, transform:"translateX(50%)", cursor:"e-resize", zIndex:5 }} onMouseDown={makeCropDragDown("e")} />
+                    <div style={{ position:"absolute", top:tp, left:lp, transform:"translate(-50%,-50%)", width:28, height:28, cursor:"nw-resize", zIndex:6 }} onMouseDown={makeCropDragDown("nw")} />
+                    <div style={{ position:"absolute", top:tp, left:l1, transform:"translate(-50%,-50%)", width:28, height:28, cursor:"ne-resize", zIndex:6 }} onMouseDown={makeCropDragDown("ne")} />
+                    <div style={{ position:"absolute", top:t1, left:lp, transform:"translate(-50%,-50%)", width:28, height:28, cursor:"sw-resize", zIndex:6 }} onMouseDown={makeCropDragDown("sw")} />
+                    <div style={{ position:"absolute", top:t1, left:l1, transform:"translate(-50%,-50%)", width:28, height:28, cursor:"se-resize", zIndex:6 }} onMouseDown={makeCropDragDown("se")} />
+                  </>
+                );
+              })()}
+
+              {/* Resize handles — only on active zone, not in crop mode */}
+              {isActive && !inCropMode && HANDLES.map(h => (
+                <div
+                  key={h.id}
+                  style={{
+                    position: "absolute",
+                    top: h.top, left: h.left,
+                    transform: "translate(-50%, -50%)",
+                    width: Math.max(7, Math.round(16 * sc)), height: Math.max(7, Math.round(16 * sc)),
+                    background: "#fff",
+                    border: `${Math.max(1.5, 3 * sc)}px solid ${colors.border}`,
+                    borderRadius: "50%",
+                    cursor: h.cursor,
+                    zIndex: 4,
+                    boxShadow: `0 2px 8px rgba(0,0,0,0.5), 0 0 0 ${Math.max(0.8, 1.5 * sc)}px ${colors.border}`,
+                  }}
+                  onMouseDown={e => {
+                    if (e.button !== 0) return;
+                    e.preventDefault(); e.stopPropagation();
+                    const el = pageElsRef.current.get(pageNum); if (!el) return;
+                    const rect = el.getBoundingClientRect();
+                    dragRef.current = { mode:"resize", idx:i, handle:h.id, startClientX:e.clientX, startClientY:e.clientY, startZone:{...z}, pageW:rect.width, pageH:rect.height, page:pageNum };
+                  }}
+                />
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  if (!blobUrl) {
+    return (
+      <div style={{
+        height: "62dvh", borderRadius: 12, overflow: "hidden",
+        border: "1px solid var(--border)", background: "#525659",
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}>
+        <Spinner size="md" />
+      </div>
+    );
   }
 
   return (
     <div
-      ref={layerRef}
-      onMouseDown={onLayerDown}
-      style={{
-        position: "absolute", inset: 0,
-        cursor: zone ? "crosshair" : "crosshair",
-        userSelect: "none",
-      }}
+      style={{ position: "relative", height: "62dvh", borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)" }}
+      onClick={() => { if (cropZoneIdx !== null) applyCrop(); }}
     >
-      {zone && (
-        <div
-          onMouseDown={e => {
-            e.preventDefault();
-            e.stopPropagation();
-            const p = relPos(e.clientX, e.clientY);
-            gestureRef.current = { type: "drag", sx: p.x, sy: p.y, ox: zone.x, oy: zone.y };
-          }}
-          style={{
-            position: "absolute",
-            left:       `${zone.x * 100}%`,
-            top:        `${zone.y * 100}%`,
-            width:      `${zone.w * 100}%`,
-            height:     `${zone.h * 100}%`,
-            border:     "2px solid var(--gold)",
-            background: "var(--gdim)",
-            borderRadius: 6,
-            boxShadow:  "0 4px 14px rgba(201,162,64,0.18)",
-            display:    "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            cursor:     "move",
-          }}
-        >
-          <span className="inline-flex items-center gap-1.5 tracking-tight pointer-events-none"
-            style={{
-              fontSize: 11, color: "var(--gold)", fontWeight: 700,
-              textShadow: "0 1px 3px rgba(0,0,0,0.55)",
-              letterSpacing: "0.01em",
-            }}>
-            <FilePen size={12} strokeWidth={2} style={{ color: "var(--gold)" }} />
-            {signHereLabel}
-          </span>
-
-          {(["nw","n","ne","e","se","s","sw","w"] as const).map(h => {
-            const pos: React.CSSProperties = { position: "absolute", pointerEvents: "auto" };
-            const sz = 10;
-            const half = sz / 2;
-            if (h.includes("n")) pos.top    = -half;
-            if (h.includes("s")) pos.bottom = -half;
-            if (h.includes("w")) pos.left   = -half;
-            if (h.includes("e")) pos.right  = -half;
-            if (h === "n" || h === "s") pos.left = `calc(50% - ${half}px)`;
-            if (h === "e" || h === "w") pos.top  = `calc(50% - ${half}px)`;
-            const cursorMap: Record<typeof h, string> = {
-              nw: "nwse-resize", se: "nwse-resize",
-              ne: "nesw-resize", sw: "nesw-resize",
-              n: "ns-resize",   s: "ns-resize",
-              e: "ew-resize",   w: "ew-resize",
-            };
-            return (
-              <div key={h}
-                onMouseDown={e => startResize(e, h)}
-                style={{
-                  ...pos,
-                  width: sz, height: sz,
-                  background: "var(--gold)",
-                  border: "1.5px solid #fff",
-                  borderRadius: 3,
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.35)",
-                  cursor: cursorMap[h],
-                }} />
-            );
-          })}
+      {zones.length === 0 && (
+        <div style={{
+          position: "absolute", inset: 0, zIndex: 10,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          pointerEvents: "none",
+        }}>
+          <div style={{
+            background: "rgba(0,0,0,0.55)", backdropFilter: "blur(2px)",
+            borderRadius: 10, padding: "10px 18px",
+            color: "#fff", fontSize: 12, fontWeight: 500, textAlign: "center",
+            maxWidth: 260, lineHeight: 1.5,
+            border: "1px solid rgba(255,255,255,0.12)",
+          }}>
+            ✏️ {T[lang].drawHint}
+          </div>
         </div>
       )}
-
+      <PdfViewer
+        src={blobUrl}
+        hideRotate
+        pageOverlay={pageOverlay}
+        onPagesLoaded={count => { setPageCount(count); }}
+      />
     </div>
   );
-}
+});

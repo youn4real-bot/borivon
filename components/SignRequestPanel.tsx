@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { FilePen, Send, CheckCircle2, Clock, XCircle, Download, Plus, X as XIcon, FileUp } from "lucide-react";
+import { FilePen, Send, CheckCircle2, Clock, XCircle, Download, Plus, X as XIcon, FileUp, ThumbsUp, ThumbsDown } from "lucide-react";
 import { Spinner } from "@/components/ui/states";
 import { PdfZonePicker, type SigZone } from "@/components/PdfZonePicker";
 
@@ -19,86 +19,112 @@ type SignRequest = {
   status: "pending" | "signed" | "declined";
   embed_src: string | null;
   signed_at: string | null;
-  signed_pdf_url: string | null;
+  signedPdfUrl: string | null;
   viewed_at: string | null;
   created_at: string;
+  review_status: "accepted" | "rejected" | null;
+  review_feedback: string | null;
 };
 
 const T = {
   en: {
-    title:        "Signature Requests",
-    send:         "Request Signature",
-    docName:      "Document name",
-    docNamePh:    "e.g. Recognition application form",
-    note:         "Note for candidate (optional)",
-    notePh:       "e.g. Please sign and return before Friday",
-    uploadPdf:    "Upload PDF to sign",
-    uploadChange: "Change PDF",
-    submit:       "Send for signature",
-    submitting:   "Sending…",
-    cancel:       "Cancel",
-    noRequests:   "No signature requests yet",
-    statusPending: "Awaiting signature",
-    statusSigned:  "Signed",
-    statusDeclined:"Declined",
-    download:     "Download signed copy",
-    noPdfKey:     "No DOCUSEAL_API_KEY — configure it in Vercel env vars",
-    errDocName:   "Document name required",
-    errPdfRequired:"Please upload a PDF",
-    errFallback:  "Error",
-    dragDrop:     "drag & drop or click",
-    seen:         "Seen",
-    notOpened:    "Not opened yet",
+    title:           "Signature Requests",
+    send:            "Request Signature",
+    docName:         "Document name",
+    docNamePh:       "e.g. Recognition application form",
+    note:            "Note for candidate (optional)",
+    notePh:          "e.g. Please sign and return before Friday",
+    uploadPdf:       "Upload PDF to sign",
+    uploadChange:    "Change PDF",
+    submit:          "Send for signature",
+    submitting:      "Sending…",
+    cancel:          "Cancel",
+    noRequests:      "No signature requests yet",
+    statusPending:   "Awaiting signature",
+    statusSigned:    "Signed",
+    statusDeclined:  "Declined",
+    download:        "Download signed copy",
+    noPdfKey:        "No DOCUSEAL_API_KEY — configure it in Vercel env vars",
+    errDocName:      "Document name required",
+    errPdfRequired:  "Please upload a PDF",
+    errFallback:     "Error",
+    dragDrop:        "drag & drop or click",
+    seen:            "Seen",
+    notOpened:       "Not opened yet",
+    accept:          "Accept",
+    reject:          "Reject",
+    rejectFeedback:  "Reason for rejection (required)",
+    rejectFeedbackPh:"e.g. Signature not legible, please redo",
+    confirmReject:   "Confirm rejection",
+    accepted:        "Accepted",
+    rejected:        "Rejected",
+    reviewPending:   "Awaiting review",
   },
   fr: {
-    title:        "Demandes de signature",
-    send:         "Demander une signature",
-    docName:      "Nom du document",
-    docNamePh:    "ex. Formulaire de demande de reconnaissance",
-    note:         "Note pour le candidat (optionnel)",
-    notePh:       "ex. Veuillez signer et renvoyer avant vendredi",
-    uploadPdf:    "Téléverser le PDF à signer",
-    uploadChange: "Changer le PDF",
-    submit:       "Envoyer pour signature",
-    submitting:   "Envoi…",
-    cancel:       "Annuler",
-    noRequests:   "Aucune demande de signature",
-    statusPending: "En attente de signature",
-    statusSigned:  "Signé",
-    statusDeclined:"Refusé",
-    download:     "Télécharger la copie signée",
-    noPdfKey:     "Pas de DOCUSEAL_API_KEY — configurez-le dans les variables Vercel",
-    errDocName:   "Nom du document requis",
-    errPdfRequired:"Veuillez téléverser un PDF",
-    errFallback:  "Erreur",
-    dragDrop:     "glisser-déposer ou cliquer",
-    seen:         "Vu",
-    notOpened:    "Pas encore ouvert",
+    title:           "Demandes de signature",
+    send:            "Demander une signature",
+    docName:         "Nom du document",
+    docNamePh:       "ex. Formulaire de demande de reconnaissance",
+    note:            "Note pour le candidat (optionnel)",
+    notePh:          "ex. Veuillez signer et renvoyer avant vendredi",
+    uploadPdf:       "Téléverser le PDF à signer",
+    uploadChange:    "Changer le PDF",
+    submit:          "Envoyer pour signature",
+    submitting:      "Envoi…",
+    cancel:          "Annuler",
+    noRequests:      "Aucune demande de signature",
+    statusPending:   "En attente de signature",
+    statusSigned:    "Signé",
+    statusDeclined:  "Refusé",
+    download:        "Télécharger la copie signée",
+    noPdfKey:        "Pas de DOCUSEAL_API_KEY — configurez-le dans les variables Vercel",
+    errDocName:      "Nom du document requis",
+    errPdfRequired:  "Veuillez téléverser un PDF",
+    errFallback:     "Erreur",
+    dragDrop:        "glisser-déposer ou cliquer",
+    seen:            "Vu",
+    notOpened:       "Pas encore ouvert",
+    accept:          "Accepter",
+    reject:          "Refuser",
+    rejectFeedback:  "Motif du refus (requis)",
+    rejectFeedbackPh:"ex. Signature illisible, veuillez recommencer",
+    confirmReject:   "Confirmer le refus",
+    accepted:        "Accepté",
+    rejected:        "Refusé",
+    reviewPending:   "En attente de révision",
   },
   de: {
-    title:        "Signaturanfragen",
-    send:         "Signatur anfordern",
-    docName:      "Dokumentname",
-    docNamePh:    "z.B. Anerkennungsantrag",
-    note:         "Hinweis für Kandidaten (optional)",
-    notePh:       "z.B. Bitte bis Freitag unterschreiben",
-    uploadPdf:    "PDF zum Unterschreiben hochladen",
-    uploadChange: "PDF ändern",
-    submit:       "Zur Signatur senden",
-    submitting:   "Senden…",
-    cancel:       "Abbrechen",
-    noRequests:   "Noch keine Signaturanfragen",
-    statusPending: "Warte auf Unterschrift",
-    statusSigned:  "Unterschrieben",
-    statusDeclined:"Abgelehnt",
-    download:     "Unterschriebene Kopie herunterladen",
-    noPdfKey:     "Kein DOCUSEAL_API_KEY — in Vercel-Umgebungsvariablen konfigurieren",
-    errDocName:   "Dokumentname erforderlich",
-    errPdfRequired:"Bitte ein PDF hochladen",
-    errFallback:  "Fehler",
-    dragDrop:     "ziehen & ablegen oder klicken",
-    seen:         "Gesehen",
-    notOpened:    "Noch nicht geöffnet",
+    title:           "Signaturanfragen",
+    send:            "Signatur anfordern",
+    docName:         "Dokumentname",
+    docNamePh:       "z.B. Anerkennungsantrag",
+    note:            "Hinweis für Kandidaten (optional)",
+    notePh:          "z.B. Bitte bis Freitag unterschreiben",
+    uploadPdf:       "PDF zum Unterschreiben hochladen",
+    uploadChange:    "PDF ändern",
+    submit:          "Zur Signatur senden",
+    submitting:      "Senden…",
+    cancel:          "Abbrechen",
+    noRequests:      "Noch keine Signaturanfragen",
+    statusPending:   "Warte auf Unterschrift",
+    statusSigned:    "Unterschrieben",
+    statusDeclined:  "Abgelehnt",
+    download:        "Unterschriebene Kopie herunterladen",
+    noPdfKey:        "Kein DOCUSEAL_API_KEY — in Vercel-Umgebungsvariablen konfigurieren",
+    errDocName:      "Dokumentname erforderlich",
+    errPdfRequired:  "Bitte ein PDF hochladen",
+    errFallback:     "Fehler",
+    dragDrop:        "ziehen & ablegen oder klicken",
+    seen:            "Gesehen",
+    notOpened:       "Noch nicht geöffnet",
+    accept:          "Akzeptieren",
+    reject:          "Ablehnen",
+    rejectFeedback:  "Ablehnungsgrund (erforderlich)",
+    rejectFeedbackPh:"z.B. Unterschrift unleserlich, bitte erneut",
+    confirmReject:   "Ablehnung bestätigen",
+    accepted:        "Akzeptiert",
+    rejected:        "Abgelehnt",
+    reviewPending:   "Wartet auf Prüfung",
   },
 } as const;
 type Lang = keyof typeof T;
@@ -120,9 +146,15 @@ export function SignRequestPanel({ candidateId, authToken, lang }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr]           = useState("");
   const [dragOver, setDragOver] = useState(false);
-  const [sigZone, setSigZone]   = useState<SigZone | null>(null);
+  const [sigZones, setSigZones] = useState<SigZone[]>([]);
   const [pdfBase64, setPdfBase64] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Review state — accept/reject on signed items
+  const [reviewingId, setReviewingId]       = useState<string | null>(null);
+  const [reviewFeedback, setReviewFeedback] = useState("");
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const [reviewErr, setReviewErr]           = useState("");
 
   const load = async (signal?: AbortSignal) => {
     try {
@@ -167,18 +199,47 @@ export function SignRequestPanel({ candidateId, authToken, lang }: Props) {
           documentName: docName.trim(),
           pdfBase64: base64,
           note: note.trim() || undefined,
-          signatureZone: sigZone ?? undefined,
+          signatureZones: sigZones.length ? sigZones : undefined,
         }),
       });
       const j = await res.json() as { error?: string };
       if (!res.ok) { setErr(j.error ?? t.errFallback); return; }
       setShowForm(false);
-      setDocName(""); setNote(""); setPdfFile(null); setPdfBase64(null); setSigZone(null);
+      setDocName(""); setNote(""); setPdfFile(null); setPdfBase64(null); setSigZones([]);
       await load();
     } catch (e) {
       setErr(String(e));
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleReview(id: string, action: "accept" | "reject") {
+    if (action === "reject" && !reviewFeedback.trim()) {
+      setReviewErr(t.rejectFeedback);
+      return;
+    }
+    setSubmittingReview(true);
+    setReviewErr("");
+    try {
+      const res = await fetch(`/api/portal/admin/sign-request/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify({ action, feedback: reviewFeedback.trim() || undefined }),
+      });
+      const j = await res.json() as { error?: string };
+      if (!res.ok) { setReviewErr(j.error ?? t.errFallback); return; }
+      setReviewingId(null);
+      setReviewFeedback("");
+      setRequests(prev => prev.map(r => r.id === id ? {
+        ...r,
+        review_status:   action === "accept" ? "accepted" : "rejected",
+        review_feedback: action === "reject" ? reviewFeedback.trim() : null,
+      } : r));
+    } catch (e) {
+      setReviewErr(String(e));
+    } finally {
+      setSubmittingReview(false);
     }
   }
 
@@ -302,7 +363,7 @@ export function SignRequestPanel({ candidateId, authToken, lang }: Props) {
           {pdfBase64 && (
             <PdfZonePicker
               pdfBase64={pdfBase64}
-              onChange={z => setSigZone(z)}
+              onChange={zones => setSigZones(zones)}
               lang={lang}
             />
           )}
@@ -320,7 +381,7 @@ export function SignRequestPanel({ candidateId, authToken, lang }: Props) {
               {submitting ? t.submitting : t.submit}
             </button>
             <button
-              onClick={() => { setShowForm(false); setErr(""); setDocName(""); setNote(""); setPdfFile(null); setPdfBase64(null); setSigZone(null); }}
+              onClick={() => { setShowForm(false); setErr(""); setDocName(""); setNote(""); setPdfFile(null); setPdfBase64(null); setSigZones([]); }}
               className="px-4 py-2.5 rounded-xl text-[13px] font-medium transition-opacity hover:opacity-70"
               style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}
             >
@@ -338,44 +399,135 @@ export function SignRequestPanel({ candidateId, authToken, lang }: Props) {
           <p className="text-center text-[12.5px] py-6" style={{ color: "var(--w3)" }}>{t.noRequests}</p>
         ) : (
           <div className="divide-y" style={{ borderColor: "var(--border)" }}>
-            {requests.map(r => (
-              <div key={r.id} className="flex items-center gap-3 px-4 py-3">
-                {/* Status icon */}
-                {r.status === "signed"
-                  ? <CheckCircle2 size={15} strokeWidth={2} style={{ color: "var(--success)", flexShrink: 0 }} />
-                  : r.status === "declined"
-                  ? <XCircle size={15} strokeWidth={2} style={{ color: "var(--w3)", flexShrink: 0 }} />
-                  : <Clock size={15} strokeWidth={1.8} style={{ color: "var(--gold)", flexShrink: 0 }} />
-                }
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-medium truncate" style={{ color: "var(--w)" }}>{r.document_name}</p>
-                  <p className="text-[11px] mt-0.5 flex items-center gap-1.5" style={{
-                    color: r.status === "signed" ? "var(--success)" : r.status === "declined" ? "var(--w3)" : "var(--gold)",
-                  }}>
-                    {r.status === "signed" ? t.statusSigned : r.status === "declined" ? t.statusDeclined : t.statusPending}
-                    {r.signed_at && ` · ${new Date(r.signed_at).toLocaleDateString()}`}
-                    {r.status === "pending" && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full"
-                        style={{
-                          background: r.viewed_at ? "var(--success-bg)" : "rgba(255,255,255,0.06)",
-                          color: r.viewed_at ? "var(--success)" : "var(--w3)",
-                          border: `1px solid ${r.viewed_at ? "var(--success-border)" : "var(--border)"}`,
-                        }}>
-                        {r.viewed_at ? `${t.seen} ${new Date(r.viewed_at).toLocaleDateString()}` : t.notOpened}
-                      </span>
+            {requests.map(r => {
+              const isSigned   = r.status === "signed";
+              const isDeclined = r.status === "declined";
+              const reviewed   = isSigned && r.review_status != null;
+              const isRejecting = reviewingId === r.id;
+              return (
+                <div key={r.id} className="px-4 py-3 space-y-2">
+                  <div className="flex items-center gap-3">
+                    {/* Status icon */}
+                    {isSigned
+                      ? <CheckCircle2 size={15} strokeWidth={2} style={{ color: "var(--success)", flexShrink: 0 }} />
+                      : isDeclined
+                      ? <XCircle size={15} strokeWidth={2} style={{ color: "var(--w3)", flexShrink: 0 }} />
+                      : <Clock size={15} strokeWidth={1.8} style={{ color: "var(--gold)", flexShrink: 0 }} />
+                    }
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] font-medium truncate" style={{ color: "var(--w)" }}>{r.document_name}</p>
+                      <p className="text-[11px] mt-0.5 flex items-center gap-1.5 flex-wrap" style={{
+                        color: isSigned ? "var(--success)" : isDeclined ? "var(--w3)" : "var(--gold)",
+                      }}>
+                        {isSigned ? t.statusSigned : isDeclined ? t.statusDeclined : t.statusPending}
+                        {r.signed_at && ` · ${new Date(r.signed_at).toLocaleDateString()}`}
+                        {/* Review badge */}
+                        {isSigned && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full"
+                            style={{
+                              background: r.review_status === "accepted" ? "var(--success-bg)"
+                                : r.review_status === "rejected" ? "var(--danger-bg, rgba(224,48,48,0.12))"
+                                : "rgba(255,255,255,0.06)",
+                              color: r.review_status === "accepted" ? "var(--success)"
+                                : r.review_status === "rejected" ? "var(--danger, #e03030)"
+                                : "var(--gold)",
+                              border: `1px solid ${r.review_status === "accepted" ? "var(--success-border)"
+                                : r.review_status === "rejected" ? "var(--danger-border, rgba(224,48,48,0.3))"
+                                : "var(--border-gold)"}`,
+                            }}>
+                            {r.review_status === "accepted" ? t.accepted
+                              : r.review_status === "rejected" ? t.rejected
+                              : t.reviewPending}
+                          </span>
+                        )}
+                        {r.status === "pending" && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full"
+                            style={{
+                              background: r.viewed_at ? "var(--success-bg)" : "rgba(255,255,255,0.06)",
+                              color: r.viewed_at ? "var(--success)" : "var(--w3)",
+                              border: `1px solid ${r.viewed_at ? "var(--success-border)" : "var(--border)"}`,
+                            }}>
+                            {r.viewed_at ? `${t.seen} ${new Date(r.viewed_at).toLocaleDateString()}` : t.notOpened}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                    {r.signedPdfUrl && (
+                      <a href={r.signedPdfUrl} target="_blank" rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full transition-opacity hover:opacity-80"
+                        style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
+                        <Download size={10} strokeWidth={2} />
+                        {t.download}
+                      </a>
                     )}
-                  </p>
+                  </div>
+
+                  {/* Rejection feedback display */}
+                  {isSigned && r.review_status === "rejected" && r.review_feedback && (
+                    <p className="text-[11px] px-2.5 py-1.5 rounded-lg"
+                      style={{ background: "var(--danger-bg, rgba(224,48,48,0.12))", color: "var(--danger, #e03030)", border: "1px solid var(--danger-border, rgba(224,48,48,0.3))" }}>
+                      {r.review_feedback}
+                    </p>
+                  )}
+
+                  {/* Accept / Reject buttons — only for unreviewed signed items */}
+                  {isSigned && !reviewed && (
+                    <div className="space-y-2 pt-0.5">
+                      {!isRejecting ? (
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => handleReview(r.id, "accept")}
+                            disabled={submittingReview}
+                            className="flex-1 inline-flex items-center justify-center gap-1 text-[11.5px] font-semibold px-3 py-1.5 rounded-full transition-opacity hover:opacity-80 disabled:opacity-50"
+                            style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
+                            <ThumbsUp size={11} strokeWidth={2} />
+                            {t.accept}
+                          </button>
+                          <button
+                            onClick={() => { setReviewingId(r.id); setReviewFeedback(""); setReviewErr(""); }}
+                            disabled={submittingReview}
+                            className="flex-1 inline-flex items-center justify-center gap-1 text-[11.5px] font-semibold px-3 py-1.5 rounded-full transition-opacity hover:opacity-80 disabled:opacity-50"
+                            style={{ background: "var(--danger-bg, rgba(224,48,48,0.12))", color: "var(--danger, #e03030)", border: "1px solid var(--danger-border, rgba(224,48,48,0.3))" }}>
+                            <ThumbsDown size={11} strokeWidth={2} />
+                            {t.reject}
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <textarea
+                            autoFocus
+                            value={reviewFeedback}
+                            onChange={e => setReviewFeedback(e.target.value)}
+                            placeholder={t.rejectFeedbackPh}
+                            rows={2}
+                            className="w-full px-3 py-2 text-[12.5px] rounded-xl outline-none resize-none"
+                            style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)" }}
+                          />
+                          {reviewErr && <p className="text-[11.5px]" style={{ color: "var(--danger, #e03030)" }}>{reviewErr}</p>}
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => handleReview(r.id, "reject")}
+                              disabled={submittingReview || !reviewFeedback.trim()}
+                              className="flex-1 inline-flex items-center justify-center gap-1 text-[11.5px] font-semibold px-3 py-1.5 rounded-full transition-opacity hover:opacity-80 disabled:opacity-50"
+                              style={{ background: "var(--danger-bg, rgba(224,48,48,0.12))", color: "var(--danger, #e03030)", border: "1px solid var(--danger-border, rgba(224,48,48,0.3))" }}>
+                              {submittingReview ? <Spinner size="xs" color="var(--danger, #e03030)" /> : <ThumbsDown size={11} strokeWidth={2} />}
+                              {t.confirmReject}
+                            </button>
+                            <button
+                              onClick={() => { setReviewingId(null); setReviewFeedback(""); setReviewErr(""); }}
+                              disabled={submittingReview}
+                              className="px-4 py-1.5 rounded-full text-[11.5px] font-medium transition-opacity hover:opacity-70"
+                              style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
+                              <XIcon size={12} strokeWidth={2} />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
-                {r.signed_pdf_url && (
-                  <a href={r.signed_pdf_url} target="_blank" rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full transition-opacity hover:opacity-80"
-                    style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
-                    <Download size={10} strokeWidth={2} />
-                    {t.download}
-                  </a>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

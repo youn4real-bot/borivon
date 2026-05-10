@@ -25,7 +25,7 @@ export async function GET(req: NextRequest) {
     // Full admin — all docs (or filtered to one user)
     let q = db
       .from("documents")
-      .select("id, user_id, file_name, file_type, uploaded_at, status, feedback, drive_file_id")
+      .select("id, user_id, file_name, file_type, uploaded_at, status, feedback, drive_file_id, uploaded_by_admin")
       .order("uploaded_at", { ascending: false });
     if (filteredUserId) q = q.eq("user_id", filteredUserId);
     const { data, error } = await q;
@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
     if (allowedIds.length === 0) return NextResponse.json({ docs: [], users: {}, role });
     const { data, error } = await db
       .from("documents")
-      .select("id, user_id, file_name, file_type, uploaded_at, status, feedback, drive_file_id")
+      .select("id, user_id, file_name, file_type, uploaded_at, status, feedback, drive_file_id, uploaded_by_admin")
       .in("user_id", allowedIds)
       .order("uploaded_at", { ascending: false });
     if (error) { console.error("[admin GET] documents query (agency) failed:", error); return NextResponse.json({ error: "Internal error" }, { status: 500 }); }
@@ -64,7 +64,7 @@ export async function GET(req: NextRequest) {
 
     const { data, error } = await db
       .from("documents")
-      .select("id, user_id, file_name, file_type, uploaded_at, status, feedback, drive_file_id")
+      .select("id, user_id, file_name, file_type, uploaded_at, status, feedback, drive_file_id, uploaded_by_admin")
       .in("user_id", allowedIds)
       .order("uploaded_at", { ascending: false });
 

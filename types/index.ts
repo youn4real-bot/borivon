@@ -21,6 +21,7 @@ export type Doc = {
   status: DocStatus;
   feedback: string | null;
   drive_file_id: string | null;
+  uploaded_by_admin: boolean;
 };
 
 // ─────────────────────────── Users ──────────────────────────────────────────
