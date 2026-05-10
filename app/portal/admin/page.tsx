@@ -3462,6 +3462,7 @@ export default function AdminPage() {
                 <div className="p-3">
                   <PdfZonePicker pdfBase64={sigPdfBase64} onChange={zones => setSigZones(zones)}
                     onError={() => { setSigPdfBase64(null); setSigManualPdf(null); }}
+                    defaultParty={sigMode === "admin-only" ? "admin" : "candidate"}
                     partyPreviews={sigAdminSig ? { admin: sigAdminSig } : undefined}
                     partyBgRemoving={sigAdminBgRemoving ? { admin: true } : undefined}
                     onPartyImageCrop={(_, dataUri) => setSigAdminSig(dataUri)} />

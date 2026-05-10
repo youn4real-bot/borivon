@@ -29,6 +29,8 @@ type Props = {
   onChange: (zones: SigZone[]) => void;
   onError?: () => void;
   lang?: keyof typeof T;
+  /** Default party for newly drawn/added zones */
+  defaultParty?: SigZone["party"];
   /** Live signature previews to show inside each party's zones */
   partyPreviews?: Partial<Record<NonNullable<SigZone["party"]>, string>>;
   /** Which parties are currently removing background (shows scanner animation) */
@@ -53,7 +55,7 @@ const HANDLES = [
   { id: "se", top: "100%", left: "100%", cursor: "se-resize" },
 ] as const;
 
-export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function PdfZonePicker({ pdfBase64, onChange, onError, lang = "en", partyPreviews, partyBgRemoving, onPartyImageCrop }, ref) {
+export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function PdfZonePicker({ pdfBase64, onChange, onError, lang = "en", defaultParty = "candidate", partyPreviews, partyBgRemoving, onPartyImageCrop }, ref) {
   const [blobUrl, setBlobUrl]     = useState<string | null>(null);
   const [zones, setZones]         = useState<SigZone[]>([]);
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
@@ -251,7 +253,7 @@ export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function Pdf
   function addZone() {
     const zs = zonesRef.current;
     const page = getVisiblePage();
-    const newZone: SigZone = { page, x: 0.08, y: 0.1, w: 0.44, h: 0.13, party: "candidate" };
+    const newZone: SigZone = { page, x: 0.08, y: 0.1, w: 0.44, h: 0.13, party: defaultParty };
     const next = [...zs, newZone];
     emitZones(next);
     setActiveIdx(next.length - 1);
@@ -287,7 +289,7 @@ export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function Pdf
         onMouseDown={e => {
           if (e.button !== 0) return;
           e.preventDefault();
-          const placeholder: SigZone = { page: pageNum, x: 0, y: 0, w: 0, h: 0, party: "candidate" };
+          const placeholder: SigZone = { page: pageNum, x: 0, y: 0, w: 0, h: 0, party: defaultParty };
           const next = [...zonesRef.current, placeholder];
           emitZones(next);
           setActiveIdx(next.length - 1);
