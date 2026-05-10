@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -18,6 +18,7 @@ import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, Che
 import { Spinner, PageLoader, EmptyState } from "@/components/ui/states";
 import { CandidateStagePreview, type JourneyMode } from "@/components/JourneyView";
 import { PdfZonePicker, type SigZone } from "@/components/PdfZonePicker";
+import { SignaturePad } from "@/components/SignaturePad";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { PortalTopNav } from "@/components/PortalTopNav";
 import { FILE_KEY_ALL_LABELS } from "@/lib/fileKeys";
@@ -149,6 +150,154 @@ function timeAgo(iso: string, lang?: string) {
 }
 
 // ── Preview modal moved to components/AdminDocPreviewModal.tsx ────────────────
+
+function removeImageBg(dataUri: string): Promise<string> {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = img.naturalWidth;
+        canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) { resolve(dataUri); return; }
+        ctx.drawImage(img, 0, 0);
+        const id = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const d = id.data;
+        const n = canvas.width * canvas.height;
+        // Otsu's method: adaptive threshold between ink (dark) and paper (bright)
+        const hist = new Array(256).fill(0);
+        for (let i = 0; i < d.length; i += 4) {
+          hist[Math.round((d[i] + d[i+1] + d[i+2]) / 3)]++;
+        }
+        let sumAll = 0;
+        for (let k = 0; k < 256; k++) sumAll += k * hist[k];
+        let sumB = 0, cntB = 0, bestT = 128, maxVar = 0;
+        for (let T = 0; T < 256; T++) {
+          cntB += hist[T];
+          if (!cntB || cntB === n) continue;
+          sumB += T * hist[T];
+          const mB = sumB / cntB, mA = (sumAll - sumB) / (n - cntB);
+          const v = cntB * (n - cntB) * (mB - mA) ** 2;
+          if (v > maxVar) { maxVar = v; bestT = T; }
+        }
+        const lo = bestT;
+        const hi = bestT + 0.15 * (255 - bestT);
+        for (let i = 0; i < d.length; i += 4) {
+          const b = (d[i] + d[i+1] + d[i+2]) / 3;
+          if (b >= hi) {
+            d[i+3] = 0;
+          } else if (b >= lo) {
+            d[i+3] = Math.round((hi - b) / (hi - lo) * 255);
+          }
+        }
+        ctx.putImageData(id, 0, 0);
+        resolve(canvas.toDataURL("image/png"));
+      } catch { resolve(dataUri); }
+    };
+    img.onerror = () => resolve(dataUri);
+    img.src = dataUri;
+  });
+}
+
+const SIG_PARTY_META = {
+  admin: { accent: "#5b9bd5", bg: "rgba(91,155,213,0.08)", border: "rgba(91,155,213,0.3)", storageKey: "borivon_admin_sig" },
+};
+
+function AdminSigSection({ lang, sig, wantSave, bgRemoving, onSig, onWantSave, onUpload, onDropFile }: {
+  lang: string;
+  party?: "admin";
+  sig: string | null;
+  wantSave: boolean;
+  bgRemoving: boolean;
+  onSig: (s: string | null) => void;
+  onWantSave: (v: boolean) => void;
+  onUpload: () => void;
+  onDropFile: (file: File) => void;
+}) {
+  const lbl = (en: string, fr: string, de: string) => lang === "fr" ? fr : lang === "de" ? de : en;
+  const meta = SIG_PARTY_META.admin;
+  const title = lbl("Your signature (Admin)", "Votre signature (Admin)", "Ihre Unterschrift (Admin)");
+  const [dragOver, setDragOver] = useState(false);
+
+  return (
+    <div className="rounded-2xl p-4 space-y-3" style={{ background: meta.bg, border: `1.5px solid ${meta.border}` }}>
+        <p className="text-[11.5px] font-semibold" style={{ color: meta.accent }}>
+          ✍ {title}
+        </p>
+
+        {/* Upload dropzone — shown when no sig yet */}
+        {!sig && (
+          <div
+            onClick={onUpload}
+            onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={e => {
+              e.preventDefault();
+              setDragOver(false);
+              const file = e.dataTransfer.files[0];
+              if (file && file.type.startsWith("image/")) onDropFile(file);
+            }}
+            className="rounded-xl flex flex-col items-center justify-center gap-2 cursor-pointer transition-all"
+            style={{
+              minHeight: 110,
+              border: `2px dashed ${dragOver ? meta.accent : meta.border}`,
+              background: dragOver ? meta.bg : "#fff",
+            }}
+          >
+            {bgRemoving ? (
+              <span className="w-5 h-5 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: meta.accent }} />
+            ) : (
+              <>
+                <Upload size={20} strokeWidth={1.5} style={{ color: meta.accent, opacity: 0.7 }} />
+                <p className="text-[12px] text-center px-4" style={{ color: "var(--w3)" }}>
+                  {lbl("Drop signature photo or click to upload", "Déposez ou cliquez pour importer", "Unterschrift ablegen oder klicken")}
+                </p>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* Action buttons when sig exists */}
+        {sig && (
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={onUpload}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80"
+              style={{ background: meta.bg, color: meta.accent, border: `1px solid ${meta.border}` }}>
+              <Upload size={11} strokeWidth={2} />
+              {lbl("Replace", "Remplacer", "Ersetzen")}
+            </button>
+            <button
+              type="button"
+              onClick={() => onSig(null)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80"
+              style={{ background: meta.bg, color: meta.accent, border: `1px solid ${meta.border}` }}>
+              ✕ {lbl("Clear", "Effacer", "Löschen")}
+            </button>
+          </div>
+        )}
+
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={wantSave}
+            onChange={e => {
+              onWantSave(e.target.checked);
+              if (e.target.checked && sig) localStorage.setItem(meta.storageKey, sig);
+              else if (!e.target.checked) localStorage.removeItem(meta.storageKey);
+            }}
+            className="rounded"
+            style={{ accentColor: meta.accent }}
+          />
+          <span className="text-[11px]" style={{ color: "var(--w3)" }}>
+            {lbl("Save for next time", "Enregistrer pour la prochaine fois", "Für nächstes Mal speichern")}
+          </span>
+        </label>
+    </div>
+  );
+}
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function AdminPage() {
@@ -431,19 +580,37 @@ export default function AdminPage() {
   const [sigModal, setSigModal] = useState<{ docId: string | null; driveFileId: string | null; label: string } | null>(null);
   const [sigNote, setSigNote] = useState("");
   const [sigSending, setSigSending] = useState(false);
+  const [sigMode, setSigMode] = useState<"admin-only" | "with-candidate">("admin-only");
   const [sigZones, setSigZones] = useState<SigZone[]>([]);
   const [sigPdfBase64, setSigPdfBase64] = useState<string | null>(null);
   const [sigPdfLoading, setSigPdfLoading] = useState(false);
   const [sigManualPdf, setSigManualPdf] = useState<string | null>(null); // base64 when admin uploads PDF manually
-  const sigManualFileRef  = React.useRef<HTMLInputElement>(null);
-  const sigZonePickerRef  = React.useRef<import("@/components/PdfZonePicker").PdfZonePickerHandle>(null);
+  const [sigAdminSig, setSigAdminSig] = useState<string | null>(null);
+  const [sigAdminWantSave, setSigAdminWantSave] = useState(true);
+  const [sigAdminBgRemoving, setSigAdminBgRemoving] = useState(false);
+  const [sigOrgSig, setSigOrgSig] = useState<string | null>(null);
+  const [sigOrgWantSave, setSigOrgWantSave] = useState(true);
+  const [sigOrgBgRemoving, setSigOrgBgRemoving] = useState(false);
+  const [sigUploadTarget, setSigUploadTarget] = useState<"admin" | "org">("admin");
+  const sigManualFileRef   = React.useRef<HTMLInputElement>(null);
+  const sigAdminUploadRef  = React.useRef<HTMLInputElement>(null);
 
   // Fetch PDF for zone picker whenever sign modal opens
   useEffect(() => {
-    if (!sigModal) { setSigPdfBase64(null); setSigZones([]); setSigManualPdf(null); return; }
+    if (!sigModal) {
+      setSigPdfBase64(null); setSigZones([]); setSigManualPdf(null);
+      setSigAdminSig(null); setSigAdminWantSave(true);
+      setSigOrgSig(null); setSigOrgWantSave(true);
+      setSigMode("admin-only");
+      return;
+    }
     setSigPdfBase64(null);
     setSigZones([]);
     setSigManualPdf(null);
+    setSigAdminSig(localStorage.getItem("borivon_admin_sig"));
+    setSigOrgSig(localStorage.getItem("borivon_org_sig"));
+    setSigAdminWantSave(true);
+    setSigOrgWantSave(true);
     // No source doc → skip fetch, go straight to upload drop zone
     if (!sigModal.driveFileId && !sigModal.docId) {
       setSigPdfLoading(false);
@@ -3193,6 +3360,30 @@ export default function AdminPage() {
           e.target.value = "";
         }}
       />
+      <input
+        ref={sigAdminUploadRef}
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={e => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result as string;
+            if (sigUploadTarget === "org") {
+              setSigOrgSig(result);
+            } else {
+              setSigAdminSig(result);
+              setSigAdminBgRemoving(true);
+              Promise.all([removeImageBg(result), new Promise(r => setTimeout(r, 2200))])
+                .then(([clean]) => { setSigAdminSig(clean); setSigAdminBgRemoving(false); });
+            }
+          };
+          reader.readAsDataURL(file);
+          e.target.value = "";
+        }}
+      />
 
       {/* ── Edit slot label modal ── */}
       {editingSlotId && (
@@ -3232,7 +3423,7 @@ export default function AdminPage() {
       {sigModal && (
         <div data-bv-sigmodal="1" className="fixed inset-0 z-[2147483600] flex items-center justify-center p-3 sm:p-6"
           style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(10px)", position: "fixed", top: 0, left: 0, right: 0, bottom: 0 }}
-          onClick={() => { setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null); }}>
+          onClick={() => { setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null); setSigAdminSig(null); setSigAdminWantSave(true); setSigOrgSig(null); setSigOrgWantSave(true); }}>
           <div className="w-full max-w-4xl rounded-2xl overflow-hidden flex flex-col"
             style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)", maxHeight: "calc(100dvh - 80px)" }}
             onClick={e => e.stopPropagation()}>
@@ -3240,20 +3431,21 @@ export default function AdminPage() {
               style={{ borderBottom: "1px solid var(--border)" }}>
               <div className="min-w-0 flex-1 mr-3">
                 <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-0.5" style={{ color: "var(--w3)" }}>
-                  {lang === "fr" ? "Demande de signature" : lang === "de" ? "Signaturanfrage" : "Signature request"}
+                  {lang === "fr" ? "Signature" : lang === "de" ? "Signatur" : "Signature"}
                 </p>
                 <p className="text-[13.5px] font-semibold truncate tracking-tight" style={{ color: "var(--w)" }}>{sigModal.label}</p>
               </div>
-              {sigPdfBase64 && (
-                <button
-                  onClick={() => sigZonePickerRef.current?.addZone()}
-                  className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-semibold mr-2 transition-opacity hover:opacity-80"
-                  style={{ background: "var(--gold)", color: "#131312", border: "none", cursor: "pointer" }}>
-                  <Plus size={11} strokeWidth={2.5} />
-                  {lang === "de" ? "Signatur" : lang === "fr" ? "Signature" : "Add signature"}
-                </button>
-              )}
-              <button onClick={() => { setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null); }}
+              {/* Mode toggle */}
+              <div className="flex flex-shrink-0 mx-3 rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)", background: "var(--bg2)" }}>
+                {([["admin-only", lang === "fr" ? "Admin seul" : lang === "de" ? "Admin" : "Admin only"], ["with-candidate", lang === "fr" ? "+ Candidat" : lang === "de" ? "+ Kandidat" : "+ Candidate"]] as [string, string][]).map(([mode, label]) => (
+                  <button key={mode} onClick={() => setSigMode(mode as "admin-only" | "with-candidate")}
+                    className="px-3 py-1.5 text-[11px] font-semibold transition-colors"
+                    style={{ background: sigMode === mode ? "var(--gold)" : "transparent", color: sigMode === mode ? "#131312" : "var(--w3)", borderRight: mode === "admin-only" ? "1px solid var(--border)" : "none" }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => { setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null); setSigAdminSig(null); setSigAdminWantSave(true); setSigOrgSig(null); setSigOrgWantSave(true); }}
                 className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ color: "var(--w3)" }}>
                 <XIcon size={14} strokeWidth={1.8} />
               </button>
@@ -3268,8 +3460,11 @@ export default function AdminPage() {
                 </div>
               ) : sigPdfBase64 ? (
                 <div className="p-3">
-                  <PdfZonePicker ref={sigZonePickerRef} pdfBase64={sigPdfBase64} onChange={zones => setSigZones(zones)}
-                    onError={() => { setSigPdfBase64(null); setSigManualPdf(null); }} />
+                  <PdfZonePicker pdfBase64={sigPdfBase64} onChange={zones => setSigZones(zones)}
+                    onError={() => { setSigPdfBase64(null); setSigManualPdf(null); }}
+                    partyPreviews={sigAdminSig ? { admin: sigAdminSig } : undefined}
+                    partyBgRemoving={sigAdminBgRemoving ? { admin: true } : undefined}
+                    onPartyImageCrop={(_, dataUri) => setSigAdminSig(dataUri)} />
                 </div>
               ) : (
                 <div className="flex flex-col items-center justify-center gap-4 m-4 rounded-2xl cursor-pointer transition-colors"
@@ -3310,12 +3505,36 @@ export default function AdminPage() {
                 </div>
               )}
             </div>
+            {/* ── Sticky sig section (admin — covers org + supreme admin zones) ── */}
+            {sigPdfBase64 && (sigMode === "admin-only" || sigZones.some(z => z.party === "admin")) && (
+              <div className="flex-shrink-0 px-3 pt-3 pb-1" style={{ borderTop: "1px solid var(--border)" }}>
+                <AdminSigSection party="admin" lang={lang}
+                  sig={sigAdminSig} wantSave={sigAdminWantSave} bgRemoving={sigAdminBgRemoving}
+                  onSig={setSigAdminSig} onWantSave={setSigAdminWantSave}
+                  onUpload={() => { setSigUploadTarget("admin"); sigAdminUploadRef.current?.click(); }}
+                  onDropFile={file => {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      const result = reader.result as string;
+                      setSigAdminSig(result);
+                      setSigAdminBgRemoving(true);
+                      Promise.all([removeImageBg(result), new Promise(r => setTimeout(r, 2200))])
+                        .then(([clean]) => { setSigAdminSig(clean); setSigAdminBgRemoving(false); });
+                    };
+                    reader.readAsDataURL(file);
+                  }}
+                />
+
+              </div>
+            )}
             <div className="px-4 py-3 flex-shrink-0 space-y-3" style={{ borderTop: "1px solid var(--border)" }}>
               <div className="flex gap-2">
-                <input value={sigNote} onChange={e => setSigNote(e.target.value)}
-                  placeholder={lang === "fr" ? "Note (optionnel)" : lang === "de" ? "Hinweis (optional)" : "Note (optional)"}
-                  className="flex-1 px-3 py-2 text-[12px] rounded-xl outline-none"
-                  style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--w)" }} />
+                {sigMode === "with-candidate" && (
+                  <input value={sigNote} onChange={e => setSigNote(e.target.value)}
+                    placeholder={lang === "fr" ? "Note (optionnel)" : lang === "de" ? "Hinweis (optional)" : "Note (optional)"}
+                    className="flex-1 px-3 py-2 text-[12px] rounded-xl outline-none"
+                    style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--w)" }} />
+                )}
                 <button onClick={async () => {
                   if (sigSending) return;
                   if (!sigPdfBase64 && !sigManualPdf) { sigManualFileRef.current?.click(); return; }
@@ -3327,17 +3546,19 @@ export default function AdminPage() {
                   try {
                     let res: Response;
                     if (sigManualPdf) {
-                      // Use FormData for file uploads (bypasses Vercel's 4.5MB JSON body limit)
                       const fd = new FormData();
-                      fd.append("candidateId", selectedUser ?? "");
+                      if (sigMode === "with-candidate") fd.append("candidateId", selectedUser ?? "");
                       fd.append("documentName", sigModal.label);
+                      if (sigMode === "admin-only") fd.append("adminOnly", "true");
                       const bin = atob(sigManualPdf);
                       const arr = new Uint8Array(bin.length);
                       for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
                       fd.append("pdf", new Blob([arr], { type: "application/pdf" }), "signature-document.pdf");
-                      if (sigNote.trim()) fd.append("note", sigNote.trim());
+                      if (sigMode === "with-candidate" && sigNote.trim()) fd.append("note", sigNote.trim());
                       fd.append("parties", JSON.stringify(parties));
                       if (sigZones.length) fd.append("signatureZones", JSON.stringify(sigZones));
+                      if (sigAdminSig) fd.append("adminSignatureBase64", sigAdminSig);
+                      if (sigAdminSig) fd.append("orgSignatureBase64", sigAdminSig);
                       res = await fetch("/api/portal/admin/sign-request", {
                         method: "POST",
                         headers: { Authorization: `Bearer ${accessToken}` },
@@ -3348,26 +3569,40 @@ export default function AdminPage() {
                         method: "POST",
                         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
                         body: JSON.stringify({
-                          candidateId: selectedUser, documentName: sigModal.label,
+                          candidateId: sigMode === "with-candidate" ? selectedUser : undefined,
+                          documentName: sigModal.label,
                           driveFileId: sigModal.driveFileId,
-                          note: sigNote.trim() || undefined,
+                          adminOnly: sigMode === "admin-only",
+                          note: sigMode === "with-candidate" ? (sigNote.trim() || undefined) : undefined,
                           parties,
                           signatureZones: sigZones.length ? sigZones : undefined,
+                          adminSignatureBase64: sigAdminSig || undefined,
+                          orgSignatureBase64: sigAdminSig || undefined,
                         }),
                       });
                     }
                     if (res.ok) {
+                      if (sigMode === "admin-only") {
+                        const blob = await res.blob();
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url; a.download = `${sigModal.label}.pdf`; a.click();
+                        URL.revokeObjectURL(url);
+                        showError(lang === "fr" ? "PDF téléchargé ✓" : lang === "de" ? "PDF heruntergeladen ✓" : "Signed PDF downloaded ✓");
+                      } else {
+                        showError(lang === "fr" ? "Demande envoyée ✓" : lang === "de" ? "Anfrage gesendet ✓" : "Request sent ✓");
+                      }
                       setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null);
-                      showError(lang === "fr" ? "Demande envoyée ✓" : lang === "de" ? "Anfrage gesendet ✓" : "Request sent ✓");
+                      setSigAdminSig(null); setSigAdminWantSave(true); setSigOrgSig(null); setSigOrgWantSave(true);
                     } else {
                       const j = await res.json().catch(() => ({}));
                       const msg = (j as { error?: string }).error ?? `HTTP ${res.status}`;
                       console.error("[sign-request] failed:", res.status, msg, j);
-                      showError(`Send failed: ${msg}`);
+                      showError(`${sigMode === "admin-only" ? "Download" : "Send"} failed: ${msg}`);
                     }
                   } catch (e) {
                     console.error("[sign-request] exception:", e);
-                    showError(`Send error: ${e instanceof Error ? e.message : String(e)}`);
+                    showError(`Error: ${e instanceof Error ? e.message : String(e)}`);
                   }
                   setSigSending(false);
                 }}
@@ -3375,10 +3610,12 @@ export default function AdminPage() {
                   className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold transition-opacity disabled:opacity-50"
                   style={{ background: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "var(--bg2)" : "var(--gold)", color: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "var(--w3)" : "#131312", border: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "1px solid var(--border)" : "none" }}>
                   {sigSending
-                    ? <><span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" /> {lang === "fr" ? "Envoi…" : lang === "de" ? "Senden…" : "Sending…"}</>
+                    ? <><span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" /> {lang === "fr" ? "En cours…" : lang === "de" ? "Lädt…" : "Working…"}</>
                     : (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading)
                       ? <><Upload size={13} strokeWidth={2} /> {lang === "fr" ? "PDF requis" : lang === "de" ? "PDF erforderlich" : "Upload PDF first"}</>
-                      : <><Send size={13} strokeWidth={2} /> {lang === "fr" ? "Envoyer" : lang === "de" ? "Senden" : "Send"}</>
+                      : sigMode === "admin-only"
+                        ? <><Download size={13} strokeWidth={2} /> {lang === "fr" ? "Signer & télécharger" : lang === "de" ? "Signieren & laden" : "Sign & Download"}</>
+                        : <><Send size={13} strokeWidth={2} /> {lang === "fr" ? "Envoyer" : lang === "de" ? "Senden" : "Send"}</>
                   }
                 </button>
                 <button onClick={() => { setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null); }}
@@ -4024,7 +4261,7 @@ export default function AdminPage() {
       {sigModal && (
         <div data-bv-sigmodal="1" className="fixed inset-0 z-[2147483600] flex items-center justify-center p-3 sm:p-6"
           style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(10px)", position: "fixed", top: 0, left: 0, right: 0, bottom: 0 }}
-          onClick={() => { setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null); }}>
+          onClick={() => { setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null); setSigAdminSig(null); setSigAdminWantSave(true); setSigOrgSig(null); setSigOrgWantSave(true); }}>
           <div className="w-full max-w-4xl rounded-2xl overflow-hidden flex flex-col"
             style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)", maxHeight: "calc(100dvh - 80px)" }}
             onClick={e => e.stopPropagation()}>
@@ -4034,20 +4271,21 @@ export default function AdminPage() {
               style={{ borderBottom: "1px solid var(--border)" }}>
               <div className="min-w-0 flex-1 mr-3">
                 <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-0.5" style={{ color: "var(--w3)" }}>
-                  {lang === "fr" ? "Demande de signature" : lang === "de" ? "Signaturanfrage" : "Signature request"}
+                  {lang === "fr" ? "Signature" : lang === "de" ? "Signatur" : "Signature"}
                 </p>
                 <p className="text-[13.5px] font-semibold truncate tracking-tight" style={{ color: "var(--w)" }}>{sigModal.label}</p>
               </div>
-              {sigPdfBase64 && (
-                <button
-                  onClick={() => sigZonePickerRef.current?.addZone()}
-                  className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-semibold mr-2 transition-opacity hover:opacity-80"
-                  style={{ background: "var(--gold)", color: "#131312", border: "none", cursor: "pointer" }}>
-                  <Plus size={11} strokeWidth={2.5} />
-                  {lang === "de" ? "Signatur" : lang === "fr" ? "Signature" : "Add signature"}
-                </button>
-              )}
-              <button onClick={() => { setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null); }}
+              {/* Mode toggle */}
+              <div className="flex flex-shrink-0 mx-3 rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)", background: "var(--bg2)" }}>
+                {([["admin-only", lang === "fr" ? "Admin seul" : lang === "de" ? "Admin" : "Admin only"], ["with-candidate", lang === "fr" ? "+ Candidat" : lang === "de" ? "+ Kandidat" : "+ Candidate"]] as [string, string][]).map(([mode, label]) => (
+                  <button key={mode} onClick={() => setSigMode(mode as "admin-only" | "with-candidate")}
+                    className="px-3 py-1.5 text-[11px] font-semibold transition-colors"
+                    style={{ background: sigMode === mode ? "var(--gold)" : "transparent", color: sigMode === mode ? "#131312" : "var(--w3)", borderRight: mode === "admin-only" ? "1px solid var(--border)" : "none" }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => { setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null); setSigAdminSig(null); setSigAdminWantSave(true); setSigOrgSig(null); setSigOrgWantSave(true); }}
                 className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
                 style={{ color: "var(--w3)" }}>
                 <XIcon size={14} strokeWidth={1.8} />
@@ -4065,10 +4303,13 @@ export default function AdminPage() {
                 </div>
               ) : sigPdfBase64 ? (
                 <div className="p-3">
-                  <PdfZonePicker ref={sigZonePickerRef}
+                  <PdfZonePicker
                     pdfBase64={sigPdfBase64}
                     onChange={zones => setSigZones(zones)}
                     onError={() => { setSigPdfBase64(null); setSigManualPdf(null); }}
+                    partyPreviews={sigAdminSig ? { admin: sigAdminSig } : undefined}
+                    partyBgRemoving={sigAdminBgRemoving ? { admin: true } : undefined}
+                    onPartyImageCrop={(_, dataUri) => setSigAdminSig(dataUri)}
                   />
                 </div>
               ) : (
@@ -4116,14 +4357,39 @@ export default function AdminPage() {
               )}
             </div>
 
+            {/* ── Sticky sig section (admin — covers org + supreme admin zones) ── */}
+            {sigPdfBase64 && (sigMode === "admin-only" || sigZones.some(z => z.party === "admin")) && (
+              <div className="flex-shrink-0 px-3 pt-3 pb-1" style={{ borderTop: "1px solid var(--border)" }}>
+                <AdminSigSection party="admin" lang={lang}
+                  sig={sigAdminSig} wantSave={sigAdminWantSave} bgRemoving={sigAdminBgRemoving}
+                  onSig={setSigAdminSig} onWantSave={setSigAdminWantSave}
+                  onUpload={() => { setSigUploadTarget("admin"); sigAdminUploadRef.current?.click(); }}
+                  onDropFile={file => {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      const result = reader.result as string;
+                      setSigAdminSig(result);
+                      setSigAdminBgRemoving(true);
+                      Promise.all([removeImageBg(result), new Promise(r => setTimeout(r, 2200))])
+                        .then(([clean]) => { setSigAdminSig(clean); setSigAdminBgRemoving(false); });
+                    };
+                    reader.readAsDataURL(file);
+                  }}
+                />
+
+              </div>
+            )}
+
             {/* ── Compact footer: note + send ── */}
             <div className="px-4 py-3 flex-shrink-0 space-y-3"
               style={{ borderTop: "1px solid var(--border)" }}>
               <div className="flex gap-2">
-                <input value={sigNote} onChange={e => setSigNote(e.target.value)}
-                  placeholder={lang === "fr" ? "Note (optionnel)" : lang === "de" ? "Hinweis (optional)" : "Note (optional)"}
-                  className="flex-1 px-3 py-2 text-[12px] rounded-xl outline-none"
-                  style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--w)" }} />
+                {sigMode === "with-candidate" && (
+                  <input value={sigNote} onChange={e => setSigNote(e.target.value)}
+                    placeholder={lang === "fr" ? "Note (optionnel)" : lang === "de" ? "Hinweis (optional)" : "Note (optional)"}
+                    className="flex-1 px-3 py-2 text-[12px] rounded-xl outline-none"
+                    style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--w)" }} />
+                )}
                 <button
                   onClick={async () => {
                     if (sigSending) return;
@@ -4137,15 +4403,18 @@ export default function AdminPage() {
                       let res: Response;
                       if (sigManualPdf) {
                         const fd = new FormData();
-                        fd.append("candidateId", selectedUser ?? "");
+                        if (sigMode === "with-candidate") fd.append("candidateId", selectedUser ?? "");
                         fd.append("documentName", sigModal.label);
+                        if (sigMode === "admin-only") fd.append("adminOnly", "true");
                         const bin = atob(sigManualPdf);
                         const arr = new Uint8Array(bin.length);
                         for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
                         fd.append("pdf", new Blob([arr], { type: "application/pdf" }), "signature-document.pdf");
-                        if (sigNote.trim()) fd.append("note", sigNote.trim());
+                        if (sigMode === "with-candidate" && sigNote.trim()) fd.append("note", sigNote.trim());
                         fd.append("parties", JSON.stringify(parties));
                         if (sigZones.length) fd.append("signatureZones", JSON.stringify(sigZones));
+                        if (sigAdminSig) fd.append("adminSignatureBase64", sigAdminSig);
+                        if (sigAdminSig) fd.append("orgSignatureBase64", sigAdminSig);
                         res = await fetch("/api/portal/admin/sign-request", {
                           method: "POST",
                           headers: { Authorization: `Bearer ${accessToken}` },
@@ -4156,26 +4425,40 @@ export default function AdminPage() {
                           method: "POST",
                           headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
                           body: JSON.stringify({
-                            candidateId: selectedUser, documentName: sigModal.label,
+                            candidateId: sigMode === "with-candidate" ? selectedUser : undefined,
+                            documentName: sigModal.label,
                             driveFileId: sigModal.driveFileId,
-                            note: sigNote.trim() || undefined,
+                            adminOnly: sigMode === "admin-only",
+                            note: sigMode === "with-candidate" ? (sigNote.trim() || undefined) : undefined,
                             parties,
                             signatureZones: sigZones.length ? sigZones : undefined,
+                            adminSignatureBase64: sigAdminSig || undefined,
+                            orgSignatureBase64: sigAdminSig || undefined,
                           }),
                         });
                       }
                       if (res.ok) {
+                        if (sigMode === "admin-only") {
+                          const blob = await res.blob();
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement("a");
+                          a.href = url; a.download = `${sigModal.label}.pdf`; a.click();
+                          URL.revokeObjectURL(url);
+                          showError(lang === "fr" ? "PDF téléchargé ✓" : lang === "de" ? "PDF heruntergeladen ✓" : "Signed PDF downloaded ✓");
+                        } else {
+                          showError(lang === "fr" ? "Demande envoyée ✓" : lang === "de" ? "Anfrage gesendet ✓" : "Request sent ✓");
+                        }
                         setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null);
-                        showError(lang === "fr" ? "Demande envoyée ✓" : lang === "de" ? "Anfrage gesendet ✓" : "Request sent ✓");
+                        setSigAdminSig(null); setSigAdminWantSave(true); setSigOrgSig(null); setSigOrgWantSave(true);
                       } else {
                         const j = await res.json().catch(() => ({}));
                         const msg = (j as { error?: string }).error ?? `HTTP ${res.status}`;
                         console.error("[sign-request] failed:", res.status, msg, j);
-                        showError(`Send failed: ${msg}`);
+                        showError(`${sigMode === "admin-only" ? "Download" : "Send"} failed: ${msg}`);
                       }
                     } catch (e) {
                       console.error("[sign-request] exception:", e);
-                      showError(`Send error: ${e instanceof Error ? e.message : String(e)}`);
+                      showError(`Error: ${e instanceof Error ? e.message : String(e)}`);
                     }
                     setSigSending(false);
                   }}
@@ -4183,10 +4466,12 @@ export default function AdminPage() {
                   className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold transition-opacity disabled:opacity-50"
                   style={{ background: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "var(--bg2)" : "var(--gold)", color: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "var(--w3)" : "#131312", border: (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading) ? "1px solid var(--border)" : "none" }}>
                   {sigSending
-                    ? <><span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" /> {lang === "fr" ? "Envoi…" : lang === "de" ? "Senden…" : "Sending…"}</>
+                    ? <><span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" /> {lang === "fr" ? "En cours…" : lang === "de" ? "Lädt…" : "Working…"}</>
                     : (!sigPdfBase64 && !sigManualPdf && !sigPdfLoading)
                       ? <><Upload size={13} strokeWidth={2} /> {lang === "fr" ? "PDF requis" : lang === "de" ? "PDF erforderlich" : "Upload PDF first"}</>
-                      : <><Send size={13} strokeWidth={2} /> {lang === "fr" ? "Envoyer" : lang === "de" ? "Senden" : "Send"}</>
+                      : sigMode === "admin-only"
+                        ? <><Download size={13} strokeWidth={2} /> {lang === "fr" ? "Signer & télécharger" : lang === "de" ? "Signieren & laden" : "Sign & Download"}</>
+                        : <><Send size={13} strokeWidth={2} /> {lang === "fr" ? "Envoyer" : lang === "de" ? "Senden" : "Send"}</>
                   }
                 </button>
                 <button onClick={() => { setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null); }}

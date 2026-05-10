@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
+import { PDFDocument, rgb, StandardFonts } from "pdf-lib";
 
 function getDriveClient() {
   const auth = new google.auth.GoogleAuth({
@@ -97,6 +98,9 @@ export async function POST(req: NextRequest) {
   let pdfBuffer: Buffer | null = null;
   let signatureZones: unknown = undefined; // array of zones (new) or single zone (legacy)
   let parties: { admin?: boolean; candidate?: boolean } | undefined;
+  let adminSignatureBase64: string | undefined;
+  let orgSignatureBase64: string | undefined;
+  let adminOnly = false;
 
   if (ct.includes("multipart/form-data")) {
     const fd = await req.formData();
@@ -104,6 +108,7 @@ export async function POST(req: NextRequest) {
     documentName = String(fd.get("documentName") ?? "");
     driveFileId  = String(fd.get("driveFileId")  ?? "");
     note         = String(fd.get("note")         ?? "");
+    adminOnly    = fd.get("adminOnly") === "true";
     // Accept signatureZones (array) or legacy signatureZone (single)
     const zonesStr = fd.get("signatureZones") ?? fd.get("signatureZone");
     if (typeof zonesStr === "string" && zonesStr) {
@@ -113,6 +118,10 @@ export async function POST(req: NextRequest) {
     if (typeof partiesStr === "string" && partiesStr) {
       try { parties = JSON.parse(partiesStr); } catch { /* ignore */ }
     }
+    const adminSigStr = fd.get("adminSignatureBase64");
+    if (typeof adminSigStr === "string" && adminSigStr) adminSignatureBase64 = adminSigStr;
+    const orgSigStr = fd.get("orgSignatureBase64");
+    if (typeof orgSigStr === "string" && orgSigStr) orgSignatureBase64 = orgSigStr;
     const pdfFile = fd.get("pdf");
     if (pdfFile instanceof File) {
       const ab = await pdfFile.arrayBuffer();
@@ -126,7 +135,7 @@ export async function POST(req: NextRequest) {
     if (raw.length > MAX_PDF_BYTES * 1.5) {
       return NextResponse.json({ error: "Payload too large" }, { status: 413 });
     }
-    let body: { candidateId?: string; documentName?: string; pdfBase64?: string; driveFileId?: string; note?: string; signatureZones?: unknown; signatureZone?: unknown; parties?: { admin?: boolean; candidate?: boolean } };
+    let body: { candidateId?: string; documentName?: string; pdfBase64?: string; driveFileId?: string; note?: string; signatureZones?: unknown; signatureZone?: unknown; parties?: { admin?: boolean; candidate?: boolean }; adminSignatureBase64?: string; orgSignatureBase64?: string; adminOnly?: boolean };
     try { body = JSON.parse(raw); } catch {
       return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
     }
@@ -134,20 +143,28 @@ export async function POST(req: NextRequest) {
     documentName = body.documentName ?? "";
     driveFileId  = body.driveFileId ?? "";
     note         = body.note ?? "";
+    adminOnly    = body.adminOnly === true;
     // Prefer signatureZones (array), fall back to legacy signatureZone (single)
-    signatureZones = body.signatureZones ?? body.signatureZone;
-    parties        = body.parties;
+    signatureZones       = body.signatureZones ?? body.signatureZone;
+    parties              = body.parties;
+    adminSignatureBase64 = body.adminSignatureBase64;
+    orgSignatureBase64   = body.orgSignatureBase64;
     if (body.pdfBase64) {
       pdfBuffer = Buffer.from(body.pdfBase64.replace(/^data:[^;]+;base64,/, ""), "base64");
     }
   }
 
-  if (!candidateId || !documentName || (!pdfBuffer && !driveFileId)) {
-    return NextResponse.json({ error: "Missing fields (candidateId, documentName, and pdf or driveFileId)" }, { status: 400 });
+  if (!documentName || (!pdfBuffer && !driveFileId)) {
+    return NextResponse.json({ error: "Missing fields (documentName and pdf or driveFileId)" }, { status: 400 });
   }
 
-  if (!(await canActOnCandidate(auth.role, auth.email, candidateId))) {
-    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  if (!adminOnly) {
+    if (!candidateId) {
+      return NextResponse.json({ error: "Missing candidateId" }, { status: 400 });
+    }
+    if (!(await canActOnCandidate(auth.role, auth.email, candidateId))) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
   }
 
   // If we don't have the bytes yet, fetch from Drive
@@ -186,10 +203,85 @@ export async function POST(req: NextRequest) {
   const requestId = (row as { id: string }).id;
   const storagePath = `${candidateId}/${requestId}.pdf`;
 
+  // Helper: stamp a set of zones onto the PDF buffer with a given signature image
+  async function stampZonesOnBuffer(buf: Buffer, sigDataUri: string, signerEmail: string, zones: { page: number; x: number; y: number; w: number; h: number }[]): Promise<Buffer> {
+    const pdfDoc = await PDFDocument.load(new Uint8Array(buf));
+    const pages  = pdfDoc.getPages();
+    const isJpeg = /^data:image\/jpe?g;/i.test(sigDataUri);
+    const sigBase64 = sigDataUri.replace(/^data:[^;]+;base64,/, "");
+    const sigBytes  = Uint8Array.from(Buffer.from(sigBase64, "base64"));
+    const sigImage  = isJpeg ? await pdfDoc.embedJpg(sigBytes) : await pdfDoc.embedPng(sigBytes);
+    const font      = await pdfDoc.embedFont(StandardFonts.Helvetica);
+    const dateStr   = new Date().toLocaleDateString("en-GB");
+    for (const zone of zones) {
+      const pageIndex = Math.max(0, Math.min(pages.length - 1, zone.page - 1));
+      const pg = pages[pageIndex];
+      const { width: pageW, height: pageH } = pg.getSize();
+      const zW = zone.w * pageW, zH = zone.h * pageH;
+      const zX = zone.x * pageW, zY = pageH - (zone.y + zone.h) * pageH;
+      const sigDims = sigImage.scaleToFit(zW * 0.92, zH * 0.62);
+      pg.drawRectangle({ x: zX, y: zY, width: zW, height: zH, color: rgb(0.97, 0.97, 0.97), borderColor: rgb(0.75, 0.75, 0.75), borderWidth: 0.5, opacity: 0.92 });
+      pg.drawImage(sigImage, { x: zX + (zW - sigDims.width) / 2, y: zY + zH * 0.3, width: sigDims.width, height: sigDims.height });
+      const lineY = zY + zH * 0.28, fontSize = Math.max(5, Math.min(7, zW / 30));
+      pg.drawLine({ start: { x: zX + 4, y: lineY }, end: { x: zX + zW - 4, y: lineY }, thickness: 0.4, color: rgb(0.7, 0.7, 0.7) });
+      pg.drawText(signerEmail, { x: zX + 5, y: lineY - fontSize - 2, size: fontSize, font, color: rgb(0.3, 0.3, 0.3), maxWidth: zW - 10 });
+      pg.drawText(dateStr,     { x: zX + 5, y: zY + 3,              size: fontSize, font, color: rgb(0.5, 0.5, 0.5) });
+    }
+    return Buffer.from(await pdfDoc.save());
+  }
+
+  // Parse and validate zones helper
+  type RawZone = { page: number; x: number; y: number; w: number; h: number; party?: string };
+  function parseZones(raw: unknown): RawZone[] {
+    function valid(z: Partial<RawZone>): z is RawZone {
+      return Number.isFinite(z.page) && (z.page as number) >= 1
+          && Number.isFinite(z.x) && Number.isFinite(z.y)
+          && Number.isFinite(z.w) && (z.w as number) > 0
+          && Number.isFinite(z.h) && (z.h as number) > 0;
+    }
+    if (Array.isArray(raw)) return (raw as Partial<RawZone>[]).filter(valid);
+    if (raw && valid(raw as Partial<RawZone>)) return [raw as RawZone];
+    return [];
+  }
+
+  // Stamp admin zones (in adminOnly mode, stamp all zones regardless of party)
+  if (adminSignatureBase64 && signatureZones) {
+    try {
+      const allZones = parseZones(signatureZones);
+      const zones = adminOnly ? allZones : allZones.filter(z => z.party === "admin");
+      if (zones.length > 0) {
+        const sigUri = adminSignatureBase64.startsWith("data:") ? adminSignatureBase64 : `data:image/png;base64,${adminSignatureBase64}`;
+        pdfBuffer = await stampZonesOnBuffer(pdfBuffer!, sigUri, auth.email, zones);
+      }
+    } catch (e) { console.warn("[sign-request POST] admin stamp failed (non-fatal):", e); }
+  }
+
+  // Stamp org zones (skip in adminOnly — all zones already stamped above)
+  if (!adminOnly && orgSignatureBase64 && signatureZones) {
+    try {
+      const zones = parseZones(signatureZones).filter(z => z.party === "org");
+      if (zones.length > 0) {
+        const sigUri = orgSignatureBase64.startsWith("data:") ? orgSignatureBase64 : `data:image/png;base64,${orgSignatureBase64}`;
+        pdfBuffer = await stampZonesOnBuffer(pdfBuffer!, sigUri, auth.email, zones);
+      }
+    } catch (e) { console.warn("[sign-request POST] org stamp failed (non-fatal):", e); }
+  }
+
+  // Admin-only mode: return the stamped PDF directly for download — no DB record
+  if (adminOnly) {
+    const safeDocName = documentName.replace(/[^\w\s.\-()]/g, "").trim() || "signed-document";
+    return new NextResponse(new Uint8Array(pdfBuffer), {
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Disposition": `attachment; filename="${safeDocName}.pdf"`,
+      },
+    });
+  }
+
   // Upload to Supabase Storage
   const { error: uploadErr } = await db.storage
     .from(BUCKET)
-    .upload(storagePath, pdfBuffer, {
+    .upload(storagePath, pdfBuffer!, {
       contentType: "application/pdf",
       upsert: false,
     });
