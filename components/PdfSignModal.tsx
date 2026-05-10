@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { FilePen, CheckCircle2, X as XIcon, Download, Save, Upload } from "lucide-react";
-import { SignaturePad } from "@/components/SignaturePad";
 import { Spinner } from "@/components/ui/states";
 import { PdfViewer } from "@/components/PdfViewer";
 import type { SigZone } from "@/components/PdfZonePicker";
@@ -375,21 +374,6 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                       </button>
                     )}
 
-                    {/* Draw pad — matches admin dropzone visual height */}
-                    <p className="text-[11.5px]" style={{ color: "var(--w3)" }}>{t.drawHint}</p>
-                    <div
-                      onDragOver={e => e.preventDefault()}
-                      onDrop={e => {
-                        e.preventDefault();
-                        const file = e.dataTransfer.files[0];
-                        if (file?.type.startsWith("image/")) handleFileRead(file);
-                      }}
-                    >
-                      <SignaturePad key="draw" height={110}
-                        onCapture={d => { setSigData(d); if (d) setSigPlaced(true); else setSigPlaced(false); }}
-                        clearLabel={t.clear} />
-                    </div>
-
                     {/* Upload dropzone — spinner inside when removing bg (matches admin) */}
                     <div
                       onClick={() => { if (!bgRemoving) uploadRef.current?.click(); }}
@@ -436,12 +420,6 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                           {t.useSaved}
                         </button>
                       )}
-                      <button type="button"
-                        onClick={() => { setSigData(null); setUsingSaved(false); setSigPlaced(false); }}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80"
-                        style={{ background: G.bg, color: G.accent, border: `1px solid ${G.border}` }}>
-                        ✏ {t.drawNew}
-                      </button>
                       <button type="button" onClick={() => uploadRef.current?.click()}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80"
                         style={{ background: G.bg, color: G.accent, border: `1px solid ${G.border}` }}>
