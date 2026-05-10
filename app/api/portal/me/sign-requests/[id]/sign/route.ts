@@ -196,6 +196,16 @@ export async function POST(
     return NextResponse.json({ error: "Already signed" }, { status: 409 });
   }
 
+  // Permanently update documents.signed_storage_path so the doc view always shows
+  // the fully-signed version everywhere (admin portal + candidate documents tab).
+  // Match by user_id + file_name — document_name in sign_requests comes from
+  // previewDoc.file_name so the values are identical for normal flows.
+  await db
+    .from("documents")
+    .update({ signed_storage_path: signedPath })
+    .eq("user_id", r.candidate_user_id)
+    .eq("file_name", r.document_name);
+
   // Notify the supreme admin (and any org admin assigned to this candidate)
   // that the document was signed. Best-effort — don't fail the sign if this
   // breaks. The admin_notifications table powers the admin bell with realtime.

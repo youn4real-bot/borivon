@@ -333,9 +333,10 @@ export async function POST(req: NextRequest) {
     .update({ pdf_storage_path: storagePath })
     .eq("id", requestId);
 
-  // For adminSave: stamp the signed path onto the documents row so the normal
-  // PDF popup serves the signed version instead of the Drive original.
-  if (adminSave && driveFileId && candidateId) {
+  // Permanently point documents.signed_storage_path at the (at least admin-) signed PDF
+  // so the document view always serves the signed version, not the Drive original.
+  // Runs for all modes — adminSave, adminOnly (save), and with-candidate.
+  if (driveFileId && candidateId) {
     await db
       .from("documents")
       .update({ signed_storage_path: storagePath })
