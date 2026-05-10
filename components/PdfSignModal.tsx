@@ -139,13 +139,20 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
   const [err, setErr]                   = useState("");
   const [signedUrl, setSignedUrl]       = useState<string | null>(null);
 
-  const candidateZones: SigZone[] = (() => {
+  // Mutable local zones — candidate can resize/move before submitting
+  const [localZones, setLocalZones] = useState<SigZone[]>(() => {
     const raw = request.signature_zone;
     if (!raw) return [];
     if (Array.isArray(raw)) return raw.filter(z => !z.party || z.party === "candidate");
-    if (!raw.party || raw.party === "candidate") return [raw];
+    if (!raw.party || raw.party === "candidate") return [raw as SigZone];
     return [];
-  })();
+  });
+  const [activeZoneIdx, setActiveZoneIdx] = useState<number | null>(null);
+  const pageElsRef = useRef<Map<number, HTMLElement>>(new Map());
+  type ZDrag =
+    | { mode: "move"; idx: number; startClientX: number; startClientY: number; startCx: number; startCy: number; startZone: SigZone }
+    | { mode: "resize"; idx: number; handle: string; startClientX: number; startClientY: number; startZone: SigZone; pageW: number; pageH: number };
+  const zoneDragRef = useRef<ZDrag | null>(null);
 
   useEffect(() => {
     if (!authToken) return;
@@ -156,6 +163,52 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
       })
       .catch(() => {});
   }, [authToken]);
+
+  // Global listeners for zone move/resize drag
+  useEffect(() => {
+    const MIN_PX = 16;
+    function onMove(e: MouseEvent) {
+      const drag = zoneDragRef.current;
+      if (!drag) return;
+      e.preventDefault();
+      if (drag.mode === "move") {
+        const { idx, startClientX, startClientY, startCx, startCy, startZone } = drag;
+        const dx = e.clientX - startClientX, dy = e.clientY - startClientY;
+        let hit: { pageNum: number; rect: DOMRect } | null = null;
+        for (const [pageNum, el] of pageElsRef.current) {
+          const rect = el.getBoundingClientRect();
+          if (startCx + dx >= rect.left && startCx + dx <= rect.right && startCy + dy >= rect.top && startCy + dy <= rect.bottom) {
+            hit = { pageNum, rect }; break;
+          }
+        }
+        if (!hit) return;
+        setLocalZones(prev => {
+          const next = [...prev];
+          next[idx] = { ...startZone, page: hit!.pageNum, x: Math.max(0, Math.min(1 - startZone.w, (startCx + dx - hit!.rect.left) / hit!.rect.width - startZone.w / 2)), y: Math.max(0, Math.min(1 - startZone.h, (startCy + dy - hit!.rect.top) / hit!.rect.height - startZone.h / 2)) };
+          return next;
+        });
+      } else if (drag.mode === "resize") {
+        const { idx, handle, startClientX, startClientY, startZone, pageW, pageH } = drag;
+        const dx = (e.clientX - startClientX) / pageW, dy = (e.clientY - startClientY) / pageH;
+        const { x: sx, y: sy, w: sw, h: sh } = startZone;
+        const sf_w = handle.includes("w") ? (sw - dx) / sw : (sw + dx) / sw;
+        const sf_h = handle.includes("n") ? (sh - dy) / sh : (sh + dy) / sh;
+        const scale = Math.max((sf_w + sf_h) / 2, Math.max(MIN_PX / pageW / sw, MIN_PX / pageH / sh));
+        const newW = sw * scale, newH = sh * scale;
+        const newX = handle.includes("w") ? sx + sw - newW : sx;
+        const newY = handle.includes("n") ? sy + sh - newH : sy;
+        setLocalZones(prev => {
+          const next = [...prev];
+          next[idx] = { ...startZone, x: Math.max(0, newX), y: Math.max(0, newY), w: Math.min(1 - Math.max(0, newX), newW), h: Math.min(1 - Math.max(0, newY), newH) };
+          return next;
+        });
+      }
+    }
+    function onUp() { zoneDragRef.current = null; }
+    window.addEventListener("mousemove", onMove, { passive: false });
+    window.addEventListener("mouseup", onUp);
+    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+  }, []);
 
   function applyBgRemoval(dataUri: string) {
     setSigData(null);
@@ -200,7 +253,7 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
       const res = await fetch(`/api/portal/me/sign-requests/${request.id}/sign`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ signatureBase64: sigData }),
+        body: JSON.stringify({ signatureBase64: sigData, ...(localZones.length ? { signatureZone: localZones } : {}) }),
       });
       const j = await res.json() as { ok?: boolean; error?: string; signedPdfUrl?: string };
       if (!res.ok) { setErr(j.error ?? "Error"); return; }
@@ -299,51 +352,109 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                     src={request.pdf_preview_url}
                     hideRotate
                     pageOverlay={({ pageNum }) => {
-                      const pageZones = candidateZones.filter(z => z.page === pageNum);
-                      if (!pageZones.length) return null;
+                      const pageZones = localZones.map((zone, idx) => ({ zone, idx })).filter(({ zone }) => zone.page === pageNum);
                       return (
-                        <>
-                          {pageZones.map((zone, zi) => (
-                            <div key={zi}
-                              className={!sigPlaced && !dragOverZone ? "bv-sig-zone-pulse" : ""}
-                              style={{
-                                position: "absolute",
-                                left: `${zone.x * 100}%`, top: `${zone.y * 100}%`,
-                                width: `${zone.w * 100}%`, height: `${zone.h * 100}%`,
-                                border: `2.5px ${dragOverZone ? "solid" : "dashed"} ${G.accent}`,
-                                background: dragOverZone ? G.bgHover : sigPlaced ? G.bg : "rgba(201,162,64,0.14)",
-                                borderRadius: 6, cursor: "pointer", overflow: "hidden",
-                                transition: "background 0.15s, border 0.15s",
-                                display: "flex", alignItems: "center", justifyContent: "center",
-                              }}
-                              onDragOver={e => { e.preventDefault(); setDragOverZone(true); }}
-                              onDragLeave={() => setDragOverZone(false)}
-                              onDrop={e => {
-                                e.preventDefault(); setDragOverZone(false);
-                                if (e.dataTransfer.getData("bv-sig") === "saved" && savedSig) { setSigData(savedSig); setUsingSaved(true); setSigPlaced(true); }
-                              }}
-                              onClick={() => { if (savedSig && !sigPlaced) { setSigData(savedSig); setUsingSaved(true); setSigPlaced(true); } }}
-                            >
-                              {sigPlaced && sigData ? (
-                                <>
-                                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                                  <img src={sigData} alt="signature" style={{ width: "90%", height: "90%", objectFit: "contain" }} />
-                                  {zi === 0 && (
-                                    <button onClick={e => { e.stopPropagation(); clearSig(); }}
-                                      className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center"
-                                      style={{ background: "rgba(0,0,0,0.5)" }}>
-                                      <XIcon size={8} strokeWidth={2.5} style={{ color: "#fff" }} />
-                                    </button>
+                        <div
+                          ref={el => { if (el) pageElsRef.current.set(pageNum, el); else pageElsRef.current.delete(pageNum); }}
+                          style={{ position: "absolute", inset: 0 }}
+                          onClick={() => setActiveZoneIdx(null)}
+                        >
+                          {pageZones.map(({ zone, idx: zi }) => {
+                            const isActive = activeZoneIdx === zi;
+                            const pageEl = pageElsRef.current.get(pageNum);
+                            const pxW = pageEl ? zone.w * pageEl.offsetWidth  : 200;
+                            const pxH = pageEl ? zone.h * pageEl.offsetHeight : 80;
+                            const sc  = Math.max(0.28, Math.min(1, pxW / 160, pxH / 52));
+                            return (
+                              <div key={zi}
+                                style={{
+                                  position: "absolute",
+                                  left: `${zone.x * 100}%`, top: `${zone.y * 100}%`,
+                                  width: `${zone.w * 100}%`, height: `${zone.h * 100}%`,
+                                  cursor: "move", boxSizing: "border-box",
+                                  zIndex: isActive ? 2 : 1,
+                                }}
+                                onMouseDown={e => {
+                                  if (e.button !== 0) return;
+                                  e.preventDefault(); e.stopPropagation();
+                                  setActiveZoneIdx(zi);
+                                  const el = pageElsRef.current.get(pageNum); if (!el) return;
+                                  const rect = el.getBoundingClientRect();
+                                  zoneDragRef.current = { mode: "move", idx: zi, startClientX: e.clientX, startClientY: e.clientY, startCx: rect.left + (zone.x + zone.w / 2) * rect.width, startCy: rect.top + (zone.y + zone.h / 2) * rect.height, startZone: { ...zone } };
+                                }}
+                                onClick={e => { e.stopPropagation(); if (savedSig && !sigPlaced) { setSigData(savedSig); setUsingSaved(true); setSigPlaced(true); } }}
+                              >
+                                {/* Inner styled box — clips content, excludes handles */}
+                                <div
+                                  className={!sigPlaced && !dragOverZone && !isActive ? "bv-sig-zone-pulse" : ""}
+                                  style={{
+                                    position: "absolute", inset: 0,
+                                    border: `2.5px ${dragOverZone ? "solid" : isActive ? "solid" : "dashed"} ${G.accent}`,
+                                    background: dragOverZone ? G.bgHover : sigPlaced ? G.bg : "rgba(201,162,64,0.14)",
+                                    borderRadius: 6, overflow: "hidden",
+                                    boxShadow: isActive ? `0 0 0 1px rgba(201,162,64,0.35), 0 2px 12px rgba(0,0,0,0.15)` : "none",
+                                    transition: "background 0.15s, border-color 0.15s, box-shadow 0.15s",
+                                    display: "flex", alignItems: "center", justifyContent: "center",
+                                  }}
+                                  onDragOver={e => { e.preventDefault(); setDragOverZone(true); }}
+                                  onDragLeave={() => setDragOverZone(false)}
+                                  onDrop={e => {
+                                    e.preventDefault(); setDragOverZone(false);
+                                    if (e.dataTransfer.getData("bv-sig") === "saved" && savedSig) { setSigData(savedSig); setUsingSaved(true); setSigPlaced(true); }
+                                  }}
+                                >
+                                  {sigPlaced && sigData ? (
+                                    <>
+                                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                                      <img src={sigData} alt="signature" style={{ width: "90%", height: "90%", objectFit: "contain", pointerEvents: "none", userSelect: "none" }} />
+                                      {zi === 0 && (
+                                        <button onClick={e => { e.stopPropagation(); clearSig(); }}
+                                          className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full flex items-center justify-center"
+                                          style={{ background: "rgba(0,0,0,0.5)" }}>
+                                          <XIcon size={8} strokeWidth={2.5} style={{ color: "#fff" }} />
+                                        </button>
+                                      )}
+                                    </>
+                                  ) : (
+                                    <span style={{ fontSize: 11, color: G.accent, fontWeight: 700, textShadow: "0 1px 3px rgba(0,0,0,0.6)", pointerEvents: "none" }}>
+                                      ✍ {t.dropHere}
+                                    </span>
                                   )}
-                                </>
-                              ) : (
-                                <span style={{ fontSize: 11, color: G.accent, fontWeight: 700, textShadow: "0 1px 3px rgba(0,0,0,0.6)", pointerEvents: "none" }}>
-                                  ✍ {t.dropHere}
-                                </span>
-                              )}
-                            </div>
-                          ))}
-                        </>
+                                </div>
+
+                                {/* 4-corner resize handles — only on active zone */}
+                                {isActive && ([
+                                  { id: "nw", top: "0%",   left: "0%",   cursor: "nw-resize" },
+                                  { id: "ne", top: "0%",   left: "100%", cursor: "ne-resize" },
+                                  { id: "sw", top: "100%", left: "0%",   cursor: "sw-resize" },
+                                  { id: "se", top: "100%", left: "100%", cursor: "se-resize" },
+                                ] as const).map(h => (
+                                  <div key={h.id}
+                                    style={{
+                                      position: "absolute",
+                                      top: h.top, left: h.left,
+                                      transform: "translate(-50%, -50%)",
+                                      width: Math.max(7, Math.round(16 * sc)), height: Math.max(7, Math.round(16 * sc)),
+                                      background: "#fff",
+                                      border: `${Math.max(1.5, 3 * sc)}px solid ${G.accent}`,
+                                      borderRadius: "50%",
+                                      cursor: h.cursor,
+                                      zIndex: 4,
+                                      boxShadow: `0 2px 8px rgba(0,0,0,0.5), 0 0 0 ${Math.max(0.8, 1.5 * sc)}px ${G.accent}`,
+                                    }}
+                                    onMouseDown={e => {
+                                      if (e.button !== 0) return;
+                                      e.preventDefault(); e.stopPropagation();
+                                      const el = pageElsRef.current.get(pageNum); if (!el) return;
+                                      const rect = el.getBoundingClientRect();
+                                      zoneDragRef.current = { mode: "resize", idx: zi, handle: h.id, startClientX: e.clientX, startClientY: e.clientY, startZone: { ...zone }, pageW: rect.width, pageH: rect.height };
+                                    }}
+                                  />
+                                ))}
+                              </div>
+                            );
+                          })}
+                        </div>
                       );
                     }}
                   />

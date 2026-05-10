@@ -27,12 +27,12 @@ export async function POST(
   const auth = await requireUser(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-  let body: { signatureBase64?: string };
+  let body: { signatureBase64?: string; signatureZone?: unknown };
   try { body = await req.json(); } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { signatureBase64 } = body;
+  const { signatureBase64, signatureZone: clientZoneRaw } = body;
   if (!signatureBase64) return NextResponse.json({ error: "Missing signature" }, { status: 400 });
 
   const db = getServiceSupabase();
@@ -107,8 +107,15 @@ export async function POST(
       }
     } catch { /* use default */ }
   }
-  // Only stamp candidate zones (no party = legacy, treat as candidate)
-  const candidateZones = allZones.filter(z => !z.party || z.party === "candidate");
+  // If client sent adjusted zones (candidate resized), prefer those; else use DB zones
+  let candidateZones: SigZone[];
+  if (clientZoneRaw) {
+    const clientArr = Array.isArray(clientZoneRaw) ? clientZoneRaw : [clientZoneRaw];
+    const valid = (clientArr as Partial<SigZone>[]).filter(isValidZone);
+    candidateZones = valid.length > 0 ? valid : allZones.filter(z => !z.party || z.party === "candidate");
+  } else {
+    candidateZones = allZones.filter(z => !z.party || z.party === "candidate");
+  }
 
   // Embed the signature image — support both PNG and JPEG
   const sigDataUri = signatureBase64.startsWith("data:")
