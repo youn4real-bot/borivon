@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { ThemeProvider } from "@/components/ThemeContext";
 import { LangProvider } from "@/components/LangContext";
@@ -10,6 +11,7 @@ import { MessageIcon } from "@/components/MessageIcon";
 import { ProfileIcon } from "@/components/ProfileIcon";
 import { BugReportButton } from "@/components/BugReportButton";
 import { useLang } from "@/components/LangContext";
+import { supabase } from "@/lib/supabase";
 
 function HomeLoginButton() {
   const { lang } = useLang();
@@ -50,13 +52,24 @@ export function GlobalChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "";
   const isPortal = pathname.startsWith("/portal");
   const isHome   = pathname === "/";
+  const [isAuthed, setIsAuthed] = useState(false);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setIsAuthed(!!session);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_evt, session) => {
+      setIsAuthed(!!session);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
 
   return (
     <ThemeProvider>
       <LangProvider>
         <MobileMenuProvider>
           <Navbar
-rightExtra={isPortal ? (
+            rightExtra={isPortal && isAuthed ? (
               <>
                 <MessageIcon />
                 <NotificationBell />
@@ -66,14 +79,10 @@ rightExtra={isPortal ? (
               <HomeLoginButton />
             ) : null}
           />
-          {/* 100 px bottom clearance only on portal mobile (where the
-              bottom action bar lives). Public pages stay flush. */}
           <div className={isPortal ? "pb-[100px] sm:pb-0" : ""}>
             {children}
           </div>
-          {/* Bug-report button: portal-only. Public/marketing pages never render
-              it so a stale cached session can't leak after logout. */}
-          {isPortal && <BugReportButton />}
+          {isPortal && isAuthed && <BugReportButton />}
         </MobileMenuProvider>
       </LangProvider>
     </ThemeProvider>
