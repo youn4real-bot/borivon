@@ -79,7 +79,7 @@ export function Navbar({ rightExtra, leftExtra }: { rightExtra?: ReactNode; left
   // Tabs only render once we have a verified session. authTk drives this so
   // logout immediately hides Dashboard + Community even though we're still on
   // /portal/* (the login page lives there).
-  const portalTabs = useBottomBar && authTk ? [
+  const portalTabs = useBottomBar && authTk && pathname !== "/portal" ? [
     { label: PNT.dashboard, href: dashHref,        active: !isFeed },
     { label: PNT.community, href: "/portal/feed",  active: isFeed  },
   ] : null;
