@@ -1,8 +1,8 @@
 ﻿"use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback, Suspense } from "react";
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { LABEL_TO_FILE_KEY, FILE_KEY_ALL_LABELS } from "@/lib/fileKeys";
 import { supabase } from "@/lib/supabase";
@@ -30,6 +30,7 @@ import { MatchedCelebration } from "@/components/MatchedCelebration";
 import { PaymentCelebration } from "@/components/PaymentCelebration";
 import { PortalTopNav } from "@/components/PortalTopNav";
 import { PendingSignatures } from "@/components/PendingSignatures";
+import { PdfSignModal, type SignRequestFull } from "@/components/PdfSignModal";
 
 // Onboarding tour is shown at most once per user (gated by a localStorage
 // flag). Lazy-load so returning users don't pay for it.
@@ -138,6 +139,12 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" });
 }
 
+function SignParamReader({ onParam }: { onParam: (id: string | null) => void }) {
+  const sp = useSearchParams();
+  const signId = sp.get("sign");
+  useEffect(() => { onParam(signId); }, [signId]); // eslint-disable-line react-hooks/exhaustive-deps
+  return null;
+}
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -254,6 +261,7 @@ export default function DashboardPage() {
   const xhrRef = useRef<XMLHttpRequest | null>(null);
   const skipTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const slotMsgTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSignRef = useRef<HTMLDivElement>(null);
   // Issue 13.1: tracks which "other" doc to delete AFTER a successful replacement
   // upload. We also store the slot key so a stale ref can't accidentally delete
   // a doc when the user uploads to a *different* slot after cancelling a replace.
@@ -289,15 +297,26 @@ export default function DashboardPage() {
   const hasPremium = paymentTier === "premium";
 
   // Sign requests — documents sent for digital signature
-  type SignReq = { id: string; document_name: string; note: string | null; status: "pending" | "signed" | "declined"; signed_at: string | null; created_at: string; signature_zone: { page: number; x: number; y: number; w: number; h: number } | null; pdf_preview_url: string | null; };
+  type SignReq = { id: string; document_name: string; note: string | null; status: "pending" | "signed" | "declined"; signed_at: string | null; created_at: string; signature_zone: { page: number; x: number; y: number; w: number; h: number } | null; pdf_preview_url: string | null; review_status: string | null; review_feedback: string | null; };
   const [signRequests, setSignRequests] = useState<SignReq[]>([]);
-  // Bell deep-link: ?sign=<requestId> → auto-open that sign request
+  // Sign modal triggered from doc viewer (candidate opens a doc that needs signing)
+  const [docViewerSignReq, setDocViewerSignReq] = useState<SignReq | null>(null);
+  // Bell deep-link: ?sign=<requestId> → auto-open the sign modal directly
   const [autoOpenSignId, setAutoOpenSignId] = useState<string | null>(null);
+  // Once sign requests load, find the matching pending request and open the modal.
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const id = new URLSearchParams(window.location.search).get("sign");
-    if (id) setAutoOpenSignId(id);
-  }, []);
+    if (!autoOpenSignId || signRequests.length === 0) return;
+    const req = signRequests.find(r => r.id === autoOpenSignId && r.status === "pending");
+    if (!req) return;
+    setAutoOpenSignId(null);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("sign");
+      window.history.replaceState({}, "", url.toString());
+    }
+    setDocViewerSignReq(req);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoOpenSignId, signRequests.length]);
 
   // (Mobile drawer + bottom-bar hamburger removed — sidebar is now always
   // visible on every breakpoint, matching the admin dashboard layout.)
@@ -559,6 +578,23 @@ export default function DashboardPage() {
   // once docs have loaded (handles both same-page and fresh-navigation cases).
   const [pendingOpenDocId, setPendingOpenDocId] = useState<string | null>(null);
 
+  // Auto-open sign modal when candidate opens a doc that has a pending sign request
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!previewDoc) { setDocViewerSignReq(null); return; }
+    const dk = LABEL_TO_FILE_KEY[previewDoc.file_type] ?? null;
+    const req = signRequests.find(r =>
+      r.status === "pending" && (
+        r.document_name === previewDoc.file_type ||
+        r.document_name === previewDoc.file_name ||
+        (dk && LABEL_TO_FILE_KEY[r.document_name] === dk)
+      )
+    );
+    if (req) setDocViewerSignReq(req);
+    else setDocViewerSignReq(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewDoc?.id]);
+
   // Auto-open passport-data modal only during the first-time submission flow
   // (passportStatus is null = never submitted). Once submitted (pending /
   // approved / rejected) the candidate can open it manually via the button.
@@ -632,7 +668,22 @@ export default function DashboardPage() {
         return next;
       });
     }
-    setPreviewDoc(doc);
+    // If this doc has a pending sign request, force open the sign modal immediately
+    // instead of the normal PDF viewer. After signing, the viewer shows normally.
+    const ft = doc.file_type, fn = doc.file_name;
+    const dk = LABEL_TO_FILE_KEY[ft] ?? null;
+    const pendingReq = signRequests.find(r =>
+      r.status === "pending" && (
+        r.document_name === ft ||
+        r.document_name === fn ||
+        (dk && LABEL_TO_FILE_KEY[r.document_name] === dk)
+      )
+    ) ?? null;
+    if (pendingReq) {
+      setDocViewerSignReq(pendingReq);
+    } else {
+      setPreviewDoc(doc);
+    }
   }
 
   // When a notification carried a doc_id, open its preview as soon as docs are loaded.
@@ -1401,6 +1452,19 @@ export default function DashboardPage() {
       // Once submitted (pending / approved / rejected) the doc viewer
       // shows full-screen with zoom/rotation; data opens as standalone popup.
       const verificationPhase = isPassportDoc && !passportStatus;
+      // Find matching sign requests for this doc.
+      // Match by exact name first, then by fileKey (handles multilingual labels):
+      // e.g. admin names it "Reisepass" but candidate uploaded as "Passport" → same key "id"
+      const _ft = previewDoc!.file_type, _fn = previewDoc!.file_name;
+      const _dk = LABEL_TO_FILE_KEY[_ft] ?? null;
+      function matchesDoc(r: { document_name: string }) {
+        if (r.document_name === _ft) return true;
+        if (r.document_name === _fn) return true;
+        if (_dk && LABEL_TO_FILE_KEY[r.document_name] === _dk) return true;
+        return false;
+      }
+      const pendingSignReq = signRequests.find(r => r.status === "pending" && matchesDoc(r)) ?? null;
+      const signedSignReq  = signRequests.find(r => r.status === "signed"  && matchesDoc(r)) ?? null;
       return (
       <div className={`fixed inset-x-0 z-[700] flex justify-center px-2 bv-cand-preview-outer ${verificationPhase && passportModal ? "bv-side-preview-cand" : "items-center"}`}
         style={{
@@ -1488,10 +1552,26 @@ export default function DashboardPage() {
                 {lang === "de" ? "Passdaten" : lang === "fr" ? "Données" : "Passport data"}
               </button>
             )}
-            {previewBlobUrl && (
+            {/* Signature button — shown when this doc has a pending sign request */}
+            {pendingSignReq && (
+              <button
+                onClick={() => setDocViewerSignReq(pendingSignReq)}
+                className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-bold transition-all hover:opacity-85 active:scale-[0.97] mr-1"
+                style={{ background: "var(--gold)", color: "#131312" }}
+                title={lang === "de" ? "Signieren" : lang === "fr" ? "Signer" : "Sign document"}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+                </svg>
+                {lang === "de" ? "Signieren" : lang === "fr" ? "Signer" : "Sign"}
+              </button>
+            )}
+            {/* Download — signed version if signed, original otherwise */}
+            {(signedSignReq?.pdf_preview_url ?? previewBlobUrl) && (
               <a
-                href={previewBlobUrl}
+                href={signedSignReq?.pdf_preview_url ?? previewBlobUrl!}
                 download={previewDoc.file_name}
+                target={signedSignReq ? "_blank" : undefined}
+                rel={signedSignReq ? "noopener noreferrer" : undefined}
                 className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center"
                 style={{ color: "var(--w2)" }}
                 aria-label={lang === "de" ? "Herunterladen" : lang === "fr" ? "Télécharger" : "Download"}
@@ -1508,26 +1588,43 @@ export default function DashboardPage() {
           </div>
           {/* Preview — PDF, image, or fallback download. */}
           <div className="flex-1" style={{ minHeight: 0, position: "relative" }}>
-            {previewLoading || !previewBlobUrl ? (
+            {/* Pending sign req: hide PDF, sign modal (z-1300) handles UI */}
+            {pendingSignReq ? (
+              <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10, background: "var(--bg2)" }}>
+                <FilePen size={28} strokeWidth={1.5} style={{ color: "var(--gold)", opacity: 0.7 }} />
+                <p className="text-[13px] font-semibold" style={{ color: "var(--w2)" }}>
+                  {lang === "de" ? "Unterschrift erforderlich" : lang === "fr" ? "Signature requise" : "Signature required"}
+                </p>
+              </div>
+            ) : previewLoading || !previewBlobUrl ? (
               <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#525659" }}>
                 <Spinner size="md" />
               </div>
             ) : (() => {
               const ext = (previewDoc.file_name.split(".").pop() ?? "").toLowerCase();
               if (ext === "pdf") return (
-                <PdfViewer
-                  src={previewBlobUrl}
-                  onRotate={() => {
-                    fetch(`/api/portal/documents/${previewDoc.id}`, {
-                      method: "PATCH",
-                      headers: {
-                        "Content-Type": "application/json",
-                        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-                      },
-                      body: JSON.stringify({ deltaRotation: 90 }),
-                    }).catch(e => console.error("[rotation] persist failed:", e));
-                  }}
-                />
+                <div style={{ position: "relative", height: "100%" }}>
+                  <PdfViewer
+                    src={previewBlobUrl}
+                    onRotate={() => {
+                      fetch(`/api/portal/documents/${previewDoc.id}`, {
+                        method: "PATCH",
+                        headers: {
+                          "Content-Type": "application/json",
+                          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+                        },
+                        body: JSON.stringify({ deltaRotation: 90 }),
+                      }).catch(e => console.error("[rotation] persist failed:", e));
+                    }}
+                  />
+                  {/* Click overlay — opens sign modal when doc has a pending sign request */}
+                  {pendingSignReq && (
+                    <div
+                      style={{ position: "absolute", inset: 0, cursor: "pointer", zIndex: 10 }}
+                      onClick={() => setDocViewerSignReq(pendingSignReq)}
+                    />
+                  )}
+                </div>
               );
               if (ext === "docx") return <DocxViewer src={previewBlobUrl} fileName={previewDoc.file_name} />;
               if (["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext)) {
@@ -1631,26 +1728,19 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* ── Pending signature requests ── */}
-        {signRequests.length > 0 && (
-          <div className="mb-6">
-            <PendingSignatures
-              requests={signRequests}
-              lang={(lang as "en" | "fr" | "de") in { en: 1, fr: 1, de: 1 } ? lang as "en" | "fr" | "de" : "en"}
-              authToken={authToken}
-              onSigned={(id) => setSignRequests(prev => prev.map(r => r.id === id ? { ...r, status: "signed" } : r))}
-              autoOpenId={autoOpenSignId}
-              onAutoOpenConsumed={() => {
-                setAutoOpenSignId(null);
-                // Clean the ?sign= param from URL so refreshing doesn't reopen it
-                if (typeof window !== "undefined") {
-                  const url = new URL(window.location.href);
-                  url.searchParams.delete("sign");
-                  window.history.replaceState({}, "", url.toString());
-                }
-              }}
-            />
-          </div>
+
+        {/* Reads ?sign=<id> from URL reactively, even on SPA navigations */}
+        <Suspense><SignParamReader onParam={id => { if (id) setAutoOpenSignId(id); }} /></Suspense>
+
+        {/* Sign modal triggered from doc viewer */}
+        {docViewerSignReq && (
+          <PdfSignModal
+            request={docViewerSignReq as unknown as SignRequestFull}
+            lang={(lang as "en" | "fr" | "de") in { en: 1, fr: 1, de: 1 } ? lang as "en" | "fr" | "de" : "en"}
+            authToken={authToken}
+            onSigned={(id) => { setSignRequests(prev => prev.map(r => r.id === id ? { ...r, status: "signed" } : r)); setDocViewerSignReq(null); setPreviewDoc(null); }}
+            onClose={() => setDocViewerSignReq(null)}
+          />
         )}
 
         {/* ── Partner Organization cards ──

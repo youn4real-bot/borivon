@@ -500,14 +500,34 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
 
 // ── Admin bell ────────────────────────────────────────────────────────────────
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function AdminBell({ accessToken }: { accessToken: string }) {
   const [notifs, setNotifs]   = useState<AdminNotif[]>([]);
   const [open, setOpen]       = useState(false);
   const [tab, setTab]         = useState<"all" | "unread">("all");
+  const [srLoading, setSrLoading]   = useState<Record<string, boolean>>({});
+  const [srDone, setSrDone]         = useState<Record<string, "accepted" | "rejected">>({});
+  const [srFeedback, setSrFeedback] = useState<Record<string, string>>({});
   const ref    = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const { lang } = useLang();
   const t = BELL_T[lang as keyof typeof BELL_T] ?? BELL_T.en;
+
+  async function reviewSign(signReqId: string, action: "accept" | "reject", feedback: string) {
+    if (action === "reject" && !feedback.trim()) return;
+    setSrLoading(p => ({ ...p, [signReqId]: true }));
+    try {
+      const res = await fetch(`/api/portal/admin/sign-request/${signReqId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ action, feedback: feedback.trim() || undefined }),
+      });
+      if (res.ok) setSrDone(p => ({ ...p, [signReqId]: action === "accept" ? "accepted" : "rejected" }));
+    } finally {
+      setSrLoading(p => ({ ...p, [signReqId]: false }));
+    }
+  }
 
   const fetch_ = useCallback(async () => {
     try {
@@ -717,22 +737,68 @@ function AdminBell({ accessToken }: { accessToken: string }) {
                             <p className="text-[11px] mt-0.5 truncate" style={{ color: "var(--w3)" }}>{n.user_email}</p>
                           )}
                         </>
-                      ) : isDocSigned ? (
-                        <>
-                          <p className="text-xs leading-snug flex items-center gap-1" style={{ color: "var(--w)" }}>
-                            <span className="font-semibold">{n.user_name}</span>
-                            {n.user_verified && <VerifiedBadge verified size="xs" color="gold" />}
-                            {t.signedDoc}
-                          </p>
-                          {n.doc_name && (
-                            <p className="text-[11px] mt-0.5 px-2 py-1 rounded-lg leading-snug"
-                              style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                              <FilePen size={10} strokeWidth={1.8} className="inline mr-1" />
-                              {n.doc_name}
-                            </p>
-                          )}
-                        </>
-                      ) : (
+                      ) : isDocSigned ? (() => {
+                          const signReqId = n.doc_type && UUID_RE.test(n.doc_type) ? n.doc_type : null;
+                          const done = signReqId ? srDone[signReqId] : null;
+                          const loading = signReqId ? (srLoading[signReqId] ?? false) : false;
+                          const fb = signReqId ? (srFeedback[signReqId] ?? "") : "";
+                          return (
+                            <>
+                              <p className="text-xs leading-snug flex items-center gap-1" style={{ color: "var(--w)" }}>
+                                <span className="font-semibold">{n.user_name}</span>
+                                {n.user_verified && <VerifiedBadge verified size="xs" color="gold" />}
+                                {t.signedDoc}
+                              </p>
+                              {n.doc_name && (
+                                <p className="text-[11px] mt-1 px-2 py-1 rounded-lg leading-snug"
+                                  style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                                  <FilePen size={10} strokeWidth={1.8} className="inline mr-1" />
+                                  {n.doc_name}
+                                </p>
+                              )}
+                              {signReqId && !done && (
+                                <div className="mt-2 space-y-1.5" onClick={e => e.stopPropagation()}>
+                                  <div className="flex gap-1.5">
+                                    <button
+                                      disabled={loading}
+                                      onClick={() => reviewSign(signReqId, "accept", "")}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10.5px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-40"
+                                      style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
+                                      <CheckCircle2 size={10} strokeWidth={2} />
+                                      {lang === "de" ? "Akzeptieren" : lang === "fr" ? "Accepter" : "Accept"}
+                                    </button>
+                                    <button
+                                      disabled={loading || !fb.trim()}
+                                      onClick={() => reviewSign(signReqId, "reject", fb)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10.5px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-40"
+                                      style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
+                                      <XCircle size={10} strokeWidth={2} />
+                                      {lang === "de" ? "Ablehnen" : lang === "fr" ? "Rejeter" : "Reject"}
+                                    </button>
+                                  </div>
+                                  <input
+                                    type="text"
+                                    value={fb}
+                                    onChange={e => setSrFeedback(p => ({ ...p, [signReqId]: e.target.value }))}
+                                    placeholder={lang === "de" ? "Feedback (für Ablehnung)" : lang === "fr" ? "Feedback (rejet)" : "Feedback (for rejection)"}
+                                    className="w-full px-2.5 py-1.5 text-[10.5px] outline-none rounded-lg"
+                                    style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)" }}
+                                  />
+                                </div>
+                              )}
+                              {done && (
+                                <span className="inline-block mt-1.5 text-[10.5px] font-semibold px-2 py-0.5 rounded-full"
+                                  style={done === "accepted"
+                                    ? { background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }
+                                    : { background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
+                                  {done === "accepted"
+                                    ? (lang === "de" ? "Akzeptiert" : lang === "fr" ? "Accepté" : "Accepted")
+                                    : (lang === "de" ? "Abgelehnt" : lang === "fr" ? "Rejeté" : "Rejected")}
+                                </span>
+                              )}
+                            </>
+                          );
+                        })() : (
                         <>
                           <p className="text-xs leading-snug flex items-center gap-1" style={{ color: "var(--w)" }}>
                             <span className="font-semibold">{n.user_name}</span>

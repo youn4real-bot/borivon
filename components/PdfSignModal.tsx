@@ -58,6 +58,8 @@ export type SignRequestFull = {
   created_at: string;
   signature_zone: SigZone | SigZone[] | null;
   pdf_preview_url: string | null;
+  review_status: string | null;
+  review_feedback: string | null;
 };
 
 const T = {
@@ -135,7 +137,8 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
   const cropImgRef    = useRef<HTMLImageElement | null>(null);
   const cropZoneElRef = useRef<HTMLElement | null>(null);
   const cropInsetsRef = useRef<CropInsets>({ t: 0, r: 0, b: 0, l: 0 });
-  const uploadRef     = useRef<HTMLInputElement>(null);
+
+  const uploadRef = useRef<HTMLInputElement>(null);
 
   const [sigPlaced, setSigPlaced] = useState(false);
   const [signing, setSigning]     = useState(false);
@@ -222,7 +225,6 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
 
   // Inline crop — exact copy from PdfZonePicker
   function applyCrop() {
-
     const img = cropImgRef.current;
     const el  = cropZoneElRef.current;
     const zoneIdx = cropZoneIdx;
@@ -363,6 +365,9 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
           <div className="overflow-y-auto flex-1 p-4 text-center space-y-3 py-8">
             <CheckCircle2 size={44} strokeWidth={1.5} className="mx-auto" style={{ color: "var(--success)" }} />
             <p className="text-[14px] font-semibold" style={{ color: "var(--w)" }}>{t.signed}</p>
+            <p className="text-[12.5px]" style={{ color: "var(--gold)" }}>
+              {lang === "de" ? "Wird geprüft — wir melden uns bald bei Ihnen." : lang === "fr" ? "En cours de vérification — nous reviendrons vers vous." : "Under review — we'll get back to you soon."}
+            </p>
             <a href={signedUrl} target="_blank" rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-[13px] font-semibold transition-opacity hover:opacity-80"
               style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
@@ -397,7 +402,7 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                             const pageEl = pageElsRef.current.get(pageNum);
                             const pxW = pageEl ? zone.w * pageEl.offsetWidth  : 200;
                             const pxH = pageEl ? zone.h * pageEl.offsetHeight : 80;
-                            const sc  = Math.max(0.28, Math.min(1, pxW / 160, pxH / 52));
+                            const sc  = Math.max(0.28, Math.min(pxW / 160, pxH / 52));
 
                             function makeCropDragDown(hId: string) {
                               return (e: React.MouseEvent) => {
@@ -514,38 +519,30 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                                   )}
                                 </div>
 
-                                {/* Pill [label][×] — exact same structure as PdfZonePicker admin pill */}
+                                {/* Candidate pill — same structure as PdfZonePicker's party pill */}
                                 {!inCropMode && (
                                   <div style={{ position: "absolute", top: -1, left: -1, display: "flex", alignItems: "stretch", zIndex: 5, boxShadow: "0 1px 6px rgba(0,0,0,0.35)", borderRadius: "4px 4px 5px 0" }}>
-                                    <div
-                                      style={{
-                                        fontSize: Math.max(6, Math.round(8 * sc)), fontWeight: 800,
-                                        padding: `${Math.max(1, Math.round(2 * sc))}px ${Math.max(4, Math.round(7 * sc))}px`,
-                                        borderRadius: "4px 0 0 0",
-                                        background: "var(--gold)",
-                                        color: "#131312",
-                                        lineHeight: 1.7,
-                                        letterSpacing: "0.07em", textTransform: "uppercase",
-                                        display: "flex", alignItems: "center",
-                                        userSelect: "none",
-                                      }}
-                                    >
+                                    <div style={{
+                                      fontSize: Math.max(6, Math.min(16, Math.round(8 * sc))), fontWeight: 800,
+                                      padding: `${Math.max(1, Math.round(2 * sc))}px ${Math.max(4, Math.round(7 * sc))}px`,
+                                      borderRadius: sigPlaced && sigData && !bgRemoving ? "4px 0 0 0" : "4px",
+                                      background: "var(--gold)", color: "#131312",
+                                      lineHeight: 1.7, letterSpacing: "0.07em", textTransform: "uppercase",
+                                      display: "flex", alignItems: "center", userSelect: "none",
+                                    }}>
                                       {lang === "fr" ? "Candidat" : lang === "de" ? "Kandidat" : "Candidate"}
                                     </div>
                                     {sigPlaced && sigData && !bgRemoving && (
-                                      <button
-                                        style={{
-                                          padding: `${Math.max(1, Math.round(2 * sc))}px ${Math.max(3, Math.round(5 * sc))}px`,
-                                          borderRadius: "0 4px 4px 0",
-                                          background: "rgba(15,15,15,0.75)",
-                                          backdropFilter: "blur(4px)",
-                                          color: "rgba(255,255,255,0.85)", border: "none", cursor: "pointer",
-                                          display: "flex", alignItems: "center", justifyContent: "center",
-                                          fontSize: Math.max(7, Math.round(9 * sc)), fontWeight: 700, lineHeight: 1,
-                                        }}
+                                      <button style={{
+                                        padding: `${Math.max(1, Math.round(2 * sc))}px ${Math.max(3, Math.round(5 * sc))}px`,
+                                        borderRadius: "0 4px 4px 0",
+                                        background: "rgba(15,15,15,0.75)", backdropFilter: "blur(4px)",
+                                        color: "rgba(255,255,255,0.85)", border: "none", cursor: "pointer",
+                                        display: "flex", alignItems: "center", justifyContent: "center",
+                                        fontSize: Math.max(7, Math.min(18, Math.round(9 * sc))), fontWeight: 700, lineHeight: 1,
+                                      }}
                                         onMouseDown={e => e.stopPropagation()}
-                                        onClick={e => { e.stopPropagation(); clearSig(); }}
-                                      >
+                                        onClick={e => { e.stopPropagation(); clearSig(); }}>
                                         ✕
                                       </button>
                                     )}
@@ -619,10 +616,13 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
               </div>
             </div>
 
-            {/* Signature section */}
+            {/* Hidden file input — always mounted so uploadRef is accessible */}
+            <input ref={uploadRef} type="file" accept="image/*" style={{ display: "none" }}
+              onChange={e => { const f = e.target.files?.[0]; if (f) handleFileRead(f); e.target.value = ""; }} />
+
+            {/* Signature section — hidden once candidate has placed their signature */}
+            {(!sigData || !sigPlaced || bgRemoving) && (
             <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3" style={{ borderTop: "1px solid var(--border)" }}>
-              <input ref={uploadRef} type="file" accept="image/*" style={{ display: "none" }}
-                onChange={e => { const f = e.target.files?.[0]; if (f) handleFileRead(f); e.target.value = ""; }} />
 
               <div className="rounded-2xl p-4 space-y-3" style={{ background: G.bg, border: `1.5px solid ${G.border}` }}>
                 <p className="text-[11.5px] font-semibold" style={{ color: G.accent }}>
@@ -697,12 +697,27 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
 
               {err && <p className="text-[12px] mt-2" style={{ color: "var(--error, #e03030)" }}>{err}</p>}
             </div>
+            )}
           </>
         )}
 
         {/* Footer */}
         {!signedUrl && (
           <div className="flex-shrink-0 px-4 py-3 flex gap-2" style={{ borderTop: "1px solid var(--border)" }}>
+            {sigData && sigPlaced && !bgRemoving && (
+              <>
+                <button type="button" onClick={() => uploadRef.current?.click()}
+                  className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-[11.5px] font-semibold transition-opacity hover:opacity-80 flex-shrink-0"
+                  style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
+                  <Upload size={11} strokeWidth={2} />{t.replace}
+                </button>
+                <button type="button" onClick={clearSig}
+                  className="inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-[11.5px] font-semibold transition-opacity hover:opacity-80 flex-shrink-0"
+                  style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
+                  ✕ {t.clear}
+                </button>
+              </>
+            )}
             <button onClick={handleConfirm} disabled={signing || !sigData || bgRemoving}
               className="flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[13.5px] font-semibold transition-all disabled:opacity-50 hover:opacity-90 active:scale-[0.98]"
               style={{ background: "var(--gold)", color: "#131312" }}>

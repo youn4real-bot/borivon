@@ -242,18 +242,21 @@ export async function POST(req: NextRequest) {
     return [];
   }
 
-  // Stamp admin signature — runs whenever adminSignatureBase64 is provided.
-  // In with-candidate mode, only admin-party zones are used; if none exist, stamps at default bottom-right.
-  // In adminOnly/adminSave mode, all zones are stamped (or default if none drawn).
+  // Stamp admin signature only when admin actively signed:
+  // - adminOnly/adminSave: use default bottom-right if no zones drawn (intentional self-signing)
+  // - candidate mode: only stamp if explicit admin zones exist — never default-stamp onto candidate's PDF
   if (adminSignatureBase64) {
     const allZones = signatureZones ? parseZones(signatureZones) : [];
     const zones = (adminOnly || adminSave) ? allZones : allZones.filter(z => z.party === "admin");
-    try {
-      const sigUri = adminSignatureBase64.startsWith("data:") ? adminSignatureBase64 : `data:image/png;base64,${adminSignatureBase64}`;
-      pdfBuffer = await stampZonesOnBuffer(pdfBuffer!, sigUri, auth.email, zones, true);
-    } catch (e) {
-      console.error("[sign-request POST] admin stamp error:", e);
-      return NextResponse.json({ error: "Could not stamp admin signature onto PDF. The PDF may be encrypted or in an unsupported format." }, { status: 422 });
+    const useDefault = adminOnly || adminSave;
+    if (useDefault || zones.length > 0) {
+      try {
+        const sigUri = adminSignatureBase64.startsWith("data:") ? adminSignatureBase64 : `data:image/png;base64,${adminSignatureBase64}`;
+        pdfBuffer = await stampZonesOnBuffer(pdfBuffer!, sigUri, auth.email, zones, useDefault);
+      } catch (e) {
+        console.error("[sign-request POST] admin stamp error:", e);
+        return NextResponse.json({ error: "Could not stamp admin signature onto PDF. The PDF may be encrypted or in an unsupported format." }, { status: 422 });
+      }
     }
   }
 

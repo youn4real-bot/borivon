@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
   const db = getServiceSupabase();
   const { data, error } = await db
     .from("sign_requests")
-    .select("id, document_name, note, status, signed_at, created_at, pdf_storage_path, signed_pdf_path, signature_zone, viewed_at")
+    .select("id, document_name, note, status, signed_at, created_at, pdf_storage_path, signed_pdf_path, signature_zone, viewed_at, review_status, review_feedback")
     .eq("candidate_user_id", auth.userId)
     .order("created_at", { ascending: false });
 
@@ -33,6 +33,7 @@ export async function GET(req: NextRequest) {
       status: string; signed_at: string | null; created_at: string;
       pdf_storage_path: string | null; signed_pdf_path: string | null;
       signature_zone: string | null; viewed_at: string | null;
+      review_status: string | null; review_feedback: string | null;
     }) => {
       let pdf_preview_url: string | null = null;
       // For pending: use original path. For signed: prefer signed_pdf_path (has all signatures),
@@ -59,6 +60,8 @@ export async function GET(req: NextRequest) {
         created_at: r.created_at,
         signature_zone,
         pdf_preview_url,
+        review_status: r.review_status,
+        review_feedback: r.review_feedback,
       };
     }),
   );

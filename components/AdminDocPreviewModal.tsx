@@ -71,6 +71,7 @@ type Doc = {
 export function AdminDocPreviewModal({
   doc, accessToken, onClose, onUpdated, noPreviewText = "Preview not available",
   onShowPassportData, sideBySide = false, overrideFetchUrl, onSign,
+  onCustomApprove, onCustomReject,
 }: {
   doc: Doc;
   accessToken: string;
@@ -79,10 +80,12 @@ export function AdminDocPreviewModal({
   noPreviewText?: string;
   onShowPassportData?: () => void;
   sideBySide?: boolean;
-  /** When provided, fetch the preview from this URL instead of /api/portal/file. */
   overrideFetchUrl?: string;
-  /** When provided, shows a Sign button in the header that calls this. */
   onSign?: () => void;
+  /** When set, overrides the default doc-approve API call. */
+  onCustomApprove?: () => Promise<void>;
+  /** When set, overrides the default doc-reject API call. */
+  onCustomReject?: (feedback: string) => Promise<void>;
 }) {
   const { lang, t: gT } = useLang();
   const dt = dm[lang as keyof typeof dm] ?? dm.en;
@@ -124,6 +127,12 @@ export function AdminDocPreviewModal({
     setSubmitting(true);
     setActionError(null);
     try {
+      if (onCustomApprove) {
+        await onCustomApprove();
+        setSavedAs("approved");
+        closeTimerRef.current = setTimeout(onClose, 700);
+        return;
+      }
       const res = await fetch("/api/portal/admin", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
@@ -149,6 +158,13 @@ export function AdminDocPreviewModal({
     setActionError(null);
     try {
       const fb = text.trim() || null;
+      if (onCustomReject) {
+        await onCustomReject(fb ?? "");
+        setRejectOpen(false);
+        setSavedAs("rejected");
+        closeTimerRef.current = setTimeout(onClose, 700);
+        return;
+      }
       const res = await fetch("/api/portal/admin", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
@@ -180,7 +196,7 @@ export function AdminDocPreviewModal({
     }
   }
 
-  const canReview = !savedAs && doc.status !== "approved" && !doc.uploaded_by_admin;
+  const canReview = !savedAs && (!!onCustomApprove || (doc.status !== "approved" && !doc.uploaded_by_admin));
 
   // Portal to document.body so this modal always escapes any ancestor
   // stacking-context created by backdrop-filter (e.g. the mobile bottom bar).

@@ -217,7 +217,7 @@ export async function POST(
       type:        "doc-signed",
       user_name:   signerName,
       user_email:  auth.email,
-      doc_type:    "sign_request",
+      doc_type:    id,
       doc_name:    r.document_name,
     });
     if (notifErr) console.warn("[sign] admin notification insert failed (non-fatal):", notifErr);

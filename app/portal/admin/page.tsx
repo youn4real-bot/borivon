@@ -714,6 +714,12 @@ export default function AdminPage() {
   const [sigUploadTarget, setSigUploadTarget] = useState<"admin" | "org">("admin");
   const sigManualFileRef   = React.useRef<HTMLInputElement>(null);
   const sigAdminUploadRef  = React.useRef<HTMLInputElement>(null);
+  const signRequestsRef    = React.useRef<HTMLDivElement>(null);
+  type AdminSignReq = { id: string; document_name: string; note: string | null; status: string; signed_at: string | null; review_status: string | null; review_feedback: string | null; signed_pdf_url: string | null };
+  const [adminSignReqs, setAdminSignReqs]         = React.useState<AdminSignReq[]>([]);
+  const [signReqReviewing, setSignReqReviewing]   = React.useState<Record<string, boolean>>({});
+  const [signReqFeedback, setSignReqFeedback]     = React.useState<Record<string, string>>({});
+  const [signReqRejectMenu, setSignReqRejectMenu] = React.useState<string | null>(null);
 
   // Fetch PDF for zone picker whenever sign modal opens
   useEffect(() => {
@@ -867,7 +873,7 @@ export default function AdminPage() {
   // doc preview using the SAME state as a normal row click.
   useEffect(() => {
     function onDeepLink(e: Event) {
-      const ce = e as CustomEvent<{ email?: string; docId?: string | null; userId?: string; fileType?: string }>;
+      const ce = e as CustomEvent<{ email?: string; docId?: string | null; userId?: string; fileType?: string; scrollTo?: string }>;
       const detail = ce.detail || {};
       // Resolve user id — prefer explicit userId, else lookup by email
       let uid = detail.userId;
@@ -878,6 +884,11 @@ export default function AdminPage() {
       }
       if (!uid) return;
       setSelectedUser(uid);
+      if (detail.scrollTo === "sign-requests") {
+        // Small delay so the panel mounts first, then scroll to it
+        setTimeout(() => signRequestsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+        return;
+      }
       window.scrollTo({ top: 0, behavior: "smooth" });
       if (!detail.docId) return;
       const all = [...docs, ...docHistory];
@@ -903,6 +914,15 @@ export default function AdminPage() {
     setActivePipelineStage(null);
     setAdminConfirmedFields(new Set());
   }, [selectedUser]);
+
+  // Fetch sign requests for the selected candidate
+  useEffect(() => {
+    if (!selectedUser || !accessToken) { setAdminSignReqs([]); return; }
+    fetch(`/api/portal/admin/sign-requests?userId=${selectedUser}`, { headers: { Authorization: `Bearer ${accessToken}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.requests) setAdminSignReqs(d.requests); })
+      .catch(() => {});
+  }, [selectedUser, accessToken]);
 
   // Load pipeline whenever a candidate is selected
   useEffect(() => {
@@ -939,6 +959,7 @@ export default function AdminPage() {
       .catch(err => { if (err.name !== "AbortError") console.error("Pipeline fetch error:", err); });
     return () => { mounted = false; controller.abort(); };
   }, [selectedUser, accessToken]);
+
 
   /** Immediately persist a single-field pipeline toggle without waiting for Send.
    *  Merges `update` with current pipeline so stale-closure state is never sent. */
@@ -1204,6 +1225,27 @@ export default function AdminPage() {
       showError(t.adErrDocStatus);
     } finally {
       setSaving(s => ({ ...s, [docId]: false }));
+    }
+  }
+
+  async function doSignReview(signReqId: string, action: "accept" | "reject") {
+    const fb = (signReqFeedback[signReqId] ?? "").trim();
+    if (action === "reject" && !fb) return;
+    setSignReqReviewing(p => ({ ...p, [signReqId]: true }));
+    try {
+      const res = await fetch(`/api/portal/admin/sign-request/${signReqId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ action, feedback: fb || undefined }),
+      });
+      if (res.ok) {
+        setAdminSignReqs(prev => prev.map(r => r.id === signReqId
+          ? { ...r, review_status: action === "accept" ? "accepted" : "rejected", review_feedback: fb || null }
+          : r));
+        setSignReqRejectMenu(null);
+      }
+    } finally {
+      setSignReqReviewing(p => ({ ...p, [signReqId]: false }));
     }
   }
 
@@ -1644,7 +1686,7 @@ export default function AdminPage() {
             noPreviewText={t.aNoPreview}
             onUpdated={(d) => setDocs(prev => prev.map(x => x.id === d.id ? { ...x, status: d.status, feedback: d.feedback } : x))}
             onShowPassportData={() => setShowPassportInfo(true)}
-            onSign={() => { setPreviewDoc(null); setShowPassportInfo(false); setSigModal({ docId: previewDoc.id, driveFileId: previewDoc.drive_file_id ?? null, label: previewDoc.file_name }); }}
+            onSign={() => { setPreviewDoc(null); setShowPassportInfo(false); const _ft = previewDoc.file_type; const _phLabel = Object.values(phaseSlots).flat().find(s => s.id === _ft)?.label; setSigModal({ docId: previewDoc.id, driveFileId: previewDoc.drive_file_id ?? null, label: _phLabel || _ft || previewDoc.file_name }); }}
             sideBySide={
               /pass/i.test(previewDoc.file_type)
               && (previewDoc.status !== "approved" || (profiles[previewDoc.user_id]?.passport_status !== "approved"))
@@ -2389,7 +2431,49 @@ export default function AdminPage() {
                                                 <Download size={13} strokeWidth={1.8} />
                                               </button>
                                             )}
-                                            {rowSt === "pending" && !doc?.uploaded_by_admin && (
+                                            {(() => {
+                                              const sr = adminSignReqs.find(r => r.status === "signed" && !r.review_status && (r.document_name === slot.label || r.document_name === doc?.file_type));
+                                              if (!sr) return null;
+                                              const loading = signReqReviewing[sr.id] ?? false;
+                                              return (
+                                                <>
+                                                  <button type="button" disabled={loading}
+                                                    onClick={e => { e.stopPropagation(); doSignReview(sr.id, "accept"); }}
+                                                    className="bv-icon-btn bv-icon-btn--approve w-9 h-9 flex items-center justify-center rounded-full disabled:opacity-40">
+                                                    <CheckCircle2 size={15} strokeWidth={1.8} />
+                                                  </button>
+                                                  <div className="relative flex-shrink-0">
+                                                    <button type="button" disabled={loading}
+                                                      onClick={e => { e.stopPropagation(); setSignReqRejectMenu(prev => prev === sr.id ? null : sr.id); }}
+                                                      className="bv-icon-btn bv-icon-btn--reject w-9 h-9 flex items-center justify-center rounded-full disabled:opacity-40">
+                                                      <XCircle size={15} strokeWidth={1.8} />
+                                                    </button>
+                                                    {signReqRejectMenu === sr.id && (
+                                                      <>
+                                                        <div className="fixed inset-0 z-10" onClick={e => { e.stopPropagation(); setSignReqRejectMenu(null); }} />
+                                                        <div className="absolute right-0 top-full mt-1 z-20 rounded-xl p-2 space-y-1.5"
+                                                          style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 200, borderRadius: "var(--r-md)" }}
+                                                          onClick={e => e.stopPropagation()}>
+                                                          <input type="text" autoFocus
+                                                            value={signReqFeedback[sr.id] ?? ""}
+                                                            onChange={e => setSignReqFeedback(p => ({ ...p, [sr.id]: e.target.value }))}
+                                                            placeholder={lang === "de" ? "Feedback (Pflicht)" : lang === "fr" ? "Feedback (requis)" : "Feedback (required)"}
+                                                            className="w-full px-2.5 py-1.5 text-[11px] outline-none rounded-lg"
+                                                            style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)" }} />
+                                                          <button type="button" disabled={loading || !(signReqFeedback[sr.id] ?? "").trim()}
+                                                            onClick={() => doSignReview(sr.id, "reject")}
+                                                            className="w-full py-1.5 rounded-lg text-[11px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-40"
+                                                            style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
+                                                            {lang === "de" ? "Ablehnen" : lang === "fr" ? "Rejeter" : "Reject"}
+                                                          </button>
+                                                        </div>
+                                                      </>
+                                                    )}
+                                                  </div>
+                                                </>
+                                              );
+                                            })()}
+                                            {rowSt === "pending" && (
                                               <>
                                                 <button type="button"
                                                   onClick={e => { e.stopPropagation(); openRejectModal({ kind: "doc", docId: doc!.id, label: slot.label, initialFeedback: doc!.feedback ?? "" }); }}
@@ -2424,7 +2508,7 @@ export default function AdminPage() {
                                                       <FilePen size={11} strokeWidth={1.8} /> Edit label
                                                     </button>
                                                     <button
-                                                      onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ docId: doc?.id ?? null, driveFileId: doc?.drive_file_id ?? null, label: slot.label }); }}
+                                                      onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ docId: doc?.id ?? null, driveFileId: doc?.drive_file_id ?? null, label: doc?.file_type || slot.label }); }}
                                                       className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
                                                       style={{ color: "var(--w)" }}>
                                                       <FilePen size={11} strokeWidth={1.8} /> Signature
@@ -2614,7 +2698,7 @@ export default function AdminPage() {
                                                     </button>
                                                   )}
                                                   {/* Reject / Approve */}
-                                                  {subSt === "pending" && !subDoc?.uploaded_by_admin && (
+                                                  {subSt === "pending" && (
                                                     <>
                                                       <button type="button"
                                                         onClick={e => { e.stopPropagation(); openRejectModal({ kind: "doc", docId: subDoc!.id, label: subLabel, initialFeedback: subDoc!.feedback ?? "" }); }}
@@ -2645,7 +2729,7 @@ export default function AdminPage() {
                                                           <div className="absolute right-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
                                                             style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
                                                             <button
-                                                              onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ docId: subDoc?.id ?? null, driveFileId: subDoc?.drive_file_id ?? null, label: subLabel }); }}
+                                                              onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ docId: subDoc?.id ?? null, driveFileId: subDoc?.drive_file_id ?? null, label: subDoc?.file_type || subLabel }); }}
                                                               className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
                                                               style={{ color: "var(--w)" }}>
                                                               <FilePen size={11} strokeWidth={1.8} /> Signature
@@ -2975,7 +3059,7 @@ export default function AdminPage() {
                                         <Download size={13} strokeWidth={1.8} />
                                       </button>
                                     )}
-                                    {sst === "pending" && !subDoc.uploaded_by_admin && (
+                                    {sst === "pending" && (
                                       <>
                                         <button type="button"
                                           onClick={() => openRejectModal({ kind: "doc", docId: subDoc.id, label: subLabel, initialFeedback: subDoc.feedback ?? "" })}
@@ -3006,7 +3090,7 @@ export default function AdminPage() {
                                             <div className="absolute right-0 top-full mt-1 rounded-xl overflow-hidden"
                                               style={{ zIndex: 600, background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
                                               <button
-                                                onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ docId: subDoc.id, driveFileId: subDoc.drive_file_id!, label: subLabel }); }}
+                                                onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ docId: subDoc.id, driveFileId: subDoc.drive_file_id!, label: subDoc.file_type || subLabel }); }}
                                                 className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
                                                 style={{ color: "var(--w)" }}>
                                                 <FilePen size={11} strokeWidth={1.8} /> Signature
@@ -3203,7 +3287,7 @@ export default function AdminPage() {
                                                 <Download size={12} strokeWidth={1.8} />
                                               </button>
                                             )}
-                                            {d.status === "pending" && !d.uploaded_by_admin && (
+                                            {d.status === "pending" && (
                                               <>
                                                 <button type="button"
                                                   onClick={(e) => { e.stopPropagation(); openRejectModal({ kind: "doc", docId: d.id, label: d.file_name, initialFeedback: d.feedback ?? "" }); }}
@@ -3277,7 +3361,7 @@ export default function AdminPage() {
                                       <Download size={13} strokeWidth={1.8} />
                                     </button>
                                   )}
-                                  {doc.status === "pending" && !doc.uploaded_by_admin && (
+                                  {doc.status === "pending" && (
                                     <>
                                       <button type="button"
                                         onClick={(e) => { e.stopPropagation(); openRejectModal({ kind: "doc", docId: doc.id, label: item.label, initialFeedback: doc.feedback ?? "" }); }}
@@ -3295,6 +3379,49 @@ export default function AdminPage() {
                                       </button>
                                     </>
                                   )}
+                                  {(() => {
+                                    const sr = adminSignReqs.find(r => r.status === "signed" && !r.review_status &&
+                                      (r.document_name === item.label || r.document_name === doc.file_name || r.document_name === doc.file_type));
+                                    if (!sr) return null;
+                                    const loading = signReqReviewing[sr.id] ?? false;
+                                    return (
+                                      <>
+                                        <button type="button" disabled={loading}
+                                          onClick={e => { e.stopPropagation(); doSignReview(sr.id, "accept"); }}
+                                          className="bv-icon-btn bv-icon-btn--approve w-9 h-9 flex items-center justify-center rounded-full disabled:opacity-40">
+                                          <CheckCircle2 size={15} strokeWidth={1.8} />
+                                        </button>
+                                        <div className="relative flex-shrink-0">
+                                          <button type="button" disabled={loading}
+                                            onClick={e => { e.stopPropagation(); setSignReqRejectMenu(prev => prev === sr.id ? null : sr.id); }}
+                                            className="bv-icon-btn bv-icon-btn--reject w-9 h-9 flex items-center justify-center rounded-full disabled:opacity-40">
+                                            <XCircle size={15} strokeWidth={1.8} />
+                                          </button>
+                                          {signReqRejectMenu === sr.id && (
+                                            <>
+                                              <div className="fixed inset-0 z-10" onClick={e => { e.stopPropagation(); setSignReqRejectMenu(null); }} />
+                                              <div className="absolute right-0 top-full mt-1 z-20 rounded-xl p-2 space-y-1.5"
+                                                style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 200, borderRadius: "var(--r-md)" }}
+                                                onClick={e => e.stopPropagation()}>
+                                                <input type="text" autoFocus
+                                                  value={signReqFeedback[sr.id] ?? ""}
+                                                  onChange={e => setSignReqFeedback(p => ({ ...p, [sr.id]: e.target.value }))}
+                                                  placeholder={lang === "de" ? "Feedback (Pflicht)" : lang === "fr" ? "Feedback (requis)" : "Feedback (required)"}
+                                                  className="w-full px-2.5 py-1.5 text-[11px] outline-none rounded-lg"
+                                                  style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)" }} />
+                                                <button type="button" disabled={loading || !(signReqFeedback[sr.id] ?? "").trim()}
+                                                  onClick={() => doSignReview(sr.id, "reject")}
+                                                  className="w-full py-1.5 rounded-lg text-[11px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-40"
+                                                  style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
+                                                  {lang === "de" ? "Ablehnen" : lang === "fr" ? "Rejeter" : "Reject"}
+                                                </button>
+                                              </div>
+                                            </>
+                                          )}
+                                        </div>
+                                      </>
+                                    );
+                                  })()}
                                   {doc.drive_file_id && (
                                     <div className="relative" onClick={(e) => e.stopPropagation()}>
                                       <button
@@ -3393,6 +3520,7 @@ export default function AdminPage() {
                 )}
               </div>{/* end flex-1 main content */}
             </div>{/* end flex two-column */}
+
 
           </div>
         </main>
@@ -3554,7 +3682,12 @@ export default function AdminPage() {
                 <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-0.5" style={{ color: "var(--w3)" }}>
                   {lang === "fr" ? "Signature" : lang === "de" ? "Signatur" : "Signature"}
                 </p>
-                <p className="text-[13.5px] font-semibold truncate tracking-tight" style={{ color: "var(--w)" }}>{sigModal.label}</p>
+                <input
+                  value={sigModal.label}
+                  onChange={e => setSigModal(prev => prev ? { ...prev, label: e.target.value } : prev)}
+                  className="text-[13.5px] font-semibold tracking-tight bg-transparent border-none outline-none w-full min-w-0"
+                  style={{ color: "var(--w)" }}
+                />
               </div>
               {/* Mode toggle */}
               <div className="flex flex-shrink-0 mx-3 rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)", background: "var(--bg2)" }}>
@@ -3790,7 +3923,7 @@ export default function AdminPage() {
             noPreviewText={t.aNoPreview}
             onUpdated={(d) => setDocs(prev => prev.map(x => x.id === d.id ? { ...x, status: d.status, feedback: d.feedback } : x))}
             onShowPassportData={() => setShowPassportInfo(true)}
-            onSign={() => { setPreviewDoc(null); setShowPassportInfo(false); setSigModal({ docId: previewDoc.id, driveFileId: previewDoc.drive_file_id ?? null, label: previewDoc.file_name }); }}
+            onSign={() => { setPreviewDoc(null); setShowPassportInfo(false); const _ft = previewDoc.file_type; const _phLabel = Object.values(phaseSlots).flat().find(s => s.id === _ft)?.label; setSigModal({ docId: previewDoc.id, driveFileId: previewDoc.drive_file_id ?? null, label: _phLabel || _ft || previewDoc.file_name }); }}
             sideBySide={
               /pass/i.test(previewDoc.file_type)
               && (previewDoc.status !== "approved" || (profiles[previewDoc.user_id]?.passport_status !== "approved"))
@@ -4421,7 +4554,12 @@ export default function AdminPage() {
                 <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-0.5" style={{ color: "var(--w3)" }}>
                   {lang === "fr" ? "Signature" : lang === "de" ? "Signatur" : "Signature"}
                 </p>
-                <p className="text-[13.5px] font-semibold truncate tracking-tight" style={{ color: "var(--w)" }}>{sigModal.label}</p>
+                <input
+                  value={sigModal.label}
+                  onChange={e => setSigModal(prev => prev ? { ...prev, label: e.target.value } : prev)}
+                  className="text-[13.5px] font-semibold tracking-tight bg-transparent border-none outline-none w-full min-w-0"
+                  style={{ color: "var(--w)" }}
+                />
               </div>
               {/* Mode toggle */}
               <div className="flex flex-shrink-0 mx-3 rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)", background: "var(--bg2)" }}>
