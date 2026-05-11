@@ -15,6 +15,9 @@ import {
   CheckCircle2, XCircle, AlertTriangle, PartyPopper,
 } from "@/components/PortalIcons";
 import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon } from "lucide-react";
+import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Spinner, PageLoader, EmptyState } from "@/components/ui/states";
 import { CandidateStagePreview, type JourneyMode } from "@/components/JourneyView";
 import { PdfZonePicker, type SigZone } from "@/components/PdfZonePicker";
@@ -419,6 +422,31 @@ function AdminSigSection({ lang, sig, wantSave, bgRemoving, onSig, onWantSave, o
   );
 }
 
+// ── Sortable slot wrapper (dnd-kit) ───────────────────────────────────────────
+function SortableSlotItem({ id, children }: { id: string; children: React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition: transition ?? "transform 200ms cubic-bezier(0.2,0,0,1)",
+        position: "relative",
+        zIndex: isDragging ? 999 : undefined,
+        opacity: isDragging ? 0.45 : 1,
+        boxShadow: isDragging ? "0 20px 48px rgba(0,0,0,0.22), 0 6px 16px rgba(0,0,0,0.12)" : undefined,
+        borderRadius: isDragging ? 12 : undefined,
+        touchAction: "none",
+        cursor: isDragging ? "grabbing" : "grab",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 export default function AdminPage() {
   const router = useRouter();
@@ -653,8 +681,11 @@ export default function AdminPage() {
   const [editingSlotId, setEditingSlotId] = useState<string | null>(null);
   const [editingSlotLabel, setEditingSlotLabel] = useState("");
   const [editingSlotLabelTrans, setEditingSlotLabelTrans] = useState("");
-  // Drag-to-reorder
-  const dragSlotIdx = React.useRef<number | null>(null);
+  // Drag-to-reorder (dnd-kit)
+  const slotSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
+  );
   // Admin upload on behalf of candidate
   const [adminUploadSlotId, setAdminUploadSlotId] = useState<string | null>(null);
   const adminFileInputRef = React.useRef<HTMLInputElement>(null);
@@ -2317,28 +2348,26 @@ export default function AdminPage() {
                               <p className="text-[11px]" style={{ color: "var(--w3)" }}>No document slots — click <span style={{ color: "var(--gold)", fontWeight: 600 }}>+</span> to add one.</p>
                             </div>
                           ) : (
+                            <DndContext
+                              sensors={slotSensors}
+                              collisionDetection={closestCenter}
+                              onDragEnd={async (event: DragEndEvent) => {
+                                const { active, over } = event;
+                                if (!over || active.id === over.id) return;
+                                const oldIdx = slots.findIndex(s => s.id === active.id);
+                                const newIdx = slots.findIndex(s => s.id === over.id);
+                                if (oldIdx === -1 || newIdx === -1) return;
+                                const reordered = arrayMove(slots, oldIdx, newIdx).map((s, i) => ({ ...s, position: i }));
+                                setPhaseSlots(prev => ({ ...prev, [slotPhase]: reordered }));
+                                await saveSlotOrder(slotPhase, reordered.map(s => ({ id: s.id, position: s.position })));
+                              }}
+                            >
+                            <SortableContext items={slots.map(s => s.id)} strategy={verticalListSortingStrategy}>
                             <div>
                               {slots.map((slot, si) => {
                                 const origDocs = getAdminDocs(slot.id);
                                 const transDocs = slot.type === "dual" ? getAdminDocs(slot.id + "_de") : [];
                                 const allSlotDocs = [...origDocs, ...transDocs];
-
-                                const slotDragProps = {
-                                  draggable: true as const,
-                                  onDragStart: () => { dragSlotIdx.current = si; },
-                                  onDragOver: (e: React.DragEvent) => e.preventDefault(),
-                                  onDrop: async () => {
-                                    const from = dragSlotIdx.current;
-                                    if (from === null || from === si) return;
-                                    const reordered = [...slots];
-                                    const [moved] = reordered.splice(from, 1);
-                                    reordered.splice(si, 0, moved);
-                                    const withPos = reordered.map((s, i) => ({ ...s, position: i }));
-                                    setPhaseSlots(prev => ({ ...prev, [slotPhase]: withPos }));
-                                    await saveSlotOrder(slotPhase, withPos.map(s => ({ id: s.id, position: s.position })));
-                                    dragSlotIdx.current = null;
-                                  },
-                                };
 
                                 if (slot.type === "simple") {
                                   const doc = origDocs[0] ?? null;
@@ -2351,7 +2380,7 @@ export default function AdminPage() {
                                   const rowClickable = submitted && !!doc?.drive_file_id;
                                   const menuId = doc?.id ?? slot.id;
                                   return (
-                                    <div key={slot.id} {...slotDragProps}>
+                                    <SortableSlotItem key={slot.id} id={slot.id}>
                                       {si > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
                                       <div
                                         onClick={rowClickable ? () => setPreviewDoc(doc!) : undefined}
@@ -2451,7 +2480,7 @@ export default function AdminPage() {
                                           </div>
                                         </div>
                                       </div>
-                                    </div>
+                                    </SortableSlotItem>
                                   );
                                 }
 
@@ -2471,7 +2500,7 @@ export default function AdminPage() {
                                   (origDocs[0] && revokeMenu === origDocs[0].id) ||
                                   (transDocs[0] && revokeMenu === transDocs[0].id);
                                 return (
-                                  <div key={slot.id} {...slotDragProps}>
+                                  <SortableSlotItem key={slot.id} id={slot.id}>
                                     {si > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
                                     {/* Dual header — click to preview merged PDF when both docs ready */}
                                     <div
@@ -2671,10 +2700,12 @@ export default function AdminPage() {
                                         })}
                                       </div>
                                     )}
-                                  </div>
+                                  </SortableSlotItem>
                                 );
                               })}
                             </div>
+                            </SortableContext>
+                            </DndContext>
                           )}
                           </div>{/* end px-2 py-2 */}
                         </div>
