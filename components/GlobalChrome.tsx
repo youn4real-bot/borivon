@@ -50,8 +50,9 @@ function HomeLoginButton() {
  */
 export function GlobalChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "";
-  const isPortal = pathname.startsWith("/portal");
-  const isHome   = pathname === "/";
+  const isPortal  = pathname.startsWith("/portal");
+  const isHome    = pathname === "/";
+  const isLoginPg = pathname === "/portal";
   const [isAuthed, setIsAuthed] = useState(false);
 
   useEffect(() => {
@@ -69,7 +70,7 @@ export function GlobalChrome({ children }: { children: React.ReactNode }) {
       <LangProvider>
         <MobileMenuProvider>
           <Navbar
-            rightExtra={isPortal && isAuthed ? (
+            rightExtra={isPortal && isAuthed && !isLoginPg ? (
               <>
                 <MessageIcon />
                 <NotificationBell />
@@ -82,7 +83,7 @@ export function GlobalChrome({ children }: { children: React.ReactNode }) {
           <div className={isPortal ? "pb-[100px] sm:pb-0" : ""}>
             {children}
           </div>
-          {isPortal && isAuthed && <BugReportButton />}
+          {isPortal && isAuthed && !isLoginPg && <BugReportButton />}
         </MobileMenuProvider>
       </LangProvider>
     </ThemeProvider>
