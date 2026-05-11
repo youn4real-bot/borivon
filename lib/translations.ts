@@ -68,6 +68,7 @@ export interface Translation {
   pTypeCVde: string; pTypeDiplomaDE: string; pTypeStudyProgDE: string; pTypeTranscriptDE: string;
   pTypeAbiturDE: string; pTypeAbiturTranscriptDE: string; pTypePraktikumDE: string; pTypeOtherTrans: string;
   pTypeWorkExp: string; pTypeWorkcertDE: string; pTypeWorkExpDE: string;
+  pTypeImpfung: string; pTypeImpfungDE: string;
   pOriginalDocs: string; pTranslatedDocs: string;
   pHintCV: string; pHintDiploma: string; pHintID: string; pHintLetter: string;
   pHintLangCert: string; pHintWorkCert: string;
@@ -75,6 +76,7 @@ export interface Translation {
   pHintStudyProg: string; pHintTranscript: string; pHintAbitur: string; pHintAbiturTranscript: string; pHintPraktikum: string;
   pHintStudyProgDE: string; pHintTranscriptDE: string; pHintAbiturDE: string; pHintAbiturTranscriptDE: string; pHintPraktikumDE: string;
   pHintWorkExp: string; pHintWorkcertDE: string; pHintWorkExpDE: string;
+  pHintImpfung: string; pHintImpfungDE: string;
   pOptional: string;
   pTransTooltipTitle: string; pTransTooltipMorocco: string; pTransTooltipMoroccoLink: string;
   pTransTooltipGermany: string; pTransTooltipGermanyLink: string;
@@ -351,6 +353,9 @@ export const translations: Record<Lang, Translation> = {
     pHintWorkcertDE: "Certificat d'exercice de la profession infirmière avec traduction certifiée en allemand",
     pTypeWorkExpDE: "Expérience professionnelle (Allemand)",
     pHintWorkExpDE: "(Optionnel) Attestation d'employeur avec traduction certifiée en allemand",
+    pTypeImpfung: "Impfung", pTypeImpfungDE: "Impfung (Allemand)",
+    pHintImpfung: "Carnet de vaccination ou certificat de vaccination",
+    pHintImpfungDE: "Carnet de vaccination avec traduction certifiée en allemand",
     pOptional: "Optionnel",
     pTransTooltipTitle: "Traductions acceptées uniquement depuis :",
     pTransTooltipMorocco: "Traducteurs assermentés au Maroc :",
@@ -650,6 +655,9 @@ export const translations: Record<Lang, Translation> = {
     pHintWorkcertDE: "Certificate of Nursing Practice with certified German translation",
     pTypeWorkExpDE: "Work Experience (German)",
     pHintWorkExpDE: "(Optional) Employment certificate with certified German translation",
+    pTypeImpfung: "Impfung", pTypeImpfungDE: "Impfung (German)",
+    pHintImpfung: "Vaccination booklet or vaccination certificate",
+    pHintImpfungDE: "Vaccination certificate with certified German translation",
     pOptional: "Optional",
     pTransTooltipTitle: "Accepted translations only from:",
     pTransTooltipMorocco: "Sworn translators in Morocco:",
@@ -949,6 +957,9 @@ export const translations: Record<Lang, Translation> = {
     pHintWorkcertDE: "Berufserlaubnis für Krankenpflege mit beglaubigter deutscher Übersetzung",
     pTypeWorkExpDE: "Berufserfahrung (DE)",
     pHintWorkExpDE: "(Optional) Arbeitszeugnis mit beglaubigter deutscher Übersetzung",
+    pTypeImpfung: "Impfung", pTypeImpfungDE: "Impfung (DE)",
+    pHintImpfung: "Impfpass oder Impfzertifikat",
+    pHintImpfungDE: "Impfzertifikat mit beglaubigter deutscher Übersetzung",
     pOptional: "Optional",
     pTransTooltipTitle: "Übersetzungen nur akzeptiert von:",
     pTransTooltipMorocco: "Vereidigte Übersetzer in Marokko:",

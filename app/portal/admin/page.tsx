@@ -1562,6 +1562,7 @@ export default function AdminPage() {
         { key: "praktikum",         transKey: "praktikum_de",         label: t.pTypePraktikum,        optional: false },
         { key: "workcert",          transKey: "workcert_de",          label: t.pTypeWorkCert,         optional: false },
         { key: "work_experience",   transKey: "work_experience_de",   label: t.pTypeWorkExp,          optional: true  },
+        { key: "impfung",           transKey: "impfung_de",           label: t.pTypeImpfung,          optional: false },
       ]},
     ];
 

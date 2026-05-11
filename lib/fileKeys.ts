@@ -23,6 +23,8 @@ const KEY_TO_TKEY: Record<string, keyof typeof translations.fr> = {
   praktikum_de:         "pTypePraktikumDE",
   workcert_de:          "pTypeWorkcertDE",
   work_experience_de:   "pTypeWorkExpDE",
+  impfung:              "pTypeImpfung",
+  impfung_de:           "pTypeImpfungDE",
 };
 
 /** fileKey → all translated labels (every supported language) */

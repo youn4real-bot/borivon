@@ -190,6 +190,7 @@ export default function DashboardPage() {
         { key: "praktikum",         transKey: "praktikum_de",         label: t.pTypePraktikum,        hint: t.pHintPraktikum,        transHint: t.pHintPraktikumDE },
         { key: "workcert",          transKey: "workcert_de",          label: t.pTypeWorkCert,         hint: t.pHintWorkCert,         transHint: t.pHintWorkcertDE },
         { key: "work_experience",   transKey: "work_experience_de",   label: t.pTypeWorkExp,          hint: t.pHintWorkExp,          transHint: t.pHintWorkExpDE, optional: true as const },
+        { key: "impfung",           transKey: "impfung_de",           label: t.pTypeImpfung,          hint: t.pHintImpfung,          transHint: t.pHintImpfungDE },
       ],
     },
     {
@@ -228,6 +229,7 @@ export default function DashboardPage() {
     { key: "praktikum_de",         label: t.pTypePraktikumDE,        hint: t.pHintPraktikumDE },
     { key: "workcert_de",          label: t.pTypeWorkcertDE,         hint: t.pHintWorkcertDE },
     { key: "work_experience_de",   label: t.pTypeWorkExpDE,          hint: t.pHintWorkExpDE, optional: true as const },
+    { key: "impfung_de",           label: t.pTypeImpfungDE,          hint: t.pHintImpfungDE },
   ];
   const ALL_ITEMS = [...PHASES.flatMap(p => p.items), ...TRANS_ITEMS_EXTRA];
 
