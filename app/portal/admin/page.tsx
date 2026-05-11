@@ -1644,7 +1644,7 @@ export default function AdminPage() {
             noPreviewText={t.aNoPreview}
             onUpdated={(d) => setDocs(prev => prev.map(x => x.id === d.id ? { ...x, status: d.status, feedback: d.feedback } : x))}
             onShowPassportData={() => setShowPassportInfo(true)}
-            onSign={() => { setPreviewDoc(null); setShowPassportInfo(false); setSigModal({ docId: previewDoc.id, driveFileId: previewDoc.drive_file_id ?? null, label: previewDoc.file_name }); }}
+            onSign={() => { setPreviewDoc(null); setShowPassportInfo(false); const _ft = previewDoc.file_type; const _phLabel = Object.values(phaseSlots).flat().find(s => s.id === _ft)?.label; setSigModal({ docId: previewDoc.id, driveFileId: previewDoc.drive_file_id ?? null, label: _phLabel || _ft || previewDoc.file_name }); }}
             sideBySide={
               /pass/i.test(previewDoc.file_type)
               && (previewDoc.status !== "approved" || (profiles[previewDoc.user_id]?.passport_status !== "approved"))
@@ -2389,7 +2389,7 @@ export default function AdminPage() {
                                                 <Download size={13} strokeWidth={1.8} />
                                               </button>
                                             )}
-                                            {rowSt === "pending" && !doc?.uploaded_by_admin && (
+                                            {rowSt === "pending" && (
                                               <>
                                                 <button type="button"
                                                   onClick={e => { e.stopPropagation(); openRejectModal({ kind: "doc", docId: doc!.id, label: slot.label, initialFeedback: doc!.feedback ?? "" }); }}
@@ -2614,7 +2614,7 @@ export default function AdminPage() {
                                                     </button>
                                                   )}
                                                   {/* Reject / Approve */}
-                                                  {subSt === "pending" && !subDoc?.uploaded_by_admin && (
+                                                  {subSt === "pending" && (
                                                     <>
                                                       <button type="button"
                                                         onClick={e => { e.stopPropagation(); openRejectModal({ kind: "doc", docId: subDoc!.id, label: subLabel, initialFeedback: subDoc!.feedback ?? "" }); }}
@@ -2975,7 +2975,7 @@ export default function AdminPage() {
                                         <Download size={13} strokeWidth={1.8} />
                                       </button>
                                     )}
-                                    {sst === "pending" && !subDoc.uploaded_by_admin && (
+                                    {sst === "pending" && (
                                       <>
                                         <button type="button"
                                           onClick={() => openRejectModal({ kind: "doc", docId: subDoc.id, label: subLabel, initialFeedback: subDoc.feedback ?? "" })}
@@ -3203,7 +3203,7 @@ export default function AdminPage() {
                                                 <Download size={12} strokeWidth={1.8} />
                                               </button>
                                             )}
-                                            {d.status === "pending" && !d.uploaded_by_admin && (
+                                            {d.status === "pending" && (
                                               <>
                                                 <button type="button"
                                                   onClick={(e) => { e.stopPropagation(); openRejectModal({ kind: "doc", docId: d.id, label: d.file_name, initialFeedback: d.feedback ?? "" }); }}
@@ -3277,7 +3277,7 @@ export default function AdminPage() {
                                       <Download size={13} strokeWidth={1.8} />
                                     </button>
                                   )}
-                                  {doc.status === "pending" && !doc.uploaded_by_admin && (
+                                  {doc.status === "pending" && (
                                     <>
                                       <button type="button"
                                         onClick={(e) => { e.stopPropagation(); openRejectModal({ kind: "doc", docId: doc.id, label: item.label, initialFeedback: doc.feedback ?? "" }); }}
@@ -3554,7 +3554,12 @@ export default function AdminPage() {
                 <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-0.5" style={{ color: "var(--w3)" }}>
                   {lang === "fr" ? "Signature" : lang === "de" ? "Signatur" : "Signature"}
                 </p>
-                <p className="text-[13.5px] font-semibold truncate tracking-tight" style={{ color: "var(--w)" }}>{sigModal.label}</p>
+                <input
+                  value={sigModal.label}
+                  onChange={e => setSigModal(prev => prev ? { ...prev, label: e.target.value } : prev)}
+                  className="text-[13.5px] font-semibold tracking-tight bg-transparent border-none outline-none w-full min-w-0"
+                  style={{ color: "var(--w)" }}
+                />
               </div>
               {/* Mode toggle */}
               <div className="flex flex-shrink-0 mx-3 rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)", background: "var(--bg2)" }}>
@@ -3790,7 +3795,7 @@ export default function AdminPage() {
             noPreviewText={t.aNoPreview}
             onUpdated={(d) => setDocs(prev => prev.map(x => x.id === d.id ? { ...x, status: d.status, feedback: d.feedback } : x))}
             onShowPassportData={() => setShowPassportInfo(true)}
-            onSign={() => { setPreviewDoc(null); setShowPassportInfo(false); setSigModal({ docId: previewDoc.id, driveFileId: previewDoc.drive_file_id ?? null, label: previewDoc.file_name }); }}
+            onSign={() => { setPreviewDoc(null); setShowPassportInfo(false); const _ft = previewDoc.file_type; const _phLabel = Object.values(phaseSlots).flat().find(s => s.id === _ft)?.label; setSigModal({ docId: previewDoc.id, driveFileId: previewDoc.drive_file_id ?? null, label: _phLabel || _ft || previewDoc.file_name }); }}
             sideBySide={
               /pass/i.test(previewDoc.file_type)
               && (previewDoc.status !== "approved" || (profiles[previewDoc.user_id]?.passport_status !== "approved"))
@@ -4421,7 +4426,12 @@ export default function AdminPage() {
                 <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-0.5" style={{ color: "var(--w3)" }}>
                   {lang === "fr" ? "Signature" : lang === "de" ? "Signatur" : "Signature"}
                 </p>
-                <p className="text-[13.5px] font-semibold truncate tracking-tight" style={{ color: "var(--w)" }}>{sigModal.label}</p>
+                <input
+                  value={sigModal.label}
+                  onChange={e => setSigModal(prev => prev ? { ...prev, label: e.target.value } : prev)}
+                  className="text-[13.5px] font-semibold tracking-tight bg-transparent border-none outline-none w-full min-w-0"
+                  style={{ color: "var(--w)" }}
+                />
               </div>
               {/* Mode toggle */}
               <div className="flex flex-shrink-0 mx-3 rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)", background: "var(--bg2)" }}>
