@@ -2481,10 +2481,6 @@ export default function AdminPage() {
                                                 <Download size={13} strokeWidth={1.8} />
                                               </button>
                                             )}
-                                            {(() => {
-                                              const sr = adminSignReqs.find(r => r.status === "signed" && !r.review_status && (r.document_name === slot.label || r.document_name === doc?.file_type));
-                                              return sr ? <SignReqButtons signReqId={sr.id} documentName={sr.document_name} /> : null;
-                                            })()}
                                             {rowSt === "pending" && (
                                               <>
                                                 <button type="button"
@@ -3392,9 +3388,7 @@ export default function AdminPage() {
                                     </>
                                   )}
                                   {(() => {
-                                    // Only render here for non-slot docs; slot docs get buttons in the slots loop above
                                     const sr = adminSignReqs.find(r => r.status === "signed" && !r.review_status &&
-                                      !allSlotLabels.has(r.document_name) &&
                                       (r.document_name === item.label || r.document_name === doc.file_name || r.document_name === doc.file_type));
                                     return sr ? <SignReqButtons signReqId={sr.id} documentName={sr.document_name} /> : null;
                                   })()}
