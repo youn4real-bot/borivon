@@ -721,6 +721,56 @@ export default function AdminPage() {
   const [signReqFeedback, setSignReqFeedback]     = React.useState<Record<string, string>>({});
   const [signReqRejectMenu, setSignReqRejectMenu] = React.useState<string | null>(null);
 
+  // All slot labels across loaded phases — used to dedup sign-req buttons
+  // (slots loop renders them for slot docs; items loop renders for non-slot docs)
+  const allSlotLabels = React.useMemo(() => {
+    const s = new Set<string>();
+    Object.values(phaseSlots).forEach(arr => arr.forEach(sl => s.add(sl.label)));
+    return s;
+  }, [phaseSlots]);
+
+  // Reusable sign-req accept/reject button block — keeps slots + items loops DRY
+  function SignReqButtons({ signReqId, documentName }: { signReqId: string; documentName: string }) {
+    const loading = signReqReviewing[signReqId] ?? false;
+    return (
+      <>
+        <button type="button" disabled={loading}
+          onClick={e => { e.stopPropagation(); doSignReview(signReqId, "accept"); }}
+          className="bv-icon-btn bv-icon-btn--approve w-9 h-9 flex items-center justify-center rounded-full disabled:opacity-40">
+          <CheckCircle2 size={15} strokeWidth={1.8} />
+        </button>
+        <div className="relative flex-shrink-0">
+          <button type="button" disabled={loading}
+            onClick={e => { e.stopPropagation(); setSignReqRejectMenu(prev => prev === signReqId ? null : signReqId); }}
+            className="bv-icon-btn bv-icon-btn--reject w-9 h-9 flex items-center justify-center rounded-full disabled:opacity-40">
+            <XCircle size={15} strokeWidth={1.8} />
+          </button>
+          {signReqRejectMenu === signReqId && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={e => { e.stopPropagation(); setSignReqRejectMenu(null); }} />
+              <div className="absolute right-0 top-full mt-1 z-20 rounded-xl p-2 space-y-1.5"
+                style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 200, borderRadius: "var(--r-md)" }}
+                onClick={e => e.stopPropagation()}>
+                <input type="text" autoFocus
+                  value={signReqFeedback[signReqId] ?? ""}
+                  onChange={e => setSignReqFeedback(p => ({ ...p, [signReqId]: e.target.value }))}
+                  placeholder={lang === "de" ? "Feedback (Pflicht)" : lang === "fr" ? "Feedback (requis)" : "Feedback (required)"}
+                  className="w-full px-2.5 py-1.5 text-[11px] outline-none rounded-lg"
+                  style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)" }} />
+                <button type="button" disabled={loading || !(signReqFeedback[signReqId] ?? "").trim()}
+                  onClick={() => doSignReview(signReqId, "reject")}
+                  className="w-full py-1.5 rounded-lg text-[11px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-40"
+                  style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
+                  {lang === "de" ? "Ablehnen" : lang === "fr" ? "Rejeter" : "Reject"}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </>
+    );
+  }
+
   // Fetch PDF for zone picker whenever sign modal opens
   useEffect(() => {
     if (!sigModal) {
@@ -2431,6 +2481,10 @@ export default function AdminPage() {
                                                 <Download size={13} strokeWidth={1.8} />
                                               </button>
                                             )}
+                                            {(() => {
+                                              const sr = adminSignReqs.find(r => r.status === "signed" && !r.review_status && (r.document_name === slot.label || r.document_name === doc?.file_type));
+                                              return sr ? <SignReqButtons signReqId={sr.id} documentName={sr.document_name} /> : null;
+                                            })()}
                                             {rowSt === "pending" && (
                                               <>
                                                 <button type="button"
@@ -3338,47 +3392,11 @@ export default function AdminPage() {
                                     </>
                                   )}
                                   {(() => {
+                                    // Only render here for non-slot docs; slot docs get buttons in the slots loop above
                                     const sr = adminSignReqs.find(r => r.status === "signed" && !r.review_status &&
+                                      !allSlotLabels.has(r.document_name) &&
                                       (r.document_name === item.label || r.document_name === doc.file_name || r.document_name === doc.file_type));
-                                    if (!sr) return null;
-                                    const loading = signReqReviewing[sr.id] ?? false;
-                                    return (
-                                      <>
-                                        <button type="button" disabled={loading}
-                                          onClick={e => { e.stopPropagation(); doSignReview(sr.id, "accept"); }}
-                                          className="bv-icon-btn bv-icon-btn--approve w-9 h-9 flex items-center justify-center rounded-full disabled:opacity-40">
-                                          <CheckCircle2 size={15} strokeWidth={1.8} />
-                                        </button>
-                                        <div className="relative flex-shrink-0">
-                                          <button type="button" disabled={loading}
-                                            onClick={e => { e.stopPropagation(); setSignReqRejectMenu(prev => prev === sr.id ? null : sr.id); }}
-                                            className="bv-icon-btn bv-icon-btn--reject w-9 h-9 flex items-center justify-center rounded-full disabled:opacity-40">
-                                            <XCircle size={15} strokeWidth={1.8} />
-                                          </button>
-                                          {signReqRejectMenu === sr.id && (
-                                            <>
-                                              <div className="fixed inset-0 z-10" onClick={e => { e.stopPropagation(); setSignReqRejectMenu(null); }} />
-                                              <div className="absolute right-0 top-full mt-1 z-20 rounded-xl p-2 space-y-1.5"
-                                                style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 200, borderRadius: "var(--r-md)" }}
-                                                onClick={e => e.stopPropagation()}>
-                                                <input type="text" autoFocus
-                                                  value={signReqFeedback[sr.id] ?? ""}
-                                                  onChange={e => setSignReqFeedback(p => ({ ...p, [sr.id]: e.target.value }))}
-                                                  placeholder={lang === "de" ? "Feedback (Pflicht)" : lang === "fr" ? "Feedback (requis)" : "Feedback (required)"}
-                                                  className="w-full px-2.5 py-1.5 text-[11px] outline-none rounded-lg"
-                                                  style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)" }} />
-                                                <button type="button" disabled={loading || !(signReqFeedback[sr.id] ?? "").trim()}
-                                                  onClick={() => doSignReview(sr.id, "reject")}
-                                                  className="w-full py-1.5 rounded-lg text-[11px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-40"
-                                                  style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
-                                                  {lang === "de" ? "Ablehnen" : lang === "fr" ? "Rejeter" : "Reject"}
-                                                </button>
-                                              </div>
-                                            </>
-                                          )}
-                                        </div>
-                                      </>
-                                    );
+                                    return sr ? <SignReqButtons signReqId={sr.id} documentName={sr.document_name} /> : null;
                                   })()}
                                   {doc.drive_file_id && (
                                     <div className="relative" onClick={(e) => e.stopPropagation()}>
