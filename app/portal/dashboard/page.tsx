@@ -745,15 +745,18 @@ export default function DashboardPage() {
   }, [pendingOpenDocId, docs]);
 
   useEffect(() => {
-    // Issue 4.1: wrap getSession in a 12-second timeout so slow mobile
-    // connections don't leave the candidate on the loading screen forever.
-    const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 12_000));
-    Promise.race([supabase.auth.getSession(), timeout]).then(async (result) => {
+    let cancelled = false;
+
+    (async () => {
+      // ── 1. Auth (12s timeout for slow mobile networks) ──────────────────
+      const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 12_000));
+      const result = await Promise.race([supabase.auth.getSession(), timeout]);
       if (!result) { setLoading(false); router.replace("/portal"); return; }
       const { data: { session } } = result as Awaited<ReturnType<typeof supabase.auth.getSession>>;
       const user = session?.user;
       if (!user) { setLoading(false); router.replace("/portal"); return; }
-      // Server-side role lookup — avoid exposing the admin email in the bundle.
+
+      // ── 2. Role check + redirect ────────────────────────────────────────
       try {
         const res = await fetch("/api/portal/me/role", {
           headers: { Authorization: `Bearer ${session?.access_token ?? ""}` },
@@ -762,28 +765,17 @@ export default function DashboardPage() {
         if (role === "admin" || role === "sub_admin") { router.replace("/portal/admin"); return; }
         if (role === "org_member") { router.replace("/portal/org/dashboard"); return; }
       } catch { /* offline — continue as candidate */ }
+      if (cancelled) return;
+
+      // ── 3. User identity (synchronous setters) ──────────────────────────
+      const token = session?.access_token ?? "";
       setUserId(user.id);
-      setAuthToken(session?.access_token ?? "");
+      setAuthToken(token);
       setFirstName(user.user_metadata?.first_name ?? "");
       setLastName(user.user_metadata?.last_name ?? "");
       setUserName(user.user_metadata?.full_name ?? user.email ?? "");
 
-      // Load sign requests in background
-      fetch("/api/portal/me/sign-requests", {
-        headers: { Authorization: `Bearer ${session?.access_token ?? ""}` },
-      }).then(r => r.ok ? r.json() : { requests: [] })
-        .then(j => setSignRequests((j as { requests: SignReq[] }).requests ?? []))
-        .catch(() => {});
-
-      // Load candidate's saved signature (reused inside fillForm sig zones).
-      fetch("/api/portal/me/signature", {
-        headers: { Authorization: `Bearer ${session?.access_token ?? ""}` },
-      }).then(r => r.ok ? r.json() : null)
-        .then(j => { if (j?.signature) setCandidateSavedSig(j.signature); })
-        .catch(() => {});
-
-      // Auto-redeem invite code stored in user metadata at registration time.
-      // Fires once per session; safe to re-run (server ignores already-used codes).
+      // ── 4. Side effects that don't require any fetch result ─────────────
       const storedCode = user.user_metadata?.invite_code as string | undefined;
       if (storedCode && session?.access_token) {
         const redeemKey = `bv-invite-redeemed-${user.id}`;
@@ -791,96 +783,116 @@ export default function DashboardPage() {
           fetch(`/api/portal/invite/${encodeURIComponent(storedCode)}`, {
             method: "POST",
             headers: { Authorization: `Bearer ${session.access_token}` },
-          })
-            .then(r => r.json())
-            .then(() => {
-              try { localStorage.setItem(redeemKey, "1"); } catch { /* private mode */ }
-            })
-            .catch(() => {/* ignore errors — will retry on next login */});
+          }).then(r => r.json())
+            .then(() => { try { localStorage.setItem(redeemKey, "1"); } catch { /* private mode */ } })
+            .catch(() => {/* retried on next login */});
         }
       }
-      // Restore unconfirmed passport modal if user refreshed before submitting
       const pendingRaw = localStorage.getItem(`bv-passport-pending-${user.id}`);
       if (pendingRaw) {
         try {
           const parsed = JSON.parse(pendingRaw) as PassportData;
           setPassportModal({ ...parsed, sex: normalizeSex(parsed.sex ?? "", lang) });
-          setConfirmedFields(new Set()); // user must re-review after refresh
+          setConfirmedFields(new Set());
         } catch { /* ignore corrupt data */ }
       }
-      loadDocs(user.id);
-      loadDynamicSlots(session?.access_token ?? "");
-      // Load passport_status for info-button color
-      // Load profile — passport status + payment tier + verified flag
-      (async () => {
-        try {
-          const { data } = await supabase
-            .from("candidate_profiles")
-            .select("passport_status, manually_verified, payment_tier")
-            .eq("user_id", user.id)
-            .maybeSingle();
-          setPassportStatus(data?.passport_status ?? null);
-          setPaymentTier((data as { payment_tier?: string | null } | null)?.payment_tier ?? null);
-          setManuallyVerified(!!data?.manually_verified);
-          // Show celebration if verified and not yet celebrated this session.
-          if (data?.manually_verified) {
-            const uid = user.id;
-            // Notify the navbar ProfileIcon to show the badge.
-            window.dispatchEvent(new CustomEvent("bv-verified-changed"));
-            try {
-              if (!localStorage.getItem(`bv-verified-celebrated-${uid}`)) {
-                setShowCelebration(true);
-              }
-            } catch { /* private mode */ }
-          }
-        } catch { /* ignore */ } finally {
-          setProfileLoaded(true); // guard: ensure plan gate renders after profile load
-        }
-      })();
-      // Load pipeline — JWT-authenticated
-      const token = session?.access_token ?? "";
-      fetch(`/api/portal/pipeline/me`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      })
-        .then(r => r.json())
-        .then(({ pipeline: p }) => setPipeline(p ?? null))
-        .catch(err => console.error("Pipeline fetch error:", err));
 
-      // Org check — show invite-code modal if candidate has no approved org yet
-      fetch(`/api/portal/me/organizations`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      })
-        .then(r => r.json())
-        .then(({ orgs }) => {
-          // Filter out rejected rows — candidates should never see those.
-          const list = ((orgs ?? []) as { id: string; name: string; status: string }[])
-            .filter(o => o.status !== "rejected");
-          setLinkedOrgs(list);
-          setOrgChecked(true);
-          // Show MatchedCelebration for any approved org not yet celebrated.
-          // This handles the "placed" notification → navigate to dashboard flow.
-          const approvedOrgs = list.filter(o => o.status === "approved");
-          if (approvedOrgs.length > 0) {
-            try {
-              const key = `bv-celebrated-orgs-${user.id}`;
-              const seen = JSON.parse(localStorage.getItem(key) ?? "[]") as string[];
-              const uncelebrated = approvedOrgs.find(o => !seen.includes(o.id));
-              if (uncelebrated) {
-                seen.push(uncelebrated.id);
-                localStorage.setItem(key, JSON.stringify(seen));
-                setCelebrateOrg({ id: uncelebrated.id, name: uncelebrated.name });
-              }
-            } catch { /* private mode */ }
+      // ── 5. Fire ALL critical data fetches in parallel and wait for all ──
+      //    We only reveal the dashboard once every fetch settles (success or
+      //    error). This prevents the "old code flashes, then elements appear
+      //    one by one" UX bug — the loader stays up until every section has
+      //    its data and the page renders once with everything in place.
+      await Promise.allSettled([
+        loadDocs(user.id),
+        loadDynamicSlots(token),
+        // a) Profile (passport / payment tier / verified flag)
+        (async () => {
+          try {
+            const { data } = await supabase
+              .from("candidate_profiles")
+              .select("passport_status, manually_verified, payment_tier")
+              .eq("user_id", user.id)
+              .maybeSingle();
+            if (cancelled) return;
+            setPassportStatus(data?.passport_status ?? null);
+            setPaymentTier((data as { payment_tier?: string | null } | null)?.payment_tier ?? null);
+            setManuallyVerified(!!data?.manually_verified);
+            if (data?.manually_verified) {
+              window.dispatchEvent(new CustomEvent("bv-verified-changed"));
+              try {
+                if (!localStorage.getItem(`bv-verified-celebrated-${user.id}`)) {
+                  setShowCelebration(true);
+                }
+              } catch { /* private mode */ }
+            }
+          } catch { /* ignore */ } finally {
+            if (!cancelled) setProfileLoaded(true);
           }
+        })(),
+        // b) Pipeline (journey progress)
+        fetch(`/api/portal/pipeline/me`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
         })
-        .catch(() => setOrgChecked(true));
-    });
+          .then(r => r.json())
+          .then(({ pipeline: p }) => { if (!cancelled) setPipeline(p ?? null); })
+          .catch(err => console.error("Pipeline fetch error:", err)),
+        // c) Linked orgs (org invite modal, matched celebration)
+        fetch(`/api/portal/me/organizations`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        })
+          .then(r => r.json())
+          .then(({ orgs }) => {
+            if (cancelled) return;
+            const list = ((orgs ?? []) as { id: string; name: string; status: string }[])
+              .filter(o => o.status !== "rejected");
+            setLinkedOrgs(list);
+            setOrgChecked(true);
+            const approvedOrgs = list.filter(o => o.status === "approved");
+            if (approvedOrgs.length > 0) {
+              try {
+                const key = `bv-celebrated-orgs-${user.id}`;
+                const seen = JSON.parse(localStorage.getItem(key) ?? "[]") as string[];
+                const uncelebrated = approvedOrgs.find(o => !seen.includes(o.id));
+                if (uncelebrated) {
+                  seen.push(uncelebrated.id);
+                  localStorage.setItem(key, JSON.stringify(seen));
+                  setCelebrateOrg({ id: uncelebrated.id, name: uncelebrated.name });
+                }
+              } catch { /* private mode */ }
+            }
+          })
+          .catch(() => { if (!cancelled) setOrgChecked(true); }),
+      ]);
 
-    // Issue 16.1: keep authToken fresh across token rotations
+      if (cancelled) return;
+
+      // ── 6. Reveal the dashboard. All critical data is in state already so
+      //    React renders the full UI in a single pass — no piece-by-piece
+      //    pop-in. ────────────────────────────────────────────────────────
+      setLoading(false);
+
+      // ── 7. Background fetches (don't block reveal — non-critical) ──────
+      fetch("/api/portal/me/sign-requests", {
+        headers: { Authorization: `Bearer ${token}` },
+      }).then(r => r.ok ? r.json() : { requests: [] })
+        .then(j => { if (!cancelled) setSignRequests((j as { requests: SignReq[] }).requests ?? []); })
+        .catch(() => {});
+
+      fetch("/api/portal/me/signature", {
+        headers: { Authorization: `Bearer ${token}` },
+      }).then(r => r.ok ? r.json() : null)
+        .then(j => { if (!cancelled && j?.signature) setCandidateSavedSig(j.signature); })
+        .catch(() => {});
+    })();
+
+    // Keep authToken fresh across Supabase token rotations
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.access_token) setAuthToken(session.access_token);
     });
-    return () => subscription.unsubscribe();
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function loadDynamicSlots(token: string) {
@@ -921,9 +933,10 @@ export default function DashboardPage() {
       setDocs(fetched);
     } catch (err) {
       console.error("loadDocs exception:", err);
-    } finally {
-      setLoading(false);
     }
+    // NOTE: setLoading(false) used to fire here; it's now gated on the
+    // Promise.allSettled in the bootstrap useEffect below, so the dashboard
+    // only reveals once docs + slots + profile + pipeline + orgs are all in.
 
     // Post-upload refresh: only update docs, never touch mode/phase
     if (keepPhase) return;
