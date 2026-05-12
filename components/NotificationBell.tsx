@@ -9,6 +9,7 @@ import { Bell, Paperclip, CheckCircle2, XCircle, User, FilePen } from "@/compone
 import { Spinner } from "@/components/ui/states";
 import { useLang } from "@/components/LangContext";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
+import { relativeTimeShort } from "@/lib/relativeTime";
 
 // ── Minimal bell-specific translations ─────────────────────────────────────────
 const BELL_T = {
@@ -131,18 +132,6 @@ type AdminNotif = {
   user_photo: string | null;
   user_verified: boolean;
 };
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function relTime(iso: string, justNow: string) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const h = diff / 3_600_000;
-  const d = diff / 86_400_000;
-  if (h < 1)  return justNow;
-  if (h < 24) return `${Math.floor(h)}h`;
-  if (d < 7)  return `${Math.floor(d)}d`;
-  return new Date(iso).toLocaleDateString(undefined, { day: "2-digit", month: "short" });
-}
 
 // ── Bell button ───────────────────────────────────────────────────────────────
 
@@ -478,7 +467,7 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
                       </p>
                     )}
                     <p className="text-[10px] mt-1.5 flex items-center gap-1" style={{ color: "var(--w3)" }}>
-                      {relTime(n.created_at, bt.justNow)}
+                      {relativeTimeShort(n.created_at, lang)}
                       <span style={{ color: "var(--border)" }}>·</span>
                       <span style={{ color: verified || placed || signRequest ? "var(--gold)" : approved ? "var(--success)" : "var(--danger)" }}>
                         {verified || placed || signRequest ? bt.goToDashboard : bt.tapToReview}
@@ -748,7 +737,7 @@ function AdminBell({ accessToken }: { accessToken: string }) {
                         </>
                       )}
                       <p className="text-[10px] mt-1.5 flex items-center gap-1" style={{ color: "var(--w3)" }}>
-                        {relTime(n.created_at, t.justNow)}
+                        {relativeTimeShort(n.created_at, lang)}
                         <span style={{ color: "var(--border)" }}>·</span>
                         <span style={{ color: "var(--gold)" }}>
                           {isSignup ? t.viewCandidate : isDocSigned ? t.reviewNow : t.quickReview}

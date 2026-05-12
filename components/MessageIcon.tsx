@@ -24,6 +24,7 @@ import { useLang } from "@/components/LangContext";
 import { Send, X as XIcon, Image as ImageIcon, Bug, Maximize2, Minimize2, Download } from "lucide-react";
 import { Spinner } from "@/components/ui/states";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
+import { relativeTime, dayLabel, clockTime } from "@/lib/relativeTime";
 
 type Role = "candidate" | "admin";
 type Kind = "message" | "bug";
@@ -117,21 +118,6 @@ export function MessageIcon() {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function fmtTime(iso: string, lang: string) {
-  const d = new Date(iso);
-  const diff = Date.now() - d.getTime();
-  if (diff < 60_000) return lang === "fr" ? "à l'instant" : lang === "de" ? "gerade eben" : "just now";
-  if (diff < 3_600_000) {
-    const m = Math.floor(diff / 60_000);
-    return lang === "fr" ? `il y a ${m} min` : lang === "de" ? `vor ${m} Min` : `${m} min ago`;
-  }
-  if (diff < 86_400_000) {
-    const h = Math.floor(diff / 3_600_000);
-    return lang === "fr" ? `il y a ${h} h` : lang === "de" ? `vor ${h} h` : `${h}h ago`;
-  }
-  return d.toLocaleDateString();
-}
-
 async function compressImage(file: File, maxW: number, quality: number): Promise<string> {
   const url = URL.createObjectURL(file);
   try {
@@ -215,20 +201,6 @@ function Avatar({ initial, avatarUrl, size = 32, isAdmin = false }: {
   );
 }
 
-function fmtDay(iso: string, lang: string) {
-  const d = new Date(iso);
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const dDay = new Date(d); dDay.setHours(0, 0, 0, 0);
-  const diff = (today.getTime() - dDay.getTime()) / (24 * 3600 * 1000);
-  if (diff === 0) return lang === "fr" ? "Aujourd'hui" : lang === "de" ? "Heute" : "Today";
-  if (diff === 1) return lang === "fr" ? "Hier" : lang === "de" ? "Gestern" : "Yesterday";
-  return d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short", year: dDay.getFullYear() !== today.getFullYear() ? "numeric" : undefined });
-}
-
-function fmtClock(iso: string) {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-}
 
 function MessageBubble({ msg, mine, lang, showAvatar, senderInitial, senderAvatarUrl, onOpenImage }: {
   msg: Msg; mine: boolean; lang: string;
@@ -251,7 +223,7 @@ function MessageBubble({ msg, mine, lang, showAvatar, senderInitial, senderAvata
           // Only timestamp above the bubble — no name or badge inside the conversation
           <p className={`text-[10px] mb-0.5 ${mine ? "text-right" : ""}`}
             style={{ color: "var(--w3)" }}>
-            {fmtClock(msg.created_at)}
+            {clockTime(msg.created_at)}
           </p>
         )}
         <div className="px-3.5 py-2 rounded-2xl"
@@ -317,7 +289,7 @@ function renderItems(
     const m = msgs[i];
     const day = new Date(m.created_at).toDateString();
     if (day !== lastDay) {
-      out.push(<DaySeparator key={`d-${day}`} label={fmtDay(m.created_at, lang)} />);
+      out.push(<DaySeparator key={`d-${day}`} label={dayLabel(m.created_at, lang)} />);
       lastDay = day;
     }
     const prev = i > 0 ? msgs[i - 1] : null;
@@ -951,7 +923,7 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
                     <p className="text-[13px] font-semibold truncate inline-flex items-center" style={{ color: "var(--w)" }}>
                       {teamName}<VerifiedBadge verified size="xs" isAdmin title="Borivon" color="black" />
                     </p>
-                    {last && <span className="text-[9.5px] flex-shrink-0" style={{ color: "var(--w3)" }}>{fmtTime(lastAt, lang)}</span>}
+                    {last && <span className="text-[9.5px] flex-shrink-0" style={{ color: "var(--w3)" }}>{relativeTime(lastAt, lang)}</span>}
                   </div>
                   <p className="text-[11px] truncate flex items-center gap-1 mt-0.5"
                     style={{ color: unread > 0 ? "var(--w2)" : "var(--w3)", fontWeight: unread > 0 ? 500 : 400 }}>
@@ -1205,7 +1177,7 @@ function ConversationList({
                 {c.name}
                 <VerifiedBadge verified={!!c.verified} size="xs" color={c.isOrgMember ? "red" : "gold"} />
               </p>
-              <span className="text-[9.5px] flex-shrink-0" style={{ color: "var(--w3)" }}>{fmtTime(c.lastAt, lang)}</span>
+              <span className="text-[9.5px] flex-shrink-0" style={{ color: "var(--w3)" }}>{relativeTime(c.lastAt, lang)}</span>
             </div>
             <p className="text-[11px] truncate flex items-center gap-1 mt-0.5"
               style={{ color: c.unread > 0 ? "var(--w2)" : "var(--w3)", fontWeight: c.unread > 0 ? 500 : 400 }}>

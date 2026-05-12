@@ -18,6 +18,7 @@ import type { LucideIcon } from "lucide-react";
 import { Loader2, Check, CloudOff } from "lucide-react";
 import { useLang } from "@/components/LangContext";
 import type { Translation, Lang } from "@/lib/translations";
+import { relativeTime } from "@/lib/relativeTime";
 
 // ── Spinner ────────────────────────────────────────────────────────────────
 type SpinnerSize = "xs" | "sm" | "md" | "lg";
@@ -197,20 +198,8 @@ export function AutosaveIndicator({
     <span className={`${baseStyle} ${className}`}
       style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
       <Check size={11} strokeWidth={2} style={{ color: "var(--success)" }} />
-      {t.aSaved} · {relTime(savedAt!, t, lang)}
+      {t.aSaved} · {relativeTime(savedAt!, lang)}
     </span>
   );
 }
 
-/** Localized relative time helper. */
-function relTime(d: Date, t: Translation, lang: Lang): string {
-  const sec = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
-  if (sec < 5)    return t.aJustNow;
-  if (sec < 60)   return t.aSecAgo.replace("{n}", String(sec));
-  const min = Math.floor(sec / 60);
-  if (min < 60)   return t.aMinAgo.replace("{n}", String(min));
-  const hr = Math.floor(min / 60);
-  if (hr < 24)    return t.aHrAgo.replace("{n}", String(hr));
-  const locale = lang === "fr" ? "fr-FR" : lang === "de" ? "de-DE" : "en-US";
-  return d.toLocaleDateString(locale);
-}

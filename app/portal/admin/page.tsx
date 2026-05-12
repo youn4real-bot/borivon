@@ -27,6 +27,7 @@ import { SignaturePad } from "@/components/SignaturePad";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { PortalTopNav } from "@/components/PortalTopNav";
 import { FILE_KEY_ALL_LABELS } from "@/lib/fileKeys";
+import { removeImageBg } from "@/lib/removeImageBg";
 
 const ADMIN_PHASES: { title: string; shortTitle: string; kind: PhaseKind; keys: string[] }[] = [
   { title: "ID & CV",     shortTitle: "ID",      kind: "id",          keys: ["id", "cv_de", "letter", "langcert", "other"] },
@@ -156,55 +157,6 @@ function timeAgo(iso: string, lang?: string) {
 }
 
 // ── Preview modal moved to components/AdminDocPreviewModal.tsx ────────────────
-
-function removeImageBg(dataUri: string): Promise<string> {
-  return new Promise(resolve => {
-    const img = new Image();
-    img.onload = () => {
-      try {
-        const canvas = document.createElement("canvas");
-        canvas.width = img.naturalWidth;
-        canvas.height = img.naturalHeight;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) { resolve(dataUri); return; }
-        ctx.drawImage(img, 0, 0);
-        const id = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        const d = id.data;
-        const n = canvas.width * canvas.height;
-        // Otsu's method: adaptive threshold between ink (dark) and paper (bright)
-        const hist = new Array(256).fill(0);
-        for (let i = 0; i < d.length; i += 4) {
-          hist[Math.round((d[i] + d[i+1] + d[i+2]) / 3)]++;
-        }
-        let sumAll = 0;
-        for (let k = 0; k < 256; k++) sumAll += k * hist[k];
-        let sumB = 0, cntB = 0, bestT = 128, maxVar = 0;
-        for (let T = 0; T < 256; T++) {
-          cntB += hist[T];
-          if (!cntB || cntB === n) continue;
-          sumB += T * hist[T];
-          const mB = sumB / cntB, mA = (sumAll - sumB) / (n - cntB);
-          const v = cntB * (n - cntB) * (mB - mA) ** 2;
-          if (v > maxVar) { maxVar = v; bestT = T; }
-        }
-        const lo = bestT;
-        const hi = bestT + 0.15 * (255 - bestT);
-        for (let i = 0; i < d.length; i += 4) {
-          const b = (d[i] + d[i+1] + d[i+2]) / 3;
-          if (b >= hi) {
-            d[i+3] = 0;
-          } else if (b >= lo) {
-            d[i+3] = Math.round((hi - b) / (hi - lo) * 255);
-          }
-        }
-        ctx.putImageData(id, 0, 0);
-        resolve(canvas.toDataURL("image/png"));
-      } catch { resolve(dataUri); }
-    };
-    img.onerror = () => resolve(dataUri);
-    img.src = dataUri;
-  });
-}
 
 const SIG_PARTY_META = {
   admin: { accent: "#5b9bd5", bg: "rgba(91,155,213,0.08)", border: "rgba(91,155,213,0.3)", storageKey: "borivon_admin_sig" },

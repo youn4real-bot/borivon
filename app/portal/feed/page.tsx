@@ -24,6 +24,7 @@ import { useLang } from "@/components/LangContext";
 import { PortalTopNav } from "@/components/PortalTopNav";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { Heart, MessageCircle, Trash2, Send, Loader2, Pin, ImagePlus, Smile, Link2, ChevronUp, Sparkles, X } from "lucide-react";
+import { relativeTime } from "@/lib/relativeTime";
 
 // ── Categories ────────────────────────────────────────────────────────────────
 const CATEGORIES = [
@@ -133,17 +134,6 @@ const T = {
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function relTime(iso: string, t: typeof T["en"], lang: string) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const secs = Math.floor(diff / 1000);
-  if (secs < 60) return t.justNow;
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return lang === "en" ? `${mins}${t.mins} ${t.ago}` : `${t.ago} ${mins} ${t.mins}`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return lang === "en" ? `${hrs}${t.hours} ${t.ago}` : `${t.ago} ${hrs} ${t.hours}`;
-  const days = Math.floor(hrs / 24);
-  return lang === "en" ? `${days}${t.days} ${t.ago}` : `${t.ago} ${days} ${t.days}`;
-}
 
 function extractVideoEmbed(text: string): { type: "youtube" | "loom"; id: string } | null {
   const yt = text.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
@@ -320,7 +310,7 @@ function CommentsModal({
                     <p className="text-[12px] leading-relaxed whitespace-pre-wrap" style={{ color: "var(--w2)", wordBreak: "break-word" }}>{item.c.content}</p>
                   </div>
                   <div className="flex items-center gap-3 mt-1 ml-1">
-                    <span className="text-[10px]" style={{ color: "var(--w3)" }}>{relTime(item.c.createdAt, t, lang)}</span>
+                    <span className="text-[10px]" style={{ color: "var(--w3)" }}>{relativeTime(item.c.createdAt, lang)}</span>
                     <button onClick={() => onLikeComment(item.c.id, item.c.likedByMe, item.c.likeCount)} disabled={!!likingComment[item.c.id]}
                       className="flex items-center gap-1 text-[10px] font-medium transition-all hover:opacity-70"
                       style={{ color: item.c.likedByMe ? "var(--danger)" : "var(--w3)", background: "transparent", border: "none", cursor: "pointer" }}>
@@ -580,7 +570,7 @@ function PostCard({
               {post.author.verified && <VerifiedBadge verified size="xs" isAdmin={post.author.isBorivonTeam} color={post.author.isBorivonTeam ? "black" : "gold"} />}
             </div>
             <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-[11px]" style={{ color: "var(--w3)" }}>{relTime(post.createdAt, t, lang)}</span>
+              <span className="text-[11px]" style={{ color: "var(--w3)" }}>{relativeTime(post.createdAt, lang)}</span>
             </div>
           </div>
           <div className="flex items-center gap-0.5 flex-shrink-0">
