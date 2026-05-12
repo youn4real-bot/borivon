@@ -80,10 +80,11 @@ const FILE_KEY_MAP: Record<string, { name: string; suffix: string }> = {
   id:                    { name: "reisepass",          suffix: ""         },
   langcert:              { name: "b2_sprachzertifikat",suffix: ""         },
   letter:                { name: "anschreiben",        suffix: ""         },
-  // cv_de is the German-formatted CV produced by the CV builder; lives in
-  // Essentials as a separate slot from `cv` and is kept distinct via a
-  // dedicated `_de` suffix so it never collides with the uploaded CV file.
-  cv_de:                 { name: "lebenslauf",         suffix: "de"       },
+  // cv_de is the single Lebenslauf box (German CV from the builder). The
+  // older `cv` key is not rendered anywhere; keeping both mapped to the same
+  // filename means defensive fallback uploads won't collide with anything
+  // real and stay aligned with the portal's one-CV-per-candidate model.
+  cv_de:                 { name: "lebenslauf",         suffix: ""         },
 
   // ── Qualifications (original / uebersetzt pairs) ──────────────────────────
   diploma:               { name: "diplom",                 suffix: "original"   },

@@ -113,7 +113,7 @@ export async function POST(req: NextRequest) {
     // doc later stored in Drive.
     const fn = (data.firstName ?? "").trim().toLowerCase().replace(/\s+/g, "_") || "kandidat";
     const ln = (data.lastName ?? "").trim().toLowerCase().replace(/\s+/g, "_") || "unbekannt";
-    const cvFilename = `${fn}_${ln}_pflegekraft_lebenslauf_de.pdf`;
+    const cvFilename = `${fn}_${ln}_pflegekraft_lebenslauf.pdf`;
     return new Response(arrayBuffer, {
       headers: {
         "Content-Type": "application/pdf",

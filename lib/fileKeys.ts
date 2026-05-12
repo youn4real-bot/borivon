@@ -49,6 +49,10 @@ for (const [key, tKey] of Object.entries(KEY_TO_TKEY)) {
   if (key === "praktikum_de")      { labels.add("Pflegepraktikumsnachweis (DE)"); }
   if (key === "impfung")           { labels.add("Impfnachweis"); }
   if (key === "impfung_de")        { labels.add("Impfnachweis (DE)"); }
+  // cv_de used to carry a "(DE)" / "(German)" / "(Allemand)" suffix in the
+  // display label. We dropped it because there's only one Lebenslauf box.
+  // Keep the old labels as aliases so already-uploaded CVs stay findable.
+  if (key === "cv_de")             { labels.add("Lebenslauf (DE)"); labels.add("CV (German)"); labels.add("CV (Allemand)"); }
   FILE_KEY_LABELS[key] = [...labels];
 }
 

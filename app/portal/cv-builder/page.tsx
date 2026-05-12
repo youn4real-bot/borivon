@@ -2473,7 +2473,7 @@ function CVBuilderInner() {
     const ln = (cvData.lastName ?? "").trim().toLowerCase().replace(/\s+/g, "_") || "unbekannt";
     const a = document.createElement("a");
     a.href = pdfUrl;
-    a.download = `${fn}_${ln}_pflegekraft_lebenslauf_de.pdf`;
+    a.download = `${fn}_${ln}_pflegekraft_lebenslauf.pdf`;
     a.click();
   }
 
