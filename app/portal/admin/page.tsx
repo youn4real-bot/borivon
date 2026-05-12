@@ -829,86 +829,122 @@ export default function AdminPage() {
   }, []);
 
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    let cancelled = false;
+
+    (async () => {
+      // ── 1. Auth ─────────────────────────────────────────────────────────
+      const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) { router.replace("/portal"); return; }
+      if (cancelled) return;
+
       const token = session.access_token ?? "";
       setAccessToken(token);
       setCurrentUserId(session.user.id);
-      // Check supreme-admin status + fetch org list in parallel with main data.
-      fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${token}` } })
-        .then(r => r.ok ? r.json() : null)
-        .then(j => { if (j?.isSuperAdmin) setIsSuperAdmin(true); })
-        .catch(() => {})
-        .finally(() => setRoleResolved(true));
-      fetch("/api/portal/admin/organizations", { headers: { Authorization: `Bearer ${token}` } })
-        .then(r => r.ok ? r.json() : null)
-        .then(j => { if (j?.orgs) setAllOrgs(j.orgs); })
-        .catch(() => {});
-      // Eagerly prefetch both dynamic phase slots so the tab is instant
-      for (const ph of ["bearbeitung", "visum"] as const) {
-        fetch(`/api/portal/phase-slots?phase=${ph}`, { headers: { Authorization: `Bearer ${token}` } })
+
+      // ── 2. Fire ALL critical fetches in parallel; reveal after all settle.
+      //      Same FOUC fix as candidate dashboard — page renders ONCE with
+      //      every section's data already in state instead of pop-in-by-pop-in.
+      //
+      //      Auth-failure (admin endpoint 401/403) is the only branch that
+      //      short-circuits redirect; everything else logs and continues so
+      //      a single slow endpoint can't deadlock the whole reveal.
+      let authFailed = false;
+
+      await Promise.allSettled([
+        // a) Role check (supreme-admin flag)
+        fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${token}` } })
           .then(r => r.ok ? r.json() : null)
-          .then(j => { if (j?.slots) { setPhaseSlots(prev => ({ ...prev, [ph]: j.slots })); setPhaseSlotsLoaded(prev => ({ ...prev, [ph]: true })); } })
-          .catch(() => {});
-      }
-      // Load admin's saved signature (one-per-admin reusable PNG data URI).
+          .then(j => { if (!cancelled && j?.isSuperAdmin) setIsSuperAdmin(true); })
+          .catch(() => {})
+          .finally(() => { if (!cancelled) setRoleResolved(true); }),
+        // b) Org list (for org switcher)
+        fetch("/api/portal/admin/organizations", { headers: { Authorization: `Bearer ${token}` } })
+          .then(r => r.ok ? r.json() : null)
+          .then(j => { if (!cancelled && j?.orgs) setAllOrgs(j.orgs); })
+          .catch(() => {}),
+        // c) Bearbeitung phase slots
+        fetch("/api/portal/phase-slots?phase=bearbeitung", { headers: { Authorization: `Bearer ${token}` } })
+          .then(r => r.ok ? r.json() : null)
+          .then(j => {
+            if (cancelled) return;
+            if (j?.slots) {
+              setPhaseSlots(prev => ({ ...prev, bearbeitung: j.slots }));
+              setPhaseSlotsLoaded(prev => ({ ...prev, bearbeitung: true }));
+            }
+          })
+          .catch(() => {}),
+        // d) Visum phase slots
+        fetch("/api/portal/phase-slots?phase=visum", { headers: { Authorization: `Bearer ${token}` } })
+          .then(r => r.ok ? r.json() : null)
+          .then(j => {
+            if (cancelled) return;
+            if (j?.slots) {
+              setPhaseSlots(prev => ({ ...prev, visum: j.slots }));
+              setPhaseSlotsLoaded(prev => ({ ...prev, visum: true }));
+            }
+          })
+          .catch(() => {}),
+        // e) Main admin data (docs, users, profiles, candidateOrgs)
+        (async () => {
+          try {
+            const res = await fetch("/api/portal/admin", { headers: { Authorization: `Bearer ${token}` } });
+            if (res.status === 401 || res.status === 403) { authFailed = true; return; }
+            const json = await res.json();
+            if (cancelled) return;
+            setDocs(json.docs ?? []);
+            setDocHistory(json.docHistory ?? []);
+            setUsers(json.users ?? {});
+            setProfiles(json.profiles ?? {});
+            setCandidateOrgs(json.candidateOrgs ?? {});
+            const fb: Record<string, string> = {};
+            for (const d of json.docs ?? []) fb[d.id] = d.feedback ?? "";
+            setFeedbacks(fb);
+
+            // Deep-link from notification — same logic as before
+            const params    = new URLSearchParams(window.location.search);
+            const navEmail  = params.get("nav_email");
+            const navDoc    = params.get("nav_doc");
+            const navDocId  = params.get("nav_doc_id");
+            if (navEmail) {
+              const uid = Object.keys(json.users ?? {}).find(
+                (id: string) => ((json.users[id]?.email as string) ?? "").toLowerCase() === navEmail.toLowerCase()
+              );
+              if (uid) {
+                setSelectedUser(uid);
+                window.scrollTo({ top: 0, behavior: "smooth" });
+                if (navDoc) setActivePhase(getPhaseIdx(navDoc));
+                if (navDocId) {
+                  type AnyDoc = { id: string; user_id: string; file_type: string };
+                  const all = [...((json.docs ?? []) as AnyDoc[]), ...((json.docHistory ?? []) as AnyDoc[])];
+                  const doc = all.find(d => d.id === navDocId);
+                  if (doc) {
+                    setActivePhase(getPhaseIdx(doc.file_type));
+                    setTimeout(() => setPreviewDoc(doc as Doc), 50);
+                  }
+                }
+              }
+              window.history.replaceState({}, "", window.location.pathname);
+            }
+          } catch (err) {
+            console.error("Admin data fetch error:", err);
+          }
+        })(),
+      ]);
+
+      if (cancelled) return;
+      if (authFailed) { router.replace("/portal/dashboard"); return; }
+
+      // ── 3. Reveal the dashboard in a single render. ────────────────────
+      setLoading(false);
+
+      // ── 4. Background fetches (non-critical, after reveal) ─────────────
       fetch("/api/portal/admin/me/signature", { headers: { Authorization: `Bearer ${token}` } })
         .then(r => r.ok ? r.json() : null)
-        .then(j => { if (j?.signature) setAdminSavedSig(j.signature); })
+        .then(j => { if (!cancelled && j?.signature) setAdminSavedSig(j.signature); })
         .catch(() => {});
-      try {
-        const res = await fetch("/api/portal/admin", { headers: { Authorization: `Bearer ${token}` } });
-        if (res.status === 401 || res.status === 403) { router.replace("/portal/dashboard"); return; }
-        const json = await res.json();
-        setDocs(json.docs ?? []);
-        setDocHistory(json.docHistory ?? []);
-        setUsers(json.users ?? {});
-        setProfiles(json.profiles ?? {});
-        setCandidateOrgs(json.candidateOrgs ?? {});
-        const fb: Record<string, string> = {};
-        for (const d of json.docs ?? []) fb[d.id] = d.feedback ?? "";
-        setFeedbacks(fb);
+    })();
 
-        // Deep-link from notification:
-        //   - nav_email      → auto-select that candidate
-        //   - nav_doc        → jump to the doc's phase (file_type-based)
-        //   - nav_doc_id     → ALSO open that exact doc in the preview modal
-        //                      (uses the page's main `previewDoc` state so the
-        //                      auto-side-by-side / passport-data button etc.
-        //                      all behave like a normal row click — never
-        //                      a separate orphan modal)
-        const params    = new URLSearchParams(window.location.search);
-        const navEmail  = params.get("nav_email");
-        const navDoc    = params.get("nav_doc");
-        const navDocId  = params.get("nav_doc_id");
-        if (navEmail) {
-          const uid = Object.keys(json.users ?? {}).find(
-            (id: string) => ((json.users[id]?.email as string) ?? "").toLowerCase() === navEmail.toLowerCase()
-          );
-          if (uid) {
-            setSelectedUser(uid);
-            window.scrollTo({ top: 0, behavior: "smooth" });
-            if (navDoc) setActivePhase(getPhaseIdx(navDoc));
-            if (navDocId) {
-              // Try to find the doc in the freshly-loaded list
-              type AnyDoc = { id: string; user_id: string; file_type: string };
-              const all = [...((json.docs ?? []) as AnyDoc[]), ...((json.docHistory ?? []) as AnyDoc[])];
-              const doc = all.find(d => d.id === navDocId);
-              if (doc) {
-                setActivePhase(getPhaseIdx(doc.file_type));
-                // Open the preview after the candidate panel has had a tick to render
-                setTimeout(() => setPreviewDoc(doc as Doc), 50);
-              }
-            }
-          }
-          window.history.replaceState({}, "", window.location.pathname);
-        }
-      } catch (err) {
-        console.error("Admin data fetch error:", err);
-      } finally {
-        setLoading(false);
-      }
-    });
+    return () => { cancelled = true; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Listen for notification deep-link events. Fires when AdminBell.handleClick
