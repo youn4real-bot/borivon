@@ -85,6 +85,11 @@ export function AdminDocPreviewModal({
   const { lang, t: gT } = useLang();
   const dt = dm[lang as keyof typeof dm] ?? dm.en;
 
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = ""; };
+  }, []);
+
   const [rejectOpen, setRejectOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [savedAs, setSavedAs]       = useState<"approved" | "rejected" | null>(null);

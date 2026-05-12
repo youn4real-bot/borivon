@@ -6,9 +6,9 @@ import { X as XIcon, Plus, Trash2 } from "lucide-react";
 import { useLang } from "@/components/LangContext";
 
 const RM_T = {
-  fr: { title: "Rejeter le document", feedback: "Commentaire (optionnel)", feedbackPh: "Qu'est-ce qui ne va pas ? Le candidat verra ce message.", screenshot: "Capture d'écran (optionnel)", attach: "Joindre une image", remove: "Retirer la capture d'écran", cancel: "Annuler", reject: "Rejeter", tooBig: "Capture trop grande. Max ~600 Ko." },
-  en: { title: "Reject document",      feedback: "Feedback (optional)",     feedbackPh: "What's wrong with this document? Shown to the candidate.", screenshot: "Screenshot (optional)", attach: "Attach image",          remove: "Remove screenshot",       cancel: "Cancel",   reject: "Reject", tooBig: "Screenshot too large. Max ~600KB." },
-  de: { title: "Dokument ablehnen",    feedback: "Feedback (optional)",     feedbackPh: "Was stimmt mit diesem Dokument nicht? Wird dem Kandidaten gezeigt.", screenshot: "Screenshot (optional)", attach: "Bild anhängen",         remove: "Screenshot entfernen",    cancel: "Abbrechen", reject: "Ablehnen", tooBig: "Screenshot zu groß. Max. ~600 KB." },
+  fr: { title: "Rejeter le document", feedback: "Commentaire (obligatoire)", feedbackPh: "Qu'est-ce qui ne va pas ? Le candidat verra ce message.", screenshot: "Capture d'écran (optionnel)", attach: "Joindre une image", remove: "Retirer la capture d'écran", cancel: "Annuler", reject: "Rejeter", tooBig: "Capture trop grande. Max ~600 Ko." },
+  en: { title: "Reject document",      feedback: "Feedback (required)",      feedbackPh: "What's wrong with this document? Shown to the candidate.", screenshot: "Screenshot (optional)", attach: "Attach image",          remove: "Remove screenshot",       cancel: "Cancel",   reject: "Reject", tooBig: "Screenshot too large. Max ~600KB." },
+  de: { title: "Dokument ablehnen",    feedback: "Feedback (erforderlich)",  feedbackPh: "Was stimmt mit diesem Dokument nicht? Wird dem Kandidaten gezeigt.", screenshot: "Screenshot (optional)", attach: "Bild anhängen",         remove: "Screenshot entfernen",    cancel: "Abbrechen", reject: "Ablehnen", tooBig: "Screenshot zu groß. Max. ~600 KB." },
 } as const;
 
 export type RejectTarget = {
@@ -48,7 +48,7 @@ export function AdminRejectModal({
   }
 
   async function handleSubmit() {
-    if (submitting) return;
+    if (submitting || !text.trim()) return;
     setSubmitting(true);
     try {
       await onSubmit(text.trim(), shot);
@@ -116,7 +116,7 @@ export function AdminRejectModal({
             style={{ background: "transparent", color: "var(--w2)" }}>
             {t.cancel}
           </button>
-          <button onClick={handleSubmit} disabled={submitting}
+          <button onClick={handleSubmit} disabled={submitting || !text.trim()}
             className="px-3 py-1.5 rounded-lg text-[12px] font-semibold inline-flex items-center gap-1.5 disabled:opacity-40"
             style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
             {submitting ? "…" : <><XCircle size={12} strokeWidth={1.8} /> {t.reject}</>}

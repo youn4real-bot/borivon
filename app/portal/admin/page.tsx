@@ -695,6 +695,7 @@ export default function AdminPage() {
   const [editingSlotId, setEditingSlotId] = useState<string | null>(null);
   const [editingSlotLabel, setEditingSlotLabel] = useState("");
   const [editingSlotLabelTrans, setEditingSlotLabelTrans] = useState("");
+  const [editingSlotInstructions, setEditingSlotInstructions] = useState("");
   // Drag-to-reorder (dnd-kit)
   const slotSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -1304,19 +1305,19 @@ export default function AdminPage() {
     setAddSlotSaving(false);
   }
 
-  async function saveSlotLabel(slotId: string, label: string, labelTrans: string) {
+  async function saveSlotLabel(slotId: string, label: string, labelTrans: string, instructions: string) {
     if (!accessToken || !label.trim()) return;
     try {
       const res = await fetch("/api/portal/phase-slots", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ id: slotId, label: label.trim(), label_trans: labelTrans.trim() || null }),
+        body: JSON.stringify({ id: slotId, label: label.trim(), label_trans: labelTrans.trim() || null, instructions: instructions.trim() || null }),
       });
       if (res.ok) {
         setPhaseSlots(prev => {
           const updated: Record<string, typeof prev.bearbeitung> = {};
           for (const [ph, slots] of Object.entries(prev)) {
-            updated[ph] = (slots ?? []).map(s => s.id === slotId ? { ...s, label: label.trim(), label_trans: labelTrans.trim() || null } : s);
+            updated[ph] = (slots ?? []).map(s => s.id === slotId ? { ...s, label: label.trim(), label_trans: labelTrans.trim() || null, instructions: instructions.trim() || null } : s);
           }
           return updated as typeof prev;
         });
@@ -2522,7 +2523,7 @@ export default function AdminPage() {
                                                       <Zap size={11} strokeWidth={1.8} /> Action
                                                     </button>
                                                     <button
-                                                      onClick={e => { e.stopPropagation(); setRevokeMenu(null); setEditingSlotId(slot.id); setEditingSlotLabel(slot.label); setEditingSlotLabelTrans(""); }}
+                                                      onClick={e => { e.stopPropagation(); setRevokeMenu(null); setEditingSlotId(slot.id); setEditingSlotLabel(slot.label); setEditingSlotLabelTrans(""); setEditingSlotInstructions(slot.instructions ?? ""); }}
                                                       className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
                                                       style={{ color: "var(--w)" }}>
                                                       <FilePen size={11} strokeWidth={1.8} /> Edit label
@@ -2648,7 +2649,7 @@ export default function AdminPage() {
                                         </button>
                                         <DropdownMenu open={revokeMenu?.id === slot.id} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === slot.id ? revokeMenu.el : null}>
                                               <button
-                                                onClick={e => { e.stopPropagation(); setRevokeMenu(null); setEditingSlotId(slot.id); setEditingSlotLabel(slot.label); setEditingSlotLabelTrans(slot.label_trans ?? ""); }}
+                                                onClick={e => { e.stopPropagation(); setRevokeMenu(null); setEditingSlotId(slot.id); setEditingSlotLabel(slot.label); setEditingSlotLabelTrans(slot.label_trans ?? ""); setEditingSlotInstructions(slot.instructions ?? ""); }}
                                                 className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
                                                 style={{ color: "var(--w)" }}>
                                                 <FilePen size={11} strokeWidth={1.8} /> Edit label
@@ -3758,13 +3759,17 @@ export default function AdminPage() {
               onChange={e => setEditingSlotLabelTrans(e.target.value)}
               className="w-full px-3 py-2.5 text-[13px] outline-none"
               style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--w)" }} />
+            <textarea placeholder="Instructions for candidate (optional)" value={editingSlotInstructions}
+              onChange={e => setEditingSlotInstructions(e.target.value)} rows={3}
+              className="w-full px-3 py-2.5 text-[13px] outline-none resize-none"
+              style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--w)" }} />
             <div className="flex gap-3 pt-1">
               <button onClick={() => setEditingSlotId(null)}
                 className="flex-1 py-3 rounded-xl text-[13px] font-semibold transition-all"
                 style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
                 Cancel
               </button>
-              <button onClick={() => saveSlotLabel(editingSlotId!, editingSlotLabel, editingSlotLabelTrans)}
+              <button onClick={() => saveSlotLabel(editingSlotId!, editingSlotLabel, editingSlotLabelTrans, editingSlotInstructions)}
                 disabled={!editingSlotLabel.trim()}
                 className="flex-1 py-3 rounded-xl text-[13px] font-semibold transition-all disabled:opacity-40"
                 style={{ background: "var(--gold)", color: "#131312" }}>
@@ -4672,6 +4677,14 @@ export default function AdminPage() {
               className="w-full px-3 py-2.5 text-[13px] outline-none"
               style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--w)" }}
             />
+            <textarea
+              placeholder="Instructions for candidate (optional)"
+              value={editingSlotInstructions}
+              onChange={e => setEditingSlotInstructions(e.target.value)}
+              rows={3}
+              className="w-full px-3 py-2.5 text-[13px] outline-none resize-none"
+              style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--w)" }}
+            />
             <div className="flex gap-3 pt-1">
               <button onClick={() => setEditingSlotId(null)}
                 className="flex-1 py-3 rounded-xl text-[13px] font-semibold transition-all"
@@ -4679,7 +4692,7 @@ export default function AdminPage() {
                 Cancel
               </button>
               <button
-                onClick={() => saveSlotLabel(editingSlotId!, editingSlotLabel, editingSlotLabelTrans)}
+                onClick={() => saveSlotLabel(editingSlotId!, editingSlotLabel, editingSlotLabelTrans, editingSlotInstructions)}
                 disabled={!editingSlotLabel.trim()}
                 className="flex-1 py-3 rounded-xl text-[13px] font-semibold transition-all disabled:opacity-40"
                 style={{ background: "var(--gold)", color: "#131312" }}>
