@@ -28,6 +28,7 @@ import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { PortalTopNav } from "@/components/PortalTopNav";
 import { FILE_KEY_ALL_LABELS } from "@/lib/fileKeys";
 import { removeImageBg } from "@/lib/removeImageBg";
+import { stampSigOnPdf } from "@/lib/stampSigOnPdf";
 
 const ADMIN_PHASES: { title: string; shortTitle: string; kind: PhaseKind; keys: string[] }[] = [
   { title: "ID & CV",     shortTitle: "ID",      kind: "id",          keys: ["id", "cv_de", "letter", "langcert", "other"] },
@@ -642,11 +643,27 @@ export default function AdminPage() {
   const [slotConfigPopup, setSlotConfigPopup]         = useState<SlotConfigState | null>(null);
   const [slotConfigSaving, setSlotConfigSaving]       = useState(false);
   // Admin's reusable signature (uploaded photo of handwriting, bg-removed via Otsu).
-  // Loaded once on mount, edited inside the slot config popup, persisted via
+  // Loaded once on mount, edited inside the sig upload sub-popup, persisted via
   // /api/portal/admin/me/signature. One signature per admin reused across slots.
   const [adminSavedSig, setAdminSavedSig]             = useState<string | null>(null);
   const [adminSigUploading, setAdminSigUploading]     = useState(false);
   const adminSigUploadRef                              = useRef<HTMLInputElement | null>(null);
+  // Signature setup sub-popup — opens when admin checks "Admin signs" for the
+  // first time (no saved sig). Photo upload → Otsu → confirm/redo → returns to
+  // the main flow which then opens the placement wizard.
+  const [adminSigSubPopup, setAdminSigSubPopup]       = useState<{ slotId: string; pendingSig: string | null } | null>(null);
+  // Placement wizard — opens after main popup Confirm. Walks admin through
+  // drawing zones on the slot's PDF, one step per checked action.
+  type WizardStep = "admin_sig" | "candidate_sig" | "fields";
+  const [placementWizard, setPlacementWizard] = useState<{
+    slotId: string;
+    pdfB64: string;
+    steps: WizardStep[];
+    stepIdx: number;
+    adminSigZone: import("@/components/PdfZonePicker").SigZone | null;
+    candidateSigZone: import("@/components/PdfZonePicker").SigZone | null;
+  } | null>(null);
+  const [placementSubmitting, setPlacementSubmitting] = useState(false);
   // Configure fields modal (fill-type slots)
   const [configFieldsSlot, setConfigFieldsSlot]       = useState<PhaseSlot | null>(null);
   const [configFieldsUploading, setConfigFieldsUploading] = useState(false);
@@ -1388,13 +1405,65 @@ export default function AdminPage() {
       });
       const slot = Object.values(phaseSlots).flat().find(s => s.id === cfg.slotId) ?? null;
       setSlotConfigPopup(null);
-      // If admin needs to fill fields → open configure fields modal
-      if (cfg.admin_fills && slot) {
+
+      // Branch 1: admin checked "Admin signs" but has no saved signature yet →
+      // open the signature setup sub-popup first. Once they confirm a signature,
+      // the sub-popup's flow re-enters the placement chain below.
+      if (cfg.admin_signs && !adminSavedSig) {
+        setAdminSigSubPopup({ slotId: cfg.slotId, pendingSig: null });
+        return;
+      }
+
+      // Branch 2: any PDF-drawing step is needed → open the placement wizard.
+      // Order of steps (per LAW #34 user spec): fields → admin sig → candidate sig.
+      const needsFields = !!((cfg.admin_fills || cfg.candidate_fills) && slot);
+      const needsAdminSig = !!(cfg.admin_signs && slot);
+      const needsCandidateSig = !!(cfg.candidate_signs && slot);
+      if ((needsFields || needsAdminSig || needsCandidateSig) && slot?.template_pdf_path) {
+        await openPlacementWizard(cfg.slotId, { admin: needsAdminSig, candidate: needsCandidateSig, fields: needsFields });
+      } else if (needsFields && slot) {
+        // Legacy path: PdfFieldPicker modal (template not uploaded yet)
         setConfigFieldsSlot(slot);
         setConfigFieldsFields(slot.form_fields ?? []);
         setConfigFieldsPdfB64(null);
       }
     } finally { setSlotConfigSaving(false); }
+  }
+
+  /**
+   * Open the placement wizard for a slot. Fetches the slot's template PDF,
+   * builds the ordered step list, and shows the wizard modal.
+   *
+   * Step order (LAW #34): fields → admin sig → candidate sig.
+   */
+  async function openPlacementWizard(
+    slotId: string,
+    needs: { admin?: boolean; candidate?: boolean; fields?: boolean },
+  ) {
+    if (!accessToken) return;
+    try {
+      const res = await fetch(`/api/portal/admin/slot-template?slotId=${slotId}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!res.ok) {
+        showError("Could not load PDF template.");
+        return;
+      }
+      const buf = await res.arrayBuffer();
+      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+      const steps: WizardStep[] = [];
+      if (needs.fields) steps.push("fields");
+      if (needs.admin) steps.push("admin_sig");
+      if (needs.candidate) steps.push("candidate_sig");
+      if (steps.length === 0) return;
+      setPlacementWizard({
+        slotId, pdfB64: b64, steps, stepIdx: 0,
+        adminSigZone: null, candidateSigZone: null,
+      });
+    } catch (err) {
+      console.error("[openPlacementWizard] error:", err);
+      showError("Could not open placement wizard.");
+    }
   }
 
   async function saveSlotOrder(phase: string, slots: { id: string; position: number }[]) {
@@ -2837,66 +2906,13 @@ export default function AdminPage() {
                               ))}
                             </div>
 
-                            {/* Admin signature upload — shown when "Admin signs" is checked */}
-                            {cfg.admin_signs && (
-                              <div className="rounded-xl p-3 space-y-2"
-                                style={{ background: "var(--bg2)", border: "1.5px dashed var(--border-gold)" }}>
-                                <p className="text-[11.5px] font-semibold" style={{ color: "var(--gold)" }}>Your signature</p>
-                                <p className="text-[10.5px]" style={{ color: "var(--w3)" }}>Upload a photo of your handwritten signature. Background removed automatically. Saved for reuse.</p>
-                                {adminSavedSig ? (
-                                  <div className="flex items-center gap-2">
-                                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img src={adminSavedSig} alt="Your signature" className="h-12 rounded"
-                                      style={{ background: "#fff", border: "1px solid var(--border)", objectFit: "contain", maxWidth: "60%" }} />
-                                    <button type="button" onClick={() => adminSigUploadRef.current?.click()} disabled={adminSigUploading}
-                                      className="text-[11px] font-semibold px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-40"
-                                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                                      {adminSigUploading ? "Processing…" : "Replace"}
-                                    </button>
-                                  </div>
-                                ) : (
-                                  <button type="button" onClick={() => adminSigUploadRef.current?.click()} disabled={adminSigUploading}
-                                    className="w-full py-2 rounded-lg text-[11.5px] font-semibold transition-colors disabled:opacity-40"
-                                    style={{ background: "var(--gold)", color: "#131312" }}>
-                                    {adminSigUploading ? "Processing…" : "📷 Upload signature"}
-                                  </button>
-                                )}
-                                <input ref={adminSigUploadRef} type="file" accept="image/*" style={{ display: "none" }}
-                                  onChange={async e => {
-                                    const file = e.target.files?.[0];
-                                    if (!file) return;
-                                    e.target.value = "";
-                                    setAdminSigUploading(true);
-                                    try {
-                                      const dataUri = await new Promise<string>((resolve, reject) => {
-                                        const r = new FileReader();
-                                        r.onload = () => resolve(r.result as string);
-                                        r.onerror = reject;
-                                        r.readAsDataURL(file);
-                                      });
-                                      const cleaned = await removeImageBg(dataUri);
-                                      setAdminSavedSig(cleaned);
-                                      // Persist to backend so it's reused next session/slot
-                                      await fetch("/api/portal/admin/me/signature", {
-                                        method: "PUT",
-                                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-                                        body: JSON.stringify({ signature: cleaned }),
-                                      });
-                                    } finally {
-                                      setAdminSigUploading(false);
-                                    }
-                                  }} />
-                              </div>
-                            )}
-
                             <div className="flex gap-2 pt-1">
                               <button onClick={() => setSlotConfigPopup(null)} disabled={slotConfigSaving}
                                 className="flex-1 py-2.5 rounded-xl text-[12.5px] font-semibold transition-all disabled:opacity-40"
                                 style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
                                 Skip
                               </button>
-                              <button onClick={() => saveSlotConfig(cfg)}
-                                disabled={slotConfigSaving || (cfg.admin_signs && !adminSavedSig)}
+                              <button onClick={() => saveSlotConfig(cfg)} disabled={slotConfigSaving}
                                 className="flex-1 py-2.5 rounded-xl text-[12.5px] font-semibold transition-all disabled:opacity-40"
                                 style={{ background: "var(--gold)", color: "#131312" }}>
                                 {slotConfigSaving ? "Saving…" : "Confirm"}
@@ -3814,6 +3830,233 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+
+      {/* ── Admin signature setup sub-popup (LAW #29 + #34) ──────────────────
+          Opens when admin checks "Admin signs" in the main popup but has no
+          saved signature yet. Photo upload → Otsu bg removal → confirm/redo.
+          On confirm, persists globally and re-enters the placement chain. */}
+      {adminSigSubPopup && (() => {
+        const sub = adminSigSubPopup;
+        const slot = Object.values(phaseSlots).flat().find(s => s.id === sub.slotId);
+        return (
+          <>
+            <div className="fixed inset-0 z-[70]" style={{ background: "rgba(0,0,0,0.65)" }}
+              onClick={() => !adminSigUploading && setAdminSigSubPopup(null)} />
+            <div className="fixed inset-x-4 top-1/4 z-[71] max-w-sm mx-auto rounded-2xl p-5 space-y-3"
+              style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)" }}>
+              <div>
+                <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>Your signature</p>
+                <p className="text-[11px] mt-0.5" style={{ color: "var(--w3)" }}>
+                  Upload a photo of your handwritten signature. We&apos;ll scan and clean it automatically. Saved for reuse on every PDF.
+                </p>
+              </div>
+              <div className="rounded-xl p-3 flex items-center justify-center"
+                style={{ background: "var(--bg2)", border: "1.5px dashed var(--border-gold)", minHeight: 120 }}>
+                {sub.pendingSig ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={sub.pendingSig} alt="Signature preview" className="rounded"
+                    style={{ background: "#fff", border: "1px solid var(--border)", objectFit: "contain", maxHeight: 100, maxWidth: "100%" }} />
+                ) : adminSigUploading ? (
+                  <p className="text-[11px]" style={{ color: "var(--gold)" }}>Scanning…</p>
+                ) : (
+                  <p className="text-[11px]" style={{ color: "var(--w3)" }}>No photo selected yet</p>
+                )}
+              </div>
+              <input ref={adminSigUploadRef} type="file" accept="image/*" style={{ display: "none" }}
+                onChange={async e => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  e.target.value = "";
+                  setAdminSigUploading(true);
+                  try {
+                    const dataUri = await new Promise<string>((resolve, reject) => {
+                      const r = new FileReader();
+                      r.onload = () => resolve(r.result as string);
+                      r.onerror = reject;
+                      r.readAsDataURL(file);
+                    });
+                    const cleaned = await removeImageBg(dataUri);
+                    setAdminSigSubPopup(prev => prev ? { ...prev, pendingSig: cleaned } : prev);
+                  } finally {
+                    setAdminSigUploading(false);
+                  }
+                }} />
+              <div className="flex gap-2">
+                <button type="button" onClick={() => adminSigUploadRef.current?.click()} disabled={adminSigUploading}
+                  className="flex-1 py-2 rounded-xl text-[12px] font-semibold transition-colors disabled:opacity-40"
+                  style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }}>
+                  {sub.pendingSig ? "Redo" : "📷 Upload"}
+                </button>
+                <button type="button"
+                  disabled={!sub.pendingSig || adminSigUploading}
+                  onClick={async () => {
+                    if (!sub.pendingSig) return;
+                    // Persist to backend
+                    await fetch("/api/portal/admin/me/signature", {
+                      method: "PUT",
+                      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                      body: JSON.stringify({ signature: sub.pendingSig }),
+                    });
+                    setAdminSavedSig(sub.pendingSig);
+                    setAdminSigSubPopup(null);
+                    // Continue the placement chain
+                    if (slot && slot.template_pdf_path) {
+                      await openPlacementWizard(sub.slotId, {
+                        admin: slot.admin_signs,
+                        candidate: slot.candidate_signs,
+                        fields: slot.admin_fills || slot.candidate_fills,
+                      });
+                    }
+                  }}
+                  className="flex-1 py-2 rounded-xl text-[12px] font-semibold transition-colors disabled:opacity-40"
+                  style={{ background: "var(--gold)", color: "#131312" }}>
+                  Confirm
+                </button>
+              </div>
+            </div>
+          </>
+        );
+      })()}
+
+      {/* ── Placement wizard modal (LAW #34) ─────────────────────────────────
+          Multi-step PDF wizard. Admin draws boxes on the PDF:
+            step "fields"        → form input boxes
+            step "admin_sig"     → admin's signature zone (saved sig auto-fills)
+            step "candidate_sig" → candidate's signature zone (empty placeholder)
+          Order set by the user when checking actions in main popup.
+          Final Submit stamps admin signature into PDF + saves zones/fields. */}
+      {placementWizard && (() => {
+        const wz = placementWizard;
+        const currentStep = wz.steps[wz.stepIdx];
+        const isLast = wz.stepIdx === wz.steps.length - 1;
+        const hintByStep: Record<WizardStep, string> = {
+          fields: "Draw input boxes where the form needs to be filled.",
+          admin_sig: "Scroll to where you want to sign, then draw a box.",
+          candidate_sig: "Draw a box where the candidate should sign.",
+        };
+        const partyForStep: Record<WizardStep, "admin" | "candidate"> = {
+          fields: "admin", admin_sig: "admin", candidate_sig: "candidate",
+        };
+        const currentZone = currentStep === "admin_sig" ? wz.adminSigZone
+                          : currentStep === "candidate_sig" ? wz.candidateSigZone
+                          : null;
+
+        async function onSubmitFinal() {
+          if (placementSubmitting) return;
+          setPlacementSubmitting(true);
+          try {
+            // 1) Stamp admin's signature into the PDF (if set)
+            if (wz.adminSigZone && adminSavedSig) {
+              const sourceBytes = Uint8Array.from(atob(wz.pdfB64), c => c.charCodeAt(0));
+              const stamped = await stampSigOnPdf(sourceBytes, adminSavedSig, [wz.adminSigZone]);
+              // Copy into a fresh ArrayBuffer so Blob's typing is happy.
+              const ab = new ArrayBuffer(stamped.byteLength);
+              new Uint8Array(ab).set(stamped);
+              const fd = new FormData();
+              fd.append("file", new Blob([ab], { type: "application/pdf" }), "template.pdf");
+              fd.append("slotId", wz.slotId);
+              await fetch("/api/portal/admin/slot-template", {
+                method: "POST",
+                headers: { Authorization: `Bearer ${accessToken}` },
+                body: fd,
+              });
+            }
+            // 2) Save candidate sig zone (signature_zone column) and admin_signs done
+            // For now, we just close — saving zones to slot is part of next iteration.
+            setPlacementWizard(null);
+          } catch (err) {
+            console.error("[placement submit] error:", err);
+            showError("Could not save PDF changes.");
+          } finally {
+            setPlacementSubmitting(false);
+          }
+        }
+
+        return (
+          <div className="fixed inset-0 z-[80] flex flex-col"
+            style={{ background: "rgba(0,0,0,0.85)" }}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-3 flex-shrink-0"
+              style={{ background: "var(--card)", borderBottom: "1px solid var(--border)" }}>
+              <div className="min-w-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--w3)" }}>
+                  Step {wz.stepIdx + 1} of {wz.steps.length}
+                </p>
+                <p className="text-[13.5px] font-semibold mt-0.5" style={{ color: "var(--w)" }}>
+                  {currentStep === "fields" ? "Form fields"
+                   : currentStep === "admin_sig" ? "Your signature"
+                   : "Candidate's signature"}
+                </p>
+              </div>
+              <button onClick={() => setPlacementWizard(null)} disabled={placementSubmitting}
+                aria-label="Close"
+                className="bv-icon-btn w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-40"
+                style={{ color: "var(--w2)" }}>
+                <XIcon size={16} strokeWidth={1.8} />
+              </button>
+            </div>
+            {/* PDF body */}
+            <div className="flex-1 relative overflow-hidden">
+              {/* Faint hint text in middle, fades when a zone is drawn */}
+              {currentStep !== "fields" && !currentZone && (
+                <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none px-6">
+                  <p className="text-center text-[14px] font-medium max-w-md"
+                    style={{ color: "rgba(255,255,255,0.55)", textShadow: "0 2px 8px rgba(0,0,0,0.7)" }}>
+                    ✏️ {hintByStep[currentStep]}
+                  </p>
+                </div>
+              )}
+              {currentStep !== "fields" && (
+                <PdfZonePicker
+                  pdfBase64={wz.pdfB64}
+                  defaultParty={partyForStep[currentStep]}
+                  partyPreviews={currentStep === "admin_sig" && adminSavedSig ? { admin: adminSavedSig } : undefined}
+                  onChange={zones => {
+                    // Single zone only for sig steps — keep the most recent.
+                    const lastZone = zones[zones.length - 1] ?? null;
+                    setPlacementWizard(prev => prev
+                      ? currentStep === "admin_sig"
+                        ? { ...prev, adminSigZone: lastZone }
+                        : { ...prev, candidateSigZone: lastZone }
+                      : prev);
+                  }}
+                />
+              )}
+              {currentStep === "fields" && (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-center text-[13px] max-w-md px-6" style={{ color: "var(--w3)" }}>
+                    Field drawing is set up via the &quot;Configure fields&quot; tool. For now, click Next to continue.
+                  </p>
+                </div>
+              )}
+            </div>
+            {/* Footer */}
+            <div className="flex items-center justify-between gap-3 px-4 py-3 flex-shrink-0"
+              style={{ background: "var(--card)", borderTop: "1px solid var(--border)" }}>
+              <p className="text-[11px]" style={{ color: "var(--w3)" }}>
+                {currentStep === "fields"
+                  ? "Skip for now"
+                  : currentZone
+                    ? "Box placed. You can drag corners to resize."
+                    : "Tap and drag to draw a box."}
+              </p>
+              <button
+                disabled={placementSubmitting || (currentStep !== "fields" && !currentZone)}
+                onClick={() => {
+                  if (isLast) {
+                    onSubmitFinal();
+                  } else {
+                    setPlacementWizard(prev => prev ? { ...prev, stepIdx: prev.stepIdx + 1 } : prev);
+                  }
+                }}
+                className="px-6 py-2.5 rounded-xl text-[13px] font-semibold transition-all disabled:opacity-40"
+                style={{ background: "var(--gold)", color: "#131312" }}>
+                {placementSubmitting ? "Saving…" : isLast ? "Submit" : "Next →"}
+              </button>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Signature request modal ── */}
       {sigModal && (
