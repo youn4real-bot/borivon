@@ -17,6 +17,7 @@ import {
   Stethoscope, Languages, FileText,
 } from "@/components/PortalIcons";
 import { X as XIcon, Download, Upload, RefreshCw, Info, ChevronDown, MoreHorizontal } from "lucide-react";
+import { DropdownMenu } from "@/components/ui/DropdownMenu";
 import { PdfViewer } from "@/components/PdfViewer";
 import { DocxViewer } from "@/components/DocxViewer";
 import { ZoomPanRotateViewer } from "@/components/ZoomPanRotateViewer";
@@ -47,10 +48,10 @@ const OnboardingTour = dynamic(
 const FILE_KEY_PHASE: Record<string, number> = {
   id: 0, cv: 0, cv_de: 0, letter: 0,
   diploma: 1, studyprog: 1, transcript: 1, abitur: 1,
-  abitur_transcript: 1, praktikum: 1, workcert: 1, work_experience: 1,
+  abitur_transcript: 1, praktikum: 1, workcert: 1, work_experience: 1, impfung: 1,
   diploma_de: 2, studyprog_de: 2, transcript_de: 2,
   abitur_de: 2, abitur_transcript_de: 2, praktikum_de: 2,
-  workcert_de: 2, work_experience_de: 2,
+  workcert_de: 2, work_experience_de: 2, impfung_de: 2,
   langcert: 3, other: 3,
 };
 
@@ -126,7 +127,7 @@ const ALLOWED_ALL = [
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ];
 const OTHER_KEYS = ["other"];
-const ID_KEYS = ["id"]; // passport — PDF or image both accepted; OCR runs on images only
+const ID_KEYS = ["id"];
 const MAX_MB = 10;
 
 // Renders **bold** markers in translation strings
@@ -152,7 +153,7 @@ export default function DashboardPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Dynamic phase slots — loaded from API (replaces static bea_*/vis_* placeholders)
-  type PhaseSlot = { id: string; phase: string; type: "simple" | "dual"; label: string; label_trans: string | null; position: number };
+  type PhaseSlot = { id: string; phase: string; type: "simple" | "dual"; label: string; label_trans: string | null; position: number; action_type: string | null; instructions: string | null };
   const [dynamicSlots, setDynamicSlots] = useState<{ bea: PhaseSlot[]; vis: PhaseSlot[] }>({ bea: [], vis: [] });
   const [dynamicSlotsLoaded, setDynamicSlotsLoaded] = useState(false);
 
@@ -200,6 +201,7 @@ export default function DashboardPage() {
       isTranslations: false,
       items: dynamicSlots.bea.map(s => ({
         key: s.id, label: s.label, hint: "",
+        ...(s.instructions ? { instructions: s.instructions } : {}),
         ...(s.type === "dual" ? { transKey: s.id + "_de", transHint: "" } : {}),
       })),
     },
@@ -210,6 +212,7 @@ export default function DashboardPage() {
       isTranslations: false,
       items: dynamicSlots.vis.map(s => ({
         key: s.id, label: s.label, hint: "",
+        ...(s.instructions ? { instructions: s.instructions } : {}),
         ...(s.type === "dual" ? { transKey: s.id + "_de", transHint: "" } : {}),
       })),
     },
@@ -440,7 +443,7 @@ export default function DashboardPage() {
   const [passportStatus, setPassportStatus] = useState<string | null>(null);
   const [showCelebration, setShowCelebration] = useState(false);
   // 3-dot menu state for sub-doc rows (mirrors admin's revokeMenu)
-  const [candSubMenu, setCandSubMenu] = useState<string | null>(null);
+  const [candSubMenu, setCandSubMenu] = useState<{ id: string; el: HTMLElement } | null>(null);
 
   // Poll org placement every 30 s + on focus so admin-initiated placements
   // appear without a page reload. Uses authToken (available after login).
@@ -937,10 +940,7 @@ export default function DashboardPage() {
 
   // ── Auto-upload (no confirm step) ──────────────────────────────────────────
   function handleFile(file: File, key: string) {
-    const ALLOWED_ID = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
-    const allowed = ID_KEYS.includes(key)    ? ALLOWED_ID
-                  : OTHER_KEYS.includes(key) ? ALLOWED_ALL
-                  : ALLOWED_PDF_ONLY;
+    const allowed = OTHER_KEYS.includes(key) ? ALLOWED_ALL : ALLOWED_PDF_ONLY;
     if (!allowed.includes(file.type)) {
       setSlotMsgTimed({ key, ok: false, type: OTHER_KEYS.includes(key) ? "errAllTypes" : "errPdfOnly" });
       return;
@@ -1745,6 +1745,17 @@ export default function DashboardPage() {
           />
         )}
 
+        {/* Sign modal triggered from doc viewer */}
+        {docViewerSignReq && (
+          <PdfSignModal
+            request={docViewerSignReq as unknown as SignRequestFull}
+            lang={(lang as "en" | "fr" | "de") in { en: 1, fr: 1, de: 1 } ? lang as "en" | "fr" | "de" : "en"}
+            authToken={authToken}
+            onSigned={(id) => { setSignRequests(prev => prev.map(r => r.id === id ? { ...r, status: "signed" } : r)); setDocViewerSignReq(null); }}
+            onClose={() => setDocViewerSignReq(null)}
+          />
+        )}
+
         {/* ── Partner Organization cards ──
             Shown for every approved org the candidate is placed in.
             Admin-initiated placements appear here within ~30 s of being set. */}
@@ -2092,7 +2103,7 @@ export default function DashboardPage() {
                         const isSubUp = uploadingKey === sub.subKey;
                         const isDragSub = dragOverKey === sub.subKey;
                         const subMsg = slotMsg?.key === sub.subKey ? slotMsg : null;
-                        const menuOpen = candSubMenu === sub.subKey;
+                        const menuOpen = candSubMenu?.id === sub.subKey;
                         return (
                           <div key={sub.subKey}
                             onDragOver={e => { e.preventDefault(); setDragOverKey(sub.subKey); }}
@@ -2140,19 +2151,14 @@ export default function DashboardPage() {
                                       <Download size={13} strokeWidth={1.8} />
                                     </button>
                                   )}
-                                  <div className="relative flex-shrink-0" style={{ zIndex: menuOpen ? 600 : undefined }}>
+                                  <div className="relative flex-shrink-0">
                                     <button
-                                      onClick={e => { e.stopPropagation(); setCandSubMenu(prev => prev === sub.subKey ? null : sub.subKey); }}
+                                      onClick={e => { e.stopPropagation(); setCandSubMenu(prev => prev?.id === sub.subKey ? null : { id: sub.subKey, el: e.currentTarget as HTMLElement }); }}
                                       className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
                                       style={{ color: "var(--w2)" }}>
                                       <MoreHorizontal size={15} strokeWidth={1.8} />
                                     </button>
-                                    {menuOpen && (
-                                      <>
-                                        <div className="fixed inset-0" style={{ zIndex: 599 }}
-                                          onClick={e => { e.stopPropagation(); setCandSubMenu(null); }} />
-                                        <div className="absolute right-0 top-full mt-1 rounded-xl overflow-hidden"
-                                          style={{ zIndex: 600, background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
+                                    <DropdownMenu open={menuOpen} onClose={() => setCandSubMenu(null)} anchor={menuOpen ? candSubMenu!.el : null}>
                                           {sub.subDoc.status !== "approved" && (
                                             <button
                                               onClick={e => { e.stopPropagation(); setCandSubMenu(null); openPicker(sub.subKey); }}
@@ -2161,9 +2167,7 @@ export default function DashboardPage() {
                                               <RefreshCw size={11} strokeWidth={1.8} /> {t.pReplaceBtn}
                                             </button>
                                           )}
-                                        </div>
-                                      </>
-                                    )}
+                                    </DropdownMenu>
                                   </div>
                                 </div>
                               )}
@@ -2268,6 +2272,13 @@ export default function DashboardPage() {
                           </span>
                         )}
                       </div>
+
+                      {/* Admin instructions — visible for Bearbeitung/Visum slots (LAW #26) */}
+                      {"instructions" in item && typeof item.instructions === "string" && item.instructions && !isUploading && (
+                        <p className="text-[10.5px] mt-0.5 leading-relaxed" style={{ color: "var(--w3)" }}>
+                          {item.instructions}
+                        </p>
+                      )}
 
                       {/* Upload progress bar */}
                       {isUploading && (
@@ -2553,9 +2564,7 @@ export default function DashboardPage() {
 
       <input ref={fileInputRef} type="file" className="hidden"
         accept={
-          activeKey && OTHER_KEYS.includes(activeKey) ? ".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx" :
-          activeKey && ID_KEYS.includes(activeKey)    ? ".pdf,.jpg,.jpeg,.png,.webp" :
-          ".pdf"
+          activeKey && OTHER_KEYS.includes(activeKey) ? ".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx" : ".pdf"
         }
         onChange={onFileChange} />
 

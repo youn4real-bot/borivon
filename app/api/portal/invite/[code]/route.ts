@@ -6,7 +6,7 @@ type OrgRow = { id: string; name: string };
 
 type LookupResult = {
   org: OrgRow;
-  type: "candidate" | "member";
+  type: "candidate" | "member" | "sub-admin";
   tokenId?: string;
   agencyId?: string | null;
   alreadyUsed?: boolean;
@@ -42,7 +42,7 @@ async function lookupCode(code: string): Promise<LookupResult | null> {
 
     return {
       org,
-      type: (token as { type: string }).type as "candidate" | "member",
+      type: (token as { type: string }).type as "candidate" | "member" | "sub-admin",
       tokenId: (token as { id: string }).id,
       agencyId: (token as { agency_id: string | null }).agency_id ?? null,
       alreadyUsed: !!(token as { used_by: string | null }).used_by,
@@ -109,6 +109,19 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ code: stri
         { user_id: auth.userId, agency_id: inviteAgencyId },
         { onConflict: "user_id" }
       );
+    }
+    return NextResponse.json({ org, type, status: "joined" });
+  }
+
+  if (type === "sub-admin") {
+    const { data: authUser } = await db.auth.admin.getUserById(auth.userId);
+    const fullName = (authUser?.user?.user_metadata?.full_name ?? "").trim();
+    await db.from("sub_admins").upsert(
+      { email: auth.email, name: fullName || auth.email, label: "" },
+      { onConflict: "email", ignoreDuplicates: true }
+    );
+    if (tokenId) {
+      await db.from("invite_tokens").update({ used_by: auth.userId, used_at: new Date().toISOString() }).eq("id", tokenId);
     }
     return NextResponse.json({ org, type, status: "joined" });
   }
