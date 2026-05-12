@@ -919,6 +919,17 @@ export async function POST(req: NextRequest) {
         .select("id", { count: "exact", head: true })
         .eq("user_id", userId)
         .eq("file_type", fileType);
+      // LAW #9 server-side: max 5 Sonstiges per candidate.
+      // Count all language labels ("Autre"/"Other"/"Sonstiges") so switching
+      // UI language mid-journey doesn't bypass the cap.
+      const { count: otherTotalCount } = await dbForCount
+        .from("documents")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", userId)
+        .in("file_type", ["Autre", "Other", "Sonstiges"]);
+      if ((otherTotalCount ?? 0) >= 5) {
+        return NextResponse.json({ error: "Maximum 5 Dateien für Sonstiges erlaubt." }, { status: 400 });
+      }
       const idx = (priorCount ?? 0) + 1;
       const fn = (firstName.trim().toLowerCase().replace(/\s+/g, "_") || "kandidat");
       const ln = (lastName.trim().toLowerCase().replace(/\s+/g, "_")  || "unbekannt");
@@ -974,13 +985,21 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Delete the previous Drive file for this slot now that the new one is
-    // safely uploaded. Failure is non-fatal — log and continue.
+    // LAW #33: archive the previous Drive file instead of deleting it.
+    // Move it into an "archive" subfolder inside the candidate's folder.
+    // Failure is non-fatal — log and continue.
     if (oldDriveFileId) {
       try {
-        await drive.files.delete({ fileId: oldDriveFileId, supportsAllDrives: true });
-      } catch (delErr) {
-        console.warn("[upload] Could not delete old Drive file", oldDriveFileId, delErr);
+        const archiveFolderId = await getOrCreateFolder(drive, "archive", candidateFolderId);
+        await drive.files.update({
+          fileId: oldDriveFileId,
+          addParents: archiveFolderId,
+          removeParents: candidateFolderId,
+          supportsAllDrives: true,
+          fields: "id",
+        });
+      } catch (archErr) {
+        console.warn("[upload] Could not archive old Drive file", oldDriveFileId, archErr);
       }
     }
   } catch (err: unknown) {
