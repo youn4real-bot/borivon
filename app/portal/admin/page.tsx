@@ -828,6 +828,15 @@ export default function AdminPage() {
     setTimeout(() => setAdminToast(t => t?.id === id ? null : t), 4000);
   }
 
+  // Keep accessToken fresh — Supabase silently refreshes JWTs every ~55 min.
+  // Without this, any admin page open for >1h would get 401 on all API calls.
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.access_token) setAccessToken(session.access_token);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session?.user) { router.replace("/portal"); return; }
