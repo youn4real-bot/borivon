@@ -411,6 +411,12 @@ export default function AdminPage() {
   const [currentUserId, setCurrentUserId] = useState("");
   /** true only for the supreme admin (ADMIN_EMAIL) — org/sub-admins cannot grant/revoke the blue tick */
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  /** false while /api/portal/me/role is still resolving on initial load.
+   *  LAW #31: lock-toggle buttons must render as clickable while role is unknown
+   *  to prevent the race where supreme admin clicks during the resolution window
+   *  and hits a non-interactive span. Server is authoritative — it rejects
+   *  unauthorized toggles with 403. */
+  const [roleResolved, setRoleResolved] = useState(false);
   /** Candidate invite generation state */
   const [inviteGenerating, setInviteGenerating] = useState(false);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
@@ -806,7 +812,8 @@ export default function AdminPage() {
       fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${token}` } })
         .then(r => r.ok ? r.json() : null)
         .then(j => { if (j?.isSuperAdmin) setIsSuperAdmin(true); })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => setRoleResolved(true));
       fetch("/api/portal/admin/organizations", { headers: { Authorization: `Bearer ${token}` } })
         .then(r => r.ok ? r.json() : null)
         .then(j => { if (j?.orgs) setAllOrgs(j.orgs); })
@@ -971,10 +978,18 @@ export default function AdminPage() {
         body: JSON.stringify({ userId: selectedUser, ...update }),
       });
       if (!res.ok) {
-        console.error("[savePipelineField] HTTP", res.status, await res.text().catch(() => ""));
+        const detail = await res.text().catch(() => "");
+        console.error("[savePipelineField] HTTP", res.status, detail);
         setPipeline(prev); // rollback optimistic update
+        // LAW #31: surface lock/unlock failures explicitly so silent drops are
+        // never mistaken for "click did nothing".
+        showError(`Update failed (${res.status}). ${detail.slice(0, 80)}`);
       }
-    } catch { setPipeline(prev); /* network error — rollback */ }
+    } catch (err) {
+      setPipeline(prev);
+      console.error("[savePipelineField] network error", err);
+      showError("Network error — check your connection and try again.");
+    }
   }
 
   async function savePipeline() {
@@ -3045,8 +3060,11 @@ export default function AdminPage() {
                           const slotPhase = activePipelineStage === "recognition" ? "bearbeitung" : activePipelineStage === "visum" ? "visum" : null;
                           return (
                             <>
-                              {/* LAW #31: unlock toggle only for supreme admin; others see read-only lock icon */}
-                              {(activePipelineStage === "interview" || isSuperAdmin) ? (
+                              {/* LAW #31: supreme admin can toggle ANY stage, ANY time. While the
+                                  role check is still resolving on initial load, render as clickable
+                                  to avoid the race where a fast admin click hits a no-op span. Server
+                                  is authoritative — sub-admins get a 403 if they try. */}
+                              {(activePipelineStage === "interview" || isSuperAdmin || !roleResolved) ? (
                                 <button
                                   onClick={() => {
                                     if (isReise) return;

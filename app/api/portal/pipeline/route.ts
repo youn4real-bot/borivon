@@ -68,7 +68,18 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // interview_notes + stage unlocks are supreme-admin-only (LAW #31).
+  // LAW #31: stage unlocks are supreme-admin-only. Sub-admins attempting these
+  // get an explicit 403 — never silently dropped (silent drops were the root
+  // cause of "lock toggle does nothing" bug regressions).
+  if (auth.role !== "admin") {
+    for (const k of Object.keys(rawFields)) {
+      if (SUPREME_ONLY_FIELDS.has(k)) {
+        return NextResponse.json({ error: "Forbidden — supreme admin only" }, { status: 403 });
+      }
+    }
+  }
+
+  // interview_notes is supreme-admin-only too (internal notes).
   const allowedFields = auth.role === "admin"
     ? ALLOWED_PIPELINE_FIELDS
     : new Set([...ALLOWED_PIPELINE_FIELDS].filter(f => f !== "interview_notes" && !SUPREME_ONLY_FIELDS.has(f)));
