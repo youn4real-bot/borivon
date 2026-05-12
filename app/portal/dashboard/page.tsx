@@ -3543,20 +3543,29 @@ export default function DashboardPage() {
                 {lang === "de" ? "Formular ausfüllen" : lang === "fr" ? "Remplir le formulaire" : "Fill form"}
               </p>
               {(() => {
-                // LAW #13: block submit if any required candidate task isn't done.
-                // For wizard-driven slots with inline sig zone, signedSig is the
-                // gate. For legacy slots with separate sign requests, fall back
-                // to the sign_requests row.
+                // LAW #13: block submit until ALL candidate-assigned actions
+                // are done. Three gates:
+                //  (a) every drawn field box has a value typed in,
+                //  (b) the inline sig zone (if any) has been signed,
+                //  (c) for legacy slots without a wizard zone, the separate
+                //      sign_request row must be signed.
                 const fillSlot = [...dynamicSlots.bea, ...dynamicSlots.vis].find(s => s.id === fillForm.slotId);
+                const fieldsPending = fillForm.fields.some(f =>
+                  f.type === "checkbox" ? false : !(fillForm.values[f.id]?.trim())
+                );
                 const inlineSigPending = !!fillForm.sigZone && !fillForm.signedSig;
                 const legacySigPending = fillSlot?.candidate_signs && !fillForm.sigZone
                   ? !signRequests.find(r => r.status === "signed" && r.document_name === fillForm.slotId)
                   : false;
-                const fillBlocked = inlineSigPending || legacySigPending;
+                const fillBlocked = fieldsPending || inlineSigPending || legacySigPending;
                 return (
                   <button
                     disabled={fillFormSubmitting || !fillForm.pdfUrl || fillBlocked}
-                    title={fillBlocked ? (lang === "de" ? "Zuerst Signatur erforderlich" : lang === "fr" ? "Signature requise d'abord" : "Sign required first") : undefined}
+                    title={fillBlocked
+                      ? fieldsPending
+                        ? (lang === "de" ? "Bitte alle Felder ausfüllen" : lang === "fr" ? "Veuillez remplir tous les champs" : "Please fill all fields")
+                        : (lang === "de" ? "Zuerst Signatur erforderlich" : lang === "fr" ? "Signature requise d'abord" : "Sign required first")
+                      : undefined}
                     onClick={async () => {
                       if (!fillForm.pdfUrl) return;
                       setFillFormSubmitting(true);

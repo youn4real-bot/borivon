@@ -59,6 +59,23 @@ export async function POST(req: NextRequest) {
   const bytes = await file.arrayBuffer();
   const path  = `slot-templates/${slotId}.pdf`;
 
+  // LAW #33: archive the previous template (if any) before overwriting.
+  // Move it into `slot-templates/archive/<slotId>_<timestamp>.pdf` so prior
+  // versions of the PDF stay recoverable indefinitely.
+  try {
+    const { data: existing } = await db.storage.from(BUCKET).download(path);
+    if (existing) {
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const archivePath = `slot-templates/archive/${slotId}_${stamp}.pdf`;
+      const existingBytes = await existing.arrayBuffer();
+      await db.storage.from(BUCKET).upload(archivePath, existingBytes, {
+        contentType: "application/pdf", upsert: false,
+      });
+    }
+  } catch (archErr) {
+    console.warn("[slot-template POST] archive step failed (non-fatal):", archErr);
+  }
+
   const { error: upErr } = await db.storage
     .from(BUCKET)
     .upload(path, bytes, { contentType: "application/pdf", upsert: true });

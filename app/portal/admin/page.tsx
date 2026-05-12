@@ -3950,9 +3950,21 @@ export default function AdminPage() {
         const currentStep = wz.steps[wz.stepIdx];
         const isLast = wz.stepIdx === wz.steps.length - 1;
         const hintByStep: Record<WizardStep, string> = {
-          fields: "Draw input boxes where the form needs to be filled.",
-          admin_sig: "Scroll to where you want to sign, then draw a box.",
-          candidate_sig: "Draw a box where the candidate should sign.",
+          fields: lang === "de"
+            ? "Zeichnen Sie Eingabefelder dort, wo das Formular ausgefüllt werden soll."
+            : lang === "fr"
+            ? "Tracez les champs de saisie aux endroits à remplir."
+            : "Draw input boxes where the form needs to be filled.",
+          admin_sig: lang === "de"
+            ? "Scrollen Sie zur Unterschriftsstelle und zeichnen Sie einen Bereich."
+            : lang === "fr"
+            ? "Faites défiler jusqu'à l'endroit de la signature, puis tracez un cadre."
+            : "Scroll to where you want to sign, then draw a box.",
+          candidate_sig: lang === "de"
+            ? "Zeichnen Sie einen Bereich, wo der Kandidat unterschreiben soll."
+            : lang === "fr"
+            ? "Tracez un cadre à l'endroit où le candidat doit signer."
+            : "Draw a box where the candidate should sign.",
         };
         const partyForStep: Record<WizardStep, "admin" | "candidate"> = {
           fields: "admin", admin_sig: "admin", candidate_sig: "candidate",
@@ -4060,12 +4072,16 @@ export default function AdminPage() {
               style={{ background: "var(--card)", borderBottom: "1px solid var(--border)" }}>
               <div className="min-w-0">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--w3)" }}>
-                  Step {wz.stepIdx + 1} of {wz.steps.length}
+                  {lang === "de" ? `Schritt ${wz.stepIdx + 1} von ${wz.steps.length}`
+                   : lang === "fr" ? `Étape ${wz.stepIdx + 1} sur ${wz.steps.length}`
+                   : `Step ${wz.stepIdx + 1} of ${wz.steps.length}`}
                 </p>
                 <p className="text-[13.5px] font-semibold mt-0.5" style={{ color: "var(--w)" }}>
-                  {currentStep === "fields" ? "Form fields"
-                   : currentStep === "admin_sig" ? "Your signature"
-                   : "Candidate's signature"}
+                  {currentStep === "fields"
+                    ? (lang === "de" ? "Formularfelder" : lang === "fr" ? "Champs du formulaire" : "Form fields")
+                    : currentStep === "admin_sig"
+                      ? (lang === "de" ? "Ihre Unterschrift" : lang === "fr" ? "Votre signature" : "Your signature")
+                      : (lang === "de" ? "Unterschrift des Kandidaten" : lang === "fr" ? "Signature du candidat" : "Candidate's signature")}
                 </p>
               </div>
               <button onClick={() => setPlacementWizard(null)} disabled={placementSubmitting}
@@ -4172,8 +4188,16 @@ export default function AdminPage() {
                     <div className="fixed inset-x-4 top-1/4 z-[82] max-w-sm mx-auto rounded-2xl p-4 space-y-2"
                       style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", maxHeight: "70dvh", overflowY: "auto" }}>
                       <div>
-                        <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>What goes in this box?</p>
-                        <p className="text-[10.5px] mt-0.5" style={{ color: "var(--w3)" }}>Pick a candidate data field — auto-filled when sent.</p>
+                        <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>
+                          {lang === "de" ? "Was kommt in dieses Feld?" : lang === "fr" ? "Que mettre dans cette case ?" : "What goes in this box?"}
+                        </p>
+                        <p className="text-[10.5px] mt-0.5" style={{ color: "var(--w3)" }}>
+                          {lang === "de"
+                            ? "Wählen Sie ein Kandidatenfeld — wird beim Senden automatisch ausgefüllt."
+                            : lang === "fr"
+                            ? "Choisissez un champ du candidat — rempli automatiquement à l'envoi."
+                            : "Pick a candidate data field — auto-filled when sent."}
+                        </p>
                       </div>
                       <div className="space-y-1">
                         {available.map(f => {
@@ -4197,15 +4221,21 @@ export default function AdminPage() {
                           className="w-full text-left px-3 py-2 rounded-lg transition-colors hover:opacity-90 mt-2"
                           style={{ background: "var(--bg2)", border: "1px dashed var(--border-gold)" }}>
                           <p className="text-[12px] font-semibold" style={{ color: "var(--gold)" }}>
-                            ✏️ Other / candidate fills manually
+                            ✏️ {lang === "de" ? "Anderes / Kandidat füllt selbst aus" : lang === "fr" ? "Autre / le candidat remplit" : "Other / candidate fills manually"}
                           </p>
-                          <p className="text-[10.5px] mt-0.5" style={{ color: "var(--w3)" }}>Leaves the box empty for the candidate.</p>
+                          <p className="text-[10.5px] mt-0.5" style={{ color: "var(--w3)" }}>
+                            {lang === "de"
+                              ? "Lässt das Feld leer für den Kandidaten."
+                              : lang === "fr"
+                              ? "Laisse la case vide pour le candidat."
+                              : "Leaves the box empty for the candidate."}
+                          </p>
                         </button>
                       </div>
                       <button onClick={cancelBinding}
                         className="w-full py-2 rounded-lg text-[11.5px] font-semibold transition-colors mt-2"
                         style={{ background: "transparent", color: "var(--w3)" }}>
-                        Cancel
+                        {lang === "de" ? "Abbrechen" : lang === "fr" ? "Annuler" : "Cancel"}
                       </button>
                     </div>
                   </>
@@ -4218,11 +4248,21 @@ export default function AdminPage() {
               <p className="text-[11px]" style={{ color: "var(--w3)" }}>
                 {currentStep === "fields"
                   ? wz.fields.length === 0
-                    ? "Tap and drag to draw an input box."
-                    : `${wz.fields.length} box${wz.fields.length === 1 ? "" : "es"} drawn`
+                    ? (lang === "de" ? "Tippen und ziehen, um ein Eingabefeld zu zeichnen."
+                       : lang === "fr" ? "Tracez en glissant pour créer un champ de saisie."
+                       : "Tap and drag to draw an input box.")
+                    : (lang === "de"
+                        ? `${wz.fields.length} ${wz.fields.length === 1 ? "Feld" : "Felder"} gezeichnet`
+                        : lang === "fr"
+                        ? `${wz.fields.length} ${wz.fields.length === 1 ? "champ" : "champs"} tracé${wz.fields.length === 1 ? "" : "s"}`
+                        : `${wz.fields.length} box${wz.fields.length === 1 ? "" : "es"} drawn`)
                   : currentZone
-                    ? "Box placed. You can drag corners to resize."
-                    : "Tap and drag to draw a box."}
+                    ? (lang === "de" ? "Bereich platziert. Ecken ziehen, um die Größe zu ändern."
+                       : lang === "fr" ? "Cadre placé. Glissez les coins pour redimensionner."
+                       : "Box placed. You can drag corners to resize.")
+                    : (lang === "de" ? "Tippen und ziehen, um einen Bereich zu zeichnen."
+                       : lang === "fr" ? "Tracez en glissant pour créer un cadre."
+                       : "Tap and drag to draw a box.")}
               </p>
               <button
                 disabled={placementSubmitting || (currentStep === "admin_sig" || currentStep === "candidate_sig" ? !currentZone : false)}
@@ -4235,7 +4275,11 @@ export default function AdminPage() {
                 }}
                 className="px-6 py-2.5 rounded-xl text-[13px] font-semibold transition-all disabled:opacity-40"
                 style={{ background: "var(--gold)", color: "#131312" }}>
-                {placementSubmitting ? "Saving…" : isLast ? "Submit" : "Next →"}
+                {placementSubmitting
+                  ? (lang === "de" ? "Speichern…" : lang === "fr" ? "Enregistrement…" : "Saving…")
+                  : isLast
+                    ? (lang === "de" ? "Einreichen" : lang === "fr" ? "Soumettre" : "Submit")
+                    : (lang === "de" ? "Weiter →" : lang === "fr" ? "Suivant →" : "Next →")}
               </button>
             </div>
           </div>
