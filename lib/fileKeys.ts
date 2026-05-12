@@ -2,7 +2,6 @@ import { translations } from "./translations";
 
 const KEY_TO_TKEY: Record<string, keyof typeof translations.fr> = {
   id:                   "pTypeID",
-  cv:                   "pTypeCV",
   langcert:             "pTypeLangCert",
   diploma:              "pTypeDiploma",
   studyprog:            "pTypeStudyProg",

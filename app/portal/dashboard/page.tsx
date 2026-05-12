@@ -50,7 +50,7 @@ const OnboardingTour = dynamic(
 // cv_de (Lebenslauf) lives in Phase 0 (ID & CV) — it's the candidate's main
 // CV, not a translation of another doc.
 const FILE_KEY_PHASE: Record<string, number> = {
-  id: 0, cv: 0, cv_de: 0, letter: 0,
+  id: 0, cv_de: 0, letter: 0,
   diploma: 1, studyprog: 1, transcript: 1, abitur: 1,
   abitur_transcript: 1, praktikum: 1, workcert: 1, work_experience: 1, impfung: 1,
   diploma_de: 2, studyprog_de: 2, transcript_de: 2,
@@ -2266,7 +2266,7 @@ export default function DashboardPage() {
             // Whole-row click: previews when uploaded, opens the file picker
             // when empty (incl. multi-doc 'other' under the 5-file cap), or
             // routes to the CV builder for the CV row.
-            const isCv = item.key === "cv" || item.key === "cv_de";
+            const isCv = item.key === "cv_de";
             const isFillSlot = "form_fields" in item && Array.isArray((item as {form_fields?: unknown}).form_fields) && ((item as {form_fields?: unknown[]}).form_fields?.length ?? 0) > 0;
             // LAW #13 / LAW #34: candidate task flags on dynamic B/V slots
             const needsCandidateSign = (item as {candidate_signs?: boolean}).candidate_signs === true;
@@ -2487,7 +2487,7 @@ export default function DashboardPage() {
                         {/* CV slots: candidates MUST use the builder so every
                             CV follows our format. No upload option, just the
                             primary "Build my CV" CTA in gold. */}
-                        {!uploaded && (item.key === "cv" || item.key === "cv_de") && (
+                        {!uploaded && (item.key === "cv_de") && (
                           <span
                             aria-hidden="true"
                             className="inline-flex items-center justify-center w-9 h-9 rounded-full flex-shrink-0"
@@ -2534,7 +2534,7 @@ export default function DashboardPage() {
                               // replaced with an arbitrary upload, so we
                               // route to /portal/cv-builder instead of
                               // opening the file picker.
-                              if (item.key === "cv" || item.key === "cv_de") {
+                              if (item.key === "cv_de") {
                                 window.open("/portal/cv-builder", "_blank");
                               } else {
                                 openPicker(item.key);

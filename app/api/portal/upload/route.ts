@@ -76,14 +76,11 @@ function sniffMime(buf: Buffer): string | null {
 // "Original" and "Übersetzt" uploads on the same box.
 const FILE_KEY_MAP: Record<string, { name: string; suffix: string }> = {
   // ── Essentials (no suffix) ────────────────────────────────────────────────
-  cv:                    { name: "lebenslauf",         suffix: ""         },
   id:                    { name: "reisepass",          suffix: ""         },
   langcert:              { name: "b2_sprachzertifikat",suffix: ""         },
   letter:                { name: "anschreiben",        suffix: ""         },
-  // cv_de is the single Lebenslauf box (German CV from the builder). The
-  // older `cv` key is not rendered anywhere; keeping both mapped to the same
-  // filename means defensive fallback uploads won't collide with anything
-  // real and stay aligned with the portal's one-CV-per-candidate model.
+  // The single Lebenslauf box. fileKey is "cv_de" for historical reasons;
+  // there is no separate non-German CV slot in the portal.
   cv_de:                 { name: "lebenslauf",         suffix: ""         },
 
   // ── Qualifications (original / uebersetzt pairs) ──────────────────────────

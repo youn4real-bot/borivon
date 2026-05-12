@@ -62,7 +62,7 @@ export interface Translation {
   pDashWelcome: string; pDashSpace: string; pDashStatus: string; pDashDays: string;
   pUploadTitle: string; pUploadHint: string; pUploadDrag: string; pUploadConfirm: string;
   pDocsTitle: string; pNoDoc: string; pPending: string; pLogout: string; pContact: string;
-  pTypeCV: string; pTypeDiploma: string; pTypeID: string; pTypeLetter: string; pTypeOther: string;
+  pTypeDiploma: string; pTypeID: string; pTypeLetter: string; pTypeOther: string;
   pTypeLangCert: string; pTypeWorkCert: string;
   pTypeStudyProg: string; pTypeTranscript: string; pTypeAbitur: string; pTypeAbiturTranscript: string; pTypePraktikum: string;
   pTypeCVde: string; pTypeDiplomaDE: string; pTypeStudyProgDE: string; pTypeTranscriptDE: string;
@@ -318,7 +318,7 @@ export const translations: Record<Lang, Translation> = {
     pUploadConfirm: "Envoyer le document",
     pDocsTitle: "Documents déposés", pNoDoc: "Aucun document déposé pour le moment.",
     pPending: "En attente", pLogout: "Déconnexion", pContact: "Une question ?",
-    pTypeCV: "CV", pTypeDiploma: "Diplôme Infirmier", pTypeID: "Passeport",
+    pTypeDiploma: "Diplôme Infirmier", pTypeID: "Passeport",
     pTypeLetter: "Lettre de motivation", pTypeOther: "Autre",
     pTypeLangCert: "Certificat de langue B2", pTypeWorkCert: "Certificat d'exercice de la profession infirmière",
     pTypeStudyProg: "Programme d'études Infirmier", pTypeTranscript: "Bulletin de notes Infirmier",
@@ -620,7 +620,7 @@ export const translations: Record<Lang, Translation> = {
     pUploadConfirm: "Send document",
     pDocsTitle: "Uploaded documents", pNoDoc: "No documents uploaded yet.",
     pPending: "Pending", pLogout: "Sign out", pContact: "Any questions?",
-    pTypeCV: "CV", pTypeDiploma: "Nursing Diploma", pTypeID: "Passport",
+    pTypeDiploma: "Nursing Diploma", pTypeID: "Passport",
     pTypeLetter: "Cover letter", pTypeOther: "Other",
     pTypeLangCert: "B2 Language Certificate", pTypeWorkCert: "Certificate of Nursing Practice",
     pTypeStudyProg: "Nursing Study Programme", pTypeTranscript: "Nursing Transcript",
@@ -922,7 +922,7 @@ export const translations: Record<Lang, Translation> = {
     pUploadConfirm: "Dokument senden",
     pDocsTitle: "Hochgeladene Dokumente", pNoDoc: "Noch keine Dokumente hochgeladen.",
     pPending: "Ausstehend", pLogout: "Abmelden", pContact: "Fragen?",
-    pTypeCV: "Lebenslauf", pTypeDiploma: "Diplom", pTypeID: "Reisepass",
+    pTypeDiploma: "Diplom", pTypeID: "Reisepass",
     pTypeLetter: "Anschreiben", pTypeOther: "Sonstiges",
     pTypeLangCert: "B2 Sprachzertifikat", pTypeWorkCert: "Berufserlaubnis",
     pTypeStudyProg: "Ausbildungsprogramm", pTypeTranscript: "Notenübersicht",
