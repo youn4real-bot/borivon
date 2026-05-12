@@ -12,6 +12,11 @@
 
 import type { CandidateProfile } from "@/types";
 
+/** Subset of CandidateProfile actually used by the resolver — accepts any
+ *  shape with these optional fields so admin/page.tsx's local type (which
+ *  omits user_id) is assignable too. */
+type ResolverProfile = Partial<Omit<CandidateProfile, "user_id">>;
+
 export type CandidateFieldId =
   | "first_name" | "last_name" | "full_name"
   | "dob" | "sex"
@@ -67,7 +72,7 @@ export function fieldLabel(id: CandidateFieldId, lang: string): string {
  */
 export function resolveFieldValue(
   id: CandidateFieldId,
-  profile: CandidateProfile | null | undefined,
+  profile: ResolverProfile | null | undefined,
   cv: { phone?: string | null; email?: string | null } | null | undefined,
 ): string {
   const p = profile ?? null;

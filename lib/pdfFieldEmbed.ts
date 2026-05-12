@@ -21,7 +21,7 @@ export type FormField = {
  * this fn converts to pdf-lib's bottom-left points space.
  */
 export async function embedFields(
-  pdfBytes: Uint8Array,
+  pdfBytes: Uint8Array | ArrayBuffer,
   fields: FormField[],
   values: Record<string, string>,
 ): Promise<Uint8Array> {

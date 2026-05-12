@@ -23,6 +23,8 @@ import { DropdownMenu } from "@/components/ui/DropdownMenu";
 import { CandidateStagePreview, type JourneyMode } from "@/components/JourneyView";
 import { PdfZonePicker, type SigZone } from "@/components/PdfZonePicker";
 import { PdfFieldPicker } from "@/components/PdfFieldPicker";
+import { FIELD_CATALOG, resolveFieldValue, fieldLabel, type CandidateFieldId } from "@/lib/candidateFields";
+import { embedFields } from "@/lib/pdfFieldEmbed";
 import { SignaturePad } from "@/components/SignaturePad";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { PortalTopNav } from "@/components/PortalTopNav";
@@ -662,6 +664,13 @@ export default function AdminPage() {
     stepIdx: number;
     adminSigZone: import("@/components/PdfZonePicker").SigZone | null;
     candidateSigZone: import("@/components/PdfZonePicker").SigZone | null;
+    fields: import("@/lib/pdfFieldEmbed").FormField[];
+    /** Phone / email pulled from the candidate's CV draft (other passport
+     *  fields come from profiles[selectedUser]). Fetched once when the wizard
+     *  opens — admin's binding selections render their live values from this. */
+    cv: { phone?: string | null; email?: string | null } | null;
+    /** ID of the field whose binding popup is currently open — null otherwise. */
+    pendingBindField: string | null;
   } | null>(null);
   const [placementSubmitting, setPlacementSubmitting] = useState(false);
   // Configure fields modal (fill-type slots)
@@ -1442,23 +1451,34 @@ export default function AdminPage() {
   ) {
     if (!accessToken) return;
     try {
-      const res = await fetch(`/api/portal/admin/slot-template?slotId=${slotId}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (!res.ok) {
+      const [tplRes, cvRes] = await Promise.all([
+        fetch(`/api/portal/admin/slot-template?slotId=${slotId}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }),
+        // Fetch the candidate's CV draft so phone/email bindings resolve live.
+        selectedUser
+          ? fetch(`/api/portal/admin/cv-draft?candidateId=${selectedUser}`, {
+              headers: { Authorization: `Bearer ${accessToken}` },
+            }).then(r => r.ok ? r.json() : null).catch(() => null)
+          : Promise.resolve(null),
+      ]);
+      if (!tplRes.ok) {
         showError("Could not load PDF template.");
         return;
       }
-      const buf = await res.arrayBuffer();
+      const buf = await tplRes.arrayBuffer();
       const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
       const steps: WizardStep[] = [];
       if (needs.fields) steps.push("fields");
       if (needs.admin) steps.push("admin_sig");
       if (needs.candidate) steps.push("candidate_sig");
       if (steps.length === 0) return;
+      const draft = (cvRes as { draft?: { phone?: string; email?: string } | null } | null)?.draft ?? null;
       setPlacementWizard({
         slotId, pdfB64: b64, steps, stepIdx: 0,
         adminSigZone: null, candidateSigZone: null,
+        fields: [], cv: draft ? { phone: draft.phone, email: draft.email } : null,
+        pendingBindField: null,
       });
     } catch (err) {
       console.error("[openPlacementWizard] error:", err);
@@ -3941,17 +3961,41 @@ export default function AdminPage() {
                           : currentStep === "candidate_sig" ? wz.candidateSigZone
                           : null;
 
+        const profile = selectedUser ? profiles[selectedUser] : null;
+
         async function onSubmitFinal() {
           if (placementSubmitting) return;
           setPlacementSubmitting(true);
           try {
-            // 1) Stamp admin's signature into the PDF (if set)
+            // Start from the original PDF bytes; each transform produces new bytes.
+            // Use a fresh ArrayBuffer so the Uint8Array has a settled buffer type
+            // (pdf-lib + Blob expect ArrayBuffer, not ArrayBufferLike).
+            const rawBytes = Uint8Array.from(atob(wz.pdfB64), c => c.charCodeAt(0));
+            const initBuf = new ArrayBuffer(rawBytes.byteLength);
+            new Uint8Array(initBuf).set(rawBytes);
+            let pdfBytes: Uint8Array = new Uint8Array(initBuf);
+
+            // 1) Bake bound field values into the PDF as static text.
+            const boundFields = wz.fields.filter(f => f.binding);
+            const freeFillFields = wz.fields.filter(f => !f.binding);
+            if (boundFields.length > 0) {
+              const values: Record<string, string> = {};
+              for (const f of boundFields) {
+                values[f.id] = resolveFieldValue(f.binding as CandidateFieldId, profile, wz.cv);
+              }
+              pdfBytes = await embedFields(pdfBytes, boundFields, values);
+            }
+
+            // 2) Stamp admin's signature on top of (possibly modified) PDF.
             if (wz.adminSigZone && adminSavedSig) {
-              const sourceBytes = Uint8Array.from(atob(wz.pdfB64), c => c.charCodeAt(0));
-              const stamped = await stampSigOnPdf(sourceBytes, adminSavedSig, [wz.adminSigZone]);
-              // Copy into a fresh ArrayBuffer so Blob's typing is happy.
-              const ab = new ArrayBuffer(stamped.byteLength);
-              new Uint8Array(ab).set(stamped);
+              pdfBytes = await stampSigOnPdf(pdfBytes, adminSavedSig, [wz.adminSigZone]);
+            }
+
+            // 3) Upload modified PDF as new slot template (only if anything changed).
+            const changed = boundFields.length > 0 || (wz.adminSigZone && adminSavedSig);
+            if (changed) {
+              const ab = new ArrayBuffer(pdfBytes.byteLength);
+              new Uint8Array(ab).set(pdfBytes);
               const fd = new FormData();
               fd.append("file", new Blob([ab], { type: "application/pdf" }), "template.pdf");
               fd.append("slotId", wz.slotId);
@@ -3961,8 +4005,30 @@ export default function AdminPage() {
                 body: fd,
               });
             }
-            // 2) Save candidate sig zone (signature_zone column) and admin_signs done
-            // For now, we just close — saving zones to slot is part of next iteration.
+
+            // 4) Save free-fill fields + candidate sig zone on the slot for the
+            //    candidate-side flow. Bound fields are NOT saved (they're already
+            //    baked into the PDF, candidate sees them as static text).
+            await fetch("/api/portal/phase-slots", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+              body: JSON.stringify({
+                id: wz.slotId,
+                form_fields: freeFillFields,
+              }),
+            });
+
+            // Local state update
+            setPhaseSlots(prev => {
+              const updated: typeof prev = {};
+              for (const [ph, slots] of Object.entries(prev)) {
+                updated[ph] = (slots ?? []).map(s => s.id === wz.slotId
+                  ? { ...s, form_fields: freeFillFields }
+                  : s);
+              }
+              return updated;
+            });
+
             setPlacementWizard(null);
           } catch (err) {
             console.error("[placement submit] error:", err);
@@ -4023,25 +4089,129 @@ export default function AdminPage() {
                 />
               )}
               {currentStep === "fields" && (
-                <div className="flex items-center justify-center h-full">
-                  <p className="text-center text-[13px] max-w-md px-6" style={{ color: "var(--w3)" }}>
-                    Field drawing is set up via the &quot;Configure fields&quot; tool. For now, click Next to continue.
-                  </p>
-                </div>
+                <>
+                  {/* Faint hint when no fields drawn yet */}
+                  {wz.fields.length === 0 && (
+                    <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none px-6">
+                      <p className="text-center text-[14px] font-medium max-w-md"
+                        style={{ color: "rgba(255,255,255,0.55)", textShadow: "0 2px 8px rgba(0,0,0,0.7)" }}>
+                        ✏️ {hintByStep.fields}
+                      </p>
+                    </div>
+                  )}
+                  <PdfFieldPicker
+                    pdfBase64={wz.pdfB64}
+                    fields={wz.fields}
+                    onChange={nextFields => {
+                      setPlacementWizard(prev => {
+                        if (!prev) return prev;
+                        // Detect a newly-drawn box: a field with default "Field"
+                        // label and no binding → open the binding popup for it.
+                        const newlyAdded = nextFields.find(nf =>
+                          nf.label === "Field" && !nf.binding
+                          && !prev.fields.some(of => of.id === nf.id)
+                        );
+                        return {
+                          ...prev,
+                          fields: nextFields,
+                          pendingBindField: newlyAdded ? newlyAdded.id : prev.pendingBindField,
+                        };
+                      });
+                    }}
+                  />
+                </>
               )}
+
+              {/* Binding popup — opens after admin draws a new field box.
+                  Lists unused catalog fields + "Free fill" option. Pick one. */}
+              {wz.pendingBindField && (() => {
+                const used = new Set(wz.fields.filter(f => f.binding).map(f => f.binding as CandidateFieldId));
+                const available = FIELD_CATALOG.filter(f => !used.has(f.id));
+                function pickBinding(binding: CandidateFieldId | null) {
+                  setPlacementWizard(prev => {
+                    if (!prev) return prev;
+                    const fieldId = prev.pendingBindField;
+                    if (!fieldId) return prev;
+                    const newFields = prev.fields.map(f => {
+                      if (f.id !== fieldId) return f;
+                      if (!binding) {
+                        return { ...f, label: lang === "de" ? "Vom Kandidaten ausfüllen" : lang === "fr" ? "À remplir par le candidat" : "Candidate fills" };
+                      }
+                      const resolved = resolveFieldValue(binding, selectedUser ? profiles[selectedUser] : null, prev.cv);
+                      return { ...f, binding, label: resolved || fieldLabel(binding, lang) };
+                    });
+                    return { ...prev, fields: newFields, pendingBindField: null };
+                  });
+                }
+                function cancelBinding() {
+                  // If admin cancels, remove the unbound field they just drew.
+                  setPlacementWizard(prev => prev ? {
+                    ...prev,
+                    fields: prev.fields.filter(f => f.id !== prev.pendingBindField),
+                    pendingBindField: null,
+                  } : prev);
+                }
+                return (
+                  <>
+                    <div className="fixed inset-0 z-[81]" style={{ background: "rgba(0,0,0,0.7)" }}
+                      onClick={cancelBinding} />
+                    <div className="fixed inset-x-4 top-1/4 z-[82] max-w-sm mx-auto rounded-2xl p-4 space-y-2"
+                      style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", maxHeight: "70dvh", overflowY: "auto" }}>
+                      <div>
+                        <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>What goes in this box?</p>
+                        <p className="text-[10.5px] mt-0.5" style={{ color: "var(--w3)" }}>Pick a candidate data field — auto-filled when sent.</p>
+                      </div>
+                      <div className="space-y-1">
+                        {available.map(f => {
+                          const resolved = resolveFieldValue(f.id, selectedUser ? profiles[selectedUser] : null, wz.cv);
+                          return (
+                            <button key={f.id} onClick={() => pickBinding(f.id)}
+                              className="w-full text-left px-3 py-2 rounded-lg transition-colors hover:opacity-90"
+                              style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+                              <p className="text-[12px] font-semibold" style={{ color: "var(--w)" }}>
+                                {fieldLabel(f.id, lang)}
+                              </p>
+                              {resolved && (
+                                <p className="text-[10.5px] mt-0.5 truncate" style={{ color: "var(--gold)" }}>
+                                  → {resolved}
+                                </p>
+                              )}
+                            </button>
+                          );
+                        })}
+                        <button onClick={() => pickBinding(null)}
+                          className="w-full text-left px-3 py-2 rounded-lg transition-colors hover:opacity-90 mt-2"
+                          style={{ background: "var(--bg2)", border: "1px dashed var(--border-gold)" }}>
+                          <p className="text-[12px] font-semibold" style={{ color: "var(--gold)" }}>
+                            ✏️ Other / candidate fills manually
+                          </p>
+                          <p className="text-[10.5px] mt-0.5" style={{ color: "var(--w3)" }}>Leaves the box empty for the candidate.</p>
+                        </button>
+                      </div>
+                      <button onClick={cancelBinding}
+                        className="w-full py-2 rounded-lg text-[11.5px] font-semibold transition-colors mt-2"
+                        style={{ background: "transparent", color: "var(--w3)" }}>
+                        Cancel
+                      </button>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
             {/* Footer */}
             <div className="flex items-center justify-between gap-3 px-4 py-3 flex-shrink-0"
               style={{ background: "var(--card)", borderTop: "1px solid var(--border)" }}>
               <p className="text-[11px]" style={{ color: "var(--w3)" }}>
                 {currentStep === "fields"
-                  ? "Skip for now"
+                  ? wz.fields.length === 0
+                    ? "Tap and drag to draw an input box."
+                    : `${wz.fields.length} box${wz.fields.length === 1 ? "" : "es"} drawn`
                   : currentZone
                     ? "Box placed. You can drag corners to resize."
                     : "Tap and drag to draw a box."}
               </p>
               <button
-                disabled={placementSubmitting || (currentStep !== "fields" && !currentZone)}
+                disabled={placementSubmitting || (currentStep === "admin_sig" || currentStep === "candidate_sig" ? !currentZone : false)}
                 onClick={() => {
                   if (isLast) {
                     onSubmitFinal();
