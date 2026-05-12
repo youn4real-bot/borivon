@@ -73,13 +73,15 @@ export function Navbar({ rightExtra, leftExtra }: { rightExtra?: ReactNode; left
   const isAdmin = pathname.startsWith("/portal/admin");
   const isOrg   = pathname.startsWith("/portal/org");
   const isFeed  = pathname.startsWith("/portal/feed");
+  // LAW #1: `/portal` exact match is the login screen — Dashboard / Community
+  // tabs MUST NOT render there even if `authTk` is set from a stale session.
+  // Route check is authoritative — no async auth state can leak chrome onto
+  // the login page (recurring bug, fixed for good).
+  const isLoginPage = pathname === "/portal";
   const dashHref = isAdmin ? "/portal/admin"
                  : isOrg   ? "/portal/org/dashboard"
                  :            "/portal/dashboard";
-  // Tabs only render once we have a verified session. authTk drives this so
-  // logout immediately hides Dashboard + Community even though we're still on
-  // /portal/* (the login page lives there).
-  const portalTabs = useBottomBar && authTk ? [
+  const portalTabs = useBottomBar && authTk && !isLoginPage ? [
     { label: PNT.dashboard, href: dashHref,        active: !isFeed },
     { label: PNT.community, href: "/portal/feed",  active: isFeed  },
   ] : null;

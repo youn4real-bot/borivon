@@ -48,15 +48,25 @@ function HomeLoginButton() {
  */
 export function GlobalChrome({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "";
-  const isPortal = pathname.startsWith("/portal");
-  const isHome   = pathname === "/";
+  // LAW #1: `/portal` exact-match is the login screen — NEVER render any
+  // logged-in chrome (message icon, bell, profile, bug button, Dashboard /
+  // Community tabs) there. The previous `pathname.startsWith("/portal")`
+  // check matched the login page too, and the individual chrome components
+  // gated themselves on `supabase.auth.getSession()` — an async call. While
+  // it resolved, a cached session token from a prior login leaked the bell /
+  // tabs / profile icon onto the login page (this is the recurring bug).
+  // Suppressing UNCONDITIONALLY here (no auth state read) is the battle-
+  // tested fix: the route alone decides, no async flicker possible.
+  const isLoginPage = pathname === "/portal";
+  const isPortal    = pathname.startsWith("/portal") && !isLoginPage;
+  const isHome      = pathname === "/";
 
   return (
     <ThemeProvider>
       <LangProvider>
         <MobileMenuProvider>
           <Navbar
-rightExtra={isPortal ? (
+            rightExtra={isPortal ? (
               <>
                 <MessageIcon />
                 <NotificationBell />
@@ -67,12 +77,13 @@ rightExtra={isPortal ? (
             ) : null}
           />
           {/* 100 px bottom clearance only on portal mobile (where the
-              bottom action bar lives). Public pages stay flush. */}
+              bottom action bar lives). Public + login pages stay flush. */}
           <div className={isPortal ? "pb-[100px] sm:pb-0" : ""}>
             {children}
           </div>
-          {/* Bug-report button: portal-only. Public/marketing pages never render
-              it so a stale cached session can't leak after logout. */}
+          {/* Bug-report button: portal-only AND not on the login page.
+              Public/marketing/login pages never render it so a stale cached
+              session can't leak after logout. */}
           {isPortal && <BugReportButton />}
         </MobileMenuProvider>
       </LangProvider>
