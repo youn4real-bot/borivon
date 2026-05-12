@@ -2509,11 +2509,20 @@ export default function AdminPage() {
                                 if (slot.type === "simple") {
                                   const doc = origDocs[0] ?? null;
                                   const submitted = !!doc;
-                                  const rowSt = !submitted ? null
-                                    : doc!.status === "approved" ? "approved"
-                                    : doc!.status === "rejected" ? "rejected"
-                                    : "pending";
-                                  const rowColor = rowSt === "approved" ? "#16a34a" : rowSt === "pending" ? "#f59e0b" : null;
+                                  // LAW #15 lifecycle:
+                                  //  - admin sent request to candidate, candidate hasn't submitted → ORANGE
+                                  //  - admin uploaded with no candidate action → GREEN (handled via auto-approve on insert)
+                                  //  - candidate submitted, awaiting review → ORANGE
+                                  //  - approved → GREEN, rejected → RED
+                                  const awaitingCandidate = !submitted && !!slot.template_pdf_path
+                                    && (slot.candidate_signs || slot.candidate_fills);
+                                  const rowSt = submitted
+                                    ? (doc!.status === "approved" ? "approved"
+                                       : doc!.status === "rejected" ? "rejected" : "pending")
+                                    : awaitingCandidate ? "pending" : null;
+                                  const rowColor = rowSt === "approved" ? "#16a34a"
+                                    : rowSt === "rejected" ? "#ef4444"
+                                    : rowSt === "pending" ? "#f59e0b" : null;
                                   const rowClickable = submitted && !!doc?.drive_file_id;
                                   const menuId = doc?.id ?? slot.id;
                                   return (
@@ -3448,7 +3457,10 @@ export default function AdminPage() {
                       const rowSt: "approved" | "rejected" | "pending" | null = !submitted ? null
                         : isMulti ? (multiRej ? "rejected" : multiApp ? "approved" : "pending")
                         : (doc!.status === "approved" ? "approved" : doc!.status === "rejected" ? "rejected" : "pending");
-                      const rowColor = rowSt === "approved" ? "#16a34a" : rowSt === "pending" ? "#f59e0b" : null;
+                      // LAW #4: red for rejected was missing — every status must be color-only.
+                      const rowColor = rowSt === "approved" ? "#16a34a"
+                        : rowSt === "rejected" ? "#ef4444"
+                        : rowSt === "pending" ? "#f59e0b" : null;
 
                       // Whole-row click previews the doc (admin parity with
                       // candidate portal). Inner action buttons stop
@@ -3507,12 +3519,10 @@ export default function AdminPage() {
                                                 : <span className="w-1 h-1 rounded-full" style={{ background: "currentColor" }} />}
                                             </span>
                                             <div className="flex-1 min-w-0">
-                                              <p className="text-xs font-medium truncate" style={{ color: "var(--w2)" }}>{d.file_name}</p>
-                                              <p className="text-[10.5px] mt-0.5 truncate" style={{ color: "var(--w3)" }}>
-                                                <span className="font-semibold" style={{ color: dsc.txt }}>
-                                                  {d.status === "approved" ? (lang === "fr" ? "Approuvé" : lang === "de" ? "Genehmigt" : "Approved") : d.status === "rejected" ? (lang === "fr" ? "Refusé" : lang === "de" ? "Abgelehnt" : "Rejected") : (lang === "fr" ? "En attente" : lang === "de" ? "Ausstehend" : "Pending")}
-                                                </span>
-                                              </p>
+                                              {/* LAW #4: color is the only status language. The icon to the
+                                                  left (check / cross / dot) plus the row color already convey
+                                                  status; the text label below was redundant + a violation. */}
+                                              <p className="text-xs font-medium truncate" style={{ color: dsc.txt }}>{d.file_name}</p>
                                             </div>
                                             {/* Action buttons — wrap so click + mousedown can't bubble
                                                 to the row's preview-doc handler. */}

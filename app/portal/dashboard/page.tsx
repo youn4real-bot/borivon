@@ -2239,7 +2239,16 @@ export default function DashboardPage() {
             // For "other": derive aggregate status
             const otherHasRejected = allOtherDocs.some(d => d.status === "rejected");
             const otherAllApproved = allOtherDocs.length > 0 && allOtherDocs.every(d => d.status === "approved");
-            const rowSt: "approved" | "rejected" | "pending" | null = !uploaded ? null
+            // LAW #15 lifecycle: a wizard-driven B/V slot that admin set up but
+            // candidate hasn't acted on yet shows ORANGE (something to do), not
+            // neutral. Detected via form_fields or candidate sig zone presence.
+            const slotNeedsCandidateAction =
+              !uploaded && (
+                ("form_fields" in item && Array.isArray((item as {form_fields?: unknown[]}).form_fields) && ((item as {form_fields?: unknown[]}).form_fields?.length ?? 0) > 0)
+                || !!((item as {candidate_signature_zone?: unknown}).candidate_signature_zone)
+              );
+            const rowSt: "approved" | "rejected" | "pending" | null = !uploaded
+              ? (slotNeedsCandidateAction ? "pending" : null)
               : isOther ? (otherHasRejected ? "rejected" : otherAllApproved ? "approved" : "pending")
               : (doc!.status === "approved" ? "approved" : doc!.status === "rejected" ? "rejected" : "pending");
             const rowColor = rowSt === "approved" ? "#16a34a" : rowSt === "rejected" ? "#ef4444" : rowSt === "pending" ? "#f59e0b" : null;
