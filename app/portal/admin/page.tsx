@@ -4030,6 +4030,19 @@ export default function AdminPage() {
               return updated;
             });
 
+            // 5) Bell notifications (LAW #21): candidate + all assigned admins
+            //    learn the slot is ready to act on. Only fires when at least
+            //    one candidate-facing task is part of this slot.
+            const requiresCandidate = !!(wz.candidateSigZone || freeFillFields.length > 0);
+            if (requiresCandidate && selectedUser) {
+              const slotLabel = Object.values(phaseSlots).flat().find(s => s.id === wz.slotId)?.label ?? "Document";
+              await fetch("/api/portal/admin/phase-slots/notify", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                body: JSON.stringify({ slotId: wz.slotId, candidateUserId: selectedUser, slotLabel }),
+              }).catch(err => console.warn("[wizard notify] non-fatal:", err));
+            }
+
             setPlacementWizard(null);
           } catch (err) {
             console.error("[placement submit] error:", err);
