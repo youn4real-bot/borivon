@@ -4061,14 +4061,18 @@ export default function AdminPage() {
 
             // 5) Bell notifications (LAW #21): candidate + all assigned admins
             //    learn the slot is ready to act on. Only fires when at least
-            //    one candidate-facing task is part of this slot.
-            const requiresCandidate = !!(wz.candidateSigZone || freeFillFields.length > 0);
+            //    one candidate-facing task is part of this slot. needsSign /
+            //    needsFill are passed so the bell text reflects exactly what
+            //    the candidate has to do (LAW #34 polish).
+            const needsSign = !!wz.candidateSigZone;
+            const needsFill = freeFillFields.length > 0;
+            const requiresCandidate = needsSign || needsFill;
             if (requiresCandidate && selectedUser) {
               const slotLabel = Object.values(phaseSlots).flat().find(s => s.id === wz.slotId)?.label ?? "Document";
               await fetch("/api/portal/admin/phase-slots/notify", {
                 method: "POST",
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-                body: JSON.stringify({ slotId: wz.slotId, candidateUserId: selectedUser, slotLabel }),
+                body: JSON.stringify({ slotId: wz.slotId, candidateUserId: selectedUser, slotLabel, needsSign, needsFill }),
               }).catch(err => console.warn("[wizard notify] non-fatal:", err));
             }
 

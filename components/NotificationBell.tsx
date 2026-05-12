@@ -30,6 +30,9 @@ const BELL_T = {
     placedWith: "Associé à",
     placedNext: "Consultez votre tableau de bord pour voir les détails.",
     signRequest: "Document à signer",
+    signRequestSign: "Document à signer",
+    signRequestFill: "Formulaire à remplir",
+    signRequestBoth: "Remplir et signer",
     signRequestNext: "Ouvrez votre tableau de bord pour signer.",
     approved: "a été approuvé",
     rejected: "a été refusé",
@@ -60,6 +63,9 @@ const BELL_T = {
     placedWith: "Placed with",
     placedNext: "Check your dashboard to see the details.",
     signRequest: "Document to sign",
+    signRequestSign: "Document to sign",
+    signRequestFill: "Form to fill",
+    signRequestBoth: "Fill and sign",
     signRequestNext: "Open your dashboard to review and sign.",
     approved: "has been approved",
     rejected: "has been rejected",
@@ -90,6 +96,9 @@ const BELL_T = {
     placedWith: "Zugeordnet zu",
     placedNext: "Sehen Sie die Details in Ihrem Dashboard.",
     signRequest: "Dokument zum Unterschreiben",
+    signRequestSign: "Dokument zum Unterschreiben",
+    signRequestFill: "Formular zum Ausfüllen",
+    signRequestBoth: "Ausfüllen und unterschreiben",
     signRequestNext: "Öffnen Sie Ihr Dashboard zum Unterschreiben.",
     approved: "wurde genehmigt",
     rejected: "wurde abgelehnt",
@@ -332,13 +341,14 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
     setOpen(false);
 
     // "sign_request" deep-link. Two routing paths:
-    //   doc_type="slot_setup"  → wizard-driven B/V slot → ?slot=<slotId>
-    //                            (dashboard auto-opens fillForm + highlights
-    //                             the sig zone with a pulse animation)
+    //   doc_type starts with "slot_setup" (incl. _sign / _fill / _sign_fill)
+    //     → wizard-driven B/V slot → ?slot=<slotId>
+    //     (dashboard auto-opens fillForm + highlights the sig zone)
     //   doc_type="sign_request" → legacy stand-alone sign_request → ?sign=<id>
     if (n.action === "sign_request") {
       const sid = n.doc_id ?? "";
-      const param = n.doc_type === "slot_setup" ? "slot" : "sign";
+      const isSlot = n.doc_type.startsWith("slot_setup");
+      const param = isSlot ? "slot" : "sign";
       router.push(`/portal/dashboard${sid ? `?${param}=${encodeURIComponent(sid)}` : ""}`);
       return;
     }
@@ -441,7 +451,13 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
                     ) : signRequest ? (
                       <>
                         <p className="text-xs font-semibold leading-snug" style={{ color: "var(--gold)" }}>
-                          {bt.signRequest}
+                          {/* LAW #34 polish: title reflects exactly what the
+                              candidate has to do on this slot — sign / fill /
+                              both — so they know before clicking. */}
+                          {n.doc_type === "slot_setup_sign_fill" ? bt.signRequestBoth
+                           : n.doc_type === "slot_setup_fill"   ? bt.signRequestFill
+                           : n.doc_type === "slot_setup_sign"   ? bt.signRequestSign
+                           : bt.signRequest}
                         </p>
                         <p className="text-[11px] mt-1 px-2 py-1.5 rounded-lg leading-snug"
                           style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>

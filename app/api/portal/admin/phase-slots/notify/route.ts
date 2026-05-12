@@ -25,6 +25,8 @@ export async function POST(req: NextRequest) {
     slotId?: string;
     candidateUserId?: string;
     slotLabel?: string;
+    needsSign?: boolean;  // candidate has a sig zone to act on
+    needsFill?: boolean;  // candidate has at least one free-fill field
   };
 
   if (!body.slotId || !UUID_RE.test(body.slotId))
@@ -48,14 +50,24 @@ export async function POST(req: NextRequest) {
   const cpRow = cp as { first_name?: string | null; last_name?: string | null } | null;
   const candidateName = [cpRow?.first_name, cpRow?.last_name].filter(Boolean).join(" ") || "Candidate";
 
-  // 1) Candidate bell — LAW #21 + LAW #22: "Admin sends a B/V request to
-  // candidate" with a deep-link target. doc_type="slot_setup" tells the bell
-  // to route via ?slot=<id> (vs legacy "sign_request" which uses ?sign=<id>).
+  // 1) Candidate bell — LAW #21 + LAW #22 + LAW #34: "Admin sends a B/V
+  // request to candidate" with a deep-link target. doc_type variants tell the
+  // bell what to show and how to route:
+  //   "slot_setup_sign_fill" → both sign and fill needed
+  //   "slot_setup_sign"      → sign only
+  //   "slot_setup_fill"      → fill only
+  //   "slot_setup"           → fallback / generic
+  // All "slot_setup*" variants route via ?slot=<id>.
+  const docType =
+    body.needsSign && body.needsFill ? "slot_setup_sign_fill" :
+    body.needsSign                   ? "slot_setup_sign"      :
+    body.needsFill                   ? "slot_setup_fill"      :
+                                       "slot_setup";
   await db.from("notifications").insert({
     user_id:  body.candidateUserId,
     doc_id:   body.slotId,
     doc_name: label,
-    doc_type: "slot_setup",
+    doc_type: docType,
     action:   "sign_request",
     feedback: null,
     read:     false,
