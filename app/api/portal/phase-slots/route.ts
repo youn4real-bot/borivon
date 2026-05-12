@@ -14,6 +14,8 @@ type PhaseSlot = {
   type: string;
   label: string;
   label_trans: string | null;
+  action_type: string | null;
+  instructions: string | null;
 };
 
 // GET — any authenticated user; returns slots for a phase (org-specific → global fallback)
@@ -80,8 +82,9 @@ export async function POST(req: NextRequest) {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;
-  const { phase, type, label, label_trans, orgId } = body as {
+  const { phase, type, label, label_trans, orgId, action_type, instructions } = body as {
     phase?: string; type?: string; label?: string; label_trans?: string; orgId?: string;
+    action_type?: string; instructions?: string;
   };
 
   if (!phase || !VALID_PHASES.includes(phase as typeof VALID_PHASES[number]))
@@ -126,6 +129,8 @@ export async function POST(req: NextRequest) {
   };
   if (resolvedOrgId) insertData.org_id = resolvedOrgId;
   if (type === "dual" && label_trans?.trim()) insertData.label_trans = label_trans.trim();
+  if (action_type && ["upload","sign","fill","combo"].includes(action_type)) insertData.action_type = action_type;
+  if (instructions?.trim()) insertData.instructions = instructions.trim();
 
   const { data, error } = await db.from("phase_slots").insert(insertData).select().single();
   if (error) {
@@ -142,6 +147,7 @@ export async function PATCH(req: NextRequest) {
 
   const body = await req.json().catch(() => ({})) as {
     id?: string; label?: string; label_trans?: string | null; type?: string;
+    instructions?: string | null;
     positions?: { id: string; position: number }[];
   };
 
@@ -192,6 +198,7 @@ export async function PATCH(req: NextRequest) {
   if (body.label_trans !== undefined) updates.label_trans = body.label_trans?.trim() || null;
   if (body.type !== undefined && VALID_TYPES.includes(body.type as typeof VALID_TYPES[number]))
     updates.type = body.type;
+  if (body.instructions !== undefined) updates.instructions = body.instructions?.trim() || null;
 
   if (Object.keys(updates).length > 0)
     await db.from("phase_slots").update(updates).eq("id", body.id);

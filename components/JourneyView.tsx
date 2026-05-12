@@ -211,7 +211,7 @@ function StageContent({ mode, p: rawP, t, lang = "en", adminMode = false }: { mo
     const prepTips = lang === "de" ? [
       "Lebenslauf und Pflegediplom in digitaler Form bereithalten",
       "Kamera und Mikrofon vorher testen",
-      "Sprachzertifikat griffbereit haben",
+      "B2 Sprachzertifikat griffbereit haben",
       "Fragen zur Stelle und zur Einrichtung vorbereiten",
       "Wenige Minuten vor dem Termin bereit sein",
     ] : lang === "fr" ? [

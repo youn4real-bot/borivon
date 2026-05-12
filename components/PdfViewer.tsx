@@ -440,7 +440,9 @@ function PdfPage({
   overlay?: PageOverlayFn;
 }) {
   const canvasRef     = useRef<HTMLCanvasElement>(null);
+  const textLayerRef  = useRef<HTMLDivElement>(null);
   const renderTaskRef = useRef<{ cancel: () => void } | null>(null);
+  const textTaskRef   = useRef<{ promise: Promise<void>; cancel: () => void } | null>(null);
 
   const [dpr] = useState(() =>
     typeof window !== "undefined" ? Math.min(window.devicePixelRatio || 1, 2) : 1,
@@ -486,18 +488,21 @@ function PdfPage({
     ctx.drawImage(snap, 0, 0, canvW, canvH);
   }, [canvW, canvH]);
 
-  // ── Off-screen render → atomic swap ────────────────────────────────────
+  // ── Off-screen render → atomic swap + text layer ───────────────────────
   // Render to a hidden canvas, then copy in one drawImage call so the
   // on-screen canvas never shows a white-flash mid-render (the "shuttle").
+  // Text layer is rendered in parallel so text is selectable (LAW #27).
   useEffect(() => {
     const canvas = canvasRef.current;
+    const textContainer = textLayerRef.current;
     if (!canvas) return;
     let cancelled = false;
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    pdf.getPage(pageNum).then((page: any) => {
+    pdf.getPage(pageNum).then(async (page: any) => {
       if (cancelled) return;
-      const viewport = page.getViewport({ scale: scale * dpr, rotation });
+      const renderViewport = page.getViewport({ scale: scale * dpr, rotation });
+      const cssViewport    = page.getViewport({ scale, rotation });
 
       const offscreen    = document.createElement("canvas");
       offscreen.width  = canvW;
@@ -506,8 +511,29 @@ function PdfPage({
       if (!offCtx || cancelled) return;
 
       renderTaskRef.current?.cancel();
-      const task = page.render({ canvasContext: offCtx, viewport });
+      const task = page.render({ canvasContext: offCtx, viewport: renderViewport });
       renderTaskRef.current = task;
+
+      // Text layer — transparent spans overlaid on the canvas for copy-paste.
+      if (textContainer) {
+        textTaskRef.current?.cancel();
+        textContainer.innerHTML = "";
+        try {
+          const { TextLayer } = await import("pdfjs-dist");
+          if (!cancelled) {
+            const textLayer = new TextLayer({
+              textContentSource: page.streamTextContent(),
+              container: textContainer,
+              viewport: cssViewport,
+            });
+            // Wrap in the shape expected by textTaskRef
+            textTaskRef.current = {
+              promise: textLayer.render(),
+              cancel: () => textLayer.cancel(),
+            };
+          }
+        } catch { /* text layer is enhancement-only */ }
+      }
 
       task.promise.then(() => {
         if (cancelled) return;
@@ -524,6 +550,9 @@ function PdfPage({
       cancelled = true;
       renderTaskRef.current?.cancel();
       renderTaskRef.current = null;
+      textTaskRef.current?.cancel();
+      textTaskRef.current = null;
+      if (textLayerRef.current) textLayerRef.current.innerHTML = "";
     };
   }, [pdf, pageNum, scale, rotation, dpr, canvW, canvH]);
 
@@ -541,6 +570,11 @@ function PdfPage({
           boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
           borderRadius: 2,
         }}
+      />
+      <div
+        ref={textLayerRef}
+        className="textLayer"
+        style={{ "--total-scale-factor": scale } as React.CSSProperties}
       />
       {overlayNode != null && (
         <div style={{ position: "absolute", inset: 0 }}>

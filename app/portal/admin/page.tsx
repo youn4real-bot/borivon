@@ -19,6 +19,7 @@ import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSe
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Spinner, PageLoader, EmptyState } from "@/components/ui/states";
+import { DropdownMenu } from "@/components/ui/DropdownMenu";
 import { CandidateStagePreview, type JourneyMode } from "@/components/JourneyView";
 import { PdfZonePicker, type SigZone } from "@/components/PdfZonePicker";
 import { SignaturePad } from "@/components/SignaturePad";
@@ -29,8 +30,8 @@ import { FILE_KEY_ALL_LABELS } from "@/lib/fileKeys";
 const ADMIN_PHASES: { title: string; shortTitle: string; kind: PhaseKind; keys: string[] }[] = [
   { title: "ID & CV",     shortTitle: "ID",      kind: "id",          keys: ["id", "cv_de", "letter", "langcert", "other"] },
   { title: "Nursing",     shortTitle: "Nursing", kind: "nursing",     keys: [
-    "diploma", "studyprog", "transcript", "abitur", "abitur_transcript", "praktikum", "workcert", "work_experience",
-    "diploma_de", "studyprog_de", "transcript_de", "abitur_de", "abitur_transcript_de", "praktikum_de", "workcert_de", "work_experience_de",
+    "diploma", "studyprog", "transcript", "abitur", "abitur_transcript", "praktikum", "workcert", "work_experience", "impfung",
+    "diploma_de", "studyprog_de", "transcript_de", "abitur_de", "abitur_transcript_de", "praktikum_de", "workcert_de", "work_experience_de", "impfung_de",
   ]},
 ];
 
@@ -468,6 +469,9 @@ export default function AdminPage() {
   const [orgInviteUrl, setOrgInviteUrl]           = useState<string | null>(null);
   const [orgInviteDropdown, setOrgInviteDropdown] = useState(false);
   const [orgInviteCopied, setOrgInviteCopied]     = useState(false);
+  const [subAdminInviteGenerating, setSubAdminInviteGenerating] = useState(false);
+  const [subAdminInviteUrl, setSubAdminInviteUrl] = useState<string | null>(null);
+  const [subAdminInviteCopied, setSubAdminInviteCopied] = useState(false);
   const [newOrgModal, setNewOrgModal]             = useState(false);
   const [newOrgName, setNewOrgName]               = useState("");
   const [newOrgCreating, setNewOrgCreating]       = useState(false);
@@ -666,15 +670,15 @@ export default function AdminPage() {
   const [activePipelineStage, setActivePipelineStage] = useState<string | null>(null);
 
   // ── Dynamic phase slots (Bearbeitung / Visum) ──────────────────────────────
-  type PhaseSlot = { id: string; org_id: string | null; phase: string; position: number; type: "simple" | "dual"; label: string; label_trans: string | null };
+  type PhaseSlot = { id: string; org_id: string | null; phase: string; position: number; type: "simple" | "dual"; label: string; label_trans: string | null; action_type: string | null; instructions: string | null };
   const [phaseSlots, setPhaseSlots] = useState<Record<string, PhaseSlot[]>>({ bearbeitung: [], visum: [] });
   const [phaseSlotsLoaded, setPhaseSlotsLoaded] = useState<Record<string, boolean>>({ bearbeitung: false, visum: false });
   // Add-slot modal
-  const [addSlotPhase, setAddSlotPhase] = useState<string | null>(null);
-  const [addSlotType, setAddSlotType]   = useState<"simple" | "dual">("simple");
-  const [addSlotLabel, setAddSlotLabel] = useState("");
-  const [addSlotLabelTrans, setAddSlotLabelTrans] = useState("");
-  const [addSlotSaving, setAddSlotSaving] = useState(false);
+  const [addSlotPhase, setAddSlotPhase]               = useState<string | null>(null);
+  const [addSlotLabel, setAddSlotLabel]               = useState("");
+  const [addSlotActionType, setAddSlotActionType]     = useState<"upload" | "sign" | "fill" | "combo">("upload");
+  const [addSlotInstructions, setAddSlotInstructions] = useState("");
+  const [addSlotSaving, setAddSlotSaving]             = useState(false);
   // Expanded DUAL slot IDs (collapsed by default, like static paired rows)
   const [expandedDualSlots, setExpandedDualSlots] = useState<Set<string>>(new Set());
   // Inline slot label editing
@@ -718,7 +722,7 @@ export default function AdminPage() {
   const [docHistory, setDocHistory] = useState<Doc[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   // Which doc id has the revoke/reject context menu open (null = none)
-  const [revokeMenu, setRevokeMenu] = useState<string | null>(null);
+  const [revokeMenu, setRevokeMenu] = useState<{ id: string; el: HTMLElement } | null>(null);
   // Passport FILE download state (pipeline view)
   const [passportPdfDl, setPassportPdfDl] = useState(false);
   // Merged-PDF download loading state keyed by paired item key
@@ -1258,21 +1262,26 @@ export default function AdminPage() {
     }
   }
 
-  async function addPhaseSlot(phase: string, type: "simple" | "dual", label: string, labelTrans: string) {
+  async function addPhaseSlot(phase: string, label: string, actionType: string, instructions: string) {
     if (!accessToken || !label.trim()) return;
     setAddSlotSaving(true);
     try {
       const res = await fetch("/api/portal/phase-slots", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ phase, type, label: label.trim(), label_trans: labelTrans.trim() || undefined }),
+        body: JSON.stringify({
+          phase, type: "simple", label: label.trim(),
+          action_type: actionType,
+          instructions: instructions.trim() || undefined,
+        }),
       });
       if (res.ok) {
         const j = await res.json();
         setPhaseSlots(prev => ({ ...prev, [phase]: [...(prev[phase] ?? []), j.slot] }));
         setAddSlotPhase(null);
         setAddSlotLabel("");
-        setAddSlotLabelTrans("");
+        setAddSlotActionType("upload");
+        setAddSlotInstructions("");
       }
     } catch { /* network error */ }
     setAddSlotSaving(false);
@@ -1501,6 +1510,7 @@ export default function AdminPage() {
         { key: "praktikum",         transKey: "praktikum_de",         label: t.pTypePraktikum,        optional: false },
         { key: "workcert",          transKey: "workcert_de",          label: t.pTypeWorkCert,         optional: false },
         { key: "work_experience",   transKey: "work_experience_de",   label: t.pTypeWorkExp,          optional: true  },
+        { key: "impfung",           transKey: "impfung_de",           label: t.pTypeImpfung,          optional: false },
       ]},
     ];
 
@@ -2385,10 +2395,21 @@ export default function AdminPage() {
                                       <div
                                         onClick={rowClickable ? () => setPreviewDoc(doc!) : undefined}
                                         className={`px-3 py-3 transition-colors${rowClickable ? " bv-row-hover cursor-pointer" : ""}`}
-                                        style={{ minHeight: 60, ...(revokeMenu === menuId ? { position: "relative", zIndex: 10 } : {}) }}>
+                                        style={{ minHeight: 60, ...(revokeMenu?.id === menuId ? { position: "relative", zIndex: 10 } : {}) }}>
                                         <div className="flex items-center gap-3">
                                           <div className="flex-1 min-w-0">
-                                            <p className="text-[11.5px] font-medium tracking-tight" style={{ color: rowColor ?? "var(--w)" }}>{slot.label}</p>
+                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                              <p className="text-[11.5px] font-medium tracking-tight" style={{ color: rowColor ?? "var(--w)" }}>{slot.label}</p>
+                                              {slot.action_type && slot.action_type !== "upload" && (
+                                                <span className="text-[9.5px] font-semibold px-1.5 py-0.5 rounded-md flex-shrink-0"
+                                                  style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                                                  {slot.action_type === "sign" ? "Sign" : slot.action_type === "fill" ? "Fill form" : "Upload+Sign"}
+                                                </span>
+                                              )}
+                                            </div>
+                                            {slot.instructions && (
+                                              <p className="text-[10px] mt-0.5 leading-relaxed" style={{ color: "var(--w3)" }}>{slot.instructions}</p>
+                                            )}
                                             {!submitted && <p className="text-[10px] mt-0.5" style={{ color: "var(--w3)" }}>Not submitted yet</p>}
                                             {doc && doc.status === "rejected" && doc.feedback && (
                                               <p className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{doc.feedback}</p>
@@ -2436,16 +2457,12 @@ export default function AdminPage() {
                                             )}
                                             <div className="relative flex-shrink-0">
                                               <button
-                                                onClick={e => { e.stopPropagation(); setRevokeMenu(prev => prev === menuId ? null : menuId); }}
+                                                onClick={e => { e.stopPropagation(); setRevokeMenu(prev => prev?.id === menuId ? null : { id: menuId, el: e.currentTarget as HTMLElement }); }}
                                                 className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
                                                 style={{ color: "var(--w2)" }}>
                                                 <MoreHorizontal size={14} strokeWidth={1.8} />
                                               </button>
-                                              {revokeMenu === menuId && (
-                                                <>
-                                                  <div className="fixed inset-0 z-10" onClick={e => { e.stopPropagation(); setRevokeMenu(null); }} />
-                                                  <div className="absolute right-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
-                                                    style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
+                                              <DropdownMenu open={revokeMenu?.id === menuId} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === menuId ? revokeMenu.el : null}>
                                                     <button
                                                       onClick={e => { e.stopPropagation(); setRevokeMenu(null); setEditingSlotId(slot.id); setEditingSlotLabel(slot.label); setEditingSlotLabelTrans(""); }}
                                                       className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
@@ -2473,9 +2490,7 @@ export default function AdminPage() {
                                                       style={{ color: "var(--danger)" }}>
                                                       <Trash2 size={11} strokeWidth={1.8} /> Delete slot
                                                     </button>
-                                                  </div>
-                                                </>
-                                              )}
+                                              </DropdownMenu>
                                             </div>
                                           </div>
                                         </div>
@@ -2496,9 +2511,9 @@ export default function AdminPage() {
                                 const canDualMerge = !!(origDocs[0]?.drive_file_id && transDocs[0]?.drive_file_id);
                                 const isDualExpanded = expandedDualSlots.has(slot.id);
                                 const isDualMergeDl = mergePdfDl.has(slot.id);
-                                const isDualMenuOpen = revokeMenu === slot.id ||
-                                  (origDocs[0] && revokeMenu === origDocs[0].id) ||
-                                  (transDocs[0] && revokeMenu === transDocs[0].id);
+                                const isDualMenuOpen = revokeMenu?.id === slot.id ||
+                                  (origDocs[0] && revokeMenu?.id === origDocs[0].id) ||
+                                  (transDocs[0] && revokeMenu?.id === transDocs[0].id);
                                 return (
                                   <SortableSlotItem key={slot.id} id={slot.id}>
                                     {si > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
@@ -2566,16 +2581,12 @@ export default function AdminPage() {
                                       {/* Three-dots — Edit label + Delete */}
                                       <div className="relative flex-shrink-0">
                                         <button
-                                          onClick={e => { e.stopPropagation(); setRevokeMenu(prev => prev === slot.id ? null : slot.id); }}
+                                          onClick={e => { e.stopPropagation(); setRevokeMenu(prev => prev?.id === slot.id ? null : { id: slot.id, el: e.currentTarget as HTMLElement }); }}
                                           className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
                                           style={{ color: "var(--w2)" }}>
                                           <MoreHorizontal size={14} strokeWidth={1.8} />
                                         </button>
-                                        {revokeMenu === slot.id && (
-                                          <>
-                                            <div className="fixed inset-0 z-10" onClick={e => { e.stopPropagation(); setRevokeMenu(null); }} />
-                                            <div className="absolute right-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
-                                              style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
+                                        <DropdownMenu open={revokeMenu?.id === slot.id} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === slot.id ? revokeMenu.el : null}>
                                               <button
                                                 onClick={e => { e.stopPropagation(); setRevokeMenu(null); setEditingSlotId(slot.id); setEditingSlotLabel(slot.label); setEditingSlotLabelTrans(slot.label_trans ?? ""); }}
                                                 className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
@@ -2588,9 +2599,7 @@ export default function AdminPage() {
                                                 style={{ color: "var(--danger)" }}>
                                                 <Trash2 size={11} strokeWidth={1.8} /> Delete slot
                                               </button>
-                                            </div>
-                                          </>
-                                        )}
+                                        </DropdownMenu>
                                       </div>
                                     </div>
                                     {/* Sub-rows — only shown when expanded */}
@@ -2603,7 +2612,7 @@ export default function AdminPage() {
                                             : "pending";
                                           const subColor = subSt === "approved" ? "#16a34a" : subSt === "pending" ? "#f59e0b" : null;
                                           const subClickable = !!subDoc?.drive_file_id;
-                                          const isSubMenuOpen = subDoc && revokeMenu === subDoc.id;
+                                          const isSubMenuOpen = subDoc && revokeMenu?.id === subDoc.id;
                                           return (
                                             <div key={subLabel}
                                               onClick={subClickable ? () => setPreviewDoc(subDoc!) : undefined}
@@ -2663,16 +2672,12 @@ export default function AdminPage() {
                                                   {subDoc && (
                                                     <div className="relative flex-shrink-0">
                                                       <button
-                                                        onClick={e => { e.stopPropagation(); setRevokeMenu(prev => prev === subDoc!.id ? null : subDoc!.id); }}
+                                                        onClick={e => { e.stopPropagation(); setRevokeMenu(prev => prev?.id === subDoc!.id ? null : { id: subDoc!.id, el: e.currentTarget as HTMLElement }); }}
                                                         className="bv-icon-btn w-8 h-8 flex items-center justify-center rounded-full"
                                                         style={{ color: "var(--w2)" }}>
                                                         <MoreHorizontal size={12} strokeWidth={1.8} />
                                                       </button>
-                                                      {revokeMenu === subDoc.id && (
-                                                        <>
-                                                          <div className="fixed inset-0 z-10" onClick={e => { e.stopPropagation(); setRevokeMenu(null); }} />
-                                                          <div className="absolute right-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
-                                                            style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
+                                                      <DropdownMenu open={revokeMenu?.id === subDoc.id} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === subDoc.id ? revokeMenu.el : null}>
                                                             <button
                                                               onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ docId: subDoc?.id ?? null, driveFileId: subDoc?.drive_file_id ?? null, label: subLabel }); }}
                                                               className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
@@ -2688,9 +2693,7 @@ export default function AdminPage() {
                                                                 <RotateCcw size={11} strokeWidth={1.8} /> Revoke
                                                               </button>
                                                             )}
-                                                          </div>
-                                                        </>
-                                                      )}
+                                                      </DropdownMenu>
                                                     </div>
                                                   )}
                                                 </div>
@@ -2717,37 +2720,53 @@ export default function AdminPage() {
                       <>
                         <div className="fixed inset-0 z-40" style={{ background: "rgba(0,0,0,0.5)" }}
                           onClick={() => setAddSlotPhase(null)} />
-                        <div className="fixed inset-x-4 top-1/3 z-50 max-w-sm mx-auto rounded-2xl p-5 space-y-4"
+                        <div className="fixed inset-x-4 top-1/4 z-50 max-w-sm mx-auto rounded-2xl p-5 space-y-4"
                           style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)" }}>
-                          <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>Add document slot</p>
-                          {/* Type selector */}
-                          <div className="grid grid-cols-2 gap-2">
-                            {(["simple", "dual"] as const).map(tp => (
-                              <button key={tp} type="button" onClick={() => setAddSlotType(tp)}
-                                className="py-3 rounded-xl text-[12px] font-semibold text-center transition-all"
-                                style={{ background: addSlotType === tp ? "var(--gdim)" : "var(--bg2)", color: addSlotType === tp ? "var(--gold)" : "var(--w2)", border: `1.5px solid ${addSlotType === tp ? "var(--border-gold)" : "var(--border)"}` }}>
-                                {tp === "simple" ? "📄 Simple" : "📄📄 Dual (Original + Translated)"}
-                              </button>
-                            ))}
+                          <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>Add request</p>
+
+                          {/* Action type */}
+                          <div>
+                            <p className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--w3)" }}>Action required</p>
+                            <div className="grid grid-cols-2 gap-1.5">
+                              {([
+                                { v: "upload", label: "Upload file" },
+                                { v: "sign",   label: "Sign document" },
+                                { v: "fill",   label: "Fill form" },
+                                { v: "combo",  label: "Upload + Sign" },
+                              ] as const).map(({ v, label }) => (
+                                <button key={v} type="button" onClick={() => setAddSlotActionType(v)}
+                                  className="py-2.5 rounded-xl text-[11.5px] font-semibold text-center transition-all"
+                                  style={{
+                                    background: addSlotActionType === v ? "var(--gdim)" : "var(--bg2)",
+                                    color: addSlotActionType === v ? "var(--gold)" : "var(--w2)",
+                                    border: `1.5px solid ${addSlotActionType === v ? "var(--border-gold)" : "var(--border)"}`,
+                                  }}>
+                                  {label}
+                                </button>
+                              ))}
+                            </div>
                           </div>
+
+                          {/* Label */}
                           <input
                             type="text"
-                            placeholder={addSlotType === "dual" ? "Label (original, e.g. Pflegediplom)" : "Label (e.g. Dokument 1)"}
+                            placeholder="Document name (e.g. Arbeitsvertrag)"
                             value={addSlotLabel}
                             onChange={e => setAddSlotLabel(e.target.value)}
                             className="w-full px-3 py-2.5 text-[12.5px] outline-none"
                             style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--w)" }}
                           />
-                          {addSlotType === "dual" && (
-                            <input
-                              type="text"
-                              placeholder="Label translated (e.g. Pflegediplom Übersetzt)"
-                              value={addSlotLabelTrans}
-                              onChange={e => setAddSlotLabelTrans(e.target.value)}
-                              className="w-full px-3 py-2.5 text-[12.5px] outline-none"
-                              style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--w)" }}
-                            />
-                          )}
+
+                          {/* Instructions (optional) */}
+                          <textarea
+                            rows={2}
+                            placeholder="Instructions for candidate (optional)"
+                            value={addSlotInstructions}
+                            onChange={e => setAddSlotInstructions(e.target.value)}
+                            className="w-full px-3 py-2.5 text-[12.5px] outline-none resize-none"
+                            style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--w)" }}
+                          />
+
                           <div className="flex gap-2">
                             <button onClick={() => setAddSlotPhase(null)} disabled={addSlotSaving}
                               className="flex-1 py-2.5 rounded-xl text-[12.5px] font-semibold transition-all"
@@ -2755,11 +2774,11 @@ export default function AdminPage() {
                               Cancel
                             </button>
                             <button
-                              onClick={() => addPhaseSlot(addSlotPhase!, addSlotType, addSlotLabel, addSlotLabelTrans)}
+                              onClick={() => addPhaseSlot(addSlotPhase!, addSlotLabel, addSlotActionType, addSlotInstructions)}
                               disabled={addSlotSaving || !addSlotLabel.trim()}
                               className="flex-1 py-2.5 rounded-xl text-[12.5px] font-semibold transition-all disabled:opacity-40"
                               style={{ background: "var(--gold)", color: "#131312" }}>
-                              {addSlotSaving ? "Saving…" : "Add"}
+                              {addSlotSaving ? "Saving…" : "Send request"}
                             </button>
                           </div>
                         </div>
@@ -2827,7 +2846,7 @@ export default function AdminPage() {
                               </button>
                               {slotPhase && (
                                 <button
-                                  onClick={() => { setAddSlotPhase(slotPhase); setAddSlotType("simple"); setAddSlotLabel(""); setAddSlotLabelTrans(""); }}
+                                  onClick={() => { setAddSlotPhase(slotPhase); setAddSlotLabel(""); setAddSlotActionType("upload"); setAddSlotInstructions(""); }}
                                   className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 flex-shrink-0 transition-colors"
                                   style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-sm)" }}>
                                   <Plus size={11} strokeWidth={2.2} />
@@ -2891,23 +2910,17 @@ export default function AdminPage() {
                                   {/* Approved: revoke ⋯ menu */}
                                   {hasData && cSt === "approved" && (
                                     <div className="relative mt-1.5 inline-block">
-                                      <button onClick={() => setRevokeMenu(prev => prev === "passport_data_pdf" ? null : "passport_data_pdf")}
+                                      <button onClick={e => setRevokeMenu(prev => prev?.id === "passport_data_pdf" ? null : { id: "passport_data_pdf", el: e.currentTarget as HTMLElement })}
                                         title="Revoke approval" aria-label="More actions"
                                         className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full bv-touch"
                                         style={{ color: "var(--w2)" }}>
                                         <MoreHorizontal size={13} strokeWidth={1.8} />
                                       </button>
-                                      {revokeMenu === "passport_data_pdf" && (
-                                        <>
-                                          <div className="fixed inset-0 z-10" onClick={() => setRevokeMenu(null)} />
-                                          <div className="absolute left-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
-                                            style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
+                                      <DropdownMenu open={revokeMenu?.id === "passport_data_pdf"} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === "passport_data_pdf" ? revokeMenu.el : null} align="left">
                                             <button onClick={() => { setRevokeMenu(null); openRejectModal({ kind: "passport", label: item.label, initialFeedback: passportDataFeedback }); }}
                                               className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
                                               style={{ color: "var(--danger)" }}><RotateCcw size={11} strokeWidth={1.8} /> Revoke</button>
-                                          </div>
-                                        </>
-                                      )}
+                                      </DropdownMenu>
                                     </div>
                                   )}
                                 </div>
@@ -3025,17 +3038,12 @@ export default function AdminPage() {
                                     {subDoc.drive_file_id && (
                                       <div className="relative flex-shrink-0">
                                         <button
-                                          onClick={e => { e.stopPropagation(); setRevokeMenu(prev => prev === subDoc.id ? null : subDoc.id); }}
+                                          onClick={e => { e.stopPropagation(); setRevokeMenu(prev => prev?.id === subDoc.id ? null : { id: subDoc.id, el: e.currentTarget as HTMLElement }); }}
                                           className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
                                           style={{ color: "var(--w2)" }}>
                                           <MoreHorizontal size={15} strokeWidth={1.8} />
                                         </button>
-                                        {revokeMenu === subDoc.id && (
-                                          <>
-                                            <div className="fixed inset-0" style={{ zIndex: 599 }}
-                                              onClick={e => { e.stopPropagation(); setRevokeMenu(null); }} />
-                                            <div className="absolute right-0 top-full mt-1 rounded-xl overflow-hidden"
-                                              style={{ zIndex: 600, background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
+                                        <DropdownMenu open={revokeMenu?.id === subDoc.id} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === subDoc.id ? revokeMenu.el : null}>
                                               <button
                                                 onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ docId: subDoc.id, driveFileId: subDoc.drive_file_id!, label: subLabel }); }}
                                                 className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
@@ -3050,9 +3058,7 @@ export default function AdminPage() {
                                                   <RotateCcw size={11} strokeWidth={1.8} /> Revoke
                                                 </button>
                                               )}
-                                            </div>
-                                          </>
-                                        )}
+                                        </DropdownMenu>
                                       </div>
                                     )}
                                   </div>
@@ -3256,16 +3262,12 @@ export default function AdminPage() {
                                             {d.drive_file_id && (
                                               <div className="relative flex-shrink-0">
                                                 <button
-                                                  onClick={(e) => { e.stopPropagation(); setRevokeMenu(prev => prev === d.id ? null : d.id); }}
+                                                  onClick={(e) => { e.stopPropagation(); setRevokeMenu(prev => prev?.id === d.id ? null : { id: d.id, el: e.currentTarget as HTMLElement }); }}
                                                   title="More actions" aria-label="More actions"
                                                   className="bv-icon-btn w-6 h-6 flex items-center justify-center rounded-full bv-touch"
                                                   style={{ color: "var(--w2)" }}
                                                 ><MoreHorizontal size={11} strokeWidth={1.8} /></button>
-                                                {revokeMenu === d.id && (
-                                                  <>
-                                                    <div className="fixed inset-0 z-10" onClick={() => setRevokeMenu(null)} />
-                                                    <div className="absolute right-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
-                                                      style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
+                                                <DropdownMenu open={revokeMenu?.id === d.id} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === d.id ? revokeMenu.el : null}>
                                                       {d.status === "approved" && (
                                                         <button
                                                           onClick={() => { setRevokeMenu(null); openRejectModal({ kind: "doc", docId: d.id, label: d.file_name, initialFeedback: d.feedback ?? "" }); }}
@@ -3275,9 +3277,7 @@ export default function AdminPage() {
                                                           <RotateCcw size={11} strokeWidth={1.8} /> Revoke
                                                         </button>
                                                       )}
-                                                    </div>
-                                                  </>
-                                                )}
+                                                </DropdownMenu>
                                               </div>
                                             )}
                                           </div>
@@ -3329,17 +3329,13 @@ export default function AdminPage() {
                                   {doc.drive_file_id && (
                                     <div className="relative" onClick={(e) => e.stopPropagation()}>
                                       <button
-                                        onClick={(e) => { e.stopPropagation(); setRevokeMenu(prev => prev === doc.id ? null : doc.id); }}
+                                        onClick={(e) => { e.stopPropagation(); setRevokeMenu(prev => prev?.id === doc.id ? null : { id: doc.id, el: e.currentTarget as HTMLElement }); }}
                                         title="More actions" aria-label="More actions"
                                         className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
                                         style={{ color: "var(--w2)" }}>
                                         <MoreHorizontal size={14} strokeWidth={1.8} />
                                       </button>
-                                      {revokeMenu === doc.id && (
-                                        <>
-                                          <div className="fixed inset-0 z-10" onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); }} />
-                                          <div className="absolute right-0 top-full mt-1 z-20 rounded-xl overflow-hidden"
-                                            style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 160, borderRadius: "var(--r-md)" }}>
+                                      <DropdownMenu open={revokeMenu?.id === doc.id} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === doc.id ? revokeMenu.el : null}>
                                             {item.key === "cv_de" && selectedUser && (
                                               <button
                                                 onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); window.open(`/portal/cv-builder?candidateId=${selectedUser}`, "_blank"); }}
@@ -3357,9 +3353,7 @@ export default function AdminPage() {
                                                 <RotateCcw size={11} strokeWidth={1.8} /> Revoke
                                               </button>
                                             )}
-                                          </div>
-                                        </>
-                                      )}
+                                      </DropdownMenu>
                                     </div>
                                   )}
                                 </div>
@@ -4083,7 +4077,7 @@ export default function AdminPage() {
               {/* Org-admin invite row — generates a /join link that lands on
                   /portal/org/dashboard after signup. Requires picking which
                   org the new admin will manage. */}
-              <div className="flex items-center gap-3 px-4 py-3" style={{ background: "var(--card)", borderRadius: "0 0 var(--r-xl) var(--r-xl)" }}>
+              <div className="flex items-center gap-3 px-4 py-3" style={{ background: "var(--card)", borderTop: "1px solid var(--border)" }}>
                 <span className="flex-1 flex items-center gap-2"><Building2 size={16} strokeWidth={1.6} style={{ color: "var(--w3)" }} /><span className="text-[12px]" style={{ color: "var(--w3)" }}>Invitation Link</span></span>
                 {orgInviteUrl ? (
                   <div className="flex items-center gap-2 flex-shrink-0">
@@ -4151,6 +4145,52 @@ export default function AdminPage() {
                       </div>
                     )}
                   </div>
+                )}
+              </div>
+
+              {/* Sub-admin invite row */}
+              <div className="flex items-center gap-3 px-4 py-3" style={{ background: "var(--card)", borderTop: "1px solid var(--border)", borderRadius: "0 0 var(--r-xl) var(--r-xl)" }}>
+                <span className="flex-1 flex items-center gap-2">
+                  <User size={16} strokeWidth={1.6} style={{ color: "var(--w3)" }} />
+                  <span className="text-[12px]" style={{ color: "var(--w3)" }}>Sub-admin Invitation Link</span>
+                </span>
+                {subAdminInviteUrl ? (
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(subAdminInviteUrl).catch(() => {});
+                        setSubAdminInviteCopied(true);
+                        setTimeout(() => setSubAdminInviteCopied(false), 2500);
+                      }}
+                      className="flex-shrink-0 px-2.5 py-1 rounded-md text-[10.5px] font-semibold transition-opacity hover:opacity-80"
+                      style={{ background: subAdminInviteCopied ? "var(--success-bg)" : "var(--gdim)", color: subAdminInviteCopied ? "var(--success)" : "var(--gold)", border: `1px solid ${subAdminInviteCopied ? "var(--success-border)" : "var(--border-gold)"}` }}>
+                      {subAdminInviteCopied ? "✓" : t.adCopy}
+                    </button>
+                    <button onClick={() => setSubAdminInviteUrl(null)}
+                      className="flex-shrink-0 text-[10.5px] transition-opacity hover:opacity-70"
+                      style={{ color: "var(--w3)", background: "none", border: "none" }}>
+                      {t.adReset}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={async () => {
+                      setSubAdminInviteGenerating(true);
+                      try {
+                        const res = await fetch("/api/portal/admin/invite-sub-admin", {
+                          method: "POST",
+                          headers: { Authorization: `Bearer ${accessToken}` },
+                        });
+                        const j = await res.json();
+                        if (j.url) setSubAdminInviteUrl(j.url);
+                      } catch { /* ignore */ }
+                      setSubAdminInviteGenerating(false);
+                    }}
+                    disabled={subAdminInviteGenerating}
+                    className="flex-shrink-0 inline-flex items-center justify-center px-3 py-1.5 text-[11px] font-semibold transition-opacity hover:opacity-80 disabled:opacity-40"
+                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-sm)" }}>
+                    {subAdminInviteGenerating ? "…" : lang === "de" ? "Link generieren" : lang === "fr" ? "Générer" : "Generate"}
+                  </button>
                 )}
               </div>
 

@@ -14,6 +14,7 @@ const KEY_TO_TKEY: Record<string, keyof typeof translations.fr> = {
   letter:               "pTypeLetter",
   other:                "pTypeOther",
   work_experience:      "pTypeWorkExp",
+  impfung:              "pTypeImpfung",
   cv_de:                "pTypeCVde",
   diploma_de:           "pTypeDiplomaDE",
   studyprog_de:         "pTypeStudyProgDE",
@@ -23,6 +24,7 @@ const KEY_TO_TKEY: Record<string, keyof typeof translations.fr> = {
   praktikum_de:         "pTypePraktikumDE",
   workcert_de:          "pTypeWorkcertDE",
   work_experience_de:   "pTypeWorkExpDE",
+  impfung_de:           "pTypeImpfungDE",
 };
 
 /** fileKey → all translated labels (every supported language) */

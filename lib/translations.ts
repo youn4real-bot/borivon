@@ -68,6 +68,7 @@ export interface Translation {
   pTypeCVde: string; pTypeDiplomaDE: string; pTypeStudyProgDE: string; pTypeTranscriptDE: string;
   pTypeAbiturDE: string; pTypeAbiturTranscriptDE: string; pTypePraktikumDE: string; pTypeOtherTrans: string;
   pTypeWorkExp: string; pTypeWorkcertDE: string; pTypeWorkExpDE: string;
+  pTypeImpfung: string; pTypeImpfungDE: string;
   pOriginalDocs: string; pTranslatedDocs: string;
   pHintCV: string; pHintDiploma: string; pHintID: string; pHintLetter: string;
   pHintLangCert: string; pHintWorkCert: string;
@@ -75,6 +76,7 @@ export interface Translation {
   pHintStudyProg: string; pHintTranscript: string; pHintAbitur: string; pHintAbiturTranscript: string; pHintPraktikum: string;
   pHintStudyProgDE: string; pHintTranscriptDE: string; pHintAbiturDE: string; pHintAbiturTranscriptDE: string; pHintPraktikumDE: string;
   pHintWorkExp: string; pHintWorkcertDE: string; pHintWorkExpDE: string;
+  pHintImpfung: string; pHintImpfungDE: string;
   pOptional: string;
   pTransTooltipTitle: string; pTransTooltipMorocco: string; pTransTooltipMoroccoLink: string;
   pTransTooltipGermany: string; pTransTooltipGermanyLink: string;
@@ -319,7 +321,7 @@ export const translations: Record<Lang, Translation> = {
     pPending: "En attente", pLogout: "Déconnexion", pContact: "Une question ?",
     pTypeCV: "CV", pTypeDiploma: "Diplôme Infirmier", pTypeID: "Passeport",
     pTypeLetter: "Lettre de motivation", pTypeOther: "Autre",
-    pTypeLangCert: "Certificat de langue", pTypeWorkCert: "Certificat d'exercice de la profession infirmière",
+    pTypeLangCert: "Certificat de langue B2", pTypeWorkCert: "Certificat d'exercice de la profession infirmière",
     pTypeStudyProg: "Programme d'études Infirmier", pTypeTranscript: "Bulletin de notes Infirmier",
     pTypeAbitur: "Baccalauréat", pTypeAbiturTranscript: "Relevé de notes du Baccalauréat", pTypePraktikum: "Attestation de stage Infirmier",
     pTypeCVde: "CV (Allemand)", pTypeDiplomaDE: "Diplôme Infirmier (Allemand)",
@@ -331,7 +333,7 @@ export const translations: Record<Lang, Translation> = {
     pHintDiploma: "Diplôme infirmier délivré par votre établissement. Deux types sont acceptés : 1. Diplôme ISPITS (Institut Staatlich de formation en soins infirmiers — niveau Licence/Bachelor) ; 2. Diplôme de formation délivré par un institut privé accrédité.",
     pHintID: "Passeport valide uniquement — la carte nationale d'identité n'est pas acceptée",
     pHintLetter: "Lettre expliquant votre motivation pour travailler en Allemagne",
-    pHintLangCert: "Certificat B1 ou B2 — accepté uniquement : Goethe-Institut, ÖSD ou TELC",
+    pHintLangCert: "Certificat B2 — accepté uniquement : Goethe-Institut, ÖSD ou TELC",
     pHintWorkCert: "Autorisation officielle d'exercer la profession d'infirmier(e) — délivrée par le Ministère de la Santé au Maroc",
     pHintStudyProg: "Document officiel de votre école infirmière listant les modules, heures et matières de chaque année de formation",
     pHintTranscript: "Relevé de notes officiel de votre formation infirmière indiquant vos résultats par module et par année",
@@ -351,6 +353,10 @@ export const translations: Record<Lang, Translation> = {
     pHintWorkcertDE: "Certificat d'exercice de la profession infirmière avec traduction certifiée en allemand",
     pTypeWorkExpDE: "Expérience professionnelle (Allemand)",
     pHintWorkExpDE: "(Optionnel) Attestation d'employeur avec traduction certifiée en allemand",
+    pTypeImpfung: "Certificat de vaccination",
+    pTypeImpfungDE: "Certificat de vaccination (Allemand)",
+    pHintImpfung: "Carnet de vaccination ou certificat de vaccination",
+    pHintImpfungDE: "Carnet de vaccination avec traduction certifiée en allemand",
     pOptional: "Optionnel",
     pTransTooltipTitle: "Traductions acceptées uniquement depuis :",
     pTransTooltipMorocco: "Traducteurs assermentés au Maroc :",
@@ -618,7 +624,7 @@ export const translations: Record<Lang, Translation> = {
     pPending: "Pending", pLogout: "Sign out", pContact: "Any questions?",
     pTypeCV: "CV", pTypeDiploma: "Nursing Diploma", pTypeID: "Passport",
     pTypeLetter: "Cover letter", pTypeOther: "Other",
-    pTypeLangCert: "Language Certificate", pTypeWorkCert: "Certificate of Nursing Practice",
+    pTypeLangCert: "B2 Language Certificate", pTypeWorkCert: "Certificate of Nursing Practice",
     pTypeStudyProg: "Nursing Study Programme", pTypeTranscript: "Nursing Transcript",
     pTypeAbitur: "Baccalaureate", pTypeAbiturTranscript: "Baccalaureate Transcript", pTypePraktikum: "Nursing Internship Certificate",
     pTypeCVde: "CV (German)", pTypeDiplomaDE: "Nursing Diploma (German)",
@@ -630,7 +636,7 @@ export const translations: Record<Lang, Translation> = {
     pHintDiploma: "Nursing diploma issued by your institution. Two types are accepted: 1. ISPITS diploma (state nursing training institute — Bachelor level); 2. Training diploma from an accredited private institute.",
     pHintID: "Valid passport only — national ID card is not accepted",
     pHintLetter: "Letter explaining your motivation to work in Germany",
-    pHintLangCert: "B1 or B2 German language certificate — accepted only: Goethe-Institut, ÖSD or TELC",
+    pHintLangCert: "B2 German language certificate — accepted only: Goethe-Institut, ÖSD or TELC",
     pHintWorkCert: "Official license to practice nursing — issued by the Moroccan Ministry of Health in Rabat",
     pHintStudyProg: "Official document from your nursing school listing the modules, hours and subjects covered each year of training",
     pHintTranscript: "Official nursing grade sheet showing your results per module and per year of training",
@@ -650,6 +656,10 @@ export const translations: Record<Lang, Translation> = {
     pHintWorkcertDE: "Certificate of Nursing Practice with certified German translation",
     pTypeWorkExpDE: "Work Experience (German)",
     pHintWorkExpDE: "(Optional) Employment certificate with certified German translation",
+    pTypeImpfung: "Vaccination Certificate",
+    pTypeImpfungDE: "Vaccination Certificate (German)",
+    pHintImpfung: "Vaccination booklet or vaccination certificate",
+    pHintImpfungDE: "Vaccination certificate with certified German translation",
     pOptional: "Optional",
     pTransTooltipTitle: "Accepted translations only from:",
     pTransTooltipMorocco: "Sworn translators in Morocco:",
@@ -917,7 +927,7 @@ export const translations: Record<Lang, Translation> = {
     pPending: "Ausstehend", pLogout: "Abmelden", pContact: "Fragen?",
     pTypeCV: "Lebenslauf", pTypeDiploma: "Pflegediplom", pTypeID: "Reisepass",
     pTypeLetter: "Anschreiben", pTypeOther: "Sonstiges",
-    pTypeLangCert: "Sprachzertifikat", pTypeWorkCert: "Berufserlaubnis für Krankenpflege",
+    pTypeLangCert: "B2 Sprachzertifikat", pTypeWorkCert: "Berufserlaubnis für Krankenpflege",
     pTypeStudyProg: "Pflegestudienprogramm", pTypeTranscript: "Pflegenotenblatt",
     pTypeAbitur: "Abitur", pTypeAbiturTranscript: "Abitur Notenblatt", pTypePraktikum: "Pflegepraktikumsnachweis",
     pTypeCVde: "Lebenslauf (DE)", pTypeDiplomaDE: "Pflegediplom (DE)",
@@ -929,7 +939,7 @@ export const translations: Record<Lang, Translation> = {
     pHintDiploma: "Pflegediplom Ihrer Einrichtung. Es werden zwei Typen anerkannt: 1. ISPITS-Abschluss (staatliches Pflegeinstitut — Bachelor-Niveau); 2. Ausbildungsdiplom einer akkreditierten privaten Einrichtung.",
     pHintID: "Nur gültiger Reisepass — nationaler Personalausweis wird nicht akzeptiert",
     pHintLetter: "Brief über Ihre Motivation, in Deutschland zu arbeiten",
-    pHintLangCert: "Deutschzertifikat B1 oder B2 — nur akzeptiert: Goethe-Institut, ÖSD oder TELC",
+    pHintLangCert: "Deutschzertifikat B2 — nur akzeptiert: Goethe-Institut, ÖSD oder TELC",
     pHintWorkCert: "Offizielle Erlaubnis zur Ausübung des Pflegeberufs — ausgestellt vom marokkanischen Gesundheitsministerium in Rabat",
     pHintStudyProg: "Offizielles Dokument Ihrer Pflegeschule mit Modulen, Stunden und Fächern jedes Ausbildungsjahres",
     pHintTranscript: "Offizielles Pflegenotenblatt mit Ihren Ergebnissen pro Modul und Jahr",
@@ -949,6 +959,10 @@ export const translations: Record<Lang, Translation> = {
     pHintWorkcertDE: "Berufserlaubnis für Krankenpflege mit beglaubigter deutscher Übersetzung",
     pTypeWorkExpDE: "Berufserfahrung (DE)",
     pHintWorkExpDE: "(Optional) Arbeitszeugnis mit beglaubigter deutscher Übersetzung",
+    pTypeImpfung: "Impfnachweis",
+    pTypeImpfungDE: "Impfnachweis (DE)",
+    pHintImpfung: "Impfpass oder Impfnachweis",
+    pHintImpfungDE: "Impfnachweis mit beglaubigter deutscher Übersetzung",
     pOptional: "Optional",
     pTransTooltipTitle: "Übersetzungen nur akzeptiert von:",
     pTransTooltipMorocco: "Vereidigte Übersetzer in Marokko:",
@@ -966,7 +980,7 @@ export const translations: Record<Lang, Translation> = {
     pWizardPhase1: "Essentielles", pWizardPhase1Desc: "Hauptdokumente zum Starten Ihrer Bewerbung.",
     pWizardPhase2: "Qualifikationen", pWizardPhase2Desc: "Ihre Diplome, Ausbildungsnachweise und Berufserfahrung.",
     pWizardPhase3: "Beglaubigte Übersetzungen", pWizardPhase3Desc: "Laden Sie Ihre Übersetzungen hoch, falls vorhanden — sonst kommen Sie einfach wieder.",
-    pWizardPhase4: "Weitere Unterlagen", pWizardPhase4Desc: "Ihr Anschreiben und Ihr Sprachzertifikat.",
+    pWizardPhase4: "Weitere Unterlagen", pWizardPhase4Desc: "Ihr Anschreiben und Ihr B2 Sprachzertifikat.",
     pWizardNext: "Weiter →", pWizardSkip: "Ich komme später wieder", pWizardDone: "Meine Akte ansehen →", pWizardViewAll: "Gesamte Akte ansehen",
     pSideID: "Essentielles", pSideNursing: "Qualifik.", pSideTrans: "Übersetz.", pSideOther: "Sonstiges",
     pWelcomeBack: "Willkommen zurück,", pWelcomeBackSub: "Machen Sie weiter, wo Sie aufgehört haben.",

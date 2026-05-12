@@ -8,7 +8,7 @@ import { useLang } from "@/components/LangContext";
 
 type InviteInfo = {
   org: { id: string; name: string };
-  type: "candidate" | "member";
+  type: "candidate" | "member" | "sub-admin";
 };
 
 const T = {
@@ -123,7 +123,11 @@ export default function JoinPage() {
               const json = await res.json();
               setJoined(true);
               setTimeout(() => {
-                router.replace(json.type === "member" ? "/portal/org/dashboard" : "/portal/dashboard");
+                router.replace(
+                json.type === "member" ? "/portal/org/dashboard" :
+                json.type === "sub-admin" ? "/portal/admin" :
+                "/portal/dashboard"
+              );
               }, 1800);
             } else {
               const json = await res.json().catch(() => ({}));
@@ -223,7 +227,7 @@ export default function JoinPage() {
     );
   }
 
-  const isMember = info?.type === "member";
+  const isMember = info?.type === "member" || info?.type === "sub-admin";
   // Only show org name if it's a real org (not the "Borivon" placeholder for standalone invites)
   const showOrg = isMember && info?.org.name && info.org.name !== "Borivon";
 
