@@ -2446,7 +2446,7 @@ export default function AdminPage() {
                                                 <Download size={13} strokeWidth={1.8} />
                                               </button>
                                             )}
-                                            {rowSt === "pending" && (
+                                            {rowSt === "pending" && !doc?.uploaded_by_admin && (
                                               <>
                                                 <button type="button"
                                                   onClick={e => { e.stopPropagation(); openRejectModal({ kind: "doc", docId: doc!.id, label: slot.label, initialFeedback: doc!.feedback ?? "" }); }}
@@ -2667,7 +2667,7 @@ export default function AdminPage() {
                                                     </button>
                                                   )}
                                                   {/* Reject / Approve */}
-                                                  {subSt === "pending" && (
+                                                  {subSt === "pending" && !subDoc?.uploaded_by_admin && (
                                                     <>
                                                       <button type="button"
                                                         onClick={e => { e.stopPropagation(); openRejectModal({ kind: "doc", docId: subDoc!.id, label: subLabel, initialFeedback: subDoc!.feedback ?? "" }); }}
@@ -3147,7 +3147,7 @@ export default function AdminPage() {
                                         <Download size={13} strokeWidth={1.8} />
                                       </button>
                                     )}
-                                    {sst === "pending" && (
+                                    {sst === "pending" && !subDoc.uploaded_by_admin && (
                                       <>
                                         <button type="button"
                                           onClick={() => openRejectModal({ kind: "doc", docId: subDoc.id, label: subLabel, initialFeedback: subDoc.feedback ?? "" })}
@@ -3368,7 +3368,7 @@ export default function AdminPage() {
                                                 <Download size={12} strokeWidth={1.8} />
                                               </button>
                                             )}
-                                            {d.status === "pending" && (
+                                            {d.status === "pending" && !d.uploaded_by_admin && (
                                               <>
                                                 <button type="button"
                                                   onClick={(e) => { e.stopPropagation(); openRejectModal({ kind: "doc", docId: d.id, label: d.file_name, initialFeedback: d.feedback ?? "" }); }}
