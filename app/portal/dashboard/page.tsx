@@ -19,6 +19,8 @@ import {
 import { X as XIcon, Download, Upload, RefreshCw, Info, ChevronDown, MoreHorizontal } from "lucide-react";
 import { DropdownMenu } from "@/components/ui/DropdownMenu";
 import { PdfViewer } from "@/components/PdfViewer";
+import { PdfFieldFill } from "@/components/PdfFieldFill";
+import { embedFields } from "@/lib/pdfFieldEmbed";
 import { DocxViewer } from "@/components/DocxViewer";
 import { ZoomPanRotateViewer } from "@/components/ZoomPanRotateViewer";
 import { Spinner, PageLoader, AutosaveIndicator } from "@/components/ui/states";
@@ -147,7 +149,7 @@ export default function DashboardPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Dynamic phase slots — loaded from API (replaces static bea_*/vis_* placeholders)
-  type PhaseSlot = { id: string; phase: string; type: "simple" | "dual"; label: string; label_trans: string | null; position: number; action_type: string | null; instructions: string | null };
+  type PhaseSlot = { id: string; phase: string; type: "simple" | "dual"; label: string; label_trans: string | null; position: number; action_type: string | null; instructions: string | null; template_pdf_path: string | null; form_fields: import("@/lib/pdfFieldEmbed").FormField[] | null };
   const [dynamicSlots, setDynamicSlots] = useState<{ bea: PhaseSlot[]; vis: PhaseSlot[] }>({ bea: [], vis: [] });
   const [dynamicSlotsLoaded, setDynamicSlotsLoaded] = useState(false);
 
@@ -196,6 +198,8 @@ export default function DashboardPage() {
       items: dynamicSlots.bea.map(s => ({
         key: s.id, label: s.label, hint: "",
         ...(s.instructions ? { instructions: s.instructions } : {}),
+        ...(s.form_fields?.length ? { form_fields: s.form_fields } : {}),
+        ...(s.template_pdf_path ? { template_pdf_path: s.template_pdf_path } : {}),
         ...(s.type === "dual" ? { transKey: s.id + "_de", transHint: "" } : {}),
       })),
     },
@@ -207,6 +211,8 @@ export default function DashboardPage() {
       items: dynamicSlots.vis.map(s => ({
         key: s.id, label: s.label, hint: "",
         ...(s.instructions ? { instructions: s.instructions } : {}),
+        ...(s.form_fields?.length ? { form_fields: s.form_fields } : {}),
+        ...(s.template_pdf_path ? { template_pdf_path: s.template_pdf_path } : {}),
         ...(s.type === "dual" ? { transKey: s.id + "_de", transHint: "" } : {}),
       })),
     },
@@ -265,6 +271,11 @@ export default function DashboardPage() {
   // a doc when the user uploads to a *different* slot after cancelling a replace.
   const replaceDocIdRef  = useRef<string | null>(null);
   const replaceForKeyRef = useRef<string | null>(null);
+
+  // Fill-form modal — shown when candidate clicks a slot with form_fields
+  type FillFormState = { slotId: string; fields: import("@/lib/pdfFieldEmbed").FormField[]; values: Record<string, string>; pdfUrl: string | null };
+  const [fillForm, setFillForm] = useState<FillFormState | null>(null);
+  const [fillFormSubmitting, setFillFormSubmitting] = useState(false);
 
   // Organization invite-code modal — shown until candidate joins an org or
   // explicitly dismisses ("Later"). Dismissal is session-only; resets on next login.
@@ -2177,15 +2188,27 @@ export default function DashboardPage() {
             // when empty (incl. multi-doc 'other' under the 5-file cap), or
             // routes to the CV builder for the CV row.
             const isCv = item.key === "cv" || item.key === "cv_de";
+            const isFillSlot = "form_fields" in item && Array.isArray((item as {form_fields?: unknown}).form_fields) && ((item as {form_fields?: unknown[]}).form_fields?.length ?? 0) > 0;
             const rowEmptyUpload = !uploaded && !isOther && !isCv;
             const rowEmptyOther  = isOther && allOtherDocs.length < 5;
             const rowEmptyCv     = isCv && !uploaded;
             const rowClickable =
               (!isOther && uploaded && doc?.drive_file_id && !isUploading) ||
-              ((rowEmptyUpload || rowEmptyOther || rowEmptyCv) && !isUploading);
+              ((rowEmptyUpload || rowEmptyOther || rowEmptyCv) && !isUploading) ||
+              (isFillSlot && !uploaded && !isUploading);
             const rowOnClick = !rowClickable
               ? undefined
               : rowEmptyCv ? () => router.push("/portal/cv-builder")
+              : (isFillSlot && !uploaded) ? () => {
+                  const slotId = item.key;
+                  const fields = (item as {form_fields?: import("@/lib/pdfFieldEmbed").FormField[]}).form_fields ?? [];
+                  fetch(`/api/portal/slot-template?slotId=${slotId}`, {
+                    headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+                  }).then(r => r.ok ? r.blob() : null).then(blob => {
+                    const pdfUrl = blob ? URL.createObjectURL(blob) : null;
+                    setFillForm({ slotId, fields, values: {}, pdfUrl });
+                  });
+                }
               : (!uploaded || isOther) ? () => openPicker(item.key)
               : () => handlePreview(doc!);
 
@@ -3436,6 +3459,61 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Fill-form modal — candidate fills admin-placed field boxes on a template PDF */}
+      {fillForm && (
+        <>
+          <div className="fixed inset-0 z-[1050]" style={{ background: "rgba(0,0,0,0.72)" }}
+            onClick={() => !fillFormSubmitting && setFillForm(null)} />
+          <div className="fixed inset-x-2 top-[var(--header-h,56px)] bottom-[var(--bottom-nav-h,72px)] z-[1051] flex flex-col rounded-2xl overflow-hidden"
+            style={{ background: "var(--card)", border: "1px solid var(--border-gold)" }}>
+            {/* Header */}
+            <div className="flex items-center gap-3 px-4 py-3 border-b flex-shrink-0" style={{ borderColor: "var(--border)" }}>
+              <p className="flex-1 text-[13px] font-semibold truncate" style={{ color: "var(--w)" }}>
+                {lang === "de" ? "Formular ausfüllen" : lang === "fr" ? "Remplir le formulaire" : "Fill form"}
+              </p>
+              <button
+                disabled={fillFormSubmitting || !fillForm.pdfUrl}
+                onClick={async () => {
+                  if (!fillForm.pdfUrl) return;
+                  setFillFormSubmitting(true);
+                  try {
+                    const res = await fetch(fillForm.pdfUrl);
+                    const bytes = new Uint8Array(await res.arrayBuffer());
+                    const filled = await embedFields(bytes, fillForm.fields, fillForm.values);
+                    const file = new File([filled.buffer as ArrayBuffer], `${fillForm.slotId}_filled.pdf`, { type: "application/pdf" });
+                    uploadFile(file, fillForm.slotId);
+                    setFillForm(null);
+                  } catch { setFillFormSubmitting(false); }
+                }}
+                className="text-[11.5px] font-semibold px-3 py-1.5 rounded-xl disabled:opacity-40"
+                style={{ background: "var(--gold)", color: "#131312" }}>
+                {fillFormSubmitting ? "…" : (lang === "de" ? "Einreichen" : lang === "fr" ? "Soumettre" : "Submit")}
+              </button>
+              <button onClick={() => setFillForm(null)} disabled={fillFormSubmitting}
+                className="bv-icon-btn w-8 h-8 flex items-center justify-center rounded-full"
+                style={{ color: "var(--w2)" }}>
+                <XIcon size={14} strokeWidth={2} />
+              </button>
+            </div>
+            {/* Body */}
+            <div className="flex-1 overflow-auto p-3">
+              {!fillForm.pdfUrl ? (
+                <div className="h-full flex items-center justify-center">
+                  <div className="w-8 h-8 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: "var(--gold)" }} />
+                </div>
+              ) : (
+                <PdfFieldFill
+                  pdfUrl={fillForm.pdfUrl}
+                  fields={fillForm.fields}
+                  values={fillForm.values}
+                  onChange={(fieldId, value) => setFillForm(f => f ? { ...f, values: { ...f.values, [fieldId]: value } } : f)}
+                />
+              )}
+            </div>
+          </div>
+        </>
       )}
 
       {/* Example modal */}

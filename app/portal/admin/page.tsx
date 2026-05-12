@@ -22,6 +22,7 @@ import { Spinner, PageLoader, EmptyState } from "@/components/ui/states";
 import { DropdownMenu } from "@/components/ui/DropdownMenu";
 import { CandidateStagePreview, type JourneyMode } from "@/components/JourneyView";
 import { PdfZonePicker, type SigZone } from "@/components/PdfZonePicker";
+import { PdfFieldPicker } from "@/components/PdfFieldPicker";
 import { SignaturePad } from "@/components/SignaturePad";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { PortalTopNav } from "@/components/PortalTopNav";
@@ -670,7 +671,7 @@ export default function AdminPage() {
   const [activePipelineStage, setActivePipelineStage] = useState<string | null>(null);
 
   // ── Dynamic phase slots (Bearbeitung / Visum) ──────────────────────────────
-  type PhaseSlot = { id: string; org_id: string | null; phase: string; position: number; type: "simple" | "dual"; label: string; label_trans: string | null; action_type: string | null; instructions: string | null };
+  type PhaseSlot = { id: string; org_id: string | null; phase: string; position: number; type: "simple" | "dual"; label: string; label_trans: string | null; action_type: string | null; instructions: string | null; template_pdf_path: string | null; form_fields: import("@/lib/pdfFieldEmbed").FormField[] | null };
   const [phaseSlots, setPhaseSlots] = useState<Record<string, PhaseSlot[]>>({ bearbeitung: [], visum: [] });
   const [phaseSlotsLoaded, setPhaseSlotsLoaded] = useState<Record<string, boolean>>({ bearbeitung: false, visum: false });
   // Add-slot modal
@@ -679,6 +680,12 @@ export default function AdminPage() {
   const [addSlotActionType, setAddSlotActionType]     = useState<"upload" | "sign" | "fill" | "combo">("upload");
   const [addSlotInstructions, setAddSlotInstructions] = useState("");
   const [addSlotSaving, setAddSlotSaving]             = useState(false);
+  // Configure fields modal (fill-type slots)
+  const [configFieldsSlot, setConfigFieldsSlot]       = useState<PhaseSlot | null>(null);
+  const [configFieldsUploading, setConfigFieldsUploading] = useState(false);
+  const [configFieldsFields, setConfigFieldsFields]   = useState<import("@/lib/pdfFieldEmbed").FormField[]>([]);
+  const [configFieldsPdfB64, setConfigFieldsPdfB64]   = useState<string | null>(null);
+  const [configFieldsSaving, setConfigFieldsSaving]   = useState(false);
   // Expanded DUAL slot IDs (collapsed by default, like static paired rows)
   const [expandedDualSlots, setExpandedDualSlots] = useState<Set<string>>(new Set());
   // Inline slot label editing
@@ -2469,6 +2476,14 @@ export default function AdminPage() {
                                                       style={{ color: "var(--w)" }}>
                                                       <FilePen size={11} strokeWidth={1.8} /> Edit label
                                                     </button>
+                                                    {(slot.action_type === "fill" || slot.action_type === "combo") && (
+                                                      <button
+                                                        onClick={e => { e.stopPropagation(); setRevokeMenu(null); setConfigFieldsSlot(slot); setConfigFieldsFields(slot.form_fields ?? []); setConfigFieldsPdfB64(null); }}
+                                                        className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                                        style={{ color: "var(--w)" }}>
+                                                        <FileText size={11} strokeWidth={1.8} /> Configure fields
+                                                      </button>
+                                                    )}
                                                     <button
                                                       onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ docId: doc?.id ?? null, driveFileId: doc?.drive_file_id ?? null, label: slot.label }); }}
                                                       className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
@@ -2784,6 +2799,119 @@ export default function AdminPage() {
                         </div>
                       </>
                     )}
+
+                    {/* ── Configure fields modal (fill / combo slots) ──────────────── */}
+                    {configFieldsSlot && (() => {
+                      async function uploadTemplate(file: File) {
+                        setConfigFieldsUploading(true);
+                        try {
+                          const fd = new FormData();
+                          fd.append("file", file);
+                          fd.append("slotId", configFieldsSlot!.id);
+                          const res = await fetch("/api/portal/admin/slot-template", {
+                            method: "POST",
+                            headers: { Authorization: `Bearer ${accessToken}` },
+                            body: fd,
+                          });
+                          if (!res.ok) return;
+                          // Fetch back as base64 for PdfFieldPicker
+                          const r2 = await fetch(`/api/portal/admin/slot-template?slotId=${configFieldsSlot!.id}`, {
+                            headers: { Authorization: `Bearer ${accessToken}` },
+                          });
+                          if (!r2.ok) return;
+                          const bytes = await r2.arrayBuffer();
+                          const b64 = btoa(String.fromCharCode(...new Uint8Array(bytes)));
+                          setConfigFieldsPdfB64(b64);
+                          setPhaseSlots(prev => {
+                            const phase = configFieldsSlot!.phase;
+                            return { ...prev, [phase]: prev[phase].map(s => s.id === configFieldsSlot!.id ? { ...s, template_pdf_path: `slot-templates/${configFieldsSlot!.id}.pdf` } : s) };
+                          });
+                          setConfigFieldsSlot(s => s ? { ...s, template_pdf_path: `slot-templates/${s.id}.pdf` } : s);
+                        } finally { setConfigFieldsUploading(false); }
+                      }
+
+                      async function saveFields() {
+                        setConfigFieldsSaving(true);
+                        try {
+                          await fetch("/api/portal/phase-slots", {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                            body: JSON.stringify({ id: configFieldsSlot!.id, form_fields: configFieldsFields }),
+                          });
+                          setPhaseSlots(prev => {
+                            const phase = configFieldsSlot!.phase;
+                            return { ...prev, [phase]: prev[phase].map(s => s.id === configFieldsSlot!.id ? { ...s, form_fields: configFieldsFields } : s) };
+                          });
+                          setConfigFieldsSlot(null);
+                        } finally { setConfigFieldsSaving(false); }
+                      }
+
+                      // Load existing PDF when modal opens
+                      if (!configFieldsPdfB64 && configFieldsSlot.template_pdf_path) {
+                        fetch(`/api/portal/admin/slot-template?slotId=${configFieldsSlot.id}`, {
+                          headers: { Authorization: `Bearer ${accessToken}` },
+                        }).then(r => r.ok ? r.arrayBuffer() : null).then(buf => {
+                          if (!buf) return;
+                          setConfigFieldsPdfB64(btoa(String.fromCharCode(...new Uint8Array(buf))));
+                        });
+                      }
+
+                      return (
+                        <>
+                          <div className="fixed inset-0 z-40" style={{ background: "rgba(0,0,0,0.6)" }}
+                            onClick={() => setConfigFieldsSlot(null)} />
+                          <div className="fixed inset-x-2 top-[var(--header-h,56px)] bottom-[var(--bottom-nav-h,0px)] z-50 flex flex-col rounded-2xl overflow-hidden"
+                            style={{ background: "var(--card)", border: "1px solid var(--border-gold)" }}>
+                            {/* Header */}
+                            <div className="flex items-center gap-3 px-4 py-3 border-b" style={{ borderColor: "var(--border)" }}>
+                              <p className="flex-1 text-[13px] font-semibold truncate" style={{ color: "var(--w)" }}>
+                                Configure fields — {configFieldsSlot.label}
+                              </p>
+                              {configFieldsPdfB64 && (
+                                <button
+                                  disabled={configFieldsSaving}
+                                  onClick={saveFields}
+                                  className="text-[11.5px] font-semibold px-3 py-1.5 rounded-xl disabled:opacity-40"
+                                  style={{ background: "var(--gold)", color: "#131312" }}>
+                                  {configFieldsSaving ? "Saving…" : "Save fields"}
+                                </button>
+                              )}
+                              <button onClick={() => setConfigFieldsSlot(null)}
+                                className="bv-icon-btn w-8 h-8 flex items-center justify-center rounded-full"
+                                style={{ color: "var(--w2)" }}>
+                                <XIcon size={14} strokeWidth={2} />
+                              </button>
+                            </div>
+                            {/* Body */}
+                            <div className="flex-1 overflow-auto p-4">
+                              {!configFieldsPdfB64 ? (
+                                <div className="h-full flex flex-col items-center justify-center gap-4">
+                                  <p className="text-[12px]" style={{ color: "var(--w2)" }}>
+                                    Upload the template PDF to place form fields on it
+                                  </p>
+                                  {configFieldsUploading ? (
+                                    <div className="w-8 h-8 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: "var(--gold)" }} />
+                                  ) : (
+                                    <label className="cursor-pointer inline-flex items-center gap-2 text-[12px] font-semibold px-4 py-2 rounded-xl"
+                                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                                      <Upload size={12} strokeWidth={1.8} /> Upload PDF
+                                      <input type="file" accept="application/pdf" className="sr-only"
+                                        onChange={e => { const f = e.target.files?.[0]; if (f) uploadTemplate(f); }} />
+                                    </label>
+                                  )}
+                                </div>
+                              ) : (
+                                <PdfFieldPicker
+                                  pdfBase64={configFieldsPdfB64}
+                                  fields={configFieldsFields}
+                                  onChange={setConfigFieldsFields}
+                                />
+                              )}
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
 
                     {/* ── Edit slot label modal ─────────────────────────────────────── */}
 

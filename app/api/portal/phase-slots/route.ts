@@ -148,6 +148,8 @@ export async function PATCH(req: NextRequest) {
   const body = await req.json().catch(() => ({})) as {
     id?: string; label?: string; label_trans?: string | null; type?: string;
     instructions?: string | null;
+    template_pdf_path?: string | null;
+    form_fields?: unknown;
     positions?: { id: string; position: number }[];
   };
 
@@ -199,6 +201,8 @@ export async function PATCH(req: NextRequest) {
   if (body.type !== undefined && VALID_TYPES.includes(body.type as typeof VALID_TYPES[number]))
     updates.type = body.type;
   if (body.instructions !== undefined) updates.instructions = body.instructions?.trim() || null;
+  if (body.template_pdf_path !== undefined) updates.template_pdf_path = body.template_pdf_path || null;
+  if (body.form_fields !== undefined) updates.form_fields = body.form_fields ?? null;
 
   if (Object.keys(updates).length > 0)
     await db.from("phase_slots").update(updates).eq("id", body.id);
