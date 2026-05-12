@@ -47,6 +47,8 @@ for (const [key, tKey] of Object.entries(KEY_TO_TKEY)) {
   if (key === "transcript_de")     { labels.add("Pflegenotenblatt (DE)"); }
   if (key === "praktikum")         { labels.add("Pflegepraktikumsnachweis"); labels.add("Praktikum"); }
   if (key === "praktikum_de")      { labels.add("Pflegepraktikumsnachweis (DE)"); }
+  if (key === "impfung")           { labels.add("Impfnachweis"); }
+  if (key === "impfung_de")        { labels.add("Impfnachweis (DE)"); }
   FILE_KEY_LABELS[key] = [...labels];
 }
 

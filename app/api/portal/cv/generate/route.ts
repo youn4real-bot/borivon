@@ -107,10 +107,17 @@ export async function POST(req: NextRequest) {
       buffer.byteOffset + buffer.byteLength
     ) as ArrayBuffer;
 
+    // Filename alignment with the upload pipeline (see app/api/portal/upload
+    // buildFileName): <firstname>_<lastname>_pflegekraft_lebenslauf_de.pdf so
+    // every CV that hits the candidate's machine has the same shape as the
+    // doc later stored in Drive.
+    const fn = (data.firstName ?? "").trim().toLowerCase().replace(/\s+/g, "_") || "kandidat";
+    const ln = (data.lastName ?? "").trim().toLowerCase().replace(/\s+/g, "_") || "unbekannt";
+    const cvFilename = `${fn}_${ln}_pflegekraft_lebenslauf_de.pdf`;
     return new Response(arrayBuffer, {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": 'attachment; filename="lebenslauf.pdf"',
+        "Content-Disposition": `attachment; filename="${cvFilename}"`,
       },
     });
   } catch (err: unknown) {

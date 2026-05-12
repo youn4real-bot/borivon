@@ -2466,9 +2466,14 @@ function CVBuilderInner() {
 
   function handleDownload() {
     if (!pdfUrl) return;
+    // Naming alignment with upload pipeline (see app/api/portal/upload/route.ts
+    // buildFileName): <firstname>_<lastname>_pflegekraft_<doctype>.pdf so the
+    // candidate's CV builder download matches what later lands in Drive.
+    const fn = (cvData.firstName ?? "").trim().toLowerCase().replace(/\s+/g, "_") || "kandidat";
+    const ln = (cvData.lastName ?? "").trim().toLowerCase().replace(/\s+/g, "_") || "unbekannt";
     const a = document.createElement("a");
     a.href = pdfUrl;
-    a.download = `lebenslauf_${[cvData.firstName, cvData.lastName].filter(Boolean).join("_").toLowerCase() || "cv"}.pdf`;
+    a.download = `${fn}_${ln}_pflegekraft_lebenslauf_de.pdf`;
     a.click();
   }
 
