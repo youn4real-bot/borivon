@@ -21,8 +21,9 @@
  * to skip the title bar / footer and bring your own — the chrome rules still apply.
  */
 
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useId } from "react";
 import { createPortal } from "react-dom";
+import FocusTrap from "focus-trap-react";
 import { X as XIcon } from "lucide-react";
 import { useLang } from "@/components/LangContext";
 
@@ -62,8 +63,9 @@ export function Modal({
 }) {
   const { t } = useLang();
   const titleId = useId();
-  const dialogRef = useRef<HTMLDivElement>(null);
-  // Lock body scroll + Esc to close (Esc disabled while busy)
+  // Lock body scroll + Esc to close (Esc disabled while busy).
+  // Tab cycling + focus restore is delegated to focus-trap-react below — that
+  // library handles dynamic content, nested portals, screen reader cases, etc.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !busy) onClose(); };
@@ -75,52 +77,6 @@ export function Modal({
       document.body.style.overflow = prev;
     };
   }, [open, onClose, busy]);
-
-  // Focus management: capture the previously-focused element on open, focus
-  // the first interactive element inside the dialog, and restore focus on
-  // close. Tab/Shift-Tab traps focus within the dialog.
-  useEffect(() => {
-    if (!open) return;
-    const previouslyFocused = document.activeElement as HTMLElement | null;
-
-    // Defer focus until the portal has rendered.
-    const focusTimer = setTimeout(() => {
-      const root = dialogRef.current;
-      if (!root) return;
-      const first = root.querySelector<HTMLElement>(
-        "input:not([disabled]):not([type='hidden']), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])"
-      );
-      (first ?? root).focus();
-    }, 0);
-
-    const onTab = (e: KeyboardEvent) => {
-      if (e.key !== "Tab") return;
-      const root = dialogRef.current;
-      if (!root) return;
-      const focusables = Array.from(root.querySelectorAll<HTMLElement>(
-        "input:not([disabled]):not([type='hidden']), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])"
-      )).filter(el => el.offsetParent !== null);
-      if (focusables.length === 0) { e.preventDefault(); return; }
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
-      const active = document.activeElement as HTMLElement | null;
-      if (e.shiftKey && active === first) {
-        e.preventDefault(); last.focus();
-      } else if (!e.shiftKey && active === last) {
-        e.preventDefault(); first.focus();
-      }
-    };
-    window.addEventListener("keydown", onTab);
-
-    return () => {
-      clearTimeout(focusTimer);
-      window.removeEventListener("keydown", onTab);
-      // Restore focus to the trigger element that opened the modal.
-      if (previouslyFocused && typeof previouslyFocused.focus === "function") {
-        previouslyFocused.focus();
-      }
-    };
-  }, [open]);
 
   if (!open || typeof document === "undefined") return null;
 
@@ -141,60 +97,68 @@ export function Modal({
           .bv-modal-outer { padding-bottom: calc(1rem + 72px) !important; }
         }
       `}</style>
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={title ? titleId : undefined}
-        tabIndex={-1}
-        className="w-full flex flex-col outline-none"
-        style={{
-          maxWidth: SIZE_MAX_W[size],
-          background: "var(--card)",
-          border: "1px solid var(--border)",
-          borderRadius: "20px",
-          boxShadow: "0 1px 3px rgba(0,0,0,0.06), 0 18px 48px rgba(0,0,0,0.22)",
-          animation: "bvFadeRise 0.28s var(--ease-out)",
-          paddingBottom: "env(safe-area-inset-bottom)",
-          maxHeight: "calc(100% - 0.5rem)",
-        }}
-        onClick={e => e.stopPropagation()}>
+      <FocusTrap
+        focusTrapOptions={{
+          escapeDeactivates: false,           // Esc handled by our useEffect (busy-aware)
+          clickOutsideDeactivates: false,     // outside-click handled by backdrop onClick
+          returnFocusOnDeactivate: true,      // restore focus to the trigger element
+          allowOutsideClick: true,            // permit clicks on the backdrop / scrollbar
+          fallbackFocus: () => document.body, // safety if no tabbable found yet
+        }}>
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={title ? titleId : undefined}
+          tabIndex={-1}
+          className="w-full flex flex-col outline-none"
+          style={{
+            maxWidth: SIZE_MAX_W[size],
+            background: "var(--card)",
+            border: "1px solid var(--border)",
+            borderRadius: "20px",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.06), 0 18px 48px rgba(0,0,0,0.22)",
+            animation: "bvFadeRise 0.28s var(--ease-out)",
+            paddingBottom: "env(safe-area-inset-bottom)",
+            maxHeight: "calc(100% - 0.5rem)",
+          }}
+          onClick={e => e.stopPropagation()}>
 
-        {!chromeless && (title || subtitle) && (
-          <div className="flex items-start justify-between gap-3 px-5 py-4"
-            style={{ borderBottom: "1px solid var(--border)" }}>
-            <div className="min-w-0">
-              {title && (
-                <p id={titleId} className="text-[14px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>
-                  {title}
-                </p>
-              )}
-              {subtitle && (
-                <p className="text-[11.5px] mt-0.5" style={{ color: "var(--w3)" }}>
-                  {subtitle}
-                </p>
-              )}
+          {!chromeless && (title || subtitle) && (
+            <div className="flex items-start justify-between gap-3 px-5 py-4"
+              style={{ borderBottom: "1px solid var(--border)" }}>
+              <div className="min-w-0">
+                {title && (
+                  <p id={titleId} className="text-[14px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>
+                    {title}
+                  </p>
+                )}
+                {subtitle && (
+                  <p className="text-[11.5px] mt-0.5" style={{ color: "var(--w3)" }}>
+                    {subtitle}
+                  </p>
+                )}
+              </div>
+              <button onClick={onClose} aria-label={t.miClose} disabled={busy}
+                className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                style={{ color: "var(--w3)" }}>
+                <XIcon size={14} strokeWidth={1.8} />
+              </button>
             </div>
-            <button onClick={onClose} aria-label={t.miClose} disabled={busy}
-              className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{ color: "var(--w3)" }}>
-              <XIcon size={14} strokeWidth={1.8} />
-            </button>
-          </div>
-        )}
+          )}
 
-        {/* Body — scrollable when content overflows */}
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          {children}
+          {/* Body — scrollable when content overflows */}
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            {children}
+          </div>
+
+          {!chromeless && footer && (
+            <div className="flex items-center justify-end gap-2 px-5 py-3"
+              style={{ borderTop: "1px solid var(--border)" }}>
+              {footer}
+            </div>
+          )}
         </div>
-
-        {!chromeless && footer && (
-          <div className="flex items-center justify-end gap-2 px-5 py-3"
-            style={{ borderTop: "1px solid var(--border)" }}>
-            {footer}
-          </div>
-        )}
-      </div>
+      </FocusTrap>
     </div>,
     document.body,
   );
