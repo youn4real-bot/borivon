@@ -20,6 +20,7 @@ type PhaseSlot = {
   candidate_signs: boolean;
   admin_fills: boolean;
   candidate_fills: boolean;
+  candidate_signature_zone: { page: number; x: number; y: number; w: number; h: number } | null;
 };
 
 // GET — any authenticated user; returns slots for a phase (org-specific → global fallback)

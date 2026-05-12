@@ -3,6 +3,7 @@
 import { useCallback } from "react";
 import { PdfViewer, PageOverlayFn } from "@/components/PdfViewer";
 import { FormField } from "@/lib/pdfFieldEmbed";
+import type { SigZone } from "@/components/PdfZonePicker";
 
 const TYPE_COLORS: Record<FormField["type"], { border: string; bg: string }> = {
   text:     { border: "var(--gold)",  bg: "rgba(201,162,64,0.08)"   },
@@ -16,15 +17,54 @@ type Props = {
   values: Record<string, string>;
   onChange: (fieldId: string, value: string) => void;
   disabled?: boolean;
+  /** Optional candidate signature zone — when set, renders a "Sign here"
+   *  overlay (or the supplied preview image) on the matching page. */
+  signatureZone?: SigZone | null;
+  /** Data URI of the signed signature image to render inside the zone.
+   *  Null = not yet signed (shows "Sign here" prompt). */
+  signaturePreview?: string | null;
+  /** Called when the candidate taps the empty signature zone. */
+  onSignClick?: () => void;
 };
 
-export function PdfFieldFill({ pdfUrl, fields, values, onChange, disabled = false }: Props) {
+export function PdfFieldFill({ pdfUrl, fields, values, onChange, disabled = false, signatureZone, signaturePreview, onSignClick }: Props) {
   const pageOverlay: PageOverlayFn = useCallback(({ pageNum, dispH }) => {
     const pageFields = fields.filter(f => f.page === pageNum);
-    if (pageFields.length === 0) return null;
+    const showSig = signatureZone && signatureZone.page === pageNum;
+    if (pageFields.length === 0 && !showSig) return null;
 
     return (
       <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
+        {showSig && (
+          <div
+            onClick={() => { if (!signaturePreview && !disabled) onSignClick?.(); }}
+            style={{
+              position: "absolute",
+              left: `${signatureZone.x * 100}%`, top: `${signatureZone.y * 100}%`,
+              width: `${signatureZone.w * 100}%`, height: `${signatureZone.h * 100}%`,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              borderRadius: 4,
+              border: signaturePreview ? "1.5px solid rgba(201,162,64,0.4)" : "1.5px dashed var(--gold)",
+              background: signaturePreview ? "transparent" : "rgba(201,162,64,0.12)",
+              pointerEvents: disabled ? "none" : "auto",
+              cursor: signaturePreview ? "default" : "pointer",
+              overflow: "hidden",
+            }}>
+            {signaturePreview ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={signaturePreview} alt="Your signature"
+                style={{ width: "100%", height: "100%", objectFit: "contain", pointerEvents: "none" }} />
+            ) : (
+              <span style={{
+                fontSize: Math.max(9, Math.min(13, signatureZone.h * dispH * 0.32)),
+                color: "var(--gold)", fontWeight: 700, pointerEvents: "none",
+                textShadow: "0 1px 4px rgba(0,0,0,0.4)",
+              }}>
+                ✍️ Sign here
+              </span>
+            )}
+          </div>
+        )}
         {pageFields.map(f => {
           const pxH    = f.h * dispH;
           const fs     = Math.max(7, Math.min(14, pxH * 0.52));
@@ -96,7 +136,7 @@ export function PdfFieldFill({ pdfUrl, fields, values, onChange, disabled = fals
         })}
       </div>
     );
-  }, [fields, values, onChange, disabled]);
+  }, [fields, values, onChange, disabled, signatureZone, signaturePreview, onSignClick]);
 
   return (
     <div style={{ position: "relative", height: "62dvh", borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)" }}>

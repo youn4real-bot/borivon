@@ -21,6 +21,8 @@ import { DropdownMenu } from "@/components/ui/DropdownMenu";
 import { PdfViewer } from "@/components/PdfViewer";
 import { PdfFieldFill } from "@/components/PdfFieldFill";
 import { embedFields } from "@/lib/pdfFieldEmbed";
+import { stampSigOnPdf } from "@/lib/stampSigOnPdf";
+import { removeImageBg } from "@/lib/removeImageBg";
 import { DocxViewer } from "@/components/DocxViewer";
 import { ZoomPanRotateViewer } from "@/components/ZoomPanRotateViewer";
 import { Spinner, PageLoader, AutosaveIndicator } from "@/components/ui/states";
@@ -149,7 +151,7 @@ export default function DashboardPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Dynamic phase slots — loaded from API (replaces static bea_*/vis_* placeholders)
-  type PhaseSlot = { id: string; phase: string; type: "simple" | "dual"; label: string; label_trans: string | null; position: number; action_type: string | null; instructions: string | null; template_pdf_path: string | null; form_fields: import("@/lib/pdfFieldEmbed").FormField[] | null; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean };
+  type PhaseSlot = { id: string; phase: string; type: "simple" | "dual"; label: string; label_trans: string | null; position: number; action_type: string | null; instructions: string | null; template_pdf_path: string | null; form_fields: import("@/lib/pdfFieldEmbed").FormField[] | null; candidate_signature_zone: import("@/components/PdfZonePicker").SigZone | null; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean };
   const [dynamicSlots, setDynamicSlots] = useState<{ bea: PhaseSlot[]; vis: PhaseSlot[] }>({ bea: [], vis: [] });
   const [dynamicSlotsLoaded, setDynamicSlotsLoaded] = useState(false);
 
@@ -200,6 +202,7 @@ export default function DashboardPage() {
         ...(s.instructions ? { instructions: s.instructions } : {}),
         ...(s.form_fields?.length ? { form_fields: s.form_fields } : {}),
         ...(s.template_pdf_path ? { template_pdf_path: s.template_pdf_path } : {}),
+        ...(s.candidate_signature_zone ? { candidate_signature_zone: s.candidate_signature_zone } : {}),
         ...(s.type === "dual" ? { transKey: s.id + "_de", transHint: "" } : {}),
         candidate_signs: s.candidate_signs ?? false,
         candidate_fills: s.candidate_fills ?? false,
@@ -215,6 +218,7 @@ export default function DashboardPage() {
         ...(s.instructions ? { instructions: s.instructions } : {}),
         ...(s.form_fields?.length ? { form_fields: s.form_fields } : {}),
         ...(s.template_pdf_path ? { template_pdf_path: s.template_pdf_path } : {}),
+        ...(s.candidate_signature_zone ? { candidate_signature_zone: s.candidate_signature_zone } : {}),
         ...(s.type === "dual" ? { transKey: s.id + "_de", transHint: "" } : {}),
         candidate_signs: s.candidate_signs ?? false,
         candidate_fills: s.candidate_fills ?? false,
@@ -277,9 +281,25 @@ export default function DashboardPage() {
   const replaceForKeyRef = useRef<string | null>(null);
 
   // Fill-form modal — shown when candidate clicks a slot with form_fields
-  type FillFormState = { slotId: string; fields: import("@/lib/pdfFieldEmbed").FormField[]; values: Record<string, string>; pdfUrl: string | null };
+  type FillFormState = {
+    slotId: string;
+    fields: import("@/lib/pdfFieldEmbed").FormField[];
+    values: Record<string, string>;
+    pdfUrl: string | null;
+    /** When admin's wizard drew a candidate signature box, the zone is rendered
+     *  as a clickable "Sign here" overlay. Set to null if not needed. */
+    sigZone: import("@/components/PdfZonePicker").SigZone | null;
+    /** Data URI of the signature the candidate just placed (or null if not yet).
+     *  Embedded into the PDF on submit. */
+    signedSig: string | null;
+  };
   const [fillForm, setFillForm] = useState<FillFormState | null>(null);
   const [fillFormSubmitting, setFillFormSubmitting] = useState(false);
+  // Candidate's reusable signature, loaded from /api/portal/me/signature.
+  const [candidateSavedSig, setCandidateSavedSig] = useState<string | null>(null);
+  // Sub-popup for first-time candidate signature upload from the fill modal.
+  const [candidateSigSubPopup, setCandidateSigSubPopup] = useState<{ pendingSig: string | null } | null>(null);
+  const [candidateSigUploading, setCandidateSigUploading] = useState(false);
 
   // Organization invite-code modal — shown until candidate joins an org or
   // explicitly dismisses ("Later"). Dismissal is session-only; resets on next login.
@@ -714,6 +734,13 @@ export default function DashboardPage() {
         headers: { Authorization: `Bearer ${session?.access_token ?? ""}` },
       }).then(r => r.ok ? r.json() : { requests: [] })
         .then(j => setSignRequests((j as { requests: SignReq[] }).requests ?? []))
+        .catch(() => {});
+
+      // Load candidate's saved signature (reused inside fillForm sig zones).
+      fetch("/api/portal/me/signature", {
+        headers: { Authorization: `Bearer ${session?.access_token ?? ""}` },
+      }).then(r => r.ok ? r.json() : null)
+        .then(j => { if (j?.signature) setCandidateSavedSig(j.signature); })
         .catch(() => {});
 
       // Auto-redeem invite code stored in user metadata at registration time.
@@ -2196,6 +2223,10 @@ export default function DashboardPage() {
             // LAW #13 / LAW #34: candidate task flags on dynamic B/V slots
             const needsCandidateSign = (item as {candidate_signs?: boolean}).candidate_signs === true;
             const needsCandidateFill = (item as {candidate_fills?: boolean}).candidate_fills === true;
+            // Slot with admin-placed candidate sig zone — opens the same fillForm
+            // modal as fill slots so candidate can sign inline (LAW #34).
+            const itemSigZone = (item as {candidate_signature_zone?: import("@/components/PdfZonePicker").SigZone | null}).candidate_signature_zone ?? null;
+            const isInlineSign = !!itemSigZone;
             // Sign done when a signed sign_request's document_name matches this slot id
             const signDone = !!signRequests.find(r => r.status === "signed" && r.document_name === item.key);
             const fillDone = needsCandidateFill && uploaded; // fill submit = upload
@@ -2207,18 +2238,18 @@ export default function DashboardPage() {
             const rowClickable =
               (!isOther && uploaded && doc?.drive_file_id && !isUploading) ||
               ((rowEmptyUpload || rowEmptyOther || rowEmptyCv) && !isUploading) ||
-              (isFillSlot && !uploaded && !isUploading);
+              ((isFillSlot || isInlineSign) && !uploaded && !isUploading);
             const rowOnClick = !rowClickable
               ? undefined
               : rowEmptyCv ? () => router.push("/portal/cv-builder")
-              : (isFillSlot && !uploaded) ? () => {
+              : ((isFillSlot || isInlineSign) && !uploaded) ? () => {
                   const slotId = item.key;
                   const fields = (item as {form_fields?: import("@/lib/pdfFieldEmbed").FormField[]}).form_fields ?? [];
                   fetch(`/api/portal/slot-template?slotId=${slotId}`, {
                     headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
                   }).then(r => r.ok ? r.blob() : null).then(blob => {
                     const pdfUrl = blob ? URL.createObjectURL(blob) : null;
-                    setFillForm({ slotId, fields, values: {}, pdfUrl });
+                    setFillForm({ slotId, fields, values: {}, pdfUrl, sigZone: itemSigZone, signedSig: null });
                   });
                 }
               : (!uploaded || isOther) ? () => openPicker(item.key)
@@ -3512,24 +3543,40 @@ export default function DashboardPage() {
                 {lang === "de" ? "Formular ausfüllen" : lang === "fr" ? "Remplir le formulaire" : "Fill form"}
               </p>
               {(() => {
-                // LAW #13: block fill submit if sign is also required but not yet done
+                // LAW #13: block submit if any required candidate task isn't done.
+                // For wizard-driven slots with inline sig zone, signedSig is the
+                // gate. For legacy slots with separate sign requests, fall back
+                // to the sign_requests row.
                 const fillSlot = [...dynamicSlots.bea, ...dynamicSlots.vis].find(s => s.id === fillForm.slotId);
-                const fillSignDone = fillSlot?.candidate_signs
-                  ? !!signRequests.find(r => r.status === "signed" && r.document_name === fillForm.slotId)
-                  : true;
-                const fillBlocked = fillSlot?.candidate_signs && !fillSignDone;
+                const inlineSigPending = !!fillForm.sigZone && !fillForm.signedSig;
+                const legacySigPending = fillSlot?.candidate_signs && !fillForm.sigZone
+                  ? !signRequests.find(r => r.status === "signed" && r.document_name === fillForm.slotId)
+                  : false;
+                const fillBlocked = inlineSigPending || legacySigPending;
                 return (
                   <button
-                    disabled={fillFormSubmitting || !fillForm.pdfUrl || !!fillBlocked}
+                    disabled={fillFormSubmitting || !fillForm.pdfUrl || fillBlocked}
                     title={fillBlocked ? (lang === "de" ? "Zuerst Signatur erforderlich" : lang === "fr" ? "Signature requise d'abord" : "Sign required first") : undefined}
                     onClick={async () => {
                       if (!fillForm.pdfUrl) return;
                       setFillFormSubmitting(true);
                       try {
                         const res = await fetch(fillForm.pdfUrl);
-                        const bytes = new Uint8Array(await res.arrayBuffer());
-                        const filled = await embedFields(bytes, fillForm.fields, fillForm.values);
-                        const file = new File([filled.buffer as ArrayBuffer], `${fillForm.slotId}_filled.pdf`, { type: "application/pdf" });
+                        const sourceBytes = new Uint8Array(await res.arrayBuffer());
+                        const srcAb = new ArrayBuffer(sourceBytes.byteLength);
+                        new Uint8Array(srcAb).set(sourceBytes);
+                        let bytes: Uint8Array = new Uint8Array(srcAb);
+                        // 1) Embed field values typed by candidate
+                        if (fillForm.fields.length > 0) {
+                          bytes = await embedFields(bytes, fillForm.fields, fillForm.values);
+                        }
+                        // 2) Stamp candidate signature into the zone (if drawn)
+                        if (fillForm.sigZone && fillForm.signedSig) {
+                          bytes = await stampSigOnPdf(bytes, fillForm.signedSig, [fillForm.sigZone]);
+                        }
+                        const outAb = new ArrayBuffer(bytes.byteLength);
+                        new Uint8Array(outAb).set(bytes);
+                        const file = new File([outAb], `${fillForm.slotId}_filled.pdf`, { type: "application/pdf" });
                         uploadFile(file, fillForm.slotId);
                         setFillForm(null);
                       } catch { setFillFormSubmitting(false); }
@@ -3558,8 +3605,104 @@ export default function DashboardPage() {
                   fields={fillForm.fields}
                   values={fillForm.values}
                   onChange={(fieldId, value) => setFillForm(f => f ? { ...f, values: { ...f.values, [fieldId]: value } } : f)}
+                  signatureZone={fillForm.sigZone ?? null}
+                  signaturePreview={fillForm.signedSig}
+                  onSignClick={() => {
+                    if (candidateSavedSig) {
+                      // Saved sig exists — drop it straight onto the zone.
+                      setFillForm(f => f ? { ...f, signedSig: candidateSavedSig } : f);
+                    } else {
+                      // First time signing — open the photo upload sub-popup.
+                      setCandidateSigSubPopup({ pendingSig: null });
+                    }
+                  }}
                 />
               )}
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Candidate signature upload sub-popup (LAW #29) ─────────────────
+          Opens when candidate taps the "Sign here" zone in the fill modal
+          and they have no saved signature yet. Photo → Otsu → confirm/redo →
+          saved globally + applied to the current sig zone. */}
+      {candidateSigSubPopup && (
+        <>
+          <div className="fixed inset-0 z-[1200]" style={{ background: "rgba(0,0,0,0.7)" }}
+            onClick={() => !candidateSigUploading && setCandidateSigSubPopup(null)} />
+          <div className="fixed inset-x-4 top-1/4 z-[1201] max-w-sm mx-auto rounded-2xl p-5 space-y-3"
+            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)" }}>
+            <div>
+              <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>
+                {lang === "de" ? "Ihre Unterschrift" : lang === "fr" ? "Votre signature" : "Your signature"}
+              </p>
+              <p className="text-[11px] mt-0.5" style={{ color: "var(--w3)" }}>
+                {lang === "de"
+                  ? "Bitte mit blauem Stift auf weißem Papier unterschreiben. Foto in guter Qualität aufnehmen. Den Rest erledigen wir."
+                  : lang === "fr"
+                  ? "Signez avec un stylo bleu sur du papier blanc. Prenez une photo nette. On s'occupe du reste."
+                  : "Sign in blue pen on white paper. Take a clear photo. We'll handle the rest."}
+              </p>
+            </div>
+            <div className="rounded-xl p-3 flex items-center justify-center"
+              style={{ background: "var(--bg2)", border: "1.5px dashed var(--border-gold)", minHeight: 120 }}>
+              {candidateSigSubPopup.pendingSig ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={candidateSigSubPopup.pendingSig} alt="Signature preview" className="rounded"
+                  style={{ background: "#fff", border: "1px solid var(--border)", objectFit: "contain", maxHeight: 100, maxWidth: "100%" }} />
+              ) : candidateSigUploading ? (
+                <p className="text-[11px]" style={{ color: "var(--gold)" }}>{lang === "de" ? "Scannen…" : lang === "fr" ? "Numérisation…" : "Scanning…"}</p>
+              ) : (
+                <p className="text-[11px]" style={{ color: "var(--w3)" }}>{lang === "de" ? "Noch kein Foto" : lang === "fr" ? "Aucune photo" : "No photo yet"}</p>
+              )}
+            </div>
+            <input id="bv-cand-sig-input" type="file" accept="image/*" style={{ display: "none" }}
+              onChange={async e => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                e.target.value = "";
+                setCandidateSigUploading(true);
+                try {
+                  const dataUri = await new Promise<string>((resolve, reject) => {
+                    const r = new FileReader();
+                    r.onload = () => resolve(r.result as string);
+                    r.onerror = reject;
+                    r.readAsDataURL(file);
+                  });
+                  const cleaned = await removeImageBg(dataUri);
+                  setCandidateSigSubPopup(prev => prev ? { ...prev, pendingSig: cleaned } : prev);
+                } finally { setCandidateSigUploading(false); }
+              }} />
+            <div className="flex gap-2">
+              <button type="button"
+                onClick={() => document.getElementById("bv-cand-sig-input")?.click()}
+                disabled={candidateSigUploading}
+                className="flex-1 py-2 rounded-xl text-[12px] font-semibold transition-colors disabled:opacity-40"
+                style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }}>
+                {candidateSigSubPopup.pendingSig
+                  ? (lang === "de" ? "Erneut" : lang === "fr" ? "Refaire" : "Redo")
+                  : "📷 " + (lang === "de" ? "Hochladen" : lang === "fr" ? "Téléverser" : "Upload")}
+              </button>
+              <button type="button"
+                disabled={!candidateSigSubPopup.pendingSig || candidateSigUploading}
+                onClick={async () => {
+                  const sig = candidateSigSubPopup.pendingSig;
+                  if (!sig) return;
+                  await fetch("/api/portal/me/signature", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+                    body: JSON.stringify({ signature: sig }),
+                  });
+                  setCandidateSavedSig(sig);
+                  // Apply to the open fill form's sig zone (if any).
+                  setFillForm(f => f ? { ...f, signedSig: sig } : f);
+                  setCandidateSigSubPopup(null);
+                }}
+                className="flex-1 py-2 rounded-xl text-[12px] font-semibold transition-colors disabled:opacity-40"
+                style={{ background: "var(--gold)", color: "#131312" }}>
+                {lang === "de" ? "Bestätigen" : lang === "fr" ? "Confirmer" : "Confirm"}
+              </button>
             </div>
           </div>
         </>
