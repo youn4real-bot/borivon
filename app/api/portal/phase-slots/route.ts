@@ -1,10 +1,92 @@
 import { NextRequest, NextResponse } from "next/server";
+import { google } from "googleapis";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { requireAdminRole } from "@/lib/admin-auth";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VALID_PHASES = ["bearbeitung", "visum"] as const;
 const VALID_TYPES  = ["simple", "dual"] as const;
+
+/** Mirrors lib in app/api/portal/upload/route.ts — kept inline to avoid a
+ *  bigger shared-lib refactor for one cross-route use. */
+function slugifyGerman(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss")
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "")
+    || "dokument";
+}
+
+function getDriveClient() {
+  const auth = new google.auth.GoogleAuth({
+    credentials: {
+      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+      private_key: (process.env.GOOGLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n"),
+    },
+    scopes: ["https://www.googleapis.com/auth/drive"],
+  });
+  return google.drive({ version: "v3", auth });
+}
+
+/**
+ * Rename every already-submitted document whose file_type points at this slot
+ * so its filename reflects the slot's new label. Touches both the Drive file
+ * (drive.files.update with new `name`) and the documents.file_name column.
+ *
+ * Failure on any single doc is logged + skipped — we don't roll back the
+ * label change because partial rename is still better than a partial roll-back.
+ */
+async function renameSlotDocs(slotId: string, newLabel: string): Promise<void> {
+  try {
+    const db = getServiceSupabase();
+    const { data: docs } = await db
+      .from("documents")
+      .select("id, user_id, drive_file_id, file_name")
+      .eq("file_type", slotId);
+    if (!docs || docs.length === 0) return;
+
+    const slug = slugifyGerman(newLabel);
+    const drive = getDriveClient();
+
+    for (const raw of docs as { id: string; user_id: string; drive_file_id: string | null; file_name: string | null }[]) {
+      // Look up candidate first/last for the filename prefix
+      const { data: prof } = await db
+        .from("candidate_profiles")
+        .select("first_name, last_name")
+        .eq("user_id", raw.user_id)
+        .maybeSingle();
+      const p = prof as { first_name?: string | null; last_name?: string | null } | null;
+      const fn = (p?.first_name ?? "").trim().toLowerCase().replace(/\s+/g, "_") || "kandidat";
+      const ln = (p?.last_name ?? "").trim().toLowerCase().replace(/\s+/g, "_") || "unbekannt";
+      // Preserve the existing extension if we can read it; default to "pdf".
+      const ext = (raw.file_name ?? "").split(".").pop()?.toLowerCase() || "pdf";
+      const newName = `${fn}_${ln}_pflegekraft_${slug}.${ext}`;
+
+      if (raw.drive_file_id) {
+        try {
+          await drive.files.update({
+            fileId: raw.drive_file_id,
+            requestBody: { name: newName },
+            supportsAllDrives: true,
+            fields: "id, name",
+          });
+        } catch (driveErr) {
+          console.warn(`[renameSlotDocs] Drive rename failed for ${raw.id}:`, driveErr);
+        }
+      }
+
+      const { error: updErr } = await db
+        .from("documents")
+        .update({ file_name: newName })
+        .eq("id", raw.id);
+      if (updErr) console.warn(`[renameSlotDocs] DB rename failed for ${raw.id}:`, updErr);
+    }
+  } catch (e) {
+    console.error("[renameSlotDocs] unexpected error:", e);
+  }
+}
 
 type PhaseSlot = {
   id: string;
@@ -224,6 +306,14 @@ export async function PATCH(req: NextRequest) {
 
   if (Object.keys(updates).length > 0)
     await db.from("phase_slots").update(updates).eq("id", body.id);
+
+  // When the slot's label changes, every already-submitted document under
+  // this slot is renamed to match (Drive + DB) so file names always reflect
+  // the current admin-defined label. Best-effort — failure logs but doesn't
+  // roll back the label change.
+  if (body.label !== undefined) {
+    await renameSlotDocs(body.id, body.label.trim());
+  }
 
   return NextResponse.json({ ok: true });
 }
