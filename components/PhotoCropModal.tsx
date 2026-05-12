@@ -3,38 +3,28 @@
 /**
  * Circular photo crop / zoom modal.
  *
- * Built on react-easy-crop (LAW #28 — battle-tested OSS for pan/pinch/zoom).
- * Output is a square 600×600 JPEG; the circular look comes from CSS
- * `border-radius: 50%` wherever the photo is displayed.
+ * Opens automatically right after a candidate selects a CV photo. The image
+ * is shown inside a fixed circular viewport with a darkened overlay so the
+ * user always sees what the final framing will look like. They can:
+ *   - drag to pan
+ *   - mouse-wheel / pinch / +/- buttons to zoom
+ *   - Save → outputs a square 600×600 JPEG of the circle's contents
+ *   - Cancel → drops the upload
+ *
+ * The output is square (the round look comes from CSS `border-radius: 50%`
+ * on every render — CV PDF, ProfileIcon, public profile, etc).
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import Cropper, { type Area } from "react-easy-crop";
 import { X as XIcon, ZoomIn, ZoomOut, Check } from "lucide-react";
 import { useLang } from "@/components/LangContext";
 
-const OUTPUT_SIZE = 600;
-const ZOOM_STEP = 0.2;
-const MIN_ZOOM = 1;
-const MAX_ZOOM = 6;
-
-async function cropToDataUrl(src: string, area: Area): Promise<string> {
-  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-    const i = new Image();
-    i.crossOrigin = "anonymous";
-    i.onload = () => resolve(i);
-    i.onerror = reject;
-    i.src = src;
-  });
-  const canvas = document.createElement("canvas");
-  canvas.width = OUTPUT_SIZE;
-  canvas.height = OUTPUT_SIZE;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) throw new Error("Canvas 2D unavailable");
-  ctx.drawImage(img, area.x, area.y, area.width, area.height, 0, 0, OUTPUT_SIZE, OUTPUT_SIZE);
-  return canvas.toDataURL("image/jpeg", 0.92);
-}
+const OUTPUT_SIZE = 600;       // saved JPEG size (high-DPI ready)
+const VIEWPORT_DESKTOP = 320;  // displayed circle size on desktop
+const VIEWPORT_MOBILE  = 240;  // displayed circle size on phones
+const ZOOM_STEP = 1.18;
+const MAX_USER_ZOOM = 6;       // 6× the cover-fit scale
 
 export function PhotoCropModal({
   src, onSave, onCancel,
@@ -44,15 +34,146 @@ export function PhotoCropModal({
   onCancel: () => void;
 }) {
   const { lang, t: gT } = useLang();
-  const [crop, setCrop] = useState({ x: 0, y: 0 });
-  const [zoom, setZoom] = useState(1);
-  const [areaPixels, setAreaPixels] = useState<Area | null>(null);
-  const [saving, setSaving] = useState(false);
+  const imgRef = useRef<HTMLImageElement | null>(null);
+  const [naturalW, setNaturalW] = useState(0);
+  const [naturalH, setNaturalH] = useState(0);
+  const [scale, setScale]       = useState(1);
+  const [tx, setTx]             = useState(0); // image center offset from viewport center (px)
+  const [ty, setTy]             = useState(0);
 
-  const onCropComplete = useCallback((_: Area, pixels: Area) => {
-    setAreaPixels(pixels);
+  // Pick viewport size based on screen width (initialized on client mount only)
+  const [viewport, setViewport] = useState<number>(VIEWPORT_DESKTOP);
+  useEffect(() => {
+    const update = () => setViewport(window.innerWidth < 480 ? VIEWPORT_MOBILE : VIEWPORT_DESKTOP);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
   }, []);
 
+  const dragRef  = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
+  const pinchRef = useRef<{ dist: number; scale: number } | null>(null);
+
+  // Load image to learn natural dimensions, then fit-cover into the circle.
+  // Only re-runs when the source changes — resizing the window during a crop
+  // session must NOT wipe the user's positioning. Viewport changes are
+  // handled by the re-fit effect below.
+  useEffect(() => {
+    const img = new Image();
+    img.onload = () => {
+      setNaturalW(img.naturalWidth);
+      setNaturalH(img.naturalHeight);
+      const fit = Math.max(viewport / img.naturalWidth, viewport / img.naturalHeight);
+      setScale(fit);
+      setTx(0); setTy(0);
+      imgRef.current = img;
+    };
+    img.crossOrigin = "anonymous";
+    img.src = src;
+  }, [src]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When the viewport changes (rotation / window resize), re-clamp scale and
+  // offset so the image still covers the new circle — preserves the user's
+  // current framing instead of resetting to fit-cover with tx=ty=0.
+  useEffect(() => {
+    if (!naturalW || !naturalH) return;
+    const c = clamp(scale, tx, ty);
+    setScale(c.s); setTx(c.x); setTy(c.y);
+  }, [viewport]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Clamp scale + offset so the image always covers the circle
+  function clamp(s: number, x: number, y: number) {
+    if (!naturalW || !naturalH) return { s, x, y };
+    const minScale = Math.max(viewport / naturalW, viewport / naturalH);
+    const cs = Math.max(minScale, Math.min(minScale * MAX_USER_ZOOM, s));
+    const halfW = (naturalW * cs) / 2;
+    const halfH = (naturalH * cs) / 2;
+    const maxX = halfW - viewport / 2;
+    const maxY = halfH - viewport / 2;
+    return {
+      s: cs,
+      x: Math.max(-maxX, Math.min(maxX, x)),
+      y: Math.max(-maxY, Math.min(maxY, y)),
+    };
+  }
+
+  function setZoom(next: number) {
+    const c = clamp(next, tx, ty);
+    setScale(c.s); setTx(c.x); setTy(c.y);
+  }
+
+  // Mouse drag → pan
+  function onMouseDown(e: React.MouseEvent) {
+    e.preventDefault();
+    dragRef.current = { x: e.clientX, y: e.clientY, tx, ty };
+  }
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      const d = dragRef.current;
+      if (!d) return;
+      const c = clamp(scale, d.tx + (e.clientX - d.x), d.ty + (e.clientY - d.y));
+      setTx(c.x); setTy(c.y);
+    };
+    const onUp = () => { dragRef.current = null; };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => { window.removeEventListener("mousemove", onMove); window.removeEventListener("mouseup", onUp); };
+  }, [scale, naturalW, naturalH, viewport]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Touch drag + pinch
+  function onTouchStart(e: React.TouchEvent) {
+    if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      pinchRef.current = { dist: Math.hypot(dx, dy), scale };
+    } else if (e.touches.length === 1) {
+      dragRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, tx, ty };
+    }
+  }
+  function onTouchMove(e: React.TouchEvent) {
+    if (e.touches.length === 2 && pinchRef.current) {
+      e.preventDefault();
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.hypot(dx, dy);
+      setZoom(pinchRef.current.scale * (dist / pinchRef.current.dist));
+    } else if (e.touches.length === 1 && dragRef.current) {
+      const d = dragRef.current;
+      const c = clamp(scale, d.tx + (e.touches[0].clientX - d.x), d.ty + (e.touches[0].clientY - d.y));
+      setTx(c.x); setTy(c.y);
+    }
+  }
+  function onTouchEnd() { dragRef.current = null; pinchRef.current = null; }
+
+  // Wheel → zoom
+  function onWheel(e: React.WheelEvent) {
+    e.preventDefault();
+    setZoom(scale * (e.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP));
+  }
+
+  function save() {
+    if (!imgRef.current || !naturalW || !naturalH) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = OUTPUT_SIZE;
+    canvas.height = OUTPUT_SIZE;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    // Convert viewport coordinates back to image-pixel coordinates.
+    // Image center in viewport: (viewport/2 + tx, viewport/2 + ty)
+    // → viewport center in image coords:
+    const imgCx = naturalW / 2 - tx / scale;
+    const imgCy = naturalH / 2 - ty / scale;
+    const halfSrc = (viewport / 2) / scale;
+
+    ctx.drawImage(
+      imgRef.current,
+      imgCx - halfSrc, imgCy - halfSrc, halfSrc * 2, halfSrc * 2,
+      0, 0, OUTPUT_SIZE, OUTPUT_SIZE,
+    );
+    onSave(canvas.toDataURL("image/jpeg", 0.92));
+  }
+
+  // Esc cancels
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onCancel(); };
     window.addEventListener("keydown", onKey);
@@ -61,18 +182,14 @@ export function PhotoCropModal({
     return () => { window.removeEventListener("keydown", onKey); document.body.style.overflow = prev; };
   }, [onCancel]);
 
-  async function save() {
-    if (!areaPixels || saving) return;
-    setSaving(true);
-    try {
-      const dataUrl = await cropToDataUrl(src, areaPixels);
-      onSave(dataUrl);
-    } finally {
-      setSaving(false);
-    }
-  }
-
   if (typeof document === "undefined") return null;
+
+  const minScale = naturalW && naturalH ? Math.max(viewport / naturalW, viewport / naturalH) : 1;
+  const sliderPct = (() => {
+    const range = minScale * MAX_USER_ZOOM - minScale;
+    if (range <= 0) return 0;
+    return ((scale - minScale) / range) * 100;
+  })();
 
   const labels = lang === "de"
     ? { title: "Foto zuschneiden", sub: "Verschieben und zoomen, um den Bildausschnitt zu wählen.", save: "Speichern", cancel: "Abbrechen" }
@@ -81,8 +198,11 @@ export function PhotoCropModal({
     : { title: "Crop your photo", sub: "Drag to position, pinch or scroll to zoom.", save: "Save", cancel: "Cancel" };
 
   return createPortal(
+    // z-[1150] — above ProfilePopup (z-[1100]) so the crop modal appears in
+    // front when opened from "My profile". Below the navbar (z-[1200]).
     <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1150] flex items-center justify-center p-4 bv-photo-crop-outer"
-      style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise 0.22s var(--ease-out)" }}>
+      style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)",
+               animation: "bvFadeRise 0.22s var(--ease-out)" }}>
       <style>{`
         @media (max-width: 639.98px) {
           .bv-photo-crop-outer { padding-bottom: calc(1rem + 72px) !important; }
@@ -107,38 +227,73 @@ export function PhotoCropModal({
           </button>
         </div>
 
-        {/* Crop area */}
-        <div className="relative w-full"
-          style={{ height: 320, background: "var(--bg)" }}>
-          <Cropper
-            image={src}
-            crop={crop}
-            zoom={zoom}
-            aspect={1}
-            cropShape="round"
-            showGrid={false}
-            minZoom={MIN_ZOOM}
-            maxZoom={MAX_ZOOM}
-            onCropChange={setCrop}
-            onZoomChange={setZoom}
-            onCropComplete={onCropComplete}
-            objectFit="cover"
-          />
+        {/* Crop area — same surface tone as the rest of the dashboard */}
+        <div className="flex items-center justify-center py-6"
+          style={{ background: "var(--bg)" }}>
+          <div
+            role="application"
+            aria-label={labels.title}
+            tabIndex={0}
+            onMouseDown={onMouseDown}
+            onTouchStart={onTouchStart}
+            onTouchMove={onTouchMove}
+            onTouchEnd={onTouchEnd}
+            onWheel={onWheel}
+            // Arrow-key pan / +/-/= zoom for keyboard users (no pointer needed)
+            onKeyDown={e => {
+              const STEP = 12; // px per arrow press
+              if (e.key === "ArrowLeft")  { e.preventDefault(); const c = clamp(scale, tx + STEP, ty); setTx(c.x); setTy(c.y); }
+              else if (e.key === "ArrowRight") { e.preventDefault(); const c = clamp(scale, tx - STEP, ty); setTx(c.x); setTy(c.y); }
+              else if (e.key === "ArrowUp")    { e.preventDefault(); const c = clamp(scale, tx, ty + STEP); setTx(c.x); setTy(c.y); }
+              else if (e.key === "ArrowDown")  { e.preventDefault(); const c = clamp(scale, tx, ty - STEP); setTx(c.x); setTy(c.y); }
+              else if (e.key === "+" || e.key === "=") { e.preventDefault(); setZoom(scale * ZOOM_STEP); }
+              else if (e.key === "-" || e.key === "_") { e.preventDefault(); setZoom(scale / ZOOM_STEP); }
+            }}
+            style={{
+              width: viewport, height: viewport,
+              position: "relative", overflow: "hidden",
+              borderRadius: "9999px",
+              cursor: dragRef.current ? "grabbing" : "grab",
+              touchAction: "none",
+              outline: "none",
+              // Gold glow ring around the crop circle (no heavy outer dim,
+              // since the page chrome stays visible behind the modal).
+              boxShadow: "0 0 0 2px var(--border-gold), 0 0 24px var(--gdim)",
+              userSelect: "none",
+            }}>
+            { /* eslint-disable-next-line @next/next/no-img-element */ }
+            <img src={src} alt="crop"
+              draggable={false}
+              style={{
+                position: "absolute",
+                left: "50%", top: "50%",
+                width:  naturalW * scale,
+                height: naturalH * scale,
+                transform: `translate(calc(-50% + ${tx}px), calc(-50% + ${ty}px))`,
+                userSelect: "none", pointerEvents: "none",
+                maxWidth: "none", maxHeight: "none",
+              }} />
+          </div>
         </div>
 
         {/* Zoom slider */}
         <div className="flex items-center gap-3 px-5 py-3" style={{ borderTop: "1px solid var(--border)" }}>
-          <button onClick={() => setZoom(z => Math.max(MIN_ZOOM, z - ZOOM_STEP))}
+          <button onClick={() => setZoom(scale / ZOOM_STEP)}
             aria-label="Zoom out" title="Zoom out"
             className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
             style={{ color: "var(--w2)" }}>
             <ZoomOut size={13} strokeWidth={1.8} />
           </button>
-          <input type="range" min={MIN_ZOOM} max={MAX_ZOOM} step={0.01} value={zoom}
-            onChange={e => setZoom(Number(e.target.value))}
+          <input type="range" min={0} max={100} step={1} value={sliderPct}
+            onChange={e => {
+              const pct = Number(e.target.value);
+              const range = minScale * MAX_USER_ZOOM - minScale;
+              setZoom(minScale + (range * pct) / 100);
+            }}
             className="flex-1"
-            style={{ accentColor: "var(--gold)" }} />
-          <button onClick={() => setZoom(z => Math.min(MAX_ZOOM, z + ZOOM_STEP))}
+            style={{ accentColor: "var(--gold)" }}
+          />
+          <button onClick={() => setZoom(scale * ZOOM_STEP)}
             aria-label="Zoom in" title="Zoom in"
             className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
             style={{ color: "var(--w2)" }}>
@@ -153,11 +308,13 @@ export function PhotoCropModal({
             style={{ background: "transparent", color: "var(--w3)" }}>
             {labels.cancel}
           </button>
-          <button onClick={save} disabled={!areaPixels || saving}
+          <button onClick={save} disabled={!naturalW}
             className="inline-flex items-center gap-1.5 text-[13px] font-semibold px-5 py-2 transition-all hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-40"
-            style={{ background: "var(--gold)", color: "#131312",
-                     borderRadius: "var(--r-md)",
-                     boxShadow: "0 4px 14px var(--border-gold), 0 0 0 1px var(--border-gold)" }}>
+            style={{
+              background: "var(--gold)", color: "#131312",
+              borderRadius: "var(--r-md)",
+              boxShadow: "0 4px 14px var(--border-gold), 0 0 0 1px var(--border-gold)",
+            }}>
             <Check size={13} strokeWidth={2} />
             {labels.save}
           </button>
