@@ -743,51 +743,68 @@ export default function FeedPage() {
   const [pendingPosts, setPendingPosts] = useState<Post[]>([]);
   const postIdsRef = useRef<Set<string>>(new Set());
 
-  // Session init
+  // Session init — fires role check, profile, communities, and posts in
+  // parallel so the feed reveals once with everything ready instead of the
+  // old sequential-await chain that paid full latency for each step.
   useEffect(() => {
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!session?.user) { router.replace("/portal"); return; }
-      const tk = session.access_token ?? "";
-      let role: string | null = null;
-      try {
-        const res = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${tk}` } });
-        ({ role } = await res.json().catch(() => ({ role: null })));
-        // Org members CAN now access the feed — they see only their org's
-        // private community (the global Borivon community is hidden for them).
-      } catch { /* offline */ }
+    let cancelled = false;
 
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) { router.replace("/portal"); return; }
+      if (cancelled) return;
+
+      const tk = session.access_token ?? "";
       setAuthToken(tk);
+
+      // Fire the 3 independent fetches together. loadPosts needs activeOrgId
+      // but the default org isn't known until communities resolves — so we
+      // still fire it last, but in parallel with profile (which it doesn't
+      // need either).
+      const [roleResult, profileResult, communitiesResult] = await Promise.allSettled([
+        fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${tk}` } })
+          .then(r => r.json().catch(() => ({ role: null })))
+          .catch(() => ({ role: null })),
+        supabase
+          .from("candidate_profiles")
+          .select("profile_photo, manually_verified")
+          .eq("user_id", session.user.id)
+          .maybeSingle(),
+        fetch("/api/portal/feed/communities", { headers: { Authorization: `Bearer ${tk}` } })
+          .then(r => r.ok ? r.json() as Promise<{ communities: Community[] }> : { communities: [] })
+          .catch(() => ({ communities: [] as Community[] })),
+      ]);
+
+      if (cancelled) return;
+
+      const role = roleResult.status === "fulfilled" ? (roleResult.value as { role: string | null }).role : null;
       const adminFlag = role === "admin" || role === "sub_admin";
       setIsAdmin(adminFlag);
-      const name = session.user.user_metadata?.full_name ?? session.user.email ?? "";
 
-      const { data: profile } = await supabase
-        .from("candidate_profiles")
-        .select("profile_photo, manually_verified")
-        .eq("user_id", session.user.id)
-        .maybeSingle();
+      const profile = profileResult.status === "fulfilled"
+        ? (profileResult.value.data as { profile_photo?: string | null; manually_verified?: boolean } | null)
+        : null;
+      const name = session.user.user_metadata?.full_name ?? session.user.email ?? "";
       const isSuperAdmin = role === "admin";
       const isOrgMember = role === "org_member";
-      const selfVerified = adminFlag || ((profile as { manually_verified?: boolean } | null)?.manually_verified ?? false);
-      setUserMeta({ name, photo: (profile as { profile_photo?: string | null } | null)?.profile_photo ?? null, isBorivonTeam: adminFlag, isSuperAdmin, isOrgMember, verified: selfVerified });
+      const selfVerified = adminFlag || (profile?.manually_verified ?? false);
+      setUserMeta({ name, photo: profile?.profile_photo ?? null, isBorivonTeam: adminFlag, isSuperAdmin, isOrgMember, verified: selfVerified });
 
-      // Fetch the list of communities the user can access. Default-select
-      // the first one (Borivon for candidates, the org for org admins).
-      try {
-        const cRes = await fetch("/api/portal/feed/communities", { headers: { Authorization: `Bearer ${tk}` } });
-        if (cRes.ok) {
-          const cj = await cRes.json() as { communities: Community[] };
-          if (cj.communities?.length) {
-            setCommunities(cj.communities);
-            const first = cj.communities[0];
-            setActiveOrgId(first.id);
-          }
-        }
-      } catch { /* fall back to global default */ }
+      const communities = communitiesResult.status === "fulfilled"
+        ? (communitiesResult.value as { communities: Community[] }).communities
+        : [];
+      let firstOrgId: string | null = null;
+      if (communities.length) {
+        setCommunities(communities);
+        firstOrgId = communities[0].id;
+        setActiveOrgId(firstOrgId);
+      }
 
-      await loadPosts(tk, 0, null);
-      setLoading(false);
-    });
+      await loadPosts(tk, 0, firstOrgId);
+      if (!cancelled) setLoading(false);
+    })();
+
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

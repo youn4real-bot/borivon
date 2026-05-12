@@ -2007,12 +2007,23 @@ function CVBuilderInner() {
         if (roleJson.role === "org_member") { router.replace("/portal/org/dashboard"); return; }
       }
 
-      // 1. Always fetch passport profile (needed to fill empty draft slots too)
-      const { data: profile } = await supabase
-        .from("candidate_profiles")
-        .select("first_name,last_name,dob,sex,nationality,city_of_birth,country_of_birth,country_of_residence,address_street,address_number,address_postal,city_of_residence,marital_status,children_ages,passport_status,payment_tier,manually_verified")
-        .eq("user_id", uid)
-        .single();
+      // 1. Profile + saved CV draft in PARALLEL. The original code awaited
+      //    them sequentially (~2× the network latency before reveal); they
+      //    have no data dependency on each other so we can fire both together
+      //    and use whichever arrives first inside the merge logic below.
+      const [profileResult, serverDraft] = await Promise.all([
+        supabase
+          .from("candidate_profiles")
+          .select("first_name,last_name,dob,sex,nationality,city_of_birth,country_of_birth,country_of_residence,address_street,address_number,address_postal,city_of_residence,marital_status,children_ages,passport_status,payment_tier,manually_verified")
+          .eq("user_id", uid)
+          .single(),
+        fetch("/api/portal/me/cv-draft", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        })
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null) as Promise<{ draft: Partial<CVData> | null; photo: string | null } | null>,
+      ]);
+      const { data: profile } = profileResult;
       // Passport status drives the lock state — pending/approved/rejected
       // is reflected on every locked field via a small badge.
       if (profile?.passport_status) {
@@ -2033,12 +2044,9 @@ function CVBuilderInner() {
       // draft-merge setCvData below, not here — so the draft's stored
       // workEntries can never overwrite it.
 
-      // 2. Restore saved draft — server wins over localStorage, localStorage is fallback
-      const serverDraft = await fetch("/api/portal/me/cv-draft", {
-        headers: { Authorization: `Bearer ${session.access_token}` },
-      })
-        .then(r => r.ok ? r.json() : null)
-        .catch(() => null) as { draft: Partial<CVData> | null; photo: string | null } | null;
+      // 2. Restore saved draft (server wins over localStorage). The fetch
+      //    was hoisted up to the Promise.all above; serverDraft is the
+      //    pre-fetched result now.
 
       // Restore profile photo from server if available
       if (serverDraft?.photo) {
