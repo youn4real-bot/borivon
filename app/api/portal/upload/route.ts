@@ -117,6 +117,24 @@ function buildFileName(firstName: string, lastName: string, fileKey: string, ext
   return `${fn}_${ln}_pflegekraft_${mapping.name}${suffix}.${ext}`;
 }
 
+/** Lowercase, ASCII, underscore-only slug derived from a German label.
+ *  Umlauts get transliterated (ä→ae, ö→oe, ü→ue, ß→ss) and anything else
+ *  outside [a-z0-9_] collapses to a single underscore. Used by Bearbeitung/
+ *  Visum wizard slots whose admin-defined label becomes the doctype segment
+ *  of the Drive filename. */
+function slugifyGerman(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss")
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "")
+    || "dokument";
+}
+
+/** Module-level UUID regex for detecting wizard slot fileKeys. */
+const UPLOAD_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function getDriveClient() {
   const auth = new google.auth.GoogleAuth({
     credentials: {
@@ -949,6 +967,20 @@ export async function POST(req: NextRequest) {
       const fn = (firstName.trim().toLowerCase().replace(/\s+/g, "_") || "kandidat");
       const ln = (lastName.trim().toLowerCase().replace(/\s+/g, "_")  || "unbekannt");
       structuredName = `${fn}_${ln}_pflegekraft_sonstiges_${idx}.${ext}`;
+    } else if (UPLOAD_UUID_RE.test(fileKey)) {
+      // Bearbeitung / Visum wizard slot upload — fileKey IS the slot UUID.
+      // Resolve the admin-defined slot label, slugify (ä→ae, etc.), and use
+      // that as the doctype segment so the candidate's submitted PDF lands
+      // in Drive as e.g. ahmed_benali_pflegekraft_arbeitsvertrag.pdf
+      // instead of the previous <uuid>_filled.pdf.
+      const dbForSlot = getServiceSupabase();
+      const { data: slotRow } = await dbForSlot
+        .from("phase_slots").select("label").eq("id", fileKey).maybeSingle();
+      const label = (slotRow as { label?: string | null } | null)?.label ?? "dokument";
+      const slug = slugifyGerman(label);
+      const fn = (firstName.trim().toLowerCase().replace(/\s+/g, "_") || "kandidat");
+      const ln = (lastName.trim().toLowerCase().replace(/\s+/g, "_")  || "unbekannt");
+      structuredName = `${fn}_${ln}_pflegekraft_${slug}.${ext}`;
     } else {
       structuredName = buildFileName(firstName, lastName, fileKey, ext);
     }
