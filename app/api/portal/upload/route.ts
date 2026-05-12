@@ -996,6 +996,8 @@ export async function POST(req: NextRequest) {
     file_path: `gdrive/${userId}/${Date.now()}`,
     file_type: fileType, drive_file_id: driveFileId,
     uploaded_by_admin: uploadedByAdmin,
+    // LAW #15: admin-uploaded docs with no candidate action → immediately approved (green)
+    ...(uploadedByAdmin ? { status: "approved" } : {}),
   });
   if (dbErr) {
     console.error("DB insert error:", dbErr);
