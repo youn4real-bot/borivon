@@ -1738,7 +1738,6 @@ export default function AdminPage() {
             noPreviewText={t.aNoPreview}
             onUpdated={(d) => setDocs(prev => prev.map(x => x.id === d.id ? { ...x, status: d.status, feedback: d.feedback } : x))}
             onShowPassportData={() => setShowPassportInfo(true)}
-            onSign={() => { setPreviewDoc(null); setShowPassportInfo(false); const _ft = previewDoc.file_type; const _phLabel = Object.values(phaseSlots).flat().find(s => s.id === _ft)?.label; setSigModal({ docId: previewDoc.id, driveFileId: previewDoc.drive_file_id ?? null, label: _phLabel || _ft || previewDoc.file_name }); }}
             sideBySide={
               /pass/i.test(previewDoc.file_type)
               && (previewDoc.status !== "approved" || (profiles[previewDoc.user_id]?.passport_status !== "approved"))
@@ -4031,7 +4030,6 @@ export default function AdminPage() {
             noPreviewText={t.aNoPreview}
             onUpdated={(d) => setDocs(prev => prev.map(x => x.id === d.id ? { ...x, status: d.status, feedback: d.feedback } : x))}
             onShowPassportData={() => setShowPassportInfo(true)}
-            onSign={() => { setPreviewDoc(null); setShowPassportInfo(false); const _ft = previewDoc.file_type; const _phLabel = Object.values(phaseSlots).flat().find(s => s.id === _ft)?.label; setSigModal({ docId: previewDoc.id, driveFileId: previewDoc.drive_file_id ?? null, label: _phLabel || _ft || previewDoc.file_name }); }}
             sideBySide={
               /pass/i.test(previewDoc.file_type)
               && (previewDoc.status !== "approved" || (profiles[previewDoc.user_id]?.passport_status !== "approved"))

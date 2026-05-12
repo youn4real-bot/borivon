@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { CheckCircle2, XCircle } from "@/components/PortalIcons";
-import { X as XIcon, Download, PenLine } from "lucide-react";
+import { X as XIcon, Download } from "lucide-react";
 import { AdminRejectModal } from "@/components/AdminRejectModal";
 import { PdfViewer } from "@/components/PdfViewer";
 import { DocxViewer } from "@/components/DocxViewer";
@@ -70,7 +70,7 @@ type Doc = {
 
 export function AdminDocPreviewModal({
   doc, accessToken, onClose, onUpdated, noPreviewText = "Preview not available",
-  onShowPassportData, sideBySide = false, overrideFetchUrl, onSign,
+  onShowPassportData, sideBySide = false, overrideFetchUrl,
 }: {
   doc: Doc;
   accessToken: string;
@@ -81,8 +81,6 @@ export function AdminDocPreviewModal({
   sideBySide?: boolean;
   /** When provided, fetch the preview from this URL instead of /api/portal/file. */
   overrideFetchUrl?: string;
-  /** When provided, shows a Sign button in the header that calls this. */
-  onSign?: () => void;
 }) {
   const { lang, t: gT } = useLang();
   const dt = dm[lang as keyof typeof dm] ?? dm.en;
@@ -288,16 +286,7 @@ export function AdminDocPreviewModal({
                 {dt.passportData}
               </button>
             )}
-            {onSign && (
-              <button
-                type="button"
-                onClick={() => { onClose(); onSign(); }}
-                className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-2.5 h-8 rounded-full transition-colors"
-                style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                <PenLine size={11} strokeWidth={2} />
-                ✍️ Sign
-              </button>
-            )}
+
             {blobUrl && (
               <a
                 href={blobUrl}
