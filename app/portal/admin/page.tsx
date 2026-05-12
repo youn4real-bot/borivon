@@ -2462,6 +2462,13 @@ export default function AdminPage() {
                                           <div className="flex items-center gap-1.5 flex-shrink-0"
                                             onClick={e => e.stopPropagation()}
                                             onMouseDown={e => e.stopPropagation()}>
+                                            {/* Permanent Action button — opens slot config popup */}
+                                            <button type="button"
+                                              onClick={e => { e.stopPropagation(); setSlotConfigPopup({ slotId: slot.id, admin_signs: slot.admin_signs, candidate_signs: slot.candidate_signs, admin_fills: slot.admin_fills, candidate_fills: slot.candidate_fills }); }}
+                                              className="text-[10.5px] font-semibold px-2.5 py-1.5 rounded-lg flex-shrink-0 transition-colors"
+                                              style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                                              Action
+                                            </button>
                                             {/* Admin upload on behalf of candidate — hidden once doc exists */}
                                             {!submitted && (adminUploadSlotId === slot.id ? (
                                               <span className="w-9 h-9 flex items-center justify-center">
@@ -2521,12 +2528,6 @@ export default function AdminPage() {
                                                         <FileText size={11} strokeWidth={1.8} /> Configure fields
                                                       </button>
                                                     )}
-                                                    <button
-                                                      onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ docId: doc?.id ?? null, driveFileId: doc?.drive_file_id ?? null, label: slot.label }); }}
-                                                      className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
-                                                      style={{ color: "var(--w)" }}>
-                                                      <FilePen size={11} strokeWidth={1.8} /> Signature
-                                                    </button>
                                                     {rowSt === "approved" && (
                                                       <button
                                                         onClick={e => { e.stopPropagation(); setRevokeMenu(null); openRejectModal({ kind: "doc", docId: doc!.id, label: slot.label, initialFeedback: doc!.feedback ?? "" }); }}
