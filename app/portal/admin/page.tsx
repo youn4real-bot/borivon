@@ -632,7 +632,7 @@ export default function AdminPage() {
   const [activePipelineStage, setActivePipelineStage] = useState<string | null>(null);
 
   // ── Dynamic phase slots (Bearbeitung / Visum) ──────────────────────────────
-  type PhaseSlot = { id: string; org_id: string | null; phase: string; position: number; type: "simple" | "dual"; label: string; label_trans: string | null; action_type: string | null; instructions: string | null; template_pdf_path: string | null; form_fields: import("@/lib/pdfFieldEmbed").FormField[] | null; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean };
+  type PhaseSlot = { id: string; org_id: string | null; phase: string; position: number; type: "simple" | "dual"; label: string; label_trans: string | null; action_type: string | null; instructions: string | null; template_pdf_path: string | null; form_fields: import("@/lib/pdfFieldEmbed").FormField[] | null; candidate_signature_zone: import("@/components/PdfZonePicker").SigZone | null; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean };
   const [phaseSlots, setPhaseSlots] = useState<Record<string, PhaseSlot[]>>({ bearbeitung: [], visum: [] });
   const [phaseSlotsLoaded, setPhaseSlotsLoaded] = useState<Record<string, boolean>>({ bearbeitung: false, visum: false });
   // Add-slot modal
@@ -4015,6 +4015,7 @@ export default function AdminPage() {
               body: JSON.stringify({
                 id: wz.slotId,
                 form_fields: freeFillFields,
+                candidate_signature_zone: wz.candidateSigZone,
               }),
             });
 
@@ -4023,7 +4024,7 @@ export default function AdminPage() {
               const updated: typeof prev = {};
               for (const [ph, slots] of Object.entries(prev)) {
                 updated[ph] = (slots ?? []).map(s => s.id === wz.slotId
-                  ? { ...s, form_fields: freeFillFields }
+                  ? { ...s, form_fields: freeFillFields, candidate_signature_zone: wz.candidateSigZone }
                   : s);
               }
               return updated;

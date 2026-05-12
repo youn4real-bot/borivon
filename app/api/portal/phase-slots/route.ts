@@ -160,6 +160,7 @@ export async function PATCH(req: NextRequest) {
     instructions?: string | null;
     template_pdf_path?: string | null;
     form_fields?: unknown;
+    candidate_signature_zone?: unknown;
     positions?: { id: string; position: number }[];
     admin_signs?: boolean; candidate_signs?: boolean; admin_fills?: boolean; candidate_fills?: boolean;
   };
@@ -214,6 +215,7 @@ export async function PATCH(req: NextRequest) {
   if (body.instructions !== undefined) updates.instructions = body.instructions?.trim() || null;
   if (body.template_pdf_path !== undefined) updates.template_pdf_path = body.template_pdf_path || null;
   if (body.form_fields !== undefined) updates.form_fields = body.form_fields ?? null;
+  if (body.candidate_signature_zone !== undefined) updates.candidate_signature_zone = body.candidate_signature_zone ?? null;
   if (body.admin_signs     !== undefined) updates.admin_signs     = !!body.admin_signs;
   if (body.candidate_signs !== undefined) updates.candidate_signs = !!body.candidate_signs;
   if (body.admin_fills     !== undefined) updates.admin_fills     = !!body.admin_fills;
