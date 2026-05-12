@@ -36,8 +36,8 @@ for (const [key, tKey] of Object.entries(KEY_TO_TKEY)) {
   // pre-rename label that may still appear as `file_type` on existing rows. ──
   if (key === "workcert")          { labels.add("Berufserlaubnis für Krankenpflege"); labels.add("Arbeitszeugnis"); }
   if (key === "workcert_de")       { labels.add("Berufserlaubnis für Krankenpflege (DE)"); }
-  if (key === "abitur_transcript") { labels.add("Abitur Transcript"); labels.add("Abitur Notenblatt"); }
-  if (key === "abitur_transcript_de") { labels.add("Abitur Notenblatt (DE)"); }
+  if (key === "abitur_transcript") { labels.add("Abitur Transcript"); labels.add("Abitur Notenblatt"); labels.add("Abitur Übersicht"); }
+  if (key === "abitur_transcript_de") { labels.add("Abitur Notenblatt (DE)"); labels.add("Abitur Übersicht (DE)"); }
   if (key === "langcert")          { labels.add("Sprachzertifikat"); }  // pre-B2 label in DB
   if (key === "diploma")           { labels.add("Pflegediplom"); }
   if (key === "diploma_de")        { labels.add("Pflegediplom (DE)"); }
