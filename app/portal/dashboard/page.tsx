@@ -149,7 +149,7 @@ export default function DashboardPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Dynamic phase slots — loaded from API (replaces static bea_*/vis_* placeholders)
-  type PhaseSlot = { id: string; phase: string; type: "simple" | "dual"; label: string; label_trans: string | null; position: number; action_type: string | null; instructions: string | null; template_pdf_path: string | null; form_fields: import("@/lib/pdfFieldEmbed").FormField[] | null };
+  type PhaseSlot = { id: string; phase: string; type: "simple" | "dual"; label: string; label_trans: string | null; position: number; action_type: string | null; instructions: string | null; template_pdf_path: string | null; form_fields: import("@/lib/pdfFieldEmbed").FormField[] | null; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean };
   const [dynamicSlots, setDynamicSlots] = useState<{ bea: PhaseSlot[]; vis: PhaseSlot[] }>({ bea: [], vis: [] });
   const [dynamicSlotsLoaded, setDynamicSlotsLoaded] = useState(false);
 
@@ -201,6 +201,8 @@ export default function DashboardPage() {
         ...(s.form_fields?.length ? { form_fields: s.form_fields } : {}),
         ...(s.template_pdf_path ? { template_pdf_path: s.template_pdf_path } : {}),
         ...(s.type === "dual" ? { transKey: s.id + "_de", transHint: "" } : {}),
+        candidate_signs: s.candidate_signs ?? false,
+        candidate_fills: s.candidate_fills ?? false,
       })),
     },
     {
@@ -214,6 +216,8 @@ export default function DashboardPage() {
         ...(s.form_fields?.length ? { form_fields: s.form_fields } : {}),
         ...(s.template_pdf_path ? { template_pdf_path: s.template_pdf_path } : {}),
         ...(s.type === "dual" ? { transKey: s.id + "_de", transHint: "" } : {}),
+        candidate_signs: s.candidate_signs ?? false,
+        candidate_fills: s.candidate_fills ?? false,
       })),
     },
   ];
@@ -2189,6 +2193,14 @@ export default function DashboardPage() {
             // routes to the CV builder for the CV row.
             const isCv = item.key === "cv" || item.key === "cv_de";
             const isFillSlot = "form_fields" in item && Array.isArray((item as {form_fields?: unknown}).form_fields) && ((item as {form_fields?: unknown[]}).form_fields?.length ?? 0) > 0;
+            // LAW #13 / LAW #34: candidate task flags on dynamic B/V slots
+            const needsCandidateSign = (item as {candidate_signs?: boolean}).candidate_signs === true;
+            const needsCandidateFill = (item as {candidate_fills?: boolean}).candidate_fills === true;
+            // Sign done when a signed sign_request's document_name matches this slot id
+            const signDone = !!signRequests.find(r => r.status === "signed" && r.document_name === item.key);
+            const fillDone = needsCandidateFill && uploaded; // fill submit = upload
+            // LAW #13: all required candidate tasks must be done before slot is "complete"
+            const allTasksDone = (!needsCandidateSign || signDone) && (!needsCandidateFill || fillDone);
             const rowEmptyUpload = !uploaded && !isOther && !isCv;
             const rowEmptyOther  = isOther && allOtherDocs.length < 5;
             const rowEmptyCv     = isCv && !uploaded;
@@ -2290,6 +2302,32 @@ export default function DashboardPage() {
                         <p className="text-[11px] mt-0.5" style={{ color: "var(--w3)" }}>
                           {allOtherDocs.length} / 5 {lang === "de" ? "Dateien hochgeladen" : lang === "en" ? "files uploaded" : "fichier(s) téléversé(s)"}
                         </p>
+                      )}
+
+                      {/* LAW #13/34: task progress tags for dynamic slots */}
+                      {(needsCandidateSign || needsCandidateFill) && !isUploading && (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {needsCandidateSign && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                              style={{
+                                background: signDone ? "var(--success-bg)" : "var(--gdim)",
+                                color:      signDone ? "var(--success)"    : "var(--gold)",
+                                border: `1px solid ${signDone ? "var(--success-border)" : "var(--border-gold)"}`,
+                              }}>
+                              {signDone ? "✓" : "○"} {lang === "de" ? "Signatur" : lang === "en" ? "Sign" : "Signer"}
+                            </span>
+                          )}
+                          {needsCandidateFill && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                              style={{
+                                background: fillDone ? "var(--success-bg)" : "var(--gdim)",
+                                color:      fillDone ? "var(--success)"    : "var(--gold)",
+                                border: `1px solid ${fillDone ? "var(--success-border)" : "var(--border-gold)"}`,
+                              }}>
+                              {fillDone ? "✓" : "○"} {lang === "de" ? "Ausfüllen" : lang === "en" ? "Fill fields" : "Remplir"}
+                            </span>
+                          )}
+                        </div>
                       )}
 
                       {/* Status conveyed via the row title color (orange/green/red).
@@ -3473,24 +3511,35 @@ export default function DashboardPage() {
               <p className="flex-1 text-[13px] font-semibold truncate" style={{ color: "var(--w)" }}>
                 {lang === "de" ? "Formular ausfüllen" : lang === "fr" ? "Remplir le formulaire" : "Fill form"}
               </p>
-              <button
-                disabled={fillFormSubmitting || !fillForm.pdfUrl}
-                onClick={async () => {
-                  if (!fillForm.pdfUrl) return;
-                  setFillFormSubmitting(true);
-                  try {
-                    const res = await fetch(fillForm.pdfUrl);
-                    const bytes = new Uint8Array(await res.arrayBuffer());
-                    const filled = await embedFields(bytes, fillForm.fields, fillForm.values);
-                    const file = new File([filled.buffer as ArrayBuffer], `${fillForm.slotId}_filled.pdf`, { type: "application/pdf" });
-                    uploadFile(file, fillForm.slotId);
-                    setFillForm(null);
-                  } catch { setFillFormSubmitting(false); }
-                }}
-                className="text-[11.5px] font-semibold px-3 py-1.5 rounded-xl disabled:opacity-40"
-                style={{ background: "var(--gold)", color: "#131312" }}>
-                {fillFormSubmitting ? "…" : (lang === "de" ? "Einreichen" : lang === "fr" ? "Soumettre" : "Submit")}
-              </button>
+              {(() => {
+                // LAW #13: block fill submit if sign is also required but not yet done
+                const fillSlot = [...dynamicSlots.bea, ...dynamicSlots.vis].find(s => s.id === fillForm.slotId);
+                const fillSignDone = fillSlot?.candidate_signs
+                  ? !!signRequests.find(r => r.status === "signed" && r.document_name === fillForm.slotId)
+                  : true;
+                const fillBlocked = fillSlot?.candidate_signs && !fillSignDone;
+                return (
+                  <button
+                    disabled={fillFormSubmitting || !fillForm.pdfUrl || !!fillBlocked}
+                    title={fillBlocked ? (lang === "de" ? "Zuerst Signatur erforderlich" : lang === "fr" ? "Signature requise d'abord" : "Sign required first") : undefined}
+                    onClick={async () => {
+                      if (!fillForm.pdfUrl) return;
+                      setFillFormSubmitting(true);
+                      try {
+                        const res = await fetch(fillForm.pdfUrl);
+                        const bytes = new Uint8Array(await res.arrayBuffer());
+                        const filled = await embedFields(bytes, fillForm.fields, fillForm.values);
+                        const file = new File([filled.buffer as ArrayBuffer], `${fillForm.slotId}_filled.pdf`, { type: "application/pdf" });
+                        uploadFile(file, fillForm.slotId);
+                        setFillForm(null);
+                      } catch { setFillFormSubmitting(false); }
+                    }}
+                    className="text-[11.5px] font-semibold px-3 py-1.5 rounded-xl disabled:opacity-40"
+                    style={{ background: "var(--gold)", color: "#131312" }}>
+                    {fillFormSubmitting ? "…" : (lang === "de" ? "Einreichen" : lang === "fr" ? "Soumettre" : "Submit")}
+                  </button>
+                );
+              })()}
               <button onClick={() => setFillForm(null)} disabled={fillFormSubmitting}
                 className="bv-icon-btn w-8 h-8 flex items-center justify-center rounded-full"
                 style={{ color: "var(--w2)" }}>

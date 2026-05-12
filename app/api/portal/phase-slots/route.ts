@@ -16,6 +16,10 @@ type PhaseSlot = {
   label_trans: string | null;
   action_type: string | null;
   instructions: string | null;
+  admin_signs: boolean;
+  candidate_signs: boolean;
+  admin_fills: boolean;
+  candidate_fills: boolean;
 };
 
 // GET — any authenticated user; returns slots for a phase (org-specific → global fallback)
@@ -85,6 +89,7 @@ export async function POST(req: NextRequest) {
   const { phase, type, label, label_trans, orgId, action_type, instructions } = body as {
     phase?: string; type?: string; label?: string; label_trans?: string; orgId?: string;
     action_type?: string; instructions?: string;
+    admin_signs?: boolean; candidate_signs?: boolean; admin_fills?: boolean; candidate_fills?: boolean;
   };
 
   if (!phase || !VALID_PHASES.includes(phase as typeof VALID_PHASES[number]))
@@ -131,6 +136,11 @@ export async function POST(req: NextRequest) {
   if (type === "dual" && label_trans?.trim()) insertData.label_trans = label_trans.trim();
   if (action_type && ["upload","sign","fill","combo"].includes(action_type)) insertData.action_type = action_type;
   if (instructions?.trim()) insertData.instructions = instructions.trim();
+  // New flexible action flags (LAW #34)
+  insertData.admin_signs      = body.admin_signs      === true;
+  insertData.candidate_signs  = body.candidate_signs  === true;
+  insertData.admin_fills      = body.admin_fills      === true;
+  insertData.candidate_fills  = body.candidate_fills  === true;
 
   const { data, error } = await db.from("phase_slots").insert(insertData).select().single();
   if (error) {
@@ -151,6 +161,7 @@ export async function PATCH(req: NextRequest) {
     template_pdf_path?: string | null;
     form_fields?: unknown;
     positions?: { id: string; position: number }[];
+    admin_signs?: boolean; candidate_signs?: boolean; admin_fills?: boolean; candidate_fills?: boolean;
   };
 
   const db = getServiceSupabase();
@@ -203,6 +214,10 @@ export async function PATCH(req: NextRequest) {
   if (body.instructions !== undefined) updates.instructions = body.instructions?.trim() || null;
   if (body.template_pdf_path !== undefined) updates.template_pdf_path = body.template_pdf_path || null;
   if (body.form_fields !== undefined) updates.form_fields = body.form_fields ?? null;
+  if (body.admin_signs     !== undefined) updates.admin_signs     = !!body.admin_signs;
+  if (body.candidate_signs !== undefined) updates.candidate_signs = !!body.candidate_signs;
+  if (body.admin_fills     !== undefined) updates.admin_fills     = !!body.admin_fills;
+  if (body.candidate_fills !== undefined) updates.candidate_fills = !!body.candidate_fills;
 
   if (Object.keys(updates).length > 0)
     await db.from("phase_slots").update(updates).eq("id", body.id);

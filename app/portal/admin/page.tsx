@@ -671,15 +671,18 @@ export default function AdminPage() {
   const [activePipelineStage, setActivePipelineStage] = useState<string | null>(null);
 
   // ── Dynamic phase slots (Bearbeitung / Visum) ──────────────────────────────
-  type PhaseSlot = { id: string; org_id: string | null; phase: string; position: number; type: "simple" | "dual"; label: string; label_trans: string | null; action_type: string | null; instructions: string | null; template_pdf_path: string | null; form_fields: import("@/lib/pdfFieldEmbed").FormField[] | null };
+  type PhaseSlot = { id: string; org_id: string | null; phase: string; position: number; type: "simple" | "dual"; label: string; label_trans: string | null; action_type: string | null; instructions: string | null; template_pdf_path: string | null; form_fields: import("@/lib/pdfFieldEmbed").FormField[] | null; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean };
   const [phaseSlots, setPhaseSlots] = useState<Record<string, PhaseSlot[]>>({ bearbeitung: [], visum: [] });
   const [phaseSlotsLoaded, setPhaseSlotsLoaded] = useState<Record<string, boolean>>({ bearbeitung: false, visum: false });
   // Add-slot modal
   const [addSlotPhase, setAddSlotPhase]               = useState<string | null>(null);
   const [addSlotLabel, setAddSlotLabel]               = useState("");
-  const [addSlotActionType, setAddSlotActionType]     = useState<"upload" | "sign" | "fill" | "combo">("upload");
   const [addSlotInstructions, setAddSlotInstructions] = useState("");
   const [addSlotSaving, setAddSlotSaving]             = useState(false);
+  // Slot config popup — appears after admin uploads a PDF to a slot (LAW #34)
+  type SlotConfigState = { slotId: string; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean };
+  const [slotConfigPopup, setSlotConfigPopup]         = useState<SlotConfigState | null>(null);
+  const [slotConfigSaving, setSlotConfigSaving]       = useState(false);
   // Configure fields modal (fill-type slots)
   const [configFieldsSlot, setConfigFieldsSlot]       = useState<PhaseSlot | null>(null);
   const [configFieldsUploading, setConfigFieldsUploading] = useState(false);
@@ -1269,7 +1272,7 @@ export default function AdminPage() {
     }
   }
 
-  async function addPhaseSlot(phase: string, label: string, actionType: string, instructions: string) {
+  async function addPhaseSlot(phase: string, label: string, instructions: string) {
     if (!accessToken || !label.trim()) return;
     setAddSlotSaving(true);
     try {
@@ -1278,7 +1281,6 @@ export default function AdminPage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({
           phase, type: "simple", label: label.trim(),
-          action_type: actionType,
           instructions: instructions.trim() || undefined,
         }),
       });
@@ -1287,7 +1289,6 @@ export default function AdminPage() {
         setPhaseSlots(prev => ({ ...prev, [phase]: [...(prev[phase] ?? []), j.slot] }));
         setAddSlotPhase(null);
         setAddSlotLabel("");
-        setAddSlotActionType("upload");
         setAddSlotInstructions("");
       }
     } catch { /* network error */ }
@@ -1366,10 +1367,46 @@ export default function AdminPage() {
             ...freshDocs,
           ]);
         }
+        // LAW #34: show config popup so admin can set action flags for this slot.
+        setSlotConfigPopup({ slotId, admin_signs: false, candidate_signs: false, admin_fills: false, candidate_fills: false });
       }
     } finally {
       setAdminUploadSlotId(null);
     }
+  }
+
+  async function saveSlotConfig(cfg: NonNullable<typeof slotConfigPopup>) {
+    if (!accessToken) return;
+    setSlotConfigSaving(true);
+    try {
+      await fetch("/api/portal/phase-slots", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({
+          id: cfg.slotId,
+          admin_signs: cfg.admin_signs, candidate_signs: cfg.candidate_signs,
+          admin_fills: cfg.admin_fills, candidate_fills: cfg.candidate_fills,
+        }),
+      });
+      // Update local state
+      setPhaseSlots(prev => {
+        const updated: typeof prev = {};
+        for (const [ph, slots] of Object.entries(prev)) {
+          updated[ph] = (slots ?? []).map(s => s.id === cfg.slotId
+            ? { ...s, admin_signs: cfg.admin_signs, candidate_signs: cfg.candidate_signs, admin_fills: cfg.admin_fills, candidate_fills: cfg.candidate_fills }
+            : s);
+        }
+        return updated;
+      });
+      const slot = Object.values(phaseSlots).flat().find(s => s.id === cfg.slotId) ?? null;
+      setSlotConfigPopup(null);
+      // If admin needs to fill fields → open configure fields modal
+      if (cfg.admin_fills && slot) {
+        setConfigFieldsSlot(slot);
+        setConfigFieldsFields(slot.form_fields ?? []);
+        setConfigFieldsPdfB64(null);
+      }
+    } finally { setSlotConfigSaving(false); }
   }
 
   async function saveSlotOrder(phase: string, slots: { id: string; position: number }[]) {
@@ -2407,10 +2444,10 @@ export default function AdminPage() {
                                           <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-1.5 flex-wrap">
                                               <p className="text-[11.5px] font-medium tracking-tight" style={{ color: rowColor ?? "var(--w)" }}>{slot.label}</p>
-                                              {slot.action_type && slot.action_type !== "upload" && (
+                                              {(slot.candidate_signs || slot.candidate_fills) && (
                                                 <span className="text-[9.5px] font-semibold px-1.5 py-0.5 rounded-md flex-shrink-0"
                                                   style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                                                  {slot.action_type === "sign" ? "Sign" : slot.action_type === "fill" ? "Fill form" : "Upload+Sign"}
+                                                  {slot.candidate_signs && slot.candidate_fills ? "Sign + Fill" : slot.candidate_signs ? "Sign" : "Fill fields"}
                                                 </span>
                                               )}
                                             </div>
@@ -2476,7 +2513,7 @@ export default function AdminPage() {
                                                       style={{ color: "var(--w)" }}>
                                                       <FilePen size={11} strokeWidth={1.8} /> Edit label
                                                     </button>
-                                                    {(slot.action_type === "fill" || slot.action_type === "combo") && (
+                                                    {slot.admin_fills && (
                                                       <button
                                                         onClick={e => { e.stopPropagation(); setRevokeMenu(null); setConfigFieldsSlot(slot); setConfigFieldsFields(slot.form_fields ?? []); setConfigFieldsPdfB64(null); }}
                                                         className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
@@ -2737,30 +2774,8 @@ export default function AdminPage() {
                           onClick={() => setAddSlotPhase(null)} />
                         <div className="fixed inset-x-4 top-1/4 z-50 max-w-sm mx-auto rounded-2xl p-5 space-y-4"
                           style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)" }}>
-                          <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>Add request</p>
-
-                          {/* Action type */}
-                          <div>
-                            <p className="text-[10px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--w3)" }}>Action required</p>
-                            <div className="grid grid-cols-2 gap-1.5">
-                              {([
-                                { v: "upload", label: "Upload file" },
-                                { v: "sign",   label: "Sign document" },
-                                { v: "fill",   label: "Fill form" },
-                                { v: "combo",  label: "Upload + Sign" },
-                              ] as const).map(({ v, label }) => (
-                                <button key={v} type="button" onClick={() => setAddSlotActionType(v)}
-                                  className="py-2.5 rounded-xl text-[11.5px] font-semibold text-center transition-all"
-                                  style={{
-                                    background: addSlotActionType === v ? "var(--gdim)" : "var(--bg2)",
-                                    color: addSlotActionType === v ? "var(--gold)" : "var(--w2)",
-                                    border: `1.5px solid ${addSlotActionType === v ? "var(--border-gold)" : "var(--border)"}`,
-                                  }}>
-                                  {label}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
+                          <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>Add slot</p>
+                          <p className="text-[11px] -mt-2" style={{ color: "var(--w3)" }}>After uploading a PDF you&apos;ll choose what the candidate must do.</p>
 
                           {/* Label */}
                           <input
@@ -2789,7 +2804,7 @@ export default function AdminPage() {
                               Cancel
                             </button>
                             <button
-                              onClick={() => addPhaseSlot(addSlotPhase!, addSlotLabel, addSlotActionType, addSlotInstructions)}
+                              onClick={() => addPhaseSlot(addSlotPhase!, addSlotLabel, addSlotInstructions)}
                               disabled={addSlotSaving || !addSlotLabel.trim()}
                               className="flex-1 py-2.5 rounded-xl text-[12.5px] font-semibold transition-all disabled:opacity-40"
                               style={{ background: "var(--gold)", color: "#131312" }}>
@@ -2799,6 +2814,57 @@ export default function AdminPage() {
                         </div>
                       </>
                     )}
+
+                    {/* ── Slot config popup (LAW #34) — appears after admin uploads PDF ── */}
+                    {slotConfigPopup && (() => {
+                      const cfg = slotConfigPopup;
+                      const checks: { key: keyof typeof cfg; label: string; sub: string }[] = [
+                        { key: "admin_signs",      label: "Admin signs",            sub: "You sign the PDF before sending" },
+                        { key: "candidate_signs",  label: "Candidate must sign",    sub: "Candidate signs before submitting" },
+                        { key: "admin_fills",      label: "Admin fills fields",     sub: "You draw + fill field boxes on PDF" },
+                        { key: "candidate_fills",  label: "Candidate must fill",    sub: "Candidate fills your field boxes" },
+                      ];
+                      return (
+                        <>
+                          <div className="fixed inset-0 z-[60]" style={{ background: "rgba(0,0,0,0.55)" }}
+                            onClick={() => !slotConfigSaving && setSlotConfigPopup(null)} />
+                          <div className="fixed inset-x-4 top-1/4 z-[61] max-w-sm mx-auto rounded-2xl p-5 space-y-4"
+                            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)" }}>
+                            <div>
+                              <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>What should happen with this PDF?</p>
+                              <p className="text-[11px] mt-0.5" style={{ color: "var(--w3)" }}>Check everything that applies. Leave all unchecked for document-only.</p>
+                            </div>
+                            <div className="space-y-2">
+                              {checks.map(({ key, label, sub }) => (
+                                <label key={key}
+                                  className="flex items-start gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-colors"
+                                  style={{ background: cfg[key as keyof SlotConfigState] ? "var(--gdim)" : "var(--bg2)", border: `1.5px solid ${cfg[key as keyof SlotConfigState] ? "var(--border-gold)" : "var(--border)"}` }}>
+                                  <input type="checkbox" className="mt-0.5 flex-shrink-0 accent-[var(--gold)]"
+                                    checked={!!cfg[key as keyof SlotConfigState]}
+                                    onChange={e => setSlotConfigPopup(prev => prev ? { ...prev, [key]: e.target.checked } : prev)} />
+                                  <div>
+                                    <p className="text-[12px] font-semibold leading-tight" style={{ color: "var(--w)" }}>{label}</p>
+                                    <p className="text-[10.5px] mt-0.5" style={{ color: "var(--w3)" }}>{sub}</p>
+                                  </div>
+                                </label>
+                              ))}
+                            </div>
+                            <div className="flex gap-2 pt-1">
+                              <button onClick={() => setSlotConfigPopup(null)} disabled={slotConfigSaving}
+                                className="flex-1 py-2.5 rounded-xl text-[12.5px] font-semibold transition-all disabled:opacity-40"
+                                style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
+                                Skip
+                              </button>
+                              <button onClick={() => saveSlotConfig(cfg)} disabled={slotConfigSaving}
+                                className="flex-1 py-2.5 rounded-xl text-[12.5px] font-semibold transition-all disabled:opacity-40"
+                                style={{ background: "var(--gold)", color: "#131312" }}>
+                                {slotConfigSaving ? "Saving…" : "Confirm"}
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      );
+                    })()}
 
                     {/* ── Configure fields modal (fill / combo slots) ──────────────── */}
                     {configFieldsSlot && (() => {
@@ -2982,7 +3048,7 @@ export default function AdminPage() {
                               )}
                               {slotPhase && (
                                 <button
-                                  onClick={() => { setAddSlotPhase(slotPhase); setAddSlotLabel(""); setAddSlotActionType("upload"); setAddSlotInstructions(""); }}
+                                  onClick={() => { setAddSlotPhase(slotPhase); setAddSlotLabel(""); setAddSlotInstructions(""); }}
                                   className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1.5 flex-shrink-0 transition-colors"
                                   style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-sm)" }}>
                                   <Plus size={11} strokeWidth={2.2} />
