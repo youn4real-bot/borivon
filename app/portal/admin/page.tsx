@@ -14,7 +14,7 @@ import {
   Lock, Unlock, IdCard, FileText, Folder, FilePen, Save, Eye,
   CheckCircle2, XCircle, AlertTriangle, PartyPopper,
 } from "@/components/PortalIcons";
-import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon } from "lucide-react";
+import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap } from "lucide-react";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -2471,13 +2471,6 @@ export default function AdminPage() {
                                           <div className="flex items-center gap-1.5 flex-shrink-0"
                                             onClick={e => e.stopPropagation()}
                                             onMouseDown={e => e.stopPropagation()}>
-                                            {/* Permanent Action button — opens slot config popup */}
-                                            <button type="button"
-                                              onClick={e => { e.stopPropagation(); setSlotConfigPopup({ slotId: slot.id, admin_signs: slot.admin_signs, candidate_signs: slot.candidate_signs, admin_fills: slot.admin_fills, candidate_fills: slot.candidate_fills }); }}
-                                              className="text-[10.5px] font-semibold px-2.5 py-1.5 rounded-lg flex-shrink-0 transition-colors"
-                                              style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                                              Action
-                                            </button>
                                             {/* Admin upload on behalf of candidate — hidden once doc exists */}
                                             {!submitted && (adminUploadSlotId === slot.id ? (
                                               <span className="w-9 h-9 flex items-center justify-center">
@@ -2523,6 +2516,12 @@ export default function AdminPage() {
                                                 <MoreHorizontal size={14} strokeWidth={1.8} />
                                               </button>
                                               <DropdownMenu open={revokeMenu?.id === menuId} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === menuId ? revokeMenu.el : null}>
+                                                    <button
+                                                      onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSlotConfigPopup({ slotId: slot.id, admin_signs: slot.admin_signs, candidate_signs: slot.candidate_signs, admin_fills: slot.admin_fills, candidate_fills: slot.candidate_fills }); }}
+                                                      className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                                      style={{ color: "var(--gold)" }}>
+                                                      <Zap size={11} strokeWidth={1.8} /> Action
+                                                    </button>
                                                     <button
                                                       onClick={e => { e.stopPropagation(); setRevokeMenu(null); setEditingSlotId(slot.id); setEditingSlotLabel(slot.label); setEditingSlotLabelTrans(""); }}
                                                       className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
