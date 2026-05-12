@@ -215,7 +215,6 @@ export interface Translation {
   aDocsApprove: string; aDocsRevoke: string;
   // ── Autosave indicator (cv-builder, dashboard passport form) ──────────────
   aSaving: string; aSaved: string; aSaveError: string;
-  aJustNow: string; aSecAgo: string; aMinAgo: string; aHrAgo: string;
   aLoading: string;
   // ── Admin: error toasts (showError) ────────────────────────────────────────
   adErrVerify: string; adErrNetwork: string; adErrPassportSave: string; adErrDocStatus: string;
@@ -500,7 +499,6 @@ export const translations: Record<Lang, Translation> = {
     aDocsApprove: "🔓 Débloquer l'étape suivante", aDocsRevoke: "🔒 Verrouiller",
     // Autosave
     aSaving: "Enregistrement…", aSaved: "Enregistré", aSaveError: "Échec d'enregistrement",
-    aJustNow: "à l'instant", aSecAgo: "il y a {n}s", aMinAgo: "il y a {n}min", aHrAgo: "il y a {n}h",
     aLoading: "Chargement",
     // Admin error toasts
     adErrVerify: "Impossible de mettre à jour la vérification — veuillez réessayer.",
@@ -803,7 +801,6 @@ export const translations: Record<Lang, Translation> = {
     aDocsApprove: "🔓 Unlock Next Step", aDocsRevoke: "🔒 Lock",
     // Autosave
     aSaving: "Saving…", aSaved: "Saved", aSaveError: "Couldn't save",
-    aJustNow: "just now", aSecAgo: "{n}s ago", aMinAgo: "{n}m ago", aHrAgo: "{n}h ago",
     aLoading: "Loading",
     // Admin error toasts
     adErrVerify: "Could not update verification — please try again.",
@@ -1106,7 +1103,6 @@ export const translations: Record<Lang, Translation> = {
     aDocsApprove: "🔓 Nächsten Schritt freischalten", aDocsRevoke: "🔒 Sperren",
     // Autosave
     aSaving: "Wird gespeichert…", aSaved: "Gespeichert", aSaveError: "Speichern fehlgeschlagen",
-    aJustNow: "gerade eben", aSecAgo: "vor {n}s", aMinAgo: "vor {n}min", aHrAgo: "vor {n}h",
     aLoading: "Lädt",
     // Admin error toasts
     adErrVerify: "Verifizierung konnte nicht aktualisiert werden — bitte erneut versuchen.",

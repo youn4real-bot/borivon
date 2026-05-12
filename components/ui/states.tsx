@@ -17,7 +17,6 @@ import * as React from "react";
 import type { LucideIcon } from "lucide-react";
 import { Loader2, Check, CloudOff } from "lucide-react";
 import { useLang } from "@/components/LangContext";
-import type { Translation, Lang } from "@/lib/translations";
 import { relativeTime } from "@/lib/relativeTime";
 
 // ── Spinner ────────────────────────────────────────────────────────────────
