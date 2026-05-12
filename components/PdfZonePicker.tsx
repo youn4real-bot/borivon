@@ -37,6 +37,10 @@ type Props = {
   partyBgRemoving?: Partial<Record<NonNullable<SigZone["party"]>, boolean>>;
   /** Called when user crops a party signature via double-click crop mode */
   onPartyImageCrop?: (party: string, dataUri: string) => void;
+  /** Optional pre-existing zones to seed the picker — used when admin
+   *  re-opens an already-configured slot to edit, not redo. Read once on
+   *  first mount; subsequent changes go through onChange like normal. */
+  initialZones?: SigZone[];
 };
 
 export type PdfZonePickerHandle = { addZone: () => void };
@@ -55,9 +59,9 @@ const HANDLES = [
   { id: "se", top: "100%", left: "100%", cursor: "se-resize" },
 ] as const;
 
-export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function PdfZonePicker({ pdfBase64, onChange, onError, lang = "en", defaultParty = "candidate", partyPreviews, partyBgRemoving, onPartyImageCrop }, ref) {
+export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function PdfZonePicker({ pdfBase64, onChange, onError, lang = "en", defaultParty = "candidate", partyPreviews, partyBgRemoving, onPartyImageCrop, initialZones }, ref) {
   const [blobUrl, setBlobUrl]     = useState<string | null>(null);
-  const [zones, setZones]         = useState<SigZone[]>([]);
+  const [zones, setZones]         = useState<SigZone[]>(initialZones ?? []);
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
   const [pageCount, setPageCount] = useState(1);
   const [cropZoneIdx, setCropZoneIdx] = useState<number | null>(null);

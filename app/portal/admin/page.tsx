@@ -1474,10 +1474,17 @@ export default function AdminPage() {
       if (needs.candidate) steps.push("candidate_sig");
       if (steps.length === 0) return;
       const draft = (cvRes as { draft?: { phone?: string; email?: string } | null } | null)?.draft ?? null;
+      // Pre-fill from saved slot data so re-opening the popup edits the
+      // previous setup instead of starting blank. Admin sig zone isn't
+      // recovered (the signature is already baked into the PDF on first
+      // submit) — admin can draw a new one if they want a second placement.
+      const existingSlot = Object.values(phaseSlots).flat().find(s => s.id === slotId);
       setPlacementWizard({
         slotId, pdfB64: b64, steps, stepIdx: 0,
-        adminSigZone: null, candidateSigZone: null,
-        fields: [], cv: draft ? { phone: draft.phone, email: draft.email } : null,
+        adminSigZone: null,
+        candidateSigZone: existingSlot?.candidate_signature_zone ?? null,
+        fields: existingSlot?.form_fields ?? [],
+        cv: draft ? { phone: draft.phone, email: draft.email } : null,
         pendingBindField: null,
       });
     } catch (err) {
@@ -4104,9 +4111,15 @@ export default function AdminPage() {
               )}
               {currentStep !== "fields" && (
                 <PdfZonePicker
+                  key={currentStep /* re-mount on step change so initialZones reseeds */}
                   pdfBase64={wz.pdfB64}
                   defaultParty={partyForStep[currentStep]}
                   partyPreviews={currentStep === "admin_sig" && adminSavedSig ? { admin: adminSavedSig } : undefined}
+                  initialZones={
+                    currentStep === "candidate_sig" && wz.candidateSigZone
+                      ? [wz.candidateSigZone]
+                      : undefined
+                  }
                   onChange={zones => {
                     // Single zone only for sig steps — keep the most recent.
                     const lastZone = zones[zones.length - 1] ?? null;
