@@ -34,6 +34,7 @@ for (const [key, tKey] of Object.entries(KEY_TO_TKEY)) {
   // Legacy aliases kept for backward compatibility
   if (key === "workcert")          labels.add("Berufserlaubnis");
   if (key === "abitur_transcript") labels.add("Abitur Transcript");
+  if (key === "langcert")          labels.add("Sprachzertifikat"); // pre-B2 label in DB
   FILE_KEY_LABELS[key] = [...labels];
 }
 
