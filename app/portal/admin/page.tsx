@@ -635,6 +635,12 @@ export default function AdminPage() {
   type SlotConfigState = { slotId: string; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean };
   const [slotConfigPopup, setSlotConfigPopup]         = useState<SlotConfigState | null>(null);
   const [slotConfigSaving, setSlotConfigSaving]       = useState(false);
+  // Admin's reusable signature (uploaded photo of handwriting, bg-removed via Otsu).
+  // Loaded once on mount, edited inside the slot config popup, persisted via
+  // /api/portal/admin/me/signature. One signature per admin reused across slots.
+  const [adminSavedSig, setAdminSavedSig]             = useState<string | null>(null);
+  const [adminSigUploading, setAdminSigUploading]     = useState(false);
+  const adminSigUploadRef                              = useRef<HTMLInputElement | null>(null);
   // Configure fields modal (fill-type slots)
   const [configFieldsSlot, setConfigFieldsSlot]       = useState<PhaseSlot | null>(null);
   const [configFieldsUploading, setConfigFieldsUploading] = useState(false);
@@ -812,6 +818,11 @@ export default function AdminPage() {
           .then(j => { if (j?.slots) { setPhaseSlots(prev => ({ ...prev, [ph]: j.slots })); setPhaseSlotsLoaded(prev => ({ ...prev, [ph]: true })); } })
           .catch(() => {});
       }
+      // Load admin's saved signature (one-per-admin reusable PNG data URI).
+      fetch("/api/portal/admin/me/signature", { headers: { Authorization: `Bearer ${token}` } })
+        .then(r => r.ok ? r.json() : null)
+        .then(j => { if (j?.signature) setAdminSavedSig(j.signature); })
+        .catch(() => {});
       try {
         const res = await fetch("/api/portal/admin", { headers: { Authorization: `Bearer ${token}` } });
         if (res.status === 401 || res.status === 403) { router.replace("/portal/dashboard"); return; }
@@ -2790,7 +2801,7 @@ export default function AdminPage() {
                           <div className="fixed inset-0 z-[60]" style={{ background: "rgba(0,0,0,0.55)" }}
                             onClick={() => !slotConfigSaving && setSlotConfigPopup(null)} />
                           <div className="fixed inset-x-4 top-1/4 z-[61] max-w-sm mx-auto rounded-2xl p-5 space-y-4"
-                            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)" }}>
+                            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", maxHeight: "calc(100dvh - 100px)", overflowY: "auto" }}>
                             <div>
                               <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>What should happen with this PDF?</p>
                               <p className="text-[11px] mt-0.5" style={{ color: "var(--w3)" }}>Check everything that applies. Leave all unchecked for document-only.</p>
@@ -2810,13 +2821,67 @@ export default function AdminPage() {
                                 </label>
                               ))}
                             </div>
+
+                            {/* Admin signature upload — shown when "Admin signs" is checked */}
+                            {cfg.admin_signs && (
+                              <div className="rounded-xl p-3 space-y-2"
+                                style={{ background: "var(--bg2)", border: "1.5px dashed var(--border-gold)" }}>
+                                <p className="text-[11.5px] font-semibold" style={{ color: "var(--gold)" }}>Your signature</p>
+                                <p className="text-[10.5px]" style={{ color: "var(--w3)" }}>Upload a photo of your handwritten signature. Background removed automatically. Saved for reuse.</p>
+                                {adminSavedSig ? (
+                                  <div className="flex items-center gap-2">
+                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                    <img src={adminSavedSig} alt="Your signature" className="h-12 rounded"
+                                      style={{ background: "#fff", border: "1px solid var(--border)", objectFit: "contain", maxWidth: "60%" }} />
+                                    <button type="button" onClick={() => adminSigUploadRef.current?.click()} disabled={adminSigUploading}
+                                      className="text-[11px] font-semibold px-2.5 py-1.5 rounded-lg transition-colors disabled:opacity-40"
+                                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                                      {adminSigUploading ? "Processing…" : "Replace"}
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button type="button" onClick={() => adminSigUploadRef.current?.click()} disabled={adminSigUploading}
+                                    className="w-full py-2 rounded-lg text-[11.5px] font-semibold transition-colors disabled:opacity-40"
+                                    style={{ background: "var(--gold)", color: "#131312" }}>
+                                    {adminSigUploading ? "Processing…" : "📷 Upload signature"}
+                                  </button>
+                                )}
+                                <input ref={adminSigUploadRef} type="file" accept="image/*" style={{ display: "none" }}
+                                  onChange={async e => {
+                                    const file = e.target.files?.[0];
+                                    if (!file) return;
+                                    e.target.value = "";
+                                    setAdminSigUploading(true);
+                                    try {
+                                      const dataUri = await new Promise<string>((resolve, reject) => {
+                                        const r = new FileReader();
+                                        r.onload = () => resolve(r.result as string);
+                                        r.onerror = reject;
+                                        r.readAsDataURL(file);
+                                      });
+                                      const cleaned = await removeImageBg(dataUri);
+                                      setAdminSavedSig(cleaned);
+                                      // Persist to backend so it's reused next session/slot
+                                      await fetch("/api/portal/admin/me/signature", {
+                                        method: "PUT",
+                                        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                                        body: JSON.stringify({ signature: cleaned }),
+                                      });
+                                    } finally {
+                                      setAdminSigUploading(false);
+                                    }
+                                  }} />
+                              </div>
+                            )}
+
                             <div className="flex gap-2 pt-1">
                               <button onClick={() => setSlotConfigPopup(null)} disabled={slotConfigSaving}
                                 className="flex-1 py-2.5 rounded-xl text-[12.5px] font-semibold transition-all disabled:opacity-40"
                                 style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
                                 Skip
                               </button>
-                              <button onClick={() => saveSlotConfig(cfg)} disabled={slotConfigSaving}
+                              <button onClick={() => saveSlotConfig(cfg)}
+                                disabled={slotConfigSaving || (cfg.admin_signs && !adminSavedSig)}
                                 className="flex-1 py-2.5 rounded-xl text-[12.5px] font-semibold transition-all disabled:opacity-40"
                                 style={{ background: "var(--gold)", color: "#131312" }}>
                                 {slotConfigSaving ? "Saving…" : "Confirm"}
