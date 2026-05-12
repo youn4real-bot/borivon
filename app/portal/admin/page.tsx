@@ -2953,25 +2953,33 @@ export default function AdminPage() {
                           const slotPhase = activePipelineStage === "recognition" ? "bearbeitung" : activePipelineStage === "visum" ? "visum" : null;
                           return (
                             <>
-                              <button
-                                onClick={() => {
-                                  if (isReise) return;
-                                  if      (activePipelineStage === "interview")   savePipelineField({ docs_approved:        !pipeline.docs_approved });
-                                  else if (activePipelineStage === "recognition") savePipelineField({ recognition_unlocked: !pipeline.recognition_unlocked });
-                                  else if (activePipelineStage === "visum")       savePipelineField({ embassy_unlocked:      !pipeline.embassy_unlocked });
-                                  else if (activePipelineStage === "integration") savePipelineField({ integration_unlocked: !pipeline.integration_unlocked });
-                                  else                                            savePipelineField({ start_unlocked:        !pipeline.start_unlocked });
-                                }}
-                                className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-3 py-1.5 flex-shrink-0 transition-all"
-                                style={{
-                                  background: unlocked ? "var(--success-bg)" : "var(--bg2)",
-                                  color: unlocked ? "var(--success)" : "var(--w2)",
-                                  border: `1px solid ${unlocked ? "var(--success-border)" : "var(--border)"}`,
-                                  borderRadius: "var(--r-sm)",
-                                  cursor: isReise ? "default" : "pointer",
-                                }}>
-                                {unlocked ? <Unlock size={11} strokeWidth={1.8} /> : <Lock size={11} strokeWidth={1.8} />}
-                              </button>
+                              {/* LAW #31: unlock toggle only for supreme admin; others see read-only lock icon */}
+                              {(activePipelineStage === "interview" || isSuperAdmin) ? (
+                                <button
+                                  onClick={() => {
+                                    if (isReise) return;
+                                    if      (activePipelineStage === "interview")   savePipelineField({ docs_approved:        !pipeline.docs_approved });
+                                    else if (activePipelineStage === "recognition") savePipelineField({ recognition_unlocked: !pipeline.recognition_unlocked });
+                                    else if (activePipelineStage === "visum")       savePipelineField({ embassy_unlocked:      !pipeline.embassy_unlocked });
+                                    else if (activePipelineStage === "integration") savePipelineField({ integration_unlocked: !pipeline.integration_unlocked });
+                                    else                                            savePipelineField({ start_unlocked:        !pipeline.start_unlocked });
+                                  }}
+                                  className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-3 py-1.5 flex-shrink-0 transition-all"
+                                  style={{
+                                    background: unlocked ? "var(--success-bg)" : "var(--bg2)",
+                                    color: unlocked ? "var(--success)" : "var(--w2)",
+                                    border: `1px solid ${unlocked ? "var(--success-border)" : "var(--border)"}`,
+                                    borderRadius: "var(--r-sm)",
+                                    cursor: isReise ? "default" : "pointer",
+                                  }}>
+                                  {unlocked ? <Unlock size={11} strokeWidth={1.8} /> : <Lock size={11} strokeWidth={1.8} />}
+                                </button>
+                              ) : (
+                                <span className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-3 py-1.5 flex-shrink-0"
+                                  style={{ background: unlocked ? "var(--success-bg)" : "var(--bg2)", color: unlocked ? "var(--success)" : "var(--w3)", border: `1px solid ${unlocked ? "var(--success-border)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
+                                  {unlocked ? <Unlock size={11} strokeWidth={1.8} /> : <Lock size={11} strokeWidth={1.8} />}
+                                </span>
+                              )}
                               {slotPhase && (
                                 <button
                                   onClick={() => { setAddSlotPhase(slotPhase); setAddSlotLabel(""); setAddSlotActionType("upload"); setAddSlotInstructions(""); }}

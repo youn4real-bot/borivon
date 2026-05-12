@@ -19,22 +19,26 @@ export async function GET(req: NextRequest) {
     .limit(40);
 
   if (auth.role !== "admin") {
+    // LAW #25: null = regular sub-admin (sees all notifications), array = org admin scope.
     const visibleIds = await getVisibleCandidateIds(auth.email);
-    if (visibleIds.length === 0) return NextResponse.json({ notifications: [] });
-    // Resolve those user_ids to emails so we can filter admin_notifications.
-    let emails: string[] = [];
-    let page = 1;
-    while (true) {
-      const { data: batch } = await db.auth.admin.listUsers({ page, perPage: 50 });
-      const list = batch?.users ?? [];
-      for (const u of list) {
-        if (u.id && u.email && visibleIds.includes(u.id)) emails.push(u.email);
+    if (visibleIds !== null) {
+      if (visibleIds.length === 0) return NextResponse.json({ notifications: [] });
+      // Resolve user_ids to emails so we can filter admin_notifications by user_email.
+      let emails: string[] = [];
+      let page = 1;
+      while (true) {
+        const { data: batch } = await db.auth.admin.listUsers({ page, perPage: 50 });
+        const list = batch?.users ?? [];
+        for (const u of list) {
+          if (u.id && u.email && visibleIds.includes(u.id)) emails.push(u.email);
+        }
+        if (list.length < 50) break;
+        page++;
       }
-      if (list.length < 50) break;
-      page++;
+      if (emails.length === 0) return NextResponse.json({ notifications: [] });
+      query = query.in("user_email", emails);
     }
-    if (emails.length === 0) return NextResponse.json({ notifications: [] });
-    query = query.in("user_email", emails);
+    // Regular sub-admin: no filter — they see all notifications.
   }
 
   const { data, error } = await query;

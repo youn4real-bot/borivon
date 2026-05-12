@@ -67,9 +67,11 @@ export async function requireAdminRole(req: NextRequest): Promise<AdminAuthResul
 
 /**
  * Verify the (sub-)admin is allowed to act on a given candidate's data.
- * Full admins: always allowed. Sub-admins are allowed if EITHER:
- *   (a) they have a direct row in `sub_admin_assignments` (legacy assignment), OR
- *   (b) they are a member of an organization the candidate is APPROVED-linked to.
+ *
+ * LAW #25 — visibility rules:
+ *   Supreme admin  → all candidates
+ *   Sub-admin (isAgencyAdmin=false) → all candidates
+ *   Org admin (isAgencyAdmin=true)  → only candidates linked to their org
  *
  * Returns true on allow, false on deny. Callers translate false → 403.
  */
@@ -78,16 +80,18 @@ export async function canActOnCandidate(role: AdminRole, subAdminEmail: string, 
   if (!candidateUserId) return false;
   const db = getServiceSupabase();
 
-  // (a) Direct assignment
-  const { data: direct } = await db
-    .from("sub_admin_assignments")
-    .select("candidate_user_id")
-    .eq("sub_admin_email", subAdminEmail)
-    .eq("candidate_user_id", candidateUserId)
+  // Determine if this sub-admin is an org admin or a regular sub-admin.
+  const { data: subRow } = await db
+    .from("sub_admins")
+    .select("is_agency_admin")
+    .eq("email", subAdminEmail)
     .maybeSingle();
-  if (direct) return true;
+  const isAgencyAdmin = (subRow as { is_agency_admin: boolean } | null)?.is_agency_admin ?? false;
 
-  // (b) Org-based access — sub-admin shares an approved org with the candidate
+  // Regular sub-admin sees all candidates (LAW #25).
+  if (!isAgencyAdmin) return true;
+
+  // Org admin: only candidates approved-linked to their org.
   const { data: myOrgsData } = await db
     .from("organization_members")
     .select("org_id")
@@ -107,23 +111,26 @@ export async function canActOnCandidate(role: AdminRole, subAdminEmail: string, 
 }
 
 /**
- * Returns the list of candidate user_ids a sub-admin can see.
- * Combines direct assignments AND org-based access.
+ * Returns the list of candidate user_ids a sub-admin can see, or null meaning "all".
  *
- * Used by the admin GET to scope the document/profile listing.
+ * LAW #25:
+ *   Regular sub-admin (isAgencyAdmin=false) → null (no filter — sees all)
+ *   Org admin (isAgencyAdmin=true)          → only their org's approved candidates
  */
-export async function getVisibleCandidateIds(subAdminEmail: string): Promise<string[]> {
+export async function getVisibleCandidateIds(subAdminEmail: string): Promise<string[] | null> {
   const db = getServiceSupabase();
 
-  // Direct assignments
-  const { data: assignmentsData } = await db
-    .from("sub_admin_assignments")
-    .select("candidate_user_id")
-    .eq("sub_admin_email", subAdminEmail);
-  type AssignmentRow = { candidate_user_id: string };
-  const direct = ((assignmentsData ?? []) as AssignmentRow[]).map(a => a.candidate_user_id);
+  const { data: subRow } = await db
+    .from("sub_admins")
+    .select("is_agency_admin")
+    .eq("email", subAdminEmail)
+    .maybeSingle();
+  const isAgencyAdmin = (subRow as { is_agency_admin: boolean } | null)?.is_agency_admin ?? false;
 
-  // Org-based: candidates approved-linked to any of this sub-admin's orgs
+  // Regular sub-admin sees all candidates.
+  if (!isAgencyAdmin) return null;
+
+  // Org admin: only candidates approved-linked to their org.
   const { data: myOrgsData } = await db
     .from("organization_members")
     .select("org_id")
@@ -131,18 +138,15 @@ export async function getVisibleCandidateIds(subAdminEmail: string): Promise<str
   type OrgIdRow = { org_id: string };
   const myOrgs = ((myOrgsData ?? []) as OrgIdRow[]).map(r => r.org_id);
 
-  let viaOrg: string[] = [];
-  if (myOrgs.length > 0) {
-    const { data: linksData } = await db
-      .from("candidate_organizations")
-      .select("candidate_user_id")
-      .eq("status", "approved")
-      .in("org_id", myOrgs);
-    type LinkRow = { candidate_user_id: string };
-    viaOrg = ((linksData ?? []) as LinkRow[]).map(l => l.candidate_user_id);
-  }
+  if (myOrgs.length === 0) return [];
 
-  return [...new Set([...direct, ...viaOrg])];
+  const { data: linksData } = await db
+    .from("candidate_organizations")
+    .select("candidate_user_id")
+    .eq("status", "approved")
+    .in("org_id", myOrgs);
+  type LinkRow = { candidate_user_id: string };
+  return [...new Set(((linksData ?? []) as LinkRow[]).map(l => l.candidate_user_id))];
 }
 
 /**

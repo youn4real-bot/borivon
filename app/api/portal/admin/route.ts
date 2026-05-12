@@ -51,22 +51,26 @@ export async function GET(req: NextRequest) {
     if (error) { console.error("[admin GET] documents query (agency) failed:", error); return NextResponse.json({ error: "Internal error" }, { status: 500 }); }
     docs = data ?? [];
   } else {
-    // Sub-admin — only candidates they have access to.
-    // Combines direct assignments AND organization membership.
-    const assignedIds = await getVisibleCandidateIds(token);
+    // Sub-admin — scope by visibility (LAW #25).
+    // Regular sub-admins see all (null); org admins see only their org's candidates.
+    const visibleIds = await getVisibleCandidateIds(token);
 
-    if (assignedIds.length === 0) {
-      return NextResponse.json({ docs: [], users: {}, role });
-    }
-
-    const allowedIds = filteredUserId ? [filteredUserId].filter(id => assignedIds.includes(id)) : assignedIds;
-    if (allowedIds.length === 0) return NextResponse.json({ docs: [], users: {}, role });
-
-    const { data, error } = await db
+    let q = db
       .from("documents")
       .select("id, user_id, file_name, file_type, uploaded_at, status, feedback, drive_file_id, uploaded_by_admin")
-      .in("user_id", allowedIds)
       .order("uploaded_at", { ascending: false });
+
+    if (visibleIds === null) {
+      // Regular sub-admin: all candidates, filter only by specific user if requested.
+      if (filteredUserId) q = q.eq("user_id", filteredUserId);
+    } else {
+      if (visibleIds.length === 0) return NextResponse.json({ docs: [], users: {}, role });
+      const allowedIds = filteredUserId ? [filteredUserId].filter(id => visibleIds.includes(id)) : visibleIds;
+      if (allowedIds.length === 0) return NextResponse.json({ docs: [], users: {}, role });
+      q = q.in("user_id", allowedIds);
+    }
+
+    const { data, error } = await q;
 
     if (error) { console.error("[admin GET] documents query failed:", error); return NextResponse.json({ error: "Internal error" }, { status: 500 }); }
     docs = data ?? [];

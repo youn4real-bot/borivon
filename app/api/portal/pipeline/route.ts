@@ -16,6 +16,11 @@ const ALLOWED_PIPELINE_FIELDS = new Set<string>([
   "integration_unlocked", "start_unlocked",
 ]);
 
+// LAW #31: only the supreme admin may toggle stage unlock fields.
+const SUPREME_ONLY_FIELDS = new Set<string>([
+  "recognition_unlocked", "embassy_unlocked", "integration_unlocked", "start_unlocked",
+]);
+
 // GET — admin reads a candidate's pipeline by userId
 export async function GET(req: NextRequest) {
   const auth = await requireAdminRole(req);
@@ -63,10 +68,10 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // interview_notes is internal admin-only — sub-admins cannot write it
+  // interview_notes + stage unlocks are supreme-admin-only (LAW #31).
   const allowedFields = auth.role === "admin"
     ? ALLOWED_PIPELINE_FIELDS
-    : new Set([...ALLOWED_PIPELINE_FIELDS].filter(f => f !== "interview_notes"));
+    : new Set([...ALLOWED_PIPELINE_FIELDS].filter(f => f !== "interview_notes" && !SUPREME_ONLY_FIELDS.has(f)));
 
   // Allowlist filter + sanitise: empty strings → null for date/timestamp cols
   // (Postgres rejects "" for date/timestamptz and returns a type error → 500).
