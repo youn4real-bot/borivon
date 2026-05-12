@@ -9,6 +9,10 @@ export type FormField = {
   h: number;     // 0–1 fraction of page height
   label: string;
   type: "text" | "date" | "checkbox";
+  /** If set, the field's value is auto-resolved from the candidate's profile
+   *  /CV at admin submit time. The resulting text is baked into the PDF as
+   *  static text and the field is NOT shown as editable to the candidate. */
+  binding?: string;
 };
 
 /**
