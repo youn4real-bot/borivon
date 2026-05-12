@@ -48,12 +48,14 @@ export async function POST(req: NextRequest) {
   const cpRow = cp as { first_name?: string | null; last_name?: string | null } | null;
   const candidateName = [cpRow?.first_name, cpRow?.last_name].filter(Boolean).join(" ") || "Candidate";
 
-  // 1) Candidate bell — LAW #21: "Admin sends a B/V request to candidate"
+  // 1) Candidate bell — LAW #21 + LAW #22: "Admin sends a B/V request to
+  // candidate" with a deep-link target. doc_type="slot_setup" tells the bell
+  // to route via ?slot=<id> (vs legacy "sign_request" which uses ?sign=<id>).
   await db.from("notifications").insert({
     user_id:  body.candidateUserId,
     doc_id:   body.slotId,
     doc_name: label,
-    doc_type: "sign_request",
+    doc_type: "slot_setup",
     action:   "sign_request",
     feedback: null,
     read:     false,

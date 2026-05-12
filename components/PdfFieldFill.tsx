@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { PdfViewer, PageOverlayFn } from "@/components/PdfViewer";
 import { FormField } from "@/lib/pdfFieldEmbed";
 import type { SigZone } from "@/components/PdfZonePicker";
@@ -25,9 +25,36 @@ type Props = {
   signaturePreview?: string | null;
   /** Called when the candidate taps the empty signature zone. */
   onSignClick?: () => void;
+  /** When true, scroll the PDF to the signature zone and pulse-animate it
+   *  for a few seconds. Used by the bell deep-link (LAW #22) so candidates
+   *  arrive directly at the spot that needs their action. */
+  highlightSigZone?: boolean;
 };
 
-export function PdfFieldFill({ pdfUrl, fields, values, onChange, disabled = false, signatureZone, signaturePreview, onSignClick }: Props) {
+export function PdfFieldFill({ pdfUrl, fields, values, onChange, disabled = false, signatureZone, signaturePreview, onSignClick, highlightSigZone = false }: Props) {
+  const sigZoneRef = useRef<HTMLDivElement | null>(null);
+
+  // When highlightSigZone flips true, wait for the PDF page to render
+  // (the sig zone overlay only mounts after the page is laid out) then
+  // smooth-scroll into view + apply the bv-sig-pulse animation class.
+  useEffect(() => {
+    if (!highlightSigZone) return;
+    const tryScroll = (attempt: number) => {
+      const el = sigZoneRef.current;
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.classList.add("bv-sig-pulse");
+        // Animation duration ~3.6s (3 pulses × 1.2s); clean up after.
+        setTimeout(() => el.classList.remove("bv-sig-pulse"), 3600);
+      } else if (attempt < 20) {
+        // PDF page not laid out yet — retry briefly.
+        setTimeout(() => tryScroll(attempt + 1), 150);
+      }
+    };
+    // Small initial delay so PDF render kicks off first.
+    const t = setTimeout(() => tryScroll(0), 400);
+    return () => clearTimeout(t);
+  }, [highlightSigZone, pdfUrl]);
   const pageOverlay: PageOverlayFn = useCallback(({ pageNum, dispH }) => {
     const pageFields = fields.filter(f => f.page === pageNum);
     const showSig = signatureZone && signatureZone.page === pageNum;
@@ -37,6 +64,7 @@ export function PdfFieldFill({ pdfUrl, fields, values, onChange, disabled = fals
       <div style={{ position: "absolute", inset: 0, pointerEvents: "none" }}>
         {showSig && (
           <div
+            ref={sigZoneRef}
             onClick={() => { if (!signaturePreview && !disabled) onSignClick?.(); }}
             style={{
               position: "absolute",
@@ -141,6 +169,19 @@ export function PdfFieldFill({ pdfUrl, fields, values, onChange, disabled = fals
   return (
     <div style={{ position: "relative", height: "62dvh", borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)" }}>
       <PdfViewer src={pdfUrl} hideRotate pageOverlay={pageOverlay} />
+      <style>{`
+        /* LAW #22 deep-link: pulse + glow the signature zone after auto-scroll
+           so candidate sees exactly where they need to act. */
+        @keyframes bvSigPulse {
+          0%   { box-shadow: 0 0 0 0 rgba(201,162,64,0.95), 0 0 0 0 rgba(201,162,64,0.55); transform: scale(1); }
+          40%  { box-shadow: 0 0 0 14px rgba(201,162,64,0.0),  0 0 22px 8px rgba(201,162,64,0.55); transform: scale(1.035); }
+          100% { box-shadow: 0 0 0 0 rgba(201,162,64,0.0),  0 0 0 0 rgba(201,162,64,0.0);  transform: scale(1); }
+        }
+        .bv-sig-pulse {
+          animation: bvSigPulse 1.2s ease-out 3;
+          z-index: 5;
+        }
+      `}</style>
     </div>
   );
 }

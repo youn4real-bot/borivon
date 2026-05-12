@@ -331,11 +331,15 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
     markOneRead(n);
     setOpen(false);
 
-    // "sign_request" — deep-link to the dashboard with the sign-request id
-    // so PendingSignatures auto-opens the PdfSignModal for that request.
+    // "sign_request" deep-link. Two routing paths:
+    //   doc_type="slot_setup"  → wizard-driven B/V slot → ?slot=<slotId>
+    //                            (dashboard auto-opens fillForm + highlights
+    //                             the sig zone with a pulse animation)
+    //   doc_type="sign_request" → legacy stand-alone sign_request → ?sign=<id>
     if (n.action === "sign_request") {
       const sid = n.doc_id ?? "";
-      router.push(`/portal/dashboard${sid ? `?sign=${encodeURIComponent(sid)}` : ""}`);
+      const param = n.doc_type === "slot_setup" ? "slot" : "sign";
+      router.push(`/portal/dashboard${sid ? `?${param}=${encodeURIComponent(sid)}` : ""}`);
       return;
     }
     // "placed" — just go to dashboard

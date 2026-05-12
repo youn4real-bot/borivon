@@ -292,6 +292,10 @@ export default function DashboardPage() {
     /** Data URI of the signature the candidate just placed (or null if not yet).
      *  Embedded into the PDF on submit. */
     signedSig: string | null;
+    /** When opened via a notification deep-link (LAW #22), pulse the sig zone
+     *  and auto-scroll the PDF to it. Set true on auto-open, false after the
+     *  animation has had time to play. */
+    highlight: boolean;
   };
   const [fillForm, setFillForm] = useState<FillFormState | null>(null);
   const [fillFormSubmitting, setFillFormSubmitting] = useState(false);
@@ -336,11 +340,46 @@ export default function DashboardPage() {
   const [docViewerSignReq, setDocViewerSignReq] = useState<SignReq | null>(null);
   // Bell deep-link: ?sign=<requestId> → auto-open that sign request
   const [autoOpenSignId, setAutoOpenSignId] = useState<string | null>(null);
+  // Bell deep-link (LAW #22): ?slot=<slotId> → auto-open the fillForm modal
+  // for a wizard-driven B/V slot, scroll to the sig zone, pulse-animate it.
+  const [autoOpenSlotId, setAutoOpenSlotId] = useState<string | null>(null);
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const id = new URLSearchParams(window.location.search).get("sign");
-    if (id) setAutoOpenSignId(id);
+    const params = new URLSearchParams(window.location.search);
+    const sign = params.get("sign");
+    if (sign) setAutoOpenSignId(sign);
+    const slot = params.get("slot");
+    if (slot) setAutoOpenSlotId(slot);
   }, []);
+
+  // Once slots are loaded, fulfill the ?slot=<id> deep-link by opening the
+  // fillForm modal with the highlight flag set so the sig zone pulses.
+  useEffect(() => {
+    if (!autoOpenSlotId || !authToken) return;
+    if (!(dynamicSlots.bea.length || dynamicSlots.vis.length)) return;
+    const slot = [...dynamicSlots.bea, ...dynamicSlots.vis].find(s => s.id === autoOpenSlotId);
+    if (!slot || !slot.template_pdf_path) return;
+    fetch(`/api/portal/slot-template?slotId=${slot.id}`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    }).then(r => r.ok ? r.blob() : null).then(blob => {
+      if (!blob) return;
+      const pdfUrl = URL.createObjectURL(blob);
+      setFillForm({
+        slotId: slot.id,
+        fields: slot.form_fields ?? [],
+        values: {},
+        pdfUrl,
+        sigZone: slot.candidate_signature_zone ?? null,
+        signedSig: null,
+        highlight: true,
+      });
+      setAutoOpenSlotId(null);
+      // Strip ?slot= from URL so refreshing doesn't reopen.
+      const url = new URL(window.location.href);
+      url.searchParams.delete("slot");
+      window.history.replaceState({}, "", url.toString());
+    }).catch(() => {});
+  }, [autoOpenSlotId, authToken, dynamicSlots]);
 
   // (Mobile drawer + bottom-bar hamburger removed — sidebar is now always
   // visible on every breakpoint, matching the admin dashboard layout.)
@@ -2249,7 +2288,7 @@ export default function DashboardPage() {
                     headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
                   }).then(r => r.ok ? r.blob() : null).then(blob => {
                     const pdfUrl = blob ? URL.createObjectURL(blob) : null;
-                    setFillForm({ slotId, fields, values: {}, pdfUrl, sigZone: itemSigZone, signedSig: null });
+                    setFillForm({ slotId, fields, values: {}, pdfUrl, sigZone: itemSigZone, signedSig: null, highlight: false });
                   });
                 }
               : (!uploaded || isOther) ? () => openPicker(item.key)
@@ -3616,6 +3655,7 @@ export default function DashboardPage() {
                   onChange={(fieldId, value) => setFillForm(f => f ? { ...f, values: { ...f.values, [fieldId]: value } } : f)}
                   signatureZone={fillForm.sigZone ?? null}
                   signaturePreview={fillForm.signedSig}
+                  highlightSigZone={fillForm.highlight}
                   onSignClick={() => {
                     if (candidateSavedSig) {
                       // Saved sig exists — drop it straight onto the zone.
