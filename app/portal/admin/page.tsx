@@ -2895,33 +2895,26 @@ export default function AdminPage() {
                       );
                     })()}
 
-                    {/* ── Add slot modal ─────────────────────────────────────────────────── */}
+                    {/* ── Add slot modal — title-only. The slot is created
+                            empty; uploads, actions, instructions all happen
+                            later when admin clicks the slot row. ─────────── */}
                     {addSlotPhase && (
                       <>
                         <div className="fixed inset-0 z-40" style={{ background: "rgba(0,0,0,0.5)" }}
                           onClick={() => setAddSlotPhase(null)} />
                         <div className="fixed inset-x-4 top-1/4 z-50 max-w-sm mx-auto rounded-2xl p-5 space-y-4"
                           style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)" }}>
-                          <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>Add slot</p>
-                          <p className="text-[11px] -mt-2" style={{ color: "var(--w3)" }}>After uploading a PDF you&apos;ll choose what the candidate must do.</p>
+                          <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>
+                            {lang === "de" ? "Slot hinzufügen" : lang === "fr" ? "Ajouter un slot" : "Add slot"}
+                          </p>
 
-                          {/* Label */}
                           <input
                             type="text"
-                            placeholder="Document name (e.g. Arbeitsvertrag)"
+                            placeholder={lang === "de" ? "Titel" : lang === "fr" ? "Titre" : "Title"}
                             value={addSlotLabel}
                             onChange={e => setAddSlotLabel(e.target.value)}
+                            autoFocus
                             className="w-full px-3 py-2.5 text-[12.5px] outline-none"
-                            style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--w)" }}
-                          />
-
-                          {/* Instructions (optional) */}
-                          <textarea
-                            rows={2}
-                            placeholder="Instructions for candidate (optional)"
-                            value={addSlotInstructions}
-                            onChange={e => setAddSlotInstructions(e.target.value)}
-                            className="w-full px-3 py-2.5 text-[12.5px] outline-none resize-none"
                             style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--w)" }}
                           />
 
@@ -2929,14 +2922,16 @@ export default function AdminPage() {
                             <button onClick={() => setAddSlotPhase(null)} disabled={addSlotSaving}
                               className="flex-1 py-2.5 rounded-xl text-[12.5px] font-semibold transition-all"
                               style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
-                              Cancel
+                              {lang === "de" ? "Abbrechen" : lang === "fr" ? "Annuler" : "Cancel"}
                             </button>
                             <button
-                              onClick={() => addPhaseSlot(addSlotPhase!, addSlotLabel, addSlotInstructions)}
+                              onClick={() => addPhaseSlot(addSlotPhase!, addSlotLabel, "")}
                               disabled={addSlotSaving || !addSlotLabel.trim()}
                               className="flex-1 py-2.5 rounded-xl text-[12.5px] font-semibold transition-all disabled:opacity-40"
                               style={{ background: "var(--gold)", color: "#131312" }}>
-                              {addSlotSaving ? "Saving…" : "Send request"}
+                              {addSlotSaving
+                                ? (lang === "de" ? "Speichern…" : lang === "fr" ? "Enregistrement…" : "Saving…")
+                                : (lang === "de" ? "Erstellen" : lang === "fr" ? "Créer" : "Create")}
                             </button>
                           </div>
                         </div>
