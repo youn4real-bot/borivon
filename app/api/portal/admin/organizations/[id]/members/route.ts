@@ -79,8 +79,16 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   const db = getServiceSupabase();
 
-  // Ensure the email exists in sub_admins (otherwise they can't log in as one)
-  await db.from("sub_admins").upsert({ email, name, label }, { onConflict: "email" });
+  // Ensure the email exists in sub_admins (otherwise they can't log in as one).
+  // If this fails, the organization_members insert that follows would point at
+  // a missing sub_admins row — abort early instead of leaving a dangling member.
+  {
+    const { error: subErr } = await db.from("sub_admins").upsert({ email, name, label }, { onConflict: "email" });
+    if (subErr) {
+      console.error("[org members POST] sub_admins upsert failed:", subErr);
+      return NextResponse.json({ error: "Internal error" }, { status: 500 });
+    }
+  }
 
   // Add to organization_members
   const { error } = await db.from("organization_members").upsert(
@@ -144,6 +152,10 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
   if (!EMAIL_RE.test(email)) return NextResponse.json({ error: "Invalid email" }, { status: 400 });
 
   const db = getServiceSupabase();
-  await db.from("organization_members").delete().eq("org_id", id).eq("sub_admin_email", email);
+  const { error } = await db.from("organization_members").delete().eq("org_id", id).eq("sub_admin_email", email);
+  if (error) {
+    console.error("[org members DELETE] failed:", error);
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  }
   return NextResponse.json({ success: true });
 }

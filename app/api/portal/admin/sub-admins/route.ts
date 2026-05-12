@@ -59,7 +59,19 @@ export async function DELETE(req: NextRequest) {
   if (!EMAIL_RE.test(email)) return NextResponse.json({ error: "Invalid email" }, { status: 400 });
 
   const db = getServiceSupabase();
-  await db.from("sub_admin_assignments").delete().eq("sub_admin_email", email);
-  await db.from("sub_admins").delete().eq("email", email);
+  // Delete assignments FIRST. If that fails, bail out — deleting the
+  // sub_admins row without clearing assignments would leave orphan rows
+  // pointing at a deleted admin and quietly break admin-scoped permission
+  // checks downstream.
+  const { error: assignErr } = await db.from("sub_admin_assignments").delete().eq("sub_admin_email", email);
+  if (assignErr) {
+    console.error("[sub-admins DELETE] assignments delete failed:", assignErr);
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  }
+  const { error: subErr } = await db.from("sub_admins").delete().eq("email", email);
+  if (subErr) {
+    console.error("[sub-admins DELETE] row delete failed:", subErr);
+    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+  }
   return NextResponse.json({ success: true });
 }

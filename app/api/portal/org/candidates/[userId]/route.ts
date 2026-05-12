@@ -2,17 +2,26 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * GET /api/portal/org/candidates/[userId]
  *
  * Returns a read-only dossier for a candidate that belongs to the caller's org.
  * Org members only — candidates and plain admins are rejected.
+ *
+ * Audit fix: returns 404 (not 403) for non-existent OR not-in-your-org
+ * candidates so an org member can't enumerate UUIDs to learn which candidates
+ * exist system-wide. UUID is also validated up front to fail fast on garbage.
  */
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ userId: string }> },
 ) {
   const { userId: candidateId } = await params;
+  if (!UUID_RE.test(candidateId)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
 
   const auth = await requireUser(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
@@ -32,7 +41,9 @@ export async function GET(
 
   const orgId = (membership as { org_id: string }).org_id;
 
-  // Verify candidate belongs to this org
+  // Verify candidate belongs to this org. Return 404 (not 403) so the caller
+  // can't distinguish "candidate doesn't exist" from "exists but not in
+  // your org" — prevents enumeration.
   const { data: link } = await db
     .from("candidate_organizations")
     .select("status")
@@ -41,7 +52,7 @@ export async function GET(
     .maybeSingle();
 
   if (!link) {
-    return NextResponse.json({ error: "Candidate not in your org" }, { status: 403 });
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
   // Get auth user info (name + email)

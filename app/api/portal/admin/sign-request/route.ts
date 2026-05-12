@@ -331,11 +331,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Storage error: " + uploadErr.message }, { status: 500 });
   }
 
-  // Save the storage path back to the row
-  await db
-    .from("sign_requests")
-    .update({ pdf_storage_path: storagePath })
-    .eq("id", requestId);
+  // Save the storage path back to the row. If this fails, the PDF in
+  // storage becomes orphaned (no row pointing at it) — log loudly so we
+  // notice the leak even though we don't roll back the upload.
+  {
+    const { error: pathErr } = await db
+      .from("sign_requests")
+      .update({ pdf_storage_path: storagePath })
+      .eq("id", requestId);
+    if (pathErr) console.error("[sign-request POST] pdf_storage_path update failed:", pathErr);
+  }
 
   // Permanently point documents.signed_storage_path at the (at least admin-) signed PDF
   // so the document view always serves the signed version, not the Drive original.

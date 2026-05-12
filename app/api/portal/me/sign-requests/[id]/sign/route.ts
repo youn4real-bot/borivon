@@ -168,10 +168,16 @@ export async function POST(
     return NextResponse.json({ error: "Could not save signed document" }, { status: 500 });
   }
 
-  // Also overwrite the original path so pdf_storage_path always has the latest signed version
-  await db.storage
-    .from(BUCKET)
-    .upload(r.pdf_storage_path, signedBytes, { contentType: "application/pdf", upsert: true });
+  // Also overwrite the original path so pdf_storage_path always has the
+  // latest signed version. Failure here is non-fatal (the signed copy at
+  // `signedPath` is what we'll point to anyway) but log so we notice the
+  // out-of-sync state.
+  {
+    const { error: overwriteErr } = await db.storage
+      .from(BUCKET)
+      .upload(r.pdf_storage_path, signedBytes, { contentType: "application/pdf", upsert: true });
+    if (overwriteErr) console.error("[sign] original-path overwrite failed (non-fatal):", overwriteErr);
+  }
 
   // Update record — atomic conditional update guards the SELECT/UPDATE race.
   // If another concurrent sign request already flipped status, this returns
@@ -196,15 +202,18 @@ export async function POST(
     return NextResponse.json({ error: "Already signed" }, { status: 409 });
   }
 
-  // Permanently update documents.signed_storage_path so the doc view always shows
-  // the fully-signed version everywhere (admin portal + candidate documents tab).
-  // Match by user_id + file_name — document_name in sign_requests comes from
-  // previewDoc.file_name so the values are identical for normal flows.
-  await db
-    .from("documents")
-    .update({ signed_storage_path: signedPath })
-    .eq("user_id", r.candidate_user_id)
-    .eq("file_name", r.document_name);
+  // Permanently update documents.signed_storage_path so the doc view always
+  // shows the fully-signed version (admin portal + candidate documents tab).
+  // Failure means the doc view will keep showing the unsigned Drive original —
+  // log so we can recover, but don't roll back the sign itself.
+  {
+    const { error: docUpdErr } = await db
+      .from("documents")
+      .update({ signed_storage_path: signedPath })
+      .eq("user_id", r.candidate_user_id)
+      .eq("file_name", r.document_name);
+    if (docUpdErr) console.error("[sign] documents.signed_storage_path update failed:", docUpdErr);
+  }
 
   // Notify the supreme admin (and any org admin assigned to this candidate)
   // that the document was signed. Best-effort — don't fail the sign if this
