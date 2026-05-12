@@ -31,10 +31,22 @@ const KEY_TO_TKEY: Record<string, keyof typeof translations.fr> = {
 export const FILE_KEY_LABELS: Record<string, string[]> = {};
 for (const [key, tKey] of Object.entries(KEY_TO_TKEY)) {
   const labels = new Set(Object.values(translations).map(lang => lang[tKey] as string));
-  // Legacy aliases kept for backward compatibility
-  if (key === "workcert")          labels.add("Berufserlaubnis");
-  if (key === "abitur_transcript") labels.add("Abitur Transcript");
-  if (key === "langcert")          labels.add("Sprachzertifikat"); // pre-B2 label in DB
+  // ── Legacy aliases — keep so docs uploaded under the OLD German labels
+  // remain findable after the LAW #35 rename batch. Each line preserves a
+  // pre-rename label that may still appear as `file_type` on existing rows. ──
+  if (key === "workcert")          { labels.add("Berufserlaubnis für Krankenpflege"); labels.add("Arbeitszeugnis"); }
+  if (key === "workcert_de")       { labels.add("Berufserlaubnis für Krankenpflege (DE)"); }
+  if (key === "abitur_transcript") { labels.add("Abitur Transcript"); labels.add("Abitur Notenblatt"); }
+  if (key === "abitur_transcript_de") { labels.add("Abitur Notenblatt (DE)"); }
+  if (key === "langcert")          { labels.add("Sprachzertifikat"); }  // pre-B2 label in DB
+  if (key === "diploma")           { labels.add("Pflegediplom"); }
+  if (key === "diploma_de")        { labels.add("Pflegediplom (DE)"); }
+  if (key === "studyprog")         { labels.add("Pflegestudienprogramm"); labels.add("Studienprogramm"); }
+  if (key === "studyprog_de")      { labels.add("Pflegestudienprogramm (DE)"); }
+  if (key === "transcript")        { labels.add("Pflegenotenblatt"); labels.add("Notenblatt"); }
+  if (key === "transcript_de")     { labels.add("Pflegenotenblatt (DE)"); }
+  if (key === "praktikum")         { labels.add("Pflegepraktikumsnachweis"); labels.add("Praktikum"); }
+  if (key === "praktikum_de")      { labels.add("Pflegepraktikumsnachweis (DE)"); }
   FILE_KEY_LABELS[key] = [...labels];
 }
 

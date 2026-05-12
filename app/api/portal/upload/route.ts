@@ -69,37 +69,54 @@ function sniffMime(buf: Buffer): string | null {
   return null;
 }
 
+// Naming convention (LAW #35): every uploaded doc lands in Drive as
+//   <firstname>_<lastname>_pflegekraft_<doctype>[_original|_uebersetzt].<ext>
+// Essentials drop the trailing _original/_uebersetzt suffix because they have
+// no translation counterpart. Qualifications keep the suffix to distinguish
+// "Original" and "Übersetzt" uploads on the same box.
 const FILE_KEY_MAP: Record<string, { name: string; suffix: string }> = {
-  cv:           { name: "lebenslauf",        suffix: "original" },
-  diploma:      { name: "diplom",            suffix: "original" },
-  id:           { name: "ausweis",           suffix: "original" },
-  langcert:     { name: "sprachzertifikat",  suffix: "original" },
-  workcert:     { name: "arbeitszeugnis",    suffix: "original" },
-  letter:       { name: "anschreiben",       suffix: "original" },
-  studyprog:            { name: "studienprogramm",   suffix: "original" },
-  transcript:           { name: "notenblatt",        suffix: "original" },
-  abitur:               { name: "abitur",            suffix: "original" },
-  abitur_transcript:    { name: "abitur_notenblatt", suffix: "original" },
-  praktikum:            { name: "praktikum",         suffix: "original" },
-  other:                { name: "dokument",          suffix: "original" },
-  work_experience:      { name: "berufserfahrung",   suffix: "original" },
-  cv_de:                { name: "lebenslauf",        suffix: "uebersetzt" },
-  diploma_de:           { name: "diplom",            suffix: "uebersetzt" },
-  studyprog_de:         { name: "studienprogramm",   suffix: "uebersetzt" },
-  transcript_de:        { name: "notenblatt",        suffix: "uebersetzt" },
-  abitur_de:            { name: "abitur",            suffix: "uebersetzt" },
-  abitur_transcript_de: { name: "abitur_notenblatt", suffix: "uebersetzt" },
-  praktikum_de:         { name: "praktikum",         suffix: "uebersetzt" },
-  workcert_de:          { name: "berufserlaubnis",   suffix: "uebersetzt" },
-  work_experience_de:   { name: "berufserfahrung",   suffix: "uebersetzt" },
-  other_trans:          { name: "dokument",          suffix: "uebersetzt" },
+  // ── Essentials (no suffix) ────────────────────────────────────────────────
+  cv:                    { name: "lebenslauf",         suffix: ""         },
+  id:                    { name: "reisepass",          suffix: ""         },
+  langcert:              { name: "b2_sprachzertifikat",suffix: ""         },
+  letter:                { name: "anschreiben",        suffix: ""         },
+  // cv_de is the German-formatted CV produced by the CV builder; lives in
+  // Essentials as a separate slot from `cv` and is kept distinct via a
+  // dedicated `_de` suffix so it never collides with the uploaded CV file.
+  cv_de:                 { name: "lebenslauf",         suffix: "de"       },
+
+  // ── Qualifications (original / uebersetzt pairs) ──────────────────────────
+  diploma:               { name: "diplom",                 suffix: "original"   },
+  studyprog:             { name: "ausbildungsprogramm",    suffix: "original"   },
+  transcript:            { name: "notenuebersicht",        suffix: "original"   },
+  abitur:                { name: "abitur",                 suffix: "original"   },
+  abitur_transcript:     { name: "abitur_uebersicht",      suffix: "original"   },
+  praktikum:             { name: "ausbildungspraktikum",   suffix: "original"   },
+  workcert:              { name: "berufserlaubnis",        suffix: "original"   },
+  work_experience:       { name: "berufserfahrung",        suffix: "original"   },
+  impfung:               { name: "impfung",                suffix: "original"   },
+
+  diploma_de:            { name: "diplom",                 suffix: "uebersetzt" },
+  studyprog_de:          { name: "ausbildungsprogramm",    suffix: "uebersetzt" },
+  transcript_de:         { name: "notenuebersicht",        suffix: "uebersetzt" },
+  abitur_de:             { name: "abitur",                 suffix: "uebersetzt" },
+  abitur_transcript_de:  { name: "abitur_uebersicht",      suffix: "uebersetzt" },
+  praktikum_de:          { name: "ausbildungspraktikum",   suffix: "uebersetzt" },
+  workcert_de:           { name: "berufserlaubnis",        suffix: "uebersetzt" },
+  work_experience_de:    { name: "berufserfahrung",        suffix: "uebersetzt" },
+  impfung_de:            { name: "impfung",                suffix: "uebersetzt" },
+
+  // ── Other (Sonstiges) — built inline elsewhere with a per-file index ──────
+  other:                 { name: "sonstiges",              suffix: ""           },
+  other_trans:           { name: "sonstiges",              suffix: "uebersetzt" },
 };
 
 function buildFileName(firstName: string, lastName: string, fileKey: string, ext: string) {
   const fn = firstName.trim().toLowerCase().replace(/\s+/g, "_") || "kandidat";
   const ln = lastName.trim().toLowerCase().replace(/\s+/g, "_") || "unbekannt";
-  const mapping = FILE_KEY_MAP[fileKey] ?? { name: "dokument", suffix: "original" };
-  return `${fn}_${ln}_${mapping.name}_${mapping.suffix}.${ext}`;
+  const mapping = FILE_KEY_MAP[fileKey] ?? { name: "dokument", suffix: "" };
+  const suffix = mapping.suffix ? `_${mapping.suffix}` : "";
+  return `${fn}_${ln}_pflegekraft_${mapping.name}${suffix}.${ext}`;
 }
 
 function getDriveClient() {
@@ -933,7 +950,7 @@ export async function POST(req: NextRequest) {
       const idx = (priorCount ?? 0) + 1;
       const fn = (firstName.trim().toLowerCase().replace(/\s+/g, "_") || "kandidat");
       const ln = (lastName.trim().toLowerCase().replace(/\s+/g, "_")  || "unbekannt");
-      structuredName = `${fn}_${ln}_sonstiges_${idx}.${ext}`;
+      structuredName = `${fn}_${ln}_pflegekraft_sonstiges_${idx}.${ext}`;
     } else {
       structuredName = buildFileName(firstName, lastName, fileKey, ext);
     }
