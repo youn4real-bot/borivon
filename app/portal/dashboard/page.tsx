@@ -3619,6 +3619,10 @@ export default function DashboardPage() {
                       setFillFormSubmitting(true);
                       try {
                         const res = await fetch(fillForm.pdfUrl);
+                        // Audit fix: never trust res.arrayBuffer() without
+                        // verifying the fetch succeeded — silent corruption
+                        // would otherwise upload garbage as the candidate's PDF.
+                        if (!res.ok) throw new Error(`PDF fetch failed: ${res.status}`);
                         const sourceBytes = new Uint8Array(await res.arrayBuffer());
                         const srcAb = new ArrayBuffer(sourceBytes.byteLength);
                         new Uint8Array(srcAb).set(sourceBytes);
@@ -3636,7 +3640,14 @@ export default function DashboardPage() {
                         const file = new File([outAb], `${fillForm.slotId}_filled.pdf`, { type: "application/pdf" });
                         uploadFile(file, fillForm.slotId);
                         setFillForm(null);
-                      } catch { setFillFormSubmitting(false); }
+                      } catch (err) {
+                        // Audit fix: log so failures aren't invisible.
+                        console.error("[fillForm submit]", err);
+                      } finally {
+                        // Audit fix: was previously only reset on error, leaving
+                        // the button locked on the happy path.
+                        setFillFormSubmitting(false);
+                      }
                     }}
                     className="text-[11.5px] font-semibold px-3 py-1.5 rounded-xl disabled:opacity-40"
                     style={{ background: "var(--gold)", color: "#131312" }}>

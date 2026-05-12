@@ -35,6 +35,11 @@ export async function POST(req: NextRequest) {
 
   if (!file || file.type !== "application/pdf")
     return NextResponse.json({ error: "PDF required" }, { status: 400 });
+  // Audit fix: cap PDF size at 20 MB to prevent DoS via unbounded uploads.
+  // A 20 MB cap comfortably covers typical contracts / forms; if a real PDF
+  // exceeds it the admin can split it before uploading.
+  if (file.size > 20 * 1024 * 1024)
+    return NextResponse.json({ error: "PDF too large (max 20 MB)" }, { status: 413 });
   if (!slotId || !UUID_RE.test(slotId))
     return NextResponse.json({ error: "slotId required" }, { status: 400 });
 

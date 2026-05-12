@@ -26,7 +26,14 @@ export async function stampSigOnPdf(
   const sigImage = isJpeg ? await pdfDoc.embedJpg(sigBytes) : await pdfDoc.embedPng(sigBytes);
 
   for (const zone of zones) {
-    const pageIndex = Math.max(0, Math.min(pages.length - 1, zone.page - 1));
+    // Audit fix: skip zones with invalid page numbers instead of silently
+    // clamping (which would stamp on the wrong page — a trust-breaking bug
+    // since the admin/candidate wouldn't see their signature where expected).
+    if (!Number.isInteger(zone.page) || zone.page < 1 || zone.page > pages.length) {
+      console.warn(`[stampSigOnPdf] skipping zone with out-of-range page ${zone.page} (PDF has ${pages.length} pages)`);
+      continue;
+    }
+    const pageIndex = zone.page - 1;
     const pg = pages[pageIndex];
     const { width: pageW, height: pageH } = pg.getSize();
     const zW = zone.w * pageW, zH = zone.h * pageH;

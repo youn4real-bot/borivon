@@ -15,14 +15,22 @@
  */
 export function removeImageBg(dataUri: string): Promise<string> {
   return new Promise(resolve => {
+    // Audit fix: settle-once guard + timeout so a malformed or oversize image
+    // can't leave the UI hanging on a never-resolving Promise. Falls back to
+    // the original data URI after 8s if neither onload nor onerror fires.
+    let settled = false;
+    const finish = (v: string) => { if (!settled) { settled = true; resolve(v); } };
+    const timer = setTimeout(() => finish(dataUri), 8000);
+
     const img = new Image();
     img.onload = () => {
+      clearTimeout(timer);
       try {
         const canvas = document.createElement("canvas");
         canvas.width = img.naturalWidth;
         canvas.height = img.naturalHeight;
         const ctx = canvas.getContext("2d");
-        if (!ctx) { resolve(dataUri); return; }
+        if (!ctx) { finish(dataUri); return; }
         ctx.drawImage(img, 0, 0);
         const id = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const d = id.data;
@@ -57,10 +65,10 @@ export function removeImageBg(dataUri: string): Promise<string> {
           else if (b >= lo) d[i+3] = Math.round((hi - b) / (hi - lo) * 255);
         }
         ctx.putImageData(id, 0, 0);
-        resolve(canvas.toDataURL("image/png"));
-      } catch { resolve(dataUri); }
+        finish(canvas.toDataURL("image/png"));
+      } catch { finish(dataUri); }
     };
-    img.onerror = () => resolve(dataUri);
+    img.onerror = () => { clearTimeout(timer); finish(dataUri); };
     img.src = dataUri;
   });
 }

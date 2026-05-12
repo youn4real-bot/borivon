@@ -3,13 +3,16 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 
 const MAX_DRAFT_BYTES = 500_000;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function GET(req: NextRequest) {
   const auth = await requireAdminRole(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const candidateId = req.nextUrl.searchParams.get("candidateId");
-  if (!candidateId) return NextResponse.json({ error: "Missing candidateId" }, { status: 400 });
+  // Audit fix: must be a valid UUID before we hit canActOnCandidate / DB.
+  if (!candidateId || !UUID_RE.test(candidateId))
+    return NextResponse.json({ error: "Invalid candidateId" }, { status: 400 });
 
   if (!(await canActOnCandidate(auth.role, auth.email, candidateId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
@@ -33,7 +36,9 @@ export async function PUT(req: NextRequest) {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const candidateId = req.nextUrl.searchParams.get("candidateId");
-  if (!candidateId) return NextResponse.json({ error: "Missing candidateId" }, { status: 400 });
+  // Audit fix: must be a valid UUID before we hit canActOnCandidate / DB.
+  if (!candidateId || !UUID_RE.test(candidateId))
+    return NextResponse.json({ error: "Invalid candidateId" }, { status: 400 });
 
   if (!(await canActOnCandidate(auth.role, auth.email, candidateId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

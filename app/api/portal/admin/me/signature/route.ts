@@ -27,7 +27,9 @@ export async function PUT(req: NextRequest) {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const raw = await req.text();
-  if (raw.length > MAX_SIG_BYTES * 1.5) {
+  // Audit fix: tightened from MAX_SIG_BYTES * 1.5 to a single explicit limit
+  // and added a post-parse check on the decoded signature itself.
+  if (raw.length > MAX_SIG_BYTES) {
     return NextResponse.json({ error: "Signature too large" }, { status: 413 });
   }
 
@@ -38,6 +40,9 @@ export async function PUT(req: NextRequest) {
 
   if (!body.signature || typeof body.signature !== "string") {
     return NextResponse.json({ error: "Missing signature" }, { status: 400 });
+  }
+  if (body.signature.length > MAX_SIG_BYTES) {
+    return NextResponse.json({ error: "Signature too large" }, { status: 413 });
   }
 
   const db = getServiceSupabase();
