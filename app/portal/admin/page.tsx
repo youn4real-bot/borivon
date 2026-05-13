@@ -2969,42 +2969,54 @@ export default function AdminPage() {
                                                                 : lang === "fr" ? "Pas à dessiner — le candidat tape dans les champs existants"
                                                                 : "Skip box drawing — candidate types into existing fields" },
                       ];
+                      // LAW #27 universal PDF popup layout: backdrop at z-[1050]
+                      // (above all page chrome — nav, side rail, bottom bar — so
+                      // the blur covers everything, not just one box). Card uses
+                      // the same dimensions as the fillForm PDF popup so it fills
+                      // the available space between header and bottom nav.
                       return (
                         <>
-                          <div className="fixed inset-0 z-[60]" style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
+                          <div className="fixed inset-0 z-[1050]" style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
                             onClick={() => !slotConfigSaving && setSlotConfigPopup(null)} />
-                          <div className="fixed inset-x-4 top-1/4 z-[61] max-w-sm mx-auto rounded-2xl p-5 space-y-4"
-                            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", maxHeight: "calc(100dvh - 100px)", overflowY: "auto" }}>
-                            <div>
-                              <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>What should happen with this PDF?</p>
-                              <p className="text-[11px] mt-0.5" style={{ color: "var(--w3)" }}>Check everything that applies. Leave all unchecked for document-only.</p>
+                          <div className="fixed inset-x-2 top-[var(--header-h,56px)] bottom-[var(--bottom-nav-h,72px)] z-[1051] sm:max-w-md sm:mx-auto sm:top-[calc(58px+1rem)] sm:bottom-auto sm:max-h-[calc(100dvh-120px)] flex flex-col overflow-hidden"
+                            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", borderRadius: 20, boxShadow: "var(--shadow-lg)" }}>
+                            <div className="px-5 pt-5 pb-3 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
+                              <p className="text-[14px] font-semibold" style={{ color: "var(--w)" }}>
+                                {lang === "de" ? "Was soll mit diesem PDF passieren?" : lang === "fr" ? "Que doit-il se passer avec ce PDF ?" : "What should happen with this PDF?"}
+                              </p>
+                              <p className="text-[11.5px] mt-1" style={{ color: "var(--w3)" }}>
+                                {lang === "de" ? "Wählen Sie alles, was zutrifft. Alles leer = nur Dokument."
+                                 : lang === "fr" ? "Cochez tout ce qui s'applique. Tout décoché = document seul."
+                                 : "Check everything that applies. Leave all unchecked for document-only."}
+                              </p>
                             </div>
-                            <div className="space-y-2">
+                            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2">
                               {checks.map(({ key, label, sub }) => (
                                 <label key={key}
-                                  className="flex items-start gap-3 px-3 py-2.5 rounded-xl cursor-pointer transition-colors"
+                                  className="flex items-start gap-3 px-3 py-3 rounded-xl cursor-pointer transition-colors"
                                   style={{ background: cfg[key as keyof SlotConfigState] ? "var(--gdim)" : "var(--bg2)", border: `1.5px solid ${cfg[key as keyof SlotConfigState] ? "var(--border-gold)" : "var(--border)"}` }}>
                                   <input type="checkbox" className="mt-0.5 flex-shrink-0 accent-[var(--gold)]"
                                     checked={!!cfg[key as keyof SlotConfigState]}
                                     onChange={e => setSlotConfigPopup(prev => prev ? { ...prev, [key]: e.target.checked } : prev)} />
-                                  <div>
-                                    <p className="text-[12px] font-semibold leading-tight" style={{ color: "var(--w)" }}>{label}</p>
-                                    <p className="text-[10.5px] mt-0.5" style={{ color: "var(--w3)" }}>{sub}</p>
+                                  <div className="min-w-0">
+                                    <p className="text-[13px] font-semibold leading-tight" style={{ color: "var(--w)" }}>{label}</p>
+                                    <p className="text-[11px] mt-1 leading-snug" style={{ color: "var(--w3)" }}>{sub}</p>
                                   </div>
                                 </label>
                               ))}
                             </div>
-
-                            <div className="flex gap-2 pt-1">
+                            <div className="flex gap-2 px-5 py-3 flex-shrink-0" style={{ borderTop: "1px solid var(--border)" }}>
                               <button onClick={() => setSlotConfigPopup(null)} disabled={slotConfigSaving}
-                                className="flex-1 py-2.5 rounded-xl text-[12.5px] font-semibold transition-all disabled:opacity-40"
+                                className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold transition-all disabled:opacity-40"
                                 style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
-                                Skip
+                                {lang === "de" ? "Überspringen" : lang === "fr" ? "Passer" : "Skip"}
                               </button>
                               <button onClick={() => saveSlotConfig(cfg)} disabled={slotConfigSaving}
-                                className="flex-1 py-2.5 rounded-xl text-[12.5px] font-semibold transition-all disabled:opacity-40"
+                                className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold transition-all disabled:opacity-40"
                                 style={{ background: "var(--gold)", color: "#131312" }}>
-                                {slotConfigSaving ? "Saving…" : "Confirm"}
+                                {slotConfigSaving
+                                  ? (lang === "de" ? "Speichern…" : lang === "fr" ? "Enregistrement…" : "Saving…")
+                                  : (lang === "de" ? "Bestätigen" : lang === "fr" ? "Confirmer" : "Confirm")}
                               </button>
                             </div>
                           </div>
