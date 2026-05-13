@@ -1393,11 +1393,10 @@ export default function AdminPage() {
     setAdminUploadSlotId(slotId);
     const fd = new FormData();
     fd.append("file", file);
-    // Use "other" as fileKey so Drive places file in the sonstiges subfolder
-    // with an incrementing name (avoids collision when all slot UUIDs fell
-    // through to the same "dokument_original" filename).
-    // fileType stays as slotId so the DB lookup by slot ID still works.
-    fd.append("fileKey", "other");
+    // fileKey = slotId UUID → upload API hits the wizard-slot branch which
+    // slugifies the slot label for the filename (e.g. pflegekraft_calmaroi_form.pdf).
+    // fileType = slotId so the DB row is queryable by slot ID.
+    fd.append("fileKey", slotId);
     fd.append("fileType", slotId);
     fd.append("forUserId", selectedUser);
     try {
@@ -1406,26 +1405,31 @@ export default function AdminPage() {
         headers: { Authorization: `Bearer ${accessToken}` },
         body: fd,
       });
-      if (res.ok) {
-        // Targeted refetch: only reload docs for this candidate, not all docs.
-        const res2 = await fetch(`/api/portal/admin?userId=${selectedUser}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        });
-        if (res2.ok) {
-          const json2 = await res2.json();
-          const freshDocs: Doc[] = json2.docs ?? [];
-          // Merge: replace this candidate's docs, keep all others intact.
-          setDocs(prev => [
-            ...prev.filter(d => d.user_id !== selectedUser),
-            ...freshDocs,
-          ]);
-        }
-        // LAW #34: auto-open config popup on first upload only (new slot, no previous PDF).
-        // On re-uploads admin can still access it via the "…" menu.
-        if (isFirstUpload) {
-          setSlotConfigPopup({ slotId, admin_signs: false, candidate_signs: false, admin_fills: false, candidate_fills: false, pdf_has_native_fields: false });
-        }
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        showError((body as { error?: string }).error ?? `Upload failed (${res.status})`);
+        return;
       }
+      // Targeted refetch: only reload docs for this candidate, not all others.
+      const res2 = await fetch(`/api/portal/admin?userId=${selectedUser}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (res2.ok) {
+        const json2 = await res2.json();
+        const freshDocs: Doc[] = json2.docs ?? [];
+        setDocs(prev => [
+          ...prev.filter(d => d.user_id !== selectedUser),
+          ...freshDocs,
+        ]);
+      }
+      // LAW #34: auto-open config popup on first upload only (new slot, no previous PDF).
+      // On re-uploads admin uses the "…" menu.
+      if (isFirstUpload) {
+        setSlotConfigPopup({ slotId, admin_signs: false, candidate_signs: false, admin_fills: false, candidate_fills: false, pdf_has_native_fields: false });
+      }
+    } catch (err) {
+      showError("Upload failed — check your connection and try again.");
+      console.error("[adminUploadFile]", err);
     } finally {
       setAdminUploadSlotId(null);
     }
