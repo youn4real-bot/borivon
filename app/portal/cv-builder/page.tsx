@@ -427,7 +427,7 @@ function PickerPopup({ open, title, options, selectedValue, onPick, onClose }: {
       <div className="fixed inset-0 z-[1100]"
         style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", animation: "bvFadeRise 0.2s var(--ease-out)" }}
         onClick={onClose} />
-      <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pointer-events-none">
+      <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4 pointer-events-none">
         <div className="w-full max-w-[320px] max-h-[70vh] overflow-hidden flex flex-col pointer-events-auto"
           style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
           <div className="flex items-center justify-between px-5 py-4">
@@ -657,7 +657,7 @@ function PhoneInput({ value, onChange, hasError = false }: { value: string; onCh
             style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", animation: "bvFadeRise 0.2s var(--ease-out)" }}
             onClick={() => setOpen(false)} />
           {/* Centered popup */}
-          <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pointer-events-none">
+          <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4 pointer-events-none">
             <div className="w-full max-w-[360px] max-h-[70vh] overflow-hidden flex flex-col pointer-events-auto"
               style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
               <div className="flex items-center justify-between px-5 py-4">
@@ -769,7 +769,7 @@ function ExtraNationalityPickerHost({ existing, onPick, onClose }: {
       <div className="fixed inset-0 z-[1100]"
         style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", animation: "bvFadeRise 0.2s var(--ease-out)" }}
         onClick={onClose} />
-      <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pointer-events-none">
+      <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4 pointer-events-none">
         <div className="w-full max-w-[360px] max-h-[70vh] overflow-hidden flex flex-col pointer-events-auto"
           style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
           <div className="flex items-center justify-between px-5 py-4">
@@ -861,7 +861,7 @@ function InternshipInfoPopup({ open, onClose }: { open: boolean; onClose: () => 
       <div className="fixed inset-0 z-[1100]"
         style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", animation: "bvFadeRise 0.2s var(--ease-out)" }}
         onClick={onClose} />
-      <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pointer-events-none">
+      <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4 pointer-events-none">
         <div className="w-full max-w-[400px] max-h-[85vh] overflow-y-auto flex flex-col pointer-events-auto"
           style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
           <div className="px-6 pt-6 pb-2 text-center">
@@ -1046,7 +1046,7 @@ function AbiturInfoPopup({ open, onClose }: { open: boolean; onClose: () => void
       <div className="fixed inset-0 z-[1100]"
         style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", animation: "bvFadeRise 0.2s var(--ease-out)" }}
         onClick={onClose} />
-      <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pointer-events-none">
+      <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4 pointer-events-none">
         <div className="w-full max-w-[400px] max-h-[85vh] overflow-y-auto flex flex-col pointer-events-auto"
           style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
           <div className="px-6 pt-6 pb-2 text-center">
@@ -1307,7 +1307,7 @@ function NationalityPicker({ value, onChange, titleOverride }: {
           <div className="fixed inset-0 z-[1100]"
             style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", animation: "bvFadeRise 0.2s var(--ease-out)" }}
             onClick={() => setOpen(false)} />
-          <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pointer-events-none">
+          <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4 pointer-events-none">
             <div className="w-full max-w-[360px] max-h-[70vh] overflow-hidden flex flex-col pointer-events-auto"
               style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
               <div className="flex items-center justify-between px-5 py-4">
@@ -1550,7 +1550,7 @@ function PassportLockPopup({ open, onClose, passportStatus }: {
       <div className="fixed inset-0 z-[1100]"
         style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", animation: "bvFadeRise 0.2s var(--ease-out)" }}
         onClick={onClose} />
-      <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pointer-events-none">
+      <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4 pointer-events-none">
         <div className="w-full max-w-[360px] overflow-hidden flex flex-col pointer-events-auto"
           style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
           <div className="px-6 pt-6 pb-2 text-center">
@@ -3734,7 +3734,7 @@ function CVBuilderInner() {
 
     {/* ── Submit confirmation modal (LAW #36) ── */}
     {showSubmitConfirm && typeof document !== "undefined" && createPortal(
-      <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4"
+      <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
         style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
         onClick={() => setShowSubmitConfirm(false)}>
         <div className="w-full max-w-md p-7 flex flex-col items-center text-center rounded-[20px]"

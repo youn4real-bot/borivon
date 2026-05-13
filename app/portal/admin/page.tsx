@@ -2905,7 +2905,7 @@ export default function AdminPage() {
                     {addSlotPhase && typeof window !== "undefined" && createPortal(
                       // LAW #36: portal to body so bv-enter animation stacking context
                       // doesn't trap fixed positioning inside the column.
-                      <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4"
+                      <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
                         style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
                         onClick={() => !addSlotSaving && setAddSlotPhase(null)}>
                         <div className="w-full max-w-sm rounded-[20px] p-5 space-y-4"
@@ -2977,7 +2977,7 @@ export default function AdminPage() {
                       // LAW #36 universal popup: single wrapper (backdrop + card unified)
                       // so blur covers the entire viewport, not just behind the card.
                       return (
-                        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-stretch sm:items-center justify-center p-2 sm:p-4"
+                        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-stretch sm:items-center justify-center p-2 sm:p-4 pb-[88px]"
                           style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
                           onClick={() => !slotConfigSaving && setSlotConfigPopup(null)}>
                           <div className="w-full sm:max-w-md flex flex-col overflow-hidden"
@@ -3085,7 +3085,7 @@ export default function AdminPage() {
 
                       // LAW #36 universal popup
                       return (
-                        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-stretch sm:items-center justify-center p-2 sm:p-4"
+                        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-stretch sm:items-center justify-center p-2 sm:p-4 pb-[88px]"
                           style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
                           onClick={() => setConfigFieldsSlot(null)}>
                           <div className="w-full sm:max-w-3xl flex flex-col overflow-hidden"
@@ -3795,7 +3795,7 @@ export default function AdminPage() {
         {deleteCandidateConfirm && typeof window !== "undefined" && createPortal(
           <>
             <div className="fixed inset-0 z-[9999] bg-black/40 backdrop-blur-sm bv-modal-outer" onClick={() => !deletingCandidate && setDeleteCandidateConfirm(false)} />
-            <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 bv-modal-outer">
+            <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 pb-[88px] sm:pb-4 bv-modal-outer">
               <div className="w-full max-w-sm rounded-2xl p-6 flex flex-col gap-4"
                 style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }}>
                 <div className="flex flex-col items-center gap-2 text-center">
@@ -3902,7 +3902,7 @@ export default function AdminPage() {
 
       {/* ── Edit slot label modal (LAW #36) ── */}
       {editingSlotId && (
-        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4"
+        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
           style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
           onClick={() => setEditingSlotId(null)}>
           <div className="w-full max-w-md rounded-[20px] p-6 space-y-4"
@@ -3947,7 +3947,7 @@ export default function AdminPage() {
         const slot = Object.values(phaseSlots).flat().find(s => s.id === sub.slotId);
         // LAW #36 universal popup
         return (
-          <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4"
+          <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
             style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
             onClick={() => !adminSigUploading && setAdminSigSubPopup(null)}>
             <div className="w-full max-w-sm rounded-[20px] p-5 space-y-3"
@@ -4285,7 +4285,7 @@ export default function AdminPage() {
                 }
                 // LAW #36 universal popup (nested above wizard at z-[1101])
                 return (
-                  <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1101] flex items-center justify-center p-4"
+                  <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
                     style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
                     onClick={cancelBinding}>
                     <div className="w-full max-w-sm rounded-[20px] p-4 space-y-2"
@@ -5023,7 +5023,7 @@ export default function AdminPage() {
 
           {/* ── New-org modal (LAW #36) ── */}
           {newOrgModal && typeof window !== "undefined" && createPortal(
-            <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4"
+            <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
               style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
               onClick={() => !newOrgCreating && setNewOrgModal(false)}>
               <div className="w-full max-w-sm rounded-[20px] overflow-hidden"
@@ -5263,7 +5263,7 @@ export default function AdminPage() {
 
       {/* ── Edit slot label modal (LAW #36) ── */}
       {editingSlotId && (
-        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4"
+        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
           style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
           onClick={() => setEditingSlotId(null)}>
           <div className="w-full max-w-md rounded-[20px] p-6 space-y-4"

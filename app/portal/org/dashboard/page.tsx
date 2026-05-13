@@ -1310,7 +1310,7 @@ export default function OrgDashboardPage() {
 
           {/* Add slot modal (LAW #36) */}
           {addSlotPhase && (
-            <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4"
+            <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
               style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
               onClick={() => setAddSlotPhase(null)}>
               <div className="w-full max-w-sm rounded-[20px] p-5 space-y-4"

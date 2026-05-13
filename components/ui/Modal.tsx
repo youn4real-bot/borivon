@@ -82,7 +82,7 @@ export function Modal({
 
   return createPortal(
     <div
-      className="fixed inset-x-0 bottom-0 z-[1100] flex items-center justify-center p-4 bv-modal-outer"
+      className="fixed inset-x-0 bottom-0 z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
       style={{
         top: "calc(58px + var(--bv-subnav-h, 0px))",
         background: "rgba(0,0,0,0.45)",
@@ -90,13 +90,6 @@ export function Modal({
         animation: "bvFadeRise 0.22s var(--ease-out)",
       }}
       onClick={() => { if (closeOnBackdrop && !busy) onClose(); }}>
-      {/* Mobile: leave clearance for the bottom action bar so the modal
-          never slides behind the language / theme / profile cluster. */}
-      <style>{`
-        @media (max-width: 639.98px) {
-          .bv-modal-outer { padding-bottom: calc(1rem + 72px) !important; }
-        }
-      `}</style>
       <FocusTrap
         focusTrapOptions={{
           escapeDeactivates: false,           // Esc handled by our useEffect (busy-aware)

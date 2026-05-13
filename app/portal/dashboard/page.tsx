@@ -1386,7 +1386,7 @@ export default function DashboardPage() {
         <div className="fixed inset-0 z-[1100]"
           style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise 0.2s var(--ease-out)" }}
           onClick={() => setDocHintOpen(null)} />
-        <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pointer-events-none">
+        <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4 pointer-events-none">
           <div className="w-full max-w-[400px] max-h-[85vh] overflow-y-auto flex flex-col pointer-events-auto"
             style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
             <div className="px-6 pt-6 pb-2 text-center">
@@ -1438,7 +1438,7 @@ export default function DashboardPage() {
           : d.sex || "—";
       const expired = d.passport_expiry && new Date(d.passport_expiry) < new Date();
       return (
-        <div className="fixed inset-x-0 bottom-0 z-[820] flex items-center justify-center p-4 bv-modal-outer"
+        <div className="fixed inset-x-0 bottom-0 z-[820] flex items-center justify-center p-4 pb-[88px] sm:pb-4 bv-modal-outer"
           style={{ top: "calc(58px + var(--bv-subnav-h, 0px))", background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
           onClick={() => setInfoPassportData(null)}>
           <div className="w-full max-w-md overflow-hidden flex flex-col"
@@ -2694,7 +2694,7 @@ export default function DashboardPage() {
         const popItem = ALL_ITEMS.find(i => i.key === tipPopup.itemKey);
         if (!popItem) return null;
         return (
-          <div className="fixed inset-x-0 bottom-0 z-[820] flex items-center justify-center p-4 bv-modal-outer"
+          <div className="fixed inset-x-0 bottom-0 z-[820] flex items-center justify-center p-4 pb-[88px] sm:pb-4 bv-modal-outer"
             style={{ top: "calc(58px + var(--bv-subnav-h, 0px))", background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
             onClick={() => setTipPopup(null)}>
             <div className="w-full max-w-sm overflow-hidden"
@@ -3221,7 +3221,7 @@ export default function DashboardPage() {
 
       {/* Passport field hint — issuing authority */}
       {passportHint === "issuing_authority" && (
-        <div className="fixed inset-x-0 bottom-0 z-[820] flex items-center justify-center p-4 bv-modal-outer"
+        <div className="fixed inset-x-0 bottom-0 z-[820] flex items-center justify-center p-4 pb-[88px] sm:pb-4 bv-modal-outer"
           style={{ top: "calc(58px + var(--bv-subnav-h, 0px))", background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
           onClick={() => setPassportHint(null)}>
           <div className="w-full max-w-md overflow-hidden"
@@ -3282,7 +3282,7 @@ export default function DashboardPage() {
 
       {/* Passport field hint — address */}
       {passportHint === "address_street" && (
-        <div className="fixed inset-x-0 bottom-0 z-[820] flex items-center justify-center p-4 bv-modal-outer"
+        <div className="fixed inset-x-0 bottom-0 z-[820] flex items-center justify-center p-4 pb-[88px] sm:pb-4 bv-modal-outer"
           style={{ top: "calc(58px + var(--bv-subnav-h, 0px))", background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
           onClick={() => setPassportHint(null)}>
           <div className="w-full max-w-md overflow-hidden flex flex-col"
@@ -3434,7 +3434,7 @@ export default function DashboardPage() {
 
       {/* Passport field hint — postal code */}
       {passportHint === "address_postal" && (
-        <div className="fixed inset-x-0 bottom-0 z-[820] flex items-center justify-center p-4 bv-modal-outer"
+        <div className="fixed inset-x-0 bottom-0 z-[820] flex items-center justify-center p-4 pb-[88px] sm:pb-4 bv-modal-outer"
           style={{ top: "calc(58px + var(--bv-subnav-h, 0px))", background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
           onClick={() => setPassportHint(null)}>
           <div className="w-full max-w-md overflow-hidden"
@@ -3526,7 +3526,7 @@ export default function DashboardPage() {
 
       {/* Berufserlaubnis guide modal (LAW #36) */}
       {showWorkGuide && (
-        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4"
+        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
           style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
           onClick={() => setShowWorkGuide(false)}>
           <div className="relative w-full max-w-md rounded-[20px] overflow-hidden"
@@ -3593,7 +3593,7 @@ export default function DashboardPage() {
 
       {/* Fill-form modal (LAW #36) — candidate fills admin-placed field boxes on a template PDF */}
       {fillForm && (
-        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-stretch sm:items-center justify-center p-2 sm:p-4"
+        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-stretch sm:items-center justify-center p-2 sm:p-4 pb-[88px]"
           style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
           onClick={() => !fillFormSubmitting && setFillForm(null)}>
           <div className="w-full sm:max-w-3xl flex flex-col overflow-hidden"
@@ -3712,7 +3712,7 @@ export default function DashboardPage() {
           saved globally + applied to the current sig zone. */}
       {candidateSigSubPopup && (
         // LAW #36 universal popup (nested above fill-form at z-[1101])
-        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1101] flex items-center justify-center p-4"
+        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
           style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
           onClick={() => !candidateSigUploading && setCandidateSigSubPopup(null)}>
           <div className="w-full max-w-sm rounded-[20px] p-5 space-y-3"
@@ -3795,7 +3795,7 @@ export default function DashboardPage() {
 
       {/* Example modal (LAW #36) */}
       {exampleUrl && (
-        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4"
+        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
           style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
           onClick={() => setExampleUrl(null)}>
           <div className="relative max-w-lg w-full rounded-[20px] overflow-hidden"
