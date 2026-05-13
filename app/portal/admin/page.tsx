@@ -2984,14 +2984,23 @@ export default function AdminPage() {
                             onClick={e => e.stopPropagation()}
                             style={{ background: "var(--card)", border: "1px solid var(--border-gold)", borderRadius: 20, boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 72px - 16px)" }}>
                             <div className="px-5 pt-5 pb-3 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
-                              <p className="text-[14px] font-semibold" style={{ color: "var(--w)" }}>
-                                {lang === "de" ? "Was soll mit diesem PDF passieren?" : lang === "fr" ? "Que doit-il se passer avec ce PDF ?" : "What should happen with this PDF?"}
-                              </p>
-                              <p className="text-[11.5px] mt-1" style={{ color: "var(--w3)" }}>
-                                {lang === "de" ? "Wählen Sie alles, was zutrifft. Alles leer = nur Dokument."
-                                 : lang === "fr" ? "Cochez tout ce qui s'applique. Tout décoché = document seul."
-                                 : "Check everything that applies. Leave all unchecked for document-only."}
-                              </p>
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="text-[14px] font-semibold" style={{ color: "var(--w)" }}>
+                                    {lang === "de" ? "Was soll mit diesem PDF passieren?" : lang === "fr" ? "Que doit-il se passer avec ce PDF ?" : "What should happen with this PDF?"}
+                                  </p>
+                                  <p className="text-[11.5px] mt-1" style={{ color: "var(--w3)" }}>
+                                    {lang === "de" ? "Wählen Sie alles, was zutrifft. Alles leer = nur Dokument."
+                                     : lang === "fr" ? "Cochez tout ce qui s'applique. Tout décoché = document seul."
+                                     : "Check everything that applies. Leave all unchecked for document-only."}
+                                  </p>
+                                </div>
+                                <button onClick={() => setSlotConfigPopup(null)} disabled={slotConfigSaving}
+                                  className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 disabled:opacity-40"
+                                  style={{ color: "var(--w3)" }}>
+                                  <XIcon size={14} strokeWidth={1.8} />
+                                </button>
+                              </div>
                             </div>
                             <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2">
                               {checks.map(({ key, label, sub }) => (
