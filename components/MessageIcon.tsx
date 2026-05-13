@@ -25,6 +25,7 @@ import { Send, X as XIcon, Image as ImageIcon, Bug, Maximize2, Minimize2, Downlo
 import { Spinner } from "@/components/ui/states";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { relativeTime, dayLabel, clockTime } from "@/lib/relativeTime";
+import { useDismiss } from "@/lib/useDismiss";
 
 type Role = "candidate" | "admin";
 type Kind = "message" | "bug";
@@ -837,21 +838,11 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
     };
   }, [fetchMsgs]);
 
-  // Click-outside / Escape close the inbox dropdown (modal handles its own).
-  // On mobile the portal backdrop handles dismissal — no mousedown listener needed.
-  useEffect(() => {
-    const down = (e: MouseEvent) => {
-      if (!inboxOpen || threadOpen) return;
-      if (window.matchMedia("(max-width: 639.98px)").matches) return;
-      if (ref.current && !ref.current.contains(e.target as Node)) setInboxOpen(false);
-    };
-    const key = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && inboxOpen && !threadOpen) setInboxOpen(false);
-    };
-    document.addEventListener("mousedown", down);
-    document.addEventListener("keydown", key);
-    return () => { document.removeEventListener("mousedown", down); document.removeEventListener("keydown", key); };
-  }, [inboxOpen, threadOpen]);
+  // Click-outside / Esc → close the inbox dropdown via shared hook.
+  // skipMobile=true: the mobile portal backdrop handles dismissal itself.
+  // We gate on `inboxOpen && !threadOpen` so the listener detaches while the
+  // thread modal is open (its own Esc handler takes over).
+  useDismiss(ref, inboxOpen && !threadOpen, () => setInboxOpen(false), { skipMobile: true });
 
   function openThread() {
     // Optimistic: clear unread + mark local admin messages as read.
@@ -1011,19 +1002,10 @@ function AdminInbox({ accessToken }: { accessToken: string }) {
   // Click-outside / Escape close the INBOX dropdown (the thread modal handles
   // its own close — Esc / X / backdrop click).
   // On mobile the portal backdrop handles dismissal — no mousedown listener needed.
-  useEffect(() => {
-    const down = (e: MouseEvent) => {
-      if (!inboxOpen || activeThread) return;
-      if (window.matchMedia("(max-width: 639.98px)").matches) return;
-      if (ref.current && !ref.current.contains(e.target as Node)) setInboxOpen(false);
-    };
-    const key = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && inboxOpen && !activeThread) setInboxOpen(false);
-    };
-    document.addEventListener("mousedown", down);
-    document.addEventListener("keydown", key);
-    return () => { document.removeEventListener("mousedown", down); document.removeEventListener("keydown", key); };
-  }, [inboxOpen, activeThread]);
+  // Click-outside / Esc → close the admin inbox via shared hook.
+  // skipMobile=true: mobile portal backdrop owns dismissal.
+  // Detaches while a thread modal is open (its own Esc takes over).
+  useDismiss(ref, inboxOpen && !activeThread, () => setInboxOpen(false), { skipMobile: true });
 
   // Fast-poll the inbox list while it's open.
   useEffect(() => {

@@ -10,6 +10,7 @@ import { Spinner } from "@/components/ui/states";
 import { useLang } from "@/components/LangContext";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { relativeTimeShort } from "@/lib/relativeTime";
+import { useDismiss } from "@/lib/useDismiss";
 
 // ── Minimal bell-specific translations ─────────────────────────────────────────
 const BELL_T = {
@@ -299,16 +300,10 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
     return () => { supabase.removeChannel(ch); };
   }, [userId, fetch_]);
 
-  useEffect(() => {
-    const down = (e: MouseEvent) => {
-      if (window.matchMedia("(max-width: 639.98px)").matches) return;
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    const key  = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
-    document.addEventListener("mousedown", down);
-    document.addEventListener("keydown", key);
-    return () => { document.removeEventListener("mousedown", down); document.removeEventListener("keydown", key); };
-  }, []);
+  // Outside-press + Esc handled via shared hook (lib/useDismiss).
+  // skipMobile=true → phones use a dedicated bottom-sheet backdrop, not the
+  // global outside-press dismiss.
+  useDismiss(ref, open, () => setOpen(false), { skipMobile: true });
 
   async function markAllRead() {
     const prev = notifs;
@@ -540,16 +535,8 @@ function AdminBell({ accessToken }: { accessToken: string }) {
     return () => { clearInterval(timer); supabase.removeChannel(channel); };
   }, [fetch_]);
 
-  useEffect(() => {
-    const down = (e: MouseEvent) => {
-      if (window.matchMedia("(max-width: 639.98px)").matches) return;
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    const key  = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
-    document.addEventListener("mousedown", down);
-    document.addEventListener("keydown", key);
-    return () => { document.removeEventListener("mousedown", down); document.removeEventListener("keydown", key); };
-  }, []);
+  // Outside-press + Esc handled via shared hook (lib/useDismiss).
+  useDismiss(ref, open, () => setOpen(false), { skipMobile: true });
 
   async function markAllRead() {
     const prev = notifs;
