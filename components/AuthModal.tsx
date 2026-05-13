@@ -305,7 +305,7 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
         }
       `}</style>
       <div
-        className="w-full sm:max-w-[420px] rounded-[22px] flex flex-col"
+        className="w-full sm:max-w-[420px] rounded-[20px] flex flex-col"
         style={{
           background: "var(--card)",
           border: "1px solid var(--border)",

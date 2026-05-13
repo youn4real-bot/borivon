@@ -228,7 +228,7 @@ function NotifDropdown({ label, total, unread, tab, onTabChange, onClose, childr
   if (isMobile && typeof document !== "undefined") {
     return createPortal(
       <>
-        <div className="fixed inset-0" style={{ zIndex: 1299, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)" }} onClick={onClose} />
+        <div className="fixed inset-0" style={{ zIndex: 1299, background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }} onClick={onClose} />
         <div id="bv-notif-dropdown" role="dialog" aria-modal="false" aria-label={label}
           className="fixed bottom-0 left-0 right-0 flex flex-col rounded-t-[22px]"
           style={{ zIndex: 1300, background: "var(--card)", border: "1px solid var(--border)", borderBottom: "none", boxShadow: "0 -12px 40px rgba(0,0,0,0.32)", animation: "bvSlideUp 0.28s var(--ease-out)", maxHeight: "80dvh", overflow: "hidden" }}>

@@ -2900,7 +2900,7 @@ export default function AdminPage() {
                             later when admin clicks the slot row. ─────────── */}
                     {addSlotPhase && (
                       <>
-                        <div className="fixed inset-0 z-40" style={{ background: "rgba(0,0,0,0.5)" }}
+                        <div className="fixed inset-0 z-40" style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
                           onClick={() => setAddSlotPhase(null)} />
                         <div className="fixed inset-x-4 top-1/4 z-50 max-w-sm mx-auto rounded-2xl p-5 space-y-4"
                           style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)" }}>
@@ -2949,7 +2949,7 @@ export default function AdminPage() {
                       ];
                       return (
                         <>
-                          <div className="fixed inset-0 z-[60]" style={{ background: "rgba(0,0,0,0.55)" }}
+                          <div className="fixed inset-0 z-[60]" style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
                             onClick={() => !slotConfigSaving && setSlotConfigPopup(null)} />
                           <div className="fixed inset-x-4 top-1/4 z-[61] max-w-sm mx-auto rounded-2xl p-5 space-y-4"
                             style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", maxHeight: "calc(100dvh - 100px)", overflowY: "auto" }}>
@@ -3048,7 +3048,7 @@ export default function AdminPage() {
 
                       return (
                         <>
-                          <div className="fixed inset-0 z-40" style={{ background: "rgba(0,0,0,0.6)" }}
+                          <div className="fixed inset-0 z-40" style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
                             onClick={() => setConfigFieldsSlot(null)} />
                           <div className="fixed inset-x-2 top-[var(--header-h,56px)] bottom-[var(--bottom-nav-h,0px)] z-50 flex flex-col rounded-2xl overflow-hidden"
                             style={{ background: "var(--card)", border: "1px solid var(--border-gold)" }}>
@@ -3864,7 +3864,7 @@ export default function AdminPage() {
       {/* ── Edit slot label modal ── */}
       {editingSlotId && (
         <div className="fixed inset-0 z-[800] flex items-end sm:items-center justify-center p-4"
-          style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(8px)" }}
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
           onClick={() => setEditingSlotId(null)}>
           <div className="w-full max-w-md rounded-2xl p-6 space-y-4"
             style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)" }}
@@ -3908,7 +3908,7 @@ export default function AdminPage() {
         const slot = Object.values(phaseSlots).flat().find(s => s.id === sub.slotId);
         return (
           <>
-            <div className="fixed inset-0 z-[70]" style={{ background: "rgba(0,0,0,0.65)" }}
+            <div className="fixed inset-0 z-[70]" style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
               onClick={() => !adminSigUploading && setAdminSigSubPopup(null)} />
             <div className="fixed inset-x-4 top-1/4 z-[71] max-w-sm mx-auto rounded-2xl p-5 space-y-3"
               style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)" }}>
@@ -4118,7 +4118,7 @@ export default function AdminPage() {
 
         return (
           <div className="fixed inset-0 z-[80] flex flex-col"
-            style={{ background: "rgba(0,0,0,0.85)" }}>
+            style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}>
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 flex-shrink-0"
               style={{ background: "var(--card)", borderBottom: "1px solid var(--border)" }}>
@@ -4241,7 +4241,7 @@ export default function AdminPage() {
                 }
                 return (
                   <>
-                    <div className="fixed inset-0 z-[81]" style={{ background: "rgba(0,0,0,0.7)" }}
+                    <div className="fixed inset-0 z-[81]" style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
                       onClick={cancelBinding} />
                     <div className="fixed inset-x-4 top-1/4 z-[82] max-w-sm mx-auto rounded-2xl p-4 space-y-2"
                       style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", maxHeight: "70dvh", overflowY: "auto" }}>
@@ -4347,7 +4347,7 @@ export default function AdminPage() {
       {/* ── Signature request modal ── */}
       {sigModal && (
         <div data-bv-sigmodal="1" className="fixed inset-0 z-[2147483600] flex items-center justify-center p-3 sm:p-6"
-          style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(10px)", position: "fixed", top: 0, left: 0, right: 0, bottom: 0 }}
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", position: "fixed", top: 0, left: 0, right: 0, bottom: 0 }}
           onClick={() => { setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null); setSigAdminSig(null); setSigAdminWantSave(true); setSigOrgSig(null); setSigOrgWantSave(true); }}>
           <div className="w-full max-w-4xl rounded-2xl overflow-hidden flex flex-col"
             style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)", maxHeight: "calc(100dvh - 80px)" }}
@@ -5218,7 +5218,7 @@ export default function AdminPage() {
       {/* ── Edit slot label modal ── */}
       {editingSlotId && (
         <div className="fixed inset-0 z-[800] flex items-end sm:items-center justify-center p-4"
-          style={{ background: "rgba(0,0,0,0.5)", backdropFilter: "blur(8px)" }}
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
           onClick={() => setEditingSlotId(null)}>
           <div className="w-full max-w-md rounded-2xl p-6 space-y-4"
             style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)" }}
@@ -5270,7 +5270,7 @@ export default function AdminPage() {
       {/* ── Signature request modal — inline render, no portal ── */}
       {sigModal && (
         <div data-bv-sigmodal="1" className="fixed inset-0 z-[2147483600] flex items-center justify-center p-3 sm:p-6"
-          style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(10px)", position: "fixed", top: 0, left: 0, right: 0, bottom: 0 }}
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", position: "fixed", top: 0, left: 0, right: 0, bottom: 0 }}
           onClick={() => { setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null); setSigAdminSig(null); setSigAdminWantSave(true); setSigOrgSig(null); setSigOrgWantSave(true); }}>
           <div className="w-full max-w-4xl rounded-2xl overflow-hidden flex flex-col"
             style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)", maxHeight: "calc(100dvh - 80px)" }}

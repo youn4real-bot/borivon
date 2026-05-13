@@ -106,8 +106,8 @@ export function OrgCodeModal({
 
   return createPortal(
     <div className="fixed inset-x-0 bottom-0 top-[58px] z-[700] flex items-center justify-center p-4 bv-org-modal-outer"
-      style={{ background: "rgba(0,0,0,0.72)", backdropFilter: "blur(8px)",
-               animation: "bvFadeRise 0.32s var(--ease-out)" }}>
+      style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)",
+               animation: "bvFadeRise 0.22s var(--ease-out)" }}>
       {/* Reserve space for the mobile bottom action bar so the modal never
           slides behind the language/theme/profile cluster on small screens. */}
       <style>{`
@@ -117,9 +117,9 @@ export function OrgCodeModal({
       `}</style>
       <div className="w-full max-w-[440px] flex flex-col"
         style={{ background: "var(--card)", border: "1px solid var(--border)",
-                 borderRadius: "var(--r-2xl)", boxShadow: "var(--shadow-lg)",
+                 borderRadius: 20, boxShadow: "var(--shadow-lg)",
                  paddingBottom: "env(safe-area-inset-bottom)",
-                 animation: "bvFadeRise 0.36s var(--ease-out)" }}>
+                 animation: "bvFadeRise 0.28s var(--ease-out)" }}>
 
         <div className="px-6 pt-6 pb-4">
           <div className="flex items-center justify-center w-11 h-11 rounded-full mx-auto mb-4"

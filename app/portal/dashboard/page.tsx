@@ -1277,7 +1277,7 @@ export default function DashboardPage() {
         {/* Backdrop — locked while a Stripe checkout is being created so a
             stray click can't cancel the redirect mid-request. */}
         <div className="fixed inset-0 z-[1200]"
-          style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", animation: "bvFadeRise 0.2s var(--ease-out)", cursor: upgradeLoading ? "wait" : "pointer" }}
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise 0.2s var(--ease-out)", cursor: upgradeLoading ? "wait" : "pointer" }}
           onClick={() => { if (!upgradeLoading) { setUpgradeOpen(false); setUpgradeTargetStage(null); } }} />
         <div className="fixed inset-0 z-[1201] flex items-end sm:items-center justify-center p-4 pointer-events-none">
           <div className="w-full max-w-[380px] max-h-[90dvh] overflow-y-auto flex flex-col pointer-events-auto"
@@ -1384,7 +1384,7 @@ export default function DashboardPage() {
     {docHintOpen && (
       <>
         <div className="fixed inset-0 z-[1100]"
-          style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", animation: "bvFadeRise 0.2s var(--ease-out)" }}
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise 0.2s var(--ease-out)" }}
           onClick={() => setDocHintOpen(null)} />
         <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pointer-events-none">
           <div className="w-full max-w-[400px] max-h-[85vh] overflow-y-auto flex flex-col pointer-events-auto"
@@ -1439,7 +1439,7 @@ export default function DashboardPage() {
       const expired = d.passport_expiry && new Date(d.passport_expiry) < new Date();
       return (
         <div className="fixed inset-x-0 bottom-0 z-[820] flex items-center justify-center p-4 bv-modal-outer"
-          style={{ top: "calc(58px + var(--bv-subnav-h, 0px))", background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}
+          style={{ top: "calc(58px + var(--bv-subnav-h, 0px))", background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
           onClick={() => setInfoPassportData(null)}>
           <div className="w-full max-w-md overflow-hidden flex flex-col"
             style={{
@@ -2695,7 +2695,7 @@ export default function DashboardPage() {
         if (!popItem) return null;
         return (
           <div className="fixed inset-x-0 bottom-0 z-[820] flex items-center justify-center p-4 bv-modal-outer"
-            style={{ top: "calc(58px + var(--bv-subnav-h, 0px))", background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}
+            style={{ top: "calc(58px + var(--bv-subnav-h, 0px))", background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
             onClick={() => setTipPopup(null)}>
             <div className="w-full max-w-sm overflow-hidden"
               style={{
@@ -3222,7 +3222,7 @@ export default function DashboardPage() {
       {/* Passport field hint — issuing authority */}
       {passportHint === "issuing_authority" && (
         <div className="fixed inset-x-0 bottom-0 z-[820] flex items-center justify-center p-4 bv-modal-outer"
-          style={{ top: "calc(58px + var(--bv-subnav-h, 0px))", background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}
+          style={{ top: "calc(58px + var(--bv-subnav-h, 0px))", background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
           onClick={() => setPassportHint(null)}>
           <div className="w-full max-w-md overflow-hidden"
             style={{
@@ -3283,7 +3283,7 @@ export default function DashboardPage() {
       {/* Passport field hint — address */}
       {passportHint === "address_street" && (
         <div className="fixed inset-x-0 bottom-0 z-[820] flex items-center justify-center p-4 bv-modal-outer"
-          style={{ top: "calc(58px + var(--bv-subnav-h, 0px))", background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}
+          style={{ top: "calc(58px + var(--bv-subnav-h, 0px))", background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
           onClick={() => setPassportHint(null)}>
           <div className="w-full max-w-md overflow-hidden flex flex-col"
             style={{
@@ -3435,7 +3435,7 @@ export default function DashboardPage() {
       {/* Passport field hint — postal code */}
       {passportHint === "address_postal" && (
         <div className="fixed inset-x-0 bottom-0 z-[820] flex items-center justify-center p-4 bv-modal-outer"
-          style={{ top: "calc(58px + var(--bv-subnav-h, 0px))", background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}
+          style={{ top: "calc(58px + var(--bv-subnav-h, 0px))", background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
           onClick={() => setPassportHint(null)}>
           <div className="w-full max-w-md overflow-hidden"
             style={{
@@ -3527,7 +3527,7 @@ export default function DashboardPage() {
       {/* Berufserlaubnis guide modal */}
       {showWorkGuide && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
           onClick={() => setShowWorkGuide(false)}>
           <div className="relative w-full max-w-md rounded-2xl overflow-hidden"
             style={{ background: "var(--card)", border: "1px solid var(--border-gold)", maxHeight: "90vh", overflowY: "auto" }}
@@ -3594,7 +3594,7 @@ export default function DashboardPage() {
       {/* Fill-form modal — candidate fills admin-placed field boxes on a template PDF */}
       {fillForm && (
         <>
-          <div className="fixed inset-0 z-[1050]" style={{ background: "rgba(0,0,0,0.72)" }}
+          <div className="fixed inset-0 z-[1050]" style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
             onClick={() => !fillFormSubmitting && setFillForm(null)} />
           <div className="fixed inset-x-2 top-[var(--header-h,56px)] bottom-[var(--bottom-nav-h,72px)] z-[1051] flex flex-col rounded-2xl overflow-hidden"
             style={{ background: "var(--card)", border: "1px solid var(--border-gold)" }}>
@@ -3711,7 +3711,7 @@ export default function DashboardPage() {
           saved globally + applied to the current sig zone. */}
       {candidateSigSubPopup && (
         <>
-          <div className="fixed inset-0 z-[1200]" style={{ background: "rgba(0,0,0,0.7)" }}
+          <div className="fixed inset-0 z-[1200]" style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
             onClick={() => !candidateSigUploading && setCandidateSigSubPopup(null)} />
           <div className="fixed inset-x-4 top-1/4 z-[1201] max-w-sm mx-auto rounded-2xl p-5 space-y-3"
             style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)" }}>
@@ -3793,7 +3793,7 @@ export default function DashboardPage() {
       {/* Example modal */}
       {exampleUrl && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
           onClick={() => setExampleUrl(null)}>
           <div className="relative max-w-lg w-full rounded-2xl overflow-hidden"
             style={{ background: "var(--card)", border: "1px solid var(--border-gold)" }}

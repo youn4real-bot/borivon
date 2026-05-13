@@ -172,7 +172,7 @@ export function BugReportButton() {
 
       {open && (
         <div className="fixed inset-0 z-[2100] flex items-end sm:items-center justify-center p-0 sm:p-4"
-          style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)", animation: "bvFadeRise 0.22s var(--ease-out)" }}
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise 0.22s var(--ease-out)" }}
           onClick={close}>
           <div className="w-full max-w-[440px] flex flex-col"
             style={{

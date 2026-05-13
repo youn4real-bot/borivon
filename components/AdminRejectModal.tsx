@@ -59,10 +59,10 @@ export function AdminRejectModal({
 
   return (
     <div className="fixed inset-x-0 bottom-0 top-[58px] z-[800] flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
+      style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
       onClick={() => { if (!submitting) onCancel(); }}>
       <div className="w-full max-w-md overflow-hidden flex flex-col"
-        style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-lg)", boxShadow: "var(--shadow-md)" }}
+        style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "20px", boxShadow: "var(--shadow-lg)" }}
         onClick={e => e.stopPropagation()}>
         <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: "1px solid var(--border)" }}>
           <div className="min-w-0">

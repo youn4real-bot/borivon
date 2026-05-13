@@ -116,7 +116,7 @@ export function CookieBanner({ onOpenPrivacy }: { onOpenPrivacy: () => void }) {
       {visible && (
         <div
           className="fixed inset-0 z-[899]"
-          style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)" }}
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
         />
       )}
 

@@ -91,7 +91,7 @@ export function ProfilePopup({ slug, onClose }: { slug: string; onClose: () => v
 
   const node = (
     <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 bv-profile-popup-outer"
-      style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)",
+      style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)",
                animation: "bvFadeRise .22s var(--ease-out)" }}
       onClick={onClose}>
       {/* Mobile clearance for the bottom action bar */}
@@ -116,7 +116,7 @@ export function ProfilePopup({ slug, onClose }: { slug: string; onClose: () => v
           // Skeleton state
           <div className="px-8 py-10 text-center"
             style={{ background: "var(--card)", borderRadius: "20px",
-                     boxShadow: "0 1px 3px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.18)" }}>
+                     boxShadow: "var(--shadow-lg)" }}>
             <Skeleton className="mx-auto w-24 h-24 mb-5" style={{ borderRadius: "9999px" }} />
             <Skeleton className="mx-auto block w-44 h-5 mb-3" />
             <Skeleton className="mx-auto block w-32 h-6 mt-3" style={{ borderRadius: "9999px" }} />
@@ -124,7 +124,7 @@ export function ProfilePopup({ slug, onClose }: { slug: string; onClose: () => v
         ) : error || !profile ? (
           <div className="px-8 py-10 text-center"
             style={{ background: "var(--card)", borderRadius: "20px",
-                     boxShadow: "0 1px 3px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.18)" }}>
+                     boxShadow: "var(--shadow-lg)" }}>
             <h1 className="text-[18px] font-semibold mb-2" style={{ color: "var(--w)" }}>
               {lang === "de" ? "Profil nicht gefunden" : lang === "en" ? "Profile not found" : "Profil introuvable"}
             </h1>
@@ -139,7 +139,7 @@ export function ProfilePopup({ slug, onClose }: { slug: string; onClose: () => v
         ) : (
           <div className="px-8 py-10 text-center"
             style={{ background: "var(--card)", borderRadius: "20px",
-                     boxShadow: "0 1px 3px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.18)" }}>
+                     boxShadow: "var(--shadow-lg)" }}>
 
             {/* Avatar — photo if set, otherwise initial */}
             {profile.photoUrl ? (

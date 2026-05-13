@@ -273,7 +273,7 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
   const modal = createPortal(
     <div
       className="fixed inset-x-0 z-[1300] flex items-center justify-center px-2 bv-sign-modal-outer"
-      style={{ top: "calc(58px + var(--bv-subnav-h, 0px))", paddingTop: "6px", bottom: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(10px)" }}
+      style={{ top: "calc(58px + var(--bv-subnav-h, 0px))", paddingTop: "6px", bottom: 0, background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
       onClick={() => { if (!signing) onClose(); }}
     >
       <style>{`
@@ -291,8 +291,8 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
       `}</style>
 
       <div
-        className="bv-sign-modal-card w-full max-w-4xl rounded-2xl overflow-hidden flex flex-col"
-        style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)" }}
+        className="bv-sign-modal-card w-full max-w-4xl overflow-hidden flex flex-col"
+        style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)", borderRadius: 20 }}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
