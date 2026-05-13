@@ -632,7 +632,7 @@ export default function AdminPage() {
   const [activePipelineStage, setActivePipelineStage] = useState<string | null>(null);
 
   // ── Dynamic phase slots (Bearbeitung / Visum) ──────────────────────────────
-  type PhaseSlot = { id: string; org_id: string | null; phase: string; position: number; type: "simple" | "dual"; label: string; label_trans: string | null; action_type: string | null; instructions: string | null; template_pdf_path: string | null; form_fields: import("@/lib/pdfFieldEmbed").FormField[] | null; candidate_signature_zone: import("@/components/PdfZonePicker").SigZone | null; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean };
+  type PhaseSlot = { id: string; org_id: string | null; phase: string; position: number; type: "simple" | "dual"; label: string; label_trans: string | null; action_type: string | null; instructions: string | null; template_pdf_path: string | null; form_fields: import("@/lib/pdfFieldEmbed").FormField[] | null; candidate_signature_zone: import("@/components/PdfZonePicker").SigZone | null; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean; pdf_has_native_fields: boolean };
   const [phaseSlots, setPhaseSlots] = useState<Record<string, PhaseSlot[]>>({ bearbeitung: [], visum: [] });
   const [phaseSlotsLoaded, setPhaseSlotsLoaded] = useState<Record<string, boolean>>({ bearbeitung: false, visum: false });
   // Add-slot modal
@@ -641,7 +641,7 @@ export default function AdminPage() {
   const [addSlotInstructions, setAddSlotInstructions] = useState("");
   const [addSlotSaving, setAddSlotSaving]             = useState(false);
   // Slot config popup — appears after admin uploads a PDF to a slot (LAW #34)
-  type SlotConfigState = { slotId: string; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean };
+  type SlotConfigState = { slotId: string; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean; pdf_has_native_fields: boolean };
   const [slotConfigPopup, setSlotConfigPopup]         = useState<SlotConfigState | null>(null);
   const [slotConfigSaving, setSlotConfigSaving]       = useState(false);
   // Admin's reusable signature (uploaded photo of handwriting, bg-removed via Otsu).
@@ -1418,7 +1418,7 @@ export default function AdminPage() {
           ]);
         }
         // LAW #34: show config popup so admin can set action flags for this slot.
-        setSlotConfigPopup({ slotId, admin_signs: false, candidate_signs: false, admin_fills: false, candidate_fills: false });
+        setSlotConfigPopup({ slotId, admin_signs: false, candidate_signs: false, admin_fills: false, candidate_fills: false, pdf_has_native_fields: false });
       }
     } finally {
       setAdminUploadSlotId(null);
@@ -1436,6 +1436,7 @@ export default function AdminPage() {
           id: cfg.slotId,
           admin_signs: cfg.admin_signs, candidate_signs: cfg.candidate_signs,
           admin_fills: cfg.admin_fills, candidate_fills: cfg.candidate_fills,
+          pdf_has_native_fields: cfg.pdf_has_native_fields,
         }),
       });
       // Update local state
@@ -1443,7 +1444,7 @@ export default function AdminPage() {
         const updated: typeof prev = {};
         for (const [ph, slots] of Object.entries(prev)) {
           updated[ph] = (slots ?? []).map(s => s.id === cfg.slotId
-            ? { ...s, admin_signs: cfg.admin_signs, candidate_signs: cfg.candidate_signs, admin_fills: cfg.admin_fills, candidate_fills: cfg.candidate_fills }
+            ? { ...s, admin_signs: cfg.admin_signs, candidate_signs: cfg.candidate_signs, admin_fills: cfg.admin_fills, candidate_fills: cfg.candidate_fills, pdf_has_native_fields: cfg.pdf_has_native_fields }
             : s);
         }
         return updated;
@@ -1461,7 +1462,10 @@ export default function AdminPage() {
 
       // Branch 2: any PDF-drawing step is needed → open the placement wizard.
       // Order of steps (per LAW #34 user spec): fields → admin sig → candidate sig.
-      const needsFields = !!((cfg.admin_fills || cfg.candidate_fills) && slot);
+      // LAW #30 Mode 1: if the PDF already has native AcroForm fields, skip the
+      // fields step entirely — admin doesn't draw boxes; candidate types into
+      // the existing fields the PDF was authored with.
+      const needsFields = !!((cfg.admin_fills || cfg.candidate_fills) && slot && !cfg.pdf_has_native_fields);
       const needsAdminSig = !!(cfg.admin_signs && slot);
       const needsCandidateSig = !!(cfg.candidate_signs && slot);
       if ((needsFields || needsAdminSig || needsCandidateSig) && slot?.template_pdf_path) {
@@ -2636,7 +2640,7 @@ export default function AdminPage() {
                                               </button>
                                               <DropdownMenu open={revokeMenu?.id === menuId} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === menuId ? revokeMenu.el : null}>
                                                     <button
-                                                      onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSlotConfigPopup({ slotId: slot.id, admin_signs: slot.admin_signs, candidate_signs: slot.candidate_signs, admin_fills: slot.admin_fills, candidate_fills: slot.candidate_fills }); }}
+                                                      onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSlotConfigPopup({ slotId: slot.id, admin_signs: slot.admin_signs, candidate_signs: slot.candidate_signs, admin_fills: slot.admin_fills, candidate_fills: slot.candidate_fills, pdf_has_native_fields: !!slot.pdf_has_native_fields }); }}
                                                       className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
                                                       style={{ color: "var(--gold)" }}>
                                                       <Zap size={11} strokeWidth={1.8} /> Action
@@ -2942,10 +2946,28 @@ export default function AdminPage() {
                     {slotConfigPopup && (() => {
                       const cfg = slotConfigPopup;
                       const checks: { key: keyof typeof cfg; label: string; sub: string }[] = [
-                        { key: "admin_signs",      label: "Admin signs",            sub: "You sign the PDF before sending" },
-                        { key: "candidate_signs",  label: "Candidate must sign",    sub: "Candidate signs before submitting" },
-                        { key: "admin_fills",      label: "Admin fills fields",     sub: "You draw + fill field boxes on PDF" },
-                        { key: "candidate_fills",  label: "Candidate must fill",    sub: "Candidate fills your field boxes" },
+                        { key: "admin_signs",            label: lang === "de" ? "Admin unterschreibt"     : lang === "fr" ? "L'admin signe"               : "Admin signs",
+                                                         sub:   lang === "de" ? "Sie unterschreiben das PDF vor dem Senden"
+                                                                : lang === "fr" ? "Vous signez le PDF avant l'envoi"
+                                                                : "You sign the PDF before sending" },
+                        { key: "candidate_signs",        label: lang === "de" ? "Kandidat muss unterschreiben" : lang === "fr" ? "Le candidat doit signer" : "Candidate must sign",
+                                                         sub:   lang === "de" ? "Kandidat unterschreibt vor dem Einreichen"
+                                                                : lang === "fr" ? "Le candidat signe avant de soumettre"
+                                                                : "Candidate signs before submitting" },
+                        { key: "admin_fills",            label: lang === "de" ? "Admin füllt Felder"          : lang === "fr" ? "L'admin remplit les champs" : "Admin fills fields",
+                                                         sub:   lang === "de" ? "Sie zeichnen und füllen Felder auf dem PDF"
+                                                                : lang === "fr" ? "Vous dessinez et remplissez les champs sur le PDF"
+                                                                : "You draw + fill field boxes on PDF" },
+                        { key: "candidate_fills",        label: lang === "de" ? "Kandidat muss ausfüllen"     : lang === "fr" ? "Le candidat doit remplir"  : "Candidate must fill",
+                                                         sub:   lang === "de" ? "Kandidat füllt Ihre Felder aus"
+                                                                : lang === "fr" ? "Le candidat remplit vos champs"
+                                                                : "Candidate fills your field boxes" },
+                        // LAW #30 Mode 1: skip box drawing when the PDF already
+                        // has interactive AcroForm fields built in.
+                        { key: "pdf_has_native_fields",  label: lang === "de" ? "PDF hat bereits Felder"      : lang === "fr" ? "Le PDF a déjà des champs"  : "PDF has digital fields",
+                                                         sub:   lang === "de" ? "Keine Felder zeichnen — Kandidat tippt direkt in vorhandene Felder"
+                                                                : lang === "fr" ? "Pas à dessiner — le candidat tape dans les champs existants"
+                                                                : "Skip box drawing — candidate types into existing fields" },
                       ];
                       return (
                         <>
@@ -3967,12 +3989,15 @@ export default function AdminPage() {
                     });
                     setAdminSavedSig(sub.pendingSig);
                     setAdminSigSubPopup(null);
-                    // Continue the placement chain
+                    // Continue the placement chain.
+                    // LAW #30 Mode 1: skip the fields step when the PDF already
+                    // carries native AcroForm fields — the candidate types into
+                    // them directly, no box-drawing needed.
                     if (slot && slot.template_pdf_path) {
                       await openPlacementWizard(sub.slotId, {
                         admin: slot.admin_signs,
                         candidate: slot.candidate_signs,
-                        fields: slot.admin_fills || slot.candidate_fills,
+                        fields: (slot.admin_fills || slot.candidate_fills) && !slot.pdf_has_native_fields,
                       });
                     }
                   }}

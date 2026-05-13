@@ -102,6 +102,8 @@ type PhaseSlot = {
   candidate_signs: boolean;
   admin_fills: boolean;
   candidate_fills: boolean;
+  /** LAW #30 Mode 1: PDF already has AcroForm fields; skip box-drawing. */
+  pdf_has_native_fields: boolean;
   candidate_signature_zone: { page: number; x: number; y: number; w: number; h: number } | null;
 };
 
@@ -173,6 +175,7 @@ export async function POST(req: NextRequest) {
     phase?: string; type?: string; label?: string; label_trans?: string; orgId?: string;
     action_type?: string; instructions?: string;
     admin_signs?: boolean; candidate_signs?: boolean; admin_fills?: boolean; candidate_fills?: boolean;
+    pdf_has_native_fields?: boolean;
   };
 
   if (!phase || !VALID_PHASES.includes(phase as typeof VALID_PHASES[number]))
@@ -220,10 +223,11 @@ export async function POST(req: NextRequest) {
   if (action_type && ["upload","sign","fill","combo"].includes(action_type)) insertData.action_type = action_type;
   if (instructions?.trim()) insertData.instructions = instructions.trim();
   // New flexible action flags (LAW #34)
-  insertData.admin_signs      = body.admin_signs      === true;
-  insertData.candidate_signs  = body.candidate_signs  === true;
-  insertData.admin_fills      = body.admin_fills      === true;
-  insertData.candidate_fills  = body.candidate_fills  === true;
+  insertData.admin_signs           = body.admin_signs           === true;
+  insertData.candidate_signs       = body.candidate_signs       === true;
+  insertData.admin_fills           = body.admin_fills           === true;
+  insertData.candidate_fills       = body.candidate_fills       === true;
+  insertData.pdf_has_native_fields = body.pdf_has_native_fields === true;
 
   const { data, error } = await db.from("phase_slots").insert(insertData).select().single();
   if (error) {
@@ -246,6 +250,7 @@ export async function PATCH(req: NextRequest) {
     candidate_signature_zone?: unknown;
     positions?: { id: string; position: number }[];
     admin_signs?: boolean; candidate_signs?: boolean; admin_fills?: boolean; candidate_fills?: boolean;
+    pdf_has_native_fields?: boolean;
   };
 
   const db = getServiceSupabase();
@@ -299,10 +304,11 @@ export async function PATCH(req: NextRequest) {
   if (body.template_pdf_path !== undefined) updates.template_pdf_path = body.template_pdf_path || null;
   if (body.form_fields !== undefined) updates.form_fields = body.form_fields ?? null;
   if (body.candidate_signature_zone !== undefined) updates.candidate_signature_zone = body.candidate_signature_zone ?? null;
-  if (body.admin_signs     !== undefined) updates.admin_signs     = !!body.admin_signs;
-  if (body.candidate_signs !== undefined) updates.candidate_signs = !!body.candidate_signs;
-  if (body.admin_fills     !== undefined) updates.admin_fills     = !!body.admin_fills;
-  if (body.candidate_fills !== undefined) updates.candidate_fills = !!body.candidate_fills;
+  if (body.admin_signs           !== undefined) updates.admin_signs           = !!body.admin_signs;
+  if (body.candidate_signs       !== undefined) updates.candidate_signs       = !!body.candidate_signs;
+  if (body.admin_fills           !== undefined) updates.admin_fills           = !!body.admin_fills;
+  if (body.candidate_fills       !== undefined) updates.candidate_fills       = !!body.candidate_fills;
+  if (body.pdf_has_native_fields !== undefined) updates.pdf_has_native_fields = !!body.pdf_has_native_fields;
 
   if (Object.keys(updates).length > 0)
     await db.from("phase_slots").update(updates).eq("id", body.id);
