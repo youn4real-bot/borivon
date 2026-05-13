@@ -3524,13 +3524,13 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Berufserlaubnis guide modal */}
+      {/* Berufserlaubnis guide modal (LAW #36) */}
       {showWorkGuide && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
+        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
           onClick={() => setShowWorkGuide(false)}>
-          <div className="relative w-full max-w-md rounded-2xl overflow-hidden"
-            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", maxHeight: "90vh", overflowY: "auto" }}
+          <div className="relative w-full max-w-md rounded-[20px] overflow-hidden"
+            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 72px - 32px)", overflowY: "auto" }}
             onClick={(e) => e.stopPropagation()}>
 
             {/* Header */}
@@ -3591,13 +3591,14 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Fill-form modal — candidate fills admin-placed field boxes on a template PDF */}
+      {/* Fill-form modal (LAW #36) — candidate fills admin-placed field boxes on a template PDF */}
       {fillForm && (
-        <>
-          <div className="fixed inset-0 z-[1050]" style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
-            onClick={() => !fillFormSubmitting && setFillForm(null)} />
-          <div className="fixed inset-x-2 top-[var(--header-h,56px)] bottom-[var(--bottom-nav-h,72px)] z-[1051] flex flex-col rounded-2xl overflow-hidden"
-            style={{ background: "var(--card)", border: "1px solid var(--border-gold)" }}>
+        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-stretch sm:items-center justify-center p-2 sm:p-4"
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
+          onClick={() => !fillFormSubmitting && setFillForm(null)}>
+          <div className="w-full sm:max-w-3xl flex flex-col overflow-hidden"
+            onClick={e => e.stopPropagation()}
+            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", borderRadius: 20, boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 72px - 16px)" }}>
             {/* Header */}
             <div className="flex items-center gap-3 px-4 py-3 border-b flex-shrink-0" style={{ borderColor: "var(--border)" }}>
               <p className="flex-1 text-[13px] font-semibold truncate" style={{ color: "var(--w)" }}>
@@ -3702,7 +3703,7 @@ export default function DashboardPage() {
               )}
             </div>
           </div>
-        </>
+        </div>
       )}
 
       {/* ── Candidate signature upload sub-popup (LAW #29) ─────────────────
@@ -3710,11 +3711,13 @@ export default function DashboardPage() {
           and they have no saved signature yet. Photo → Otsu → confirm/redo →
           saved globally + applied to the current sig zone. */}
       {candidateSigSubPopup && (
-        <>
-          <div className="fixed inset-0 z-[1200]" style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
-            onClick={() => !candidateSigUploading && setCandidateSigSubPopup(null)} />
-          <div className="fixed inset-x-4 top-1/4 z-[1201] max-w-sm mx-auto rounded-2xl p-5 space-y-3"
-            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)" }}>
+        // LAW #36 universal popup (nested above fill-form at z-[1101])
+        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1101] flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
+          onClick={() => !candidateSigUploading && setCandidateSigSubPopup(null)}>
+          <div className="w-full max-w-sm rounded-[20px] p-5 space-y-3"
+            onClick={e => e.stopPropagation()}
+            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)" }}>
             <div>
               <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>
                 {lang === "de" ? "Ihre Unterschrift" : lang === "fr" ? "Votre signature" : "Your signature"}
@@ -3787,16 +3790,16 @@ export default function DashboardPage() {
               </button>
             </div>
           </div>
-        </>
+        </div>
       )}
 
-      {/* Example modal */}
+      {/* Example modal (LAW #36) */}
       {exampleUrl && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
+        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
           onClick={() => setExampleUrl(null)}>
-          <div className="relative max-w-lg w-full rounded-2xl overflow-hidden"
-            style={{ background: "var(--card)", border: "1px solid var(--border-gold)" }}
+          <div className="relative max-w-lg w-full rounded-[20px] overflow-hidden"
+            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)" }}
             onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4"
               style={{ borderBottom: "1px solid var(--border)" }}>

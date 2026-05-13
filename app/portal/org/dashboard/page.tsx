@@ -1308,13 +1308,14 @@ export default function OrgDashboardPage() {
             );
           })()}
 
-          {/* Add slot modal */}
+          {/* Add slot modal (LAW #36) */}
           {addSlotPhase && (
-            <>
-              <div className="fixed inset-0 z-40" style={{ background: "rgba(0,0,0,0.5)" }}
-                onClick={() => setAddSlotPhase(null)} />
-              <div className="fixed inset-x-4 top-1/3 z-50 max-w-sm mx-auto rounded-2xl p-5 space-y-4"
-                style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }}>
+            <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4"
+              style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
+              onClick={() => setAddSlotPhase(null)}>
+              <div className="w-full max-w-sm rounded-[20px] p-5 space-y-4"
+                onClick={e => e.stopPropagation()}
+                style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)" }}>
                 <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>Add document slot</p>
                 <div className="grid grid-cols-2 gap-2">
                   {(["simple", "dual"] as const).map(tp => (
@@ -1354,7 +1355,7 @@ export default function OrgDashboardPage() {
                   </button>
                 </div>
               </div>
-            </>
+            </div>
           )}
         </div>
 

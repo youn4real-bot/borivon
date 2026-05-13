@@ -2903,12 +2903,16 @@ export default function AdminPage() {
                             empty; uploads, actions, instructions all happen
                             later when admin clicks the slot row. ─────────── */}
                     {addSlotPhase && (
-                      <>
-                        <div className="fixed inset-0 z-40" style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
-                          onClick={() => setAddSlotPhase(null)} />
-                        <div className="fixed inset-x-4 top-1/4 z-50 max-w-sm mx-auto rounded-2xl p-5 space-y-4"
-                          style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)" }}>
-                          <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>
+                      // LAW #36 universal popup pattern: single wrapper at z-[1100]
+                      // (above page chrome — sidebar / header — so the blur covers
+                      // the WHOLE page, not just one box).
+                      <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4"
+                        style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
+                        onClick={() => !addSlotSaving && setAddSlotPhase(null)}>
+                        <div className="w-full max-w-sm rounded-[20px] p-5 space-y-4"
+                          style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)" }}
+                          onClick={e => e.stopPropagation()}>
+                          <p className="text-[14px] font-semibold" style={{ color: "var(--w)" }}>
                             {lang === "de" ? "Slot hinzufügen" : lang === "fr" ? "Ajouter un slot" : "Add slot"}
                           </p>
 
@@ -2918,20 +2922,20 @@ export default function AdminPage() {
                             value={addSlotLabel}
                             onChange={e => setAddSlotLabel(e.target.value)}
                             autoFocus
-                            className="w-full px-3 py-2.5 text-[12.5px] outline-none"
+                            className="w-full px-3 py-2.5 text-[13px] outline-none"
                             style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--w)" }}
                           />
 
                           <div className="flex gap-2">
                             <button onClick={() => setAddSlotPhase(null)} disabled={addSlotSaving}
-                              className="flex-1 py-2.5 rounded-xl text-[12.5px] font-semibold transition-all"
+                              className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold transition-all"
                               style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
                               {lang === "de" ? "Abbrechen" : lang === "fr" ? "Annuler" : "Cancel"}
                             </button>
                             <button
                               onClick={() => addPhaseSlot(addSlotPhase!, addSlotLabel, "")}
                               disabled={addSlotSaving || !addSlotLabel.trim()}
-                              className="flex-1 py-2.5 rounded-xl text-[12.5px] font-semibold transition-all disabled:opacity-40"
+                              className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold transition-all disabled:opacity-40"
                               style={{ background: "var(--gold)", color: "#131312" }}>
                               {addSlotSaving
                                 ? (lang === "de" ? "Speichern…" : lang === "fr" ? "Enregistrement…" : "Saving…")
@@ -2939,7 +2943,7 @@ export default function AdminPage() {
                             </button>
                           </div>
                         </div>
-                      </>
+                      </div>
                     )}
 
                     {/* ── Slot config popup (LAW #34) — appears after admin uploads PDF ── */}
@@ -2969,17 +2973,15 @@ export default function AdminPage() {
                                                                 : lang === "fr" ? "Pas à dessiner — le candidat tape dans les champs existants"
                                                                 : "Skip box drawing — candidate types into existing fields" },
                       ];
-                      // LAW #27 universal PDF popup layout: backdrop at z-[1050]
-                      // (above all page chrome — nav, side rail, bottom bar — so
-                      // the blur covers everything, not just one box). Card uses
-                      // the same dimensions as the fillForm PDF popup so it fills
-                      // the available space between header and bottom nav.
+                      // LAW #36 universal popup: single wrapper (backdrop + card unified)
+                      // so blur covers the entire viewport, not just behind the card.
                       return (
-                        <>
-                          <div className="fixed inset-0 z-[1050]" style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
-                            onClick={() => !slotConfigSaving && setSlotConfigPopup(null)} />
-                          <div className="fixed inset-x-2 top-[var(--header-h,56px)] bottom-[var(--bottom-nav-h,72px)] z-[1051] sm:max-w-md sm:mx-auto sm:top-[calc(58px+1rem)] sm:bottom-auto sm:max-h-[calc(100dvh-120px)] flex flex-col overflow-hidden"
-                            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", borderRadius: 20, boxShadow: "var(--shadow-lg)" }}>
+                        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-stretch sm:items-center justify-center p-2 sm:p-4"
+                          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
+                          onClick={() => !slotConfigSaving && setSlotConfigPopup(null)}>
+                          <div className="w-full sm:max-w-md flex flex-col overflow-hidden"
+                            onClick={e => e.stopPropagation()}
+                            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", borderRadius: 20, boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 72px - 16px)" }}>
                             <div className="px-5 pt-5 pb-3 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
                               <p className="text-[14px] font-semibold" style={{ color: "var(--w)" }}>
                                 {lang === "de" ? "Was soll mit diesem PDF passieren?" : lang === "fr" ? "Que doit-il se passer avec ce PDF ?" : "What should happen with this PDF?"}
@@ -3020,7 +3022,7 @@ export default function AdminPage() {
                               </button>
                             </div>
                           </div>
-                        </>
+                        </div>
                       );
                     })()}
 
@@ -3080,12 +3082,14 @@ export default function AdminPage() {
                         });
                       }
 
+                      // LAW #36 universal popup
                       return (
-                        <>
-                          <div className="fixed inset-0 z-40" style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
-                            onClick={() => setConfigFieldsSlot(null)} />
-                          <div className="fixed inset-x-2 top-[var(--header-h,56px)] bottom-[var(--bottom-nav-h,0px)] z-50 flex flex-col rounded-2xl overflow-hidden"
-                            style={{ background: "var(--card)", border: "1px solid var(--border-gold)" }}>
+                        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-stretch sm:items-center justify-center p-2 sm:p-4"
+                          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
+                          onClick={() => setConfigFieldsSlot(null)}>
+                          <div className="w-full sm:max-w-3xl flex flex-col overflow-hidden"
+                            onClick={e => e.stopPropagation()}
+                            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", borderRadius: 20, boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 72px - 16px)" }}>
                             {/* Header */}
                             <div className="flex items-center gap-3 px-4 py-3 border-b" style={{ borderColor: "var(--border)" }}>
                               <p className="flex-1 text-[13px] font-semibold truncate" style={{ color: "var(--w)" }}>
@@ -3133,7 +3137,7 @@ export default function AdminPage() {
                               )}
                             </div>
                           </div>
-                        </>
+                        </div>
                       );
                     })()}
 
@@ -3895,13 +3899,13 @@ export default function AdminPage() {
         }}
       />
 
-      {/* ── Edit slot label modal ── */}
+      {/* ── Edit slot label modal (LAW #36) ── */}
       {editingSlotId && (
-        <div className="fixed inset-0 z-[800] flex items-end sm:items-center justify-center p-4"
-          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
+        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
           onClick={() => setEditingSlotId(null)}>
-          <div className="w-full max-w-md rounded-2xl p-6 space-y-4"
-            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)" }}
+          <div className="w-full max-w-md rounded-[20px] p-6 space-y-4"
+            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)" }}
             onClick={e => e.stopPropagation()}>
             <p className="text-[14px] font-semibold" style={{ color: "var(--w)" }}>Edit slot label</p>
             <input type="text" placeholder="Label" value={editingSlotLabel}
@@ -3940,12 +3944,14 @@ export default function AdminPage() {
       {adminSigSubPopup && (() => {
         const sub = adminSigSubPopup;
         const slot = Object.values(phaseSlots).flat().find(s => s.id === sub.slotId);
+        // LAW #36 universal popup
         return (
-          <>
-            <div className="fixed inset-0 z-[70]" style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
-              onClick={() => !adminSigUploading && setAdminSigSubPopup(null)} />
-            <div className="fixed inset-x-4 top-1/4 z-[71] max-w-sm mx-auto rounded-2xl p-5 space-y-3"
-              style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)" }}>
+          <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4"
+            style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
+            onClick={() => !adminSigUploading && setAdminSigSubPopup(null)}>
+            <div className="w-full max-w-sm rounded-[20px] p-5 space-y-3"
+              onClick={e => e.stopPropagation()}
+              style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)" }}>
               <div>
                 <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>Your signature</p>
                 <p className="text-[11px] mt-0.5" style={{ color: "var(--w3)" }}>
@@ -4019,7 +4025,7 @@ export default function AdminPage() {
                 </button>
               </div>
             </div>
-          </>
+          </div>
         );
       })()}
 
@@ -4154,8 +4160,8 @@ export default function AdminPage() {
         }
 
         return (
-          <div className="fixed inset-0 z-[80] flex flex-col"
-            style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}>
+          <div className="fixed inset-0 z-[1100] flex flex-col"
+            style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}>
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 flex-shrink-0"
               style={{ background: "var(--card)", borderBottom: "1px solid var(--border)" }}>
@@ -4276,12 +4282,14 @@ export default function AdminPage() {
                     pendingBindField: null,
                   } : prev);
                 }
+                // LAW #36 universal popup (nested above wizard at z-[1101])
                 return (
-                  <>
-                    <div className="fixed inset-0 z-[81]" style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
-                      onClick={cancelBinding} />
-                    <div className="fixed inset-x-4 top-1/4 z-[82] max-w-sm mx-auto rounded-2xl p-4 space-y-2"
-                      style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", maxHeight: "70dvh", overflowY: "auto" }}>
+                  <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1101] flex items-center justify-center p-4"
+                    style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
+                    onClick={cancelBinding}>
+                    <div className="w-full max-w-sm rounded-[20px] p-4 space-y-2"
+                      onClick={e => e.stopPropagation()}
+                      style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "70dvh", overflowY: "auto" }}>
                       <div>
                         <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>
                           {lang === "de" ? "Was kommt in dieses Feld?" : lang === "fr" ? "Que mettre dans cette case ?" : "What goes in this box?"}
@@ -4333,7 +4341,7 @@ export default function AdminPage() {
                         {lang === "de" ? "Abbrechen" : lang === "fr" ? "Annuler" : "Cancel"}
                       </button>
                     </div>
-                  </>
+                  </div>
                 );
               })()}
             </div>
@@ -5012,13 +5020,14 @@ export default function AdminPage() {
           </div>
           )}
 
-          {/* ── New-org modal ── */}
+          {/* ── New-org modal (LAW #36) ── */}
           {newOrgModal && typeof window !== "undefined" && createPortal(
-            <>
-              <div className="fixed inset-0 z-[800] bg-black/40 backdrop-blur-sm" onClick={() => !newOrgCreating && setNewOrgModal(false)} />
-              <div className="fixed inset-0 z-[801] flex items-center justify-center p-4">
-                <div className="w-full max-w-sm rounded-2xl overflow-hidden"
-                  style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-lg)" }}>
+            <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4"
+              style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
+              onClick={() => !newOrgCreating && setNewOrgModal(false)}>
+              <div className="w-full max-w-sm rounded-[20px] overflow-hidden"
+                onClick={e => e.stopPropagation()}
+                style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)" }}>
                   <div className="px-5 pt-5 pb-4">
                     <p className="text-[14px] font-semibold mb-1" style={{ color: "var(--w)" }}>New organization</p>
                     <p className="text-[11.5px] mb-4" style={{ color: "var(--w3)" }}>Creates the org and generates an admin invite link.</p>
@@ -5073,8 +5082,7 @@ export default function AdminPage() {
                     </button>
                   </div>
                 </div>
-              </div>
-            </>,
+            </div>,
             document.body,
           )}
 
@@ -5252,13 +5260,13 @@ export default function AdminPage() {
         }}
       />
 
-      {/* ── Edit slot label modal ── */}
+      {/* ── Edit slot label modal (LAW #36) ── */}
       {editingSlotId && (
-        <div className="fixed inset-0 z-[800] flex items-end sm:items-center justify-center p-4"
-          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
+        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
           onClick={() => setEditingSlotId(null)}>
-          <div className="w-full max-w-md rounded-2xl p-6 space-y-4"
-            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)" }}
+          <div className="w-full max-w-md rounded-[20px] p-6 space-y-4"
+            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)" }}
             onClick={e => e.stopPropagation()}>
             <p className="text-[14px] font-semibold" style={{ color: "var(--w)" }}>Edit slot label</p>
             <input

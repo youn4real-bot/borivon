@@ -82,7 +82,7 @@ export function Modal({
 
   return createPortal(
     <div
-      className="fixed inset-x-0 bottom-0 z-[700] flex items-center justify-center p-4 bv-modal-outer"
+      className="fixed inset-x-0 bottom-0 z-[1100] flex items-center justify-center p-4 bv-modal-outer"
       style={{
         top: "calc(58px + var(--bv-subnav-h, 0px))",
         background: "rgba(0,0,0,0.45)",
@@ -116,7 +116,7 @@ export function Modal({
             background: "var(--card)",
             border: "1px solid var(--border)",
             borderRadius: "20px",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.06), 0 18px 48px rgba(0,0,0,0.22)",
+            boxShadow: "var(--shadow-lg)",
             animation: "bvFadeRise 0.28s var(--ease-out)",
             paddingBottom: "env(safe-area-inset-bottom)",
             maxHeight: "calc(100% - 0.5rem)",

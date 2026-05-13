@@ -3677,8 +3677,8 @@ function CVBuilderInner() {
 
     {/* ── CV PDF Preview modal ── */}
     {showCvPreview && pdfUrl && typeof document !== "undefined" && createPortal(
-      <div className="fixed inset-x-0 z-[800] flex items-center justify-center px-2 bv-cvprev-outer"
-        style={{ background: "rgba(0,0,0,0.72)", top: "calc(58px + var(--bv-subnav-h, 0px))", paddingTop: "6px", bottom: 0 }}
+      <div className="fixed inset-x-0 z-[1100] flex items-center justify-center px-2 bv-cvprev-outer"
+        style={{ background: "rgba(0,0,0,0.72)", top: "calc(58px + var(--bv-subnav-h, 0px))", paddingTop: "6px", bottom: 0, animation: "bvFadeRise .22s var(--ease-out)" }}
         onClick={() => setShowCvPreview(false)}>
         <style>{`
           .bv-cvprev-card {
@@ -3732,18 +3732,17 @@ function CVBuilderInner() {
       document.body
     )}
 
-    {/* ── Submit confirmation modal ── */}
+    {/* ── Submit confirmation modal (LAW #36) ── */}
     {showSubmitConfirm && typeof document !== "undefined" && createPortal(
-      <div className="fixed inset-0 z-[800] flex items-center justify-center p-4"
-        style={{ background: "rgba(0,0,0,0.72)" }}
+      <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4"
+        style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
         onClick={() => setShowSubmitConfirm(false)}>
-        <div className="w-full max-w-md p-7 flex flex-col items-center text-center"
+        <div className="w-full max-w-md p-7 flex flex-col items-center text-center rounded-[20px]"
           style={{
             background: "var(--card)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--r-2xl)",
+            border: "1px solid var(--border-gold)",
             boxShadow: "var(--shadow-lg)",
-            animation: "bvFadeRise 0.22s var(--ease-out)",
+            animation: "bvFadeRise .28s var(--ease-out)",
           }}
           onClick={e => e.stopPropagation()}>
           <span className="mb-4 flex items-center justify-center w-12 h-12 rounded-full"
