@@ -1387,6 +1387,9 @@ export default function AdminPage() {
 
   async function adminUploadFile(file: File, slotId: string) {
     if (!selectedUser || !accessToken) return;
+    // Capture whether this slot is brand-new (no previous PDF) BEFORE upload.
+    // The action popup auto-fires only on the first upload — never on re-uploads.
+    const isFirstUpload = !Object.values(phaseSlots).flat().find(s => s.id === slotId)?.template_pdf_path;
     setAdminUploadSlotId(slotId);
     const fd = new FormData();
     fd.append("file", file);
@@ -1417,8 +1420,11 @@ export default function AdminPage() {
             ...freshDocs,
           ]);
         }
-        // LAW #34: show config popup so admin can set action flags for this slot.
-        setSlotConfigPopup({ slotId, admin_signs: false, candidate_signs: false, admin_fills: false, candidate_fills: false, pdf_has_native_fields: false });
+        // LAW #34: auto-open config popup on first upload only (new slot, no previous PDF).
+        // On re-uploads admin can still access it via the "…" menu.
+        if (isFirstUpload) {
+          setSlotConfigPopup({ slotId, admin_signs: false, candidate_signs: false, admin_fills: false, candidate_fills: false, pdf_has_native_fields: false });
+        }
       }
     } finally {
       setAdminUploadSlotId(null);
