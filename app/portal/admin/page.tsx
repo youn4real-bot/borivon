@@ -2902,10 +2902,9 @@ export default function AdminPage() {
                     {/* ── Add slot modal — title-only. The slot is created
                             empty; uploads, actions, instructions all happen
                             later when admin clicks the slot row. ─────────── */}
-                    {addSlotPhase && (
-                      // LAW #36 universal popup pattern: single wrapper at z-[1100]
-                      // (above page chrome — sidebar / header — so the blur covers
-                      // the WHOLE page, not just one box).
+                    {addSlotPhase && typeof window !== "undefined" && createPortal(
+                      // LAW #36: portal to body so bv-enter animation stacking context
+                      // doesn't trap fixed positioning inside the column.
                       <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4"
                         style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
                         onClick={() => !addSlotSaving && setAddSlotPhase(null)}>
@@ -2943,11 +2942,13 @@ export default function AdminPage() {
                             </button>
                           </div>
                         </div>
-                      </div>
+                      </div>,
+                      document.body,
                     )}
 
-                    {/* ── Slot config popup (LAW #34) — appears after admin uploads PDF ── */}
-                    {slotConfigPopup && (() => {
+                    {/* ── Slot config popup (LAW #34) — portaled to body: bv-enter animation
+                        creates a stacking context that traps fixed children. ── */}
+                    {slotConfigPopup && typeof window !== "undefined" && createPortal((() => {
                       const cfg = slotConfigPopup;
                       const checks: { key: keyof typeof cfg; label: string; sub: string }[] = [
                         { key: "admin_signs",            label: lang === "de" ? "Admin unterschreibt"     : lang === "fr" ? "L'admin signe"               : "Admin signs",
@@ -3024,10 +3025,10 @@ export default function AdminPage() {
                           </div>
                         </div>
                       );
-                    })()}
+                    })(), document.body)}
 
-                    {/* ── Configure fields modal (fill / combo slots) ──────────────── */}
-                    {configFieldsSlot && (() => {
+                    {/* ── Configure fields modal — portaled: bv-enter stacking context fix ── */}
+                    {configFieldsSlot && typeof window !== "undefined" && createPortal((() => {
                       async function uploadTemplate(file: File) {
                         setConfigFieldsUploading(true);
                         try {
@@ -3139,7 +3140,7 @@ export default function AdminPage() {
                           </div>
                         </div>
                       );
-                    })()}
+                    })(), document.body)}
 
                     {/* ── Edit slot label modal ─────────────────────────────────────── */}
 
