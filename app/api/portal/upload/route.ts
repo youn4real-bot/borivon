@@ -1052,7 +1052,7 @@ export async function POST(req: NextRequest) {
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("Drive upload error:", msg);
-    return NextResponse.json({ error: "Upload failed" }, { status: 500 });
+    return NextResponse.json({ error: `Upload failed: ${msg}` }, { status: 500 });
   }
 
   // ── Supabase insert ───────────────────────────────────────────────────────────
