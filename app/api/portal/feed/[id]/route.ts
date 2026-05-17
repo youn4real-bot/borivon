@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser, requireAdminRole } from "@/lib/admin-auth";
+import { canAccessPost } from "@/lib/feedAccess";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -16,6 +17,12 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
   if (!UUID_RE.test(id)) return NextResponse.json({ error: "Invalid post id" }, { status: 400 });
 
   const db = getServiceSupabase();
+
+  // Channel gate first — a sub-admin scoped to org A must not be able to
+  // delete org B's (or another channel's) posts by raw id. Supreme admin
+  // passes for every channel; owner passes for their own channel.
+  const access = await canAccessPost(db, id, auth.userId, auth.email);
+  if (!access.ok) return NextResponse.json({ error: access.status === 404 ? "Not found" : "Forbidden" }, { status: access.status });
 
   const { data: post } = await db
     .from("feed_posts")

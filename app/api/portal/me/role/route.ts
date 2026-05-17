@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminRole, requireUser } from "@/lib/admin-auth";
+import { requireAdminRole, requireUser, ciEmail } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 
 /**
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
   const { data: membership } = await db
     .from("organization_members")
     .select("org_id, role")
-    .eq("sub_admin_email", user.email)
+    .ilike("sub_admin_email", ciEmail(user.email))
     .maybeSingle();
 
   if (membership) {

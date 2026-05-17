@@ -41,6 +41,8 @@ type Props = {
    *  re-opens an already-configured slot to edit, not redo. Read once on
    *  first mount; subsequent changes go through onChange like normal. */
   initialZones?: SigZone[];
+  /** Fill parent height (for full-screen wizard) instead of fixed 62dvh. */
+  fullHeight?: boolean;
 };
 
 export type PdfZonePickerHandle = { addZone: () => void };
@@ -59,13 +61,18 @@ const HANDLES = [
   { id: "se", top: "100%", left: "100%", cursor: "se-resize" },
 ] as const;
 
-export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function PdfZonePicker({ pdfBase64, onChange, onError, lang = "en", defaultParty = "candidate", partyPreviews, partyBgRemoving, onPartyImageCrop, initialZones }, ref) {
+export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function PdfZonePicker({ pdfBase64, onChange, onError, lang = "en", defaultParty = "candidate", partyPreviews, partyBgRemoving, onPartyImageCrop, initialZones, fullHeight = false }, ref) {
   const [blobUrl, setBlobUrl]     = useState<string | null>(null);
   const [zones, setZones]         = useState<SigZone[]>(initialZones ?? []);
   const [activeIdx, setActiveIdx] = useState<number | null>(null);
   const [pageCount, setPageCount] = useState(1);
   const [cropZoneIdx, setCropZoneIdx] = useState<number | null>(null);
   const [cropInsets, setCropInsets]   = useState<CropInsets>({ t: 0, r: 0, b: 0, l: 0 });
+  // Draw mode toggle. Starts ON when the picker mounts with no existing zone
+  // so the admin / candidate can drag immediately without clicking the hint
+  // chip. After a successful draw it auto-resets to OFF, returning full
+  // scroll/zoom control to the PdfViewer underneath.
+  const [drawMode, setDrawMode]   = useState((initialZones?.length ?? 0) === 0);
 
   const zonesRef    = useRef(zones);
   const onChangeRef = useRef(onChange);
@@ -222,6 +229,8 @@ export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function Pdf
       const drag = dragRef.current;
       dragRef.current = null;
       if (drag?.mode === "draw") {
+        // Auto-exit draw mode so the user can scroll/zoom the PDF again.
+        setDrawMode(false);
         const zs = zonesRef.current;
         const drawIdx = zs.length - 1;
         const z = zs[drawIdx];
@@ -268,6 +277,9 @@ export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function Pdf
     const next = zs.filter((_, idx) => idx !== i);
     emitZones(next);
     setActiveIdx(next.length > 0 ? Math.min(i, next.length - 1) : null);
+    // If we just deleted the last zone, re-arm draw mode so the user can
+    // immediately drag a new one — no need to click the hint chip again.
+    if (next.length === 0) setDrawMode(true);
   }
 
   function toggleParty(i: number) {
@@ -289,8 +301,13 @@ export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function Pdf
           if (el) pageElsRef.current.set(pageNum, el);
           else    pageElsRef.current.delete(pageNum);
         }}
-        style={{ position: "absolute", inset: 0, cursor: "crosshair" }}
+        style={{
+          position: "absolute", inset: 0,
+          pointerEvents: drawMode ? "auto" : "none",
+          cursor: drawMode ? "crosshair" : "default",
+        }}
         onMouseDown={e => {
+          if (!drawMode) return;
           if (e.button !== 0) return;
           e.preventDefault();
           const placeholder: SigZone = { page: pageNum, x: 0, y: 0, w: 0, h: 0, party: defaultParty };
@@ -350,9 +367,12 @@ export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function Pdf
                 top:    `${z.y * 100}%`,
                 width:  `${z.w * 100}%`,
                 height: `${z.h * 100}%`,
-                border: cropZoneIdx === i ? `2px solid rgba(255,255,255,0.9)` : `1.5px solid ${isActive ? colors.activeBorder : colors.faintBorder}`,
-                background: colors.bg,
-                borderRadius: 5,
+                // Minimalist outline — thin border + transparent fill so the
+                // signature area is fully visible underneath. No drop shadow,
+                // no heavy fill, just a clear "this is where you sign" frame.
+                border: cropZoneIdx === i ? `1.5px dashed rgba(255,255,255,0.9)` : `1px solid ${isActive ? colors.activeBorder : colors.faintBorder}`,
+                background: "transparent",
+                borderRadius: 4,
                 cursor: cropZoneIdx === i ? "default" : "move",
                 boxSizing: "border-box",
                 display: "flex",
@@ -361,12 +381,12 @@ export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function Pdf
                 justifyContent: "center",
                 gap: 2,
                 zIndex: isActive ? 2 : 1,
-                boxShadow: cropZoneIdx === i
-                  ? "0 0 0 1px rgba(0,0,0,0.5), 0 6px 28px rgba(0,0,0,0.45)"
-                  : isActive
-                    ? `0 0 0 1px ${colors.faintBorder}, 0 2px 12px rgba(0,0,0,0.15)`
-                    : "none",
-                transition: "box-shadow 0.15s, border-color 0.15s",
+                // CRITICAL: overrule the overlay's `pointer-events: none` (which
+                // is needed so wheel-scroll reaches PdfViewer). Without this,
+                // existing zones become uninteractable when draw mode is off —
+                // no click to select, no drag to move, no handles to resize.
+                pointerEvents: "auto",
+                transition: "border-color var(--dur-1) var(--ease)",
               }}
               onMouseDown={e => {
                 if (e.button !== 0) return;
@@ -460,61 +480,43 @@ export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function Pdf
                   )}
                 </>
               ) : (
-                <>
-                  <span style={{
-                    fontSize: 11, color: colors.text, fontWeight: 800,
-                    textShadow: "0 1px 4px rgba(0,0,0,0.7)",
-                    pointerEvents: "none", userSelect: "none", letterSpacing: "0.03em",
-                    whiteSpace: "nowrap",
-                  }}>
-                    ✍ {label}
-                  </span>
-                  {(z.w >= 0.15 && z.h >= 0.07) && (
-                    <span style={{
-                      fontSize: 8, color: colors.text, opacity: 0.7,
-                      pointerEvents: "none", userSelect: "none", whiteSpace: "nowrap",
-                    }}>
-                      {lang === "fr" ? "cliquer pour changer" : lang === "de" ? "klicken zum Ändern" : "click pill to change"}
-                    </span>
-                  )}
-                </>
+                // Faint-grey centered label — visible but doesn't compete with
+                // the PDF text underneath. The party is fixed by the wizard
+                // step that opened this picker; no toggle needed.
+                <span style={{
+                  fontSize: Math.max(8, Math.round(11 * sc)),
+                  color: "rgba(0,0,0,0.3)",
+                  fontWeight: 500,
+                  pointerEvents: "none",
+                  userSelect: "none",
+                  whiteSpace: "nowrap",
+                  textTransform: "lowercase",
+                }}>
+                  {label.toLowerCase()}
+                </span>
               )}
               </div>{/* end overflow wrapper */}
 
-              {/* Party pill + × — joined at top-left, scaled to zone size */}
-              <div style={{ position: "absolute", top: -1, left: -1, display: "flex", alignItems: "stretch", zIndex: 5, boxShadow: "0 1px 6px rgba(0,0,0,0.35)", borderRadius: "4px 4px 5px 0" }}>
-                <button
-                  style={{
-                    fontSize: Math.max(6, Math.round(8 * sc)), fontWeight: 800,
-                    padding: `${Math.max(1, Math.round(2 * sc))}px ${Math.max(4, Math.round(7 * sc))}px`,
-                    borderRadius: "4px 0 0 0",
-                    background: colors.border,
-                    color: party === "candidate" ? "#131312" : "#fff",
-                    border: "none", cursor: "pointer", lineHeight: 1.7,
-                    letterSpacing: "0.07em", textTransform: "uppercase",
-                  }}
-                  onMouseDown={e => e.stopPropagation()}
-                  onClick={e => { e.stopPropagation(); toggleParty(i); }}
-                  title={lang === "fr" ? "Changer de partie" : lang === "de" ? "Partei wechseln" : "Click to change party"}
-                >
-                  {label}
-                </button>
-                <button
-                  style={{
-                    padding: `${Math.max(1, Math.round(2 * sc))}px ${Math.max(3, Math.round(5 * sc))}px`,
-                    borderRadius: "0 4px 4px 0",
-                    background: "rgba(15,15,15,0.75)",
-                    backdropFilter: "blur(4px)",
-                    color: "rgba(255,255,255,0.85)", border: "none", cursor: "pointer",
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontSize: Math.max(7, Math.round(9 * sc)), fontWeight: 700, lineHeight: 1,
-                  }}
-                  onMouseDown={e => e.stopPropagation()}
-                  onClick={e => { e.stopPropagation(); removeZone(i); }}
-                >
-                  ✕
-                </button>
-              </div>
+              {/* Tiny ✕ delete button at top-right — no pill, no party toggle.
+                  Just enough to remove the zone and redraw. */}
+              <button
+                style={{
+                  position: "absolute", top: -8, right: -8,
+                  width: 18, height: 18,
+                  borderRadius: "50%",
+                  background: "rgba(15,15,15,0.7)",
+                  color: "rgba(255,255,255,0.9)",
+                  border: "none", cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 10, fontWeight: 500, lineHeight: 1,
+                  zIndex: 5, pointerEvents: "auto",
+                }}
+                onMouseDown={e => e.stopPropagation()}
+                onClick={e => { e.stopPropagation(); removeZone(i); }}
+                title={lang === "fr" ? "Supprimer" : lang === "de" ? "Entfernen" : "Remove"}
+              >
+                ✕
+              </button>
 
               {/* Crop-mode UI: moving frame + dim + drag targets */}
               {inCropMode && (() => {
@@ -585,7 +587,7 @@ export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function Pdf
   if (!blobUrl) {
     return (
       <div style={{
-        height: "62dvh", borderRadius: 12, overflow: "hidden",
+        height: fullHeight ? "100%" : "62dvh", borderRadius: 12, overflow: "hidden",
         border: "1px solid var(--border)", background: "#525659",
         display: "flex", alignItems: "center", justifyContent: "center",
       }}>
@@ -596,29 +598,50 @@ export const PdfZonePicker = forwardRef<PdfZonePickerHandle, Props>(function Pdf
 
   return (
     <div
-      style={{ position: "relative", height: "62dvh", borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)" }}
+      className={fullHeight ? "flex-1" : undefined}
+      // Wrapper clips the pinch-zoom CSS-transform overflow so the scaled
+      // pages never bleed past the card's edges. PdfViewer manages its own
+      // scrollable container + toolbar inside this wrapper.
+      style={{
+        position: "relative",
+        minHeight: 0,
+        height: fullHeight ? undefined : "62dvh",
+        overflow: "hidden",
+        contain: "layout paint",
+      }}
       onClick={() => { if (cropZoneIdx !== null) applyCrop(); }}
     >
       {zones.length === 0 && (
         <div style={{
           position: "absolute", inset: 0, zIndex: 10,
-          display: "flex", alignItems: "center", justifyContent: "center",
+          display: "flex", alignItems: "flex-start", justifyContent: "center",
+          paddingTop: 16,
           pointerEvents: "none",
         }}>
-          <div style={{
-            background: "rgba(0,0,0,0.55)", backdropFilter: "blur(2px)",
-            borderRadius: 10, padding: "10px 18px",
-            color: "#fff", fontSize: 12, fontWeight: 500, textAlign: "center",
-            maxWidth: 260, lineHeight: 1.5,
-            border: "1px solid rgba(255,255,255,0.12)",
-          }}>
+          {/* Hint is now a button that ENABLES draw mode for one box. While
+              off, the overlay is transparent so PdfViewer's scroll / zoom /
+              rotate / toolbar all work uninterrupted. */}
+          <button
+            type="button"
+            onClick={() => setDrawMode(true)}
+            style={{
+              background: drawMode ? "var(--gold)" : "rgba(0,0,0,0.55)",
+              color: drawMode ? "#131312" : "#fff",
+              backdropFilter: "blur(2px)",
+              borderRadius: 10, padding: "10px 18px",
+              fontSize: 12, fontWeight: 600, textAlign: "center",
+              maxWidth: 280, lineHeight: 1.5,
+              border: drawMode ? "1px solid var(--border-gold)" : "1px solid rgba(255,255,255,0.12)",
+              cursor: "pointer",
+              pointerEvents: "auto",
+              transition: "background var(--dur-1) var(--ease), color var(--dur-1) var(--ease)",
+            }}>
             ✏️ {T[lang].drawHint}
-          </div>
+          </button>
         </div>
       )}
       <PdfViewer
         src={blobUrl}
-        hideRotate
         pageOverlay={pageOverlay}
         onPagesLoaded={count => { setPageCount(count); }}
       />

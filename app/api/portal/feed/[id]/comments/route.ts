@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
+import { canAccessPost } from "@/lib/feedAccess";
+import { enforceRateLimit } from "@/lib/rateLimit";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -15,6 +17,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   if (!UUID_RE.test(id)) return NextResponse.json({ error: "Invalid post id" }, { status: 400 });
 
   const db = getServiceSupabase();
+
+  // Channel gate — no reading comments on a private org channel you can't see.
+  const access = await canAccessPost(db, id, auth.userId, auth.email);
+  if (!access.ok) return NextResponse.json({ error: access.status === 404 ? "Not found" : "Forbidden" }, { status: access.status });
 
   const { data: comments } = await db
     .from("feed_comments")
@@ -111,14 +117,22 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const { id } = await ctx.params;
   if (!UUID_RE.test(id)) return NextResponse.json({ error: "Invalid post id" }, { status: 400 });
 
+  // Anti-spam: cap comment creation per trusted IP.
+  const rl = enforceRateLimit(req, "feed-comment", { limit: 20, windowMs: 60_000 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "You're commenting too fast — slow down a bit" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
+  }
+
   const db = getServiceSupabase();
 
-  const { data: membership } = await db
-    .from("organization_members")
-    .select("org_id")
-    .eq("sub_admin_email", auth.email)
-    .maybeSingle();
-  if (membership) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  // Channel gate — caller must be able to access this post's channel before
+  // commenting (was: blanket org-member block, which both over-blocked org
+  // members on their own channel AND under-blocked cross-org candidates).
+  const access = await canAccessPost(db, id, auth.userId, auth.email);
+  if (!access.ok) return NextResponse.json({ error: access.status === 404 ? "Not found" : "Forbidden" }, { status: access.status });
 
   const body = await req.json().catch(() => ({}));
   const content = typeof body.content === "string" ? body.content.trim() : "";

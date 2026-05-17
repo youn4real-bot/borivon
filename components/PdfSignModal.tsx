@@ -419,7 +419,7 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                                     : isActive
                                       ? "0 0 0 1px rgba(201,162,64,0.35), 0 2px 12px rgba(0,0,0,0.15)"
                                       : "none",
-                                  transition: "box-shadow 0.15s, border-color 0.15s",
+                                  transition: "box-shadow var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease)",
                                 }}
                                 onMouseDown={e => {
                                   if (e.button !== 0) return;

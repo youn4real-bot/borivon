@@ -39,7 +39,16 @@ export async function POST(req: NextRequest) {
   }
 
   const db = getServiceSupabase();
-  const label = (body.slotLabel ?? "Document").trim() || "Document";
+  // Resolve label server-side from phase_slots so a missing / UUID-shaped
+  // client-supplied slotLabel doesn't leak a raw UUID into the candidate bell.
+  let label = (body.slotLabel ?? "").trim();
+  if (!label || UUID_RE.test(label)) {
+    const { data: slotRow } = await db
+      .from("phase_slots").select("label").eq("id", body.slotId).maybeSingle();
+    const slotLabel = (slotRow as { label?: string | null } | null)?.label;
+    if (slotLabel) label = slotLabel.trim();
+  }
+  if (!label) label = "Dokument";
 
   // Look up candidate's display name for the admin-side bell message.
   const { data: cp } = await db
@@ -63,24 +72,42 @@ export async function POST(req: NextRequest) {
     body.needsSign                   ? "slot_setup_sign"      :
     body.needsFill                   ? "slot_setup_fill"      :
                                        "slot_setup";
-  await db.from("notifications").insert({
-    user_id:  body.candidateUserId,
-    doc_id:   body.slotId,
-    doc_name: label,
-    doc_type: docType,
-    action:   "sign_request",
-    feedback: null,
-    read:     false,
-  });
+  // Dedupe: one PDF = one notification card. If an unread sign_request for
+  // this slot already exists in the candidate's bell, refresh it in place
+  // (bump created_at, update doc_type for sign/fill/both transitions, keep
+  // read=false). Stops one slot from splitting into multiple cards when admin
+  // re-opens the wizard or toggles sign/fill on re-submit.
+  const { data: existing } = await db
+    .from("notifications")
+    .select("id")
+    .eq("user_id", body.candidateUserId)
+    .eq("doc_id",  body.slotId)
+    .eq("action",  "sign_request")
+    .eq("read",    false)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (existing?.id) {
+    await db.from("notifications").update({
+      doc_name:   label,
+      doc_type:   docType,
+      created_at: new Date().toISOString(),
+    }).eq("id", existing.id);
+  } else {
+    await db.from("notifications").insert({
+      user_id:  body.candidateUserId,
+      doc_id:   body.slotId,
+      doc_name: label,
+      doc_type: docType,
+      action:   "sign_request",
+      feedback: null,
+      read:     false,
+    });
+  }
 
-  // 2) Admin bell — LAW #21: "Any admin sends a B/V request → all assigned admins"
-  await db.from("admin_notifications").insert({
-    type:       "doc-uploaded",
-    user_name:  candidateName,
-    user_email: "",
-    doc_type:   "sign_request",
-    doc_name:   label,
-  });
+  // NOTE: per user directive admins do not notify each other. Removed
+  // admin_notifications insert here — only candidate-originated events
+  // generate admin bell entries.
 
   return NextResponse.json({ ok: true });
 }

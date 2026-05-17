@@ -36,11 +36,24 @@ export function DocxViewer({ src, fileName }: { src: string; fileName: string })
       try {
         const blob = await fetch(src).then(r => r.blob());
         const arrayBuffer = await blob.arrayBuffer();
-        // Dynamic import so the mammoth bundle is only fetched on demand
-        const mammoth = await import("mammoth/mammoth.browser");
+        // Dynamic import so the mammoth + dompurify bundles are only fetched on demand
+        const [mammoth, DOMPurify] = await Promise.all([
+          import("mammoth/mammoth.browser"),
+          import("isomorphic-dompurify"),
+        ]);
         const result = await mammoth.convertToHtml({ arrayBuffer });
         if (cancelled) return;
-        setHtml(result.value || "<p style='opacity:.7'>(empty document)</p>");
+        // SECURITY: mammoth output is NOT sanitized — a crafted .docx can
+        // produce <a href="javascript:…">, dangerous attrs, etc. Run every
+        // converted document through DOMPurify (battle-tested OSS) before
+        // injecting via dangerouslySetInnerHTML.
+        const safeHtml = DOMPurify.default.sanitize(result.value || "", {
+          FORBID_TAGS: ["script", "iframe", "object", "embed", "form", "style", "link", "meta"],
+          FORBID_ATTR: ["onerror", "onload", "onclick", "onmouseover", "onfocus", "onblur",
+                        "onchange", "onsubmit", "onkeydown", "onkeyup", "onkeypress",
+                        "onmouseenter", "onmouseleave", "formaction", "srcdoc"],
+        });
+        setHtml(safeHtml || "<p style='opacity:.7'>(empty document)</p>");
       } catch (err) {
         if (cancelled) return;
         console.error("[DocxViewer] convert failed:", err);
@@ -94,7 +107,8 @@ export function DocxViewer({ src, fileName }: { src: string; fileName: string })
           fontSize: "11pt",
           lineHeight: 1.55,
         }}
-        // mammoth output is sanitized HTML built from the docx — safe to render
+        // HTML is DOMPurify-sanitized at the conversion step above (mammoth
+        // output is otherwise NOT sanitized — see comment in useEffect).
         dangerouslySetInnerHTML={{ __html: html }}
       />
       <style>{`

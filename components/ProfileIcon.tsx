@@ -457,8 +457,8 @@ export function ProfileIcon() {
               <p className="text-[13px] font-semibold text-center truncate inline-flex items-center justify-center gap-0.5 w-full" style={{ color: "var(--w)" }}>
                 {user.name}
                 {user.verified && (
-                  <VerifiedBadge verified size="xs" isAdmin={user.isAdmin}
-                    color={user.isSuperAdmin ? "black" : user.isOrgMember ? "red" : "gold"} />
+                  <VerifiedBadge verified size="xs" isAdmin={user.isAdmin} name={user.name}
+                    color={user.isAdmin ? "black" : user.isOrgMember ? "red" : "gold"} />
                 )}
               </p>
               <p className="text-[11px] text-center truncate mt-0.5" style={{ color: "var(--w3)" }}>{user.email}</p>
@@ -466,19 +466,23 @@ export function ProfileIcon() {
             {/* Actions */}
             <div className="p-1.5 flex flex-col gap-0.5">
               {user.isAdmin && (
+                <button
+                  onClick={() => { setOpen(false); setPhotoSaveMsg(null); setOrgProfileOpen(true); }}
+                  className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
+                  style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "var(--bg2)"; e.currentTarget.style.color = "var(--w)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--w2)"; }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+                  </svg>
+                  {T.myProfile}
+                </button>
+              )}
+              {/* Supreme-admin only — sub-admins must NOT see org CRUD /
+                  manage-admins (those routes are supreme-only anyway). */}
+              {user.isSuperAdmin && (
                 <>
-                  <button
-                    onClick={() => { setOpen(false); setPhotoSaveMsg(null); setOrgProfileOpen(true); }}
-                    className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
-                    style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
-                    onMouseEnter={e => { e.currentTarget.style.background = "var(--bg2)"; e.currentTarget.style.color = "var(--w)"; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--w2)"; }}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
-                    </svg>
-                    {T.myProfile}
-                  </button>
                   <button
                     onClick={() => { setOpen(false); router.push("/portal/admin/organizations"); }}
                     className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
@@ -551,7 +555,7 @@ export function ProfileIcon() {
                 </svg>
                 {T.signOut}
               </button>
-              {user.isAdmin && (
+              {user.isSuperAdmin && (
                 <button
                   onClick={() => { setOpen(false); setUsersPanelOpen(true); }}
                   className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
@@ -661,8 +665,10 @@ export function ProfileIcon() {
 
               {/* Body */}
               <div className="flex flex-col items-center px-6 pt-8 pb-7 gap-0">
-                {/* Hidden file input */}
-                <input ref={orgPhotoInputRef} type="file" accept="image/*" className="hidden"
+                {/* Visually hidden (NOT display:none) — iOS Safari can block
+                    a programmatic .click() on a display:none file input. */}
+                <input ref={orgPhotoInputRef} type="file" accept="image/*"
+                  style={{ position: "absolute", width: 1, height: 1, opacity: 0, overflow: "hidden", pointerEvents: "none" }}
                   onChange={e => {
                     const file = e.target.files?.[0];
                     if (!file) return;
@@ -768,7 +774,7 @@ export function ProfileIcon() {
                 {/* Name + verified + email */}
                 <p className="text-[15.5px] font-semibold tracking-tight inline-flex items-center gap-1.5" style={{ color: "var(--w)" }}>
                   {user.name}
-                  <VerifiedBadge verified size="xs" isAdmin={user.isSuperAdmin} color={user.isSuperAdmin ? "black" : user.isOrgMember ? "red" : "gold"} />
+                  <VerifiedBadge verified size="xs" isAdmin={user.isAdmin} name={user.name} color={user.isAdmin ? "black" : user.isOrgMember ? "red" : "gold"} />
                 </p>
                 <p className="text-[12px] mt-1" style={{ color: "var(--w3)" }}>{user.email}</p>
 

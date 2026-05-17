@@ -23,42 +23,46 @@ const VB_T = {
   fr: {
     tooltip: "Vérifié",
     title: "Compte vérifié",
-    body: "Borivon a vérifié les qualifications et l'identité de ce candidat.",
+    body: "Ce candidat a souscrit au plan Borivon Premium.",
     memberTitle: "Membre vérifié",
     memberBody: "Ce compte est un membre vérifié d'une organisation partenaire de Borivon.",
     adminTitle: "Youness Taoufiq",
-    adminBody: "Compte officiel Borivon — Youness Taoufiq.",
+    adminBody: "Compte officiel Borivon.",
     close: "Fermer",
   },
   en: {
     tooltip: "Verified",
     title: "Verified account",
-    body: "Borivon has verified this candidate's identity and qualifications.",
+    body: "This candidate is on the Borivon Premium plan.",
     memberTitle: "Verified organization member",
     memberBody: "This account is a verified member of a Borivon partner organization.",
     adminTitle: "Youness Taoufiq",
-    adminBody: "Official Borivon account — Youness Taoufiq.",
+    adminBody: "Official Borivon account.",
     close: "Close",
   },
   de: {
     tooltip: "Verifiziert",
     title: "Verifiziertes Konto",
-    body: "Borivon hat die Identität und Qualifikationen dieses Kandidaten verifiziert.",
+    body: "Dieser Kandidat hat den Borivon-Premium-Plan.",
     memberTitle: "Verifiziertes Organisationsmitglied",
     memberBody: "Dieses Konto ist ein verifiziertes Mitglied einer Borivon-Partnerorganisation.",
     adminTitle: "Youness Taoufiq",
-    adminBody: "Offizielles Borivon-Konto — Youness Taoufiq.",
+    adminBody: "Offizielles Borivon-Konto.",
     close: "Schließen",
   },
 } as const;
 
 export function VerifiedBadge({
-  verified, size = "sm", title, isAdmin = false, color = "gold",
+  verified, size = "sm", title, isAdmin = false, color = "gold", name,
 }: {
   verified: boolean | null | undefined;
   size?: "xs" | "sm" | "md";
   title?: string;
   isAdmin?: boolean;
+  /** Account holder's name. For the BLACK (Borivon team) popup the title must
+   *  match the name shown next to the tick — supreme OR sub-admin — never a
+   *  hardcoded person. Falls back to the generic admin title if absent. */
+  name?: string;
   /** Badge colour:
    *  "gold"  — verified candidate (default)
    *  "red"   — org admin
@@ -146,7 +150,7 @@ export function VerifiedBadge({
             </div>
 
             <p className="text-[15px] font-semibold tracking-tight mb-2" style={{ color: "var(--w)" }}>
-              {isAdmin ? t.adminTitle : color === "red" ? t.memberTitle : t.title}
+              {isAdmin ? (name?.trim() || t.adminTitle) : color === "red" ? t.memberTitle : t.title}
             </p>
             <p className="text-[12.5px] leading-relaxed mb-5" style={{ color: "var(--w3)" }}>
               {isAdmin ? t.adminBody : color === "red" ? t.memberBody : t.body}

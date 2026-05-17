@@ -86,7 +86,14 @@ const T = {
 export default function JoinPage() {
   const { lang } = useLang();
   const i18n = T[lang] ?? T.en;
-  const { code } = useParams<{ code: string }>();
+  // Catch-all route: /join/<code> (legacy) OR /join/<role-word>/<code>.
+  // The role word (candidate / organization / subadmin) is a HUMAN label so
+  // anyone who sees the link knows who it's for — it is NOT trusted: the
+  // real role is always resolved server-side from the code itself, so a
+  // mismatched/edited word can't escalate anything. Code = last segment.
+  const params = useParams<{ parts: string[] | string }>();
+  const segs = Array.isArray(params.parts) ? params.parts : params.parts ? [params.parts] : [];
+  const code = segs.length ? segs[segs.length - 1] : "";
   const router    = useRouter();
 
   const [info,        setInfo]        = useState<InviteInfo | null>(null);
@@ -100,48 +107,55 @@ export default function JoinPage() {
   useEffect(() => {
     if (!code) { setInvalid(true); setLoading(false); return; }
 
-    fetch(`/api/portal/invite/${encodeURIComponent(code)}`)
-      .then(async r => {
-        if (r.status === 410) { setAlreadyUsed(true); setLoading(false); return null; }
-        return r.ok ? r.json() : null;
-      })
-      .then(async data => {
-        if (data === null) return;
-        if (!data?.org) { setInvalid(true); setLoading(false); return; }
-        setInfo(data as InviteInfo);
-
-        // If already logged in → auto-redeem
+    (async () => {
+      try {
         const { data: { session } } = await supabase.auth.getSession();
+
+        // LOGGED IN → redeem straight away. The POST is idempotent for the
+        // same user, so even if an earlier attempt already consumed the token
+        // (the bug that stranded sub-admins on the candidate dashboard), this
+        // re-grants their role and routes them correctly. We do NOT gate on
+        // the GET 410 here — only the POST result decides.
         if (session?.access_token) {
           setRedeeming(true);
-          try {
-            const res = await fetch(`/api/portal/invite/${encodeURIComponent(code)}`, {
-              method: "POST",
-              headers: { Authorization: `Bearer ${session.access_token}` },
-            });
-            if (res.ok) {
-              const json = await res.json();
-              setJoined(true);
-              setTimeout(() => {
-                router.replace(
+          const res = await fetch(`/api/portal/invite/${encodeURIComponent(code)}`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${session.access_token}` },
+          });
+          if (res.ok) {
+            const json = await res.json();
+            setJoined(true);
+            setTimeout(() => {
+              router.replace(
                 json.type === "member" ? "/portal/org/dashboard" :
                 json.type === "sub-admin" ? "/portal/admin" :
-                "/portal/dashboard"
+                "/portal/dashboard",
               );
-              }, 1800);
-            } else {
-              const json = await res.json().catch(() => ({}));
-              if (json?.error === "already_used") setAlreadyUsed(true);
-              else setError(i18n.errGeneric);
-            }
-          } catch {
-            setError(i18n.errConnection);
+            }, 1800);
+          } else if (res.status === 410) {
+            setAlreadyUsed(true);   // genuinely used by a DIFFERENT person
+          } else if (res.status === 404) {
+            setInvalid(true);
+          } else {
+            setError(i18n.errGeneric);
           }
           setRedeeming(false);
+          setLoading(false);
+          return;
         }
+
+        // NOT logged in → show the invite card (or already-used / invalid).
+        const r = await fetch(`/api/portal/invite/${encodeURIComponent(code)}`);
+        if (r.status === 410) { setAlreadyUsed(true); setLoading(false); return; }
+        const data = r.ok ? await r.json() : null;
+        if (!data?.org) { setInvalid(true); setLoading(false); return; }
+        setInfo(data as InviteInfo);
         setLoading(false);
-      })
-      .catch(() => { setInvalid(true); setLoading(false); });
+      } catch {
+        setInvalid(true);
+        setLoading(false);
+      }
+    })();
   }, [code, router]);
 
   function goTo(mode: "register" | "login") {

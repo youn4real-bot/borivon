@@ -3,7 +3,8 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { LABEL_TO_FILE_KEY } from "@/lib/fileKeys";
 import { requireAdminRole, canActOnCandidate, getVisibleCandidateIds } from "@/lib/admin-auth";
 import { DOC_STATUSES, ALLOWED_PROFILE_FIELDS } from "@/lib/constants";
-import { sendDocApprovedEmail, sendDocRejectedEmail, sendVerifiedEmail } from "@/lib/email";
+import { sendDocApprovedEmail, sendDocRejectedEmail } from "@/lib/email";
+import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 
 // GET — fetch candidates + their docs (filtered for sub-admins)
 // Optional ?userId=X — return only docs for that candidate (used by targeted
@@ -19,6 +20,13 @@ export async function GET(req: NextRequest) {
   const filteredUserId = targetUserId && UUID_RE_ADMIN.test(targetUserId) ? targetUserId : null;
 
   const db = getServiceSupabase();
+
+  // Whether this caller sees the UNRESTRICTED candidate pool. Supreme admin
+  // always does; a regular sub-admin does too (LAW #25 — sub-admins see ALL
+  // candidates). Org/agency admins are scoped, so NOT here. Drives whether we
+  // also surface signed-up-but-no-docs candidates (else they're invisible to
+  // sub-admins until their first upload — the "missing candidate" bug).
+  let surfaceAllUsers = role === "admin";
 
   let docs;
   if (role === "admin") {
@@ -54,6 +62,9 @@ export async function GET(req: NextRequest) {
     // Sub-admin — scope by visibility (LAW #25).
     // Regular sub-admins see all (null); org admins see only their org's candidates.
     const visibleIds = await getVisibleCandidateIds(token);
+    // Regular sub-admin (null = no scope) sees every candidate → also surface
+    // those with no documents yet. Org admins keep their scoped list.
+    surfaceAllUsers = visibleIds === null;
 
     let q = db
       .from("documents")
@@ -79,14 +90,14 @@ export async function GET(req: NextRequest) {
   // Fetch user metadata (reuse the same service-role client)
   const adminClient = getServiceSupabase();
 
-  const userIds = [...new Set(docs.map((d: { user_id: string }) => d.user_id))];
+  let userIds = [...new Set(docs.map((d: { user_id: string }) => d.user_id))];
   const users: Record<string, { email: string; name: string }> = {};
 
   // For full admins, surface candidates who have signed up but not yet
   // uploaded anything — otherwise they're invisible until their first
   // document lands. Skip this expensive scan when ?userId is set (targeted
   // refresh) or for sub-admins / agency admins.
-  if (role === "admin" && !filteredUserId) {
+  if (surfaceAllUsers && !filteredUserId) {
     // Collect all admin/sub-admin emails to exclude them from the candidate list.
     const { data: subAdminRows } = await db.from("sub_admins").select("email");
     const adminEmailSet = new Set((subAdminRows ?? []).map((r: { email: string }) => r.email.toLowerCase()));
@@ -99,6 +110,8 @@ export async function GET(req: NextRequest) {
       const list = batch?.users ?? [];
       for (const u of list) {
         if (!u.id || !u.email) continue;
+        // A deleted person is GONE — never list a soft-deleted/ghost account.
+        if (isSoftDeletedAuthUser(u)) continue;
         // Skip admin/sub-admin accounts — only candidates belong in this list.
         if (adminEmailSet.has(u.email.toLowerCase())) continue;
         if (!userIds.includes(u.id)) userIds.push(u.id);
@@ -118,7 +131,7 @@ export async function GET(req: NextRequest) {
     if (users[uid]) return; // already populated by listUsers
     try {
       const { data } = await adminClient.auth.admin.getUserById(uid);
-      if (data?.user) {
+      if (data?.user && !isSoftDeletedAuthUser(data.user)) {
         users[uid] = {
           email: data.user.email ?? uid,
           name: data.user.user_metadata?.full_name ?? data.user.email ?? uid,
@@ -128,6 +141,29 @@ export async function GET(req: NextRequest) {
       console.warn("[admin GET] getUserById failed for", uid, err);
     }
   }));
+
+  // STAFF ARE NEVER CANDIDATES. The supreme admin, every sub-admin, and
+  // org admins/members must never appear in the candidate list — even if a
+  // stray `documents` row got mis-attributed to one of them (the old
+  // CV-ownership bug saved a candidate's CV under the editing sub-admin's
+  // id). Prune by resolved email so this is fixed RETROACTIVELY for all
+  // existing corruption, with zero data migration.
+  {
+    const { data: staffRows } = await db.from("sub_admins").select("email");
+    const staffEmails = new Set(
+      (staffRows ?? []).map((r: { email: string }) => (r.email ?? "").toLowerCase()).filter(Boolean),
+    );
+    const supremeEmail = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
+    if (supremeEmail) staffEmails.add(supremeEmail);
+    const excluded = new Set(
+      userIds.filter(uid => staffEmails.has((users[uid]?.email ?? "").toLowerCase())),
+    );
+    if (excluded.size) {
+      userIds = userIds.filter(uid => !excluded.has(uid));
+      docs = docs.filter((d: { user_id: string }) => !excluded.has(d.user_id));
+      for (const uid of excluded) delete users[uid];
+    }
+  }
 
   // Fetch passport profiles (all fields).
   // payment_tier was added in supabase/payments.sql — if not yet migrated it will
@@ -254,26 +290,49 @@ export async function POST(req: NextRequest) {
       .maybeSingle();
 
     if (doc) {
-      await db.from("notifications").insert({
-        user_id:  doc.user_id,
-        doc_id:   docId,
-        doc_name: doc.file_name,
-        doc_type: doc.file_type,
-        action:   status,
-        feedback: typeof feedback === "string" ? feedback : null,
-        read:     false,
-      });
+      // doc.file_type may be a phase_slots UUID (B/V slot docs). Resolve to its
+      // friendly label so the candidate's bell shows "Vollmacht wurde
+      // genehmigt" instead of a raw UUID.
+      let notifDocType = doc.file_type;
+      const SLOT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (SLOT_UUID.test(notifDocType)) {
+        const { data: slotRow } = await db
+          .from("phase_slots").select("label").eq("id", notifDocType).maybeSingle();
+        const slotLabel = (slotRow as { label?: string | null } | null)?.label;
+        if (slotLabel) notifDocType = slotLabel;
+      }
+      const isPassportDoc = /pass/i.test(doc.file_type);
 
-      // Fire transactional email (fire-and-forget)
-      db.auth.admin.getUserById(doc.user_id).then(({ data }) => {
-        const email = data?.user?.email;
-        if (!email) return;
-        if (status === "approved") sendDocApprovedEmail(email, doc.file_type);
-        else sendDocRejectedEmail(email, doc.file_type, typeof feedback === "string" ? feedback : null);
-      }).catch(() => {});
+      if (status === "approved" && isPassportDoc) {
+        // Passport PDF approved — do NOT notify on its own. The candidate is
+        // only told once BOTH the PDF and the passport data are accepted.
+        // The gate sends the combined "approved" notification + email iff the
+        // data is also approved; otherwise it stays silent.
+        await maybeNotifyPassportApproved(db, doc.user_id);
+      } else {
+        // Every other doc (and ALL rejections, incl. a rejected passport
+        // scan so the candidate knows to re-take the photo) notify normally.
+        await db.from("notifications").insert({
+          user_id:  doc.user_id,
+          doc_id:   docId,
+          doc_name: doc.file_name,
+          doc_type: notifDocType,
+          action:   status,
+          feedback: typeof feedback === "string" ? feedback : null,
+          read:     false,
+        });
+
+        // Fire transactional email (fire-and-forget)
+        db.auth.admin.getUserById(doc.user_id).then(({ data }) => {
+          const email = data?.user?.email;
+          if (!email) return;
+          if (status === "approved") sendDocApprovedEmail(email, doc.file_type);
+          else sendDocRejectedEmail(email, doc.file_type, typeof feedback === "string" ? feedback : null);
+        }).catch(() => {});
+      }
 
       // Auto blue-tick: passport file just approved — check if data is also approved
-      if (status === "approved" && /pass/i.test(doc.file_type)) {
+      if (status === "approved" && isPassportDoc) {
         await maybeGrantVerified(db, doc.user_id);
       }
     }
@@ -282,22 +341,27 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ success: true });
 }
 
-/** Send a one-time "verified" notification and mark manually_verified when
- *  both the passport document AND passport_status are approved. */
+/** Full passport acceptance (PDF doc + data both approved) marks the
+ *  candidate placement-ready and kicks off org match suggestions.
+ *
+ *  POLICY (changed): this NO LONGER grants the gold verified tick. The badge
+ *  is now tied ONLY to (a) a paid premium subscription, or (b) an explicit
+ *  supreme-admin grant in the Users tab. Passport approval just tells the
+ *  candidate via the normal "approved" bell notification — no gold badge,
+ *  no gold celebration, no verified email. Existing manually_verified users
+ *  are never touched here. */
 async function maybeGrantVerified(
   db: ReturnType<typeof getServiceSupabase>,
   userId: string,
 ) {
-  // Check passport_status
   const { data: profile } = await db
     .from("candidate_profiles")
-    .select("passport_status, manually_verified")
+    .select("passport_status")
     .eq("user_id", userId)
     .maybeSingle();
   if (profile?.passport_status !== "approved") return;
-  if (profile?.manually_verified) return; // already verified
 
-  // Check passport doc approved
+  // Passport doc approved too?
   const { data: passDocs } = await db
     .from("documents")
     .select("status")
@@ -307,49 +371,75 @@ async function maybeGrantVerified(
     .limit(1);
   if (!passDocs?.length) return;
 
-  // Grant verified + mark placement-ready atomically. Conditional on the
-  // current value of manually_verified so concurrent calls (passport doc and
-  // passport data approved at almost the same moment) don't both fall through
-  // to insert duplicate notifications + send duplicate verified emails.
-  // Catch both manually_verified=false AND NULL (newly-created rows where the
-  // column was never set) — eq("manually_verified", false) misses NULL and
-  // would let two concurrent grants both win the race.
+  // Mark placement-ready ONCE (guard catches false AND NULL) — purely for
+  // org matching, NOT verification. No gold tick is set.
   const { data: updated } = await db
     .from("candidate_profiles")
-    .update({ manually_verified: true, placement_ready: true })
+    .update({ placement_ready: true })
     .eq("user_id", userId)
-    .not("manually_verified", "is", true)
+    .not("placement_ready", "is", true)
     .select("user_id");
-  if (!updated?.length) return; // lost the race — someone else already verified
+  if (!updated?.length) return; // already placement-ready
 
-  // Trigger match suggestions for this newly-ready candidate (fire-and-forget)
   maybeCreateMatches(db, userId).catch(e => console.warn("[maybeCreateMatches]", e));
+}
 
-  // Send one-time "verified" notification (skip if already sent)
-  const { data: existing } = await db
-    .from("notifications")
-    .select("id")
+/** Send the candidate's "passport approved" notification ONLY when BOTH the
+ *  passport PDF document AND the passport data (passport_status) have been
+ *  manually approved by an admin. Approving just one side (e.g. data correct
+ *  but the scan is a blurry photo) must NOT notify — it's not a full passport
+ *  acceptance. Idempotent: fires once per approval cycle. If the passport is
+ *  later rejected and re-approved, the rejected notification resets the cycle
+ *  so a fresh "approved" is sent again. */
+async function maybeNotifyPassportApproved(
+  db: ReturnType<typeof getServiceSupabase>,
+  userId: string,
+) {
+  // Both sides must be approved.
+  const { data: profile } = await db
+    .from("candidate_profiles")
+    .select("passport_status")
     .eq("user_id", userId)
-    .eq("action", "verified")
+    .maybeSingle();
+  if (profile?.passport_status !== "approved") return;
+
+  const { data: passDocs } = await db
+    .from("documents")
+    .select("id, file_name, file_type, status")
+    .eq("user_id", userId)
+    .ilike("file_type", "%pass%")
+    .order("uploaded_at", { ascending: false })
     .limit(1);
-  if (existing?.length) return;
+  const passDoc = passDocs?.[0];
+  if (!passDoc || passDoc.status !== "approved") return;
+
+  // Dedupe per cycle: look at the most recent passport approve/reject
+  // notification. If it's already "approved", we've notified for this
+  // acceptance — skip. If it's "rejected" (or none), this is a fresh full
+  // acceptance → notify.
+  const { data: lastNotif } = await db
+    .from("notifications")
+    .select("action")
+    .eq("user_id", userId)
+    .in("action", ["approved", "rejected"])
+    .ilike("doc_type", "%pass%")
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (lastNotif?.[0]?.action === "approved") return;
 
   await db.from("notifications").insert({
     user_id:  userId,
-    doc_id:   null,
-    doc_name: "Verifizierung",
-    doc_type: "Passport",
-    action:   "verified",
+    doc_id:   passDoc.id,
+    doc_name: passDoc.file_name,
+    doc_type: passDoc.file_type,
+    action:   "approved",
     feedback: null,
     read:     false,
   });
 
-  // Fire verified email (fire-and-forget)
   db.auth.admin.getUserById(userId).then(({ data }) => {
     const email = data?.user?.email;
-    if (!email) return;
-    const firstName = (data?.user?.user_metadata?.full_name ?? "").split(" ")[0];
-    sendVerifiedEmail(email, firstName);
+    if (email) sendDocApprovedEmail(email, passDoc.file_type);
   }).catch(() => {});
 }
 
@@ -503,12 +593,22 @@ export async function PATCH(req: NextRequest) {
       sendDocRejectedEmail(email, passDoc?.file_type ?? "Passport", (cleanProfile.passport_feedback as string | null) ?? null);
     }).catch(() => {});
 
-    // Revoke blue-tick + placement-ready — both are outside ALLOWED_PROFILE_FIELDS
-    // so we update them directly here.
+    // Passport rejection clears placement-ready only. It must NOT touch
+    // manually_verified anymore — the gold tick is now tied solely to a paid
+    // subscription or an explicit admin grant, so a passport reject can't
+    // strip a verification the candidate earned another way.
     await db
       .from("candidate_profiles")
-      .update({ manually_verified: false, placement_ready: false })
+      .update({ placement_ready: false })
       .eq("user_id", userId);
+  }
+
+  // Passport DATA approved → notify the candidate ONLY if the passport PDF
+  // doc is ALSO approved (full acceptance). Approving just the data never
+  // notifies on its own. Gate is idempotent + works for any admin tier
+  // (PATCH already guarded by requireAdminRole + canActOnCandidate above).
+  if (newPassportStatus === "approved" && prevPassportStatus !== "approved") {
+    await maybeNotifyPassportApproved(db, userId);
   }
 
   // Auto blue-tick: passport data just approved — check if file is also approved

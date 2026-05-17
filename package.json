@@ -27,11 +27,14 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
+    "file-saver": "^2.0.5",
     "focus-trap-react": "^12.0.1",
     "googleapis": "^171.4.0",
+    "isomorphic-dompurify": "^3.12.0",
     "lucide-react": "^0.577.0",
     "mammoth": "^1.12.0",
     "next": "^15.5.13",
+    "nextjs-toploader": "^3.9.17",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.7.284",
     "postcss": "^8.5.8",
@@ -43,5 +46,8 @@
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.2.2",
     "typescript": "^5.9.3"
+  },
+  "devDependencies": {
+    "@types/file-saver": "^2.0.7"
   }
 }

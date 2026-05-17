@@ -1,9 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
-import { requireAdminRole } from "@/lib/admin-auth";
+import { requireAdminRole, canActOnCandidate, getVisibleCandidateIds, ciEmail } from "@/lib/admin-auth";
+import { validateImageDataUrl } from "@/lib/validateDataUrl";
+import { enforceRateLimit } from "@/lib/rateLimit";
 
 const MAX_BODY_CHARS = 5000;
 const MAX_ATTACHMENT_CHARS = 800_000;
+
+/**
+ * "Borivon Support" is a SHARED inbox for the Borivon team: the supreme
+ * admin + ALL Borivon sub-admins see the same candidate conversations and
+ * any of them can reply (one identity to the candidate). Org admins / org
+ * members are NOT part of it — anyone with an organization_members row is
+ * org-side and blocked here. Supreme (role "admin") is always Borivon team.
+ */
+async function isOrgSide(
+  db: ReturnType<typeof getServiceSupabase>,
+  role: string,
+  email: string,
+): Promise<boolean> {
+  if (role === "admin") return false;
+  const { data } = await db
+    .from("organization_members")
+    .select("sub_admin_email")
+    .ilike("sub_admin_email", ciEmail(email))
+    .maybeSingle();
+  return !!data;
+}
 
 /**
  * Admin-side messaging:
@@ -19,14 +42,22 @@ const MAX_ATTACHMENT_CHARS = 800_000;
 export async function GET(req: NextRequest) {
   const auth = await requireAdminRole(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
-  if (auth.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const url = new URL(req.url);
   const threadUserId = url.searchParams.get("threadUserId");
   const db = getServiceSupabase();
 
-  // Single thread mode
+  if (await isOrgSide(db, auth.role, auth.email)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // Single thread mode — LAW #25: sub-admins can only read threads for visible
+  // candidates. Supreme admin sees everything.
   if (threadUserId) {
+    if (auth.role !== "admin") {
+      const allowed = await canActOnCandidate(auth.role, auth.email, threadUserId);
+      if (!allowed) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
     const { data, error } = await db
       .from("messages")
       .select("id, sender_role, body, attachment, kind, created_at, read_by_admin")
@@ -40,12 +71,23 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ messages: data ?? [] });
   }
 
-  // Conversations list — last message + unread count per thread.
-  const { data: rows, error } = await db
+  // Conversations list — LAW #25: for sub-admins, filter to their visible
+  // candidates only. null = regular sub-admin (no filter, sees all).
+  let visibleIds: string[] | null = null;
+  if (auth.role !== "admin") {
+    visibleIds = await getVisibleCandidateIds(auth.email);
+    if (visibleIds !== null && visibleIds.length === 0) {
+      return NextResponse.json({ conversations: [] });
+    }
+  }
+
+  let listQuery = db
     .from("messages")
     .select("id, thread_user_id, sender_role, body, kind, attachment, read_by_admin, created_at")
     .order("created_at", { ascending: false })
     .limit(500);
+  if (visibleIds !== null) listQuery = listQuery.in("thread_user_id", visibleIds);
+  const { data: rows, error } = await listQuery;
 
   if (error) {
     console.error("[admin messages GET list] failed:", error);
@@ -152,9 +194,15 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const rl = enforceRateLimit(req, "admin-msg-send", { limit: 60, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many messages" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+
   const auth = await requireAdminRole(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
-  if (auth.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  if (await isOrgSide(getServiceSupabase(), auth.role, auth.email)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   let body: { threadUserId?: unknown; body?: unknown; attachment?: unknown };
   try {
@@ -170,6 +218,11 @@ export async function POST(req: NextRequest) {
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(threadUserId)) {
     return NextResponse.json({ error: "Invalid threadUserId" }, { status: 400 });
   }
+  // LAW #25: sub-admins can only message their assigned/org candidates.
+  if (auth.role !== "admin") {
+    const allowed = await canActOnCandidate(auth.role, auth.email, threadUserId);
+    if (!allowed) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   if (!text && !attachment) {
     return NextResponse.json({ error: "Empty message" }, { status: 400 });
   }
@@ -177,11 +230,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Message too long" }, { status: 400 });
   }
   if (attachment) {
-    if (!attachment.startsWith("data:image/")) {
-      return NextResponse.json({ error: "Invalid attachment" }, { status: 400 });
-    }
     if (attachment.length > MAX_ATTACHMENT_CHARS) {
       return NextResponse.json({ error: "Attachment too large" }, { status: 413 });
+    }
+    // SECURITY: reject SVG and spoofed MIMEs (stored-XSS vector).
+    const validated = validateImageDataUrl(attachment);
+    if (!validated.ok) {
+      console.warn("[admin messages POST] attachment rejected:", validated.reason);
+      return NextResponse.json({ error: "Invalid attachment" }, { status: 400 });
     }
   }
 
@@ -211,7 +267,10 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const auth = await requireAdminRole(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
-  if (auth.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  if (await isOrgSide(getServiceSupabase(), auth.role, auth.email)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   let body: { threadUserId?: unknown };
   try {
@@ -221,6 +280,11 @@ export async function PATCH(req: NextRequest) {
   }
   const threadUserId = typeof body.threadUserId === "string" ? body.threadUserId : "";
   if (!threadUserId) return NextResponse.json({ error: "Missing threadUserId" }, { status: 400 });
+  // LAW #25: sub-admins can only mark threads for visible candidates as read.
+  if (auth.role !== "admin") {
+    const allowed = await canActOnCandidate(auth.role, auth.email, threadUserId);
+    if (!allowed) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const db = getServiceSupabase();
   await db

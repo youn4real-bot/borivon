@@ -1077,8 +1077,9 @@ export default function OrganizationsPage() {
       <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4"
         style={{ background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)" }}
         onClick={() => setQrModal(null)}>
-        <div className="rounded-2xl p-6 flex flex-col items-center gap-4 w-full max-w-[300px]"
-          style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 8px 32px rgba(0,0,0,0.4)" }}
+        <div className="rounded-2xl p-6 flex flex-col items-center gap-4 w-full max-w-[300px] overflow-y-auto"
+          style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+                   maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)" }}
           onClick={e => e.stopPropagation()}>
           <p className="text-[13px] font-semibold text-center" style={{ color: "var(--w)" }}>{qrModal.label}</p>
           {/* eslint-disable-next-line @next/next/no-img-element */}

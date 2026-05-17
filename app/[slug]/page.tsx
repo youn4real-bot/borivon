@@ -148,6 +148,7 @@ export default function PublicProfilePage() {
             {profile.verified && (
               <span className="absolute" style={{ left: "100%", top: "50%", transform: "translateY(-50%)" }}>
                 <VerifiedBadge verified size="md" isAdmin={profile.isAdmin} color={profile.isAdmin ? "black" : "gold"}
+                  name={profile.name}
                   title={lang === "de" ? "Verifiziert von Borivon" : lang === "en" ? "Verified by Borivon" : "Vérifié par Borivon"} />
               </span>
             )}
@@ -215,8 +216,9 @@ export default function PublicProfilePage() {
         <div className="fixed inset-x-0 bottom-0 top-[58px] z-[800] flex items-center justify-center p-4"
           style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}
           onClick={() => setPopup(null)}>
-          <div className="w-full max-w-[400px] p-6 text-center"
-            style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-lg)", boxShadow: "var(--shadow-lg)" }}
+          <div className="w-full max-w-[400px] p-6 text-center overflow-y-auto"
+            style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-lg)", boxShadow: "var(--shadow-lg)",
+                     maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)" }}
             onClick={e => e.stopPropagation()}>
             {popup === "register" ? (
               <>

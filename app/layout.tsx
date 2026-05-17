@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Lexend, Playfair_Display } from "next/font/google";
 import "./globals.css";
 import { GlobalChrome } from "@/components/GlobalChrome";
+import NextTopLoader from "nextjs-toploader";
 
 // Primary font — Lexend everywhere (UI, body, headings, every surface).
 // Mercury-style discipline: one font for the entire system. Lexend has
@@ -120,6 +121,14 @@ export default function RootLayout({
   return (
     <html lang="fr" dir="ltr" className={`${lexend.variable} ${playfair.variable}`}>
       <head>
+        {/* Resource hints — let the browser open TCP+TLS to our hot origins
+            during HTML parse, before any subresource is actually requested.
+            Saves ~100-300ms on the first Supabase / Drive proxy call. */}
+        <link rel="preconnect" href={process.env.NEXT_PUBLIC_SUPABASE_URL ?? "https://supabase.co"} crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href={process.env.NEXT_PUBLIC_SUPABASE_URL ?? "https://supabase.co"} />
+        <link rel="preconnect" href="https://lh3.googleusercontent.com" crossOrigin="anonymous" />
+        <link rel="dns-prefetch" href="https://lh3.googleusercontent.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
@@ -164,6 +173,17 @@ export default function RootLayout({
         />
       </head>
       <body>
+        {/* Top progress bar on every Next-link navigation. Gives instant
+            click feedback — bar starts immediately, page hydrates in
+            parallel. Same idiom Linear / Vercel use. */}
+        <NextTopLoader
+          color="var(--gold)"
+          height={2.5}
+          showSpinner={false}
+          shadow="0 0 8px var(--border-gold)"
+          easing="ease"
+          speed={250}
+        />
         <GlobalChrome>{children}</GlobalChrome>
       </body>
     </html>

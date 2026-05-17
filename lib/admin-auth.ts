@@ -13,6 +13,20 @@
 import { NextRequest } from "next/server";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 
+/**
+ * Case-insensitive EXACT email match for Postgres `ilike`.
+ *
+ * Historic rows in `sub_admins` / `organization_members` were stored with
+ * whatever casing the admin typed, but JWT emails are normalized to
+ * lowercase — so a plain `.eq("email", …)` silently misses them and the
+ * sub-admin gets dumped on the candidate dashboard. We match with `ilike`
+ * (case-insensitive) but escape `%` and `_` so an email like
+ * `first_last@x.com` can't act as a wildcard and false-match.
+ */
+export function ciEmail(email: string): string {
+  return email.replace(/[\\%_]/g, (c) => "\\" + c);
+}
+
 export type AdminRole = "admin" | "sub_admin";
 
 export type AdminAuthResult =
@@ -52,8 +66,18 @@ export async function requireAdminRole(req: NextRequest): Promise<AdminAuthResul
   }
 
   // 2) Sub-admin? (lookup against `sub_admins` table)
+  // NOTE: sub_admins.email has no UNIQUE constraint, so duplicate rows for
+  // the same email are possible (redeem retries / races). `.maybeSingle()`
+  // THROWS on >1 row → that error would wrongly demote a real sub-admin to
+  // candidate (the "logged back in and became a candidate" bug). Take the
+  // first matching row instead — duplicate-tolerant.
   const db = getServiceSupabase();
-  const { data: sub } = await db.from("sub_admins").select("email, agency_id, is_agency_admin").eq("email", email).maybeSingle();
+  const { data: subRows } = await db
+    .from("sub_admins")
+    .select("email, agency_id, is_agency_admin")
+    .ilike("email", ciEmail(email))
+    .limit(1);
+  const sub = (subRows ?? [])[0];
   if (sub) {
     return {
       ok: true, role: "sub_admin", email, userId: data.user.id,
@@ -81,12 +105,15 @@ export async function canActOnCandidate(role: AdminRole, subAdminEmail: string, 
   const db = getServiceSupabase();
 
   // Determine if this sub-admin is an org admin or a regular sub-admin.
-  const { data: subRow } = await db
+  // Duplicate-tolerant (sub_admins.email has no UNIQUE constraint — see
+  // requireAdminRole). `.maybeSingle()` would throw on dupes and silently
+  // strip the sub-admin's access.
+  const { data: subRows } = await db
     .from("sub_admins")
     .select("is_agency_admin")
-    .eq("email", subAdminEmail)
-    .maybeSingle();
-  const isAgencyAdmin = (subRow as { is_agency_admin: boolean } | null)?.is_agency_admin ?? false;
+    .ilike("email", ciEmail(subAdminEmail))
+    .limit(1);
+  const isAgencyAdmin = ((subRows ?? [])[0] as { is_agency_admin: boolean } | undefined)?.is_agency_admin ?? false;
 
   // Regular sub-admin sees all candidates (LAW #25).
   if (!isAgencyAdmin) return true;
@@ -95,7 +122,7 @@ export async function canActOnCandidate(role: AdminRole, subAdminEmail: string, 
   const { data: myOrgsData } = await db
     .from("organization_members")
     .select("org_id")
-    .eq("sub_admin_email", subAdminEmail);
+    .ilike("sub_admin_email", ciEmail(subAdminEmail));
   type OrgIdRow = { org_id: string };
   const myOrgs = ((myOrgsData ?? []) as OrgIdRow[]).map(r => r.org_id);
   if (myOrgs.length === 0) return false;
@@ -120,12 +147,15 @@ export async function canActOnCandidate(role: AdminRole, subAdminEmail: string, 
 export async function getVisibleCandidateIds(subAdminEmail: string): Promise<string[] | null> {
   const db = getServiceSupabase();
 
-  const { data: subRow } = await db
+  // Duplicate-tolerant (sub_admins.email has no UNIQUE constraint — see
+  // requireAdminRole). `.maybeSingle()` would throw on dupes and silently
+  // strip the sub-admin's access.
+  const { data: subRows } = await db
     .from("sub_admins")
     .select("is_agency_admin")
-    .eq("email", subAdminEmail)
-    .maybeSingle();
-  const isAgencyAdmin = (subRow as { is_agency_admin: boolean } | null)?.is_agency_admin ?? false;
+    .ilike("email", ciEmail(subAdminEmail))
+    .limit(1);
+  const isAgencyAdmin = ((subRows ?? [])[0] as { is_agency_admin: boolean } | undefined)?.is_agency_admin ?? false;
 
   // Regular sub-admin sees all candidates.
   if (!isAgencyAdmin) return null;
@@ -134,7 +164,7 @@ export async function getVisibleCandidateIds(subAdminEmail: string): Promise<str
   const { data: myOrgsData } = await db
     .from("organization_members")
     .select("org_id")
-    .eq("sub_admin_email", subAdminEmail);
+    .ilike("sub_admin_email", ciEmail(subAdminEmail));
   type OrgIdRow = { org_id: string };
   const myOrgs = ((myOrgsData ?? []) as OrgIdRow[]).map(r => r.org_id);
 

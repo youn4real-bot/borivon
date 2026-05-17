@@ -23,6 +23,7 @@ import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PortalTopNav } from "@/components/PortalTopNav";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
+import { tickColor, tickAccent, type TickColor } from "@/lib/roleTick";
 import { Heart, MessageCircle, Trash2, Send, Loader2, Pin, ImagePlus, Smile, Link2, ChevronUp, Sparkles, X } from "lucide-react";
 import { relativeTime } from "@/lib/relativeTime";
 
@@ -146,30 +147,15 @@ function getCategoryMeta(value: string, lang: string) {
 }
 
 // ── Avatar ────────────────────────────────────────────────────────────────────
-function deriveTickColor(isSuperAdmin: boolean | undefined, isOrgMember: boolean | undefined, verified: boolean): "gold" | "black" | "red" | "default" {
-  if (isSuperAdmin) return "black";
-  if (isOrgMember) return "red";
-  if (verified) return "gold";
-  return "default";
+// Thin wrappers over the single source of truth (lib/roleTick). NOTE: black
+// = Borivon TEAM (supreme admin OR sub-admin), so we key off isBorivonTeam,
+// not isSuperAdmin — otherwise sub-admins would wrongly show the gold tick.
+function deriveTickColor(isBorivonTeam: boolean | undefined, isOrgMember: boolean | undefined, verified: boolean): TickColor {
+  return tickColor({ isBorivonTeam, isOrgAdmin: isOrgMember, candidateVerified: verified });
 }
 
-function derivePostAccent(isSuperAdmin: boolean, isOrgMember: boolean, verified: boolean) {
-  if (isSuperAdmin) return {
-    border: "var(--border-admin)",
-    gradient: "var(--gradient-admin)",
-    line: true,
-  };
-  if (isOrgMember) return {
-    border: "var(--danger)",
-    gradient: "linear-gradient(90deg,transparent,var(--danger),transparent)",
-    line: true,
-  };
-  if (verified) return {
-    border: "var(--border-gold)",
-    gradient: "linear-gradient(90deg,transparent,var(--gold),transparent)",
-    line: true,
-  };
-  return { border: "var(--border)", gradient: "", line: false };
+function derivePostAccent(isBorivonTeam: boolean, isOrgMember: boolean, verified: boolean) {
+  return tickAccent(tickColor({ isBorivonTeam, isOrgAdmin: isOrgMember, candidateVerified: verified }));
 }
 
 function Avatar({ photo, name, size = 36, isBorivonTeam = false, tickColor = "default" }: {
@@ -265,7 +251,7 @@ function CommentsModal({
           border: "1px solid var(--border)",
           borderRadius: "var(--r-lg)",
           boxShadow: "var(--shadow-lg)",
-          maxHeight: "calc(100vh - 120px)",
+          maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)",
         }}
         onClick={e => e.stopPropagation()}
       >
@@ -297,12 +283,17 @@ function CommentsModal({
           ) : (
             flatComments.map(item => (
               <div key={item.c.id} className={item.isReply ? "flex gap-2 ml-8 mt-1.5" : "flex gap-2"}>
-                <Avatar photo={item.c.authorPhoto} name={item.c.authorName} size={item.isReply ? 22 : 28} isBorivonTeam={item.c.isBorivonTeam} tickColor={deriveTickColor(item.c.isSuperAdmin, item.c.isOrgMember, item.c.authorVerified)} />
+                <Avatar photo={item.c.authorPhoto} name={item.c.authorName} size={item.isReply ? 22 : 28} isBorivonTeam={item.c.isBorivonTeam} tickColor={deriveTickColor(item.c.isBorivonTeam, item.c.isOrgMember, item.c.authorVerified)} />
                 <div className="flex-1 min-w-0">
                   <div className="rounded-2xl px-3 py-2" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
                     <div className="flex items-center gap-1 mb-0.5">
                       <span className="text-[11.5px] font-semibold" style={{ color: "var(--w)" }}>{item.c.authorName}</span>
-                      {item.c.authorVerified && <VerifiedBadge verified size="xs" isAdmin={item.c.isBorivonTeam} color={item.c.isBorivonTeam ? "black" : "gold"} />}
+                      {(() => {
+                        const tc = deriveTickColor(item.c.isBorivonTeam, item.c.isOrgMember, item.c.authorVerified);
+                        return tc !== "default"
+                          ? <VerifiedBadge verified size="xs" isAdmin={tc === "black"} color={tc} name={item.c.authorName} />
+                          : null;
+                      })()}
                     </div>
                     <p className="text-[12px] leading-relaxed whitespace-pre-wrap" style={{ color: "var(--w2)", wordBreak: "break-word" }}>{item.c.content}</p>
                   </div>
@@ -348,7 +339,7 @@ function CommentsModal({
           )}
           <div className="flex gap-2.5">
             <div className="flex-1 flex items-center gap-1.5 rounded-full px-3 py-1.5"
-              style={{ background: "var(--bg2)", border: `1px solid ${replyTo ? "var(--gold)" : "var(--border)"}`, transition: "border-color 0.15s" }}>
+              style={{ background: "var(--bg2)", border: `1px solid ${replyTo ? "var(--gold)" : "var(--border)"}`, transition: "border-color var(--dur-1) var(--ease)" }}>
               <input ref={inputRef} value={commentText} onChange={e => onChangeText(e.target.value.slice(0, 300))}
                 onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); onAddComment(); } }}
                 placeholder={replyTo ? `${t.replyingTo} @${replyTo}…` : t.writeComment}
@@ -356,7 +347,7 @@ function CommentsModal({
                 autoFocus
               />
               <button onClick={onAddComment} disabled={!commentText.trim() || sendingComment}
-                style={{ background: "transparent", border: "none", cursor: commentText.trim() ? "pointer" : "default", color: commentText.trim() ? "var(--gold)" : "var(--w3)", transition: "color 0.15s" }}>
+                style={{ background: "transparent", border: "none", cursor: commentText.trim() ? "pointer" : "default", color: commentText.trim() ? "var(--gold)" : "var(--w3)", transition: "color var(--dur-1) var(--ease)" }}>
                 {sendingComment ? <Loader2 size={13} strokeWidth={2} className="animate-spin" /> : <Send size={13} strokeWidth={2} />}
               </button>
             </div>
@@ -532,7 +523,7 @@ function PostCard({
     flatComments.push({ c, isReply: false });
   });
 
-  const accent = derivePostAccent(post.author.isSuperAdmin, post.author.isOrgMember, post.author.verified);
+  const accent = derivePostAccent(post.author.isBorivonTeam, post.author.isOrgMember, post.author.verified);
 
   return (
     <>
@@ -560,11 +551,16 @@ function PostCard({
       <div className="px-4 pt-4 pb-3">
         {/* Author row */}
         <div className="flex items-start gap-3 mb-3">
-          <Avatar photo={post.author.photo} name={post.author.name} size={38} isBorivonTeam={post.author.isBorivonTeam} tickColor={deriveTickColor(post.author.isSuperAdmin, post.author.isOrgMember, post.author.verified)} />
+          <Avatar photo={post.author.photo} name={post.author.name} size={38} isBorivonTeam={post.author.isBorivonTeam} tickColor={deriveTickColor(post.author.isBorivonTeam, post.author.isOrgMember, post.author.verified)} />
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1 flex-wrap">
               <span className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>{post.author.name}</span>
-              {post.author.verified && <VerifiedBadge verified size="xs" isAdmin={post.author.isBorivonTeam} color={post.author.isBorivonTeam ? "black" : "gold"} />}
+              {(() => {
+                const tc = deriveTickColor(post.author.isBorivonTeam, post.author.isOrgMember, post.author.verified);
+                return tc !== "default"
+                  ? <VerifiedBadge verified size="xs" isAdmin={tc === "black"} color={tc} name={post.author.name} />
+                  : null;
+              })()}
             </div>
             <div className="flex items-center gap-2 mt-0.5">
               <span className="text-[11px]" style={{ color: "var(--w3)" }}>{relativeTime(post.createdAt, lang)}</span>
@@ -946,10 +942,10 @@ export default function FeedPage() {
           onDragOver={e => { e.preventDefault(); setDraggingOver(true); }}
           onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDraggingOver(false); }}
           onDrop={handleComposerDrop}
-          style={{ background: "var(--card)", border: `1px solid ${draggingOver ? "var(--gold)" : titleError ? "var(--danger-border)" : "var(--border)"}`, transition: "border-color 0.2s" }}>
+          style={{ background: "var(--card)", border: `1px solid ${draggingOver ? "var(--gold)" : titleError ? "var(--danger-border)" : "var(--border)"}`, transition: "border-color var(--dur-2) var(--ease)" }}>
           <div className="p-4">
             <div className="flex gap-3">
-              <Avatar photo={userMeta.photo} name={userMeta.name} size={38} isBorivonTeam={userMeta.isBorivonTeam} tickColor={deriveTickColor(userMeta.isSuperAdmin, userMeta.isOrgMember, userMeta.verified)} />
+              <Avatar photo={userMeta.photo} name={userMeta.name} size={38} isBorivonTeam={userMeta.isBorivonTeam} tickColor={deriveTickColor(userMeta.isBorivonTeam, userMeta.isOrgMember, userMeta.verified)} />
               <div className="flex-1 min-w-0">
                 {/* Required title */}
                 <input
@@ -1105,7 +1101,7 @@ export default function FeedPage() {
                   color: canPost ? "#131312" : "var(--w3)",
                   border: `1px solid ${canPost ? "var(--gold)" : "var(--border)"}`,
                   cursor: canPost && !posting ? "pointer" : "default",
-                  transition: "all 0.15s",
+                  transition: "all var(--dur-1) var(--ease)",
                 }}>
                 {posting ? <><Loader2 size={12} strokeWidth={2} className="animate-spin" />{t.posting}</> : t.post}
               </button>

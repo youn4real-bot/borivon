@@ -68,9 +68,12 @@ async function isAuthorised(
     return canActOnCandidate(adminAuth.role, adminAuth.email, origDoc.user_id);
   }
 
+  // Header OR ?access_token query (iOS navigations can't send a header).
   const authHeader = req.headers.get("authorization");
-  if (!authHeader?.startsWith("Bearer ")) return false;
-  const jwt = authHeader.slice(7);
+  const headerJwt = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : "";
+  const queryJwt = req.nextUrl.searchParams.get("access_token") ?? "";
+  const jwt = headerJwt || queryJwt;
+  if (!jwt) return false;
   const { data: { user }, error } = await getAnonVerifyClient().auth.getUser(jwt);
   if (error || !user) return false;
 
@@ -145,13 +148,19 @@ export async function GET(req: NextRequest) {
 
     const mergedBytes = await merged.save();
 
-    return new NextResponse(Buffer.from(mergedBytes), {
-      headers: {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": "attachment",
-        "Cache-Control": "private, no-store",
-      },
-    });
+    {
+      const dl = req.nextUrl.searchParams.get("dl") === "1";
+      const nm = (req.nextUrl.searchParams.get("name") || "merged.pdf")
+        .replace(/[\r\n"]/g, "").slice(0, 200);
+      return new NextResponse(Buffer.from(mergedBytes), {
+        headers: {
+          // octet-stream + filename so iOS Safari actually downloads it.
+          "Content-Type": dl ? "application/octet-stream" : "application/pdf",
+          "Content-Disposition": dl ? `attachment; filename="${nm}"` : "attachment",
+          "Cache-Control": "private, no-store",
+        },
+      });
+    }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[merge-pdf] error:", msg);

@@ -23,7 +23,14 @@ export async function GET(req: NextRequest) {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const BUCKET  = "documents";
+const BUCKET  = "slot-templates";
+
+async function ensureBucket(db: ReturnType<typeof getServiceSupabase>) {
+  const { error } = await db.storage.createBucket(BUCKET, { public: false });
+  if (error && !/already exists|resource already/i.test(error.message)) {
+    console.warn("[slot-template] bucket create warning:", error.message);
+  }
+}
 
 export async function POST(req: NextRequest) {
   const auth = await requireAdminRole(req);
@@ -44,6 +51,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "slotId required" }, { status: 400 });
 
   const db = getServiceSupabase();
+  await ensureBucket(db);
 
   // Verify slot exists + sub-admin scope
   const { data: slot } = await db.from("phase_slots").select("org_id").eq("id", slotId).maybeSingle();

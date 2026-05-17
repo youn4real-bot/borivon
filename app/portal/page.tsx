@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
@@ -45,8 +45,93 @@ function PortalPageInner() {
   const [checkEmail, setCheckEmail]   = useState(false);
   const [consent, setConsent]         = useState(false);
   const [dataConsent, setDataConsent] = useState(false);
+  // 6-digit email verification (replaces the confirmation link).
+  const [otp, setOtp]                 = useState("");
+  const [otpErr, setOtpErr]           = useState("");
+  const [otpBusy, setOtpBusy]         = useState(false);
+  const [resendIn, setResendIn]       = useState(0);
+
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const id = setTimeout(() => setResendIn(s => s - 1), 1000);
+    return () => clearTimeout(id);
+  }, [resendIn]);
 
   const inviteLocked = !!prefilledCode; // came via link — code is locked
+
+  // Shared: once a session exists (auto-confirm OR after OTP verify), redeem
+  // any pending invite and route by the resolved role. One place so the
+  // signup + OTP paths can't drift.
+  async function redeemAndRoute(code: string): Promise<boolean> {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) return false;
+    // Parity with the old link/callback flow: notify admins of the new
+    // signup. Server route is idempotent (dedupes by email) + only reached
+    // on the signup/auto-confirm/OTP path (never plain login), so no spam.
+    fetch("/api/portal/admin/signup-notify", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}` },
+    }).catch(() => { /* best-effort, mirrors old behavior */ });
+    let inviteType: string | null = null;
+    if (code) {
+      try {
+        const r = await fetch(`/api/portal/invite/${encodeURIComponent(code)}`, {
+          method: "POST", headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (r.ok) inviteType = (await r.json()).type ?? null;
+      } catch { /* ignore */ }
+      try { localStorage.removeItem("bv_invite_code"); } catch { /* ignore */ }
+    }
+    let dest = "/portal/dashboard";
+    if (inviteType === "member") dest = "/portal/org/dashboard";
+    else if (inviteType === "sub-admin") dest = "/portal/admin";
+    else {
+      try {
+        const rr = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const { role } = await rr.json().catch(() => ({}));
+        if (role === "org_member") dest = "/portal/org/dashboard";
+        else if (role === "admin" || role === "sub_admin") dest = "/portal/admin";
+      } catch { /* default candidate dashboard */ }
+    }
+    router.replace(dest);
+    return true;
+  }
+
+  async function verifyCode() {
+    if (otp.trim().length !== 6 || otpBusy) return;
+    setOtpBusy(true); setOtpErr("");
+    try {
+      const { error: err } = await supabase.auth.verifyOtp({
+        email: email.trim().toLowerCase(), token: otp.trim(), type: "signup",
+      });
+      if (err) {
+        const m = err.message || "";
+        setOtpErr(
+          /expired/i.test(m)
+            ? (lang === "de" ? "Code abgelaufen — neuen anfordern." : lang === "fr" ? "Code expiré — demandez-en un nouveau." : "Code expired — request a new one.")
+            : /invalid|incorrect|token|otp/i.test(m)
+            ? (lang === "de" ? "Falscher Code." : lang === "fr" ? "Code incorrect." : "Incorrect code.")
+            : m,
+        );
+        setOtpBusy(false); return;
+      }
+    } catch {
+      setOtpErr(t.pErrNetwork); setOtpBusy(false); return;
+    }
+    try { if (await redeemAndRoute(inviteCode.trim())) return; } catch { /* fall through */ }
+    router.replace("/portal/dashboard");
+  }
+
+  async function resendCode() {
+    if (resendIn > 0 || otpBusy) return;
+    setOtpErr("");
+    try {
+      await supabase.auth.resend({ type: "signup", email: email.trim().toLowerCase() });
+      setResendIn(30);
+    } catch {
+      setOtpErr(t.pErrNetwork);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -131,6 +216,19 @@ function PortalPageInner() {
       }
       // Keep code in localStorage as belt-and-suspenders fallback
       try { localStorage.setItem("bv_invite_code", code); } catch { /* private mode */ }
+
+      // If Supabase auto-confirms signups, a session exists RIGHT NOW and the
+      // user never sees the email-confirmation link (which is the only place
+      // the invite gets redeemed). Redeem here too so a sub-admin link works
+      // regardless of the email-confirmation setting — otherwise they'd land
+      // on the candidate portal. (Email-confirm ON → no session yet → fall
+      // through to the "check your email" screen; callback redeems later.)
+      // Auto-confirm ON → session exists now → redeem + route immediately.
+      try {
+        if (await redeemAndRoute(code)) { setLoading(false); return; }
+      } catch { /* getSession blip — fall through to the code screen */ }
+
+      // Email-confirm ON → no session yet → show the 6-digit code screen.
       setCheckEmail(true); setLoading(false); return;
     }
 
@@ -176,6 +274,7 @@ function PortalPageInner() {
     }
 
     // If no invite to redeem, check existing role
+    let roleDest: string | null = null;
     if (!inviteType) {
       try {
         const { data: { session } } = await supabase.auth.getSession();
@@ -183,15 +282,22 @@ function PortalPageInner() {
           const roleRes = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${session.access_token}` } });
           const { role } = await roleRes.json().catch(() => ({}));
           if (role === "org_member") inviteType = "member";
+          else if (role === "admin" || role === "sub_admin") roleDest = "/portal/admin";
         }
       } catch { /* ignore */ }
     }
 
-    router.replace(inviteType === "member" ? "/portal/org/dashboard" : "/portal/dashboard");
+    router.replace(
+      roleDest ??
+      (inviteType === "member"    ? "/portal/org/dashboard" :
+       inviteType === "sub-admin" ? "/portal/admin" :
+                                    "/portal/dashboard"),
+    );
   }
 
   function switchMode(m: Mode) {
     setMode(m); setError(""); setCheckEmail(false);
+    setOtp(""); setOtpErr(""); setResendIn(0);
     setFirstName(""); setLastName(""); setPassword(""); setConfirmPassword("");
     setShowPassword(false); setShowConfirm(false);
     setConsent(false); setDataConsent(false);
@@ -223,13 +329,53 @@ function PortalPageInner() {
               <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>
             </svg>
           </div>
-          <h1 className="text-[20px] font-semibold mb-2" style={{ color: "var(--w)" }}>{t.pCheckEmail}</h1>
-          <p className="text-[13.5px] leading-relaxed mb-8" style={{ color: "var(--w3)" }}>
-            {t.pCheckEmailDesc.replace("{email}", email)}
+          <h1 className="text-[20px] font-semibold mb-2" style={{ color: "var(--w)" }}>
+            {lang === "de" ? "Code eingeben" : lang === "fr" ? "Entrez le code" : "Enter your code"}
+          </h1>
+          <p className="text-[13.5px] leading-relaxed mb-6" style={{ color: "var(--w3)" }}>
+            {(lang === "de"
+              ? "Wir haben einen 6-stelligen Code an {e} gesendet."
+              : lang === "fr"
+              ? "Nous avons envoyé un code à 6 chiffres à {e}."
+              : "We sent a 6-digit code to {e}.").replace("{e}", email)}
           </p>
-          <button onClick={() => switchMode("login")}
-            className="text-[13px] underline underline-offset-4 transition-opacity hover:opacity-70"
-            style={{ color: "var(--gold)" }}>{t.pBackLogin}</button>
+
+          <input
+            value={otp}
+            onChange={e => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+            onKeyDown={e => { if (e.key === "Enter" && otp.length === 6) verifyCode(); }}
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            autoFocus
+            placeholder="••••••"
+            className="w-full text-center rounded-xl px-4 py-3 outline-none mb-3"
+            style={{
+              background: "var(--bg2)", border: `1px solid ${otpErr ? "var(--danger)" : "var(--border)"}`,
+              color: "var(--w)", fontSize: "1.4rem", letterSpacing: "0.5em", fontWeight: 600,
+            }}
+          />
+          {otpErr && (
+            <p className="text-[12.5px] mb-3" style={{ color: "var(--danger)" }}>{otpErr}</p>
+          )}
+
+          <button onClick={verifyCode} disabled={otp.length !== 6 || otpBusy}
+            className="w-full py-3 rounded-xl text-[14px] font-semibold transition-opacity hover:opacity-90 disabled:opacity-40 mb-3"
+            style={{ background: "var(--gold)", color: "#131312" }}>
+            {otpBusy ? "…" : (lang === "de" ? "Bestätigen" : lang === "fr" ? "Vérifier" : "Verify")}
+          </button>
+
+          <div className="flex items-center justify-center gap-4 text-[12.5px]">
+            <button onClick={resendCode} disabled={resendIn > 0 || otpBusy}
+              className="underline underline-offset-4 transition-opacity hover:opacity-70 disabled:opacity-40 disabled:no-underline"
+              style={{ color: "var(--gold)" }}>
+              {resendIn > 0
+                ? (lang === "de" ? `Erneut senden (${resendIn}s)` : lang === "fr" ? `Renvoyer (${resendIn}s)` : `Resend (${resendIn}s)`)
+                : (lang === "de" ? "Code erneut senden" : lang === "fr" ? "Renvoyer le code" : "Resend code")}
+            </button>
+            <button onClick={() => switchMode("login")}
+              className="underline underline-offset-4 transition-opacity hover:opacity-70"
+              style={{ color: "var(--w3)" }}>{t.pBackLogin}</button>
+          </div>
         </div>
       </main>
     );

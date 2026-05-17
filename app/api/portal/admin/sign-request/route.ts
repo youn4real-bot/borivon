@@ -57,6 +57,33 @@ const BUCKET = "sign-documents";
  */
 
 export async function GET(req: NextRequest) {
+  // iOS download path: a top-level navigation can't send an Authorization
+  // header, so accept ?access_token and promote it to a Bearer header so the
+  // normal requireAdminRole check is reused. Streams the admin's most recent
+  // "download signed PDF" output (stashed by the POST adminOnly branch).
+  if (req.nextUrl.searchParams.get("adminDownload") === "1") {
+    let authReq = req;
+    const qTok = req.nextUrl.searchParams.get("access_token");
+    if (qTok && !req.headers.get("authorization")) {
+      const h = new Headers(req.headers);
+      h.set("authorization", `Bearer ${qTok}`);
+      authReq = new NextRequest(req.url, { headers: h });
+    }
+    const dAuth = await requireAdminRole(authReq);
+    if (!dAuth.ok) return NextResponse.json({ error: dAuth.error }, { status: dAuth.status });
+    const db = getServiceSupabase();
+    const { data: blob, error } = await db.storage.from(BUCKET).download(`admin-dl/${dAuth.userId}.pdf`);
+    if (error || !blob) return new NextResponse("Not found", { status: 404 });
+    const name = (req.nextUrl.searchParams.get("name") || "signed-document.pdf").replace(/[\r\n"]/g, "").slice(0, 200);
+    return new NextResponse(new Uint8Array(await blob.arrayBuffer()), {
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "Content-Disposition": `attachment; filename="${name}"`,
+        "Cache-Control": "private, no-store",
+      },
+    });
+  }
+
   const auth = await requireAdminRole(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
@@ -282,9 +309,18 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Admin-only mode: return the stamped PDF directly for download — no DB record
+  // Admin-only mode: return the stamped PDF directly for download — no DB record.
   if (adminOnly) {
     const safeDocName = documentName.replace(/[^\w\s.\-()]/g, "").trim() || "signed-document";
+    // Also stash it per-admin so iOS (which can't save a POST→blob) can fetch
+    // it via a follow-up GET ?adminDownload=1 (octet-stream attachment).
+    try {
+      await getServiceSupabase().storage
+        .from(BUCKET)
+        .upload(`admin-dl/${auth.userId}.pdf`, pdfBuffer!, { contentType: "application/pdf", upsert: true });
+    } catch (e) {
+      console.warn("[sign-request POST] admin-dl stash failed (non-fatal):", e);
+    }
     return new NextResponse(new Uint8Array(pdfBuffer), {
       headers: {
         "Content-Type": "application/pdf",

@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
-import { VERIFICATION_FILE_TYPES } from "@/lib/constants";
 
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
 
@@ -40,30 +39,20 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ authenticated: true, verified: true, isAdmin: true });
   }
 
-  // 1) Manual override — admin can grant the blue tick directly.
+  // Verification is tied ONLY to (1) an explicit supreme-admin grant
+  // (manually_verified) or (2) a paid premium subscription. Passport
+  // approval no longer confers the gold tick.
   const { data: profile } = await db
     .from("candidate_profiles")
-    .select("manually_verified, passport_status")
+    .select("manually_verified, payment_tier")
     .eq("user_id", userId)
-    .maybeSingle() as { data: { manually_verified?: boolean | null; passport_status?: string | null } | null };
-  if (profile?.manually_verified) {
-    return NextResponse.json({ authenticated: true, verified: true, isAdmin: false });
-  }
+    .maybeSingle() as { data: { manually_verified?: boolean | null; payment_tier?: string | null } | null };
 
-  // 2) Doc-based: passport file approved + passport data (passport_status) approved
-  const { data: docs } = await db
-    .from("documents")
-    .select("file_type,status")
-    .eq("user_id", userId)
-    .ilike("file_type", "%pass%")
-    .eq("status", "approved");
-
-  const hasPassportDoc = (docs ?? []).length > 0;
-  const hasPassportData = profile?.passport_status === "approved";
+  const verified = !!profile?.manually_verified || profile?.payment_tier === "premium";
 
   return NextResponse.json({
     authenticated: true,
-    verified: hasPassportDoc && hasPassportData,
+    verified,
     isAdmin: false,
   });
 }

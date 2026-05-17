@@ -110,7 +110,15 @@ export function Navbar({ rightExtra, leftExtra }: { rightExtra?: ReactNode; left
     setCommunityUnread(0);
     if (typeof localStorage !== "undefined")
       localStorage.setItem("community_last_visited", new Date().toISOString());
-  }, [isFeed]);
+    // PERMANENT: record "seen" server-side so the badge never comes back
+    // after logout/login or on another device once Community is opened.
+    if (authTk) {
+      fetch("/api/portal/feed/seen", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${authTk}` },
+      }).catch(() => { /* offline — localStorage still covers this device */ });
+    }
+  }, [isFeed, authTk]);
 
   useEffect(() => {
     if (!authTk) { setCommunityUnread(0); return; }
@@ -160,7 +168,7 @@ export function Navbar({ rightExtra, leftExtra }: { rightExtra?: ReactNode; left
           background: "transparent",
           border: "none",
           color: "var(--w3)",
-          transition: "color 0.2s, transform 0.15s",
+          transition: "color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease)",
         }}
         className="flex items-center justify-center w-11 h-11 cursor-pointer hover:scale-110 active:scale-95"
         onMouseEnter={(e) => (e.currentTarget.style.color = "var(--w)")}
@@ -194,7 +202,7 @@ export function Navbar({ rightExtra, leftExtra }: { rightExtra?: ReactNode; left
           style={{
             background: "transparent",
             border: "none",
-            transition: "transform 0.15s",
+            transition: "transform var(--dur-1) var(--ease)",
             opacity: langOpen ? 1 : 0.9,
           }}
           className="flex items-center justify-center w-11 h-11 cursor-pointer hover:scale-110 hover:opacity-100 active:scale-95"
@@ -364,7 +372,7 @@ export function Navbar({ rightExtra, leftExtra }: { rightExtra?: ReactNode; left
               background: "transparent",
               border: "none",
               color: menuConfig.isOpen ? "var(--gold)" : "var(--w3)",
-              transition: "color 0.2s, transform 0.15s",
+              transition: "color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease)",
             }}
             onMouseEnter={(e) => { if (!menuConfig.isOpen) e.currentTarget.style.color = "var(--w)"; }}
             onMouseLeave={(e) => { if (!menuConfig.isOpen) e.currentTarget.style.color = "var(--w3)"; }}

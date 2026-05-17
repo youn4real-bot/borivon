@@ -15,7 +15,18 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 // ── GET — download passport PDF ───────────────────────────────────────────────
 export async function GET(req: NextRequest) {
-  const auth = await requireAdminRole(req);
+  // iOS downloads navigate to this URL directly (no Authorization header is
+  // possible on a top-level navigation), so accept the JWT via ?access_token
+  // too. Clone the request with it promoted to a Bearer header so the normal
+  // requireAdminRole + canActOnCandidate path is reused unchanged.
+  let authReq = req;
+  const qToken = req.nextUrl.searchParams.get("access_token");
+  if (qToken && !req.headers.get("authorization")) {
+    const h = new Headers(req.headers);
+    h.set("authorization", `Bearer ${qToken}`);
+    authReq = new NextRequest(req.url, { headers: h });
+  }
+  const auth = await requireAdminRole(authReq);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const userId = req.nextUrl.searchParams.get("userId");
@@ -41,10 +52,14 @@ export async function GET(req: NextRequest) {
   const filename = buildPdfFilename(profile);
   const arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
 
+  // iOS Safari force-previews application/pdf even with attachment; serve as
+  // octet-stream on explicit ?dl=1 so it actually downloads to Files.
+  const dl = req.nextUrl.searchParams.get("dl") === "1";
   return new Response(arrayBuffer, {
     headers: {
-      "Content-Type":        "application/pdf",
-      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Content-Type":        dl ? "application/octet-stream" : "application/pdf",
+      "Content-Disposition": `attachment; filename="${filename.replace(/[\r\n"]/g, "")}"`,
+      "Cache-Control":       "private, no-store",
     },
   });
 }

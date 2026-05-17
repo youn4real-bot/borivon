@@ -96,7 +96,14 @@ export async function GET(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const auth = await requireAdminRole(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
-  if (auth.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  // Supreme + regular Borivon sub-admins share this team queue and all see the
+  // same notifications, so both may clear them (parity with the shared model).
+  // Org admins are scoped (LAW #25) and the `read` flag is GLOBAL — letting
+  // them mark-all-read would wipe other admins' unread state, so they stay 403.
+  if (auth.role !== "admin") {
+    const visibleIds = await getVisibleCandidateIds(auth.email);
+    if (visibleIds !== null) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   let ids: string[] | null = null;
   try {

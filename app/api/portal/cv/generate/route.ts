@@ -5,7 +5,7 @@ import React from "react";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { CVDocument } from "@/components/CVDocument";
 import type { CVData, CVBrand } from "@/components/CVDocument";
-import { requireUser, requireAdminRole } from "@/lib/admin-auth";
+import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { registerPdfFonts } from "@/lib/pdf-fonts";
 
@@ -87,7 +87,21 @@ export async function POST(req: NextRequest) {
   const auth = await requireUser(req);
   if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status });
 
-  if (rateLimited(auth.userId)) {
+  // When an admin edits a candidate's CV (?candidateId=…), the rendered CV
+  // must be the CANDIDATE's — including their org branding — not the admin's.
+  // Gate it: only an admin/sub-admin allowed to act on that candidate.
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const qCand = req.nextUrl.searchParams.get("candidateId");
+  let targetUserId = auth.userId;
+  if (qCand && UUID_RE.test(qCand) && qCand !== auth.userId) {
+    const adm = await requireAdminRole(req);
+    if (!adm.ok || !(await canActOnCandidate(adm.role, adm.email, qCand))) {
+      return Response.json({ error: "Forbidden" }, { status: 403 });
+    }
+    targetUserId = qCand;
+  }
+
+  if (rateLimited(targetUserId)) {
     return Response.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
 
@@ -97,7 +111,7 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: "Payload too large" }, { status: 413 });
     }
     const data: CVData = JSON.parse(rawBody);
-    const brand = await resolveBrand(auth.userId);
+    const brand = await resolveBrand(targetUserId);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const element = React.createElement(CVDocument, { data, brand }) as any;

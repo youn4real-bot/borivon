@@ -1313,9 +1313,10 @@ export default function OrgDashboardPage() {
             <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
               style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
               onClick={() => setAddSlotPhase(null)}>
-              <div className="w-full max-w-sm rounded-[20px] p-5 space-y-4"
+              <div className="w-full max-w-sm rounded-[20px] p-5 space-y-4 overflow-y-auto"
                 onClick={e => e.stopPropagation()}
-                style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)" }}>
+                style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)",
+                         maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)" }}>
                 <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>Add document slot</p>
                 <div className="grid grid-cols-2 gap-2">
                   {(["simple", "dual"] as const).map(tp => (

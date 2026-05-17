@@ -8,7 +8,6 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const q = (searchParams.get("q") ?? "").trim();
   const key = process.env.GIPHY_API_KEY ?? "";
-  console.warn("[feed/gifs] key_len:", key.length, "q:", q || "(trending)");
 
   const endpoint = q
     ? `https://api.giphy.com/v1/gifs/search?api_key=${key}&q=${encodeURIComponent(q)}&limit=24&rating=pg-13&lang=en`
@@ -16,13 +15,11 @@ export async function GET(req: NextRequest) {
 
   try {
     const res = await fetch(endpoint, { cache: "no-store" });
-    console.warn("[feed/gifs] GIPHY status:", res.status);
     if (!res.ok) {
-      console.error("[feed/gifs] GIPHY error body:", await res.text().catch(() => ""));
+      console.error("[feed/gifs] GIPHY upstream status:", res.status);
       return NextResponse.json({ gifs: [] });
     }
     const data = await res.json();
-    console.warn("[feed/gifs] raw count:", (data.data ?? []).length);
 
     // GIPHY: data[].images.{ fixed_height_small, fixed_width, original }.url
     const gifs = ((data.data ?? []) as Record<string, unknown>[]).flatMap(r => {
@@ -34,7 +31,6 @@ export async function GET(req: NextRequest) {
       return [{ id: r.id as string, title: (r.title as string) ?? "", preview, url }];
     });
 
-    console.warn("[feed/gifs] parsed:", gifs.length);
     return NextResponse.json({ gifs });
   } catch (e) {
     console.error("[feed/gifs] GIPHY fetch failed:", e);

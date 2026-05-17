@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
+import { enforceRateLimit } from "@/lib/rateLimit";
 
 /**
  * Public lead-capture endpoint.
@@ -8,10 +9,9 @@ import { getServiceSupabase } from "@/lib/supabase";
  * answers when they submit. We persist the lead to the `admin_notifications`
  * table so it appears in the admin inbox alongside signups and uploads.
  *
- * Lightweight rate-limit by IP+email is intentionally NOT enforced here —
- * the upstream contact form has Cloudflare Turnstile in front of it for
- * bot/spam mitigation, plus the worst case is a few duplicate rows that
- * the admin can dismiss.
+ * Spam mitigation:
+ *   - Cloudflare Turnstile in front of the form (browser-side challenge)
+ *   - Server-side IP rate-limit (in-process, defense-in-depth)
  */
 type LeadKind = "person" | "org";
 
@@ -34,6 +34,11 @@ const MAX = (s: unknown, n: number) =>
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(req: NextRequest) {
+  // Tight rate-limit on the public lead endpoint — bots love forms. A real
+  // user fills the funnel once, maybe twice; 5/min is generous.
+  const rl = enforceRateLimit(req, "leads", { limit: 5, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "too_many" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+
   // Hard cap the request body so a bot can't POST megabytes of JSON in a
   // loop. A real lead is well under 1 KB; 8 KB leaves comfortable
   // headroom for accents, custom messages, and content-type framing.

@@ -11,6 +11,10 @@ type UserEntry = {
   email: string;
   name: string;
   role: "admin" | "candidate";
+  /** borivon = supreme/sub-admin (black tick, "A")
+   *  org     = organization admin (red tick, "O")
+   *  candidate = (gold tick when verified, "K") */
+  kind: "borivon" | "org" | "candidate";
   createdAt: string;
   photo: string | null;
   verified: boolean;
@@ -40,6 +44,10 @@ const t = {
     delete: "Delete",
     deleteFailed: "Delete failed",
     deleteFailedRetry: "Delete failed — please try again.",
+    verify: "Verify",
+    verified: "Verified",
+    verifyTitle: "Grant the gold verified tick",
+    unverifyTitle: "Remove the verified tick",
   },
   fr: {
     users: "Utilisateurs",
@@ -59,6 +67,10 @@ const t = {
     delete: "Supprimer",
     deleteFailed: "Suppression échouée",
     deleteFailedRetry: "Suppression échouée — veuillez réessayer.",
+    verify: "Vérifier",
+    verified: "Vérifié",
+    verifyTitle: "Accorder le badge vérifié doré",
+    unverifyTitle: "Retirer le badge vérifié",
   },
   de: {
     users: "Benutzer",
@@ -78,6 +90,10 @@ const t = {
     delete: "Löschen",
     deleteFailed: "Löschen fehlgeschlagen",
     deleteFailedRetry: "Löschen fehlgeschlagen — bitte erneut versuchen.",
+    verify: "Verifizieren",
+    verified: "Verifiziert",
+    verifyTitle: "Goldenes Verifiziert-Abzeichen vergeben",
+    unverifyTitle: "Verifiziert-Abzeichen entfernen",
   },
 };
 
@@ -92,6 +108,7 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const [myId, setMyId] = useState("");
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -158,6 +175,30 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
       setDeleteError(T.deleteFailedRetry);
     } finally {
       setDeleting(false);
+    }
+  }
+
+  // Toggle the gold verified tick (supreme-admin only — server enforces).
+  // Optimistic: flip the row immediately, revert if the request fails.
+  async function toggleVerify(u: UserEntry) {
+    if (verifyingId) return; // one at a time
+    const next = !u.verified;
+    setVerifyingId(u.id);
+    setUsers(prev => prev.map(x => x.id === u.id ? { ...x, verified: next } : x));
+    try {
+      const res = await fetch("/api/portal/admin/verify-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ userId: u.id, verified: next }),
+      });
+      if (!res.ok) {
+        // revert
+        setUsers(prev => prev.map(x => x.id === u.id ? { ...x, verified: !next } : x));
+      }
+    } catch {
+      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, verified: !next } : x));
+    } finally {
+      setVerifyingId(null);
     }
   }
 
@@ -271,22 +312,55 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
                 <div className="flex-1 min-w-0">
                   <p className="text-[12.5px] font-medium flex items-center gap-1" style={{ color: "var(--w)" }}>
                     <span className="truncate">{u.name || <span style={{ color: "var(--w3)" }}>{T.noName}</span>}</span>
-                    {u.verified && <VerifiedBadge verified size="xs" color="gold" />}
+                    {u.kind === "borivon"
+                      ? <VerifiedBadge verified size="xs" color="black" isAdmin name={u.name || u.email} />
+                      : u.kind === "org"
+                      ? <VerifiedBadge verified size="xs" color="red" />
+                      : u.verified && <VerifiedBadge verified size="xs" color="gold" />}
                   </p>
                   <p className="text-[11px] truncate mt-0.5" style={{ color: "var(--w3)" }}>{u.email}</p>
                 </div>
 
-                {/* Role badge */}
+                {/* Role badge — single letter to save space:
+                    K = candidate · A = Borivon admin · O = org admin */}
                 <span
-                  className="text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
+                  className="text-[11px] font-bold rounded-full flex-shrink-0 flex items-center justify-center"
+                  title={u.kind === "borivon" ? T.roleAdmin : u.kind === "org" ? "Organization admin" : T.roleCandidate}
                   style={{
-                    background: u.role === "admin" ? "var(--gdim)" : "var(--bg2)",
-                    color: u.role === "admin" ? "var(--gold)" : "var(--w3)",
-                    border: `1px solid ${u.role === "admin" ? "var(--border-gold)" : "var(--border)"}`,
+                    width: 22, height: 22,
+                    background: u.kind === "candidate" ? "var(--bg2)" : "var(--gdim)",
+                    color: u.kind === "org" ? "#e03030" : u.kind === "borivon" ? "var(--w)" : "var(--w3)",
+                    border: `1px solid ${u.kind === "candidate" ? "var(--border)" : u.kind === "org" ? "rgba(224,48,48,0.5)" : "var(--border-gold)"}`,
                   }}
                 >
-                  {u.role === "admin" ? T.roleAdmin : T.roleCandidate}
+                  {u.kind === "candidate" ? "K" : u.kind === "borivon" ? "A" : "O"}
                 </span>
+
+                {/* Verify toggle — candidates only. Supreme-admin grants /
+                    revokes the gold tick right here. Server hard-blocks any
+                    non-supreme caller. */}
+                {u.kind === "candidate" && (
+                  <button
+                    onClick={() => toggleVerify(u)}
+                    disabled={verifyingId === u.id}
+                    title={u.verified ? T.unverifyTitle : T.verifyTitle}
+                    aria-label={u.verified ? T.unverifyTitle : T.verifyTitle}
+                    className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full flex-shrink-0 transition-opacity hover:opacity-80 disabled:opacity-50"
+                    style={{
+                      background: u.verified ? "var(--gdim)" : "var(--bg2)",
+                      color: u.verified ? "var(--gold)" : "var(--w3)",
+                      border: `1px solid ${u.verified ? "var(--border-gold)" : "var(--border)"}`,
+                      cursor: verifyingId === u.id ? "default" : "pointer",
+                    }}
+                  >
+                    <svg width="10" height="10" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                      <path d="M19.998 3.094 14.638 0l-2.972 5.15H5.432v6.354L0 14.64 3.094 20 0 25.359l5.432 3.137v6.355h6.234L14.638 40l5.36-3.094L25.358 40l2.978-5.149h6.227v-6.355L40 25.359 36.905 20 40 14.64l-5.438-3.135V5.15h-6.227L25.358 0l-5.36 3.094Z"
+                        fill={u.verified ? "var(--gold)" : "none"} stroke={u.verified ? "none" : "var(--w3)"} strokeWidth="2" />
+                      <path d="m13 19.5 4.5 4 7-7" stroke={u.verified ? "#fff" : "transparent"} strokeWidth="3.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    {u.verified ? T.verified : T.verify}
+                  </button>
+                )}
 
                 {/* Delete button — hidden for own account */}
                 {u.id !== myId && (

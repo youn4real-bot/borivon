@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
+import { enforceRateLimitDistributed } from "@/lib/rateLimit";
 
 /**
  * POST — candidate redeems an organization invite code.
@@ -19,6 +20,18 @@ import { requireUser } from "@/lib/admin-auth";
 export async function POST(req: NextRequest) {
   const auth = await requireUser(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  // A wrong guess is cheap and the FIRST valid code auto-approves the org
+  // link → unthrottled guessing = self-join into any org by brute-forcing
+  // the (admin-chosen, possibly low-entropy) invite_code. Hard per-IP cap;
+  // the IP key is now Vercel-trusted so this can't be spoofed away.
+  const rl = await enforceRateLimitDistributed(req, "redeem-code", { limit: 8, windowMs: 60_000 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Too many attempts — try again shortly" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
+  }
 
   const body = await req.json().catch(() => ({}));
   const raw  = typeof body?.code === "string" ? body.code : "";

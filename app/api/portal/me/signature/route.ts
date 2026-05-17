@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
+import { validateImageDataUrl } from "@/lib/validateDataUrl";
 
 const MAX_SIG_BYTES = 200_000; // ~150 KB is plenty for a signature PNG
 
@@ -36,11 +37,22 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
+  // Audit fix: validate the signature is a real PNG/JPEG/WebP image
+  // (magic-byte check, rejects SVG / MIME spoofing) before persisting —
+  // same hardening as profile-photo/feed. Clearing (null/"") is allowed.
+  const sig = body.signature;
+  if (sig != null && sig !== "") {
+    const v = validateImageDataUrl(sig);
+    if (!v.ok) {
+      return NextResponse.json({ error: "Must be a PNG/JPEG/WebP image" }, { status: 400 });
+    }
+  }
+
   const db = getServiceSupabase();
   const { error } = await db
     .from("candidate_profiles")
     .upsert(
-      { user_id: auth.userId, saved_signature: body.signature ?? null },
+      { user_id: auth.userId, saved_signature: sig || null },
       { onConflict: "user_id" },
     );
 

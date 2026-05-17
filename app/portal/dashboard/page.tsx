@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import { saveAs } from "file-saver";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 
@@ -16,16 +17,21 @@ import {
   IdCard, User, Home, Eye, FilePen, Sparkles, Paperclip, CheckCircle2, XCircle,
   Stethoscope, Languages, FileText,
 } from "@/components/PortalIcons";
-import { X as XIcon, Download, Upload, RefreshCw, Info, ChevronDown, MoreHorizontal } from "lucide-react";
-import { DropdownMenu } from "@/components/ui/DropdownMenu";
+import { X as XIcon, Download, Upload, RefreshCw, Info, ChevronDown } from "lucide-react";
+import { IosPdfFrame } from "@/components/IosPdfFrame";
+import { isIOSDevice } from "@/lib/platform";
+import { triggerIosDownload } from "@/lib/iosDownload";
+import { flushSync } from "react-dom";
 import { PdfViewer } from "@/components/PdfViewer";
 import { PdfFieldFill } from "@/components/PdfFieldFill";
 import { embedFields } from "@/lib/pdfFieldEmbed";
+import { fillAcroFormFields, type BindingId } from "@/lib/pdfAcroFormFill";
+import { PdfNativeFieldFill } from "@/components/PdfNativeFieldFill";
 import { stampSigOnPdf } from "@/lib/stampSigOnPdf";
 import { removeImageBg } from "@/lib/removeImageBg";
 import { DocxViewer } from "@/components/DocxViewer";
 import { ZoomPanRotateViewer } from "@/components/ZoomPanRotateViewer";
-import { Spinner, PageLoader, AutosaveIndicator } from "@/components/ui/states";
+import { Spinner, PageLoader } from "@/components/ui/states";
 import { JourneyView } from "@/components/JourneyView";
 import { OrgCodeModal } from "@/components/OrgCodeModal";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
@@ -262,7 +268,11 @@ export default function DashboardPage() {
 
   // Paired master-box expand state (nursing phase: which doc pairs are open)
   const [expandedPairs, setExpandedPairs] = useState<Set<string>>(new Set());
-  const [mergingPair, setMergingPair]     = useState<string | null>(null);
+  // Drive file IDs currently downloading — drives the per-button spinner.
+  const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
+  // Spinner for the passport-data PDF download button (same animation as
+  // every other download button).
+  const [passportDataDl, setPassportDataDl] = useState(false);
 
   // Upload state
   const [activeKey, setActiveKey]       = useState<string | null>(null);
@@ -272,6 +282,13 @@ export default function DashboardPage() {
   const [dragOverKey, setDragOverKey]   = useState<string | null>(null);
   const [skipMsg, setSkipMsg]           = useState(false);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
+  // Smooth post-upload progress creep (passport OCR / Bearbeitung-Visum slot
+  // processing). Bytes finish fast then the server works for a few seconds —
+  // instead of freezing at 90%, ease toward 99% so every tick moves.
+  const progressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopProgressCreep = () => {
+    if (progressTimerRef.current) { clearInterval(progressTimerRef.current); progressTimerRef.current = null; }
+  };
   const skipTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const slotMsgTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Issue 13.1: tracks which "other" doc to delete AFTER a successful replacement
@@ -281,6 +298,8 @@ export default function DashboardPage() {
   const replaceForKeyRef = useRef<string | null>(null);
 
   // Fill-form modal — shown when candidate clicks a slot with form_fields
+  // OR a slot whose PDF has native AcroForm fields. nativeMode flag picks
+  // the rendering + submit path.
   type FillFormState = {
     slotId: string;
     fields: import("@/lib/pdfFieldEmbed").FormField[];
@@ -296,6 +315,14 @@ export default function DashboardPage() {
      *  and auto-scroll the PDF to it. Set true on auto-open, false after the
      *  animation has had time to play. */
     highlight: boolean;
+    /** True when the slot was authored with native AcroForm fields. Switches
+     *  the body to `PdfNativeFieldFill` and the submit to `fillAcroFormFields`.
+     *  `fields` (drawn) stays empty in this mode. */
+    nativeMode: boolean;
+    /** Count of native fields the candidate must complete (excluding fields
+     *  the admin already pre-filled before sending). Used for the submit
+     *  gating instead of `fields`. */
+    nativeFieldCount: number;
   };
   const [fillForm, setFillForm] = useState<FillFormState | null>(null);
   const [fillFormSubmitting, setFillFormSubmitting] = useState(false);
@@ -372,6 +399,8 @@ export default function DashboardPage() {
         sigZone: slot.candidate_signature_zone ?? null,
         signedSig: null,
         highlight: true,
+        nativeMode: !!slot.pdf_has_native_fields,
+        nativeFieldCount: 0,
       });
       setAutoOpenSlotId(null);
       // Strip ?slot= from URL so refreshing doesn't reopen.
@@ -445,10 +474,10 @@ export default function DashboardPage() {
     if (!userId) return;
     const { data } = await supabase
       .from("candidate_profiles")
-      .select("first_name, last_name, dob, sex, nationality, city_of_birth, country_of_birth, passport_no, passport_expiry, issuing_authority, issue_date, address_street, address_number, address_postal, city_of_residence, country_of_residence, marital_status, children_ages")
+      .select("first_name, last_name, dob, sex, nationality, city_of_birth, country_of_birth, passport_no, passport_expiry, issuing_authority, issue_date, address_street, address_number, address_postal, city_of_residence, country_of_residence, marital_status, children_ages, passport_confirmed_fields")
       .eq("user_id", userId)
       .maybeSingle();
-    type ProfileRow = Partial<PassportData>;
+    type ProfileRow = Partial<PassportData> & { passport_confirmed_fields?: unknown };
     const p = (data ?? {}) as ProfileRow;
     const blank: PassportData = { first_name: "", last_name: "", dob: "", sex: "", nationality: "", city_of_birth: "", country_of_birth: "", passport_no: "", passport_expiry: "", issuing_authority: "", issue_date: "", address_street: "", address_number: "", address_postal: "", city_of_residence: "", country_of_residence: "", marital_status: "", children_ages: "" };
     const filled: PassportData = { ...blank };
@@ -457,39 +486,94 @@ export default function DashboardPage() {
       if (typeof v === "string") filled[k] = v;
     });
     setPassportModal({ ...filled, sex: normalizeSex(filled.sex, lang) });
-    // Issue 6.2: auto-confirm fields that already have saved values so the
-    // candidate doesn't have to re-tick every checkbox just to review their
-    // data. Editing any field un-ticks it (handled in the onChange handler).
-    const preConfirmed = new Set(
-      (Object.keys(filled) as (keyof PassportData)[]).filter(k => filled[k]?.trim())
-    );
-    setConfirmedFields(preConfirmed);
+    // Restore the candidate's EXACT saved checkboxes if we have them.
+    // Legacy fallback (no saved set): auto-confirm fields that already
+    // have a value so they don't have to re-tick everything.
+    const savedConfirmed = Array.isArray(p.passport_confirmed_fields)
+      ? (p.passport_confirmed_fields as unknown[]).filter((x): x is keyof PassportData => typeof x === "string")
+      : null;
+    if (savedConfirmed && savedConfirmed.length > 0) {
+      setConfirmedFields(new Set(savedConfirmed));
+    } else {
+      setConfirmedFields(new Set(
+        (Object.keys(filled) as (keyof PassportData)[]).filter(k => filled[k]?.trim())
+      ));
+    }
   }, [userId, lang]);
+
   const [passportHint, setPassportHint] = useState<keyof PassportData | null>(null);
   const addressHintShown = useRef(false);
   const postalHintShown = useRef(false);
   const authorityHintShown = useRef(false);
+  // Timestamp of the last LOCAL passport edit (field or checkbox). The
+  // realtime sync ignores incoming updates within a short window after it,
+  // so an in-flight echo of the previous state never reverts the user's
+  // own check/uncheck or keystroke.
+  const lastLocalPassportEdit = useRef(0);
 
   // Autosave indicator for passport modal
   const [passportSavedAt, setPassportSavedAt]   = useState<Date | null>(null);
   const [passportSaveError, setPassportSaveError] = useState(false);
 
-  // Persist passport modal to localStorage so a page refresh doesn't lose unconfirmed data
+  // Immediate (non-debounced) DB draft-save. Fired the instant passport data
+  // first appears — OCR extraction AND bootstrap localStorage restore — so
+  // the data reaches the DB right away and is readable on ANY other device
+  // (phone) without depending on the debounced editor save.
+  const flushPassportDraft = useCallback((data: PassportData, token: string, confirmed: string[] = []) => {
+    if (!token) return;
+    fetch("/api/portal/passport", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ ...data, confirmed_fields: confirmed, __draft: true }),
+    })
+      .then(r => { if (r.ok) { setPassportSavedAt(new Date()); setPassportSaveError(false); } else setPassportSaveError(true); })
+      .catch(() => setPassportSaveError(true));
+  }, []);
+
+  // Persist passport data PERMANENTLY: localStorage (instant offline cache)
+  // + a debounced DB draft-save so the extracted/edited data survives across
+  // devices (phone ↔ laptop) and every phase. The draft endpoint upserts the
+  // fields WITHOUT marking the passport submitted or regenerating the Drive
+  // PDF — only the explicit Submit does that.
+  const passportDraftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     if (!userId) return;
     const key = `bv-passport-pending-${userId}`;
+    const confKey = `bv-passport-confirmed-${userId}`;
     if (passportModal) {
+      // 1) Instant local cache (refresh-safe) — data + checkboxes.
+      const confArr = Array.from(confirmedFields);
       try {
         localStorage.setItem(key, JSON.stringify(passportModal));
-        setPassportSavedAt(new Date());
+        localStorage.setItem(confKey, JSON.stringify(confArr));
         setPassportSaveError(false);
       } catch { setPassportSaveError(true); }
+      // 2) Debounced server draft-save (cross-device permanence) — fields
+      //    AND the confirmation checkboxes (toggling a box changes
+      //    confirmedFields, which re-runs this effect).
+      if (passportDraftTimer.current) clearTimeout(passportDraftTimer.current);
+      const snapshot = passportModal;
+      passportDraftTimer.current = setTimeout(() => {
+        fetch("/api/portal/passport", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
+          body: JSON.stringify({ ...snapshot, confirmed_fields: confArr, __draft: true }),
+        })
+          .then(r => {
+            if (r.ok) { setPassportSavedAt(new Date()); setPassportSaveError(false); }
+            else setPassportSaveError(true);
+          })
+          .catch(() => setPassportSaveError(true));
+      }, 800);
     } else {
       localStorage.removeItem(key);
+      localStorage.removeItem(confKey);
       setPassportSavedAt(null); // closing the modal clears the indicator
       setPassportSaveError(false);
+      if (passportDraftTimer.current) clearTimeout(passportDraftTimer.current);
     }
-  }, [passportModal, userId]);
+    return () => { if (passportDraftTimer.current) clearTimeout(passportDraftTimer.current); };
+  }, [passportModal, confirmedFields, userId, authToken]);
   const [viewMode, setViewMode]         = useState<ViewMode>("docs");
   const [pipeline, setPipeline]         = useState<Pipeline | null>(null);
   const [infoPassportData, setInfoPassportData] = useState<Record<string, string | null> | null>(null);
@@ -501,7 +585,6 @@ export default function DashboardPage() {
   const [passportStatus, setPassportStatus] = useState<string | null>(null);
   const [showCelebration, setShowCelebration] = useState(false);
   // 3-dot menu state for sub-doc rows (mirrors admin's revokeMenu)
-  const [candSubMenu, setCandSubMenu] = useState<{ id: string; el: HTMLElement } | null>(null);
 
   // Poll org placement every 30 s + on focus so admin-initiated placements
   // appear without a page reload. Uses authToken (available after login).
@@ -634,6 +717,60 @@ export default function DashboardPage() {
     return () => { supabase.removeChannel(ch); };
   }, [userId]);
 
+  // Realtime: LIVE two-way passport-data sync. Edit on one device → the DB
+  // draft-save fires → this fires on the other device → the open passport
+  // modal updates instantly. Same canonical channel pattern as pipeline.
+  useEffect(() => {
+    if (!userId) return;
+    const PP_KEYS: (keyof PassportData)[] = [
+      "first_name","last_name","dob","sex","nationality","city_of_birth","country_of_birth",
+      "passport_no","passport_expiry","issuing_authority","issue_date","address_street",
+      "address_number","address_postal","city_of_residence","country_of_residence",
+      "marital_status","children_ages",
+    ];
+    const ch = supabase
+      .channel(`passport-data-${userId}`)
+      .on("postgres_changes",
+        { event: "*", schema: "public", table: "candidate_profiles", filter: `user_id=eq.${userId}` },
+        (payload) => {
+          const row = (payload.new ?? {}) as Record<string, unknown> & { passport_status?: string | null };
+          // passport_status is admin-driven — always honor it.
+          if (typeof row.passport_status === "string" || row.passport_status === null) {
+            setPassportStatus(row.passport_status ?? null);
+          }
+          // Guard: if the user just edited locally (typed / toggled a box),
+          // skip the field + checkbox patch for a short window so an
+          // in-flight echo of the PREVIOUS state can't revert their change
+          // (the fix for "uncheck bounces back to green").
+          if (Date.now() - lastLocalPassportEdit.current < 3000) return;
+          // Only patch the editor when it's open — and only the fields that
+          // actually changed, so the device currently typing isn't disrupted.
+          setPassportModal(prev => {
+            if (!prev) return prev;
+            let changed = false;
+            const next = { ...prev };
+            for (const k of PP_KEYS) {
+              const v = row[k];
+              if (typeof v === "string" && v !== prev[k]) { next[k] = v; changed = true; }
+            }
+            if (!changed) return prev;
+            return { ...next, sex: normalizeSex(next.sex, lang) };
+          });
+          // Live-sync the confirmation checkboxes too.
+          if (Array.isArray(row.passport_confirmed_fields)) {
+            const incoming = (row.passport_confirmed_fields as unknown[])
+              .filter((x): x is keyof PassportData => typeof x === "string");
+            setConfirmedFields(prev => {
+              if (prev.size === incoming.length && incoming.every(k => prev.has(k))) return prev;
+              return new Set(incoming);
+            });
+          }
+        },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [userId, lang]);
+
   const [previewDoc, setPreviewDoc]         = useState<Doc | null>(null);
   const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -658,17 +795,41 @@ export default function DashboardPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewDoc?.id]);
 
-  // Auto-open passport-data modal only during the first-time submission flow
-  // (passportStatus is null = never submitted). Once submitted (pending /
-  // approved / rejected) the candidate can open it manually via the button.
+  // Whenever the candidate opens the passport doc preview, auto-open the
+  // passport-data form alongside it → side-by-side (laptop) / stacked
+  // (phone). Works at every phase: first upload, and any later re-open
+  // (pending / approved / rejected).
+  //
+  // Click = open, period. The data form opens IMMEDIATELY alongside the
+  // preview; the PDF blob loads in place (its own spinner) — we do NOT
+  // wait for it. Both surfaces appear the instant the box is clicked.
   useEffect(() => {
     if (!previewDoc) return;
     if (!/pass/i.test(previewDoc.file_type)) return;
-    if (passportStatus) return; // already submitted — don't auto-open
     if (passportModal) return; // already open
+    // Once the passport is FULLY approved (PDF doc + data both green),
+    // clicking it opens ONLY the PDF — the data is no longer auto-shown
+    // side-by-side. It's reachable on demand via the "Data" button in the
+    // preview header, where it pops up centered ON TOP (not docked).
+    if (previewDoc.status === "approved" && passportStatus === "approved") return;
     reopenPassportData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewDoc?.id, passportStatus]);
+  }, [previewDoc?.id]);
+
+  // First upload: after the OCR scan opens the passport-data modal, also
+  // open the passport doc preview so the SAME side-by-side layout fires
+  // (laptop: PDF + data; phone: single-scroll strip + data). Reuses the
+  // exact existing path — no new layout. The just-uploaded passport doc
+  // appears in `docs` after loadDocs refreshes; pick the newest one.
+  useEffect(() => {
+    if (!passportModal) return;
+    if (previewDoc) return; // a preview is already up — don't override
+    const passDoc = [...docs]
+      .filter(d => /pass/i.test(d.file_type) && !!d.drive_file_id)
+      .sort((a, b) => (b.uploaded_at ?? "").localeCompare(a.uploaded_at ?? ""))[0];
+    if (passDoc) setPreviewDoc(passDoc);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [passportModal, docs]);
 
   // Deep-link from notification: listens for 'bv-nav-doc' custom events
   // dispatched by the CandidateBell. Works for both initial-load (URL param)
@@ -744,6 +905,11 @@ export default function DashboardPage() {
     }
   }, [pendingOpenDocId, docs]);
 
+  // (Candidate side: no auto side-by-side. Passport data popup opens on
+  //  upload — candidate confirms — submits. If they click the passport doc
+  //  later, they see a normal centered preview. The split layout lives on
+  //  the admin side only.)
+
   useEffect(() => {
     let cancelled = false;
 
@@ -756,15 +922,43 @@ export default function DashboardPage() {
       const user = session?.user;
       if (!user) { setLoading(false); router.replace("/portal"); return; }
 
-      // ── 2. Role check + redirect ────────────────────────────────────────
-      try {
-        const res = await fetch("/api/portal/me/role", {
-          headers: { Authorization: `Bearer ${session?.access_token ?? ""}` },
-        });
-        const { role } = await res.json().catch(() => ({ role: null }));
-        if (role === "admin" || role === "sub_admin") { router.replace("/portal/admin"); return; }
-        if (role === "org_member") { router.replace("/portal/org/dashboard"); return; }
-      } catch { /* offline — continue as candidate */ }
+      // ── 2. Role check + invite self-heal + redirect ─────────────────────
+      // This is the FINAL safety net for sub-admin / org onboarding. No
+      // matter which earlier path dropped the ball (token race, 500, missed
+      // redeem), if the person is sitting here as a "candidate" but is
+      // holding an invite code, we redeem it RIGHT HERE and route them to
+      // the correct portal. A sub-admin can never get stuck on the
+      // candidate dashboard again.
+      const jwt = session?.access_token ?? "";
+      const getRole = async (): Promise<string | null> => {
+        try {
+          const res = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${jwt}` } });
+          const j = await res.json().catch(() => ({ role: null }));
+          return j?.role ?? null;
+        } catch { return null; }
+      };
+      let role = await getRole();
+      if ((role === "candidate" || role == null) && jwt) {
+        let code = "";
+        try { code = localStorage.getItem("bv_invite_code") || ""; } catch { /* private mode */ }
+        if (!code) code = (user.user_metadata?.invite_code as string | undefined) || "";
+        if (code) {
+          try {
+            const rr = await fetch(`/api/portal/invite/${encodeURIComponent(code)}`, {
+              method: "POST", headers: { Authorization: `Bearer ${jwt}` },
+            });
+            if (rr.ok) {
+              const rj = await rr.json().catch(() => ({}));
+              try { localStorage.removeItem("bv_invite_code"); } catch { /* ignore */ }
+              if (rj?.type === "member")    { router.replace("/portal/org/dashboard"); return; }
+              if (rj?.type === "sub-admin") { router.replace("/portal/admin"); return; }
+              role = await getRole(); // candidate invite — re-confirm role
+            }
+          } catch { /* network — fall through as candidate */ }
+        }
+      }
+      if (role === "admin" || role === "sub_admin") { router.replace("/portal/admin"); return; }
+      if (role === "org_member") { router.replace("/portal/org/dashboard"); return; }
       if (cancelled) return;
 
       // ── 3. User identity (synchronous setters) ──────────────────────────
@@ -776,24 +970,24 @@ export default function DashboardPage() {
       setUserName(user.user_metadata?.full_name ?? user.email ?? "");
 
       // ── 4. Side effects that don't require any fetch result ─────────────
-      const storedCode = user.user_metadata?.invite_code as string | undefined;
-      if (storedCode && session?.access_token) {
-        const redeemKey = `bv-invite-redeemed-${user.id}`;
-        if (!localStorage.getItem(redeemKey)) {
-          fetch(`/api/portal/invite/${encodeURIComponent(storedCode)}`, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${session.access_token}` },
-          }).then(r => r.json())
-            .then(() => { try { localStorage.setItem(redeemKey, "1"); } catch { /* private mode */ } })
-            .catch(() => {/* retried on next login */});
-        }
-      }
+      // (Invite redemption is now handled up-front in step 2 as a routing
+      //  safety net — no fire-and-forget redeem needed here anymore.)
       const pendingRaw = localStorage.getItem(`bv-passport-pending-${user.id}`);
       if (pendingRaw) {
         try {
           const parsed = JSON.parse(pendingRaw) as PassportData;
-          setPassportModal({ ...parsed, sex: normalizeSex(parsed.sex ?? "", lang) });
-          setConfirmedFields(new Set());
+          const restored = { ...parsed, sex: normalizeSex(parsed.sex ?? "", lang) };
+          setPassportModal(restored);
+          // Restore the saved checkboxes (same-device refresh).
+          let confArr: string[] = [];
+          try {
+            const cr = localStorage.getItem(`bv-passport-confirmed-${user.id}`);
+            if (cr) confArr = (JSON.parse(cr) as unknown[]).filter((x): x is string => typeof x === "string");
+          } catch { /* ignore */ }
+          setConfirmedFields(new Set(confArr as (keyof PassportData)[]));
+          // Recover legacy localStorage-only drafts (pre-DB-autosave): push
+          // data + checkboxes to the DB so they sync to other devices.
+          flushPassportDraft(restored, token, confArr);
         } catch { /* ignore corrupt data */ }
       }
 
@@ -1041,13 +1235,42 @@ export default function DashboardPage() {
     fd.append("firstName", firstName);
     fd.append("lastName", lastName);
 
+    // Passport (key "id") + Bearbeitung/Visum dynamic slots get the smooth
+    // creep — server does OCR / Drive work for several seconds after the
+    // bytes land. Essentials / Qualifications stay on the plain bar.
+    const smoothMode = key === "id" || isDynamic;
+
     const xhr = new XMLHttpRequest();
     xhrRef.current = xhr;
+    stopProgressCreep();
     xhr.upload.addEventListener("progress", (e) => {
-      if (e.lengthComputable) setSlotProgress(Math.round((e.loaded / e.total) * 90));
+      if (!e.lengthComputable) return;
+      // Reserve headroom (85%) in smooth mode so the post-upload server
+      // processing has room to keep moving; plain mode keeps the old 90%.
+      const ceil = smoothMode ? 85 : 90;
+      const pct = Math.round((e.loaded / e.total) * ceil);
+      setSlotProgress(p => (pct > p ? pct : p));
     });
+    if (smoothMode) {
+      // When the request body finishes sending, the perceived wait is pure
+      // server processing. Asymptotically ease toward 99% — fast at first,
+      // decelerating as it approaches, so every ~60ms tick visibly moves and
+      // it never stalls regardless of how long the server actually takes.
+      xhr.upload.addEventListener("load", () => {
+        stopProgressCreep();
+        progressTimerRef.current = setInterval(() => {
+          setSlotProgress(p => {
+            const start = 85;
+            if (p < start) return p; // upload bar still catching up
+            const next = p + (99 - p) * 0.06;
+            return next > 98.6 ? 98.6 : next;
+          });
+        }, 60);
+      });
+    }
     xhr.addEventListener("load", () => {
       xhrRef.current = null;
+      stopProgressCreep();
       setSlotProgress(100);
       try {
         if (xhr.status >= 200 && xhr.status < 300) {
@@ -1074,8 +1297,12 @@ export default function DashboardPage() {
             const blank: PassportData = { first_name: "", last_name: "", dob: "", sex: "", nationality: "", city_of_birth: "", country_of_birth: "", passport_no: "", passport_expiry: "", issuing_authority: "", issue_date: "", address_street: "", address_number: "", address_postal: "", city_of_residence: "", country_of_residence: "", marital_status: "", children_ages: "" };
             const raw = json.passportData ? { ...blank, ...json.passportData } : blank;
             // nationality and country_of_birth are ISO codes — select labels translate automatically
-            setPassportModal({ ...raw, sex: normalizeSex(raw.sex, lang) });
+            const extracted = { ...raw, sex: normalizeSex(raw.sex, lang) };
+            setPassportModal(extracted);
             setConfirmedFields(new Set());
+            // Push extracted data to the DB immediately so it's permanent +
+            // visible on any other device right away (not just localStorage).
+            flushPassportDraft(extracted, authToken);
           }
         } else {
           replaceDocIdRef.current = null; replaceForKeyRef.current = null;
@@ -1089,12 +1316,14 @@ export default function DashboardPage() {
     });
     xhr.addEventListener("error", () => {
       xhrRef.current = null;
+      stopProgressCreep();
       replaceDocIdRef.current = null; replaceForKeyRef.current = null;
       setSlotMsgTimed({ key, ok: false, type: "errNetwork" });
       setUploadingKey(null);
     });
     xhr.addEventListener("abort", () => {
       xhrRef.current = null;
+      stopProgressCreep();
       replaceDocIdRef.current = null; replaceForKeyRef.current = null;
       setUploadingKey(null);
     });
@@ -1115,24 +1344,50 @@ export default function DashboardPage() {
 
   // Issue 13.2: give visible feedback when a download fails (used by both the
   // per-slot Download button and the "other" sub-row button)
-  function handleDownload(driveFileId: string, fileName: string, slotKey: string) {
-    fetch(`/api/portal/file?id=${driveFileId}`, {
-      headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
-    })
-      .then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.blob();
-      })
-      .then(blob => {
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url; a.download = fileName; a.click();
-        setTimeout(() => URL.revokeObjectURL(url), 0);
-      })
-      .catch(err => {
-        console.error("Download error:", err);
-        setSlotMsgTimed({ key: slotKey, ok: false, type: "errDownload" });
+  async function handleDownload(driveFileId: string, fileName: string, slotKey: string) {
+    if (downloadingIds.has(driveFileId)) return; // already in flight
+
+    const isIOS = isIOSDevice();
+
+    // iOS: the native download sheet fires from this same click handler
+    // BEFORE React would normally paint — so flush the spinner state
+    // synchronously now, so it's already rotating the instant the finger
+    // lifts (not after the sheet is dismissed).
+    const startSpin = () => setDownloadingIds(prev => new Set(prev).add(driveFileId));
+    if (isIOS) flushSync(startSpin); else startSpin();
+    const clearSpin = () =>
+      setDownloadingIds(prev => { const n = new Set(prev); n.delete(driveFileId); return n; });
+
+    // ── iOS: a REAL download (saved to Files), no tab, no blob, no visible
+    // link. iOS Safari only downloads from a same-origin http URL that
+    // responds with Content-Disposition: attachment + the <a download> attr,
+    // clicked inside the tap gesture. We hit the server route with dl=1 so it
+    // forces the attachment header. No fetch (gesture must stay intact).
+    if (isIOS && authToken) {
+      const fileUrl =
+        `/api/portal/file?id=${encodeURIComponent(driveFileId)}` +
+        `&dl=1&name=${encodeURIComponent(fileName || "document")}` +
+        `&access_token=${encodeURIComponent(authToken)}`;
+      triggerIosDownload(fileUrl, fileName || "document", clearSpin);
+      return;
+    }
+
+    try {
+      const r = await fetch(`/api/portal/file?id=${driveFileId}`, {
+        headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
       });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const blob = await r.blob();
+      // FileSaver.js — the long-standing, battle-tested open-source
+      // download solution (handles Chrome/Firefox/Edge/Safari quirks,
+      // blob lifetime, the <a download> attribute, etc.).
+      saveAs(blob, fileName || "document");
+      setTimeout(clearSpin, 4000);
+    } catch (err) {
+      console.error("Download error:", err);
+      setSlotMsgTimed({ key: slotKey, ok: false, type: "errDownload" });
+      clearSpin();
+    }
   }
 
   async function handleUpgradeToPremium(plan: "premium_onetime" | "premium_monthly" = "premium_onetime") {
@@ -1205,8 +1460,8 @@ export default function DashboardPage() {
   // approved (admin/route.ts → maybeGrantVerified) or when the supreme admin
   // grants it directly via /verify-user. Local doc-state fallback covers the
   // brief window between approval and the realtime push landing.
-  const cvDoc       = getDoc("cv_de");
-  const isVerified  = manuallyVerified || (passportStatus === "approved" && cvDoc?.status === "approved");
+  // Gold tick = explicit admin grant OR paid premium. NOT passport/CV approval.
+  const isVerified  = manuallyVerified || hasPremium;
   const profileSlug = isVerified && userId
     ? buildProfileSlug(firstName, lastName, userId)
     : "";
@@ -1218,7 +1473,36 @@ export default function DashboardPage() {
   );
 
   async function downloadMergedPdf(pairKey: string, origDocId: string, transDocId: string, label: string) {
-    setMergingPair(pairKey);
+    // Use the EXACT same spinner mechanism as the passport/doc-row download
+    // (the shared `downloadingIds` set + same clear timing) so the rotating
+    // animation behaves identically. Keyed by pairKey.
+    if (downloadingIds.has(pairKey)) return;
+    const _isIOSm = isIOSDevice();
+    const startSpin = () => setDownloadingIds(prev => new Set(prev).add(pairKey));
+    if (_isIOSm) flushSync(startSpin); else startSpin();
+    const clearSpin = () =>
+      setDownloadingIds(prev => { const n = new Set(prev); n.delete(pairKey); return n; });
+
+    // Name the merged file like the original/translated docs minus the
+    // trailing language/type word.
+    const srcDoc = docs.find(d => d.id === origDocId) || docs.find(d => d.id === transDocId);
+    const SUFFIX_RE = /_(original|originale|originel|uebersetzt|uebersetzung|ubersetzt|translated|translation|traduit|traduction)$/i;
+    const fn = srcDoc?.file_name
+      ? `${srcDoc.file_name.replace(/\.[^.]+$/, "").replace(SUFFIX_RE, "")}.pdf`
+      : `${firstName}_${lastName}_${label.toLowerCase().replace(/\s+/g, "_")}.pdf`;
+
+    // iOS can't download a client blob — merge-pdf is a GET, so navigate to
+    // it directly (in-gesture anchor) with token + dl=1 → real download.
+    const _isIOS = isIOSDevice();
+    if (_isIOS && authToken) {
+      triggerIosDownload(
+        `/api/portal/documents/merge-pdf?origDocId=${encodeURIComponent(origDocId)}&transDocId=${encodeURIComponent(transDocId)}&dl=1&name=${encodeURIComponent(fn)}&access_token=${encodeURIComponent(authToken)}`,
+        fn,
+        clearSpin,
+      );
+      return;
+    }
+
     try {
       const res = await fetch(
         `/api/portal/documents/merge-pdf?origDocId=${encodeURIComponent(origDocId)}&transDocId=${encodeURIComponent(transDocId)}`,
@@ -1228,11 +1512,10 @@ export default function DashboardPage() {
       const blob = await res.blob();
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement("a");
-      const fn   = `${firstName}_${lastName}_${label.toLowerCase().replace(/\s+/g, "_")}_complet.pdf`;
       a.href = url; a.download = fn; a.click();
       URL.revokeObjectURL(url);
     } catch (e) { console.error("[merge-pdf]", e); }
-    finally { setMergingPair(null); }
+    finally { clearSpin(); }
   }
 
   const statusColor = (s: string) =>
@@ -1508,15 +1791,16 @@ export default function DashboardPage() {
 
     {/* Doc preview modal */}
     {previewDoc && (() => {
-      // Verification phase = the previewed doc IS a passport AND it isn't
-      // fully approved yet. While that's true, the data form auto-opens
-      // alongside this preview (laptop: side-by-side, phone: stacked) — same
-      // rule the admin side uses.
+      // Side-by-side: a passport doc preview docks LEFT (laptop) / TOP
+      // (phone) whenever the passport-data form is also open — the SAME
+      // mechanism the admin side uses (AdminDocPreviewModal sideBySide).
       const isPassportDoc = /pass/i.test(previewDoc.file_type);
-      // Side-by-side only during first-time submission (no status yet).
-      // Once submitted (pending / approved / rejected) the doc viewer
-      // shows full-screen with zoom/rotation; data opens as standalone popup.
-      const verificationPhase = isPassportDoc && !passportStatus;
+      // Fully approved = PDF doc approved AND passport data approved. Once
+      // approved the side-by-side review layout is retired: the PDF opens as
+      // a normal centered popup and the data is an on-demand centered overlay.
+      const passportFullyApproved = isPassportDoc
+        && previewDoc.status === "approved" && passportStatus === "approved";
+      const verificationPhase = isPassportDoc && !passportFullyApproved;
       // Find matching sign requests for this doc.
       // Match by exact name first, then by fileKey (handles multilingual labels):
       // e.g. admin names it "Reisepass" but candidate uploaded as "Passport" → same key "id"
@@ -1531,7 +1815,7 @@ export default function DashboardPage() {
       const pendingSignReq = signRequests.find(r => r.status === "pending" && matchesDoc(r)) ?? null;
       const signedSignReq  = signRequests.find(r => r.status === "signed"  && matchesDoc(r)) ?? null;
       return (
-      <div className={`fixed inset-x-0 z-[700] flex justify-center px-2 bv-cand-preview-outer ${verificationPhase && passportModal ? "bv-side-preview-cand" : "items-center"}`}
+      <div className={`fixed inset-x-0 z-[700] flex justify-center p-2 bv-cand-preview-outer ${isPassportDoc && !passportFullyApproved ? "bv-pp-preview-phone-hide" : ""} ${verificationPhase && passportModal ? "bv-side-preview-cand" : "items-center"}`}
         style={{
           top: "calc(58px + var(--bv-subnav-h, 0px))",
           paddingTop: "6px",
@@ -1540,22 +1824,33 @@ export default function DashboardPage() {
           backdropFilter: verificationPhase && passportModal ? "blur(8px)" : undefined,
         }}
         onClick={() => setPreviewDoc(null)}>
+        {/* Exact mirror of AdminDocPreviewModal's working CSS — the base
+            .bv-cand-preview-card rule provides the desktop height (this is
+            what makes the PDF actually render). */}
         <style>{`
           .bv-cand-preview-card {
             height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 6px - 6px - env(safe-area-inset-bottom, 0px));
             max-height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 6px - 6px - env(safe-area-inset-bottom, 0px));
           }
           @media (max-width: 639.98px) {
+            /* Phone: a passport is shown ONLY inside the data card's
+               scroll (the strip). Hide this separate preview modal entirely
+               so it never sits in the background behind the data sheet. */
+            .bv-pp-preview-phone-hide { display: none !important; }
             .bv-cand-preview-outer { padding-bottom: calc(72px + 6px + env(safe-area-inset-bottom, 0px)) !important; }
             .bv-cand-preview-card  {
               height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 6px - 72px - 6px - env(safe-area-inset-bottom, 0px)) !important;
               max-height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 6px - 72px - 6px - env(safe-area-inset-bottom, 0px)) !important;
             }
+            /* Phone single-scroll: passport sits FIXED in the top 50dvh
+               (behind the data sheet). The data sheet scrolls up over it.
+               Height matches the data sheet's 50dvh top padding so the
+               passport is fully framed before you scroll. */
             .bv-side-preview-cand {
               top: calc(58px + var(--bv-subnav-h, 0px)) !important;
-              bottom: calc(50dvh + 0.25rem) !important;
-              padding-bottom: 0.25rem !important;
-              align-items: center !important;
+              bottom: 50dvh !important;
+              padding: 4px !important;
+              align-items: stretch !important;
             }
             .bv-side-preview-cand .bv-cand-preview-card {
               height: 100% !important;
@@ -1571,20 +1866,21 @@ export default function DashboardPage() {
               padding-right: 50vw;
               padding-left: 1rem;
             }
+            /* Match the data pane EXACTLY — same height (PDF gets longer,
+               data is not shrunk) so both sit balanced side-by-side. */
             .bv-side-preview-cand .bv-cand-preview-card {
-              max-height: 620px !important;
-              height: auto !important;
+              height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 1rem) !important;
+              max-height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 1rem) !important;
             }
           }
         `}</style>
-        <div className={`bv-cand-preview-card w-full overflow-hidden flex flex-col ${verificationPhase && passportModal ? "sm:max-w-[560px]" : "max-w-3xl"}`}
+        <div className={`bv-cand-preview-card w-full overflow-hidden flex flex-col ${verificationPhase && passportModal ? "sm:max-w-[480px]" : "max-w-3xl"}`}
           style={{
-            background: "var(--card)", border: "1px solid var(--border)",
-            borderRadius: "var(--r-2xl)", boxShadow: "var(--shadow-lg)",
-            height: verificationPhase && passportModal ? "auto" : undefined,
-            maxHeight: verificationPhase && passportModal ? "620px" : undefined,
-            minHeight: verificationPhase && passportModal ? "420px" : undefined,
-            animation: "bvFadeRise .28s var(--ease-out)",
+            background: "var(--card)",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--r-2xl)",
+            boxShadow: "var(--shadow-lg)",
+            animation: "bvFadeRise 0.22s var(--ease-out)",
           }}
           onClick={e => e.stopPropagation()}>
           {/* Header */}
@@ -1594,29 +1890,10 @@ export default function DashboardPage() {
               <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-0.5" style={{ color: "var(--w3)" }}>{previewDoc.file_type}</p>
               <p className="text-[13.5px] font-semibold truncate tracking-tight" style={{ color: "var(--w)" }}>{previewDoc.file_name}</p>
             </div>
-            {/* "Passport data" button — only on passport docs. Re-opens the
-                same data form they confirmed at upload, populated from
-                whatever they already saved. Always available; auto-opens
-                during the verification phase via the effect below. */}
-            {isPassportDoc && (
-              <button
-                type="button"
-                onClick={() => { reopenPassportData(); }}
-                title={lang === "de" ? "Passdaten" : lang === "fr" ? "Données du passeport" : "Passport data"}
-                aria-label={lang === "de" ? "Passdaten" : lang === "fr" ? "Données du passeport" : "Passport data"}
-                className="inline-flex items-center gap-1.5 text-[11.5px] font-semibold px-2.5 h-8 rounded-full transition-colors"
-                style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                  strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <rect x="3" y="4" width="18" height="16" rx="2"/>
-                  <circle cx="9" cy="10" r="2"/>
-                  <line x1="14" y1="9" x2="18" y2="9"/>
-                  <line x1="14" y1="13" x2="18" y2="13"/>
-                  <line x1="6" y1="16" x2="18" y2="16"/>
-                </svg>
-                {lang === "de" ? "Passdaten" : lang === "fr" ? "Données" : "Passport data"}
-              </button>
-            )}
+            {/* Passport preview is identical to any other doc (Sprachzertifikat
+                etc.) — no extra "Passport data" button. The data form is shown
+                once on upload for confirmation; afterwards the doc is just a
+                plain PDF preview. */}
             {/* Signature button — shown when this doc has a pending sign request */}
             {pendingSignReq && (
               <button
@@ -1630,20 +1907,51 @@ export default function DashboardPage() {
                 {lang === "de" ? "Signieren" : lang === "fr" ? "Signer" : "Sign"}
               </button>
             )}
-            {/* Download — signed version if signed, original otherwise */}
-            {(signedSignReq?.pdf_preview_url ?? previewBlobUrl) && (
+            {/* "Data" — only once the passport is fully approved. Opens the
+                passport-data card as a clean centered popup ON TOP of this
+                PDF (not docked side-by-side). Its own X just closes it and
+                returns to the PDF. */}
+            {passportFullyApproved && (
+              <button
+                onClick={() => reopenPassportData()}
+                className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-bold transition-all hover:opacity-85 active:scale-[0.97] mr-1"
+                style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}
+                title={lang === "de" ? "Reisepassdaten" : lang === "fr" ? "Données du passeport" : "Passport data"}>
+                <IdCard size={12} strokeWidth={1.8} />
+                {lang === "de" ? "Daten" : lang === "fr" ? "Données" : "Data"}
+              </button>
+            )}
+            {/* Download — ALWAYS routes through the same proven path as the
+                doc-row button (server attachment → native iOS download prompt
+                + spinner). The /api/portal/file route auto-serves the SIGNED
+                version when one exists, so signed sign-requests download
+                exactly like everything else. The remote pdf_preview_url link
+                is only a last resort when there's no drive file at all. */}
+            {previewDoc.drive_file_id ? (
+              <button
+                onClick={() => handleDownload(previewDoc.drive_file_id!, previewDoc.file_name, previewDoc.file_type)}
+                disabled={downloadingIds.has(previewDoc.drive_file_id)}
+                className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center"
+                style={{ color: "var(--w2)" }}
+                aria-label={lang === "de" ? "Herunterladen" : lang === "fr" ? "Télécharger" : "Download"}
+                title={lang === "de" ? "Herunterladen" : lang === "fr" ? "Télécharger" : "Download"}>
+                {downloadingIds.has(previewDoc.drive_file_id)
+                  ? <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                  : <Download size={14} strokeWidth={1.8} />}
+              </button>
+            ) : signedSignReq?.pdf_preview_url ? (
               <a
-                href={signedSignReq?.pdf_preview_url ?? previewBlobUrl!}
+                href={signedSignReq.pdf_preview_url}
                 download={previewDoc.file_name}
-                target={signedSignReq ? "_blank" : undefined}
-                rel={signedSignReq ? "noopener noreferrer" : undefined}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center"
                 style={{ color: "var(--w2)" }}
                 aria-label={lang === "de" ? "Herunterladen" : lang === "fr" ? "Télécharger" : "Download"}
                 title={lang === "de" ? "Herunterladen" : lang === "fr" ? "Télécharger" : "Download"}>
                 <Download size={14} strokeWidth={1.8} />
               </a>
-            )}
+            ) : null}
             <button onClick={() => setPreviewDoc(null)}
               aria-label={lang === "de" ? "Schließen" : lang === "fr" ? "Fermer" : "Close"}
               className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center"
@@ -1659,6 +1967,35 @@ export default function DashboardPage() {
               </div>
             ) : (() => {
               const ext = (previewDoc.file_name.split(".").pop() ?? "").toLowerCase();
+              const _isIOS = isIOSDevice();
+              if (ext === "pdf" && _isIOS && previewDoc.drive_file_id && authToken) {
+                // iOS: pdf.js <canvas> never paints on WebKit (Safari AND
+                // Chrome — all iOS browsers are WebKit). Use the OS-native
+                // PDF engine + a desktop-matching toolbar (instant CSS
+                // rotate/zoom; pinch-zoom & scroll are native).
+                return (
+                  <div style={{ position: "absolute", inset: 0 }}>
+                    <IosPdfFrame
+                      src={`/api/portal/file?id=${encodeURIComponent(previewDoc.drive_file_id)}&access_token=${encodeURIComponent(authToken)}`}
+                      title={previewDoc.file_name}
+                      onRotate={() => {
+                        fetch(`/api/portal/documents/${previewDoc.id}`, {
+                          method: "PATCH",
+                          headers: {
+                            "Content-Type": "application/json",
+                            ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+                          },
+                          body: JSON.stringify({ deltaRotation: 90 }),
+                        }).catch(e => console.error("[rotation] persist failed:", e));
+                      }}
+                    />
+                    {pendingSignReq && (
+                      <div style={{ position: "absolute", inset: 0, cursor: "pointer", zIndex: 9 }}
+                        onClick={() => setDocViewerSignReq(pendingSignReq)} />
+                    )}
+                  </div>
+                );
+              }
               if (ext === "pdf") return (
                 <div style={{ position: "relative", height: "100%" }}>
                   <PdfViewer
@@ -1718,13 +2055,12 @@ export default function DashboardPage() {
         {/* Header — refined typographic hierarchy */}
         <div className="flex items-start justify-between mb-8">
           <div>
-            <h1 className="text-[22px] font-semibold tracking-[-0.015em] inline-flex items-center" style={{ color: "var(--w)" }}>
+            {/* Verified tick next to the welcome name removed per request —
+                the verification system itself is unchanged; only this exact
+                dashboard-header tick + the permanent banner below are gone.
+                Getting verified still triggers the celebration animation. */}
+            <h1 className="text-[22px] font-semibold tracking-[-0.015em]" style={{ color: "var(--w)" }}>
               {isReturn ? t.pWelcomeBack : t.pDashWelcome} {userName.split(" ")[0]}
-              {/* Verified blue check shows once both passport AND Lebenslauf
-                  are approved by an admin — this is the candidate's
-                  "verified profile" signal across the entire site. */}
-              <VerifiedBadge verified={isVerified} size="sm"
-                title={lang === "de" ? "Verifiziert" : lang === "en" ? "Verified" : "Vérifié"} />
             </h1>
             <p className="text-[13.5px] mt-1.5" style={{ color: "var(--w3)" }}>
               {isReturn ? t.pWelcomeBackSub : t.pDashSpace}
@@ -1754,58 +2090,12 @@ export default function DashboardPage() {
               start consuming them again. */}
         </div>
 
-        {/* Verified-profile panel — appears once the candidate has the blue
-            check. Shows their permanent public URL with a copy button.
-            Premium card surface (matches CV builder), with the blue accent
-            held to the badge + URL color so the card itself stays neutral. */}
-        {isVerified && profileSlug && (
-          <div className="mb-6 px-5 py-4 flex items-center gap-3"
-            style={{
-              background: "var(--card)",
-              borderRadius: "20px",
-              boxShadow: "0 1px 3px rgba(0,0,0,0.06)",
-            }}>
-            <VerifiedBadge verified={true} size="md" />
-            <div className="flex-1 min-w-0">
-              <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>
-                {lang === "de" ? "Glückwunsch — Ihr Profil ist verifiziert!" : lang === "en" ? "Congrats — your profile is verified!" : "Félicitations — votre profil est vérifié !"}
-              </p>
-              <p className="text-[12px] mt-0.5 truncate" style={{ color: "var(--w3)" }}>
-                borivon.com/{profileSlug}
-              </p>
-            </div>
-            <button
-              onClick={() => {
-                try { navigator.clipboard.writeText(`https://borivon.com/${profileSlug}`); } catch { /* ignore */ }
-              }}
-              className="text-[12px] font-semibold px-3 py-1.5 rounded-full transition-opacity hover:opacity-80 flex-shrink-0"
-              style={{ background: "var(--bg2)", color: "var(--w)", border: "none" }}>
-              {lang === "de" ? "Kopieren" : lang === "en" ? "Copy" : "Copier"}
-            </button>
-          </div>
-        )}
+        {/* Permanent "profile is verified" banner removed per request.
+            Verification still works (badge on the public profile, celebration
+            animation on first verify) — only this dashboard panel is gone. */}
 
-        {/* ── Pending signature requests ── */}
-        {signRequests.length > 0 && (
-          <div className="mb-6">
-            <PendingSignatures
-              requests={signRequests}
-              lang={(lang as "en" | "fr" | "de") in { en: 1, fr: 1, de: 1 } ? lang as "en" | "fr" | "de" : "en"}
-              authToken={authToken}
-              onSigned={(id) => setSignRequests(prev => prev.map(r => r.id === id ? { ...r, status: "signed" } : r))}
-              autoOpenId={autoOpenSignId}
-              onAutoOpenConsumed={() => {
-                setAutoOpenSignId(null);
-                // Clean the ?sign= param from URL so refreshing doesn't reopen it
-                if (typeof window !== "undefined") {
-                  const url = new URL(window.location.href);
-                  url.searchParams.delete("sign");
-                  window.history.replaceState({}, "", url.toString());
-                }
-              }}
-            />
-          </div>
-        )}
+        {/* Pending signature requests are surfaced via the notification bell only —
+            the inline list section was removed per user request. */}
 
         {/* Sign modal triggered from doc viewer */}
         {docViewerSignReq && (
@@ -1900,7 +2190,7 @@ export default function DashboardPage() {
                         border: "none",
                         color: circleText,
                         transform: isActive ? "scale(1.08)" : "scale(1)",
-                        transition: "color 0.2s, transform 0.15s",
+                        transition: "color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease)",
                       }}
                     >
                       <PhaseIcon kind={ph.kind} size={14} />
@@ -1966,7 +2256,7 @@ export default function DashboardPage() {
                         border: "none",
                         color: isActive ? "var(--gold)" : "var(--w3)",
                         transform: isActive ? "scale(1.08)" : "scale(1)",
-                        transition: "color 0.2s, transform 0.15s",
+                        transition: "color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease)",
                       }}>
                       <PhaseIcon kind={js.kind} size={13} />
                       {!unlocked && !adminOpen && (
@@ -2127,14 +2417,14 @@ export default function DashboardPage() {
                     </div>
                     {origDoc && transDoc && (
                       <button type="button"
-                        disabled={mergingPair === item.key}
+                        disabled={downloadingIds.has(item.key)}
                         title={lang === "de" ? "Kombi-PDF" : "Merged PDF"}
                         aria-label="Download merged PDF"
                         className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full disabled:opacity-40 flex-shrink-0"
                         style={{ color: "var(--w2)" }}
                         onClick={e => { e.stopPropagation(); downloadMergedPdf(item.key, origDoc.id, transDoc.id, item.label); }}>
-                        {mergingPair === item.key
-                          ? <span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                        {downloadingIds.has(item.key)
+                          ? <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
                           : <Download size={13} strokeWidth={1.8} />}
                       </button>
                     )}
@@ -2147,7 +2437,7 @@ export default function DashboardPage() {
                         setExpandedPairs(prev => { const n = new Set(prev); n.has(item.key) ? n.delete(item.key) : n.add(item.key); return n; });
                       }}>
                       <ChevronDown size={13} strokeWidth={1.8}
-                        style={{ transition: "transform 0.2s", transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)" }} />
+                        style={{ transition: "transform var(--dur-2) var(--ease)", transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)" }} />
                     </button>
                   </div>
                   {/* Sub-boxes — only shown when expanded. Mirrors admin layout 1:1. */}
@@ -2165,7 +2455,6 @@ export default function DashboardPage() {
                         const isSubUp = uploadingKey === sub.subKey;
                         const isDragSub = dragOverKey === sub.subKey;
                         const subMsg = slotMsg?.key === sub.subKey ? slotMsg : null;
-                        const menuOpen = candSubMenu?.id === sub.subKey;
                         return (
                           <div key={sub.subKey}
                             onDragOver={e => { e.preventDefault(); setDragOverKey(sub.subKey); }}
@@ -2189,7 +2478,7 @@ export default function DashboardPage() {
                                 {sub.subDoc && sst === "rejected" && sub.subDoc.feedback && (
                                   <p className="text-[10px] mt-0.5 truncate" style={{ color: "var(--danger)" }}>{sub.subDoc.feedback}</p>
                                 )}
-                                {isSubUp && <div className="mt-1"><div className="w-full rounded-full h-1" style={{ background: "var(--border)" }}><div className="h-1 rounded-full" style={{ width: `${slotProgress}%`, background: "var(--gold)" }} /></div><p className="text-[9px] mt-0.5" style={{ color: "var(--w3)" }}>{slotProgress}%</p></div>}
+                                {isSubUp && <div className="mt-1"><div className="w-full rounded-full h-1" style={{ background: "var(--border)" }}><div className="h-1 rounded-full" style={{ width: `${slotProgress}%`, background: "var(--gold)", transition: "width .12s linear" }} /></div><p className="text-[9px] mt-0.5" style={{ color: "var(--w3)" }}>{Math.round(slotProgress)}%</p></div>}
                                 {subMsg && <p className="mt-1 text-[9.5px]" style={{ color: subMsg.ok ? "var(--success)" : "var(--danger)" }}>{subMsg.ok ? t.pUploadSuccess.replace("{label}", sub.subLabel) : subMsg.type === "errPdfOnly" ? t.pErrPdfOnly : subMsg.type === "errAllTypes" ? t.pErrAllTypes : subMsg.type === "errSize" ? t.pErrSize : t.pErrUpload}</p>}
                               </div>
                               {!isSubUp && !sub.subDoc && (
@@ -2207,30 +2496,30 @@ export default function DashboardPage() {
                                   {sub.subDoc.drive_file_id && (
                                     <button type="button"
                                       onClick={() => handleDownload(sub.subDoc!.drive_file_id!, sub.subDoc!.file_name, sub.subKey)}
+                                      disabled={downloadingIds.has(sub.subDoc.drive_file_id)}
                                       title={lang === "de" ? "Herunterladen" : lang === "fr" ? "Télécharger" : "Download"}
                                       className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
                                       style={{ color: "var(--w2)" }}>
-                                      <Download size={13} strokeWidth={1.8} />
+                                      {downloadingIds.has(sub.subDoc.drive_file_id)
+                                        ? <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                                        : <Download size={13} strokeWidth={1.8} />}
                                     </button>
                                   )}
-                                  <div className="relative flex-shrink-0">
-                                    <button
-                                      onClick={e => { e.stopPropagation(); setCandSubMenu(prev => prev?.id === sub.subKey ? null : { id: sub.subKey, el: e.currentTarget as HTMLElement }); }}
+                                  {/* Direct replace button (circular arrow) —
+                                      same affordance as the Essentials rows.
+                                      While the doc is pending/rejected the
+                                      candidate can swap it; hidden once the
+                                      admin has approved it. */}
+                                  {sub.subDoc.status !== "approved" && (
+                                    <button type="button"
+                                      onClick={e => { e.stopPropagation(); openPicker(sub.subKey); }}
+                                      aria-label={t.pReplaceBtn}
+                                      title={t.pReplaceBtn}
                                       className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
                                       style={{ color: "var(--w2)" }}>
-                                      <MoreHorizontal size={15} strokeWidth={1.8} />
+                                      <RefreshCw size={13} strokeWidth={1.8} />
                                     </button>
-                                    <DropdownMenu open={menuOpen} onClose={() => setCandSubMenu(null)} anchor={menuOpen ? candSubMenu!.el : null}>
-                                          {sub.subDoc.status !== "approved" && (
-                                            <button
-                                              onClick={e => { e.stopPropagation(); setCandSubMenu(null); openPicker(sub.subKey); }}
-                                              className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
-                                              style={{ color: "var(--w)" }}>
-                                              <RefreshCw size={11} strokeWidth={1.8} /> {t.pReplaceBtn}
-                                            </button>
-                                          )}
-                                    </DropdownMenu>
-                                  </div>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -2310,7 +2599,13 @@ export default function DashboardPage() {
                     headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
                   }).then(r => r.ok ? r.blob() : null).then(blob => {
                     const pdfUrl = blob ? URL.createObjectURL(blob) : null;
-                    setFillForm({ slotId, fields, values: {}, pdfUrl, sigZone: itemSigZone, signedSig: null, highlight: false });
+                    const slotRow = [...dynamicSlots.bea, ...dynamicSlots.vis].find(s => s.id === slotId);
+                    setFillForm({
+                      slotId, fields, values: {}, pdfUrl,
+                      sigZone: itemSigZone, signedSig: null, highlight: false,
+                      nativeMode: !!slotRow?.pdf_has_native_fields,
+                      nativeFieldCount: 0,
+                    });
                   });
                 }
               : (!uploaded || isOther) ? () => openPicker(item.key)
@@ -2355,8 +2650,9 @@ export default function DashboardPage() {
                           </button>
                         )}
                         {/* File type — borderless mono tag, quieter. Hide once
-                            the doc is approved so the row reads cleanly. */}
-                        {rowSt !== "approved" && (
+                            the doc is approved so the row reads cleanly. The
+                            CV box never shows it (always PDF — kept clean). */}
+                        {rowSt !== "approved" && !isCv && (
                           <span className="text-[10px] font-mono tracking-wide" style={{ color: "var(--w3)" }}>
                             {fileLabel}
                           </span>
@@ -2382,7 +2678,7 @@ export default function DashboardPage() {
                             <div className="h-1.5 rounded-full transition-all duration-300"
                               style={{ width: `${slotProgress}%`, background: "var(--gold)" }} />
                           </div>
-                          <p className="text-xs mt-1" style={{ color: "var(--w3)" }}>{slotProgress}%</p>
+                          <p className="text-xs mt-1" style={{ color: "var(--w3)" }}>{Math.round(slotProgress)}%</p>
                         </div>
                       )}
 
@@ -2566,11 +2862,14 @@ export default function DashboardPage() {
                               e.stopPropagation();
                               handleDownload(doc!.drive_file_id!, doc!.file_name, item.key);
                             }}
+                            disabled={downloadingIds.has(doc!.drive_file_id!)}
                             aria-label={lang === "fr" ? "Télécharger" : lang === "de" ? "Herunterladen" : "Download"}
                             title={lang === "fr" ? "Télécharger" : lang === "de" ? "Herunterladen" : "Download"}
                             className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
                             style={{ color: "var(--w2)" }}>
-                            <Download size={15} strokeWidth={1.8} />
+                            {downloadingIds.has(doc!.drive_file_id!)
+                              ? <span className="w-4 h-4 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                              : <Download size={15} strokeWidth={1.8} />}
                           </button>
                         )}
                       </div>
@@ -2644,11 +2943,14 @@ export default function DashboardPage() {
                                     e.stopPropagation();
                                     handleDownload(d.drive_file_id!, d.file_name, item.key);
                                   }}
+                                  disabled={!!d.drive_file_id && downloadingIds.has(d.drive_file_id)}
                                   aria-label={lang === "fr" ? "Télécharger" : lang === "de" ? "Herunterladen" : "Download"}
                                   title={lang === "fr" ? "Télécharger" : lang === "de" ? "Herunterladen" : "Download"}
                                   className="bv-icon-btn w-8 h-8 flex items-center justify-center rounded-full"
                                   style={{ color: "var(--w2)" }}>
-                                  <Download size={13} strokeWidth={1.8} />
+                                  {!!d.drive_file_id && downloadingIds.has(d.drive_file_id)
+                                    ? <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                                    : <Download size={13} strokeWidth={1.8} />}
                                 </button>
                               )}
                             </div>
@@ -2741,15 +3043,127 @@ export default function DashboardPage() {
         const _isFilled = (k: keyof PassportData) => {
           const v = passportModal[k]; return !!(v && v !== "—" && v.trim() !== "");
         };
-        const allConfirmed = _allFieldKeys.filter(_isFilled).every(k => confirmedFields.has(k));
-        // Side-by-side rule: when this modal is open WHILE the doc preview
-        // is showing an unapproved passport, dock to the right half on
-        // laptop and to the bottom half on phone (so passport is above,
-        // data below — never overlapping).
-        // Dock to the side only during first-time submission (no status yet).
-        const splitWithPreview = !!previewDoc
-          && /pass/i.test(previewDoc.file_type)
-          && !passportStatus;
+        // Only issuing_authority + address_number are optional; the rest are
+        // required. "Ready to submit" = EVERY required field is filled AND
+        // confirmed (green box), and any filled optional field is confirmed
+        // too. Guards the vacuous-true bug ([].every() === true) that made
+        // the submit option + "Alles abgehakt" show on an empty form.
+        const _optionalKeys = new Set<keyof PassportData>(["issuing_authority", "address_number"]);
+        const _requiredKeys = _allFieldKeys.filter(k => !_optionalKeys.has(k));
+        const allConfirmed =
+          _requiredKeys.every(k => _isFilled(k) && confirmedFields.has(k)) &&
+          _allFieldKeys.filter(k => _optionalKeys.has(k) && _isFilled(k)).every(k => confirmedFields.has(k));
+        // Passport-data PDF download — extracted from the old bottom button
+        // so it can be a minimalist header icon (next to the X), exactly like
+        // the passport PDF preview header. Same logic, just relocated.
+        const downloadPassportData = async () => {
+          if (isIOSDevice()) flushSync(() => setPassportDataDl(true));
+          else setPassportDataDl(true);
+          try {
+            const pm = passportModal!;
+            const raw = (key: keyof PassportData) => pm[key] ?? "";
+            const nat = (v: string) => natToLangShared(v, lang as "fr"|"en"|"de") || v || "—";
+            const sex = raw("sex") === "M" ? (lang==="fr"?"Masculin":lang==="de"?"Männlich":"Male")
+                      : raw("sex") === "F" || raw("sex") === "W" ? (lang==="fr"?"Féminin":lang==="de"?"Weiblich":"Female")
+                      : (raw("sex") || "—");
+            const fv = (key: keyof PassportData) => raw(key) || "—";
+            const G = lang === "fr"
+              ? { personal:"Personnel", passport:"Passeport", address:"Adresse",
+                  ln:"Nom de famille", fn:"Prénom", dob:"Date de naissance", sex:"Sexe",
+                  nat:"Nationalité", cob:"Ville de naissance", cntob:"Pays de naissance",
+                  pno:"N° passeport", isd:"Date d'émission", exp:"Date d'expiration", iss:"Autorité émettrice",
+                  str:"Rue", num:"N°", post:"Code postal", cres:"Ville de résidence", cntres:"Pays de résidence" }
+              : lang === "de"
+              ? { personal:"Persönlich", passport:"Reisepass", address:"Adresse",
+                  ln:"Nachname", fn:"Vorname", dob:"Geburtsdatum", sex:"Geschlecht",
+                  nat:"Staatsangehörigkeit", cob:"Geburtsort", cntob:"Geburtsland",
+                  pno:"Reisepassnummer", isd:"Ausstellungsdatum", exp:"Ablaufdatum", iss:"Ausstellungsbehörde",
+                  str:"Straße", num:"Hausnummer", post:"Postleitzahl", cres:"Wohnort", cntres:"Wohnland" }
+              : { personal:"Personal", passport:"Passport", address:"Address",
+                  ln:"Last name", fn:"First name", dob:"Date of birth", sex:"Sex",
+                  nat:"Nationality", cob:"City of birth", cntob:"Country of birth",
+                  pno:"Passport No", isd:"Issue date", exp:"Expiry", iss:"Issuing authority",
+                  str:"Street", num:"Number", post:"Postal code", cres:"City of residence", cntres:"Country of residence" };
+            const pdfGroups = [
+              { title: G.personal, fields: [
+                { label: G.ln,    value: fv("last_name") },
+                { label: G.fn,    value: fv("first_name") },
+                { label: G.dob,   value: fv("dob") },
+                { label: G.sex,   value: sex },
+                { label: G.nat,   value: nat(raw("nationality")) },
+                { label: G.cob,   value: fv("city_of_birth") },
+                { label: G.cntob, value: nat(raw("country_of_birth")) },
+              ]},
+              { title: G.passport, fields: [
+                { label: G.pno, value: fv("passport_no") },
+                { label: G.isd, value: fv("issue_date") },
+                { label: G.exp, value: fv("passport_expiry") },
+                { label: G.iss, value: fv("issuing_authority") },
+              ]},
+              { title: G.address, fields: [
+                { label: G.str,    value: fv("address_street") },
+                { label: G.num,    value: fv("address_number") },
+                { label: G.post,   value: fv("address_postal") },
+                { label: G.cres,   value: fv("city_of_residence") },
+                { label: G.cntres, value: nat(raw("country_of_residence")) },
+              ]},
+            ];
+            const docTitle = lang === "fr" ? "Données du passeport" : lang === "de" ? "Reisepassdaten" : "Passport Data";
+            const docSubtitle = lang === "fr" ? "Informations de passeport extraites et confirmées" : lang === "de" ? "Extrahierte und bestätigte Reisepassdaten" : "Extracted and confirmed passport information";
+            // Name the data PDF EXACTLY like the passport file (German
+            // convention: firstname_lastname_pflegekraft_reisepass) + "_daten".
+            // Derive from the real uploaded passport doc so it matches 1:1;
+            // fall back to building the same pattern if the doc isn't found.
+            const passDoc = [...docs]
+              .filter(d => /pass/i.test(d.file_type) && !!d.drive_file_id && !/dat(en|a)/i.test(d.file_name))
+              .sort((a, b) => (b.uploaded_at ?? "").localeCompare(a.uploaded_at ?? ""))[0];
+            const slug = (s?: string | null) => (s ?? "").trim().toLowerCase()
+              .replace(/ä/g,"ae").replace(/ö/g,"oe").replace(/ü/g,"ue").replace(/ß/g,"ss")
+              .normalize("NFKD").replace(/[̀-ͯ]/g, "")
+              .replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+            const base = passDoc?.file_name
+              ? passDoc.file_name.replace(/\.[^.]+$/, "")
+              : `${slug(passportModal?.first_name)}_${slug(passportModal?.last_name)}_pflegekraft_reisepass`;
+            const outName = `${base}_daten.pdf`;
+
+            // iOS can't download a client blob (POST→blob). Stream it via a
+            // GET (small payload in the query) — same proven attachment path
+            // as every other iOS download. Anchor clicked in-gesture.
+            const _isIOS = isIOSDevice();
+            if (_isIOS && authToken) {
+              const json = JSON.stringify({ groups: pdfGroups, docTitle, docSubtitle, filename: outName });
+              const b64 = btoa(unescape(encodeURIComponent(json)))
+                .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+              triggerIosDownload(
+                `/api/portal/me/passport-data-pdf?dl=1&d=${b64}&access_token=${encodeURIComponent(authToken)}`,
+                outName,
+                () => setPassportDataDl(false),
+              );
+              return;
+            }
+
+            const res = await fetch("/api/portal/me/passport-data-pdf", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
+              body: JSON.stringify({ groups: pdfGroups, filename: outName, docTitle, docSubtitle }),
+            });
+            if (!res.ok) { alert(t.dErrPdfGen); setPassportDataDl(false); return; }
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url; a.download = outName; a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 0);
+            setPassportDataDl(false);
+          } catch { alert(t.dErrDownload); setPassportDataDl(false); }
+        };
+        // Side-by-side: when the passport doc preview is open alongside
+        // this data form, dock the form to the RIGHT half (laptop) /
+        // BOTTOM half (phone). Same mechanism as the admin side.
+        // Side-by-side docking only during review. Once fully approved
+        // (PDF + data both green) the data is a centered popup ON TOP of
+        // the PDF instead of a docked half.
+        const splitWithPreview = !!previewDoc && /pass/i.test(previewDoc.file_type)
+          && !(previewDoc.status === "approved" && passportStatus === "approved");
         return (
         <div className={`fixed inset-x-0 z-[750] flex justify-center p-4 bv-passport-modal-outer ${splitWithPreview ? "bv-side-data-cand" : "items-center"}`}
           style={{
@@ -2770,24 +3184,46 @@ export default function DashboardPage() {
             @media (max-width: 639.98px) {
               .bv-passport-modal-outer { padding-bottom: calc(1rem + 72px) !important; }
               .bv-passport-modal-card  {
-                max-height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 1rem - 72px - 1rem) !important;
+                max-height: calc(100dvh - 58px - 1rem - 72px - 1rem) !important;
               }
+              /* Phone single-scroll: ONE page = passport strip (rendered
+                 inside the card) on top, then the data fields. The data
+                 modal IS the scroll container; the card flows naturally.
+                 Scroll up → passport, down → data, freely (to compare).
+                 The separate fixed preview pane is hidden on phone since
+                 the passport now lives in this scroll. */
+              .bv-side-preview-cand { display: none !important; }
               .bv-side-data-cand {
-                top: calc(58px + var(--bv-subnav-h, 0px) + 50dvh - 0.25rem) !important;
-                bottom: 0 !important;
-                padding-top: 0.25rem !important;
-                align-items: center !important;
+                top: calc(58px + var(--bv-subnav-h, 0px)) !important;
+                /* End above the bottom nav (72px) with a gap, + small side
+                   gaps, so the card reads as a rounded POPUP, not a plain
+                   full-bleed page. */
+                bottom: calc(72px + 6px + env(safe-area-inset-bottom, 0px)) !important;
+                padding: 6px 10px !important;
+                align-items: flex-start !important;
+                overflow-y: auto !important;
+                -webkit-overflow-scrolling: touch !important;
+                pointer-events: auto !important;
               }
               .bv-side-data-cand .bv-passport-modal-card {
-                max-height: 100% !important;
+                height: auto !important;
+                max-height: none !important;
+                min-height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 72px - 12px) !important;
+                border-radius: var(--r-2xl) !important;
+                overflow: hidden !important;
+              }
+              /* Shorter PDF on phone so the data text dominates the view. */
+              .bv-side-data-cand .bv-pp-passport-strip {
+                height: 36dvh !important;
+              }
+              /* Disable the card's internal field scroll on phone so the
+                 whole page scrolls as ONE (passport + data together). */
+              .bv-side-data-cand .bv-pp-fields {
+                overflow: visible !important;
+                flex: 0 0 auto !important;
               }
             }
             @media (min-width: 640px) {
-              .bv-passport-modal-card {
-                /* Desktop: keep the card tall enough to be useful but
-                   short enough to leave a visible gap above and below. */
-                max-height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 2rem) !important;
-              }
               .bv-side-data-cand {
                 top: calc(58px + var(--bv-subnav-h, 0px));
                 bottom: 0;
@@ -2796,33 +3232,106 @@ export default function DashboardPage() {
                 padding-left: 50vw;
                 padding-right: 1rem;
               }
+              /* Identical height to the PDF pane — balanced side-by-side.
+                 Card stays a flex column; its fields scroll internally. */
+              .bv-side-data-cand .bv-passport-modal-card {
+                height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 1rem) !important;
+                max-height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 1rem) !important;
+              }
             }
           `}</style>
-          <div className={`bv-passport-modal-card w-full flex flex-col ${splitWithPreview ? "sm:max-w-[440px]" : "max-w-lg"}`}
+          <div className={`bv-passport-modal-card w-full flex flex-col ${splitWithPreview ? "sm:max-w-[480px]" : "max-w-lg"}`}
             style={{
               background: "var(--card)", border: "1px solid var(--border)",
               borderRadius: "var(--r-2xl)", boxShadow: "var(--shadow-lg)",
+              maxHeight: "88vh",
               animation: "bvFadeRise .28s var(--ease-out)",
               pointerEvents: "auto",
             }}>
+            {/* Phone single-scroll: the passport renders as the FIRST block
+                inside this scrolling card so passport + data are one page —
+                scroll up to the passport, down to the data, freely, to
+                compare. Phone only; desktop keeps the side-by-side panes. */}
+            {splitWithPreview && (
+              <div className="bv-pp-passport-strip sm:hidden flex-shrink-0 flex flex-col"
+                style={{ width: "100%", height: "52dvh", background: "#525659", borderBottom: "1px solid var(--border)" }}>
+                {/* Same header as the doc-preview modal: title + X. */}
+                <div className="flex items-center justify-between px-5 py-3 flex-shrink-0"
+                  style={{ borderBottom: "1px solid var(--border)", background: "var(--card)" }}>
+                  <div className="min-w-0 flex-1 mr-3">
+                    <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-0.5" style={{ color: "var(--w3)" }}>{previewDoc.file_type}</p>
+                    <p className="text-[13.5px] font-semibold truncate tracking-tight" style={{ color: "var(--w)" }}>{previewDoc.file_name}</p>
+                  </div>
+                  {/* Phone: this is the ONLY close button — it dismisses BOTH
+                      the passport strip AND the data card (the data header's
+                      own X is hidden on phone to avoid a duplicate). */}
+                  <button onClick={() => { setPreviewDoc(null); setPassportModal(null); }}
+                    className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+                    style={{ color: "var(--w3)" }}>
+                    <XIcon size={14} strokeWidth={1.8} />
+                  </button>
+                </div>
+                {/* Opens INSTANTLY with a spinner; the PDF fills in place
+                    once the blob loads — same model as the admin laptop. */}
+                <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
+                  {!previewBlobUrl ? (
+                    <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#525659" }}>
+                      <Spinner size="md" />
+                    </div>
+                  ) : /\.pdf$/i.test(previewDoc?.file_name ?? "")
+                       && isIOSDevice()
+                       && previewDoc?.drive_file_id && authToken ? (
+                    <IosPdfFrame
+                      src={`/api/portal/file?id=${encodeURIComponent(previewDoc.drive_file_id)}&access_token=${encodeURIComponent(authToken)}`}
+                      title={previewDoc.file_name}
+                      onRotate={() => {
+                        fetch(`/api/portal/documents/${previewDoc.id}`, {
+                          method: "PATCH",
+                          headers: {
+                            "Content-Type": "application/json",
+                            ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+                          },
+                          body: JSON.stringify({ deltaRotation: 90 }),
+                        }).catch(e => console.error("[rotation] persist failed:", e));
+                      }}
+                    />
+                  ) : /\.pdf$/i.test(previewDoc?.file_name ?? "") ? (
+                    <PdfViewer src={previewBlobUrl} />
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={previewBlobUrl} alt="passport"
+                      style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+                  )}
+                </div>
+              </div>
+            )}
             {/* Header */}
             <div className="px-5 py-4 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] inline-flex items-center gap-1.5 mb-1" style={{ color: "var(--gold)" }}>
+                  <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] inline-flex items-center gap-1.5" style={{ color: "var(--gold)" }}>
                     <IdCard size={12} strokeWidth={1.8} />
                     {t.pPassportTitle}
                   </p>
-                  <p className="text-[12.5px]" style={{ color: "var(--w3)" }}>{t.pPassportSubtitle}</p>
+                  {/* Subtitle ("Review and correct…") removed to save space —
+                      the review/confirm function (checkboxes) is unchanged. */}
                 </div>
                 {isPassportApproved ? (
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full"
-                      style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
-                      <CheckCircle2 size={11} strokeWidth={1.8} /> {lang === "de" ? "Genehmigt" : lang === "fr" ? "Approuvé" : "Approved"}
-                    </span>
+                  // Approved: no permanent green badge. Minimalist download
+                  // icon next to the X — mirrors the passport PDF header.
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button onClick={downloadPassportData}
+                      disabled={passportDataDl}
+                      aria-label={lang === "de" ? "Daten herunterladen" : lang === "fr" ? "Télécharger les données" : "Download data"}
+                      title={lang === "de" ? "Daten herunterladen" : lang === "fr" ? "Télécharger les données" : "Download data"}
+                      className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+                      style={{ color: "var(--w2)" }}>
+                      {passportDataDl
+                        ? <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                        : <Download size={14} strokeWidth={1.8} />}
+                    </button>
                     <button onClick={() => setPassportModal(null)}
-                      className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full"
+                      className={`bv-icon-btn w-8 h-8 ${splitWithPreview ? "hidden sm:flex" : "flex"} items-center justify-center rounded-full flex-shrink-0`}
                       style={{ color: "var(--w3)" }}>
                       <XIcon size={14} strokeWidth={1.8} />
                     </button>
@@ -2834,35 +3343,60 @@ export default function DashboardPage() {
                       {lang === "de" ? "In Prüfung" : lang === "fr" ? "En attente" : "Pending review"}
                     </span>
                     <button onClick={() => setPassportModal(null)}
-                      className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full"
+                      className={`bv-icon-btn w-7 h-7 ${splitWithPreview ? "hidden sm:flex" : "flex"} items-center justify-center rounded-full`}
                       style={{ color: "var(--w3)" }}>
                       <XIcon size={14} strokeWidth={1.8} />
                     </button>
                   </div>
                 ) : (
-                  <AutosaveIndicator savedAt={passportSavedAt} error={passportSaveError} className="flex-shrink-0 mt-0.5" />
+                  // Autosave still runs (passportSavedAt / passportSaveError
+                  // are kept) — only the "Saved · …" label is hidden to free
+                  // up space, especially on phone.
+                  <button onClick={() => setPassportModal(null)}
+                    aria-label={lang === "de" ? "Schließen" : lang === "fr" ? "Fermer" : "Close"}
+                    className={`bv-icon-btn w-8 h-8 rounded-full ${splitWithPreview ? "hidden sm:flex" : "flex"} items-center justify-center flex-shrink-0`}
+                    style={{ color: "var(--w3)" }}>
+                    <XIcon size={14} strokeWidth={1.8} />
+                  </button>
                 )}
               </div>
             </div>
             {/* Fields — 2-column grid, scrollable */}
-            <div className="px-5 py-4 overflow-y-auto flex-1">
+            <div className="px-5 py-4 overflow-y-auto flex-1 bv-pp-fields">
               {(() => {
                 // Country names in current language (for country_of_birth / country_of_residence)
                 const countryOpts = [{ v: "", l: "—" }, ...Object.entries(NAT_MAP).map(([iso, n]) => ({ v: iso, l: n[lang] })).sort((a,b) => a.l.localeCompare(b.l))];
                 // Nationality dropdown shows German adjective (Staatsangehörigkeit is always in German)
                 const natOpts = [{ v: "", l: "—" }, ...Object.entries(NAT_MAP).map(([iso, n]) => ({ v: iso, l: n[lang] })).sort((a,b) => a.l.localeCompare(b.l))];
                 const sexOpts = [{ v: "", l: "—" }, { v: "M", l: "M" }, { v: lang === "de" ? "W" : "F", l: lang === "de" ? "W" : "F" }];
-                const fields: { key: keyof PassportData; label: string; type?: string; opts?: {v:string;l:string}[]; wide?: boolean; manual?: boolean; optional?: boolean; numericOnly?: boolean; wordsOnly?: boolean; uppercase?: boolean }[] = [
+                // Date helpers — accept "DD.MM.YYYY" or "YYYY-MM-DD".
+                // Native <input type=date> needs ISO; we DISPLAY + STORE the
+                // German "DD.MM.YYYY" (dots, day-first).
+                const toIsoDate = (s: string): string => {
+                  if (!s) return "";
+                  const de = s.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+                  if (de) return `${de[3]}-${de[2]}-${de[1]}`;
+                  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+                  return "";
+                };
+                const toGerDate = (s: string): string => {
+                  if (!s) return "";
+                  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                  if (iso) return `${iso[3]}.${iso[2]}.${iso[1]}`;
+                  if (/^\d{2}\.\d{2}\.\d{4}$/.test(s)) return s;
+                  return s;
+                };
+                const fields: { key: keyof PassportData; label: string; type?: string; date?: boolean; opts?: {v:string;l:string}[]; wide?: boolean; manual?: boolean; optional?: boolean; numericOnly?: boolean; wordsOnly?: boolean; uppercase?: boolean }[] = [
                   { key: "last_name",         label: t.pFieldLastName,         uppercase: true },
                   { key: "first_name",        label: t.pFieldFirstName,        uppercase: true },
-                  { key: "dob",               label: t.pFieldDob,     type: "text" },
+                  { key: "dob",               label: t.pFieldDob,     date: true },
                   { key: "sex",               label: t.pFieldSex,     type: "select", opts: sexOpts },
                   { key: "nationality",       label: t.pFieldNationality, type: "select", opts: natOpts },
                   { key: "city_of_birth",     label: t.pFieldCityOfBirth,      uppercase: true },
                   { key: "country_of_birth",  label: t.pFieldCountryOfBirth, type: "select", opts: countryOpts },
                   { key: "passport_no",       label: t.pFieldPassportNo,       uppercase: true },
-                  { key: "issue_date",        label: t.pFieldIssueDate,       type: "text" },
-                  { key: "passport_expiry",   label: t.pFieldExpiry,          type: "text" },
+                  { key: "issue_date",        label: t.pFieldIssueDate,       date: true },
+                  { key: "passport_expiry",   label: t.pFieldExpiry,          date: true },
                   { key: "issuing_authority", label: t.pFieldIssuingAuthority, wide: true, optional: true, uppercase: true },
                   { key: "address_street",    label: t.pFieldAddressStreet,    wide: true, manual: true, uppercase: true },
                   { key: "address_number",    label: t.pFieldAddressNumber,    manual: true, optional: true, numericOnly: true },
@@ -3016,14 +3550,59 @@ export default function DashboardPage() {
                             </button>
                           )}
                         </div>
-                        <div className="relative">
-                          {f.type === "select" ? (
+                        <div className="flex items-center gap-2">
+                         <div className="relative flex-1 min-w-0">
+                          {f.date ? (
+                            <>
+                              {/* Visible: German DD.MM.YYYY, read-only.
+                                  Transparent native date input on top gives
+                                  the calendar (admin + candidate). */}
+                              <input
+                                readOnly
+                                value={toGerDate(passportModal[f.key] ?? "")}
+                                placeholder="TT.MM.JJJJ"
+                                className={inputCls + " cursor-pointer"}
+                                style={inputStyle}
+                              />
+                              {/* Transparent native date input = calendar.
+                                  Mouse-wheel over it steps the YEAR (laptop) —
+                                  fast, predictable, every notch = ±1 year. */}
+                              <input
+                                type="date"
+                                value={toIsoDate(passportModal[f.key] ?? "")}
+                                onClick={e => {
+                                  const el = e.currentTarget as HTMLInputElement & { showPicker?: () => void };
+                                  el.showPicker?.();
+                                }}
+                                onWheel={e => {
+                                  e.preventDefault();
+                                  const isoCur = toIsoDate(passportModal[f.key] ?? "") || `${new Date().getFullYear()}-01-01`;
+                                  const y = parseInt(isoCur.slice(0, 4), 10) + (e.deltaY < 0 ? 1 : -1);
+                                  if (y < 1900 || y > 2100) return;
+                                  const iso = `${y}-${isoCur.slice(5, 7)}-${isoCur.slice(8, 10)}`;
+                                  lastLocalPassportEdit.current = Date.now();
+                                  setPassportModal(p => p ? { ...p, [f.key]: toGerDate(iso) } : p);
+                                  setConfirmedFields(prev => { const n = new Set(prev); n.delete(f.key); return n; });
+                                }}
+                                onChange={e => {
+                                  lastLocalPassportEdit.current = Date.now();
+                                  const ger = toGerDate(e.target.value);
+                                  setPassportModal(p => p ? { ...p, [f.key]: ger } : p);
+                                  setConfirmedFields(prev => { const n = new Set(prev); n.delete(f.key); return n; });
+                                }}
+                                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                style={{ colorScheme: "dark" }}
+                                aria-label={f.label}
+                              />
+                            </>
+                          ) : f.type === "select" ? (
                             <select value={passportModal[f.key]}
                               onChange={e => {
+                                lastLocalPassportEdit.current = Date.now();
                                 setPassportModal(p => p ? { ...p, [f.key]: e.target.value } : p);
                                 setConfirmedFields(prev => { const n = new Set(prev); n.delete(f.key); return n; });
                               }}
-                              className={inputCls + " pr-7 appearance-none"}
+                              className={inputCls + " appearance-none"}
                               style={inputStyle}>
                               {f.opts!.map(o => <option key={o.v} value={o.v}>{o.l}</option>)}
                             </select>
@@ -3034,6 +3613,7 @@ export default function DashboardPage() {
                                 if (f.numericOnly) val = val.replace(/\D/g, "");
                                 if (f.wordsOnly)   val = val.replace(/[^A-Za-zÀ-ÿ\s'-]/g, "");
                                 if (f.uppercase)   val = val.toUpperCase();
+                                lastLocalPassportEdit.current = Date.now();
                                 setPassportModal(p => p ? { ...p, [f.key]: val } : p);
                                 setConfirmedFields(prev => { const n = new Set(prev); n.delete(f.key); return n; });
                               }}
@@ -3048,10 +3628,13 @@ export default function DashboardPage() {
                                   setPassportHint("issuing_authority");
                                 }
                               }}
-                              className={inputCls + " pr-7"} style={{ ...inputStyle, ...(f.uppercase ? { textTransform: "uppercase" } : {}) }}
+                              className={inputCls} style={{ ...inputStyle, ...(f.uppercase ? { textTransform: "uppercase" } : {}) }}
                               inputMode={(f.numericOnly || f.key === "dob" || f.key === "issue_date" || f.key === "passport_expiry") ? "numeric" : undefined} />
                           )}
-                          {/* Checkmark icon inside the field on the right */}
+                         </div>
+                          {/* Confirm checkbox — OUTSIDE the input wrapper so a
+                              phone tap can never land on / focus the field.
+                              Same place (right of the field), bigger target. */}
                           <button type="button"
                             onClick={e => {
                               e.stopPropagation();
@@ -3066,13 +3649,14 @@ export default function DashboardPage() {
                                 setPassportHint(f.key as keyof PassportData);
                                 return; // don't confirm yet — user sees popup first
                               }
+                              lastLocalPassportEdit.current = Date.now();
                               setConfirmedFields(prev => {
                                 const next = new Set(prev);
                                 if (next.has(f.key)) next.delete(f.key); else next.add(f.key);
                                 return next;
                               });
                             }}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 transition-all"
+                            className="flex-shrink-0 grid place-items-center w-9 h-9 -my-1 transition-all"
                             style={{ cursor: canConfirm ? "pointer" : "default" }}
                             title={!canConfirm ? t.dTipFillFirst : confirmed ? t.dTipConfirmedUndo : t.dTipClickConfirm}>
                             {!canConfirm ? IconEmpty : confirmed ? IconChecked : IconUnchecked}
@@ -3089,7 +3673,11 @@ export default function DashboardPage() {
                 );
               })()}
             </div>
-            {/* Action */}
+            {/* Action — the entire footer is removed once the passport is
+                approved (the download moved to a minimalist header icon).
+                Only the pending + submit states still render it. The old
+                approved-branch button below is now unreachable. */}
+            {!isPassportApproved && (
             <div className="px-5 pb-4 pt-3 flex-shrink-0" style={{ borderTop: "1px solid var(--border)" }}>
               {isPassportApproved ? (
                 <button
@@ -3147,16 +3735,29 @@ export default function DashboardPage() {
                       const docTitle = lang === "fr" ? "Données du passeport" : lang === "de" ? "Reisepassdaten" : "Passport Data";
                       const docSubtitle = lang === "fr" ? "Informations de passeport extraites et confirmées" : lang === "de" ? "Extrahierte und bestätigte Reisepassdaten" : "Extracted and confirmed passport information";
                       const fn = [passportModal?.first_name, passportModal?.last_name].filter(Boolean).join("_").toLowerCase() || "passport_data";
+                      const outName = `${fn}_passport_data.pdf`;
+                      // iOS can't save a POST→blob — stream via GET (payload in
+                      // query) so it triggers the native download prompt.
+                      if (isIOSDevice() && authToken) {
+                        const j = JSON.stringify({ groups: pdfGroups, docTitle, docSubtitle, filename: outName });
+                        const b64 = btoa(unescape(encodeURIComponent(j)))
+                          .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+                        triggerIosDownload(
+                          `/api/portal/me/passport-data-pdf?dl=1&d=${b64}&access_token=${encodeURIComponent(authToken)}`,
+                          outName,
+                        );
+                        return;
+                      }
                       const res = await fetch("/api/portal/me/passport-data-pdf", {
                         method: "POST",
                         headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
-                        body: JSON.stringify({ groups: pdfGroups, filename: `${fn}_passport_data.pdf`, docTitle, docSubtitle }),
+                        body: JSON.stringify({ groups: pdfGroups, filename: outName, docTitle, docSubtitle }),
                       });
                       if (!res.ok) { alert(t.dErrPdfGen); return; }
                       const blob = await res.blob();
                       const url = URL.createObjectURL(blob);
                       const a = document.createElement("a");
-                      a.href = url; a.download = `${fn}_passport_data.pdf`; a.click();
+                      a.href = url; a.download = outName; a.click();
                       setTimeout(() => URL.revokeObjectURL(url), 0);
                     } catch { alert(t.dErrDownload); }
                   }}
@@ -3184,7 +3785,7 @@ export default function DashboardPage() {
                         const res = await fetch("/api/portal/passport", {
                           method: "POST",
                           headers: { "Content-Type": "application/json", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
-                          body: JSON.stringify(passportModal),
+                          body: JSON.stringify({ ...passportModal, confirmed_fields: Array.from(confirmedFields) }),
                         });
                         if (!res.ok) {
                           const err = await res.json().catch(() => ({}));
@@ -3214,6 +3815,7 @@ export default function DashboardPage() {
                 </>
               )}
             </div>
+            )}
           </div>
         </div>
         );
@@ -3224,41 +3826,43 @@ export default function DashboardPage() {
         <div className="fixed inset-x-0 bottom-0 z-[820] flex items-center justify-center p-4 pb-[88px] sm:pb-4 bv-modal-outer"
           style={{ top: "calc(58px + var(--bv-subnav-h, 0px))", background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
           onClick={() => setPassportHint(null)}>
-          <div className="w-full max-w-md overflow-hidden"
+          <div className="w-full max-w-md overflow-hidden flex flex-col"
             style={{
               background: "var(--card)", border: "1px solid var(--border)",
               borderRadius: "var(--r-2xl)", boxShadow: "var(--shadow-lg)",
               animation: "bvFadeRise .28s var(--ease-out)",
+              maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)",
             }}
             onClick={e => e.stopPropagation()}>
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4"
+            <div className="flex items-center justify-between px-5 py-4 flex-shrink-0"
               style={{ borderBottom: "1px solid var(--border)" }}>
-              <p className="text-[14px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>
+              <p className="font-semibold tracking-tight" style={{ color: "var(--w)", fontSize: "clamp(13px, 3.8vw, 15px)" }}>
                 {lang === "fr" ? "Autorité de délivrance" : lang === "de" ? "Ausstellende Behörde" : "Issuing Authority"}
               </p>
               <button onClick={() => setPassportHint(null)}
-                className="bv-icon-btn w-7 h-7 rounded-full flex items-center justify-center text-xs"
+                className="bv-icon-btn w-7 h-7 rounded-full flex items-center justify-center text-xs flex-shrink-0"
                 style={{ color: "var(--w3)" }}><XIcon size={13} strokeWidth={1.8} /></button>
             </div>
-            {/* Body */}
-            <div className="px-5 py-4 space-y-3">
-              <p className="text-sm leading-relaxed" style={{ color: "var(--w2)" }}>
+            {/* Body — scrolls when the viewport is too short. */}
+            <div className="px-5 py-4 space-y-3 overflow-y-auto" style={{ minHeight: 0 }}>
+              <p className="leading-relaxed" style={{ color: "var(--w2)", fontSize: "clamp(12px, 3.4vw, 14px)" }}>
                 {lang === "fr"
                   ? `Regardez en bas à droite de votre passeport, sous « Autorité / Authority ».`
                   : lang === "de"
                   ? `Schauen Sie unten rechts im Reisepass unter « Autorité / Authority ».`
                   : `Look at the bottom-right of your passport, under « Autorité / Authority ».`}
               </p>
-              {/* Passport example image with red box highlight */}
+              {/* Passport example — shrinks on short screens, never cropped. */}
               <div className="rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
                 <img
                   src="/passport-authority-guide.jpg.png"
                   alt="Passport authority example"
-                  className="w-full object-cover"
+                  className="w-full"
+                  style={{ display: "block", maxHeight: "clamp(110px, 30dvh, 320px)", objectFit: "contain" }}
                 />
               </div>
-              <p className="text-sm font-medium" style={{ color: "var(--w2)" }}>
+              <p className="font-medium" style={{ color: "var(--w2)", fontSize: "clamp(12px, 3.4vw, 14px)" }}>
                 {lang === "fr" ? "Écrivez le texte complet — ne raccourcissez pas :"
                   : lang === "de" ? "Schreiben Sie den vollständigen Text — nicht kürzen:"
                   : "Write the full text — do not shorten it:"}
@@ -3267,12 +3871,12 @@ export default function DashboardPage() {
                 <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
                   style={{ background: "var(--danger-bg)", border: "1px solid var(--danger-border)" }}>
                   <XCircle size={16} strokeWidth={1.8} className="flex-shrink-0" style={{ color: "var(--danger)" }} />
-                  <span className="text-sm font-mono" style={{ color: "var(--danger)" }}>Laayoune</span>
+                  <span className="font-mono" style={{ color: "var(--danger)", fontSize: "clamp(12px, 3.4vw, 14px)" }}>Laayoune</span>
                 </div>
                 <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl"
                   style={{ background: "var(--success-bg)", border: "1px solid var(--success-border)" }}>
                   <CheckCircle2 size={16} strokeWidth={1.8} className="flex-shrink-0" style={{ color: "var(--success)" }} />
-                  <span className="text-sm font-mono" style={{ color: "var(--success)" }}>Province de Laayoune</span>
+                  <span className="font-mono" style={{ color: "var(--success)", fontSize: "clamp(12px, 3.4vw, 14px)" }}>Province de Laayoune</span>
                 </div>
               </div>
             </div>
@@ -3289,13 +3893,14 @@ export default function DashboardPage() {
             style={{
               background: "var(--card)", border: "1px solid var(--border)",
               borderRadius: "var(--r-2xl)", boxShadow: "var(--shadow-lg)",
-              maxHeight: "88vh", animation: "bvFadeRise .28s var(--ease-out)",
+              maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)",
+              animation: "bvFadeRise .28s var(--ease-out)",
             }}
             onClick={e => e.stopPropagation()}>
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 flex-shrink-0"
               style={{ borderBottom: "1px solid var(--border)" }}>
-              <p className="text-[14px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>
+              <p className="font-semibold tracking-tight" style={{ color: "var(--w)", fontSize: "clamp(13px, 3.8vw, 15px)" }}>
                 {lang === "fr" ? "Comment écrire votre adresse" : lang === "de" ? "Wie Sie Ihre Adresse eintragen" : "How to write your address"}
               </p>
               <button onClick={() => setPassportHint(null)}
@@ -3437,28 +4042,29 @@ export default function DashboardPage() {
         <div className="fixed inset-x-0 bottom-0 z-[820] flex items-center justify-center p-4 pb-[88px] sm:pb-4 bv-modal-outer"
           style={{ top: "calc(58px + var(--bv-subnav-h, 0px))", background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
           onClick={() => setPassportHint(null)}>
-          <div className="w-full max-w-md overflow-hidden"
+          <div className="w-full max-w-md overflow-hidden flex flex-col"
             style={{
               background: "var(--card)", border: "1px solid var(--border)",
               borderRadius: "var(--r-2xl)", boxShadow: "var(--shadow-lg)",
               animation: "bvFadeRise .28s var(--ease-out)",
+              maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)",
             }}
             onClick={e => e.stopPropagation()}>
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4"
+            <div className="flex items-center justify-between px-5 py-4 flex-shrink-0"
               style={{ borderBottom: "1px solid var(--border)" }}>
               <div>
-                <p className="text-[14px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>
+                <p className="font-semibold tracking-tight" style={{ color: "var(--w)", fontSize: "clamp(13px, 3.8vw, 15px)" }}>
                   {lang === "fr" ? "Trouver votre code postal" : lang === "de" ? "Postleitzahl herausfinden" : "Find your postal code"}
                 </p>
                 <p className="text-[10px] mt-0.5" style={{ color: "var(--w3)" }}>codepostal.ma</p>
               </div>
               <button onClick={() => setPassportHint(null)}
-                className="bv-icon-btn w-7 h-7 rounded-full flex items-center justify-center text-xs"
+                className="bv-icon-btn w-7 h-7 rounded-full flex items-center justify-center text-xs flex-shrink-0"
                 style={{ color: "var(--w3)" }}><XIcon size={13} strokeWidth={1.8} /></button>
             </div>
-            {/* Body */}
-            <div className="px-5 py-4 space-y-2">
+            {/* Body — scrolls when the viewport is too short. */}
+            <div className="px-5 py-4 space-y-2 overflow-y-auto" style={{ minHeight: 0 }}>
 
               {/* Steps — website is Step 1 */}
               <div className="space-y-2">
@@ -3529,12 +4135,15 @@ export default function DashboardPage() {
         <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
           style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
           onClick={() => setShowWorkGuide(false)}>
-          <div className="relative w-full max-w-md rounded-[20px] overflow-hidden"
-            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 72px - 32px)", overflowY: "auto" }}
+          <div className="relative w-full max-w-md rounded-[20px] overflow-hidden flex flex-col"
+            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)",
+              // LAW #36: never exceed the gap between header (58px + subnav)
+              // and the bottom nav (96px incl. gap). Body scrolls if shorter.
+              maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)" }}
             onClick={(e) => e.stopPropagation()}>
 
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 sticky top-0"
+            <div className="flex items-center justify-between px-5 py-4 flex-shrink-0"
               style={{ background: "var(--card)", borderBottom: "1px solid var(--border)" }}>
               <p className="text-[13px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>{t.pGuideWorkTitle}</p>
               <button onClick={() => setShowWorkGuide(false)}
@@ -3544,7 +4153,7 @@ export default function DashboardPage() {
               </button>
             </div>
 
-            <div className="px-4 py-4 space-y-3">
+            <div className="px-4 py-4 space-y-3 overflow-y-auto" style={{ minHeight: 0 }}>
               {/* Intro */}
               <p className="text-xs" style={{ color: "var(--w2)" }}>{t.pGuideWorkIntro}</p>
 
@@ -3612,9 +4221,17 @@ export default function DashboardPage() {
                 //  (c) for legacy slots without a wizard zone, the separate
                 //      sign_request row must be signed.
                 const fillSlot = [...dynamicSlots.bea, ...dynamicSlots.vis].find(s => s.id === fillForm.slotId);
-                const fieldsPending = fillForm.fields.some(f =>
-                  f.type === "checkbox" ? false : !(fillForm.values[f.id]?.trim())
-                );
+                // Native mode gates: all detected native field inputs must have
+                // a value. We don't require every native field — only those the
+                // candidate sees as empty (admin's pre-filled ones already have
+                // values from the saved template, no candidate action needed).
+                // Conservative: if nativeFieldCount === 0 (detection still
+                // pending) the button stays available — false would block UX.
+                const fieldsPending = fillForm.nativeMode
+                  ? false /* candidate may freely leave blanks; rely on visual cues */
+                  : fillForm.fields.some(f =>
+                      f.type === "checkbox" ? false : !(fillForm.values[f.id]?.trim())
+                    );
                 const inlineSigPending = !!fillForm.sigZone && !fillForm.signedSig;
                 const legacySigPending = fillSlot?.candidate_signs && !fillForm.sigZone
                   ? !signRequests.find(r => r.status === "signed" && r.document_name === fillForm.slotId)
@@ -3641,8 +4258,20 @@ export default function DashboardPage() {
                         const srcAb = new ArrayBuffer(sourceBytes.byteLength);
                         new Uint8Array(srcAb).set(sourceBytes);
                         let bytes: Uint8Array = new Uint8Array(srcAb);
-                        // 1) Embed field values typed by candidate
-                        if (fillForm.fields.length > 0) {
+                        // 1a) Native AcroForm fill — typed values land in the
+                        //     PDF's existing fields. Resolver returns the
+                        //     candidate's typed text directly (no binding needed
+                        //     on this side).
+                        if (fillForm.nativeMode) {
+                          const map = fillForm.values;
+                          const mappings = Object.keys(map).map(name => ({
+                            name, binding: null, literal: map[name] ?? "",
+                          }));
+                          bytes = await fillAcroFormFields(bytes, mappings, (_: BindingId) => "");
+                        }
+                        // 1b) Legacy drawn fields — stamp typed values as static
+                        //     text at the drawn coordinates.
+                        if (!fillForm.nativeMode && fillForm.fields.length > 0) {
                           bytes = await embedFields(bytes, fillForm.fields, fillForm.values);
                         }
                         // 2) Stamp candidate signature into the zone (if drawn)
@@ -3681,6 +4310,25 @@ export default function DashboardPage() {
                 <div className="h-full flex items-center justify-center">
                   <div className="w-8 h-8 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: "var(--gold)" }} />
                 </div>
+              ) : fillForm.nativeMode ? (
+                <PdfNativeFieldFill
+                  pdfUrl={fillForm.pdfUrl}
+                  values={fillForm.values}
+                  onChange={(name, value) => setFillForm(f => f ? { ...f, values: { ...f.values, [name]: value } } : f)}
+                  signatureZone={fillForm.sigZone ?? null}
+                  signaturePreview={fillForm.signedSig}
+                  highlightSigZone={fillForm.highlight}
+                  onSignClick={() => {
+                    if (candidateSavedSig) {
+                      setFillForm(f => f ? { ...f, signedSig: candidateSavedSig } : f);
+                    } else {
+                      setCandidateSigSubPopup({ pendingSig: null });
+                    }
+                  }}
+                  onDetectedFields={fields => {
+                    setFillForm(f => f ? { ...f, nativeFieldCount: fields.length } : f);
+                  }}
+                />
               ) : (
                 <PdfFieldFill
                   pdfUrl={fillForm.pdfUrl}
@@ -3717,7 +4365,7 @@ export default function DashboardPage() {
           onClick={() => !candidateSigUploading && setCandidateSigSubPopup(null)}>
           <div className="w-full max-w-sm rounded-[20px] p-5 space-y-3"
             onClick={e => e.stopPropagation()}
-            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)" }}>
+            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)", overflowY: "auto" }}>
             <div>
               <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>
                 {lang === "de" ? "Ihre Unterschrift" : lang === "fr" ? "Votre signature" : "Your signature"}
@@ -3799,7 +4447,7 @@ export default function DashboardPage() {
           style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
           onClick={() => setExampleUrl(null)}>
           <div className="relative max-w-lg w-full rounded-[20px] overflow-hidden"
-            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)" }}
+            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)", overflowY: "auto" }}
             onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4"
               style={{ borderBottom: "1px solid var(--border)" }}>

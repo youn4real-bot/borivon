@@ -1,12 +1,16 @@
 ﻿"use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { translations } from "@/lib/translations";
 import { useLang } from "@/components/LangContext";
 import { AdminDocPreviewModal } from "@/components/AdminDocPreviewModal";
+import { isIOSDevice } from "@/lib/platform";
+import { triggerIosDownload } from "@/lib/iosDownload";
+import { PdfViewer } from "@/components/PdfViewer";
+import { IosPdfFrame } from "@/components/IosPdfFrame";
 import { AdminRejectModal } from "@/components/AdminRejectModal";
 import { natToLang, COUNTRY_MAP as NAT_MAP } from "@/lib/countries";
 import {
@@ -22,9 +26,8 @@ import { Spinner, PageLoader, EmptyState } from "@/components/ui/states";
 import { DropdownMenu } from "@/components/ui/DropdownMenu";
 import { CandidateStagePreview, type JourneyMode } from "@/components/JourneyView";
 import { PdfZonePicker, type SigZone } from "@/components/PdfZonePicker";
-import { PdfFieldPicker } from "@/components/PdfFieldPicker";
-import { FIELD_CATALOG, resolveFieldValue, fieldLabel, type CandidateFieldId } from "@/lib/candidateFields";
-import { embedFields } from "@/lib/pdfFieldEmbed";
+import { detectAcroFormFields, type DetectedField } from "@/lib/pdfAcroFormFill";
+import { AutoFillReviewModal } from "@/components/AutoFillReviewModal";
 import { SignaturePad } from "@/components/SignaturePad";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { PortalTopNav } from "@/components/PortalTopNav";
@@ -157,6 +160,18 @@ function timeAgo(iso: string, lang?: string) {
   if (h < 48) return { isNew: true,  label: h < 1 ? justNow : hAgo(Math.floor(h)) };
   if (d < 7)  return { isNew: false, label: dAgo(Math.floor(d)) };
   return           { isNew: false, label: fmtDate(iso) };
+}
+
+// Name a merged (original+translated) PDF EXACTLY like the source docs but
+// without the trailing language/type word (…_original / …_uebersetzt).
+// Falls back to the slot label when the source filename is unavailable.
+function mergedPdfName(srcFileName: string | null | undefined, label: string): string {
+  const SUFFIX_RE = /_(original|originale|originel|uebersetzt|uebersetzung|ubersetzt|translated|translation|traduit|traduction)$/i;
+  if (srcFileName) {
+    const base = srcFileName.replace(/\.[^.]+$/, "").replace(SUFFIX_RE, "");
+    if (base) return `${base}.pdf`;
+  }
+  return `${label.replace(/\s+/g, "_")}.pdf`;
 }
 
 // ── Preview modal moved to components/AdminDocPreviewModal.tsx ────────────────
@@ -612,6 +627,24 @@ export default function AdminPage() {
   const [dirtyFeedbacks, setDirtyFeedbacks] = useState<Set<string>>(new Set());
   const [saving, setSaving]           = useState<Record<string, boolean>>({});
   const [previewDoc, setPreviewDoc] = useState<Doc | null>(null);
+  // Phone single-scroll: blob URL of the previewed passport so it can be
+  // rendered as a strip at the top of the passport-info card (one page:
+  // passport on top, data below — scroll freely to compare).
+  const [ppStripUrl, setPpStripUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!previewDoc || !/pass/i.test(previewDoc.file_type) || !previewDoc.drive_file_id) {
+      setPpStripUrl(null);
+      return;
+    }
+    let revoked = false;
+    let url = "";
+    fetch(`/api/portal/file?id=${previewDoc.drive_file_id}`, { headers: { Authorization: `Bearer ${accessToken}` } })
+      .then(r => r.ok ? r.blob() : null)
+      .then(blob => { if (blob && !revoked) { url = URL.createObjectURL(blob); setPpStripUrl(url); } })
+      .catch(() => {});
+    return () => { revoked = true; if (url) URL.revokeObjectURL(url); setPpStripUrl(null); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewDoc?.id]);
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [activePhase, setActivePhase]   = useState(0);
   const [expandedPairs, setExpandedPairs] = useState<Set<string>>(new Set());
@@ -656,7 +689,11 @@ export default function AdminPage() {
   const [adminSigSubPopup, setAdminSigSubPopup]       = useState<{ slotId: string; pendingSig: string | null } | null>(null);
   // Placement wizard — opens after main popup Confirm. Walks admin through
   // drawing zones on the slot's PDF, one step per checked action.
-  type WizardStep = "admin_sig" | "candidate_sig" | "fields";
+  // Drawing form-field boxes was removed per user directive — creating fields
+  // is now done in an external tool (Acrobat, etc.) one time, and the portal
+  // only consumes PDFs that already have native AcroForm fields. The wizard
+  // therefore handles signature placement only.
+  type WizardStep = "admin_sig" | "candidate_sig";
   const [placementWizard, setPlacementWizard] = useState<{
     slotId: string;
     pdfB64: string;
@@ -664,21 +701,28 @@ export default function AdminPage() {
     stepIdx: number;
     adminSigZone: import("@/components/PdfZonePicker").SigZone | null;
     candidateSigZone: import("@/components/PdfZonePicker").SigZone | null;
-    fields: import("@/lib/pdfFieldEmbed").FormField[];
-    /** Phone / email pulled from the candidate's CV draft (other passport
-     *  fields come from profiles[selectedUser]). Fetched once when the wizard
-     *  opens — admin's binding selections render their live values from this. */
-    cv: { phone?: string | null; email?: string | null } | null;
-    /** ID of the field whose binding popup is currently open — null otherwise. */
-    pendingBindField: string | null;
   } | null>(null);
   const [placementSubmitting, setPlacementSubmitting] = useState(false);
+  // Auto-fill review modal: appears when admin uploads a PDF that already has
+  // native AcroForm fields (e.g. the BA EzB form). Bypasses the
+  // draw-a-box wizard and the slot config popup entirely.
+  const [autoFillReview, setAutoFillReview] = useState<{
+    slotId: string;
+    file: File;
+    pdfBytes: ArrayBuffer;
+    detected: DetectedField[];
+  } | null>(null);
+  // Lock body scroll while the placement wizard is open — same idiom as
+  // AdminDocPreviewModal. Without this, the underlying page can scroll/zoom
+  // when the user pinches the PDF, making the wizard frame appear to drift.
+  useEffect(() => {
+    if (!placementWizard) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [placementWizard]);
   // Configure fields modal (fill-type slots)
-  const [configFieldsSlot, setConfigFieldsSlot]       = useState<PhaseSlot | null>(null);
-  const [configFieldsUploading, setConfigFieldsUploading] = useState(false);
-  const [configFieldsFields, setConfigFieldsFields]   = useState<import("@/lib/pdfFieldEmbed").FormField[]>([]);
-  const [configFieldsPdfB64, setConfigFieldsPdfB64]   = useState<string | null>(null);
-  const [configFieldsSaving, setConfigFieldsSaving]   = useState(false);
+  // Configure-fields modal removed: drawing form fields is no longer supported.
   // Expanded DUAL slot IDs (collapsed by default, like static paired rows)
   const [expandedDualSlots, setExpandedDualSlots] = useState<Set<string>>(new Set());
   // Inline slot label editing
@@ -693,8 +737,22 @@ export default function AdminPage() {
   );
   // Admin upload on behalf of candidate
   const [adminUploadSlotId, setAdminUploadSlotId] = useState<string | null>(null);
+  // Smooth 0→100 progress for Bearbeitung/Visum slot uploads (same UX as the
+  // candidate passport bar): real bytes 0→85, then ease toward 99 while the
+  // server does Drive + AcroForm work, snap to 100 on done.
+  const [adminSlotProgress, setAdminSlotProgress] = useState(0);
+  const adminProgressTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopAdminProgressCreep = () => {
+    if (adminProgressTimerRef.current) { clearInterval(adminProgressTimerRef.current); adminProgressTimerRef.current = null; }
+  };
   const adminFileInputRef = React.useRef<HTMLInputElement>(null);
   const adminUploadTargetRef = React.useRef<string | null>(null);
+  // Local cache of the File the admin just uploaded, keyed by slotId. Lets the
+  // placement wizard render INSTANTLY without round-tripping to Supabase Storage
+  // for the slot-template fetch — we already have the bytes client-side.
+  // The background slot-template POST still runs so subsequent sessions / other
+  // admins get the file from Storage on demand.
+  const localTemplateFileRef = React.useRef<Map<string, File>>(new Map());
   const [showPassportInfo, setShowPassportInfo] = useState(false);
   // Auto-open passport data alongside the doc preview during the verification
   // phase. Once both the doc AND the data are approved, this stops triggering
@@ -736,6 +794,10 @@ export default function AdminPage() {
   const [sigModal, setSigModal] = useState<{ docId: string | null; driveFileId: string | null; label: string } | null>(null);
   const [sigNote, setSigNote] = useState("");
   const [sigSending, setSigSending] = useState(false);
+  // iOS can't save a POST→blob; after the server stashes the signed PDF the
+  // user taps this (fresh gesture) to actually download it.
+  const [iosSignedDl, setIosSignedDl] = useState<{ url: string; name: string } | null>(null);
+  useEffect(() => { if (!sigModal) setIosSignedDl(null); }, [sigModal]);
   const [sigMode, setSigMode] = useState<"admin-only" | "with-candidate">("admin-only");
   const [sigZones, setSigZones] = useState<SigZone[]>([]);
   const [sigPdfBase64, setSigPdfBase64] = useState<string | null>(null);
@@ -1391,6 +1453,8 @@ export default function AdminPage() {
     // The action popup auto-fires only on the first upload — never on re-uploads.
     const isFirstUpload = !Object.values(phaseSlots).flat().find(s => s.id === slotId)?.template_pdf_path;
     setAdminUploadSlotId(slotId);
+    setAdminSlotProgress(0);
+    stopAdminProgressCreep();
     const fd = new FormData();
     fd.append("file", file);
     // fileKey = slotId UUID → upload API hits the wizard-slot branch which
@@ -1400,38 +1464,116 @@ export default function AdminPage() {
     fd.append("fileType", slotId);
     fd.append("forUserId", selectedUser);
     try {
-      const res = await fetch("/api/portal/upload", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${accessToken}` },
-        body: fd,
+      // 1) Drive upload (candidate doc, primary action — awaited so spinner
+      // covers the visible work). On localhost without real Drive creds this
+      // fails — we log + warn but DO NOT bail, so the popup still opens.
+      const res = await new Promise<{ ok: boolean; status: number; text: string } | null>((resolve) => {
+        const xhr = new XMLHttpRequest();
+        xhr.upload.addEventListener("progress", (e) => {
+          if (!e.lengthComputable) return;
+          const pct = Math.round((e.loaded / e.total) * 85);
+          setAdminSlotProgress(p => (pct > p ? pct : p));
+        });
+        // Bytes sent — server now does Drive + AcroForm work. Ease toward 99%
+        // (decelerating) so the bar always moves, never freezes at 85.
+        xhr.upload.addEventListener("load", () => {
+          stopAdminProgressCreep();
+          adminProgressTimerRef.current = setInterval(() => {
+            setAdminSlotProgress(p => {
+              if (p < 85) return p;
+              const next = p + (99 - p) * 0.06;
+              return next > 98.6 ? 98.6 : next;
+            });
+          }, 60);
+        });
+        xhr.addEventListener("load", () => {
+          stopAdminProgressCreep();
+          setAdminSlotProgress(100);
+          resolve({ ok: xhr.status >= 200 && xhr.status < 300, status: xhr.status, text: xhr.responseText });
+        });
+        xhr.addEventListener("error", () => { stopAdminProgressCreep(); resolve(null); });
+        xhr.addEventListener("abort", () => { stopAdminProgressCreep(); resolve(null); });
+        xhr.open("POST", "/api/portal/upload");
+        if (accessToken) xhr.setRequestHeader("Authorization", `Bearer ${accessToken}`);
+        xhr.send(fd);
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        showError((body as { error?: string }).error ?? `Upload failed (${res.status})`);
-        return;
+      const driveOk = !!res?.ok;
+      if (!driveOk) {
+        let body: { error?: string } = {};
+        try { body = res ? JSON.parse(res.text) : {}; } catch { /* non-JSON */ }
+        console.warn("[adminUploadFile] Drive upload failed (non-fatal):", body);
       }
-      // Targeted refetch: only reload docs for this candidate, not all others.
-      const res2 = await fetch(`/api/portal/admin?userId=${selectedUser}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
+
+      // 2) Cache the file locally so the placement wizard can render INSTANTLY
+      //    without round-tripping to Supabase Storage. Optimistically mark the
+      //    slot as having a template so saveSlotConfig's gate passes.
+      localTemplateFileRef.current.set(slotId, file);
+      const templatePath = `slot-templates/${slotId}.pdf`;
+      setPhaseSlots(prev => {
+        const updated: typeof prev = {};
+        for (const [ph, slots] of Object.entries(prev))
+          updated[ph] = (slots ?? []).map(s => s?.id === slotId ? { ...s, template_pdf_path: templatePath } : s);
+        return updated;
       });
-      if (res2.ok) {
-        const json2 = await res2.json();
-        const freshDocs: Doc[] = json2.docs ?? [];
-        setDocs(prev => [
-          ...prev.filter(d => d.user_id !== selectedUser),
-          ...freshDocs,
-        ]);
+
+      // 3) Detect native AcroForm fields. If the PDF was authored with > 3
+      //    fillable fields (BA EzB, government forms, etc.), branch to the
+      //    auto-fill review modal — admin doesn't need to draw boxes or
+      //    configure signatures, since the form is meant to be printed +
+      //    physically signed by the employer.
+      let nativeFields: DetectedField[] = [];
+      let pdfBytesForReview: ArrayBuffer | null = null;
+      try {
+        pdfBytesForReview = await file.arrayBuffer();
+        nativeFields = await detectAcroFormFields(pdfBytesForReview);
+      } catch (e) {
+        console.warn("[adminUploadFile] AcroForm detection failed (non-fatal):", e);
       }
-      // LAW #34: auto-open config popup on first upload only (new slot, no previous PDF).
-      // On re-uploads admin uses the "…" menu.
+      const hasManyNativeFields = nativeFields.length > 3;
+
+      // 4) Auto-open the appropriate popup IMMEDIATELY on first upload.
       if (isFirstUpload) {
-        setSlotConfigPopup({ slotId, admin_signs: false, candidate_signs: false, admin_fills: false, candidate_fills: false, pdf_has_native_fields: false });
+        if (hasManyNativeFields && pdfBytesForReview) {
+          setAutoFillReview({ slotId, file, pdfBytes: pdfBytesForReview, detected: nativeFields });
+        } else {
+          setSlotConfigPopup({ slotId, admin_signs: false, candidate_signs: false, admin_fills: false, candidate_fills: false, pdf_has_native_fields: false });
+        }
       }
+
+      // 4) Everything else runs in the background — doesn't block the spinner /
+      //    popup. By the time the user picks options + clicks Confirm, these
+      //    have usually finished. If they're fast and Confirm beats the
+      //    slot-template POST, the wizard falls back to the local file cache.
+      void (async () => {
+        if (driveOk && selectedUser) {
+          const res2 = await fetch(`/api/portal/admin?userId=${selectedUser}`, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          }).catch(() => null);
+          if (res2?.ok) {
+            const json2 = await res2.json();
+            const freshDocs: Doc[] = json2.docs ?? [];
+            setDocs(prev => [
+              ...prev.filter(d => d.user_id !== selectedUser),
+              ...freshDocs,
+            ]);
+          }
+        }
+        const tplFd = new FormData();
+        tplFd.append("file", file);
+        tplFd.append("slotId", slotId);
+        await fetch("/api/portal/admin/slot-template", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accessToken}` },
+          body: tplFd,
+        }).catch(err => console.warn("[adminUploadFile] slot-template background upload failed:", err));
+      })();
     } catch (err) {
       showError("Upload failed — check your connection and try again.");
       console.error("[adminUploadFile]", err);
     } finally {
+      stopAdminProgressCreep();
       setAdminUploadSlotId(null);
+      setAdminSlotProgress(0);
     }
   }
 
@@ -1459,7 +1601,7 @@ export default function AdminPage() {
         }
         return updated;
       });
-      const slot = Object.values(phaseSlots).flat().find(s => s.id === cfg.slotId) ?? null;
+      const slot = Object.values(phaseSlots).flat().find(s => s?.id === cfg.slotId) ?? null;
       setSlotConfigPopup(null);
 
       // Branch 1: admin checked "Admin signs" but has no saved signature yet →
@@ -1470,72 +1612,107 @@ export default function AdminPage() {
         return;
       }
 
-      // Branch 2: any PDF-drawing step is needed → open the placement wizard.
-      // Order of steps (per LAW #34 user spec): fields → admin sig → candidate sig.
-      // LAW #30 Mode 1: if the PDF already has native AcroForm fields, skip the
-      // fields step entirely — admin doesn't draw boxes; candidate types into
-      // the existing fields the PDF was authored with.
-      const needsFields = !!((cfg.admin_fills || cfg.candidate_fills) && slot && !cfg.pdf_has_native_fields);
+      // Branch 2: signature placement is needed → open the placement wizard.
+      // Field drawing was removed; PDFs ship with native AcroForm fields that
+      // are auto-filled at upload time via AutoFillReviewModal.
       const needsAdminSig = !!(cfg.admin_signs && slot);
       const needsCandidateSig = !!(cfg.candidate_signs && slot);
-      if ((needsFields || needsAdminSig || needsCandidateSig) && slot?.template_pdf_path) {
-        await openPlacementWizard(cfg.slotId, { admin: needsAdminSig, candidate: needsCandidateSig, fields: needsFields });
-      } else if (needsFields && slot) {
-        // Legacy path: PdfFieldPicker modal (template not uploaded yet)
-        setConfigFieldsSlot(slot);
-        setConfigFieldsFields(slot.form_fields ?? []);
-        setConfigFieldsPdfB64(null);
+      if ((needsAdminSig || needsCandidateSig) && slot) {
+        await openPlacementWizard(cfg.slotId, { admin: needsAdminSig, candidate: needsCandidateSig });
       }
     } finally { setSlotConfigSaving(false); }
   }
 
   /**
    * Open the placement wizard for a slot. Fetches the slot's template PDF,
-   * builds the ordered step list, and shows the wizard modal.
-   *
-   * Step order (LAW #34): fields → admin sig → candidate sig.
+   * builds the ordered step list (signatures only — drawing form fields was
+   * removed per user directive), and shows the wizard modal.
    */
   async function openPlacementWizard(
     slotId: string,
-    needs: { admin?: boolean; candidate?: boolean; fields?: boolean },
+    needs: { admin?: boolean; candidate?: boolean },
   ) {
     if (!accessToken) return;
     try {
-      const [tplRes, cvRes] = await Promise.all([
-        fetch(`/api/portal/admin/slot-template?slotId=${slotId}`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
-        }),
-        // Fetch the candidate's CV draft so phone/email bindings resolve live.
-        selectedUser
-          ? fetch(`/api/portal/admin/cv-draft?candidateId=${selectedUser}`, {
+      // PDF resolution order (first hit wins):
+      //   1. Local cache from the most recent client-side upload (instant).
+      //   2. Supabase Storage `slot-templates` bucket (recent uploads).
+      //   3. Drive — the admin-uploaded doc for this slot (legacy slots that
+      //      pre-date the slot-templates bucket). We also backfill Storage on
+      //      this path so the next open is fast.
+      const cachedFile = localTemplateFileRef.current.get(slotId);
+      const cvResPromise = selectedUser
+        ? fetch(`/api/portal/admin/cv-draft?candidateId=${selectedUser}`, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          }).then(r => r.ok ? r.json() : null).catch(() => null)
+        : Promise.resolve(null);
+      let buf: ArrayBuffer | null = null;
+      let cvRes: unknown = null;
+      if (cachedFile) {
+        [buf, cvRes] = await Promise.all([cachedFile.arrayBuffer(), cvResPromise]);
+      } else {
+        const [tplRes, resolvedCv] = await Promise.all([
+          fetch(`/api/portal/admin/slot-template?slotId=${slotId}`, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          }).catch(() => null),
+          cvResPromise,
+        ]);
+        cvRes = resolvedCv;
+        if (tplRes?.ok) {
+          buf = await tplRes.arrayBuffer();
+        } else {
+          // Drive fallback for legacy slots: pull the admin-uploaded doc for
+          // this slot from Drive via the file proxy. `docs` is the global state
+          // — scoped to the current candidate (or whichever the slot belongs to).
+          const adminDoc = docs.find(d => d.file_type === slotId && d.uploaded_by_admin && d.drive_file_id);
+          if (adminDoc?.drive_file_id) {
+            const driveRes = await fetch(`/api/portal/file?id=${adminDoc.drive_file_id}`, {
               headers: { Authorization: `Bearer ${accessToken}` },
-            }).then(r => r.ok ? r.json() : null).catch(() => null)
-          : Promise.resolve(null),
-      ]);
-      if (!tplRes.ok) {
-        showError("Could not load PDF template.");
-        return;
+            }).catch(() => null);
+            if (driveRes?.ok) {
+              buf = await driveRes.arrayBuffer();
+              // Backfill: mirror to slot-template Storage so next open is fast.
+              try {
+                const tplFd = new FormData();
+                tplFd.append("file", new Blob([buf], { type: "application/pdf" }), `${slotId}.pdf`);
+                tplFd.append("slotId", slotId);
+                void fetch("/api/portal/admin/slot-template", {
+                  method: "POST",
+                  headers: { Authorization: `Bearer ${accessToken}` },
+                  body: tplFd,
+                });
+              } catch { /* non-fatal */ }
+            }
+          }
+        }
+        if (!buf) {
+          showError("Could not load PDF template — please upload a PDF for this slot first.");
+          return;
+        }
       }
-      const buf = await tplRes.arrayBuffer();
-      const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)));
+      // Chunked base64 encoding — spreading a Uint8Array as function args
+      // overflows the JS call stack for PDFs > ~100KB. Process in 32KB slices.
+      const bytes = new Uint8Array(buf);
+      let bin = "";
+      for (let i = 0; i < bytes.length; i += 0x8000) {
+        bin += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + 0x8000)));
+      }
+      const b64 = btoa(bin);
+      // Step order: admin sig → candidate sig.
       const steps: WizardStep[] = [];
-      if (needs.fields) steps.push("fields");
       if (needs.admin) steps.push("admin_sig");
       if (needs.candidate) steps.push("candidate_sig");
       if (steps.length === 0) return;
-      const draft = (cvRes as { draft?: { phone?: string; email?: string } | null } | null)?.draft ?? null;
+      void cvRes; // legacy: previously used to resolve field bindings
       // Pre-fill from saved slot data so re-opening the popup edits the
       // previous setup instead of starting blank. Admin sig zone isn't
       // recovered (the signature is already baked into the PDF on first
       // submit) — admin can draw a new one if they want a second placement.
-      const existingSlot = Object.values(phaseSlots).flat().find(s => s.id === slotId);
+      const existingSlot = Object.values(phaseSlots).flat().find(s => s?.id === slotId);
       setPlacementWizard({
         slotId, pdfB64: b64, steps, stepIdx: 0,
         adminSigZone: null,
         candidateSigZone: existingSlot?.candidate_signature_zone ?? null,
-        fields: existingSlot?.form_fields ?? [],
-        cv: draft ? { phone: draft.phone, email: draft.email } : null,
-        pendingBindField: null,
       });
     } catch (err) {
       console.error("[openPlacementWizard] error:", err);
@@ -1733,6 +1910,18 @@ export default function AdminPage() {
 
     function downloadDoc(doc: Doc) {
       if (!doc.drive_file_id) return;
+      // iOS can't save a client blob — it must navigate to a server route
+      // that streams an octet-stream attachment, which triggers the native
+      // "Do you want to download…" prompt. Same fix as the candidate side.
+      if (isIOSDevice()) {
+        triggerIosDownload(
+          `/api/portal/file?id=${encodeURIComponent(doc.drive_file_id)}` +
+            `&dl=1&name=${encodeURIComponent(doc.file_name)}` +
+            `&access_token=${encodeURIComponent(accessToken)}`,
+          doc.file_name,
+        );
+        return;
+      }
       fetch(`/api/portal/file?id=${doc.drive_file_id}`, { headers: { Authorization: `Bearer ${accessToken}` } })
         .then(r => r.blob())
         .then(blob => {
@@ -1865,8 +2054,11 @@ export default function AdminPage() {
             onShowPassportData={() => setShowPassportInfo(true)}
             sideBySide={
               /pass/i.test(previewDoc.file_type)
-              && (previewDoc.status !== "approved" || (profiles[previewDoc.user_id]?.passport_status !== "approved"))
               && showPassportInfo
+              // Fully approved (PDF + data both green) → data pops centered
+              // ON TOP, never docked side-by-side.
+              && !(previewDoc.status === "approved"
+                   && profiles[previewDoc.user_id]?.passport_status === "approved")
             }
           />
         )}
@@ -1944,22 +2136,26 @@ export default function AdminPage() {
           }
 
           // ── Side-by-side layout rule ──
-          // When the passport DOC is also being previewed AND it's not yet
-          // approved, we treat this as the "verification" phase and lay the
-          // two modals out together: doc preview on the left, data form on
-          // the right (laptop). On mobile they stack — doc on top, data
-          // below. Once approved, the data popup goes back to a centered
-          // standalone (only ever opened via the "Passport data" button).
-          const isVerificationPhase = !!previewDoc
-            && /pass/i.test(previewDoc.file_type)
-            && (previewDoc.status !== "approved" || (p_info?.passport_status !== "approved"));
+          // Whenever the passport DOC preview is open alongside this data
+          // modal, dock them side-by-side regardless of status. Applies
+          // before submit, after submit (pending), after reject, AND after
+          // approve — admin can compare the data against the image at every
+          // phase. Phone: doc on top, data on bottom. Laptop: doc left,
+          // data right.
+          // Fully approved (PDF + data both green) → the data renders as a
+          // centered popup ON TOP of the PDF, not a docked review pane.
+          const isVerificationPhase = !!previewDoc && /pass/i.test(previewDoc.file_type)
+            && !(previewDoc.status === "approved"
+                 && profiles[previewDoc.user_id]?.passport_status === "approved");
+          void p_info; // status check intentionally dropped
 
           return (
-            <div className={`fixed inset-x-0 z-[750] flex justify-center p-4 bv-passport-info-outer ${isVerificationPhase ? "bv-side-data" : "top-[58px] bottom-0 items-center"}`}
+            <div className={`fixed inset-x-0 z-[750] flex justify-center p-4 bv-passport-info-outer ${isVerificationPhase ? "bv-side-data" : "items-center"}`}
               style={{
+                top: isVerificationPhase ? undefined : "calc(58px + var(--bv-subnav-h, 0px))",
+                bottom: isVerificationPhase ? undefined : "0",
                 background: isVerificationPhase ? "transparent" : "rgba(0,0,0,0.45)",
                 backdropFilter: isVerificationPhase ? undefined : "blur(8px)",
-                animation: "bvFadeRise .22s var(--ease-out)",
                 pointerEvents: isVerificationPhase ? "none" : "auto",
               }}
               onClick={() => { setShowPassportInfo(false); setPassportInfoEditMode(false); setPassportInfoEdits({}); }}>
@@ -1969,53 +2165,127 @@ export default function AdminPage() {
               <style>{`
                 @media (max-width: 639.98px) {
                   .bv-passport-info-outer { padding-bottom: calc(1rem + 72px) !important; }
+                  /* Phone single-scroll: ONE page = passport strip (inside
+                     the card) on top, data below. The data modal IS the
+                     scroll container; the card flows. Scroll up → passport,
+                     down → data, freely (compare). The separate fixed
+                     preview pane is hidden — passport lives in this scroll. */
                   .bv-side-data {
-                    top: calc(58px + 50dvh - 0.25rem) !important;
-                    bottom: 0 !important;
-                    padding-top: 0.25rem !important;
-                    align-items: center !important;
+                    top: calc(58px + var(--bv-subnav-h, 0px)) !important;
+                    /* End above the bottom nav with a gap + small side gaps
+                       so the card reads as a rounded POPUP, not a page. */
+                    bottom: calc(72px + 6px + env(safe-area-inset-bottom, 0px)) !important;
+                    padding: 6px 10px !important;
+                    align-items: flex-start !important;
+                    overflow-y: auto !important;
+                    -webkit-overflow-scrolling: touch !important;
+                    pointer-events: auto !important;
                   }
                   .bv-side-data .bv-passport-info-card {
-                    max-height: 100% !important;
+                    height: auto !important;
+                    max-height: none !important;
+                    min-height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 72px - 12px) !important;
+                    border-radius: var(--r-2xl) !important;
+                    overflow: hidden !important;
+                  }
+                  /* Shorter PDF on phone so the data dominates the view. */
+                  .bv-side-data .bv-pp-passport-strip {
+                    height: 36dvh !important;
+                  }
+                  .bv-side-data .bv-pp-fields {
+                    overflow: visible !important;
+                    flex: 0 0 auto !important;
                   }
                 }
                 @media (min-width: 640px) {
                   .bv-side-data {
-                    top: 58px;
+                    top: calc(58px + var(--bv-subnav-h, 0px));
                     bottom: 0;
                     align-items: center;
-                    /* Hug the centerline: card left-edge sits at 50vw,
-                       no gap between this and the preview on the left. */
                     justify-content: flex-start !important;
                     padding-left: 50vw;
                     padding-right: 1rem;
                   }
+                  /* Identical size to the PDF pane — same as candidate. */
+                  .bv-side-data .bv-passport-info-card {
+                    height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 1rem) !important;
+                    max-height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 1rem) !important;
+                  }
                 }
               `}</style>
-              <div className={`bv-passport-info-card w-full overflow-hidden flex flex-col ${isVerificationPhase ? "sm:max-w-[440px]" : "max-w-md"}`}
+              <div className={`bv-passport-info-card w-full overflow-hidden flex flex-col ${isVerificationPhase ? "sm:max-w-[480px]" : "max-w-lg"}`}
                 style={{
                   background: "var(--card)",
                   border: "1px solid var(--border)",
                   borderRadius: "var(--r-2xl)",
                   boxShadow: "var(--shadow-lg)",
-                  maxHeight: "calc(100% - 0.5rem)",
+                  maxHeight: "88vh",
                   animation: "bvFadeRise .28s var(--ease-out)",
                   pointerEvents: "auto",
                 }}
                 onClick={e => e.stopPropagation()}>
 
+                {/* Phone single-scroll: passport renders as the FIRST block
+                    inside this scrolling card → one page (passport on top,
+                    data below). Scroll up/down to compare. Phone only. */}
+                {isVerificationPhase && (
+                  <div className="bv-pp-passport-strip sm:hidden flex-shrink-0 flex flex-col"
+                    style={{ width: "100%", height: "52dvh", background: "#525659", borderBottom: "1px solid var(--border)" }}>
+                    {/* Same header as the doc-preview modal: title + X. */}
+                    <div className="flex items-center justify-between px-5 py-3 flex-shrink-0"
+                      style={{ borderBottom: "1px solid var(--border)", background: "var(--card)" }}>
+                      <div className="min-w-0 flex-1 mr-3">
+                        <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-0.5" style={{ color: "var(--w3)" }}>{previewDoc!.file_type}</p>
+                        <p className="text-[13.5px] font-semibold truncate tracking-tight" style={{ color: "var(--w)" }}>{previewDoc!.file_name}</p>
+                      </div>
+                      {/* Phone: the ONLY close button — dismisses BOTH the
+                          passport strip AND the data card (the data header's
+                          own X is hidden on phone to avoid a duplicate). */}
+                      <button onClick={() => { setPreviewDoc(null); setShowPassportInfo(false); setPassportInfoEditMode(false); setPassportInfoEdits({}); }}
+                        className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+                        style={{ color: "var(--w3)" }}>
+                        <XIcon size={14} strokeWidth={1.8} />
+                      </button>
+                    </div>
+                    {/* Opens INSTANTLY with a spinner; the PDF fills in place
+                        once the blob loads — same model as the admin laptop. */}
+                    <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
+                      {!ppStripUrl ? (
+                        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#525659" }}>
+                          <Spinner size="md" />
+                        </div>
+                      ) : /\.pdf$/i.test(previewDoc?.file_name ?? "") ? (
+                        // iOS: pdf.js canvas is blank in WebKit → native iframe
+                        // straight from the server route (token in query).
+                        isIOSDevice() && previewDoc?.drive_file_id ? (
+                          <IosPdfFrame
+                            src={`/api/portal/file?id=${encodeURIComponent(previewDoc.drive_file_id)}&access_token=${encodeURIComponent(accessToken)}`}
+                            title={previewDoc?.file_name}
+                          />
+                        ) : (
+                          <PdfViewer src={ppStripUrl} />
+                        )
+                      ) : (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={ppStripUrl} alt="passport"
+                          style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* ── Header ── */}
-                <div className="flex items-center justify-between px-5 py-3 flex-shrink-0"
-                  style={{ borderBottom: "1px solid var(--border-gold)", background: "var(--gdim)" }}>
+                <div className="flex items-center justify-between px-5 py-4 flex-shrink-0"
+                  style={{ borderBottom: "1px solid var(--border)" }}>
                   <div className="flex items-center gap-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--gold)" }}>
-                      <IdCard size={13} strokeWidth={1.8} className="inline mr-1.5 -mt-0.5" /> {lang === "fr" ? "Données du passeport" : lang === "de" ? "Reisepassdaten" : "Passport data"}
+                    <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] inline-flex items-center gap-1.5" style={{ color: "var(--gold)" }}>
+                      <IdCard size={12} strokeWidth={1.8} /> {lang === "fr" ? "Données du passeport" : lang === "de" ? "Reisepassdaten" : "Passport data"}
                     </p>
                     {/* Status badge — hidden when approved */}
                     {pst !== "approved" && (
-                      <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-semibold tracking-wide uppercase"
+                      <span className="inline-flex items-center gap-1.5 text-[11px] px-2.5 py-1 rounded-full font-semibold tracking-wide uppercase"
                         style={{ background: pstBg, color: pstColor, border: `1px solid ${pstBdr}` }}>
-                        {pst === "rejected" ? <XCircle size={10} strokeWidth={2} />
+                        {pst === "rejected" ? <XCircle size={11} strokeWidth={2} />
                           : pst === "pending"  ? <span className="w-1.5 h-1.5 rounded-full" style={{ background: "currentColor" }} />
                           : null}
                         {pstLabel}
@@ -2038,16 +2308,80 @@ export default function AdminPage() {
                         <FilePen size={11} strokeWidth={1.8} /> {passportInfoEditMode ? "Editing" : "Edit"}
                       </button>
                     )}
+                    {/* Approved: minimalist download icon next to X — mirrors
+                        the passport PDF header. Replaces the old big footer
+                        "Download data PDF" button. */}
+                    {pst === "approved" && (
+                      <button
+                        onClick={async () => {
+                          if (!selectedUser) return;
+                          if (isIOSDevice()) flushSync(() => setPassportDataPdfDl(true));
+                          else setPassportDataPdfDl(true);
+                          try {
+                            const cp = profiles[selectedUser];
+                            const docTitle = lang==="fr" ? "Données du passeport" : lang==="de" ? "Reispassdaten" : "Passport Data";
+                            const docSubtitle = lang==="fr" ? "Informations de passeport extraites et confirmées" : lang==="de" ? "Extrahierte und bestätigte Reisepassdaten" : "Extracted and confirmed passport information";
+                            // Name EXACTLY like the passport file (German:
+                            // firstname_lastname_pflegekraft_reisepass) + "_daten".
+                            const passDoc = docs
+                              .filter(d => d.user_id === selectedUser && /pass/i.test(d.file_type) && !!d.drive_file_id && !/dat(en|a)/i.test(d.file_name))
+                              .sort((a, b) => (b.uploaded_at ?? "").localeCompare(a.uploaded_at ?? ""))[0];
+                            const slug = (s?: string | null) => (s ?? "").trim().toLowerCase()
+                              .replace(/ä/g,"ae").replace(/ö/g,"oe").replace(/ü/g,"ue").replace(/ß/g,"ss")
+                              .normalize("NFKD").replace(/[̀-ͯ]/g, "")
+                              .replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+                            const base = passDoc?.file_name
+                              ? passDoc.file_name.replace(/\.[^.]+$/, "")
+                              : `${slug(cp?.first_name)}_${slug(cp?.last_name)}_pflegekraft_reisepass`;
+                            const outName = `${base}_daten.pdf`;
+
+                            // iOS can't download a client blob — stream via
+                            // GET (small payload in query), in-gesture anchor.
+                            if (isIOSDevice() && accessToken) {
+                              const json = JSON.stringify({ groups: passportDisplayGroups, docTitle, docSubtitle, filename: outName });
+                              const b64 = btoa(unescape(encodeURIComponent(json)))
+                                .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+                              triggerIosDownload(
+                                `/api/portal/admin/passport-data-pdf?dl=1&d=${b64}&access_token=${encodeURIComponent(accessToken)}`,
+                                outName,
+                                () => setPassportDataPdfDl(false),
+                              );
+                              return;
+                            }
+
+                            const res = await fetch("/api/portal/admin/passport-data-pdf", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                              body: JSON.stringify({ groups: passportDisplayGroups, filename: outName, docTitle, docSubtitle }),
+                            });
+                            if (!res.ok) throw new Error("Failed");
+                            const blob = await res.blob();
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement("a");
+                            a.href = url; a.download = outName; a.click(); URL.revokeObjectURL(url);
+                          } catch (e) { console.error(e); }
+                          setPassportDataPdfDl(false);
+                        }}
+                        disabled={passportDataPdfDl}
+                        aria-label={lang==="fr" ? "Télécharger les données" : lang==="de" ? "Daten herunterladen" : "Download data"}
+                        title={lang==="fr" ? "Télécharger les données" : lang==="de" ? "Daten herunterladen" : "Download data"}
+                        className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 disabled:opacity-40"
+                        style={{ color: "var(--w2)" }}>
+                        {passportDataPdfDl
+                          ? <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                          : <Download size={14} strokeWidth={1.8} />}
+                      </button>
+                    )}
                     <button onClick={() => { setShowPassportInfo(false); setPassportInfoEditMode(false); setPassportInfoEdits({}); }}
-                      className="bv-icon-btn w-7 h-7 rounded-full flex items-center justify-center text-xs"
+                      className={`bv-icon-btn w-8 h-8 rounded-full ${isVerificationPhase ? "hidden sm:flex" : "flex"} items-center justify-center flex-shrink-0`}
                       style={{ color: "var(--w3)" }}>
-                      <XIcon size={13} strokeWidth={1.8} />
+                      <XIcon size={14} strokeWidth={1.8} />
                     </button>
                   </div>
                 </div>
 
                 {/* ── Fields / empty state ── */}
-                <div className="overflow-y-auto flex-1 px-5 py-4">
+                <div className="overflow-y-auto flex-1 px-5 py-4 bv-pp-fields">
                   {!p_info ? (
                     <div className="py-10 text-center">
                       <span className="mx-auto mb-4 flex items-center justify-center w-12 h-12 rounded-full"
@@ -2062,12 +2396,12 @@ export default function AdminPage() {
                     <div className="grid grid-cols-2 gap-x-3 gap-y-3">
                       {modalFields.map(f => (
                         <div key={f.key} className={f.full ? "col-span-2" : ""}>
-                          <label className="text-[10px] mb-1 block" style={{ color: "var(--w3)" }}>{f.label}</label>
+                          <label className="text-[10px] font-medium mb-1 block" style={{ color: "var(--w3)" }}>{f.label}</label>
                           {f.type === "country" ? (
                             <select
                               value={toIsoCodeAdmin(fieldVal(f.key))}
                               onChange={e => setPassportInfoEdits(prev => ({ ...prev, [f.key]: e.target.value || null }))}
-                              className="w-full rounded-lg px-2.5 py-1.5 text-[11px] outline-none"
+                              className="w-full rounded-lg px-2.5 py-1.5 text-xs outline-none"
                               style={{ background: "var(--bg2)", border: "1px solid var(--border2)", color: "var(--w)" }}>
                               <option value="">—</option>
                               {Object.entries(NAT_MAP).map(([code, names]) => (
@@ -2078,18 +2412,48 @@ export default function AdminPage() {
                             <select
                               value={fieldVal(f.key)}
                               onChange={e => setPassportInfoEdits(prev => ({ ...prev, [f.key]: e.target.value || null }))}
-                              className="w-full rounded-lg px-2.5 py-1.5 text-[11px] outline-none"
+                              className="w-full rounded-lg px-2.5 py-1.5 text-xs outline-none"
                               style={{ background: "var(--bg2)", border: "1px solid var(--border2)", color: "var(--w)" }}>
                               <option value="">—</option>
                               <option value="M">{lang==="fr"?"Masculin":lang==="de"?"Männlich":"Male"}</option>
                               <option value="F">{lang==="fr"?"Féminin":lang==="de"?"Weiblich":"Female"}</option>
                             </select>
+                          ) : f.type === "date" ? (
+                            (() => {
+                              const raw = fieldVal(f.key).slice(0, 10);
+                              const deM = raw.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+                              const iso = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw
+                                : (deM ? `${deM[3]}-${deM[2]}-${deM[1]}` : "");
+                              const ger = iso ? `${iso.slice(8,10)}.${iso.slice(5,7)}.${iso.slice(0,4)}` : "";
+                              return (
+                                <div className="relative">
+                                  {/* Visible German DD.MM.YYYY; transparent
+                                      native date input on top = calendar. */}
+                                  <input readOnly value={ger} placeholder="TT.MM.JJJJ"
+                                    className="w-full rounded-lg px-2.5 py-1.5 text-xs outline-none cursor-pointer"
+                                    style={{ background: "var(--bg2)", border: "1px solid var(--border2)", color: "var(--w)" }} />
+                                  <input type="date" value={iso}
+                                    onClick={e => { const el = e.currentTarget as HTMLInputElement & { showPicker?: () => void }; el.showPicker?.(); }}
+                                    onWheel={e => {
+                                      e.preventDefault();
+                                      const isoCur = iso || `${new Date().getFullYear()}-01-01`;
+                                      const y = parseInt(isoCur.slice(0, 4), 10) + (e.deltaY < 0 ? 1 : -1);
+                                      if (y < 1900 || y > 2100) return;
+                                      setPassportInfoEdits(prev => ({ ...prev, [f.key]: `${y}-${isoCur.slice(5,7)}-${isoCur.slice(8,10)}` }));
+                                    }}
+                                    onChange={e => setPassportInfoEdits(prev => ({ ...prev, [f.key]: e.target.value || null }))}
+                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                    style={{ colorScheme: "dark" }}
+                                    aria-label={f.label} />
+                                </div>
+                              );
+                            })()
                           ) : (
                             <input
                               type={f.type ?? "text"}
-                              value={f.type === "date" ? fieldVal(f.key).slice(0, 10) : fieldVal(f.key)}
+                              value={fieldVal(f.key)}
                               onChange={e => setPassportInfoEdits(prev => ({ ...prev, [f.key]: e.target.value || null }))}
-                              className="w-full rounded-lg px-2.5 py-1.5 text-[11px] outline-none"
+                              className="w-full rounded-lg px-2.5 py-1.5 text-xs outline-none"
                               style={{ background: "var(--bg2)", border: "1px solid var(--border2)", color: "var(--w)" }}
                             />
                           )}
@@ -2122,13 +2486,13 @@ export default function AdminPage() {
                     {passportDisplayGroups.map((group, gi) => (
                       <div key={group.title} className={gi > 0 ? "mt-4" : ""}>
                         <p className="text-[10px] font-semibold uppercase tracking-wide mb-2" style={{ color: "var(--w3)" }}>{group.title}</p>
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+                        <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
                           {group.fields.map(f => {
                             if (pst === "approved") {
                               return (
                                 <div key={f.label} className="min-w-0">
-                                  <p className="text-[10px]" style={{ color: "var(--w3)" }}>{f.label}</p>
-                                  <p className="text-xs font-semibold" style={{ color: "var(--w)" }}>{f.value}</p>
+                                  <p className="text-[9.5px] font-semibold uppercase tracking-[0.1em] mb-0.5" style={{ color: "var(--w3)" }}>{f.label}</p>
+                                  <p className="text-[12.5px] font-medium" style={{ color: "var(--w)" }}>{f.value}</p>
                                 </div>
                               );
                             }
@@ -2137,7 +2501,16 @@ export default function AdminPage() {
                             const fieldKey = f.label;
                             const confirmed = adminConfirmedFields.has(fieldKey);
                             return (
-                              <div key={f.label} className="flex items-start gap-2">
+                              <div key={f.label} className="flex items-center gap-2">
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[10px] font-medium" style={{ color: "var(--w3)" }}>{f.label}</p>
+                                  <p className="text-xs font-semibold" style={{ color: "warn" in f && f.warn ? "var(--danger)" : "var(--w)" }}>
+                                    {f.value}{"warn" in f && f.warn ? <AlertTriangle size={11} strokeWidth={1.8} className="inline ml-1 -mt-0.5" /> : ""}
+                                  </p>
+                                </div>
+                                {/* Confirm checkbox — sibling on the RIGHT, big
+                                    tap target, never overlaps the value. Same
+                                    design + placement as the candidate side. */}
                                 <button type="button"
                                   onClick={() => {
                                     if (!filled) return;
@@ -2148,7 +2521,7 @@ export default function AdminPage() {
                                     });
                                   }}
                                   title={!filled ? "" : confirmed ? "Reviewed — click to undo" : "Click to mark as reviewed"}
-                                  className="flex-shrink-0 mt-3 transition-all"
+                                  className="flex-shrink-0 grid place-items-center w-9 h-9 -my-1 transition-all"
                                   style={{ cursor: filled ? "pointer" : "default" }}>
                                   {!filled ? (
                                     <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
@@ -2166,12 +2539,6 @@ export default function AdminPage() {
                                     </svg>
                                   )}
                                 </button>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-[10px]" style={{ color: "var(--w3)" }}>{f.label}</p>
-                                  <p className="text-xs font-semibold" style={{ color: "warn" in f && f.warn ? "var(--danger)" : "var(--w)" }}>
-                                    {f.value}{"warn" in f && f.warn ? <AlertTriangle size={11} strokeWidth={1.8} className="inline ml-1 -mt-0.5" /> : ""}
-                                  </p>
-                                </div>
                               </div>
                             );
                           })}
@@ -2185,29 +2552,10 @@ export default function AdminPage() {
 
                 {/* ── Footer: approve / reject / save ── */}
                 {p_info && (
-                  <div className="px-5 py-3 flex-shrink-0 flex flex-col gap-2"
+                  <div className="px-5 pb-4 pt-3 flex-shrink-0 flex flex-col gap-2"
                     style={{ borderTop: "1px solid var(--border)" }}>
-                  {isSuperAdmin && (() => {
-                    const isManual = !!profiles[selectedUser ?? ""]?.manually_verified;
-                    return (
-                      <button
-                        onClick={toggleManualVerify}
-                        title={isManual ? "Manually verified — click to revoke" : "Grant the gold verified tick"}
-                        className="self-start inline-flex items-center gap-1.5 text-[10.5px] px-3 py-1.5 rounded-full font-semibold transition-colors"
-                        style={isManual
-                          ? { background: "var(--gdim)", border: "1px solid var(--border-gold)" }
-                          : { background: "transparent", border: "1px solid var(--border)" }}>
-                        <svg width="10" height="10" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-                          <path d="M19.998 3.094 14.638 0l-2.972 5.15H5.432v6.354L0 14.64 3.094 20 0 25.359l5.432 3.137v6.355h6.234L14.638 40l5.36-3.094L25.358 40l2.978-5.149h6.227v-6.355L40 25.359 36.905 20 40 14.64l-5.438-3.135V5.15h-6.227L25.358 0l-5.36 3.094Z"
-                            fill={isManual ? "var(--gold)" : "none"} stroke={isManual ? "none" : "var(--w3)"} strokeWidth="2" />
-                          <path d="m13 19.5 4.5 4 7-7" stroke={isManual ? "#fff" : "transparent"} strokeWidth="3.2" fill="none" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                        <span style={{ color: isManual ? "var(--gold)" : "var(--w3)" }}>
-                          {isManual ? "Verified" : "Verify"}
-                        </span>
-                      </button>
-                    );
-                  })()}
+                  {/* Manual "Verify" pill removed — granting/revoking the gold
+                      tick now lives ONLY in the supreme-admin Users panel. */}
                   <div className="flex items-center gap-2">
                     {passportInfoEditMode ? (
                       <>
@@ -2243,37 +2591,7 @@ export default function AdminPage() {
                           {passportInfoSaving ? "…" : <><XCircle size={13} strokeWidth={1.8} /> Reject</>}
                         </button>
                       </>
-                    ) : (
-                      <button
-                        onClick={async () => {
-                          if (!selectedUser) return;
-                          setPassportDataPdfDl(true);
-                          try {
-                            const cp = profiles[selectedUser];
-                            const fn = [cp?.first_name, cp?.last_name].filter(Boolean).join("_").toLowerCase() || "passport_data";
-                            const docTitle = lang==="fr" ? "Données du passeport" : lang==="de" ? "Reispassdaten" : "Passport Data";
-                            const docSubtitle = lang==="fr" ? "Informations de passeport extraites et confirmées" : lang==="de" ? "Extrahierte und bestätigte Reisepassdaten" : "Extracted and confirmed passport information";
-                            const res = await fetch("/api/portal/admin/passport-data-pdf", {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-                              body: JSON.stringify({ groups: passportDisplayGroups, filename: `${fn}_passport_data.pdf`, docTitle, docSubtitle }),
-                            });
-                            if (!res.ok) throw new Error("Failed");
-                            const blob = await res.blob();
-                            const url = URL.createObjectURL(blob);
-                            const a = document.createElement("a");
-                            a.href = url; a.download = `${fn}_passport_data.pdf`; a.click(); URL.revokeObjectURL(url);
-                          } catch (e) { console.error(e); }
-                          setPassportDataPdfDl(false);
-                        }}
-                        disabled={passportDataPdfDl}
-                        className="flex-1 py-2 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80 disabled:opacity-40 inline-flex items-center justify-center gap-1.5"
-                        style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
-                        {passportDataPdfDl
-                          ? <><span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" /> Generating…</>
-                          : <><Download size={12} strokeWidth={1.8} /> Download data PDF</>}
-                      </button>
-                    )}
+                    ) : null /* approved: download moved to header icon */}
                   </div>
                   </div>
                 )}
@@ -2385,7 +2703,7 @@ export default function AdminPage() {
                             border: "none",
                             color: isActive ? "var(--gold)" : "var(--w3)",
                             transform: isActive ? "scale(1.08)" : "scale(1)",
-                            transition: "color 0.2s, transform 0.15s",
+                            transition: "color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease)",
                           }}>
                           <PhaseIcon kind={ph.kind} size={14} />
                         </span>
@@ -2426,7 +2744,7 @@ export default function AdminPage() {
                             border: "none",
                             color: isSel ? "var(--gold)" : "var(--w3)",
                             transform: isSel ? "scale(1.08)" : "scale(1)",
-                            transition: "color 0.2s, transform 0.15s",
+                            transition: "color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease)",
                           }}>
                           <PhaseIcon kind={js.kind} size={13} />
                           {!js.active && (
@@ -2525,7 +2843,7 @@ export default function AdminPage() {
                     {/* ── Dynamic slot management — Bearbeitung / Visum ─────────────────── */}
                     {(activePipelineStage === "recognition" || activePipelineStage === "visum") && (() => {
                       const slotPhase = activePipelineStage === "recognition" ? "bearbeitung" : "visum";
-                      const slots = phaseSlots[slotPhase] ?? [];
+                      const slots = (phaseSlots[slotPhase] ?? []).filter((s): s is PhaseSlot => s != null && !!s.id);
                       return (
                         <div className="mt-4" style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
                           <div className="px-2 py-2">
@@ -2559,17 +2877,20 @@ export default function AdminPage() {
                                 if (slot.type === "simple") {
                                   const doc = origDocs[0] ?? null;
                                   const submitted = !!doc;
-                                  // LAW #15 lifecycle:
-                                  //  - admin sent request to candidate, candidate hasn't submitted → ORANGE
-                                  //  - admin uploaded with no candidate action → GREEN (handled via auto-approve on insert)
-                                  //  - candidate submitted, awaiting review → ORANGE
-                                  //  - approved → GREEN, rejected → RED
-                                  const awaitingCandidate = !submitted && !!slot.template_pdf_path
-                                    && (slot.candidate_signs || slot.candidate_fills);
-                                  const rowSt = submitted
+                                  // LAW #15 lifecycle. Distinguish admin's template upload
+                                  // (uploaded_by_admin=true, auto-approved at insert) from
+                                  // the candidate's actual submission. When admin has
+                                  // configured candidate actions and only the template
+                                  // exists, we're still WAITING the candidate → ORANGE.
+                                  const hasCandidateActions = slot.candidate_signs || slot.candidate_fills;
+                                  const candidateSubmitted = submitted && !doc!.uploaded_by_admin;
+                                  const awaitingCandidate = hasCandidateActions && !candidateSubmitted;
+                                  const rowSt = candidateSubmitted
                                     ? (doc!.status === "approved" ? "approved"
                                        : doc!.status === "rejected" ? "rejected" : "pending")
-                                    : awaitingCandidate ? "pending" : null;
+                                    : awaitingCandidate ? "pending"
+                                    : submitted ? "approved"  // admin-uploaded, no candidate action expected
+                                    : null;
                                   const rowColor = rowSt === "approved" ? "#16a34a"
                                     : rowSt === "rejected" ? "#ef4444"
                                     : rowSt === "pending" ? "#f59e0b" : null;
@@ -2580,6 +2901,16 @@ export default function AdminPage() {
                                       {si > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
                                       <div
                                         onClick={rowClickable ? () => setPreviewDoc(doc!) : undefined}
+                                        // Silent drag-and-drop — admin can drop a PDF onto the row
+                                        // (Bearbeitung / Visum) and it uploads as if they clicked
+                                        // the Upload button. No visual indicator on drag-over.
+                                        onDragOver={e => { if (Array.from(e.dataTransfer.types).includes("Files")) e.preventDefault(); }}
+                                        onDrop={e => {
+                                          if (!Array.from(e.dataTransfer.types).includes("Files")) return;
+                                          e.preventDefault();
+                                          const file = e.dataTransfer.files?.[0];
+                                          if (file && file.type === "application/pdf") adminUploadFile(file, slot.id);
+                                        }}
                                         className={`px-3 py-3 transition-colors${rowClickable ? " bv-row-hover cursor-pointer" : ""}`}
                                         style={{ minHeight: 60, ...(revokeMenu?.id === menuId ? { position: "relative", zIndex: 10 } : {}) }}>
                                         <div className="flex items-center gap-3">
@@ -2604,12 +2935,18 @@ export default function AdminPage() {
                                           <div className="flex items-center gap-1.5 flex-shrink-0"
                                             onClick={e => e.stopPropagation()}
                                             onMouseDown={e => e.stopPropagation()}>
-                                            {/* Admin upload on behalf of candidate — hidden once doc exists */}
-                                            {!submitted && (adminUploadSlotId === slot.id ? (
-                                              <span className="w-9 h-9 flex items-center justify-center">
+                                            {/* Admin upload spinner — shows for the FULL upload pipeline
+                                                (Drive + slot-template + state updates + popup open).
+                                                Without this top-level guard, `submitted` flips true after
+                                                Drive completes mid-pipeline and the spinner vanishes for
+                                                ~3s until the popup pops, leaving the admin staring at a
+                                                static row wondering if anything's happening. */}
+                                            {adminUploadSlotId === slot.id ? (
+                                              <span className="w-9 h-9 flex flex-col items-center justify-center gap-0.5">
                                                 <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: "var(--w3)" }} />
+                                                <span className="text-[8px] font-semibold tabular-nums" style={{ color: "var(--w3)" }}>{Math.round(adminSlotProgress)}%</span>
                                               </span>
-                                            ) : (
+                                            ) : (!submitted && (
                                               <button type="button"
                                                 onClick={e => { e.stopPropagation(); openAdminUploadPicker(slot.id); }}
                                                 className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
@@ -2625,7 +2962,7 @@ export default function AdminPage() {
                                                 <Download size={13} strokeWidth={1.8} />
                                               </button>
                                             )}
-                                            {rowSt === "pending" && !doc?.uploaded_by_admin && (
+                                            {rowSt === "pending" && doc && !doc.uploaded_by_admin && (
                                               <>
                                                 <button type="button"
                                                   onClick={e => { e.stopPropagation(); openRejectModal({ kind: "doc", docId: doc!.id, label: slot.label, initialFeedback: doc!.feedback ?? "" }); }}
@@ -2661,14 +2998,7 @@ export default function AdminPage() {
                                                       style={{ color: "var(--w)" }}>
                                                       <FilePen size={11} strokeWidth={1.8} /> Edit label
                                                     </button>
-                                                    {slot.admin_fills && (
-                                                      <button
-                                                        onClick={e => { e.stopPropagation(); setRevokeMenu(null); setConfigFieldsSlot(slot); setConfigFieldsFields(slot.form_fields ?? []); setConfigFieldsPdfB64(null); }}
-                                                        className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
-                                                        style={{ color: "var(--w)" }}>
-                                                        <FileText size={11} strokeWidth={1.8} /> Configure fields
-                                                      </button>
-                                                    )}
+                                                    {/* "Configure fields" item removed: form-field drawing no longer supported. */}
                                                     {rowSt === "approved" && (
                                                       <button
                                                         onClick={e => { e.stopPropagation(); setRevokeMenu(null); openRejectModal({ kind: "doc", docId: doc!.id, label: slot.label, initialFeedback: doc!.feedback ?? "" }); }}
@@ -2711,12 +3041,20 @@ export default function AdminPage() {
                                 return (
                                   <SortableSlotItem key={slot.id} id={slot.id}>
                                     {si > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
-                                    {/* Dual header — click to preview merged PDF when both docs ready */}
+                                    {/* Dual header — click to preview merged PDF when both docs ready.
+                                        Silent drag-and-drop: drop a PDF here to upload to the primary slot. */}
                                     <div
                                       className={`px-3 py-3 flex items-center gap-2${canDualMerge ? " cursor-pointer bv-row-hover" : ""}`}
                                       style={isDualMenuOpen ? { position: "relative", zIndex: 10 } : undefined}
                                       onClick={() => {
                                         if (canDualMerge) setMergePreview({ origDocId: origDocs[0].id, transDocId: transDocs[0].id, label: slot.label });
+                                      }}
+                                      onDragOver={e => { if (Array.from(e.dataTransfer.types).includes("Files")) e.preventDefault(); }}
+                                      onDrop={e => {
+                                        if (!Array.from(e.dataTransfer.types).includes("Files")) return;
+                                        e.preventDefault();
+                                        const file = e.dataTransfer.files?.[0];
+                                        if (file && file.type === "application/pdf") adminUploadFile(file, slot.id);
                                       }}>
                                       <div className="flex-1 min-w-0">
                                         <p className="text-[11.5px] font-medium tracking-tight" style={{ color: dualColor ?? "var(--w)" }}>
@@ -2734,6 +3072,16 @@ export default function AdminPage() {
                                           onClick={async e => {
                                             e.stopPropagation();
                                             if (isDualMergeDl) return;
+                                            const mfn = mergedPdfName(origDocs[0]?.file_name, slot.label);
+                                            // iOS: server-route navigation → native download prompt.
+                                            if (isIOSDevice()) {
+                                              triggerIosDownload(
+                                                `/api/portal/documents/merge-pdf?origDocId=${encodeURIComponent(origDocs[0].id)}&transDocId=${encodeURIComponent(transDocs[0].id)}` +
+                                                  `&dl=1&name=${encodeURIComponent(mfn)}&access_token=${encodeURIComponent(accessToken)}`,
+                                                mfn,
+                                              );
+                                              return;
+                                            }
                                             setMergePdfDl(prev => new Set(prev).add(slot.id));
                                             try {
                                               const res = await fetch(
@@ -2745,7 +3093,7 @@ export default function AdminPage() {
                                               const url = URL.createObjectURL(blob);
                                               const a = document.createElement("a");
                                               a.href = url;
-                                              a.download = `${slot.label.replace(/\s+/g, "_")}_merged.pdf`;
+                                              a.download = mfn;
                                               a.click();
                                               URL.revokeObjectURL(url);
                                             } catch (e) { console.error(e); }
@@ -2770,7 +3118,7 @@ export default function AdminPage() {
                                           });
                                         }}>
                                         <ChevronDown size={13} strokeWidth={1.8}
-                                          style={{ transition: "transform 0.2s", transform: isDualExpanded ? "rotate(180deg)" : "rotate(0deg)" }} />
+                                          style={{ transition: "transform var(--dur-2) var(--ease)", transform: isDualExpanded ? "rotate(180deg)" : "rotate(0deg)" }} />
                                       </button>
                                       {/* Three-dots — Edit label + Delete */}
                                       <div className="relative flex-shrink-0">
@@ -2825,8 +3173,9 @@ export default function AdminPage() {
                                                   onMouseDown={e => e.stopPropagation()}>
                                                   {/* Upload */}
                                                   {adminUploadSlotId === subKey ? (
-                                                    <span className="w-8 h-8 flex items-center justify-center">
+                                                    <span className="w-8 h-8 flex flex-col items-center justify-center gap-0.5">
                                                       <span className="w-3 h-3 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: "var(--w3)" }} />
+                                                      <span className="text-[8px] font-semibold tabular-nums" style={{ color: "var(--w3)" }}>{Math.round(adminSlotProgress)}%</span>
                                                     </span>
                                                   ) : (
                                                     <button type="button"
@@ -2919,7 +3268,7 @@ export default function AdminPage() {
                         style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
                         onClick={() => !addSlotSaving && setAddSlotPhase(null)}>
                         <div className="w-full max-w-sm rounded-[20px] p-5 space-y-4"
-                          style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)" }}
+                          style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)", overflowY: "auto" }}
                           onClick={e => e.stopPropagation()}>
                           <p className="text-[14px] font-semibold" style={{ color: "var(--w)" }}>
                             {lang === "de" ? "Slot hinzufügen" : lang === "fr" ? "Ajouter un slot" : "Add slot"}
@@ -2956,86 +3305,190 @@ export default function AdminPage() {
                       document.body,
                     )}
 
+                    {/* ── Auto-fill review modal (native AcroForm PDFs) ── */}
+                    {autoFillReview && (() => {
+                      const af = autoFillReview;
+                      const candidateProfile = selectedUser ? profiles[selectedUser] : null;
+                      return (
+                        <AutoFillReviewModal
+                          slotId={af.slotId}
+                          pdfBytes={af.pdfBytes}
+                          detected={af.detected}
+                          profile={candidateProfile ?? null}
+                          cv={null}
+                          lang={lang as "fr" | "en" | "de"}
+                          accessToken={accessToken ?? ""}
+                          onClose={() => setAutoFillReview(null)}
+                          onSubmit={async (filledBytes, { letCandidateComplete }) => {
+                            if (!accessToken) return;
+                            // Replace the slot template with the filled (still editable) PDF.
+                            const filledFile = new File(
+                              [new Uint8Array(filledBytes).buffer as ArrayBuffer],
+                              af.file.name,
+                              { type: "application/pdf" },
+                            );
+                            localTemplateFileRef.current.set(af.slotId, filledFile);
+                            const tplFd = new FormData();
+                            tplFd.append("file", filledFile);
+                            tplFd.append("slotId", af.slotId);
+                            await fetch("/api/portal/admin/slot-template", {
+                              method: "POST",
+                              headers: { Authorization: `Bearer ${accessToken}` },
+                              body: tplFd,
+                            }).catch(err => console.warn("[autoFill] slot-template POST failed:", err));
+                            // Two outcomes: admin-only (printed + physical sig)
+                            // OR admin + candidate (candidate completes remaining
+                            // native fields in their dashboard fillForm).
+                            const candidateFills = !!letCandidateComplete;
+                            await fetch("/api/portal/phase-slots", {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                              body: JSON.stringify({
+                                id: af.slotId,
+                                admin_signs: false, candidate_signs: false,
+                                admin_fills: true,  candidate_fills: candidateFills,
+                                pdf_has_native_fields: true,
+                              }),
+                            }).catch(err => console.warn("[autoFill] phase-slots PATCH failed:", err));
+                            setPhaseSlots(prev => {
+                              const updated: typeof prev = {};
+                              for (const [ph, slots] of Object.entries(prev)) {
+                                updated[ph] = (slots ?? []).map(s => s?.id === af.slotId
+                                  ? { ...s, admin_signs: false, candidate_signs: false, admin_fills: true, candidate_fills: candidateFills, pdf_has_native_fields: true }
+                                  : s);
+                              }
+                              return updated;
+                            });
+                            // If candidate must complete it, fire the bell so
+                            // they get a notification + can open the slot.
+                            if (candidateFills && selectedUser) {
+                              const slotLabel = Object.values(phaseSlots).flat().find(s => s?.id === af.slotId)?.label ?? "Document";
+                              fetch("/api/portal/admin/phase-slots/notify", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                                body: JSON.stringify({ slotId: af.slotId, candidateUserId: selectedUser, slotLabel, needsSign: false, needsFill: true }),
+                              }).catch(err => console.warn("[autoFill notify] non-fatal:", err));
+                            }
+                            setAutoFillReview(null);
+                          }}
+                        />
+                      );
+                    })()}
+
                     {/* ── Slot config popup (LAW #34) — portaled to body: bv-enter animation
                         creates a stacking context that traps fixed children. ── */}
                     {slotConfigPopup && typeof window !== "undefined" && createPortal((() => {
                       const cfg = slotConfigPopup;
-                      const checks: { key: keyof typeof cfg; label: string; sub: string }[] = [
-                        { key: "admin_signs",            label: lang === "de" ? "Admin unterschreibt"     : lang === "fr" ? "L'admin signe"               : "Admin signs",
-                                                         sub:   lang === "de" ? "Sie unterschreiben das PDF vor dem Senden"
-                                                                : lang === "fr" ? "Vous signez le PDF avant l'envoi"
-                                                                : "You sign the PDF before sending" },
-                        { key: "candidate_signs",        label: lang === "de" ? "Kandidat muss unterschreiben" : lang === "fr" ? "Le candidat doit signer" : "Candidate must sign",
-                                                         sub:   lang === "de" ? "Kandidat unterschreibt vor dem Einreichen"
-                                                                : lang === "fr" ? "Le candidat signe avant de soumettre"
-                                                                : "Candidate signs before submitting" },
-                        { key: "admin_fills",            label: lang === "de" ? "Admin füllt Felder"          : lang === "fr" ? "L'admin remplit les champs" : "Admin fills fields",
-                                                         sub:   lang === "de" ? "Sie zeichnen und füllen Felder auf dem PDF"
-                                                                : lang === "fr" ? "Vous dessinez et remplissez les champs sur le PDF"
-                                                                : "You draw + fill field boxes on PDF" },
-                        { key: "candidate_fills",        label: lang === "de" ? "Kandidat muss ausfüllen"     : lang === "fr" ? "Le candidat doit remplir"  : "Candidate must fill",
-                                                         sub:   lang === "de" ? "Kandidat füllt Ihre Felder aus"
-                                                                : lang === "fr" ? "Le candidat remplit vos champs"
-                                                                : "Candidate fills your field boxes" },
-                        // LAW #30 Mode 1: skip box drawing when the PDF already
-                        // has interactive AcroForm fields built in.
-                        { key: "pdf_has_native_fields",  label: lang === "de" ? "PDF hat bereits Felder"      : lang === "fr" ? "Le PDF a déjà des champs"  : "PDF has digital fields",
-                                                         sub:   lang === "de" ? "Keine Felder zeichnen — Kandidat tippt direkt in vorhandene Felder"
-                                                                : lang === "fr" ? "Pas à dessiner — le candidat tape dans les champs existants"
-                                                                : "Skip box drawing — candidate types into existing fields" },
-                      ];
-                      // LAW #36 universal popup: single wrapper (backdrop + card unified)
-                      // so blur covers the entire viewport, not just behind the card.
+                      // Tiles are now always-open (admin + candidate boxes always visible),
+                      // so the accordion toggle / scrollIntoView logic is gone — saves
+                      // vertical space + an extra tap.
+                      const signChecked = cfg.admin_signs || cfg.candidate_signs;
+                      void cfg.admin_fills; void cfg.candidate_fills;
+                      // Tile is a flat container — never gains a border/background on selection.
+                      // Only the Admin / Candidate chips below light up. Avoids the double-border
+                      // bleed where tile-gold + chip-gold overlap at the chip's left edge.
+                      const tileStyle: React.CSSProperties = {
+                        border: "1px solid var(--border)",
+                        background: "var(--bg2)",
+                        borderRadius: 14,
+                        overflow: "hidden" as const,
+                      };
+                      // Two-column grid — admin + candidate sit side-by-side so the
+                      // accordion stays compact and works on phone without scrolling.
+                      const subOpts = (items: { key: keyof SlotConfigState; label: string; sub: string }[]) => (
+                        <div className="px-3 pb-3 pt-1 grid grid-cols-2 gap-1.5">
+                          {items.map(({ key, label, sub }) => (
+                            <label key={key} className="flex items-start gap-2 px-2.5 py-2.5 cursor-pointer transition-all"
+                              style={{
+                                background: cfg[key] ? "rgba(0,0,0,0.22)" : "var(--bg2)",
+                                border: `1px solid ${cfg[key] ? "var(--border-gold)" : "var(--border)"}`,
+                                borderRadius: 10,
+                              }}>
+                              <input type="checkbox" className="mt-0.5 flex-shrink-0 accent-[var(--gold)]"
+                                checked={!!cfg[key]}
+                                onChange={e => setSlotConfigPopup(p => p ? { ...p, [key]: e.target.checked } : p)} />
+                              <div className="min-w-0">
+                                <p className="text-[12px] font-semibold leading-tight tracking-tight" style={{ color: "var(--w)" }}>{label}</p>
+                                {sub && (
+                                  <p className="text-[9.5px] mt-0.5 leading-snug" style={{ color: "var(--w3)" }}>{sub}</p>
+                                )}
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      );
                       return (
                         <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-stretch sm:items-center justify-center p-2 sm:p-4 pb-[88px]"
                           style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
                           onClick={() => !slotConfigSaving && setSlotConfigPopup(null)}>
                           <div className="w-full sm:max-w-md flex flex-col overflow-hidden"
                             onClick={e => e.stopPropagation()}
-                            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", borderRadius: 20, boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 72px - 16px)" }}>
-                            <div className="px-5 pt-5 pb-3 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                  <p className="text-[14px] font-semibold" style={{ color: "var(--w)" }}>
-                                    {lang === "de" ? "Was soll mit diesem PDF passieren?" : lang === "fr" ? "Que doit-il se passer avec ce PDF ?" : "What should happen with this PDF?"}
+                            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", borderRadius: 20, boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)", maxHeight: "calc(100dvh - 72px - 16px)" }}>
+                            {/* Header — tighter scale to match the rest of the portal modals. */}
+                            <div className="px-5 pt-4 pb-3 flex items-start justify-between gap-3 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
+                              <div className="min-w-0">
+                                <p className="text-[13px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>
+                                  {lang === "de" ? "Was soll mit diesem PDF passieren?" : lang === "fr" ? "Que doit-il se passer avec ce PDF ?" : "What should happen with this PDF?"}
+                                </p>
+                                <p className="text-[10.5px] mt-1 leading-snug" style={{ color: "var(--w3)" }}>
+                                  {lang === "de" ? "Wählen Sie eine oder mehrere Optionen." : lang === "fr" ? "Choisissez une ou plusieurs options." : "Choose one or more options."}
+                                </p>
+                              </div>
+                              <button onClick={() => setSlotConfigPopup(null)} disabled={slotConfigSaving}
+                                className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 disabled:opacity-40"
+                                style={{ color: "var(--w3)" }}>
+                                <XIcon size={14} strokeWidth={1.8} />
+                              </button>
+                            </div>
+                            {/* Body — 3 tiles. min-h-0 + overscroll-contain so flex shrinks
+                                properly and tiles scroll inside the card when expanded on phone. */}
+                            <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 py-3 flex flex-col gap-2">
+                              {/* SIGN tile — always-open, two-column admin/candidate picker. */}
+                              <div data-slot-tile="sign" style={tileStyle}>
+                                <div className="w-full flex items-center gap-3 px-3.5 py-3">
+                                  <FilePen size={16} strokeWidth={1.6} style={{ color: signChecked ? "var(--gold)" : "var(--w3)", flexShrink: 0, transition: "color 0.18s var(--ease-out)" }} />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-[12.5px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>
+                                      {lang === "de" ? "Unterschrift" : lang === "fr" ? "Signature" : "Sign"}
+                                    </p>
+                                    <p className="text-[10.5px] mt-0.5 leading-snug" style={{ color: "var(--w3)" }}>
+                                      {lang === "de" ? "Wer unterschreibt dieses PDF?" : lang === "fr" ? "Qui signe ce PDF ?" : "Who signs this PDF?"}
+                                    </p>
+                                  </div>
+                                </div>
+                                {subOpts([
+                                  { key: "admin_signs",     label: lang === "de" ? "Admin" : lang === "fr" ? "Admin"    : "Admin",     sub: "" },
+                                  { key: "candidate_signs", label: lang === "de" ? "Kandidat" : lang === "fr" ? "Candidat" : "Candidate", sub: "" },
+                                ])}
+                              </div>
+                              {/* FILL tile removed: form-field drawing is gone, and
+                                  native-AcroForm filling is handled on upload via
+                                  AutoFillReviewModal. */}
+                              {/* NOTHING tile */}
+                              <button className="w-full flex items-center gap-3 px-3.5 py-3 text-left disabled:opacity-40"
+                                style={tileStyle}
+                                disabled={slotConfigSaving}
+                                onClick={() => saveSlotConfig({ ...cfg, admin_signs: false, candidate_signs: false, admin_fills: false, candidate_fills: false, pdf_has_native_fields: false })}>
+                                <FileText size={16} strokeWidth={1.6} style={{ color: "var(--w3)", flexShrink: 0 }} />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-[12.5px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>
+                                    {lang === "de" ? "Nichts — nur Dokument" : lang === "fr" ? "Rien — document seul" : "Nothing — document only"}
                                   </p>
-                                  <p className="text-[11.5px] mt-1" style={{ color: "var(--w3)" }}>
-                                    {lang === "de" ? "Wählen Sie alles, was zutrifft. Alles leer = nur Dokument."
-                                     : lang === "fr" ? "Cochez tout ce qui s'applique. Tout décoché = document seul."
-                                     : "Check everything that applies. Leave all unchecked for document-only."}
+                                  <p className="text-[10.5px] mt-0.5 leading-snug" style={{ color: "var(--w3)" }}>
+                                    {lang === "de" ? "Als reines Dokument speichern" : lang === "fr" ? "Enregistrer comme document seul" : "Save as-is, no signature or fill needed"}
                                   </p>
                                 </div>
-                                <button onClick={() => setSlotConfigPopup(null)} disabled={slotConfigSaving}
-                                  className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 disabled:opacity-40"
-                                  style={{ color: "var(--w3)" }}>
-                                  <XIcon size={14} strokeWidth={1.8} />
-                                </button>
-                              </div>
-                            </div>
-                            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2">
-                              {checks.map(({ key, label, sub }) => (
-                                <label key={key}
-                                  className="flex items-start gap-3 px-3 py-3 rounded-xl cursor-pointer transition-colors"
-                                  style={{ background: cfg[key as keyof SlotConfigState] ? "var(--gdim)" : "var(--bg2)", border: `1.5px solid ${cfg[key as keyof SlotConfigState] ? "var(--border-gold)" : "var(--border)"}` }}>
-                                  <input type="checkbox" className="mt-0.5 flex-shrink-0 accent-[var(--gold)]"
-                                    checked={!!cfg[key as keyof SlotConfigState]}
-                                    onChange={e => setSlotConfigPopup(prev => prev ? { ...prev, [key]: e.target.checked } : prev)} />
-                                  <div className="min-w-0">
-                                    <p className="text-[13px] font-semibold leading-tight" style={{ color: "var(--w)" }}>{label}</p>
-                                    <p className="text-[11px] mt-1 leading-snug" style={{ color: "var(--w3)" }}>{sub}</p>
-                                  </div>
-                                </label>
-                              ))}
+                              </button>
                             </div>
                             <div className="flex gap-2 px-5 py-3 flex-shrink-0" style={{ borderTop: "1px solid var(--border)" }}>
                               <button onClick={() => setSlotConfigPopup(null)} disabled={slotConfigSaving}
-                                className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold transition-all disabled:opacity-40"
-                                style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
+                                className="flex-1 py-2.5 text-[12px] font-semibold transition-all disabled:opacity-40"
+                                style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid transparent", borderRadius: 10 }}>
                                 {lang === "de" ? "Überspringen" : lang === "fr" ? "Passer" : "Skip"}
                               </button>
                               <button onClick={() => saveSlotConfig(cfg)} disabled={slotConfigSaving}
-                                className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold transition-all disabled:opacity-40"
-                                style={{ background: "var(--gold)", color: "#131312" }}>
+                                className="flex-1 py-2.5 text-[12px] font-semibold transition-all disabled:opacity-40 hover:opacity-95"
+                                style={{ background: "var(--gold)", color: "#131312", borderRadius: 10, boxShadow: "0 4px 14px var(--border-gold), 0 0 0 1px var(--border-gold)" }}>
                                 {slotConfigSaving
                                   ? (lang === "de" ? "Speichern…" : lang === "fr" ? "Enregistrement…" : "Saving…")
                                   : (lang === "de" ? "Bestätigen" : lang === "fr" ? "Confirmer" : "Confirm")}
@@ -3046,120 +3499,10 @@ export default function AdminPage() {
                       );
                     })(), document.body)}
 
-                    {/* ── Configure fields modal — portaled: bv-enter stacking context fix ── */}
-                    {configFieldsSlot && typeof window !== "undefined" && createPortal((() => {
-                      async function uploadTemplate(file: File) {
-                        setConfigFieldsUploading(true);
-                        try {
-                          const fd = new FormData();
-                          fd.append("file", file);
-                          fd.append("slotId", configFieldsSlot!.id);
-                          const res = await fetch("/api/portal/admin/slot-template", {
-                            method: "POST",
-                            headers: { Authorization: `Bearer ${accessToken}` },
-                            body: fd,
-                          });
-                          if (!res.ok) return;
-                          // Fetch back as base64 for PdfFieldPicker
-                          const r2 = await fetch(`/api/portal/admin/slot-template?slotId=${configFieldsSlot!.id}`, {
-                            headers: { Authorization: `Bearer ${accessToken}` },
-                          });
-                          if (!r2.ok) return;
-                          const bytes = await r2.arrayBuffer();
-                          const b64 = btoa(String.fromCharCode(...new Uint8Array(bytes)));
-                          setConfigFieldsPdfB64(b64);
-                          setPhaseSlots(prev => {
-                            const phase = configFieldsSlot!.phase;
-                            return { ...prev, [phase]: prev[phase].map(s => s.id === configFieldsSlot!.id ? { ...s, template_pdf_path: `slot-templates/${configFieldsSlot!.id}.pdf` } : s) };
-                          });
-                          setConfigFieldsSlot(s => s ? { ...s, template_pdf_path: `slot-templates/${s.id}.pdf` } : s);
-                        } finally { setConfigFieldsUploading(false); }
-                      }
-
-                      async function saveFields() {
-                        setConfigFieldsSaving(true);
-                        try {
-                          await fetch("/api/portal/phase-slots", {
-                            method: "PATCH",
-                            headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-                            body: JSON.stringify({ id: configFieldsSlot!.id, form_fields: configFieldsFields }),
-                          });
-                          setPhaseSlots(prev => {
-                            const phase = configFieldsSlot!.phase;
-                            return { ...prev, [phase]: prev[phase].map(s => s.id === configFieldsSlot!.id ? { ...s, form_fields: configFieldsFields } : s) };
-                          });
-                          setConfigFieldsSlot(null);
-                        } finally { setConfigFieldsSaving(false); }
-                      }
-
-                      // Load existing PDF when modal opens
-                      if (!configFieldsPdfB64 && configFieldsSlot.template_pdf_path) {
-                        fetch(`/api/portal/admin/slot-template?slotId=${configFieldsSlot.id}`, {
-                          headers: { Authorization: `Bearer ${accessToken}` },
-                        }).then(r => r.ok ? r.arrayBuffer() : null).then(buf => {
-                          if (!buf) return;
-                          setConfigFieldsPdfB64(btoa(String.fromCharCode(...new Uint8Array(buf))));
-                        });
-                      }
-
-                      // LAW #36 universal popup
-                      return (
-                        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-stretch sm:items-center justify-center p-2 sm:p-4 pb-[88px]"
-                          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
-                          onClick={() => setConfigFieldsSlot(null)}>
-                          <div className="w-full sm:max-w-3xl flex flex-col overflow-hidden"
-                            onClick={e => e.stopPropagation()}
-                            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", borderRadius: 20, boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 72px - 16px)" }}>
-                            {/* Header */}
-                            <div className="flex items-center gap-3 px-4 py-3 border-b" style={{ borderColor: "var(--border)" }}>
-                              <p className="flex-1 text-[13px] font-semibold truncate" style={{ color: "var(--w)" }}>
-                                Configure fields — {configFieldsSlot.label}
-                              </p>
-                              {configFieldsPdfB64 && (
-                                <button
-                                  disabled={configFieldsSaving}
-                                  onClick={saveFields}
-                                  className="text-[11.5px] font-semibold px-3 py-1.5 rounded-xl disabled:opacity-40"
-                                  style={{ background: "var(--gold)", color: "#131312" }}>
-                                  {configFieldsSaving ? "Saving…" : "Save fields"}
-                                </button>
-                              )}
-                              <button onClick={() => setConfigFieldsSlot(null)}
-                                className="bv-icon-btn w-8 h-8 flex items-center justify-center rounded-full"
-                                style={{ color: "var(--w2)" }}>
-                                <XIcon size={14} strokeWidth={2} />
-                              </button>
-                            </div>
-                            {/* Body */}
-                            <div className="flex-1 overflow-auto p-4">
-                              {!configFieldsPdfB64 ? (
-                                <div className="h-full flex flex-col items-center justify-center gap-4">
-                                  <p className="text-[12px]" style={{ color: "var(--w2)" }}>
-                                    Upload the template PDF to place form fields on it
-                                  </p>
-                                  {configFieldsUploading ? (
-                                    <div className="w-8 h-8 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: "var(--gold)" }} />
-                                  ) : (
-                                    <label className="cursor-pointer inline-flex items-center gap-2 text-[12px] font-semibold px-4 py-2 rounded-xl"
-                                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                                      <Upload size={12} strokeWidth={1.8} /> Upload PDF
-                                      <input type="file" accept="application/pdf" className="sr-only"
-                                        onChange={e => { const f = e.target.files?.[0]; if (f) uploadTemplate(f); }} />
-                                    </label>
-                                  )}
-                                </div>
-                              ) : (
-                                <PdfFieldPicker
-                                  pdfBase64={configFieldsPdfB64}
-                                  fields={configFieldsFields}
-                                  onChange={setConfigFieldsFields}
-                                />
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })(), document.body)}
+                    {/* Configure-fields modal removed: drawing form fields is no
+                        longer supported. Use an external tool (Acrobat, etc.) to
+                        author the native AcroForm fields once; the portal
+                        auto-detects + auto-fills them on upload. */}
 
                     {/* ── Edit slot label modal ─────────────────────────────────────── */}
 
@@ -3323,6 +3666,16 @@ export default function AdminPage() {
                                     <button
                                       onClick={async () => {
                                         if (!selectedUser) return;
+                                        // iOS: navigate to the server route (token in query,
+                                        // octet-stream) → native download prompt.
+                                        if (isIOSDevice()) {
+                                          triggerIosDownload(
+                                            `/api/portal/passport-pdf?userId=${encodeURIComponent(selectedUser)}` +
+                                              `&dl=1&access_token=${encodeURIComponent(accessToken)}`,
+                                            pdfFn,
+                                          );
+                                          return;
+                                        }
                                         setPassportPdfDl(true);
                                         try {
                                           const res = await fetch(`/api/portal/passport-pdf?userId=${selectedUser}`, { headers: { Authorization: `Bearer ${accessToken}` } });
@@ -3484,6 +3837,15 @@ export default function AdminPage() {
                                   onClick={async e => {
                                     e.stopPropagation();
                                     if (isMergeDl) return;
+                                    const mfn = mergedPdfName(origDoc?.file_name, item.label);
+                                    if (isIOSDevice()) {
+                                      triggerIosDownload(
+                                        `/api/portal/documents/merge-pdf?origDocId=${encodeURIComponent(origDoc!.id)}&transDocId=${encodeURIComponent(transDoc!.id)}` +
+                                          `&dl=1&name=${encodeURIComponent(mfn)}&access_token=${encodeURIComponent(accessToken)}`,
+                                        mfn,
+                                      );
+                                      return;
+                                    }
                                     setMergePdfDl(prev => new Set(prev).add(item.key));
                                     try {
                                       const res = await fetch(
@@ -3495,7 +3857,7 @@ export default function AdminPage() {
                                       const url = URL.createObjectURL(blob);
                                       const a = document.createElement("a");
                                       a.href = url;
-                                      a.download = `${item.label.replace(/\s+/g, "_")}_merged.pdf`;
+                                      a.download = mfn;
                                       a.click();
                                       URL.revokeObjectURL(url);
                                     } catch (e) { console.error(e); }
@@ -3519,7 +3881,7 @@ export default function AdminPage() {
                                   });
                                 }}>
                                 <ChevronDown size={13} strokeWidth={1.8}
-                                  style={{ transition: "transform 0.2s", transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)" }} />
+                                  style={{ transition: "transform var(--dur-2) var(--ease)", transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)" }} />
                               </button>
                             </div>
                             {/* Sub-boxes — only shown when expanded */}
@@ -3724,12 +4086,44 @@ export default function AdminPage() {
                                         <MoreHorizontal size={14} strokeWidth={1.8} />
                                       </button>
                                       <DropdownMenu open={revokeMenu?.id === doc.id} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === doc.id ? revokeMenu.el : null}>
+                                            {/* Always-useful actions for BOTH supreme admin
+                                                and every sub-admin — menu is never empty. */}
+                                            <button
+                                              onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); setPreviewDoc(doc); }}
+                                              className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                              style={{ color: "var(--w)" }}>
+                                              <Eye size={11} strokeWidth={1.8} /> Open
+                                            </button>
+                                            <button
+                                              onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); downloadDoc(doc); }}
+                                              className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                              style={{ color: "var(--w)" }}>
+                                              <Download size={11} strokeWidth={1.8} /> Download
+                                            </button>
                                             {item.key === "cv_de" && selectedUser && (
                                               <button
                                                 onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); window.open(`/portal/cv-builder?candidateId=${selectedUser}`, "_blank"); }}
                                                 className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
                                                 style={{ color: "var(--w)" }}>
                                                 <FilePen size={11} strokeWidth={1.8} /> Edit CV
+                                              </button>
+                                            )}
+                                            {doc.status !== "approved" && (
+                                              <button
+                                                onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); review(doc.id, "approved"); }}
+                                                disabled={saving[doc.id]}
+                                                className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium disabled:opacity-40 inline-flex items-center gap-1.5"
+                                                style={{ color: "var(--success)" }}>
+                                                <CheckCircle2 size={11} strokeWidth={1.8} /> {lang === "fr" ? "Approuver" : lang === "de" ? "Genehmigen" : "Approve"}
+                                              </button>
+                                            )}
+                                            {doc.status === "pending" && (
+                                              <button
+                                                onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); openRejectModal({ kind: "doc", docId: doc.id, label: item.label, initialFeedback: doc.feedback ?? "" }); }}
+                                                disabled={saving[doc.id]}
+                                                className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium disabled:opacity-40 inline-flex items-center gap-1.5"
+                                                style={{ color: "var(--danger)" }}>
+                                                <XCircle size={11} strokeWidth={1.8} /> {lang === "fr" ? "Refuser" : lang === "de" ? "Ablehnen" : "Reject"}
                                               </button>
                                             )}
                                             {doc.status === "approved" && (
@@ -3815,8 +4209,9 @@ export default function AdminPage() {
           <>
             <div className="fixed inset-0 z-[9999] bg-black/40 backdrop-blur-sm bv-modal-outer" onClick={() => !deletingCandidate && setDeleteCandidateConfirm(false)} />
             <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4 pb-[88px] sm:pb-4 bv-modal-outer">
-              <div className="w-full max-w-sm rounded-2xl p-6 flex flex-col gap-4"
-                style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 8px 32px rgba(0,0,0,0.18)" }}>
+              <div className="w-full max-w-sm rounded-2xl p-6 flex flex-col gap-4 overflow-y-auto"
+                style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "0 8px 32px rgba(0,0,0,0.18)",
+                         maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)" }}>
                 <div className="flex flex-col items-center gap-2 text-center">
                   <div className="w-12 h-12 rounded-full flex items-center justify-center mb-1"
                     style={{ background: "var(--danger-bg)" }}>
@@ -3925,20 +4320,12 @@ export default function AdminPage() {
           style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
           onClick={() => setEditingSlotId(null)}>
           <div className="w-full max-w-md rounded-[20px] p-6 space-y-4"
-            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)" }}
+            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)", overflowY: "auto" }}
             onClick={e => e.stopPropagation()}>
             <p className="text-[14px] font-semibold" style={{ color: "var(--w)" }}>Edit slot label</p>
             <input type="text" placeholder="Label" value={editingSlotLabel}
               onChange={e => setEditingSlotLabel(e.target.value)} autoFocus
               className="w-full px-3 py-2.5 text-[13px] outline-none"
-              style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--w)" }} />
-            <input type="text" placeholder="Label translated (optional — dual slots)" value={editingSlotLabelTrans}
-              onChange={e => setEditingSlotLabelTrans(e.target.value)}
-              className="w-full px-3 py-2.5 text-[13px] outline-none"
-              style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--w)" }} />
-            <textarea placeholder="Instructions for candidate (optional)" value={editingSlotInstructions}
-              onChange={e => setEditingSlotInstructions(e.target.value)} rows={3}
-              className="w-full px-3 py-2.5 text-[13px] outline-none resize-none"
               style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--w)" }} />
             <div className="flex gap-3 pt-1">
               <button onClick={() => setEditingSlotId(null)}
@@ -3971,7 +4358,7 @@ export default function AdminPage() {
             onClick={() => !adminSigUploading && setAdminSigSubPopup(null)}>
             <div className="w-full max-w-sm rounded-[20px] p-5 space-y-3"
               onClick={e => e.stopPropagation()}
-              style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)" }}>
+              style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)", overflowY: "auto" }}>
               <div>
                 <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>Your signature</p>
                 <p className="text-[11px] mt-0.5" style={{ color: "var(--w3)" }}>
@@ -4035,7 +4422,6 @@ export default function AdminPage() {
                       await openPlacementWizard(sub.slotId, {
                         admin: slot.admin_signs,
                         candidate: slot.candidate_signs,
-                        fields: (slot.admin_fills || slot.candidate_fills) && !slot.pdf_has_native_fields,
                       });
                     }
                   }}
@@ -4049,23 +4435,15 @@ export default function AdminPage() {
         );
       })()}
 
-      {/* ── Placement wizard modal (LAW #34) ─────────────────────────────────
-          Multi-step PDF wizard. Admin draws boxes on the PDF:
-            step "fields"        → form input boxes
-            step "admin_sig"     → admin's signature zone (saved sig auto-fills)
-            step "candidate_sig" → candidate's signature zone (empty placeholder)
-          Order set by the user when checking actions in main popup.
-          Final Submit stamps admin signature into PDF + saves zones/fields. */}
+      {/* ── Placement wizard modal — signature placement only ────────────────
+          Drawing form-field boxes was removed; native AcroForm PDFs are
+          handled by AutoFillReviewModal at upload time. The wizard now only
+          places admin / candidate signature zones. */}
       {placementWizard && (() => {
         const wz = placementWizard;
         const currentStep = wz.steps[wz.stepIdx];
         const isLast = wz.stepIdx === wz.steps.length - 1;
         const hintByStep: Record<WizardStep, string> = {
-          fields: lang === "de"
-            ? "Zeichnen Sie Eingabefelder dort, wo das Formular ausgefüllt werden soll."
-            : lang === "fr"
-            ? "Tracez les champs de saisie aux endroits à remplir."
-            : "Draw input boxes where the form needs to be filled.",
           admin_sig: lang === "de"
             ? "Scrollen Sie zur Unterschriftsstelle und zeichnen Sie einen Bereich."
             : lang === "fr"
@@ -4077,46 +4455,31 @@ export default function AdminPage() {
             ? "Tracez un cadre à l'endroit où le candidat doit signer."
             : "Draw a box where the candidate should sign.",
         };
+        void hintByStep;
         const partyForStep: Record<WizardStep, "admin" | "candidate"> = {
-          fields: "admin", admin_sig: "admin", candidate_sig: "candidate",
+          admin_sig: "admin", candidate_sig: "candidate",
         };
         const currentZone = currentStep === "admin_sig" ? wz.adminSigZone
                           : currentStep === "candidate_sig" ? wz.candidateSigZone
                           : null;
 
-        const profile = selectedUser ? profiles[selectedUser] : null;
-
         async function onSubmitFinal() {
           if (placementSubmitting) return;
           setPlacementSubmitting(true);
           try {
-            // Start from the original PDF bytes; each transform produces new bytes.
-            // Use a fresh ArrayBuffer so the Uint8Array has a settled buffer type
-            // (pdf-lib + Blob expect ArrayBuffer, not ArrayBufferLike).
+            // Start from the original PDF bytes.
             const rawBytes = Uint8Array.from(atob(wz.pdfB64), c => c.charCodeAt(0));
             const initBuf = new ArrayBuffer(rawBytes.byteLength);
             new Uint8Array(initBuf).set(rawBytes);
             let pdfBytes: Uint8Array = new Uint8Array(initBuf);
 
-            // 1) Bake bound field values into the PDF as static text.
-            const boundFields = wz.fields.filter(f => f.binding);
-            const freeFillFields = wz.fields.filter(f => !f.binding);
-            if (boundFields.length > 0) {
-              const values: Record<string, string> = {};
-              for (const f of boundFields) {
-                values[f.id] = resolveFieldValue(f.binding as CandidateFieldId, profile, wz.cv);
-              }
-              pdfBytes = await embedFields(pdfBytes, boundFields, values);
-            }
-
-            // 2) Stamp admin's signature on top of (possibly modified) PDF.
+            // Stamp admin's signature on top of the PDF.
             if (wz.adminSigZone && adminSavedSig) {
               pdfBytes = await stampSigOnPdf(pdfBytes, adminSavedSig, [wz.adminSigZone]);
             }
 
-            // 3) Upload modified PDF as new slot template (only if anything changed).
-            const changed = boundFields.length > 0 || (wz.adminSigZone && adminSavedSig);
-            if (changed) {
+            // Upload modified PDF as new slot template if admin signed.
+            if (wz.adminSigZone && adminSavedSig) {
               const ab = new ArrayBuffer(pdfBytes.byteLength);
               new Uint8Array(ab).set(pdfBytes);
               const fd = new FormData();
@@ -4129,44 +4492,35 @@ export default function AdminPage() {
               });
             }
 
-            // 4) Save free-fill fields + candidate sig zone on the slot for the
-            //    candidate-side flow. Bound fields are NOT saved (they're already
-            //    baked into the PDF, candidate sees them as static text).
+            // Save candidate sig zone on the slot for the candidate-side flow.
             await fetch("/api/portal/phase-slots", {
               method: "PATCH",
               headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
               body: JSON.stringify({
                 id: wz.slotId,
-                form_fields: freeFillFields,
                 candidate_signature_zone: wz.candidateSigZone,
               }),
             });
 
-            // Local state update
             setPhaseSlots(prev => {
               const updated: typeof prev = {};
               for (const [ph, slots] of Object.entries(prev)) {
                 updated[ph] = (slots ?? []).map(s => s.id === wz.slotId
-                  ? { ...s, form_fields: freeFillFields, candidate_signature_zone: wz.candidateSigZone }
+                  ? { ...s, candidate_signature_zone: wz.candidateSigZone }
                   : s);
               }
               return updated;
             });
 
-            // 5) Bell notifications (LAW #21): candidate + all assigned admins
-            //    learn the slot is ready to act on. Only fires when at least
-            //    one candidate-facing task is part of this slot. needsSign /
-            //    needsFill are passed so the bell text reflects exactly what
-            //    the candidate has to do (LAW #34 polish).
+            // Bell notifications: candidate learns the slot is ready when they
+            // need to sign.
             const needsSign = !!wz.candidateSigZone;
-            const needsFill = freeFillFields.length > 0;
-            const requiresCandidate = needsSign || needsFill;
-            if (requiresCandidate && selectedUser) {
+            if (needsSign && selectedUser) {
               const slotLabel = Object.values(phaseSlots).flat().find(s => s.id === wz.slotId)?.label ?? "Document";
               await fetch("/api/portal/admin/phase-slots/notify", {
                 method: "POST",
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-                body: JSON.stringify({ slotId: wz.slotId, candidateUserId: selectedUser, slotLabel, needsSign, needsFill }),
+                body: JSON.stringify({ slotId: wz.slotId, candidateUserId: selectedUser, slotLabel, needsSign, needsFill: false }),
               }).catch(err => console.warn("[wizard notify] non-fatal:", err));
             }
 
@@ -4180,231 +4534,107 @@ export default function AdminPage() {
         }
 
         return (
-          <div className="fixed inset-0 z-[1100] flex flex-col"
-            style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}>
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 flex-shrink-0"
-              style={{ background: "var(--card)", borderBottom: "1px solid var(--border)" }}>
-              <div className="min-w-0">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em]" style={{ color: "var(--w3)" }}>
-                  {lang === "de" ? `Schritt ${wz.stepIdx + 1} von ${wz.steps.length}`
-                   : lang === "fr" ? `Étape ${wz.stepIdx + 1} sur ${wz.steps.length}`
-                   : `Step ${wz.stepIdx + 1} of ${wz.steps.length}`}
-                </p>
-                <p className="text-[13.5px] font-semibold mt-0.5" style={{ color: "var(--w)" }}>
-                  {currentStep === "fields"
-                    ? (lang === "de" ? "Formularfelder" : lang === "fr" ? "Champs du formulaire" : "Form fields")
-                    : currentStep === "admin_sig"
+          // LAW #36 universal popup geometry — identical to candidate fillForm /
+          // slot config / AdminDocPreviewModal: top-[58px] clears the global
+          // navbar, pb-[88px] clears the mobile bottom nav.
+          <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-stretch sm:items-center justify-center p-2 sm:p-4 pb-[88px] sm:pb-4"
+            style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
+            onClick={() => { if (!placementSubmitting) setPlacementWizard(null); }}>
+            {/* Card — same shape language as AdminDocPreviewModal so every PDF
+                on the site looks like it lives in the same container. */}
+            <div className="w-full sm:max-w-4xl flex flex-col overflow-hidden relative"
+              onClick={e => e.stopPropagation()}
+              style={{
+                background: "var(--card)",
+                border: "1px solid var(--border)",
+                borderRadius: 20,
+                boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
+                // height: 100% locks the card to the wizard outer's available
+                // size — without it, the card auto-grows when the PdfViewer
+                // canvases re-render at higher zoom, which pushes the frame
+                // off the viewport on big-zoom scrolls.
+                height: "100%",
+                maxHeight: "100%",
+                animation: "bvFadeRise 0.24s var(--ease-out)",
+                // Browser-level pinch shouldn't drag the card around — PdfViewer
+                // handles wheel/pinch zoom on its own internal pages wrapper.
+                touchAction: "pan-x pan-y",
+              }}>
+            {/* Header — matches AdminDocPreviewModal: uppercase eyebrow + title. */}
+            <div className="flex items-center justify-between px-5 py-3.5 flex-shrink-0"
+              style={{ borderBottom: "1px solid var(--border)" }}>
+              <div className="min-w-0 flex items-center gap-3">
+                <div className="flex items-center justify-center text-[11px] font-bold tracking-tight flex-shrink-0"
+                  style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", borderRadius: 999, width: 26, height: 26 }}>
+                  {wz.stepIdx + 1}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-0.5" style={{ color: "var(--w3)" }}>
+                    {lang === "de" ? `Schritt ${wz.stepIdx + 1} / ${wz.steps.length}`
+                     : lang === "fr" ? `Étape ${wz.stepIdx + 1} / ${wz.steps.length}`
+                     : `Step ${wz.stepIdx + 1} / ${wz.steps.length}`}
+                  </p>
+                  <p className="text-[13.5px] font-semibold truncate tracking-tight" style={{ color: "var(--w)" }}>
+                    {currentStep === "admin_sig"
                       ? (lang === "de" ? "Ihre Unterschrift" : lang === "fr" ? "Votre signature" : "Your signature")
                       : (lang === "de" ? "Unterschrift des Kandidaten" : lang === "fr" ? "Signature du candidat" : "Candidate's signature")}
-                </p>
-              </div>
-              <button onClick={() => setPlacementWizard(null)} disabled={placementSubmitting}
-                aria-label="Close"
-                className="bv-icon-btn w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-40"
-                style={{ color: "var(--w2)" }}>
-                <XIcon size={16} strokeWidth={1.8} />
-              </button>
-            </div>
-            {/* PDF body */}
-            <div className="flex-1 relative overflow-hidden">
-              {/* Faint hint text in middle, fades when a zone is drawn */}
-              {currentStep !== "fields" && !currentZone && (
-                <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none px-6">
-                  <p className="text-center text-[14px] font-medium max-w-md"
-                    style={{ color: "rgba(255,255,255,0.55)", textShadow: "0 2px 8px rgba(0,0,0,0.7)" }}>
-                    ✏️ {hintByStep[currentStep]}
                   </p>
                 </div>
-              )}
-              {currentStep !== "fields" && (
-                <PdfZonePicker
-                  key={currentStep /* re-mount on step change so initialZones reseeds */}
-                  pdfBase64={wz.pdfB64}
-                  defaultParty={partyForStep[currentStep]}
-                  partyPreviews={currentStep === "admin_sig" && adminSavedSig ? { admin: adminSavedSig } : undefined}
-                  initialZones={
-                    currentStep === "candidate_sig" && wz.candidateSigZone
-                      ? [wz.candidateSigZone]
-                      : undefined
-                  }
-                  onChange={zones => {
-                    // Single zone only for sig steps — keep the most recent.
-                    const lastZone = zones[zones.length - 1] ?? null;
-                    setPlacementWizard(prev => prev
-                      ? currentStep === "admin_sig"
-                        ? { ...prev, adminSigZone: lastZone }
-                        : { ...prev, candidateSigZone: lastZone }
-                      : prev);
+              </div>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {/* Submit / Next — header-anchored on every viewport (same idiom
+                    as the candidate fillForm modal). Sits immediately left of X. */}
+                <button
+                  disabled={placementSubmitting || (currentStep === "admin_sig" || currentStep === "candidate_sig" ? !currentZone : false)}
+                  onClick={() => {
+                    if (isLast) {
+                      onSubmitFinal();
+                    } else {
+                      setPlacementWizard(prev => prev ? { ...prev, stepIdx: prev.stepIdx + 1 } : prev);
+                    }
                   }}
-                />
-              )}
-              {currentStep === "fields" && (
-                <>
-                  {/* Faint hint when no fields drawn yet */}
-                  {wz.fields.length === 0 && (
-                    <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none px-6">
-                      <p className="text-center text-[14px] font-medium max-w-md"
-                        style={{ color: "rgba(255,255,255,0.55)", textShadow: "0 2px 8px rgba(0,0,0,0.7)" }}>
-                        ✏️ {hintByStep.fields}
-                      </p>
-                    </div>
-                  )}
-                  <PdfFieldPicker
-                    pdfBase64={wz.pdfB64}
-                    fields={wz.fields}
-                    onChange={nextFields => {
-                      setPlacementWizard(prev => {
-                        if (!prev) return prev;
-                        // Detect a newly-drawn box: a field with default "Field"
-                        // label and no binding → open the binding popup for it.
-                        const newlyAdded = nextFields.find(nf =>
-                          nf.label === "Field" && !nf.binding
-                          && !prev.fields.some(of => of.id === nf.id)
-                        );
-                        return {
-                          ...prev,
-                          fields: nextFields,
-                          pendingBindField: newlyAdded ? newlyAdded.id : prev.pendingBindField,
-                        };
-                      });
-                    }}
-                  />
-                </>
-              )}
-
-              {/* Binding popup — opens after admin draws a new field box.
-                  Lists unused catalog fields + "Free fill" option. Pick one. */}
-              {wz.pendingBindField && (() => {
-                const used = new Set(wz.fields.filter(f => f.binding).map(f => f.binding as CandidateFieldId));
-                const available = FIELD_CATALOG.filter(f => !used.has(f.id));
-                function pickBinding(binding: CandidateFieldId | null) {
-                  setPlacementWizard(prev => {
-                    if (!prev) return prev;
-                    const fieldId = prev.pendingBindField;
-                    if (!fieldId) return prev;
-                    const newFields = prev.fields.map(f => {
-                      if (f.id !== fieldId) return f;
-                      if (!binding) {
-                        return { ...f, label: lang === "de" ? "Vom Kandidaten ausfüllen" : lang === "fr" ? "À remplir par le candidat" : "Candidate fills" };
-                      }
-                      const resolved = resolveFieldValue(binding, selectedUser ? profiles[selectedUser] : null, prev.cv);
-                      return { ...f, binding, label: resolved || fieldLabel(binding, lang) };
-                    });
-                    return { ...prev, fields: newFields, pendingBindField: null };
-                  });
-                }
-                function cancelBinding() {
-                  // If admin cancels, remove the unbound field they just drew.
-                  setPlacementWizard(prev => prev ? {
-                    ...prev,
-                    fields: prev.fields.filter(f => f.id !== prev.pendingBindField),
-                    pendingBindField: null,
-                  } : prev);
-                }
-                // LAW #36 universal popup (nested above wizard at z-[1101])
-                return (
-                  <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
-                    style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
-                    onClick={cancelBinding}>
-                    <div className="w-full max-w-sm rounded-[20px] p-4 space-y-2"
-                      onClick={e => e.stopPropagation()}
-                      style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "70dvh", overflowY: "auto" }}>
-                      <div>
-                        <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>
-                          {lang === "de" ? "Was kommt in dieses Feld?" : lang === "fr" ? "Que mettre dans cette case ?" : "What goes in this box?"}
-                        </p>
-                        <p className="text-[10.5px] mt-0.5" style={{ color: "var(--w3)" }}>
-                          {lang === "de"
-                            ? "Wählen Sie ein Kandidatenfeld — wird beim Senden automatisch ausgefüllt."
-                            : lang === "fr"
-                            ? "Choisissez un champ du candidat — rempli automatiquement à l'envoi."
-                            : "Pick a candidate data field — auto-filled when sent."}
-                        </p>
-                      </div>
-                      <div className="space-y-1">
-                        {available.map(f => {
-                          const resolved = resolveFieldValue(f.id, selectedUser ? profiles[selectedUser] : null, wz.cv);
-                          return (
-                            <button key={f.id} onClick={() => pickBinding(f.id)}
-                              className="w-full text-left px-3 py-2 rounded-lg transition-colors hover:opacity-90"
-                              style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                              <p className="text-[12px] font-semibold" style={{ color: "var(--w)" }}>
-                                {fieldLabel(f.id, lang)}
-                              </p>
-                              {resolved && (
-                                <p className="text-[10.5px] mt-0.5 truncate" style={{ color: "var(--gold)" }}>
-                                  → {resolved}
-                                </p>
-                              )}
-                            </button>
-                          );
-                        })}
-                        <button onClick={() => pickBinding(null)}
-                          className="w-full text-left px-3 py-2 rounded-lg transition-colors hover:opacity-90 mt-2"
-                          style={{ background: "var(--bg2)", border: "1px dashed var(--border-gold)" }}>
-                          <p className="text-[12px] font-semibold" style={{ color: "var(--gold)" }}>
-                            ✏️ {lang === "de" ? "Anderes / Kandidat füllt selbst aus" : lang === "fr" ? "Autre / le candidat remplit" : "Other / candidate fills manually"}
-                          </p>
-                          <p className="text-[10.5px] mt-0.5" style={{ color: "var(--w3)" }}>
-                            {lang === "de"
-                              ? "Lässt das Feld leer für den Kandidaten."
-                              : lang === "fr"
-                              ? "Laisse la case vide pour le candidat."
-                              : "Leaves the box empty for the candidate."}
-                          </p>
-                        </button>
-                      </div>
-                      <button onClick={cancelBinding}
-                        className="w-full py-2 rounded-lg text-[11.5px] font-semibold transition-colors mt-2"
-                        style={{ background: "transparent", color: "var(--w3)" }}>
-                        {lang === "de" ? "Abbrechen" : lang === "fr" ? "Annuler" : "Cancel"}
-                      </button>
-                    </div>
-                  </div>
-                );
-              })()}
+                  className="text-[11.5px] font-semibold px-3 py-1.5 rounded-xl disabled:opacity-40 transition-opacity hover:opacity-95"
+                  style={{ background: "var(--gold)", color: "#131312" }}>
+                  {placementSubmitting
+                    ? "…"
+                    : isLast
+                      ? (lang === "de" ? "Einreichen" : lang === "fr" ? "Soumettre" : "Submit")
+                      : (lang === "de" ? "Weiter →" : lang === "fr" ? "Suivant →" : "Next →")}
+                </button>
+                <button onClick={() => setPlacementWizard(null)} disabled={placementSubmitting}
+                  aria-label="Close"
+                  className="bv-icon-btn w-9 h-9 rounded-full flex items-center justify-center disabled:opacity-40 transition-opacity hover:opacity-70"
+                  style={{ color: "var(--w2)" }}>
+                  <XIcon size={16} strokeWidth={1.8} />
+                </button>
+              </div>
             </div>
-            {/* Footer */}
-            <div className="flex items-center justify-between gap-3 px-4 py-3 flex-shrink-0"
-              style={{ background: "var(--card)", borderTop: "1px solid var(--border)" }}>
-              <p className="text-[11px]" style={{ color: "var(--w3)" }}>
-                {currentStep === "fields"
-                  ? wz.fields.length === 0
-                    ? (lang === "de" ? "Tippen und ziehen, um ein Eingabefeld zu zeichnen."
-                       : lang === "fr" ? "Tracez en glissant pour créer un champ de saisie."
-                       : "Tap and drag to draw an input box.")
-                    : (lang === "de"
-                        ? `${wz.fields.length} ${wz.fields.length === 1 ? "Feld" : "Felder"} gezeichnet`
-                        : lang === "fr"
-                        ? `${wz.fields.length} ${wz.fields.length === 1 ? "champ" : "champs"} tracé${wz.fields.length === 1 ? "" : "s"}`
-                        : `${wz.fields.length} box${wz.fields.length === 1 ? "" : "es"} drawn`)
-                  : currentZone
-                    ? (lang === "de" ? "Bereich platziert. Ecken ziehen, um die Größe zu ändern."
-                       : lang === "fr" ? "Cadre placé. Glissez les coins pour redimensionner."
-                       : "Box placed. You can drag corners to resize.")
-                    : (lang === "de" ? "Tippen und ziehen, um einen Bereich zu zeichnen."
-                       : lang === "fr" ? "Tracez en glissant pour créer un cadre."
-                       : "Tap and drag to draw a box.")}
-              </p>
-              <button
-                disabled={placementSubmitting || (currentStep === "admin_sig" || currentStep === "candidate_sig" ? !currentZone : false)}
-                onClick={() => {
-                  if (isLast) {
-                    onSubmitFinal();
-                  } else {
-                    setPlacementWizard(prev => prev ? { ...prev, stepIdx: prev.stepIdx + 1 } : prev);
-                  }
+            {/* PDF body — full-bleed flex column so pickers fill all available height */}
+            <div className="flex-1 relative overflow-hidden p-3" style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
+              {/* Hint is rendered internally by PdfZonePicker (grey chip). */}
+              <PdfZonePicker
+                key={currentStep /* re-mount on step change so initialZones reseeds */}
+                pdfBase64={wz.pdfB64}
+                fullHeight
+                defaultParty={partyForStep[currentStep]}
+                partyPreviews={currentStep === "admin_sig" && adminSavedSig ? { admin: adminSavedSig } : undefined}
+                initialZones={
+                  currentStep === "candidate_sig" && wz.candidateSigZone
+                    ? [wz.candidateSigZone]
+                    : undefined
+                }
+                onChange={zones => {
+                  // Single zone only for sig steps — keep the most recent.
+                  const lastZone = zones[zones.length - 1] ?? null;
+                  setPlacementWizard(prev => prev
+                    ? currentStep === "admin_sig"
+                      ? { ...prev, adminSigZone: lastZone }
+                      : { ...prev, candidateSigZone: lastZone }
+                    : prev);
                 }}
-                className="px-6 py-2.5 rounded-xl text-[13px] font-semibold transition-all disabled:opacity-40"
-                style={{ background: "var(--gold)", color: "#131312" }}>
-                {placementSubmitting
-                  ? (lang === "de" ? "Speichern…" : lang === "fr" ? "Enregistrement…" : "Saving…")
-                  : isLast
-                    ? (lang === "de" ? "Einreichen" : lang === "fr" ? "Soumettre" : "Submit")
-                    : (lang === "de" ? "Weiter →" : lang === "fr" ? "Suivant →" : "Next →")}
-              </button>
+              />
             </div>
+            </div>{/* end card */}
           </div>
         );
       })()}
@@ -4562,6 +4792,17 @@ export default function AdminPage() {
                       }
                       if (res.ok) {
                         if (action === "download") {
+                          if (isIOSDevice()) {
+                            // Server stashed it at admin-dl/<userId>.pdf. iOS
+                            // needs a FRESH tap to download (a download after
+                            // this await is blocked), so surface a button.
+                            setIosSignedDl({
+                              url: `/api/portal/admin/sign-request?adminDownload=1&name=${encodeURIComponent(sigModal.label + ".pdf")}&access_token=${encodeURIComponent(accessToken)}`,
+                              name: `${sigModal.label}.pdf`,
+                            });
+                            setSigSending(false);
+                            return;
+                          }
                           const blob = await res.blob(); const url = URL.createObjectURL(blob);
                           const a = document.createElement("a"); a.href = url; a.download = `${sigModal.label}.pdf`; a.click(); URL.revokeObjectURL(url);
                           showError(lang === "fr" ? "PDF téléchargé ✓" : lang === "de" ? "PDF heruntergeladen ✓" : "Signed PDF downloaded ✓");
@@ -4584,11 +4825,26 @@ export default function AdminPage() {
                         style={{ background: "var(--gold)", color: "#131312" }}>
                         {sigSending ? spin : <><SaveIcon size={13} strokeWidth={2} /> {lang === "fr" ? "Sauvegarder" : lang === "de" ? "Speichern" : "Save"}</>}
                       </button>
+                      {iosSignedDl ? (
+                        <button
+                          onClick={() => {
+                            // Fresh user gesture → iOS download now works.
+                            triggerIosDownload(iosSignedDl.url, iosSignedDl.name);
+                            setIosSignedDl(null);
+                            setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null);
+                            setSigAdminSig(null); setSigAdminWantSave(true); setSigOrgSig(null); setSigOrgWantSave(true);
+                          }}
+                          className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold"
+                          style={{ background: "var(--gold)", color: "#131312" }}>
+                          <Download size={13} strokeWidth={2} /> {lang === "fr" ? "Appuyez pour enregistrer" : lang === "de" ? "Tippen zum Speichern" : "Tap to save PDF"}
+                        </button>
+                      ) : (
                       <button onClick={() => doSubmit("download")} disabled={sigSending || !hasPdf}
                         className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold transition-opacity disabled:opacity-40"
                         style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }}>
                         {sigSending ? spin : <><Download size={13} strokeWidth={2} /> {lang === "fr" ? "Télécharger" : lang === "de" ? "Herunterladen" : "Download"}</>}
                       </button>
+                      )}
                     </>
                   );
                 })() : (
@@ -4649,6 +4905,18 @@ export default function AdminPage() {
           </div>
         </div>
       )}
+
+      {/* Reject feedback popup — MUST be rendered in the candidate-detail
+          return too (it was only in the list return, so the inline ✗ / ⋯
+          "Reject" in the dossier set state but the popup never mounted until
+          you navigated back). Portaled component, so this is safe here. */}
+      {rejectTarget && (
+        <AdminRejectModal
+          target={{ label: rejectTarget.label, initialFeedback: rejectTarget.initialFeedback }}
+          onCancel={closeRejectModal}
+          onSubmit={(text, shot) => submitReject(text, shot)}
+        />
+      )}
       </>
     );
   }
@@ -4666,8 +4934,11 @@ export default function AdminPage() {
             onShowPassportData={() => setShowPassportInfo(true)}
             sideBySide={
               /pass/i.test(previewDoc.file_type)
-              && (previewDoc.status !== "approved" || (profiles[previewDoc.user_id]?.passport_status !== "approved"))
               && showPassportInfo
+              // Fully approved (PDF + data both green) → data pops centered
+              // ON TOP, never docked side-by-side.
+              && !(previewDoc.status === "approved"
+                   && profiles[previewDoc.user_id]?.passport_status === "approved")
             }
           />
         )}
@@ -4855,7 +5126,7 @@ export default function AdminPage() {
                               background: isMatched ? "var(--gdim)" : "transparent",
                               border: isMatched ? "1px solid var(--border-gold)" : "none",
                               transform: isExpanded ? "rotate(180deg)" : "rotate(0deg)",
-                              transition: "color 0.2s, transform 0.2s, background 0.2s",
+                              transition: "color var(--dur-2) var(--ease), transform var(--dur-2) var(--ease), background var(--dur-2) var(--ease)",
                             }}>
                             <ChevronDown size={14} strokeWidth={1.8} />
                           </button>
@@ -5047,7 +5318,7 @@ export default function AdminPage() {
               onClick={() => !newOrgCreating && setNewOrgModal(false)}>
               <div className="w-full max-w-sm rounded-[20px] overflow-hidden"
                 onClick={e => e.stopPropagation()}
-                style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)" }}>
+                style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)", overflowY: "auto" }}>
                   <div className="px-5 pt-5 pb-4">
                     <p className="text-[14px] font-semibold mb-1" style={{ color: "var(--w)" }}>New organization</p>
                     <p className="text-[11.5px] mb-4" style={{ color: "var(--w3)" }}>Creates the org and generates an admin invite link.</p>
@@ -5286,7 +5557,7 @@ export default function AdminPage() {
           style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
           onClick={() => setEditingSlotId(null)}>
           <div className="w-full max-w-md rounded-[20px] p-6 space-y-4"
-            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)" }}
+            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)", overflowY: "auto" }}
             onClick={e => e.stopPropagation()}>
             <p className="text-[14px] font-semibold" style={{ color: "var(--w)" }}>Edit slot label</p>
             <input
@@ -5296,22 +5567,6 @@ export default function AdminPage() {
               onChange={e => setEditingSlotLabel(e.target.value)}
               autoFocus
               className="w-full px-3 py-2.5 text-[13px] outline-none"
-              style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--w)" }}
-            />
-            <input
-              type="text"
-              placeholder="Label translated (optional — dual slots)"
-              value={editingSlotLabelTrans}
-              onChange={e => setEditingSlotLabelTrans(e.target.value)}
-              className="w-full px-3 py-2.5 text-[13px] outline-none"
-              style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--w)" }}
-            />
-            <textarea
-              placeholder="Instructions for candidate (optional)"
-              value={editingSlotInstructions}
-              onChange={e => setEditingSlotInstructions(e.target.value)}
-              rows={3}
-              className="w-full px-3 py-2.5 text-[13px] outline-none resize-none"
               style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "10px", color: "var(--w)" }}
             />
             <div className="flex gap-3 pt-1">
@@ -5500,6 +5755,17 @@ export default function AdminPage() {
                       }
                       if (res.ok) {
                         if (action === "download") {
+                          if (isIOSDevice()) {
+                            // Server stashed it at admin-dl/<userId>.pdf. iOS
+                            // needs a FRESH tap to download (a download after
+                            // this await is blocked), so surface a button.
+                            setIosSignedDl({
+                              url: `/api/portal/admin/sign-request?adminDownload=1&name=${encodeURIComponent(sigModal.label + ".pdf")}&access_token=${encodeURIComponent(accessToken)}`,
+                              name: `${sigModal.label}.pdf`,
+                            });
+                            setSigSending(false);
+                            return;
+                          }
                           const blob = await res.blob(); const url = URL.createObjectURL(blob);
                           const a = document.createElement("a"); a.href = url; a.download = `${sigModal.label}.pdf`; a.click(); URL.revokeObjectURL(url);
                           showError(lang === "fr" ? "PDF téléchargé ✓" : lang === "de" ? "PDF heruntergeladen ✓" : "Signed PDF downloaded ✓");
@@ -5522,11 +5788,26 @@ export default function AdminPage() {
                         style={{ background: "var(--gold)", color: "#131312" }}>
                         {sigSending ? spin : <><SaveIcon size={13} strokeWidth={2} /> {lang === "fr" ? "Sauvegarder" : lang === "de" ? "Speichern" : "Save"}</>}
                       </button>
+                      {iosSignedDl ? (
+                        <button
+                          onClick={() => {
+                            // Fresh user gesture → iOS download now works.
+                            triggerIosDownload(iosSignedDl.url, iosSignedDl.name);
+                            setIosSignedDl(null);
+                            setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null);
+                            setSigAdminSig(null); setSigAdminWantSave(true); setSigOrgSig(null); setSigOrgWantSave(true);
+                          }}
+                          className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold"
+                          style={{ background: "var(--gold)", color: "#131312" }}>
+                          <Download size={13} strokeWidth={2} /> {lang === "fr" ? "Appuyez pour enregistrer" : lang === "de" ? "Tippen zum Speichern" : "Tap to save PDF"}
+                        </button>
+                      ) : (
                       <button onClick={() => doSubmit("download")} disabled={sigSending || !hasPdf}
                         className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold transition-opacity disabled:opacity-40"
                         style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }}>
                         {sigSending ? spin : <><Download size={13} strokeWidth={2} /> {lang === "fr" ? "Télécharger" : lang === "de" ? "Herunterladen" : "Download"}</>}
                       </button>
+                      )}
                     </>
                   );
                 })() : (

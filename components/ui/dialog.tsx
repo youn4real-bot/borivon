@@ -47,7 +47,7 @@ export function Dialog({ open, onClose, title, eyebrow, children, className }: D
           // Desktop: centred card with generous max-width.
           "relative w-full max-w-[680px] flex flex-col",
           // Mobile max-height = viewport minus top safe area minus 96 px bottom clearance
-          "max-h-[calc(100vh-172px)] sm:max-h-[88vh]",
+          "max-h-[calc(100dvh-172px)] sm:max-h-[88dvh]",
           className
         )}
         style={{

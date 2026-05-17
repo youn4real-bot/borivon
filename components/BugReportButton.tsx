@@ -182,10 +182,11 @@ export function BugReportButton() {
               boxShadow: "var(--shadow-lg)",
               animation: "bvFadeRise 0.28s var(--ease-out)",
               paddingBottom: "env(safe-area-inset-bottom)",
+              maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)",
             }}
             onClick={e => e.stopPropagation()}>
 
-            <div className="flex items-start justify-between px-5 py-4"
+            <div className="flex items-start justify-between px-5 py-4 flex-shrink-0"
               style={{ borderBottom: "1px solid var(--border)" }}>
               <div className="flex items-center gap-2.5 flex-1 min-w-0">
                 <span className="flex items-center justify-center w-9 h-9 rounded-full flex-shrink-0"
@@ -199,7 +200,7 @@ export function BugReportButton() {
               </div>
               <button onClick={close} aria-label={globalT.miClose}
                 className="w-8 h-8 flex items-center justify-center rounded-lg flex-shrink-0 hover:scale-110"
-                style={{ background: "transparent", color: "var(--w3)", border: "none", transition: "color 0.2s, transform 0.15s" }}
+                style={{ background: "transparent", color: "var(--w3)", border: "none", transition: "color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease)" }}
                 onMouseEnter={(e) => { e.currentTarget.style.color = "var(--w)"; }}
                 onMouseLeave={(e) => { e.currentTarget.style.color = "var(--w3)"; }}>
                 <XIcon size={14} strokeWidth={1.8} />
@@ -212,7 +213,7 @@ export function BugReportButton() {
               </div>
             ) : (
               <>
-                <div className="px-5 py-4 space-y-3">
+                <div className="px-5 py-4 space-y-3 overflow-y-auto" style={{ minHeight: 0 }}>
                   <textarea
                     value={text}
                     onChange={e => setText(e.target.value)}
@@ -233,7 +234,7 @@ export function BugReportButton() {
                       <button onClick={() => { setAttach(null); if (fileRef.current) fileRef.current.value = ""; }}
                         aria-label={globalT.bugRemoveScreenshot}
                         className="w-7 h-7 flex items-center justify-center rounded-md flex-shrink-0 hover:scale-110"
-                        style={{ background: "transparent", color: "var(--w3)", border: "none", transition: "color 0.2s, transform 0.15s" }}
+                        style={{ background: "transparent", color: "var(--w3)", border: "none", transition: "color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease)" }}
                         onMouseEnter={(e) => { e.currentTarget.style.color = "var(--w)"; }}
                         onMouseLeave={(e) => { e.currentTarget.style.color = "var(--w3)"; }}>
                         <XIcon size={12} strokeWidth={2} />
@@ -258,7 +259,7 @@ export function BugReportButton() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-end gap-2 px-5 py-3"
+                <div className="flex items-center justify-end gap-2 px-5 py-3 flex-shrink-0"
                   style={{ borderTop: "1px solid var(--border)" }}>
                   <button onClick={close} disabled={sending}
                     className="text-[12.5px] font-medium px-4 py-2 transition-colors disabled:opacity-50"

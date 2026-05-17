@@ -8,6 +8,9 @@ import { AdminRejectModal } from "@/components/AdminRejectModal";
 import { PdfViewer } from "@/components/PdfViewer";
 import { DocxViewer } from "@/components/DocxViewer";
 import { ZoomPanRotateViewer } from "@/components/ZoomPanRotateViewer";
+import { IosPdfFrame } from "@/components/IosPdfFrame";
+import { isIOSDevice } from "@/lib/platform";
+import { triggerIosDownload } from "@/lib/iosDownload";
 import { Spinner } from "@/components/ui/states";
 import { useLang } from "@/components/LangContext";
 
@@ -105,6 +108,9 @@ export function AdminDocPreviewModal({
   // Authenticated fetch via our API → blob URL. Used for both the PdfViewer
   // and the download button (no need to refetch).
   useEffect(() => {
+    // iOS renders PDFs via the native iframe (server URL) — no blob needed.
+    // Skip the blob fetch so a large PDF isn't downloaded twice on mobile.
+    if (isIOSDevice() && (doc.file_name.split(".").pop() ?? "").toLowerCase() === "pdf") return;
     const fetchUrl = overrideFetchUrl
       ?? (doc.drive_file_id ? `/api/portal/file?id=${doc.drive_file_id}` : `/api/portal/file?docId=${doc.id}`);
     if (!fetchUrl) return;
@@ -185,6 +191,19 @@ export function AdminDocPreviewModal({
 
   const canReview = !savedAs && doc.status !== "approved" && !doc.uploaded_by_admin;
 
+  // ── iOS parity (sub-admins use iPhones too) ──────────────────────────────
+  // iOS WebKit can't paint the pdf.js canvas (blank preview) and won't
+  // download a blob `<a download>`. Mirror the candidate-side fix: native
+  // PDF iframe for preview + server route (?dl=1&access_token) for download.
+  const iosMode = isIOSDevice();
+  const fileBase = overrideFetchUrl
+    ?? (doc.drive_file_id
+      ? `/api/portal/file?id=${encodeURIComponent(doc.drive_file_id)}`
+      : `/api/portal/file?docId=${encodeURIComponent(doc.id)}`);
+  const withQ = (u: string, qs: string) => u + (u.includes("?") ? "&" : "?") + qs;
+  const iosPreviewUrl  = withQ(fileBase, `access_token=${encodeURIComponent(accessToken)}`);
+  const iosDownloadUrl = withQ(fileBase, `dl=1&name=${encodeURIComponent(doc.file_name)}&access_token=${encodeURIComponent(accessToken)}`);
+
   // Portal to document.body so this modal always escapes any ancestor
   // stacking-context created by backdrop-filter (e.g. the mobile bottom bar).
   if (typeof document === "undefined") return null;
@@ -220,16 +239,11 @@ export function AdminDocPreviewModal({
             height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 6px - 72px - 6px - env(safe-area-inset-bottom, 0px)) !important;
             max-height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 6px - 72px - 6px - env(safe-area-inset-bottom, 0px)) !important;
           }
-          .bv-side-preview {
-            top: calc(58px + var(--bv-subnav-h, 0px)) !important;
-            bottom: calc(50dvh + 0.25rem) !important;
-            padding-bottom: 0.25rem !important;
-            align-items: center !important;
-          }
-          .bv-side-preview .bv-doc-preview-card {
-            height: 100% !important;
-            max-height: 100% !important;
-          }
+          /* Phone single-scroll: the passport renders inside the data
+             card's scroll (one page). This separate fixed preview pane is
+             hidden on phone so there's no duplicate / overlap. Desktop
+             keeps the left/right side-by-side. */
+          .bv-side-preview { display: none !important; }
         }
         @media (min-width: 640px) {
           .bv-side-preview {
@@ -240,12 +254,15 @@ export function AdminDocPreviewModal({
             padding-right: 50vw;
             padding-left: 1rem;
           }
+          /* Universal side-by-side: SAME size as the passport-data pane —
+             full height, equal width — identical to the candidate side. */
           .bv-side-preview .bv-doc-preview-card {
-            max-height: 620px;
+            height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 1rem) !important;
+            max-height: calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 1rem) !important;
           }
         }
       `}</style>
-      <div className={`bv-doc-preview-card w-full overflow-hidden flex flex-col ${sideBySide ? "sm:max-w-[560px]" : "max-w-4xl"}`}
+      <div className={`bv-doc-preview-card w-full overflow-hidden flex flex-col ${sideBySide ? "sm:max-w-[480px]" : "max-w-4xl"}`}
         style={{
           background: "var(--card)",
           border: "1px solid var(--border)",
@@ -292,7 +309,16 @@ export function AdminDocPreviewModal({
               </button>
             )}
 
-            {blobUrl && (
+            {iosMode ? (
+              <button
+                type="button"
+                onClick={() => triggerIosDownload(iosDownloadUrl, doc.file_name)}
+                title={dt.download} aria-label={dt.download}
+                className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center"
+                style={{ color: "var(--w2)", background: "transparent", border: "none" }}>
+                <Download size={14} strokeWidth={1.8} />
+              </button>
+            ) : blobUrl && (
               <a
                 href={blobUrl}
                 download={doc.file_name}
@@ -338,25 +364,45 @@ export function AdminDocPreviewModal({
 
         {/* ── Body ── PDF / image / "download to view" fallback */}
         <div className="flex-1" style={{ minHeight: 0, position: "relative" }}>
-          {blobUrl ? (() => {
+          {iosMode && (doc.file_name.split(".").pop() ?? "").toLowerCase() === "pdf" ? (
+            // iOS PDF: native iframe straight from the server route — no blob
+            // wait, no blank pdf.js canvas. Renders immediately.
+            <IosPdfFrame
+              src={iosPreviewUrl}
+              title={doc.file_name}
+              onRotate={() => {
+                if (overrideFetchUrl || !doc.id) return;
+                fetch(`/api/portal/documents/${doc.id}`, {
+                  method: "PATCH",
+                  headers: {
+                    "Content-Type": "application/json",
+                    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+                  },
+                  body: JSON.stringify({ deltaRotation: 90 }),
+                }).catch(e => console.error("[rotation] persist failed:", e));
+              }}
+            />
+          ) : blobUrl ? (() => {
             const ext = (doc.file_name.split(".").pop() ?? "").toLowerCase();
-            if (ext === "pdf") return (
-              <PdfViewer
-                src={blobUrl}
-                onRotate={() => {
-                  // Don't persist when previewing a synthetic doc (e.g. merged PDF).
-                  if (overrideFetchUrl || !doc.id) return;
-                  fetch(`/api/portal/documents/${doc.id}`, {
-                    method: "PATCH",
-                    headers: {
-                      "Content-Type": "application/json",
-                      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-                    },
-                    body: JSON.stringify({ deltaRotation: 90 }),
-                  }).catch(e => console.error("[rotation] persist failed:", e));
-                }}
-              />
-            );
+            if (ext === "pdf") {
+              const persistRotate = () => {
+                // Don't persist when previewing a synthetic doc (e.g. merged PDF).
+                if (overrideFetchUrl || !doc.id) return;
+                fetch(`/api/portal/documents/${doc.id}`, {
+                  method: "PATCH",
+                  headers: {
+                    "Content-Type": "application/json",
+                    ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+                  },
+                  body: JSON.stringify({ deltaRotation: 90 }),
+                }).catch(e => console.error("[rotation] persist failed:", e));
+              };
+              // iOS: pdf.js canvas stays blank in WebKit → native iframe,
+              // loaded straight from the server route (token in query).
+              return iosMode
+                ? <IosPdfFrame src={iosPreviewUrl} title={doc.file_name} onRotate={persistRotate} />
+                : <PdfViewer src={blobUrl} onRotate={persistRotate} />;
+            }
             if (ext === "docx") return <DocxViewer src={blobUrl} fileName={doc.file_name} />;
             if (["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext)) {
               return (
@@ -372,11 +418,20 @@ export function AdminDocPreviewModal({
               <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: "#525659", color: "#fff", padding: "1rem", textAlign: "center" }}>
                 <p className="text-[14px] font-semibold mb-2">{dt.previewUnavailable(ext)}</p>
                 <p className="text-[12.5px] opacity-80 mb-4">{dt.downloadToOpen}</p>
-                <a href={blobUrl} download={doc.file_name}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-[13px] font-semibold"
-                  style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)" }}>
-                  <Download size={13} strokeWidth={1.8} /> {dt.download}
-                </a>
+                {iosMode ? (
+                  <button type="button"
+                    onClick={() => triggerIosDownload(iosDownloadUrl, doc.file_name)}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-[13px] font-semibold"
+                    style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)", border: "none" }}>
+                    <Download size={13} strokeWidth={1.8} /> {dt.download}
+                  </button>
+                ) : (
+                  <a href={blobUrl} download={doc.file_name}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-[13px] font-semibold"
+                    style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)" }}>
+                    <Download size={13} strokeWidth={1.8} /> {dt.download}
+                  </a>
+                )}
               </div>
             );
           })() : (

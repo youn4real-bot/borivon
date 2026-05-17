@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
+import { getAccessibleOrgIds } from "@/lib/feedAccess";
+import { enforceRateLimit } from "@/lib/rateLimit";
+import { validateImageDataUrl } from "@/lib/validateDataUrl";
 
 const BUCKET = "feed-photos";
 const PAGE_SIZE = 20;
@@ -43,19 +46,25 @@ async function resolveUserMeta(db: ReturnType<typeof getServiceSupabase>, userId
     profileMap[p.user_id] = { photo: p.profile_photo, verified: p.manually_verified, tier: p.payment_tier };
   }
 
-  const emails = Object.values(authInfo).map(i => i.email).filter(Boolean);
-  const { data: subAdmins } = await db.from("sub_admins").select("email").in("email", emails);
-  const borivonEmails = new Set((subAdmins ?? []).map((s: { email: string }) => s.email));
+  // Role-derived ticks (automatic, no manual verify):
+  //   supreme admin + sub-admins → BLACK (official Borivon account)
+  //   org admins                 → RED   (verified org member)
+  //   candidates                 → GOLD only if manually_verified OR premium
+  // Sub-admins/org-members are few, and stored email casing varies — fetch
+  // all and compare LOWERCASED so a casing mismatch can't hide the tick.
+  const { data: subAdmins } = await db.from("sub_admins").select("email");
+  const borivonEmails = new Set(
+    ((subAdmins ?? []) as { email: string }[]).map(s => (s.email ?? "").trim().toLowerCase()).filter(Boolean)
+  );
 
   const adminEmail = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
   if (adminEmail) borivonEmails.add(adminEmail);
 
   const { data: orgMemberRows } = await db
     .from("organization_members")
-    .select("sub_admin_email")
-    .in("sub_admin_email", emails);
+    .select("sub_admin_email");
   const orgMemberEmailSet = new Set(
-    ((orgMemberRows ?? []) as { sub_admin_email: string }[]).map(r => r.sub_admin_email.toLowerCase())
+    ((orgMemberRows ?? []) as { sub_admin_email: string }[]).map(r => (r.sub_admin_email ?? "").trim().toLowerCase()).filter(Boolean)
   );
 
   const result: Record<string, {
@@ -66,15 +75,21 @@ async function resolveUserMeta(db: ReturnType<typeof getServiceSupabase>, userId
   for (const uid of userIds) {
     const auth = authInfo[uid];
     const prof = profileMap[uid];
-    const isBorivonTeam = auth?.email ? borivonEmails.has(auth.email) : false;
-    const userEmail = (auth?.email ?? "").toLowerCase();
+    const userEmail = (auth?.email ?? "").trim().toLowerCase();
     const isSuperAdmin = !!adminEmail && userEmail === adminEmail;
+    // Borivon team = supreme admin OR any sub-admin (black tick), but NOT
+    // if they're an org admin (org admins get the red tick instead).
     const isOrgMember = orgMemberEmailSet.has(userEmail) && !isSuperAdmin;
+    const isBorivonTeam = (!!userEmail && borivonEmails.has(userEmail)) && !isOrgMember;
     result[uid] = {
       name:          auth?.name ?? "Unknown",
       email:         auth?.email ?? "",
       photo:         prof?.photo ?? null,
-      verified:      isBorivonTeam || (prof?.verified ?? false),
+      // Verified (shows a tick) automatically for Borivon team + org admins;
+      // candidates only via manual grant OR premium.
+      verified:      isBorivonTeam || isOrgMember
+                       || (prof?.verified ?? false)
+                       || (prof?.tier === "premium"),
       tier:          prof?.tier ?? null,
       isBorivonTeam,
       isSuperAdmin,
@@ -82,44 +97,6 @@ async function resolveUserMeta(db: ReturnType<typeof getServiceSupabase>, userId
     };
   }
   return result;
-}
-
-/**
- * Returns the org IDs a user is allowed to read posts from / post into.
- * - admin (env ADMIN_EMAIL): every org
- * - org_member: orgs they're listed in via organization_members
- * - candidate: orgs they're APPROVED-linked to via candidate_organizations
- */
-async function getAccessibleOrgIds(
-  db: ReturnType<typeof getServiceSupabase>,
-  userId: string,
-  email: string,
-): Promise<{ orgIds: Set<string>; isOrgMember: boolean }> {
-  const adminEmail = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
-  if (email === adminEmail) {
-    const { data: orgs } = await db.from("organizations").select("id");
-    return {
-      orgIds: new Set(((orgs ?? []) as { id: string }[]).map(o => o.id)),
-      isOrgMember: false,
-    };
-  }
-  const { data: memberRows } = await db
-    .from("organization_members")
-    .select("org_id")
-    .eq("sub_admin_email", email);
-  const memberOrgIds = ((memberRows ?? []) as { org_id: string }[]).map(r => r.org_id);
-
-  const { data: candRows } = await db
-    .from("candidate_organizations")
-    .select("org_id")
-    .eq("candidate_user_id", userId)
-    .eq("status", "approved");
-  const candOrgIds = ((candRows ?? []) as { org_id: string }[]).map(r => r.org_id);
-
-  return {
-    orgIds: new Set([...memberOrgIds, ...candOrgIds]),
-    isOrgMember: memberOrgIds.length > 0,
-  };
 }
 
 /**
@@ -274,6 +251,15 @@ export async function POST(req: NextRequest) {
   const auth = await requireUser(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
+  // Anti-spam: cap post creation per trusted IP.
+  const rl = enforceRateLimit(req, "feed-post", { limit: 10, windowMs: 60_000 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "You're posting too fast — slow down a bit" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
+  }
+
   const db = getServiceSupabase();
   const { orgIds: accessibleOrgIds, isOrgMember } = await getAccessibleOrgIds(db, auth.userId, auth.email);
 
@@ -334,27 +320,26 @@ export async function POST(req: NextRequest) {
   // Upload image if provided
   let imageUrl: string | null = null;
   const imageBase64 = typeof body.imageBase64 === "string" ? body.imageBase64 : null;
-  if (imageBase64 && imageBase64.startsWith("data:image/")) {
-    try {
-      await ensureBucket();
-      const commaIdx = imageBase64.indexOf(",");
-      const header = imageBase64.slice(0, commaIdx);
-      const b64 = imageBase64.slice(commaIdx + 1);
-      const mime = header.match(/data:([^;]+);/)?.[1] ?? "image/jpeg";
-      const ext  = mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : "jpg";
-      const buffer = Buffer.from(b64, "base64");
-
-      if (buffer.length <= 5_000_000) {
+  if (imageBase64) {
+    // SECURITY: strict allowlist + magic-byte check (rejects SVG / MIME spoofing).
+    const validated = validateImageDataUrl(imageBase64);
+    if (!validated.ok) {
+      console.warn("[feed POST] image rejected:", validated.reason);
+    } else if (validated.byteLength <= 5_000_000) {
+      try {
+        await ensureBucket();
+        const mime = validated.mime;
+        const ext  = mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : mime === "image/gif" ? "gif" : "jpg";
         const fileName = `${p.id}.${ext}`;
-        const { error: uploadErr } = await db.storage.from(BUCKET).upload(fileName, buffer, { contentType: mime, upsert: true });
+        const { error: uploadErr } = await db.storage.from(BUCKET).upload(fileName, validated.bytes, { contentType: mime, upsert: true });
         if (!uploadErr) {
           const { data: { publicUrl } } = db.storage.from(BUCKET).getPublicUrl(fileName);
           imageUrl = `${publicUrl}?t=${Date.now()}`;
           await db.from("feed_posts").update({ image_url: imageUrl }).eq("id", p.id);
         }
+      } catch (e) {
+        console.warn("[feed POST] image upload failed:", e);
       }
-    } catch (e) {
-      console.warn("[feed POST] image upload failed:", e);
     }
   }
 

@@ -198,9 +198,12 @@ export function PhotoCropModal({
     : { title: "Crop your photo", sub: "Drag to position, pinch or scroll to zoom.", save: "Save", cancel: "Cancel" };
 
   return createPortal(
-    // z-[1150] — above ProfilePopup (z-[1100]) so the crop modal appears in
-    // front when opened from "My profile". Below the navbar (z-[1200]).
-    <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1150] flex items-center justify-center p-4 bv-photo-crop-outer"
+    // z-[10050] — the crop modal is launched FROM other modals (the "My
+    // profile" sheet sits at z-[10000], its photo menu at z-[10010]). At the
+    // old z-[1150] it opened BEHIND them, so on phones it looked like
+    // "tapping the photo does nothing / it's hidden". Must sit above every
+    // modal that can spawn it.
+    <div className="fixed inset-x-0 bottom-0 top-[58px] z-[10050] flex items-center justify-center p-4 bv-photo-crop-outer"
       style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)",
                animation: "bvFadeRise 0.22s var(--ease-out)" }}>
       <style>{`
@@ -208,13 +211,14 @@ export function PhotoCropModal({
           .bv-photo-crop-outer { padding-bottom: calc(1rem + 72px) !important; }
         }
       `}</style>
-      <div className="w-full max-w-[420px] flex flex-col"
+      <div className="w-full max-w-[420px] flex flex-col overflow-y-auto"
         style={{ background: "var(--card)", border: "1px solid var(--border)",
                  borderRadius: "var(--r-2xl)", boxShadow: "var(--shadow-lg)",
-                 paddingBottom: "env(safe-area-inset-bottom)" }}>
+                 paddingBottom: "env(safe-area-inset-bottom)",
+                 maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)" }}>
 
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3.5"
+        <div className="flex items-center justify-between px-5 py-3.5 flex-shrink-0"
           style={{ borderBottom: "1px solid var(--border)" }}>
           <div className="min-w-0">
             <p className="text-[14px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>{labels.title}</p>

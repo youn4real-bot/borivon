@@ -61,6 +61,24 @@ for (const [key, labels] of Object.entries(FILE_KEY_LABELS)) {
   for (const lbl of labels) LABEL_TO_FILE_KEY[lbl] = key;
 }
 
+/** Translate a stored document label (in whatever language the candidate
+ *  uploaded it, incl. legacy aliases) into the viewer's current UI language.
+ *  Unknown labels (custom Bearbeitung/Visum slots, org docs, …) pass through
+ *  unchanged so nothing ever shows blank. */
+export function translateDocLabel(
+  label: string | null | undefined,
+  lang: "fr" | "en" | "de",
+): string {
+  const v = (label ?? "").trim();
+  if (!v) return v;
+  const key = LABEL_TO_FILE_KEY[v];
+  if (!key) return v;
+  const tKey = KEY_TO_TKEY[key];
+  if (!tKey) return v;
+  const dict = translations[lang] ?? translations.en ?? translations.fr;
+  return (dict[tKey] as string) || v;
+}
+
 /** fileKey → Set of all translated labels (every supported language).
  *  Used by admin + dashboard getDoc() to match docs regardless of upload language. */
 export const FILE_KEY_ALL_LABELS: Record<string, Set<string>> = {};

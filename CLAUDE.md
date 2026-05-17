@@ -96,14 +96,19 @@ Client side uses `supabase.auth.onAuthStateChange()` to keep `accessToken` fresh
 
 ### Bearbeitung / Visum wizard slots (LAW #34)
 
-Slots are admin-defined per-org or global rows in `phase_slots`. Each carries `admin_signs / candidate_signs / admin_fills / candidate_fills` booleans + `form_fields` (JSONB) + `candidate_signature_zone` (JSONB) + `template_pdf_path` (Supabase Storage).
+Slots are admin-defined per-org or global rows in `phase_slots`. Each carries `admin_signs / candidate_signs / admin_fills / candidate_fills` booleans + `candidate_signature_zone` (JSONB) + `template_pdf_path` (Supabase Storage) + `pdf_has_native_fields` (bool).
 
-The placement wizard (`placementWizard` state in `app/portal/admin/page.tsx`) walks admin through three optional steps **on the same PDF**:
-1. **Fields**: `PdfFieldPicker` draws input boxes → binding popup (`FIELD_CATALOG` in `lib/candidateFields.ts`) maps each to a candidate profile / CV field. Live preview shows the resolved value. On submit, `embedFields()` bakes them into the PDF as static text; only free-fill boxes are saved to `form_fields`.
-2. **Admin sig**: `PdfZonePicker` party="admin" with `partyPreviews={admin: adminSavedSig}`. Submit stamps via `stampSigOnPdf()`.
-3. **Candidate sig**: `PdfZonePicker` party="candidate", saved as `candidate_signature_zone`. Candidate fills it in their fillForm later.
+**Form-field DRAWING is removed.** Authors create fillable fields once in an external tool (Acrobat etc.); the portal only consumes PDFs that already have native AcroForm fields. The legacy `form_fields` JSONB column stays for back-compat with old slots (`PdfFieldFill` candidate component reads it) but nothing writes to it anymore.
 
-On final Submit, the modified PDF replaces `slot-templates/<slotId>.pdf` (old version archived via `slot-templates/archive/<slotId>_<timestamp>.pdf` per LAW #33), and a `slot_setup[_sign|_fill|_sign_fill]` notification fires (per LAW #21 + LAW #22).
+Upload flow:
+1. Admin uploads a PDF for a slot.
+2. `detectAcroFormFields()` in `lib/pdfAcroFormFill.ts` inspects via pdf-lib. If >3 native fields found → `AutoFillReviewModal` opens (side-by-side `PdfViewer` + clickable hotspot overlay per field).
+3. Hotspots auto-fill from `FIELD_CATALOG` via `suggestBinding()` keyword heuristic (candidate-unambiguous only — `vorname`, `geburtsdatum`, `reisepass`, etc.; deliberately NOT generic shared names like `strasse`, `plz`, `telefon` which appear in both candidate + employer sections).
+4. Admin clicks any hotspot → inline popover with FIELD_CATALOG dropdown + literal text input. Live PDF re-fills on change.
+5. Submit calls `fillAcroFormFields()` (pdf-lib `setText`/`check`/`select`, NO flatten — kept editable so employer can complete remaining fields by hand before printing) → uploads filled PDF to slot-templates bucket.
+6. Mappings persist to `pdf_field_mappings` keyed by sha256 of sorted field-name list. Next upload of same form for any candidate auto-applies them. See `app/api/portal/admin/pdf-mappings/route.ts`.
+
+If a slot has NO native fields (or <4), the slot config popup opens with two tiles: **Sign** (who signs?) and **Nothing** (just a doc). No "Fill" option — that requires native fields. Signature placement still uses the wizard with `PdfZonePicker` (admin → candidate sig steps).
 
 ### Signature flow (LAW #29)
 
@@ -148,13 +153,16 @@ Every portal page loads via `Promise.allSettled([…critical fetches…])` then 
 - `lib/translations.ts` — every visible string in 3 languages.
 - `lib/fileKeys.ts` — fileKey ↔ translated-label catalog + legacy aliases for renamed labels.
 - `lib/candidateFields.ts` — `FIELD_CATALOG` of 21 bindable candidate-data fields + `resolveFieldValue()`.
+- `lib/agencyFields.ts` — `AGENCY_FIELD_CATALOG` of employer/agency fields + `resolveAgencyField()`. Pulls from the admin's agency profile row (`agency_profiles` table).
+- `lib/pdfAcroFormFill.ts` — `detectAcroFormFields()` + `suggestBinding()` + `fillAcroFormFields()`. Reads PDF widget rectangles + page index for the overlay; keyword table maps unambiguous field names only.
 - `lib/stampSigOnPdf.ts` — client-side `pdf-lib` signature stamper.
-- `lib/pdfFieldEmbed.ts` — `embedFields()` text stamper + `FormField` type.
+- `lib/pdfFieldEmbed.ts` — **legacy only.** `FormField` type + `embedFields()` stamper used by `PdfFieldFill` (candidate-side legacy drawn fields). New work doesn't touch this.
 - `lib/removeImageBg.ts` — Otsu bg-removal for signatures.
 - `lib/relativeTime.ts` — `date-fns` wrappers (verbose/compact/day-label/clock).
 - `components/GlobalChrome.tsx` — site-wide chrome (Navbar + bell + chat + profile + bug-report). Route-gated per LAW #1.
 - `components/Navbar.tsx` — top + mobile-bottom nav. Owns `portalTabs` (Dashboard / Community).
-- `components/PdfViewer.tsx` — `pdfjs-dist` viewer with zoom toolbar. Owned by `PdfFieldPicker`, `PdfZonePicker`, `PdfFieldFill`, etc.
+- `components/PdfViewer.tsx` — `pdfjs-dist` viewer with zoom toolbar + `pageOverlay` callback for absolute-positioned hotspots. Used by `AutoFillReviewModal`, `PdfZonePicker`, `PdfFieldFill`.
+- `components/AutoFillReviewModal.tsx` — click-on-PDF auto-fill UX for native AcroForm PDFs.
 
 ## Useful patterns to imitate
 
@@ -172,3 +180,5 @@ Every portal page loads via `Promise.allSettled([…critical fetches…])` then 
 - **Never store status text alongside the color** (LAW #4). Icons + color only.
 - **Never bake `_DE` / `(German)` / "Pflege-" prefixes into display labels** when there's already a `pflegekraft` prefix in the filename — the user explicitly stripped these.
 - **Never split sequential `await` chains** if they can be `Promise.all`'d (slows first paint without benefit).
+- **Never reintroduce form-field drawing.** `PdfFieldPicker` was removed; native AcroForm fields are the only supported path. If admin needs fillable fields, they author the PDF externally (Acrobat, PDFescape, etc.) ONCE per form, then the portal handles every candidate from there.
+- **Never auto-map ambiguous AcroForm keywords** (`strasse`, `plz`, `ort`, `telefon`, `email`, `hausnummer`) in `lib/pdfAcroFormFill.ts`'s `RULES`. Those names appear in both candidate (section B) and employer (section C) sections of typical forms — auto-mapping mixes them. Admin clicks the hotspot on the PDF once, template memory remembers per-signature.

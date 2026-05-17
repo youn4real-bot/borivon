@@ -92,15 +92,19 @@ export function ProfilePopup({ slug, onClose }: { slug: string; onClose: () => v
   const node = (
     <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 bv-profile-popup-outer"
       style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)",
-               animation: "bvFadeRise .22s var(--ease-out)" }}
+               animation: "bvFadeRise .22s var(--ease-out)",
+               overflowY: "auto" }}
       onClick={onClose}>
-      {/* Mobile clearance for the bottom action bar */}
+      {/* Mobile clearance for the bottom action bar.
+          Outer overlay owns the scroll (LAW #36: scroll only when the
+          content can't fit). The card itself never clips so the floating
+          X button + rounded corners are always fully visible. */}
       <style>{`
         @media (max-width: 639.98px) {
           .bv-profile-popup-outer { padding-bottom: calc(1rem + 72px) !important; }
         }
       `}</style>
-      <div className="w-full max-w-[460px] relative"
+      <div className="w-full max-w-[460px] relative my-auto"
         onClick={e => e.stopPropagation()}
         style={{ animation: "bvFadeRise .28s var(--ease-out)" }}>
 
@@ -161,6 +165,7 @@ export function ProfilePopup({ slug, onClose }: { slug: string; onClose: () => v
               {profile.verified && (
                 <span className="absolute" style={{ left: "100%", top: "50%", transform: "translateY(-50%)" }}>
                   <VerifiedBadge verified size="md" isAdmin={profile.isAdmin} color={profile.isAdmin ? "black" : "gold"}
+                    name={profile.name}
                     title={lang === "de" ? "Verifiziert von Borivon" : lang === "en" ? "Verified by Borivon" : "Vérifié par Borivon"} />
                 </span>
               )}

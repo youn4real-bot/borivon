@@ -30,6 +30,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ZoomIn, ZoomOut, RotateCw } from "lucide-react";
 import { Spinner } from "@/components/ui/states";
+import { isIOSDevice } from "@/lib/platform";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PdfDoc = any;
@@ -147,8 +148,6 @@ export function PdfViewer({
             if (cancelled) return;
             // Capture each page's intrinsic rotation so server-baked rotation
             // (set via pdf-lib setRotation) is honored when rendering.
-            // naturalSize is the UNROTATED dimensions — PdfPage's isLandscape
-            // logic swaps W/H based on the total rotation passed in.
             const intr = ((page.rotate ?? 0) % 360 + 360) % 360;
             intrinsics.push(intr);
             const vp = page.getViewport({ scale: 1.0, rotation: 0 });
@@ -260,9 +259,87 @@ export function PdfViewer({
       commitTimerRef.current = setTimeout(commit, 180);
     };
 
+    // ── Touch pinch-to-zoom (phone) ──────────────────────────────────────────
+    // Reuses the EXACT same gestureStart → applyTransform → commit pipeline as
+    // the trackpad path, so the anchor/scroll math is the proven one. Only a
+    // 2-finger gesture is intercepted; 1-finger drag stays native scroll
+    // (touch-action: pan-x pan-y on the container).
+    let pinching = false;
+    let pinchStartDist = 0;
+    const touchDist = (a: Touch, b: Touch) =>
+      Math.hypot(b.clientX - a.clientX, b.clientY - a.clientY);
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 2) return;
+      const a = e.touches[0], b = e.touches[1];
+      pinching = true;
+      pinchStartDist = touchDist(a, b);
+
+      const containerRect = el.getBoundingClientRect();
+      const wrap = pagesWrapRef.current;
+      const mx = (a.clientX + b.clientX) / 2;
+      const my = (a.clientY + b.clientY) / 2;
+      const cx = mx - containerRect.left;
+      const cy = my - containerRect.top;
+
+      let ox = cx, oy = cy;
+      if (wrap) {
+        const wrapRect = wrap.getBoundingClientRect();
+        ox = mx - wrapRect.left;
+        oy = my - wrapRect.top;
+        wrap.style.transformOrigin = `${ox}px ${oy}px`;
+      }
+
+      const hits = document.elementsFromPoint(mx, my);
+      const anchorEl = (hits.find(h => h instanceof HTMLCanvasElement) as HTMLCanvasElement | undefined) ?? null;
+      let canvas_ox = 0, canvas_oy = 0;
+      if (anchorEl) {
+        const cr = anchorEl.getBoundingClientRect();
+        canvas_ox = mx - cr.left;
+        canvas_oy = my - cr.top;
+      }
+      gestureStartRef.current = { cx, cy, ox, oy, anchorEl, canvas_ox, canvas_oy };
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!pinching || e.touches.length !== 2) return;
+      e.preventDefault(); // stop the browser's own pinch / scroll for 2 fingers
+      const d = touchDist(e.touches[0], e.touches[1]);
+      if (pinchStartDist <= 0) { pinchStartDist = d; return; }
+
+      const ratio      = d / pinchStartDist;
+      const baseScale  = scaleRef.current;
+      const nextVisual = Math.max(MIN_SCALE, Math.min(MAX_SCALE, baseScale * ratio));
+      gestureRef.current = nextVisual / baseScale;
+
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(applyTransform);
+
+      if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+      commitTimerRef.current = setTimeout(commit, 180);
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (!pinching) return;
+      if (e.touches.length < 2) {
+        pinching = false;
+        pinchStartDist = 0;
+        if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
+        commitTimerRef.current = setTimeout(commit, 60);
+      }
+    };
+
     el.addEventListener("wheel", onWheel, { passive: false });
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd, { passive: true });
+    el.addEventListener("touchcancel", onTouchEnd, { passive: true });
     return () => {
       el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
       if (commitTimerRef.current) clearTimeout(commitTimerRef.current);
       cancelAnimationFrame(rafRef.current);
     };
@@ -318,9 +395,38 @@ export function PdfViewer({
   return (
     <div style={{ position: "relative", height: "100%", display: "flex", flexDirection: "column", background: "#525659" }}>
 
+      {/* Minimalist always-visible scrollbars (the OS default is invisible on
+          the dark canvas). Scoped to .bv-pdf-scroll so nothing else changes.
+          On touch devices the pdfjs text layer is made non-interactive so a
+          finger drag pans/scrolls the zoomed PDF instead of being eaten by
+          text selection — desktop keeps selectable text untouched. */}
+      <style>{`
+        .bv-pdf-scroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.4) transparent; }
+        .bv-pdf-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+        .bv-pdf-scroll::-webkit-scrollbar-track { background: transparent; }
+        .bv-pdf-scroll::-webkit-scrollbar-thumb {
+          background: rgba(255,255,255,0.32);
+          border-radius: 999px;
+          border: 2px solid transparent;
+          background-clip: content-box;
+        }
+        .bv-pdf-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.55); background-clip: content-box; }
+        .bv-pdf-scroll::-webkit-scrollbar-corner { background: transparent; }
+        @media (hover: none) and (pointer: coarse) {
+          .bv-pdf-scroll .textLayer { pointer-events: none; }
+        }
+      `}</style>
+
       <div
         ref={containerRef}
-        style={{ flex: 1, overflow: "auto", overscrollBehavior: "contain" }}
+        className="bv-pdf-scroll"
+        style={{
+          flex: 1,
+          overflow: "auto",
+          overscrollBehavior: "contain",
+          touchAction: "pan-x pan-y",
+          WebkitOverflowScrolling: "touch",
+        }}
       >
         {loading && (
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
@@ -415,7 +521,7 @@ function ToolBtn({
         width: 32, height: 32,
         display: "flex", alignItems: "center", justifyContent: "center",
         border: "none", background: "transparent", borderRadius: 8,
-        color: "var(--w2)", cursor: "pointer", transition: "background 0.15s",
+        color: "var(--w2)", cursor: "pointer", transition: "background var(--dur-1) var(--ease)",
       }}
       onMouseEnter={e => (e.currentTarget.style.background = "var(--bg2)")}
       onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
@@ -453,8 +559,19 @@ function PdfPage({
   const baseH = isLandscape ? naturalSize.w : naturalSize.h;
   const dispW = Math.round(baseW * scale);
   const dispH = Math.round(baseH * scale);
-  const canvW = Math.round(dispW * dpr);
-  const canvH = Math.round(dispH * dpr);
+  // iOS/WebKit blanks ("grey") any canvas whose backing store exceeds ~16.7M
+  // px or 4096 px on a side. Large scanned PDFs blow past this on iPhone
+  // only. Clamp the backing-store resolution so it always renders (display
+  // size is unchanged — at most a slight sharpness loss at extreme zoom).
+  const MAX_SIDE = 4096;
+  const MAX_AREA = 16_000_000;
+  const w0 = dispW * dpr;
+  const h0 = dispH * dpr;
+  const sideK = Math.min(1, MAX_SIDE / Math.max(w0, h0, 1));
+  const areaK = Math.min(1, Math.sqrt(MAX_AREA / Math.max(w0 * h0, 1)));
+  const edpr  = Math.max(0.1, dpr * Math.min(sideK, areaK));
+  const canvW = Math.max(1, Math.round(dispW * edpr));
+  const canvH = Math.max(1, Math.round(dispH * edpr));
 
   // ── Manual canvas sizing with snapshot preservation ─────────────────────
   // We do NOT pass width/height as React props so React never clears the
@@ -498,20 +615,38 @@ function PdfPage({
     if (!canvas) return;
     let cancelled = false;
 
+    // iOS/WebKit doesn't reliably back a DETACHED <canvas> — pdf.js renders
+    // to it, but drawImage(offscreen) onto the visible canvas paints nothing
+    // (grey preview while the toolbar still shows). The canonical pdf.js
+    // usage renders straight to the on-screen canvas; do exactly that on
+    // iOS. Desktop/Android keep the offscreen anti-flicker double-buffer.
+    const isIOS = isIOSDevice();
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     pdf.getPage(pageNum).then(async (page: any) => {
       if (cancelled) return;
-      const renderViewport = page.getViewport({ scale: scale * dpr, rotation });
+      const renderViewport = page.getViewport({ scale: scale * edpr, rotation });
       const cssViewport    = page.getViewport({ scale, rotation });
 
-      const offscreen    = document.createElement("canvas");
-      offscreen.width  = canvW;
-      offscreen.height = canvH;
-      const offCtx = offscreen.getContext("2d");
-      if (!offCtx || cancelled) return;
+      let offscreen: HTMLCanvasElement | null = null;
+      let renderCtx: CanvasRenderingContext2D;
+      if (isIOS) {
+        // Render DIRECTLY to the visible canvas (standard pdf.js).
+        const c = canvasRef.current;
+        const cctx = c?.getContext("2d");
+        if (!c || !cctx || cancelled) return;
+        renderCtx = cctx;
+      } else {
+        offscreen = document.createElement("canvas");
+        offscreen.width  = canvW;
+        offscreen.height = canvH;
+        const offCtx = offscreen.getContext("2d");
+        if (!offCtx || cancelled) return;
+        renderCtx = offCtx;
+      }
 
       renderTaskRef.current?.cancel();
-      const task = page.render({ canvasContext: offCtx, viewport: renderViewport });
+      const task = page.render({ canvasContext: renderCtx, viewport: renderViewport });
       renderTaskRef.current = task;
 
       // Text layer — transparent spans overlaid on the canvas for copy-paste.
@@ -537,6 +672,8 @@ function PdfPage({
 
       task.promise.then(() => {
         if (cancelled) return;
+        // iOS rendered straight onto the visible canvas — nothing to copy.
+        if (isIOS || !offscreen) return;
         const c   = canvasRef.current;
         const ctx = c?.getContext("2d");
         // Guard against a scale change that happened while we were rendering.
@@ -554,7 +691,7 @@ function PdfPage({
       textTaskRef.current = null;
       if (textLayerRef.current) textLayerRef.current.innerHTML = "";
     };
-  }, [pdf, pageNum, scale, rotation, dpr, canvW, canvH]);
+  }, [pdf, pageNum, scale, rotation, edpr, canvW, canvH]);
 
   const overlayNode = overlay?.({ pageNum, dispW, dispH, rotation, scale });
 

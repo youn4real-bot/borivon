@@ -4,12 +4,13 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { Bell, Paperclip, CheckCircle2, XCircle, User, FilePen } from "@/components/PortalIcons";
+import { Bell, CheckCircle2, XCircle, FilePen } from "@/components/PortalIcons";
 
 import { Spinner } from "@/components/ui/states";
 import { useLang } from "@/components/LangContext";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { relativeTimeShort } from "@/lib/relativeTime";
+import { translateDocLabel } from "@/lib/fileKeys";
 import { useDismiss } from "@/lib/useDismiss";
 
 // ── Minimal bell-specific translations ─────────────────────────────────────────
@@ -30,11 +31,14 @@ const BELL_T = {
     placed: "🎉 Vous avez été sélectionné !",
     placedWith: "Associé à",
     placedNext: "Consultez votre tableau de bord pour voir les détails.",
-    signRequest: "Document à signer",
-    signRequestSign: "Document à signer",
-    signRequestFill: "Formulaire à remplir",
-    signRequestBoth: "Remplir et signer",
-    signRequestNext: "Ouvrez votre tableau de bord pour signer.",
+    // One PDF = one notification, regardless of sign / fill / both. All four
+    // labels resolve to the same string so the bell never splits one slot
+    // into multiple cards.
+    signRequest: "Action requise",
+    signRequestSign: "Action requise",
+    signRequestFill: "Action requise",
+    signRequestBoth: "Action requise",
+    signRequestNext: "Ouvrez votre tableau de bord pour ouvrir le document.",
     approved: "a été approuvé",
     rejected: "a été refusé",
     goToDashboard: "Voir le tableau de bord →",
@@ -63,11 +67,12 @@ const BELL_T = {
     placed: "🎉 You've been matched!",
     placedWith: "Placed with",
     placedNext: "Check your dashboard to see the details.",
-    signRequest: "Document to sign",
-    signRequestSign: "Document to sign",
-    signRequestFill: "Form to fill",
-    signRequestBoth: "Fill and sign",
-    signRequestNext: "Open your dashboard to review and sign.",
+    // One PDF = one notification (sign / fill / both unified).
+    signRequest: "Action required",
+    signRequestSign: "Action required",
+    signRequestFill: "Action required",
+    signRequestBoth: "Action required",
+    signRequestNext: "Open your dashboard to open the document.",
     approved: "has been approved",
     rejected: "has been rejected",
     goToDashboard: "Go to dashboard →",
@@ -96,11 +101,12 @@ const BELL_T = {
     placed: "🎉 Sie wurden ausgewählt!",
     placedWith: "Zugeordnet zu",
     placedNext: "Sehen Sie die Details in Ihrem Dashboard.",
-    signRequest: "Dokument zum Unterschreiben",
-    signRequestSign: "Dokument zum Unterschreiben",
-    signRequestFill: "Formular zum Ausfüllen",
-    signRequestBoth: "Ausfüllen und unterschreiben",
-    signRequestNext: "Öffnen Sie Ihr Dashboard zum Unterschreiben.",
+    // One PDF = one notification (sign / fill / both unified).
+    signRequest: "Aktion erforderlich",
+    signRequestSign: "Aktion erforderlich",
+    signRequestFill: "Aktion erforderlich",
+    signRequestBoth: "Aktion erforderlich",
+    signRequestNext: "Öffnen Sie Ihr Dashboard, um das Dokument zu öffnen.",
     approved: "wurde genehmigt",
     rejected: "wurde abgelehnt",
     goToDashboard: "Zum Dashboard →",
@@ -114,6 +120,15 @@ const BELL_T = {
     waiting48h: (n: number) => `${n} Kandidat${n !== 1 ? "en" : ""} wartet seit > 48 Stunden`,
   },
 } as const;
+// ── UUID guard: hide raw phase_slots UUIDs that leaked into legacy DB rows.
+// New inserts resolve to labels server-side; this is the read-time safety net.
+const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function cleanLabel(s: string | null | undefined, fallback = "Dokument"): string {
+  const v = (s ?? "").trim();
+  if (!v || UUID_RX.test(v)) return fallback;
+  return v;
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type CandidateNotif = {
@@ -156,7 +171,7 @@ function BellButton({ unread, open, onClick }: { unread: number; open: boolean; 
         background: "transparent",
         border: "none",
         color: unread > 0 || open ? "var(--gold)" : "var(--w3)",
-        transition: "color 0.2s, transform 0.15s",
+        transition: "color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease)",
       }}
       onMouseEnter={(e) => { if (!open && unread === 0) e.currentTarget.style.color = "var(--w)"; }}
       onMouseLeave={(e) => { if (!open && unread === 0) e.currentTarget.style.color = "var(--w3)"; }}
@@ -421,52 +436,56 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
                     {pendingNotifId === n.id ? <Spinner size="xs" /> : verified ? <CheckCircle2 size={15} strokeWidth={1.8} /> : placed ? <span style={{ fontSize: 15 }}>🏢</span> : signRequest ? <FilePen size={14} strokeWidth={1.8} /> : approved ? <CheckCircle2 size={15} strokeWidth={1.8} /> : <XCircle size={15} strokeWidth={1.8} />}
                   </div>
                   <div className="flex-1 min-w-0">
+                    {/* Line 1: doc / event TITLE (bold). Line 2+: body text wrapping. */}
                     {verified ? (
                       <>
-                        <p className="text-xs font-semibold leading-snug" style={{ color: "var(--gold)" }}>
-                          {bt.verified}
+                        <p className="text-xs font-semibold flex items-center gap-1 truncate" style={{ color: "var(--gold)" }}>
+                          <span className="truncate">{bt.verified}</span>
                         </p>
-                        <p className="text-[11px] mt-1 leading-snug" style={{ color: "var(--w2)" }}>
+                        <p className="text-[11px] leading-snug mt-0.5" style={{ color: "var(--w2)", wordBreak: "break-word" }}>
                           {verifiedNextParts.map((p, i) => i % 2 === 1 ? <strong key={i}>{p}</strong> : p)}
                         </p>
                       </>
                     ) : placed ? (
                       <>
-                        <p className="text-xs font-semibold leading-snug" style={{ color: "var(--gold)" }}>
-                          {bt.placed}
+                        <p className="text-xs font-semibold flex items-center gap-1 truncate" style={{ color: "var(--gold)" }}>
+                          <span className="truncate">{bt.placed}</span>
                         </p>
-                        <p className="text-[11px] mt-1 px-2 py-1.5 rounded-lg leading-snug"
-                          style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                          {bt.placedWith}: <strong>{n.doc_name}</strong>
-                        </p>
-                        <p className="text-[11px] mt-1 leading-snug" style={{ color: "var(--w2)" }}>
+                        <p className="text-[11px] leading-snug mt-0.5" style={{ color: "var(--w2)", wordBreak: "break-word" }}>
                           {bt.placedNext}
                         </p>
+                        {n.doc_name && (
+                          <p className="text-[11px] mt-1 px-2 py-1 rounded-lg leading-snug inline-block truncate"
+                            style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", maxWidth: "100%" }}>
+                            {bt.placedWith}: <strong>{cleanLabel(n.doc_name, "Organisation")}</strong>
+                          </p>
+                        )}
                       </>
                     ) : signRequest ? (
                       <>
-                        <p className="text-xs font-semibold leading-snug" style={{ color: "var(--gold)" }}>
-                          {/* LAW #34 polish: title reflects exactly what the
-                              candidate has to do on this slot — sign / fill /
-                              both — so they know before clicking. */}
-                          {n.doc_type === "slot_setup_sign_fill" ? bt.signRequestBoth
-                           : n.doc_type === "slot_setup_fill"   ? bt.signRequestFill
-                           : n.doc_type === "slot_setup_sign"   ? bt.signRequestSign
-                           : bt.signRequest}
+                        {/* Line 1: doc name (truncate) — mirrors admin "name first" pattern. */}
+                        <p className="text-xs font-semibold flex items-center gap-1 truncate" style={{ color: "var(--w)" }}>
+                          <span className="truncate">{cleanLabel(n.doc_name)}</span>
                         </p>
-                        <p className="text-[11px] mt-1 px-2 py-1.5 rounded-lg leading-snug"
-                          style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                          <strong>{n.doc_name}</strong>
+                        {/* Line 2: action — one PDF = one label regardless of
+                            sign / fill / both per user directive. */}
+                        <p className="text-[11px] leading-snug mt-0.5" style={{ color: "var(--gold)", wordBreak: "break-word" }}>
+                          {bt.signRequest}
                         </p>
-                        <p className="text-[11px] mt-1 leading-snug" style={{ color: "var(--w2)" }}>
+                        <p className="text-[11px] leading-snug mt-0.5" style={{ color: "var(--w2)", wordBreak: "break-word" }}>
                           {bt.signRequestNext}
                         </p>
                       </>
                     ) : (
-                      <p className="text-xs leading-snug" style={{ color: "var(--w)" }}>
-                        <span className="font-semibold">{n.doc_type}</span>
-                        {" "}{approved ? bt.approved : bt.rejected}
-                      </p>
+                      <>
+                        {/* Line 1: doc type. Line 2: status. */}
+                        <p className="text-xs font-semibold flex items-center gap-1 truncate" style={{ color: "var(--w)" }}>
+                          <span className="truncate">{cleanLabel(translateDocLabel(n.doc_type, lang as "fr" | "en" | "de"))}</span>
+                        </p>
+                        <p className="text-[11px] leading-snug mt-0.5" style={{ color: approved ? "var(--success)" : "var(--danger)", wordBreak: "break-word" }}>
+                          {approved ? bt.approved : bt.rejected}
+                        </p>
+                      </>
                     )}
                     {!verified && !placed && n.feedback && (
                       <p className="text-[11px] mt-1.5 px-2 py-1.5 rounded-lg leading-snug"
@@ -552,27 +571,14 @@ function AdminBell({ accessToken }: { accessToken: string }) {
 
   const unread = notifs.filter(n => !n.read).length;
 
-  // ── Urgency sort: surface stuck items first ──────────────────────────────
-  // Tier 1: unread + > 48h old  (most stuck — needs attention now)
-  // Tier 2: unread + > 24h old
-  // Tier 3: unread + recent
-  // Tier 4: read items
+  // ── Recency sort + overdue counter ───────────────────────────────────────
+  // Newest event at the top, oldest at the bottom. Tier bucketing was removed;
+  // we keep `ageHours` only to count overdue items for the red banner.
   const HOUR = 60 * 60 * 1000;
   const ageHours = (n: AdminNotif) => (Date.now() - new Date(n.created_at).getTime()) / HOUR;
-  const tier = (n: AdminNotif) => {
-    if (n.read) return 4;
-    const h = ageHours(n);
-    if (h >= 48) return 1;
-    if (h >= 24) return 2;
-    return 3;
-  };
-  const sorted = [...notifs].sort((a, b) => {
-    const ta = tier(a), tb = tier(b);
-    if (ta !== tb) return ta - tb;
-    // Within tier 1 surface oldest first (most stuck); other tiers newest first
-    if (ta === 1) return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-  });
+  const sorted = [...notifs].sort((a, b) =>
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
   const overdueCount = sorted.filter(n => !n.read && ageHours(n) >= 48).length;
   const displayed = tab === "unread" ? sorted.filter(n => !n.read) : sorted;
 
@@ -699,46 +705,31 @@ function AdminBell({ accessToken }: { accessToken: string }) {
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      {isSignup ? (
-                        <>
-                          <p className="text-xs leading-snug flex items-center gap-1" style={{ color: "var(--w)" }}>
-                            <span className="font-semibold">{n.user_name}</span>
-                            {n.user_verified && <VerifiedBadge verified size="xs" color="gold" />}
-                            {t.justSignedUp}
-                          </p>
-                          {n.user_email && (
-                            <p className="text-[11px] mt-0.5 truncate" style={{ color: "var(--w3)" }}>{n.user_email}</p>
-                          )}
-                        </>
-                      ) : isDocSigned ? (
-                        <>
-                          <p className="text-xs leading-snug flex items-center gap-1" style={{ color: "var(--w)" }}>
-                            <span className="font-semibold">{n.user_name}</span>
-                            {n.user_verified && <VerifiedBadge verified size="xs" color="gold" />}
-                            {t.signedDoc}
-                          </p>
-                          {n.doc_name && (
-                            <p className="text-[11px] mt-0.5 px-2 py-1 rounded-lg leading-snug"
-                              style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                              <FilePen size={10} strokeWidth={1.8} className="inline mr-1" />
-                              {n.doc_name}
-                            </p>
-                          )}
-                        </>
-                      ) : (
-                        <>
-                          <p className="text-xs leading-snug flex items-center gap-1" style={{ color: "var(--w)" }}>
-                            <span className="font-semibold">{n.user_name}</span>
-                            {n.user_verified && <VerifiedBadge verified size="xs" color="gold" />}
-                            {t.uploadedDoc}
-                          </p>
-                          {n.doc_type && (
-                            <p className="text-[11px] mt-0.5 px-2 py-1 rounded-lg leading-snug"
-                              style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                              {n.doc_type}
-                            </p>
-                          )}
-                        </>
+                      {/* Line 1: candidate name (+ verified). Always on its own row. */}
+                      <p className="text-xs font-semibold flex items-center gap-1 truncate" style={{ color: "var(--w)" }}>
+                        <span className="truncate">{n.user_name}</span>
+                        {n.user_verified && <VerifiedBadge verified size="xs" color="gold" />}
+                      </p>
+                      {/* Line 2: action text, wraps to multiple lines if needed. */}
+                      <p className="text-[11px] leading-snug mt-0.5" style={{ color: "var(--w2)", wordBreak: "break-word" }}>
+                        {isSignup ? t.justSignedUp : isDocSigned ? t.signedDoc : t.uploadedDoc}
+                      </p>
+                      {/* Optional supporting line: email (signup) or doc pill (upload / sign). */}
+                      {isSignup && n.user_email && (
+                        <p className="text-[11px] mt-1 truncate" style={{ color: "var(--w3)" }}>{n.user_email}</p>
+                      )}
+                      {isDocSigned && n.doc_name && (
+                        <p className="text-[11px] mt-1 px-2 py-1 rounded-lg leading-snug inline-flex items-center gap-1"
+                          style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", maxWidth: "100%" }}>
+                          <FilePen size={10} strokeWidth={1.8} className="flex-shrink-0" />
+                          <span className="truncate">{cleanLabel(n.doc_name)}</span>
+                        </p>
+                      )}
+                      {!isSignup && !isDocSigned && n.doc_type && (
+                        <p className="text-[11px] mt-1 px-2 py-1 rounded-lg leading-snug inline-block truncate"
+                          style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", maxWidth: "100%" }}>
+                          {cleanLabel(translateDocLabel(n.doc_type, lang as "fr" | "en" | "de"))}
+                        </p>
                       )}
                       <p className="text-[10px] mt-1.5 flex items-center gap-1" style={{ color: "var(--w3)" }}>
                         {relativeTimeShort(n.created_at, lang)}

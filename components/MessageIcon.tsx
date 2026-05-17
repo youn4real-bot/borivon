@@ -81,14 +81,17 @@ export function MessageIcon() {
           if (!res.ok) throw new Error(`role ${res.status}`);
           const json = await res.json();
           if (!mounted) return;
-          if (json?.role === "admin") {
+          if (json?.role === "admin" || json?.role === "sub_admin") {
+            // SHARED "Borivon Support" inbox: supreme admin + every Borivon
+            // sub-admin all see the same candidate conversations and any of
+            // them can reply (one identity to the candidate). me/role only
+            // returns "sub_admin" for PURE Borivon sub-admins — org admins /
+            // org members resolve as "org_member" and are excluded here.
             setState({ kind: "admin", userId: session.user.id, accessToken });
-          } else if (json?.role === "sub_admin") {
-            setState({ kind: "anon" });
           } else if (json?.role === "candidate") {
             setState({ kind: "candidate", userId: session.user.id, accessToken });
           } else {
-            // Unexpected payload — treat as anon rather than misclassifying.
+            // org_member / unknown → no Borivon Support inbox.
             setState({ kind: "anon" });
           }
         } catch {
@@ -157,7 +160,7 @@ function ChatIconBtn({ unread, open, onClick, label }: { unread: number; open: b
         background: "transparent",
         border: "none",
         color: open ? "var(--gold)" : "var(--w3)",
-        transition: "color 0.2s, transform 0.15s",
+        transition: "color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease)",
       }}
       onMouseEnter={(e) => { if (!open) e.currentTarget.style.color = "var(--w)"; }}
       onMouseLeave={(e) => { if (!open) e.currentTarget.style.color = "var(--w3)"; }}
@@ -407,8 +410,22 @@ function ComposeBar({
 
   async function handleAttach(file: File | null) {
     if (!file || !file.type.startsWith("image/")) return;
-    const data = await compressImage(file, 1280, 0.78);
-    if (data.length > 800_000) { alert(tooLarge); return; }
+    // WhatsApp-style progressive compression: try large→small until the
+    // encoded data URL is comfortably under the server cap (800k chars).
+    // We aim for ≤ 700k to leave headroom; only bail if even a tiny,
+    // low-quality version somehow can't fit.
+    const TARGET = 700_000;
+    const steps: [number, number][] = [
+      [1600, 0.8], [1280, 0.72], [1024, 0.62],
+      [800, 0.55], [640, 0.5], [480, 0.45],
+    ];
+    let data = "";
+    for (const [maxW, q] of steps) {
+      data = await compressImage(file, maxW, q);
+      if (data.length <= TARGET) break;
+    }
+    if (data && data.length > 800_000) { alert(tooLarge); return; }
+    if (!data) return;
     setAttach(data);
   }
 
@@ -647,7 +664,7 @@ function ThreadModal({
           {/* Expand / shrink toggle (left side, like Skool) — desktop only */}
           <button onClick={toggleExpand} aria-label={expandLabel} title={expandLabel}
             className="hidden sm:flex w-8 h-8 items-center justify-center rounded-lg flex-shrink-0 hover:scale-110"
-            style={{ background: "transparent", color: "var(--w3)", border: "none", transition: "color 0.2s, transform 0.15s" }}
+            style={{ background: "transparent", color: "var(--w3)", border: "none", transition: "color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease)" }}
             onMouseEnter={(e) => { e.currentTarget.style.color = "var(--w)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = "var(--w3)"; }}>
             {expanded ? <Minimize2 size={13} strokeWidth={1.8} /> : <Maximize2 size={13} strokeWidth={1.8} />}
@@ -656,13 +673,13 @@ function ThreadModal({
           <div className="flex-1 min-w-0">
             <p className="text-[14px] font-semibold tracking-tight truncate inline-flex items-center gap-0.5" style={{ color: "var(--w)" }}>
               {title}
-              {verifiedOther && <VerifiedBadge verified size="xs" isAdmin={!!isAdminOther} color={otherBadgeColor ?? (isAdminOther ? "black" : "gold")} />}
+              {verifiedOther && <VerifiedBadge verified size="xs" isAdmin={!!isAdminOther} color={otherBadgeColor ?? (isAdminOther ? "black" : "gold")} name={title} />}
             </p>
             {subtitle && <p className="text-[11px] truncate" style={{ color: "var(--w3)" }}>{subtitle}</p>}
           </div>
           <button onClick={onClose} aria-label={t.miClose}
             className="w-8 h-8 flex items-center justify-center rounded-lg flex-shrink-0 hover:scale-110"
-            style={{ background: "transparent", color: "var(--w3)", border: "none", transition: "color 0.2s, transform 0.15s" }}
+            style={{ background: "transparent", color: "var(--w3)", border: "none", transition: "color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease)" }}
             onMouseEnter={(e) => { e.currentTarget.style.color = "var(--w)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = "var(--w3)"; }}>
             <XIcon size={13} strokeWidth={1.8} />
@@ -759,8 +776,8 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
   // Candidate's own display name and profile photo.
   const [candidateName, setCandidateName] = useState("You");
   const [candidatePhoto, setCandidatePhoto] = useState<string | null>(null);
-  // Admin's profile photo (real upload or fallback logo).
-  const [adminPhoto, setAdminPhoto] = useState<string>(ADMIN_LOGO_URL);
+  // "Borivon Support" avatar = the company brand mark, fixed. Never a person.
+  const adminPhoto = ADMIN_LOGO_URL;
 
   useEffect(() => {
     let cancelled = false;
@@ -771,14 +788,13 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
       const fallback = data.user.email ?? "You";
       setCandidateName(fn || fallback);
     });
-    // Fetch the candidate's own photo and the admin's photo in parallel.
+    // Candidate's own photo only. The "Borivon Support" party is the COMPANY,
+    // not a person — its avatar stays the Borivon brand mark (ADMIN_LOGO_URL),
+    // never the supreme admin's personal photo. So we deliberately do NOT
+    // fetch /api/portal/admin-photo here.
     fetch("/api/portal/me/profile-photo", { headers: { Authorization: `Bearer ${accessToken}` } })
       .then(r => r.ok ? r.json() : null)
       .then(j => { if (!cancelled && j?.photo) setCandidatePhoto(j.photo); })
-      .catch(() => {});
-    fetch("/api/portal/admin-photo", { headers: { Authorization: `Bearer ${accessToken}` } })
-      .then(r => r.ok ? r.json() : null)
-      .then(j => { if (!cancelled && j?.photo) setAdminPhoto(j.photo); })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [accessToken]);
@@ -882,7 +898,10 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
   }
 
   const title = lang === "fr" ? "Messages" : lang === "de" ? "Nachrichten" : "Messages";
-  const teamName = "Youness Taoufiq";
+  // Candidates always talk to ONE identity — the Borivon team behind it
+  // (supreme admin + all Borivon sub-admins) is invisible to them. Never a
+  // person's name.
+  const teamName = "Borivon Support";
 
   // Build a single fake "conversation" row from the candidate's thread so the
   // list dropdown looks like the admin's. Last message preview = last msg body.
@@ -912,7 +931,7 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between gap-2">
                     <p className="text-[13px] font-semibold truncate inline-flex items-center" style={{ color: "var(--w)" }}>
-                      {teamName}<VerifiedBadge verified size="xs" isAdmin title="Borivon" color="black" />
+                      {teamName}<VerifiedBadge verified size="xs" isAdmin title="Borivon" color="black" name={teamName} />
                     </p>
                     {last && <span className="text-[9.5px] flex-shrink-0" style={{ color: "var(--w3)" }}>{relativeTime(lastAt, lang)}</span>}
                   </div>
@@ -968,14 +987,11 @@ function AdminInbox({ accessToken }: { accessToken: string }) {
   const [convs, setConvs] = useState<AdminConversation[]>([]);
   const [activeThread, setActiveThread] = useState<AdminConversation | null>(null);
   const [threadMsgs, setThreadMsgs] = useState<Msg[]>([]);
-  const [ownPhoto, setOwnPhoto] = useState<string>(ADMIN_LOGO_URL);
-
-  useEffect(() => {
-    fetch("/api/portal/me/profile-photo", { headers: { Authorization: `Bearer ${accessToken}` } })
-      .then(r => r.ok ? r.json() : null)
-      .then(j => { if (j?.photo) setOwnPhoto(j.photo); })
-      .catch(() => {});
-  }, [accessToken]);
+  // The admin side is ONE shared identity — "Borivon Support" + the Borivon
+  // brand mark — for the supreme admin AND every sub-admin alike. Never an
+  // individual admin's name/photo (that's what made a sub-admin see the
+  // supreme admin's identity). Fixed, no per-admin photo fetch.
+  const ownPhoto = ADMIN_LOGO_URL;
 
   const fetchConvs = useCallback(async () => {
     try {
@@ -1106,7 +1122,7 @@ function AdminInbox({ accessToken }: { accessToken: string }) {
           otherInitial={(activeThread.name || activeThread.email || "?").charAt(0).toUpperCase()}
           otherName={activeThread.name || activeThread.email}
           ownInitial="B"
-          ownName="Youness Taoufiq"
+          ownName="Borivon Support"
           otherAvatarUrl={activeThread.photoUrl ?? null}
           ownAvatarUrl={ownPhoto}
           verifiedOther={!!activeThread.verified}

@@ -43,20 +43,20 @@ type Props = {
 const T = {
   fr: {
     title:  "Félicitations 🎉",
-    body:   "Votre profil a été vérifié par Youness Taoufiq.",
-    sub:    "Vous avez accès à toutes les fonctionnalités de la plateforme.",
+    body:   "Vous êtes maintenant sur le plan Borivon Premium.",
+    sub:    "Accès complet à toutes les fonctionnalités débloqué.",
     btn:    "Continuer",
   },
   en: {
     title:  "Congratulations 🎉",
-    body:   "Your profile has been verified by Youness Taoufiq.",
-    sub:    "You now have full access to all platform features.",
+    body:   "You're now on the Borivon Premium plan.",
+    sub:    "Full access to every feature is unlocked.",
     btn:    "Continue",
   },
   de: {
     title:  "Herzlichen Glückwunsch 🎉",
-    body:   "Ihr Profil wurde von Youness Taoufiq verifiziert.",
-    sub:    "Sie haben jetzt vollen Zugang zu allen Plattformfunktionen.",
+    body:   "Sie sind jetzt im Borivon-Premium-Plan.",
+    sub:    "Voller Zugang zu allen Funktionen ist freigeschaltet.",
     btn:    "Weiter",
   },
 } as const;

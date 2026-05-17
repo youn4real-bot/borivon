@@ -291,9 +291,11 @@ textarea:focus {
   box-shadow: var(--shadow-sm);
   transition: border-color var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease);
 }
-.bv-card-hover:hover {
-  border-color: var(--border2);
-  box-shadow: var(--shadow-md);
+@media (hover: hover) {
+  .bv-card-hover:hover {
+    border-color: var(--border2);
+    box-shadow: var(--shadow-md);
+  }
 }
 
 /* Hairline divider used inside cards / lists */
@@ -475,10 +477,12 @@ textarea::placeholder { color: var(--w3) !important; opacity: 0.4 !important; }
     border-color var(--dur-2) var(--ease),
     box-shadow var(--dur-2) var(--ease);
 }
-.bv-card-lift:hover {
-  transform: translateY(-2px);
-  border-color: var(--border2);
-  box-shadow: var(--shadow-md);
+@media (hover: hover) {
+  .bv-card-lift:hover {
+    transform: translateY(-2px);
+    border-color: var(--border2);
+    box-shadow: var(--shadow-md);
+  }
 }
 
 /* ── Mobile bottom-bar clearance ────────────────────────────────────────────
@@ -610,14 +614,19 @@ textarea::placeholder { color: var(--w3) !important; opacity: 0.4 !important; }
     box-shadow 220ms var(--ease, ease),
     transform 220ms var(--ease, ease);
 }
-.bv-row-hover:hover {
-  background-color: var(--bg2);
-  /* Two-layer shadow — a tight inner one + a softer outer halo. Gives the
-     row a quiet "lift off the page" feel without screaming for attention. */
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.06),
-    0 6px 18px rgba(0, 0, 0, 0.10);
-  transform: translateY(-1px);
+/* Hover lift ONLY on real hover devices. On iOS/touch :hover latches after
+   a tap and the whole box stays highlighted/lifted ("held box" bug). Touch
+   keeps just the transient :active press. */
+@media (hover: hover) {
+  .bv-row-hover:hover {
+    background-color: var(--bg2);
+    /* Two-layer shadow — a tight inner one + a softer outer halo. Gives the
+       row a quiet "lift off the page" feel without screaming for attention. */
+    box-shadow:
+      0 1px 2px rgba(0, 0, 0, 0.06),
+      0 6px 18px rgba(0, 0, 0, 0.10);
+    transform: translateY(-1px);
+  }
 }
 .bv-row-hover:active {
   /* Press-down — softer shadow, slight downward shift. Tactile. */
@@ -644,8 +653,10 @@ textarea::placeholder { color: var(--w3) !important; opacity: 0.4 !important; }
   will-change: transform;
   transition: transform 200ms var(--ease, ease);
 }
-.bv-lift-hover:hover {
-  transform: translateY(-2px);
+@media (hover: hover) {
+  .bv-lift-hover:hover {
+    transform: translateY(-2px);
+  }
 }
 .bv-lift-hover:active {
   transform: translateY(0);
@@ -672,12 +683,17 @@ textarea::placeholder { color: var(--w3) !important; opacity: 0.4 !important; }
     transform 180ms var(--ease, ease),
     background-color 180ms var(--ease, ease);
 }
-.bv-icon-btn:hover {
-  /* Slightly more contrast than --bg2 so the pill is distinctly visible
-     in both dark and light mode without feeling heavy. */
-  background-color: var(--border) !important;
-  color: var(--w) !important;
-  transform: scale(1.12);
+/* Hover styling ONLY on real hover devices (mouse). On touch (iOS/Android)
+   :hover latches after a tap and "sticks" until you tap elsewhere — the
+   "button stays pressed/held" bug. Touch keeps just the transient :active. */
+@media (hover: hover) {
+  .bv-icon-btn:hover {
+    /* Slightly more contrast than --bg2 so the pill is distinctly visible
+       in both dark and light mode without feeling heavy. */
+    background-color: var(--border) !important;
+    color: var(--w) !important;
+    transform: scale(1.12);
+  }
 }
 .bv-icon-btn:active {
   transform: scale(0.94);
@@ -697,9 +713,11 @@ textarea::placeholder { color: var(--w3) !important; opacity: 0.4 !important; }
 .bv-icon-btn--approve {
   color: #34c759;
 }
-.bv-icon-btn--approve:hover {
-  background-color: rgba(52,199,89,0.14) !important;
-  color: #34c759 !important;
+@media (hover: hover) {
+  .bv-icon-btn--approve:hover {
+    background-color: rgba(52,199,89,0.14) !important;
+    color: #34c759 !important;
+  }
 }
 .bv-icon-btn--approve:active {
   background-color: rgba(52,199,89,0.24) !important;
@@ -709,9 +727,11 @@ textarea::placeholder { color: var(--w3) !important; opacity: 0.4 !important; }
 .bv-icon-btn--reject {
   color: #e05252;
 }
-.bv-icon-btn--reject:hover {
-  background-color: rgba(224,82,82,0.12) !important;
-  color: #e05252 !important;
+@media (hover: hover) {
+  .bv-icon-btn--reject:hover {
+    background-color: rgba(224,82,82,0.12) !important;
+    color: #e05252 !important;
+  }
 }
 .bv-icon-btn--reject:active {
   background-color: rgba(224,82,82,0.22) !important;
@@ -723,9 +743,11 @@ textarea::placeholder { color: var(--w3) !important; opacity: 0.4 !important; }
 .bv-icon-btn--info {
   color: #5b9ae0;
 }
-.bv-icon-btn--info:hover {
-  background-color: rgba(91, 154, 224, 0.12) !important;
-  color: #7bb1ee !important;
+@media (hover: hover) {
+  .bv-icon-btn--info:hover {
+    background-color: rgba(91, 154, 224, 0.12) !important;
+    color: #7bb1ee !important;
+  }
 }
 .bv-icon-btn--info:active {
   background-color: rgba(91, 154, 224, 0.22) !important;

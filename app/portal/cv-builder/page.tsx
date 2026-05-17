@@ -16,7 +16,7 @@
 import * as React from "react";
 import { useState, useRef, useEffect, ChangeEvent } from "react";
 import { PortalTopNav } from "@/components/PortalTopNav";
-import { createPortal } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
@@ -31,6 +31,9 @@ import type { LucideIcon } from "lucide-react";
 import { PageLoader, Spinner, AutosaveIndicator } from "@/components/ui/states";
 import { PhotoCropModal } from "@/components/PhotoCropModal";
 import { PdfViewer } from "@/components/PdfViewer";
+import { IosPdfFrame } from "@/components/IosPdfFrame";
+import { isIOSDevice } from "@/lib/platform";
+import { triggerIosDownload } from "@/lib/iosDownload";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -273,7 +276,7 @@ function makeCVData(email = ""): CVData {
     // automatically when passport OCR extracts them on the dashboard.
     countryOfBirth: "", countryOfResidence: "",
     nationality: "", maritalStatus: "",
-    address: "", postalCode: "", city: "", phone: "", email,
+    address: "", addressNumber: "", postalCode: "", city: "", phone: "", email,
     workEntries: [
       { id: `work-default-${Date.now()}`, isGap: false, title: "", employer: "", location: "", country: "Marokko", departments: [], start: { month: "", year: "" }, end: { month: "", year: "" }, gapReason: "" },
     ],
@@ -335,6 +338,7 @@ function Input({ value, onChange, placeholder, type = "text", className = "", ha
       value={value}
       onChange={e => onChange(clean(e.target.value))}
       placeholder={placeholder}
+      data-cv-error={hasError ? "1" : undefined}
       className={`w-full px-4 py-3.5 text-[15px] font-medium outline-none transition-all ${className}`}
       style={{
         background: "var(--bg2)",
@@ -370,6 +374,7 @@ function DateInput({ value, onChange, hasError, onBlur }: {
       onChange={e => onChange(format(e.target.value))}
       placeholder={ph}
       maxLength={10}
+      data-cv-error={hasError ? "1" : undefined}
       className="w-full px-4 py-3.5 text-[15px] font-medium outline-none transition-all"
       style={{
         background: "var(--bg2)",
@@ -428,7 +433,7 @@ function PickerPopup({ open, title, options, selectedValue, onPick, onClose }: {
         style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", animation: "bvFadeRise 0.2s var(--ease-out)" }}
         onClick={onClose} />
       <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4 pointer-events-none">
-        <div className="w-full max-w-[320px] max-h-[70vh] overflow-hidden flex flex-col pointer-events-auto"
+        <div className="w-full max-w-[320px] max-h-[70dvh] overflow-hidden flex flex-col pointer-events-auto"
           style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
           <div className="flex items-center justify-between px-5 py-4">
             <h3 className="text-[15px] font-semibold" style={{ color: "var(--w)" }}>{title}</h3>
@@ -477,7 +482,7 @@ function MonthYearPicker({ value, onChange, label, allowNull = false, isPresent 
   };
 
   return (
-    <div>
+    <div data-cv-error={hasError ? "1" : undefined}>
       {/* Label + minimalist Currently toggle inline on the right.
           Only rendered when allowNull is set (e.g. End date for in-progress training). */}
       <div className="flex items-center justify-between mb-2.5">
@@ -625,7 +630,7 @@ function PhoneInput({ value, onChange, hasError = false }: { value: string; onCh
   }
 
   return (
-    <div className="flex gap-2 relative">
+    <div className="flex gap-2 relative" data-cv-error={hasError ? "1" : undefined}>
       <button type="button"
         onClick={() => setOpen(o => !o)}
         className="flex items-center gap-2 px-3 py-3.5 text-[15px] font-medium outline-none cursor-pointer transition-all"
@@ -658,7 +663,7 @@ function PhoneInput({ value, onChange, hasError = false }: { value: string; onCh
             onClick={() => setOpen(false)} />
           {/* Centered popup */}
           <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4 pointer-events-none">
-            <div className="w-full max-w-[360px] max-h-[70vh] overflow-hidden flex flex-col pointer-events-auto"
+            <div className="w-full max-w-[360px] max-h-[70dvh] overflow-hidden flex flex-col pointer-events-auto"
               style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
               <div className="flex items-center justify-between px-5 py-4">
                 <h3 className="text-[15px] font-semibold" style={{ color: "var(--w)" }}>
@@ -719,6 +724,7 @@ function LangLevelButton({ level, onChange, hasError = false }: {
   return (
     <>
       <button type="button" onClick={() => setOpen(true)}
+        data-cv-error={hasError ? "1" : undefined}
         className="flex items-center justify-center px-4 py-2.5 text-[13px] font-semibold outline-none cursor-pointer transition-all hover:opacity-100"
         style={{ background: "rgba(255,255,255,0.06)", border: `1px solid ${hasError ? "var(--danger)" : "transparent"}`, color: detail ? "var(--w)" : "var(--w3)", borderRadius: "10px", minWidth: "84px", opacity: 0.95, flexShrink: 0 }}>
         {shortLabel}
@@ -770,7 +776,7 @@ function ExtraNationalityPickerHost({ existing, onPick, onClose }: {
         style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", animation: "bvFadeRise 0.2s var(--ease-out)" }}
         onClick={onClose} />
       <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4 pointer-events-none">
-        <div className="w-full max-w-[360px] max-h-[70vh] overflow-hidden flex flex-col pointer-events-auto"
+        <div className="w-full max-w-[360px] max-h-[70dvh] overflow-hidden flex flex-col pointer-events-auto"
           style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
           <div className="flex items-center justify-between px-5 py-4">
             <h3 className="text-[15px] font-semibold" style={{ color: "var(--w)" }}>{title}</h3>
@@ -862,7 +868,7 @@ function InternshipInfoPopup({ open, onClose }: { open: boolean; onClose: () => 
         style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", animation: "bvFadeRise 0.2s var(--ease-out)" }}
         onClick={onClose} />
       <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4 pointer-events-none">
-        <div className="w-full max-w-[400px] max-h-[85vh] overflow-y-auto flex flex-col pointer-events-auto"
+        <div className="w-full max-w-[400px] max-h-[85dvh] overflow-y-auto flex flex-col pointer-events-auto"
           style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
           <div className="px-6 pt-6 pb-2 text-center">
             <span className="mx-auto mb-3 flex items-center justify-center w-12 h-12 rounded-full"
@@ -1047,7 +1053,7 @@ function AbiturInfoPopup({ open, onClose }: { open: boolean; onClose: () => void
         style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", animation: "bvFadeRise 0.2s var(--ease-out)" }}
         onClick={onClose} />
       <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4 pointer-events-none">
-        <div className="w-full max-w-[400px] max-h-[85vh] overflow-y-auto flex flex-col pointer-events-auto"
+        <div className="w-full max-w-[400px] max-h-[85dvh] overflow-y-auto flex flex-col pointer-events-auto"
           style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
           <div className="px-6 pt-6 pb-2 text-center">
             <span className="mx-auto mb-3 flex items-center justify-center w-12 h-12 rounded-full"
@@ -1308,7 +1314,7 @@ function NationalityPicker({ value, onChange, titleOverride }: {
             style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", animation: "bvFadeRise 0.2s var(--ease-out)" }}
             onClick={() => setOpen(false)} />
           <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4 pointer-events-none">
-            <div className="w-full max-w-[360px] max-h-[70vh] overflow-hidden flex flex-col pointer-events-auto"
+            <div className="w-full max-w-[360px] max-h-[70dvh] overflow-hidden flex flex-col pointer-events-auto"
               style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
               <div className="flex items-center justify-between px-5 py-4">
                 <h3 className="text-[15px] font-semibold" style={{ color: "var(--w)" }}>
@@ -1446,6 +1452,7 @@ function LockedField({ value, placeholder, onLockedClick, displayFlag, passportS
         value={value}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder ?? "—"}
+        data-cv-error={hasError ? "1" : undefined}
         className="w-full px-4 py-3.5 text-[15px] font-medium outline-none"
         style={{
           background: "var(--bg2)",
@@ -1488,6 +1495,7 @@ function LockedField({ value, placeholder, onLockedClick, displayFlag, passportS
   })();
   return (
     <button type="button" onClick={onLockedClick}
+      data-cv-error={hasError ? "1" : undefined}
       className="w-full flex items-center gap-3 px-4 py-3.5 text-[15px] font-medium outline-none cursor-pointer transition-all hover:opacity-90"
       style={{ background: "var(--bg2)", border: `1px solid ${hasError ? "var(--danger)" : "transparent"}`, color: value ? "var(--w)" : "var(--w3)", borderRadius: "12px", textAlign: "left" }}>
       {displayFlag && <CountryFlag iso={displayFlag.iso2} size={20} />}
@@ -1740,8 +1748,13 @@ function CVBuilderInner() {
   const [pendingPhotoSrc, setPendingPhotoSrc] = useState<string | null>(null);
 
   const [generating, setGenerating] = useState(false);
+  const [cvDl, setCvDl]             = useState(false); // download spinner
   const [pdfBlob, setPdfBlob]       = useState<Blob | null>(null);
   const [pdfUrl, setPdfUrlRaw]      = useState<string | null>(null);
+  // iOS: the generated CV is stashed server-side so it can be previewed +
+  // downloaded via the same iOS-safe paths as every other doc. Non-zero
+  // once the stash succeeds; also busts the iframe/download cache.
+  const [iosCvNonce, setIosCvNonce] = useState(0);
   // Always revoke the previous blob URL when replacing — otherwise PDFs leak
   // ~1MB each and a long session burns megabytes.
   const setPdfUrl = (next: string | null) => {
@@ -1925,6 +1938,7 @@ function CVBuilderInner() {
       nationality:         toNatDe(profile.nationality) || prev.nationality,
       maritalStatus:       computeFamilienstand(profile.marital_status, profile.children_ages) || prev.maritalStatus,
       address:             [profile.address_street, profile.address_number].filter(Boolean).join(" ") || prev.address,
+      addressNumber:       (profile.address_number ?? "").trim() || prev.addressNumber || "",
       postalCode:          profile.address_postal      || prev.postalCode,
       city:                profile.city_of_residence   || prev.city,
       countryOfResidence:  toNatDe(profile.country_of_residence) || prev.countryOfResidence,
@@ -2112,6 +2126,7 @@ function CVBuilderInner() {
                 merged.countryOfResidence = pickPP(merged.countryOfResidence ?? "",                  toNatDe(profile.country_of_residence));
                 merged.postalCode        = pickPP(merged.postalCode,                                 profile.address_postal    || "");
                 merged.address           = pickPP(merged.address,                                    [profile.address_street, profile.address_number].filter(Boolean).join(" ") || "");
+                merged.addressNumber     = pickPP(merged.addressNumber ?? "",                        (profile.address_number ?? "").trim());
               }
               if (!merged.maritalStatus) merged.maritalStatus = computeFamilienstand(profile.marital_status, profile.children_ages);
             }
@@ -2312,6 +2327,25 @@ function CVBuilderInner() {
 
   // ── Scroll to the first section that has validation errors ───────────────
   function scrollToFirstError(errors: Set<string>) {
+    // Primary: jump to the actual TOPMOST invalid field (red border) and
+    // center it on screen — not just the section header. Every required
+    // input tags itself with data-cv-error="1" when invalid, so we pick the
+    // one nearest the top of the document.
+    const marked = Array.from(
+      document.querySelectorAll<HTMLElement>('[data-cv-error="1"]'),
+    );
+    if (marked.length > 0) {
+      const topmost = marked.reduce((best, el) => {
+        const t = el.getBoundingClientRect().top + window.scrollY;
+        const bt = best.getBoundingClientRect().top + window.scrollY;
+        return t < bt ? el : best;
+      });
+      topmost.scrollIntoView({ behavior: "smooth", block: "center" });
+      return;
+    }
+
+    // Fallback: errors that aren't plain inputs (photo, skills, driver
+    // license, departments) — scroll to their section, centered.
     const checks: { keys: string[]; id: string }[] = [
       { keys: ["photo"], id: "photo-section" },
       { keys: ["firstName","lastName","birthDate","birthPlace","countryOfBirth","nationality","address","postalCode","city","countryOfResidence","phone","email","maritalStatus"], id: "personal-section" },
@@ -2325,10 +2359,7 @@ function CVBuilderInner() {
       const hit = [...errors].some(e => keys.some(k => e === k || e.startsWith(k)));
       if (!hit) continue;
       const el = document.getElementById(id);
-      if (el) {
-        el.scrollIntoView({ behavior: "smooth", block: "start" });
-        setTimeout(() => window.scrollBy({ top: -80, behavior: "smooth" }), 320);
-      }
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
   }
@@ -2436,9 +2467,10 @@ function CVBuilderInner() {
 
     const errors = validate();
     if (errors.size > 0) {
-      // Wait one tick for React to apply the new validationErrors state (red borders),
-      // then scroll the page to the first section that has a missing field.
-      setTimeout(() => scrollToFirstError(errors), 80);
+      // Wait for React to apply the new validationErrors state so the red
+      // borders + data-cv-error markers are in the DOM, then scroll to the
+      // topmost invalid field and center it.
+      setTimeout(() => scrollToFirstError(errors), 140);
       return;
     }
     const detectedGaps = detectSmartGaps(cvData.workEntries, cvData.eduEntries);
@@ -2456,15 +2488,31 @@ function CVBuilderInner() {
   async function doGenerate() {
     setGenerating(true); setGenError(""); setPdfBlob(null); setPdfUrl(null); setUploaded(false);
     try {
-      const res = await fetch("/api/portal/cv/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify(cvData),
-      });
+      const res = await fetch(
+        `/api/portal/cv/generate${adminCandidateId ? `?candidateId=${encodeURIComponent(adminCandidateId)}` : ""}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+          body: JSON.stringify(cvData),
+        },
+      );
       if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || t.cvbErrFallback); }
       const blob = await res.blob();
       setPdfBlob(blob);
       setPdfUrl(URL.createObjectURL(blob));
+      // iOS can't preview/download a client blob — stash it server-side so
+      // the iOS preview (IosPdfFrame) + download (?dl=1) work like every
+      // other doc. Fire-and-forget; bumps the nonce on success.
+      if (isIOSDevice()) {
+        try {
+          const up = await fetch("/api/portal/cv/preview-file", {
+            method: "POST",
+            headers: { "Content-Type": "application/pdf", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
+            body: blob,
+          });
+          if (up.ok) setIosCvNonce(Date.now());
+        } catch { /* preview/download will fall back to blob */ }
+      }
     } catch (err: unknown) {
       setGenError(err instanceof Error ? err.message : t.cvbErrFallback);
     } finally {
@@ -2474,15 +2522,31 @@ function CVBuilderInner() {
 
   function handleDownload() {
     if (!pdfUrl) return;
+    if (isIOSDevice()) flushSync(() => setCvDl(true));
+    else setCvDl(true);
     // Naming alignment with upload pipeline (see app/api/portal/upload/route.ts
     // buildFileName): <firstname>_<lastname>_pflegekraft_<doctype>.pdf so the
     // candidate's CV builder download matches what later lands in Drive.
     const fn = (cvData.firstName ?? "").trim().toLowerCase().replace(/\s+/g, "_") || "kandidat";
     const ln = (cvData.lastName ?? "").trim().toLowerCase().replace(/\s+/g, "_") || "unbekannt";
+    const name = `${fn}_${ln}_pflegekraft_lebenslauf.pdf`;
+
+    // iOS: blob downloads don't work — stream the stashed copy as a forced
+    // attachment (same proven path as every other iOS download).
+    if (isIOSDevice() && iosCvNonce && authToken) {
+      triggerIosDownload(
+        `/api/portal/cv/preview-file?dl=1&name=${encodeURIComponent(name)}&access_token=${encodeURIComponent(authToken)}&_=${iosCvNonce}`,
+        name,
+        () => setCvDl(false),
+      );
+      return;
+    }
+
     const a = document.createElement("a");
     a.href = pdfUrl;
-    a.download = `${fn}_${ln}_pflegekraft_lebenslauf.pdf`;
+    a.download = name;
     a.click();
+    setTimeout(() => setCvDl(false), 1200);
   }
 
   async function handleUpload() {
@@ -2493,12 +2557,23 @@ function CVBuilderInner() {
       const file = new File([pdfBlob], `lebenslauf_${fn}.pdf`, { type: "application/pdf" });
       const form = new FormData();
       form.append("file", file); form.append("fileType", "Lebenslauf (DE)"); form.append("fileKey", "cv_de");
-      // In admin mode, upload to the candidate's dossier not the admin's
-      form.append("userId", adminCandidateId ?? userId); form.append("firstName", cvData.firstName); form.append("lastName", cvData.lastName);
+      // In admin mode the CV must belong to the CANDIDATE, not the admin
+      // editing it. The upload route reads `forUserId` (admin-gated) — the
+      // old code sent `userId`, which the route ignores, so the doc was
+      // attributed to the sub-admin. Send the field the route actually reads.
+      if (adminCandidateId) form.append("forUserId", adminCandidateId);
+      form.append("firstName", cvData.firstName); form.append("lastName", cvData.lastName);
       const headers: HeadersInit = authToken ? { Authorization: `Bearer ${authToken}` } : {};
       const res = await fetch("/api/portal/upload", { method: "POST", headers, body: form });
       if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || t.cvbErrFallback); }
       setUploaded(true);
+      // Candidate flow: once the CV is generated + sent, take them straight
+      // back to the dashboard (brief pause so the success state is seen).
+      // Admin-mode (generating for a candidate) stays put — the admin uses
+      // the existing "Back to admin" control.
+      if (!adminCandidateId) {
+        setTimeout(() => router.push("/portal/dashboard"), 1200);
+      }
     } catch (err: unknown) {
       setUploadErr(err instanceof Error ? err.message : t.cvbErrFallback);
     } finally {
@@ -3709,13 +3784,15 @@ function CVBuilderInner() {
               {t.cvb_preview}
             </p>
             <div className="flex items-center gap-2">
-              <a href={pdfUrl}
-                download={`lebenslauf_${[cvData.firstName, cvData.lastName].filter(Boolean).join("_").toLowerCase() || "cv"}.pdf`}
+              <button onClick={handleDownload}
+                disabled={cvDl}
                 className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center"
                 style={{ color: "var(--w2)" }}
                 title="Download">
-                <Download size={14} strokeWidth={1.8} />
-              </a>
+                {cvDl
+                  ? <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                  : <Download size={14} strokeWidth={1.8} />}
+              </button>
               <button onClick={() => setShowCvPreview(false)}
                 className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center"
                 style={{ color: "var(--w2)" }}>
@@ -3723,9 +3800,18 @@ function CVBuilderInner() {
               </button>
             </div>
           </div>
-          {/* PDF viewer */}
-          <div className="flex-1 min-h-0">
-            <PdfViewer src={pdfUrl} />
+          {/* PDF viewer — iOS uses the native frame on the stashed copy
+              (pdf.js canvas can't paint on WebKit); desktop/Android keep
+              the full pdf.js viewer. */}
+          <div className="flex-1 min-h-0" style={{ position: "relative" }}>
+            {isIOSDevice() && iosCvNonce && authToken ? (
+              <IosPdfFrame
+                src={`/api/portal/cv/preview-file?access_token=${encodeURIComponent(authToken)}&_=${iosCvNonce}`}
+                title="Lebenslauf"
+              />
+            ) : (
+              <PdfViewer src={pdfUrl} />
+            )}
           </div>
         </div>
       </div>,
@@ -3737,8 +3823,9 @@ function CVBuilderInner() {
       <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
         style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
         onClick={() => setShowSubmitConfirm(false)}>
-        <div className="w-full max-w-md p-7 flex flex-col items-center text-center rounded-[20px]"
+        <div className="w-full max-w-md p-7 flex flex-col items-center text-center rounded-[20px] overflow-y-auto"
           style={{
+            maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)",
             background: "var(--card)",
             border: "1px solid var(--border-gold)",
             boxShadow: "var(--shadow-lg)",

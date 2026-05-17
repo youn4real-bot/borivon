@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
+import { validateImageDataUrl } from "@/lib/validateDataUrl";
 
 const BUCKET = "profile-photos";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -65,23 +66,19 @@ export async function POST(req: NextRequest) {
 
   // ── Upload new photo ─────────────────────────────────────────────────────────
   if (typeof photo !== "string") return NextResponse.json({ error: "Invalid photo" }, { status: 400 });
-  if (!photo.startsWith("data:image/")) return NextResponse.json({ error: "Must be a data URL" }, { status: 400 });
-
-  const commaIdx = photo.indexOf(",");
-  if (commaIdx === -1) return NextResponse.json({ error: "Malformed data URL" }, { status: 400 });
-
-  const header  = photo.slice(0, commaIdx);
-  const b64Data = photo.slice(commaIdx + 1);
-
-  const mimeMatch = header.match(/data:([^;]+);/);
-  const mimeType  = mimeMatch?.[1] ?? "image/jpeg";
-  const ext       = mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : "jpg";
-
-  if (b64Data.length > 4_000_000) {
+  if (photo.length > 4_000_000) {
     return NextResponse.json({ error: "Photo too large (max ~3 MB)" }, { status: 413 });
   }
-
-  const buffer = Buffer.from(b64Data, "base64");
+  // SECURITY: strict allowlist + magic-byte check. Rejects SVG (XSS vector)
+  // and MIME spoofing (e.g. PNG header with JPEG bytes).
+  const validated = validateImageDataUrl(photo);
+  if (!validated.ok) {
+    console.warn("[admin profile-photo POST] rejected:", validated.reason);
+    return NextResponse.json({ error: "Must be a PNG/JPEG/WebP/GIF data URL" }, { status: 400 });
+  }
+  const mimeType = validated.mime;
+  const ext      = mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : mimeType === "image/gif" ? "gif" : "jpg";
+  const buffer   = validated.bytes;
   await ensureBucket();
 
   const fileName = `${candidateId}.${ext}`;

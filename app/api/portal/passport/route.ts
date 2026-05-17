@@ -59,6 +59,12 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json();
 
+  // Draft autosave: persist the extracted/edited fields to the DB so the
+  // data is permanent and loads on ANY device (phone/laptop) at any phase.
+  // A draft must NOT mark the passport as submitted-for-review and must NOT
+  // regenerate the Drive PDF — only the explicit Submit does that.
+  const isDraft = body.__draft === true;
+
   // Truncate every free-text field before touching the DB.
   // Postgres text columns have no length limit — without this an authenticated
   // candidate could store arbitrarily large strings in their own profile row.
@@ -85,6 +91,20 @@ export async function POST(req: NextRequest) {
   const country_of_residence = cap(body.country_of_residence, 100);
   const marital_status    = cap(body.marital_status,    200);
   const children_ages     = cap(body.children_ages,     200);
+
+  // Per-field confirmation checkboxes — array of known passport field keys.
+  const KNOWN_FIELD_KEYS = new Set([
+    "first_name","last_name","dob","sex","nationality","city_of_birth",
+    "country_of_birth","passport_no","passport_expiry","issuing_authority",
+    "issue_date","address_street","address_number","address_postal",
+    "city_of_residence","country_of_residence","marital_status","children_ages",
+  ]);
+  const confirmedFields: string[] = Array.isArray(body.confirmed_fields)
+    ? Array.from(new Set(
+        (body.confirmed_fields as unknown[])
+          .filter((v): v is string => typeof v === "string" && KNOWN_FIELD_KEYS.has(v))
+      )).slice(0, 20)
+    : [];
 
   // Convert ISO code or display name → German adjective for nationality
   const natKey = nationality?.trim().toUpperCase() ?? "";
@@ -124,6 +144,7 @@ export async function POST(req: NextRequest) {
     country_of_residence: country_of_residence || null,
     marital_status:       marital_status || null,
     children_ages:        children_ages  || null,
+    passport_confirmed_fields: confirmedFields,
     updated_at:          new Date().toISOString(),
   };
 
@@ -154,10 +175,20 @@ export async function POST(req: NextRequest) {
       })
     : true; // never approved → always set pending
 
-  const passportStatusToSave = identityChanged ? "pending" : (existing?.passport_status ?? "pending");
+  // Draft: never change the review status (keep whatever it is, or leave
+  // unset). Submit: pending on identity change, else keep existing.
+  const passportStatusToSave = isDraft
+    ? (existing?.passport_status ?? null)
+    : (identityChanged ? "pending" : (existing?.passport_status ?? "pending"));
+
+  // Build the upsert. For a draft we omit passport_status entirely when
+  // there's no prior value, so a half-filled draft never reads as
+  // "submitted". When a status exists we preserve it untouched.
+  const upsertRow: Record<string, unknown> = { ...profilePayload };
+  if (passportStatusToSave !== null) upsertRow.passport_status = passportStatusToSave;
 
   const { error } = await db.from("candidate_profiles").upsert(
-    { ...profilePayload, passport_status: passportStatusToSave },
+    upsertRow,
     { onConflict: "user_id" }
   );
 
@@ -166,15 +197,54 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // ── Auto-upload passport PDF to Google Drive (fire-and-forget, don't block response) ──
-  // We do this after successful upsert; errors are logged but don't fail the request
-  void (async () => {
-    try {
-      await uploadPassportPdfToDrive({ ...profilePayload, nationality: nationalityDe, country_of_birth: countryDe });
-    } catch (driveErr) {
-      console.error("Auto Drive passport PDF upload failed:", driveErr);
-    }
-  })();
+  // Notify ALL admins (supreme / sub-admin / assigned org-admin — the admin
+  // bell is global, scoping happens on read) ONCE the passport DATA is
+  // submitted. Passport FILE upload alone no longer notifies (see
+  // /api/portal/upload) — file + data together = the real submission. Fire
+  // ONLY on the actual transition into "pending" so autosaves (drafts) and
+  // no-op re-saves that don't re-enter review never spam the bell.
+  if (!isDraft && passportStatusToSave === "pending" && existing?.passport_status !== "pending") {
+    void (async () => {
+      try {
+        const { data: passDocs } = await db
+          .from("documents")
+          .select("file_name, file_type")
+          .eq("user_id", user.id)
+          .ilike("file_type", "%pass%")
+          .order("uploaded_at", { ascending: false })
+          .limit(1);
+        const passDoc = passDocs?.[0];
+        const nm = [first_name, last_name].filter(Boolean).join(" ").trim();
+        const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
+        const metaFull = typeof meta.full_name === "string" ? meta.full_name.trim() : "";
+        const email = (user.email ?? "").toLowerCase();
+        const userName =
+          nm || metaFull ||
+          email.split("@")[0]?.replace(/[._-]+/g, " ").trim() || "Candidate";
+        const { error: notifErr } = await db.from("admin_notifications").insert({
+          type: "upload",
+          user_name: userName,
+          user_email: email,
+          doc_type: passDoc?.file_type ?? "Reisepass",
+          doc_name: passDoc?.file_name ?? "Reisepass",
+        });
+        if (notifErr) console.error("[passport] admin_notifications insert failed:", JSON.stringify(notifErr));
+      } catch (e) {
+        console.error("[passport] admin notify error:", e);
+      }
+    })();
+  }
+
+  // Drive PDF generation only on the explicit Submit — never on autosave.
+  if (!isDraft) {
+    void (async () => {
+      try {
+        await uploadPassportPdfToDrive({ ...profilePayload, nationality: nationalityDe, country_of_birth: countryDe });
+      } catch (driveErr) {
+        console.error("Auto Drive passport PDF upload failed:", driveErr);
+      }
+    })();
+  }
 
   return NextResponse.json({ success: true });
 }

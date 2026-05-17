@@ -368,7 +368,7 @@ export default function ManageAdminsPage() {
                               style={{ background: copyOpenFor === sa.email ? "var(--gdim)" : "var(--card)", color: copyOpenFor === sa.email ? "var(--gold)" : "var(--w2)", border: `1px solid ${copyOpenFor === sa.email ? "var(--border-gold)" : "var(--border)"}`, borderRadius: "var(--r-sm)" }}>
                               <Copy size={11} strokeWidth={1.8} />
                               {T.copyFrom}
-                              <ChevronDown size={10} strokeWidth={2} style={{ transform: copyOpenFor === sa.email ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 200ms" }} />
+                              <ChevronDown size={10} strokeWidth={2} style={{ transform: copyOpenFor === sa.email ? "rotate(180deg)" : "rotate(0deg)", transition: "transform var(--dur-2) var(--ease)" }} />
                             </button>
                             {copyOpenFor === sa.email && (
                               <>

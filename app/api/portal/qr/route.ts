@@ -18,6 +18,21 @@ export async function GET(req: NextRequest) {
   const label = req.nextUrl.searchParams.get("label") ?? "invite";
   if (!data) return NextResponse.json({ error: "Missing data" }, { status: 400 });
 
+  // Audit fix: `data` is attacker-controlled and proxied to a third party.
+  // This route only ever encodes portal invite URLs — cap the length and
+  // require a well-formed http(s) URL so it can't be abused as an open
+  // text/redirect relay against api.qrserver.com.
+  if (data.length > 512) {
+    return NextResponse.json({ error: "data too long" }, { status: 400 });
+  }
+  let parsed: URL;
+  try { parsed = new URL(data); } catch {
+    return NextResponse.json({ error: "data must be a URL" }, { status: 400 });
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    return NextResponse.json({ error: "Unsupported URL scheme" }, { status: 400 });
+  }
+
   const qrUrl =
     `https://api.qrserver.com/v1/create-qr-code/?size=400x400` +
     `&bgcolor=1a1a18&color=d4af37` +

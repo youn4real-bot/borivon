@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
-import { requireAdminRole } from "@/lib/admin-auth";
+import { requireAdminRole, ciEmail } from "@/lib/admin-auth";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -37,11 +37,19 @@ export async function POST(req: NextRequest) {
   if (!EMAIL_RE.test(email)) return NextResponse.json({ error: "Invalid email" }, { status: 400 });
 
   const db = getServiceSupabase();
-  const { error } = await db.from("sub_admins").upsert(
-    { email, name, label },
-    { onConflict: "email" }
-  );
-  if (error) {
+  // sub_admins.email has NO unique constraint, so `.upsert(onConflict:"email")`
+  // throws ("no unique/exclusion constraint matching the ON CONFLICT
+  // specification") → every add-sub-admin 500'd, which is why the invite AND
+  // this panel both failed. Collapse any existing rows for the email (any
+  // casing) then insert exactly one canonical row. No constraint / no
+  // migration needed; tolerant of a missing is_agency_admin column.
+  await db.from("sub_admins").delete().ilike("email", ciEmail(email));
+  let { error } = await db.from("sub_admins")
+    .insert({ email, name, label, is_agency_admin: false });
+  if (error && /is_agency_admin|column .* does not exist|schema cache/i.test(error.message)) {
+    ({ error } = await db.from("sub_admins").insert({ email, name, label }));
+  }
+  if (error && !/duplicate key|unique|already exists|23505/i.test(error.message)) {
     console.error("[sub-admins POST] failed:", error);
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }

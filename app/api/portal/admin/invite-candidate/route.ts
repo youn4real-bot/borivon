@@ -28,7 +28,9 @@ export async function POST(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const origin = req.nextUrl.origin;
-  const url = `${origin}/join/${code}`;
+  // Role word is a human label so anyone seeing the link knows it's for a
+  // candidate — not trusted (server resolves the real role from the code).
+  const url = `${origin}/join/candidate/${code}`;
 
   return NextResponse.json({ url, code });
 }

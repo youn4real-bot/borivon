@@ -42,6 +42,39 @@ function CallbackInner() {
     let subscription: ReturnType<typeof supabase.auth.onAuthStateChange>["data"]["subscription"] | null = null;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
+    // ONE routing path for EVERY auth outcome: redeem any pending invite,
+    // then route by the redeemed type OR the server-resolved role. This is
+    // why a sub-admin could still land on the candidate dashboard — the
+    // fallback branches below used to hardcode /portal/dashboard with no
+    // redeem and no role check.
+    const routeAfter = async (accessToken: string) => {
+      const inviteCode = params.get("invite")
+        || (typeof window !== "undefined" ? localStorage.getItem("bv_invite_code") : null);
+      let inviteType: string | null = null;
+      if (inviteCode && accessToken) {
+        try {
+          const r = await fetch(`/api/portal/invite/${encodeURIComponent(inviteCode)}`, {
+            method: "POST", headers: { Authorization: `Bearer ${accessToken}` },
+          });
+          if (r.ok) inviteType = (await r.json()).type ?? null;
+        } catch { /* ignore */ }
+        try { localStorage.removeItem("bv_invite_code"); } catch { /* ignore */ }
+      }
+      if (inviteType === "member")    { router.replace("/portal/org/dashboard"); return; }
+      if (inviteType === "sub-admin") { router.replace("/portal/admin"); return; }
+      // No invite (or candidate invite) → trust the server role so an
+      // existing sub-admin/org account never gets the candidate dashboard.
+      if (accessToken) {
+        try {
+          const rr = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${accessToken}` } });
+          const j = await rr.json().catch(() => ({}));
+          if (j?.role === "admin" || j?.role === "sub_admin") { router.replace("/portal/admin"); return; }
+          if (j?.role === "org_member") { router.replace("/portal/org/dashboard"); return; }
+        } catch { /* offline — fall through */ }
+      }
+      router.replace("/portal/dashboard");
+    };
+
     (async () => {
       const code = params.get("code");
       if (code) {
@@ -70,36 +103,20 @@ function CallbackInner() {
             }).catch(() => {});
           }
         }
-        // Auto-redeem pending invite — URL param survives cross-browser email opens
-        const inviteCode = params.get("invite") || (typeof window !== "undefined" ? localStorage.getItem("bv_invite_code") : null);
-        let inviteType: string | null = null;
-        if (inviteCode && accessToken) {
-          try {
-            const invRes = await fetch(`/api/portal/invite/${encodeURIComponent(inviteCode)}`, {
-              method: "POST",
-              headers: { Authorization: `Bearer ${accessToken}` },
-            });
-            if (invRes.ok) {
-              const invJson = await invRes.json();
-              inviteType = invJson.type ?? null;
-            }
-          } catch { /* ignore */ }
-          localStorage.removeItem("bv_invite_code");
-        }
-        router.replace(inviteType === "member" ? "/portal/org/dashboard" : "/portal/dashboard");
+        await routeAfter(accessToken);
         return;
       }
 
       const { data: { session } } = await supabase.auth.getSession();
       if (cancelled) return;
       if (session) {
-        router.replace("/portal/dashboard");
+        await routeAfter(session.access_token ?? "");
         return;
       }
 
       const sub = supabase.auth.onAuthStateChange((event, session) => {
         if ((event === "SIGNED_IN" || event === "TOKEN_REFRESHED") && session) {
-          router.replace("/portal/dashboard");
+          routeAfter(session.access_token ?? "");
         }
       });
       subscription = sub.data.subscription;

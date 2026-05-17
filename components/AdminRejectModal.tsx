@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { XCircle } from "@/components/PortalIcons";
 import { X as XIcon, Plus, Trash2 } from "lucide-react";
 import { useLang } from "@/components/LangContext";
@@ -57,14 +58,21 @@ export function AdminRejectModal({
     }
   }
 
-  return (
-    <div className="fixed inset-x-0 bottom-0 top-[58px] z-[800] flex items-center justify-center p-4"
+  // Portaled to <body> at z-[9999] (LAW #36): a `fixed` modal left inside the
+  // admin tree gets trapped by ancestor stacking contexts / sits BELOW the
+  // doc-preview modal + the ⋯ portal — that's why "Reject" looked like it
+  // stopped working (popup rendered hidden behind). Now it always shows on
+  // top, from any trigger, for supreme admin and sub-admins alike.
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <div className="fixed inset-x-0 bottom-0 top-[58px] z-[9999] flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
       onClick={() => { if (!submitting) onCancel(); }}>
       <div className="w-full max-w-md overflow-hidden flex flex-col"
-        style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "20px", boxShadow: "var(--shadow-lg)" }}
+        style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "20px", boxShadow: "var(--shadow-lg)",
+                 maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)" }}
         onClick={e => e.stopPropagation()}>
-        <div className="px-5 py-4 flex items-center justify-between" style={{ borderBottom: "1px solid var(--border)" }}>
+        <div className="px-5 py-4 flex items-center justify-between flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
           <div className="min-w-0">
             <p className="text-[13.5px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>{t.title}</p>
             <p className="text-[11.5px] mt-0.5 truncate" style={{ color: "var(--w3)" }}>{target.label}</p>
@@ -76,7 +84,7 @@ export function AdminRejectModal({
           </button>
         </div>
 
-        <div className="px-5 py-4 space-y-3">
+        <div className="px-5 py-4 space-y-3 overflow-y-auto" style={{ minHeight: 0 }}>
           <div>
             <label className="text-[11px] font-medium uppercase tracking-wide" style={{ color: "var(--w3)" }}>{t.feedback}</label>
             <textarea
@@ -110,7 +118,7 @@ export function AdminRejectModal({
           </div>
         </div>
 
-        <div className="px-5 py-3 flex items-center justify-end gap-2" style={{ borderTop: "1px solid var(--border)", background: "var(--bg2)" }}>
+        <div className="px-5 py-3 flex items-center justify-end gap-2 flex-shrink-0" style={{ borderTop: "1px solid var(--border)", background: "var(--bg2)" }}>
           <button onClick={onCancel} disabled={submitting}
             className="px-3 py-1.5 rounded-lg text-[12px] font-medium disabled:opacity-40"
             style={{ background: "transparent", color: "var(--w2)" }}>
@@ -123,6 +131,7 @@ export function AdminRejectModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

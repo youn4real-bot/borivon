@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
+import { validateImageDataUrl } from "@/lib/validateDataUrl";
 
 const BUCKET = "profile-photos";
 
@@ -71,25 +72,19 @@ export async function POST(req: NextRequest) {
 
   // ── Upload new photo ─────────────────────────────────────────────────────────
   if (typeof photo !== "string") return NextResponse.json({ error: "Invalid photo" }, { status: 400 });
-  if (!photo.startsWith("data:image/")) return NextResponse.json({ error: "Must be a data URL" }, { status: 400 });
-
-  // Parse mime type and base64 payload
-  const commaIdx = photo.indexOf(",");
-  if (commaIdx === -1) return NextResponse.json({ error: "Malformed data URL" }, { status: 400 });
-
-  const header  = photo.slice(0, commaIdx);                        // "data:image/jpeg;base64"
-  const b64Data = photo.slice(commaIdx + 1);                       // raw base64 string
-
-  const mimeMatch = header.match(/data:([^;]+);/);
-  const mimeType  = mimeMatch?.[1] ?? "image/jpeg";
-  const ext       = mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : "jpg";
-
   // Rough size guard — ~3 MB base64 → ~2.25 MB binary
-  if (b64Data.length > 4_000_000) {
+  if (photo.length > 4_000_000) {
     return NextResponse.json({ error: "Photo too large (max ~3 MB)" }, { status: 413 });
   }
-
-  const buffer = Buffer.from(b64Data, "base64");
+  // SECURITY: strict allowlist + magic-byte check (rejects SVG / MIME spoofing).
+  const validated = validateImageDataUrl(photo);
+  if (!validated.ok) {
+    console.warn("[me profile-photo POST] rejected:", validated.reason);
+    return NextResponse.json({ error: "Must be a PNG/JPEG/WebP/GIF data URL" }, { status: 400 });
+  }
+  const mimeType = validated.mime;
+  const ext      = mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : mimeType === "image/gif" ? "gif" : "jpg";
+  const buffer   = validated.bytes;
 
   // Create bucket if it doesn't exist yet (fast no-op after first call)
   await ensureBucket();

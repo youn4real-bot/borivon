@@ -49,9 +49,11 @@ export async function POST(req: NextRequest) {
   const prices = await stripe.prices.list({ lookup_keys: [lookupKey], active: true, limit: 1 });
   const priceId = prices.data[0]?.id;
   if (!priceId) {
+    // Internal lookup_key stays in server logs only — don't disclose Stripe
+    // product wiring to the client.
     console.error(`[checkout] no active price for lookup_key="${lookupKey}"`);
     return Response.json(
-      { error: `Stripe price not found (lookup_key=${lookupKey}). Check live-mode product setup.` },
+      { error: "Payment temporarily unavailable. Please try again later." },
       { status: 500 },
     );
   }

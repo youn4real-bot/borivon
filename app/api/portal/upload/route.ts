@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { createClient } from "@supabase/supabase-js";
+import { enforceRateLimit } from "@/lib/rateLimit";
 import { google } from "googleapis";
 import { JWT } from "google-auth-library";
 import { makeDrivePublic } from "@/lib/passport-pdf";
@@ -826,6 +827,18 @@ async function runOCR(buffer: Buffer, mimeType: string): Promise<string> {
 }
 
 export async function POST(req: NextRequest) {
+  // ── Rate limit ───────────────────────────────────────────────────────────────
+  // Uploads hit Drive + DB + (sometimes) OCR — expensive and abuse-prone. 30
+  // req / min per IP is plenty for legitimate use; anything past that is bot
+  // or runaway client.
+  const rl = enforceRateLimit(req, "upload", { limit: 30, windowMs: 60_000 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Too many uploads. Please wait." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
+  }
+
   // ── Auth ─────────────────────────────────────────────────────────────────────
   const authHeader = req.headers.get("authorization");
   if (!authHeader?.startsWith("Bearer ")) {
@@ -858,8 +871,12 @@ export async function POST(req: NextRequest) {
     const isAdmin = reqEmail === adminEmail;
     let isSubAdmin = false;
     if (!isAdmin) {
-      const { data: sub } = await dbAdm.from("sub_admins").select("email").eq("email", reqEmail).maybeSingle();
-      isSubAdmin = !!sub;
+      // Duplicate-tolerant + case-insensitive: sub_admins.email has no unique
+      // constraint, so `.eq(...).maybeSingle()` throws on dup rows and would
+      // wrongly 403 a real sub-admin's admin-for-candidate upload.
+      const ci = reqEmail.replace(/[\\%_]/g, c => "\\" + c);
+      const { data: subRows } = await dbAdm.from("sub_admins").select("email").ilike("email", ci).limit(1);
+      isSubAdmin = (subRows ?? []).length > 0;
     }
     if (!isAdmin && !isSubAdmin) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
     userId = forUserId;
@@ -876,11 +893,48 @@ export async function POST(req: NextRequest) {
   const dbForName = getServiceSupabase();
   const { data: profileRow } = await dbForName
     .from("candidate_profiles")
-    .select("first_name, last_name")
+    .select("first_name, last_name, passport_status")
     .eq("user_id", userId)
     .maybeSingle();
-  const firstName = (profileRow?.first_name ?? "").toString();
-  const lastName  = (profileRow?.last_name  ?? "").toString();
+  const profFirst = (profileRow?.first_name ?? "").toString().trim();
+  const profLast  = (profileRow?.last_name  ?? "").toString().trim();
+  const passportApproved = (profileRow as { passport_status?: string | null } | null)?.passport_status === "approved";
+
+  // Registration name = server-trusted auth metadata for the RESOLVED userId
+  // (the candidate, even on admin-for-candidate uploads). NEVER formData, so
+  // the anti-spoofing rule holds. Covers the self-signup form
+  // (first_name/last_name/full_name) AND OAuth providers
+  // (name/given_name/family_name).
+  let regFirst = "", regLast = "";
+  {
+    const { data: regAuth } = await getServiceSupabase().auth.admin.getUserById(userId);
+    const m = (regAuth?.user?.user_metadata ?? {}) as Record<string, unknown>;
+    const s = (k: string) => (typeof m[k] === "string" ? (m[k] as string).trim() : "");
+    regFirst = s("first_name") || s("given_name");
+    regLast  = s("last_name")  || s("family_name");
+    const full = s("full_name") || s("name");
+    if ((!regFirst || !regLast) && full) {
+      const parts = full.split(/\s+/).filter(Boolean);
+      if (!regFirst) regFirst = parts[0] ?? "";
+      if (!regLast)  regLast  = parts.slice(1).join(" ") || parts[0] || "";
+    }
+  }
+
+  // Name lifecycle (per product rule):
+  //   • BEFORE the passport is admin-approved → ALWAYS the registration name.
+  //     The passport OCR can leave candidate_profiles empty/garbled, so we
+  //     must NOT use it for the filename yet (that's the "kandidat_unbekannt"
+  //     bug). Registration name is the exception until vetted.
+  //   • AFTER admin approves the passport data → candidate_profiles is the
+  //     vetted source of truth (99% same name, but admin may have corrected
+  //     it) and every future (re-)upload uses it.
+  let firstName: string, lastName: string;
+  if (passportApproved && (profFirst || profLast)) {
+    firstName = profFirst; lastName = profLast;
+  } else {
+    firstName = regFirst || profFirst;
+    lastName  = regLast  || profLast;
+  }
 
   if (!file) return NextResponse.json({ error: "Fichier requis." }, { status: 400 });
 
@@ -1092,10 +1146,42 @@ export async function POST(req: NextRequest) {
     [metaFirst, metaLast].filter(Boolean).join(" ") ||
     emailLocal ||
     "Unknown";
-  await db.from("admin_notifications").insert({
-    type: "upload", user_name: fullName, user_email: userEmail,
-    doc_type: fileType, doc_name: structuredName,
-  }).then(({ error: e }) => { if (e) console.error("Notif error:", e.message); });
+  // For wizard slot uploads (fileType = slot UUID), resolve the slot label so
+  // the admin bell shows a friendly name ("Vollmacht") instead of a raw UUID.
+  let notifDocType = fileType;
+  if (UPLOAD_UUID_RE.test(fileType)) {
+    const { data: slotRow } = await db
+      .from("phase_slots").select("label").eq("id", fileType).maybeSingle();
+    const slotLabel = (slotRow as { label?: string | null } | null)?.label;
+    if (slotLabel) notifDocType = slotLabel;
+  }
+  // Only candidate-originated uploads notify admins. ANY admin tier (supreme /
+  // sub-admin / org-admin) acting — whether uploading their own template, their
+  // own doc, or on behalf of a candidate — never rings the admin bell. The bell
+  // is reserved for events that need admin attention: candidate uploads, signs,
+  // signups, redeems. Sign / fill REQUESTS are sent via /phase-slots/notify and
+  // ping the candidate's bell, not the admin's.
+  const requesterEmail = (user.email ?? "").toLowerCase();
+  const supremeEmail   = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
+  let   requesterIsAdmin = uploadedByAdmin || requesterEmail === supremeEmail;
+  if (!requesterIsAdmin && requesterEmail) {
+    const { data: subRow } = await db
+      .from("sub_admins").select("email").eq("email", requesterEmail).maybeSingle();
+    requesterIsAdmin = !!subRow;
+  }
+  // Passport (fileKey "id") is the ONE exception: uploading the passport
+  // FILE alone is not a "submission" — the admin should only be pinged once
+  // the candidate also submits the extracted passport DATA. That admin
+  // notification is fired from /api/portal/passport on the explicit submit.
+  if (!requesterIsAdmin && fileKey !== "id") {
+    const { error: notifErr } = await db.from("admin_notifications").insert({
+      type: "upload", user_name: fullName, user_email: userEmail,
+      doc_type: notifDocType, doc_name: structuredName,
+    });
+    if (notifErr) {
+      console.error("[upload] admin_notifications insert failed:", JSON.stringify(notifErr));
+    }
+  }
 
   // ── Passport OCR ─────────────────────────────────────────────────────────────
   if (fileKey === "id") {

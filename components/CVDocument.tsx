@@ -61,6 +61,10 @@ export interface CVData {
   additionalNationalities?: string[];
   maritalStatus: string;
   address: string;
+  /** House number (kept separate so the PDF can prefix it with "Nr").
+   *  The builder UI shows the plain combined address; only the generated
+   *  CV PDF renders the "Nr" label before the number. */
+  addressNumber?: string;
   postalCode: string;
   city: string;
   phone: string;
@@ -399,8 +403,22 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
   const footerLines = brand?.footerLines?.length ? brand.footerLines : ["contact@borivon.com"];
 
   const allNationalities = [data.nationality, ...(data.additionalNationalities ?? [])].filter(Boolean);
+  // Insert the German "Nr" label before the house number — PDF ONLY.
+  // The builder keeps the plain combined address; here, if the address
+  // ends with the separately-tracked house number, we render it as
+  // "<street> Nr <number>". If it doesn't cleanly match (edited / odd
+  // input) we leave the address untouched rather than risk a wrong label.
+  let addressLine = data.address;
+  const addrNum = (data.addressNumber ?? "").trim();
+  if (addrNum && data.address) {
+    const esc = addrNum.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const trailing = new RegExp(`\\s+${esc}\\s*$`);
+    if (trailing.test(data.address)) {
+      addressLine = data.address.replace(trailing, "") + ` NR ${addrNum}`;
+    }
+  }
   const fullAddress = [
-    data.address,
+    addressLine,
     [data.postalCode, data.city].filter(Boolean).join(" "),
     data.countryOfResidence,
   ].filter(Boolean).join(", ");

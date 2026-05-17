@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { buildProfileSlug, parseProfileSlug, ADMIN_PROFILE_SLUG } from "@/lib/profile-slug";
-import { VERIFICATION_FILE_TYPES } from "@/lib/constants";
+import { enforceRateLimit } from "@/lib/rateLimit";
 
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
+// A miss falls through to scanning auth.users. Bound that hard so a bot
+// probing random slugs can't fan each request into a full-table sweep.
+const MAX_SCAN_PAGES = 10; // 10 × 200 = 2000 users / request, then give up
 
 /**
  * Public profile lookup.
@@ -18,9 +21,20 @@ const ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
  * (cv_de). Anything less and the profile is hidden behind 404.
  */
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   ctx: { params: Promise<{ slug: string }> },
 ) {
+  // Unauthenticated and returns candidate PII (name/city/country/photo).
+  // Edge cache softens repeat hits but unique-slug enumeration bypasses it —
+  // throttle per trusted IP so a scraper can't walk the slug space.
+  const rl = enforceRateLimit(req, "pub-profile", { limit: 30, windowMs: 60_000 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Too many requests" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
+  }
+
   const { slug } = await ctx.params;
   const slugLower = slug.toLowerCase();
   const isAdminSlug = slugLower === ADMIN_PROFILE_SLUG;
@@ -48,7 +62,7 @@ export async function GET(
     if (ADMIN_EMAIL) {
       try {
         let page = 1;
-        while (page <= 50) {
+        while (page <= MAX_SCAN_PAGES) {
           const { data: usersList } = await db.auth.admin.listUsers({ perPage: 200, page });
           const list = usersList?.users ?? [];
           if (list.length === 0) break;
@@ -90,7 +104,7 @@ export async function GET(
   if (!match && !isAdminSlug) {
     try {
       let page = 1;
-      while (page <= 50) {
+      while (page <= MAX_SCAN_PAGES) {
         const { data: usersList } = await db.auth.admin.listUsers({ perPage: 200, page });
         const list = usersList?.users ?? [];
         if (list.length === 0) break;
@@ -149,26 +163,18 @@ export async function GET(
     } catch { /* ignore */ }
 
     if (!verified) {
-      // Manual override — admin can grant the blue tick directly
+      // Verification is tied ONLY to an explicit admin grant
+      // (manually_verified) or a paid premium subscription — NOT passport
+      // / CV approval.
       const { data: prof } = await db
         .from("candidate_profiles")
-        .select("manually_verified")
+        .select("manually_verified, payment_tier")
         .eq("user_id", match.user_id)
         .maybeSingle();
-      if (prof && (prof as { manually_verified?: boolean }).manually_verified) {
+      const p = prof as { manually_verified?: boolean; payment_tier?: string | null } | null;
+      if (p && (p.manually_verified || p.payment_tier === "premium")) {
         verified = true;
       }
-    }
-    if (!verified) {
-      const { data: docs } = await db
-        .from("documents")
-        .select("file_type,status")
-        .eq("user_id", match.user_id)
-        .in("file_type", VERIFICATION_FILE_TYPES)
-        .eq("status", "approved");
-      const hasApprovedPassport = (docs ?? []).some(d => /pass/i.test(d.file_type));
-      const hasApprovedCV       = (docs ?? []).some(d => /lebenslauf|cv/i.test(d.file_type));
-      verified = hasApprovedPassport && hasApprovedCV;
     }
   }
 

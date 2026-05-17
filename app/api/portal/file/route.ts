@@ -37,9 +37,16 @@ async function isAuthorised(
     return canActOnCandidate(adminAuth.role, adminAuth.email, doc.user_id);
   }
 
+  // Candidate auth: Bearer header (desktop/Android fetch) OR ?access_token=
+  // query param. iOS cannot attach an Authorization header to a top-level
+  // navigation / window.open, so the query token is the ONLY way the file
+  // can be opened directly in Safari's viewer. Same JWT, same user — just a
+  // different transport. Responses are no-store so it isn't cached.
   const authHeader = req.headers.get("authorization");
-  if (!authHeader?.startsWith("Bearer ")) return false;
-  const jwt = authHeader.slice(7);
+  const headerJwt = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : "";
+  const queryJwt = req.nextUrl.searchParams.get("access_token") ?? "";
+  const jwt = headerJwt || queryJwt;
+  if (!jwt) return false;
   const { data: { user }, error } = await getAnonVerifyClient().auth.getUser(jwt);
   if (error || !user) return false;
 
@@ -50,6 +57,30 @@ async function isAuthorised(
     .eq("user_id", user.id)
     .maybeSingle();
   return !!doc;
+}
+
+// Build a Content-Disposition. `dl=1` forces a real download (attachment)
+// — required so iOS Safari saves the file to Files instead of just showing
+// it. Filename comes from the client (?name=), ASCII-sanitised + RFC 5987
+// UTF-8 fallback so it can't break the header.
+function wantsDl(req: NextRequest): boolean {
+  return req.nextUrl.searchParams.get("dl") === "1";
+}
+function disposition(req: NextRequest, fallbackName: string): string {
+  if (!wantsDl(req)) return "inline";
+  const raw = (req.nextUrl.searchParams.get("name") || fallbackName || "document")
+    .replace(/[\r\n"]/g, "").slice(0, 200);
+  const ascii = raw.replace(/[^\x20-\x7E]/g, "_") || "document";
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(raw)}`;
+}
+// iOS Safari force-previews known types (PDF/JPEG/PNG) even with an
+// attachment disposition — the only reliable way to make iPhones (iPhone X
+// / iOS 13 → today) ACTUALLY download like PC/Android is to serve the bytes
+// as a generic binary so WebKit can't preview it and must hand it to the
+// download manager → Files. Only applied on explicit ?dl=1 downloads;
+// inline previews keep their real mime.
+function ctype(req: NextRequest, realMime: string): string {
+  return wantsDl(req) ? "application/octet-stream" : realMime;
 }
 
 export async function GET(req: NextRequest) {
@@ -98,8 +129,8 @@ export async function GET(req: NextRequest) {
       }
       return new NextResponse(outBuf, {
         headers: {
-          "Content-Type": "application/pdf",
-          "Content-Disposition": "inline",
+          "Content-Type": ctype(req, "application/pdf"),
+          "Content-Disposition": disposition(req, "document"),
           "Cache-Control": "private, no-store, must-revalidate",
         },
       });
@@ -150,8 +181,8 @@ export async function GET(req: NextRequest) {
 
     return new NextResponse(outBuf, {
       headers: {
-        "Content-Type": mimeType,
-        "Content-Disposition": "inline",
+        "Content-Type": ctype(req, mimeType),
+        "Content-Disposition": disposition(req, "document"),
         // Don't cache — rotation can change at any time.
         "Cache-Control": "private, no-store, must-revalidate",
       },
@@ -184,8 +215,8 @@ export async function GET(req: NextRequest) {
       }
       return new NextResponse(outBuf, {
         headers: {
-          "Content-Type": "application/pdf",
-          "Content-Disposition": "inline",
+          "Content-Type": ctype(req, "application/pdf"),
+          "Content-Disposition": disposition(req, "document"),
           "Cache-Control": "private, no-store, must-revalidate",
         },
       });

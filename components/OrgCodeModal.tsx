@@ -115,10 +115,11 @@ export function OrgCodeModal({
           .bv-org-modal-outer { padding-bottom: calc(1rem + 72px) !important; }
         }
       `}</style>
-      <div className="w-full max-w-[440px] flex flex-col"
+      <div className="w-full max-w-[440px] flex flex-col overflow-y-auto"
         style={{ background: "var(--card)", border: "1px solid var(--border)",
                  borderRadius: 20, boxShadow: "var(--shadow-lg)",
                  paddingBottom: "env(safe-area-inset-bottom)",
+                 maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)",
                  animation: "bvFadeRise 0.28s var(--ease-out)" }}>
 
         <div className="px-6 pt-6 pb-4">

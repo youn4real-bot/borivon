@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
-import { requireAdminRole } from "@/lib/admin-auth";
+import { requireAdminRole, ciEmail } from "@/lib/admin-auth";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const UUID_RE  = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -83,9 +83,16 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   // If this fails, the organization_members insert that follows would point at
   // a missing sub_admins row — abort early instead of leaving a dangling member.
   {
-    const { error: subErr } = await db.from("sub_admins").upsert({ email, name, label }, { onConflict: "email" });
-    if (subErr) {
-      console.error("[org members POST] sub_admins upsert failed:", subErr);
+    // sub_admins.email has NO unique constraint → `.upsert(onConflict:"email")`
+    // throws and 500s (same disease grantSubAdmin cured elsewhere). Collapse
+    // any existing rows for this email then insert exactly one.
+    await db.from("sub_admins").delete().ilike("email", ciEmail(email));
+    let { error: subErr } = await db.from("sub_admins").insert({ email, name, label, is_agency_admin: false });
+    if (subErr && /is_agency_admin|column .* does not exist|schema cache/i.test(subErr.message)) {
+      ({ error: subErr } = await db.from("sub_admins").insert({ email, name, label }));
+    }
+    if (subErr && !/duplicate key|unique|already exists|23505/i.test(subErr.message)) {
+      console.error("[org members POST] sub_admins insert failed:", subErr);
       return NextResponse.json({ error: "Internal error" }, { status: 500 });
     }
   }
