@@ -272,8 +272,8 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
 
   const modal = createPortal(
     <div
-      className="fixed inset-x-0 z-[1300] flex items-center justify-center px-2 bv-sign-modal-outer"
-      style={{ top: "calc(58px + var(--bv-subnav-h, 0px))", paddingTop: "6px", bottom: 0, background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)" }}
+      className="fixed inset-x-0 z-[1100] flex items-center justify-center px-2 bv-sign-modal-outer"
+      style={{ top: "calc(58px + var(--bv-subnav-h, 0px))", paddingTop: "6px", bottom: 0, background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
       onClick={() => { if (!signing) onClose(); }}
     >
       <style>{`
@@ -652,7 +652,7 @@ export function PdfSignModal({ request, lang, authToken, onSigned, onClose }: Pr
                 </label>
               </div>
 
-              {err && <p className="text-[12px] mt-2" style={{ color: "var(--error, #e03030)" }}>{err}</p>}
+              {err && <p className="text-[12px] mt-2" style={{ color: "var(--danger)" }}>{err}</p>}
             </div>
             )}
           </>

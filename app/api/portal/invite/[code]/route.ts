@@ -13,6 +13,7 @@ type LookupResult = {
   agencyId?: string | null;
   alreadyUsed?: boolean;
   usedBy?: string | null;
+  invitedEmail?: string | null;
 };
 
 /**
@@ -52,12 +53,27 @@ async function grantSubAdmin(
 async function lookupCode(code: string): Promise<LookupResult | null> {
   const db = getServiceSupabase();
 
-  // 1. Check single-use invite_tokens first
-  const { data: token } = await db
-    .from("invite_tokens")
-    .select("id, org_id, type, used_by, agency_id")
-    .eq("code", code)
-    .maybeSingle();
+  // 1. Check single-use invite_tokens first. Try WITH invited_email; if the
+  // column isn't migrated yet, retry without it so existing invites keep
+  // working (binding is simply inactive until the migration runs).
+  let token: Record<string, unknown> | null = null;
+  {
+    const withEmail = await db
+      .from("invite_tokens")
+      .select("id, org_id, type, used_by, agency_id, invited_email")
+      .eq("code", code)
+      .maybeSingle();
+    if (withEmail.error && /invited_email|column|schema cache/i.test(withEmail.error.message)) {
+      const noEmail = await db
+        .from("invite_tokens")
+        .select("id, org_id, type, used_by, agency_id")
+        .eq("code", code)
+        .maybeSingle();
+      token = (noEmail.data as Record<string, unknown> | null) ?? null;
+    } else {
+      token = (withEmail.data as Record<string, unknown> | null) ?? null;
+    }
+  }
 
   if (token) {
     const tokenOrgId = (token as { org_id: string | null }).org_id;
@@ -92,6 +108,7 @@ async function lookupCode(code: string): Promise<LookupResult | null> {
       agencyId: (token as { agency_id: string | null }).agency_id ?? null,
       alreadyUsed: !!(token as { used_by: string | null }).used_by,
       usedBy: (token as { used_by: string | null }).used_by ?? null,
+      invitedEmail: ((token as { invited_email?: string | null }).invited_email ?? null),
     };
   }
 
@@ -186,6 +203,18 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ code: stri
       return NextResponse.json({ error: "already_used" }, { status: 410 });
     }
     // prior redeemer deleted (hard or soft) → fall through and grant.
+  }
+
+  // Email-bound single-use invite: only the address it was issued to may
+  // redeem it. Closes "a forwarded/leaked org-admin link grants org-admin +
+  // gold tick to whoever opens it first". Unbound tokens (invitedEmail null)
+  // keep the legacy open behaviour. auth.email is already lower-cased by
+  // requireUser; invited_email is stored lower-cased.
+  if (result.tokenId && result.invitedEmail && result.invitedEmail !== auth.email) {
+    return NextResponse.json(
+      { error: "This invite was issued for a different email address." },
+      { status: 403 },
+    );
   }
 
   const { org, type, tokenId, agencyId: inviteAgencyId } = result;

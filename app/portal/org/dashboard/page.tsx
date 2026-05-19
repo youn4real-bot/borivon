@@ -529,9 +529,11 @@ export default function OrgDashboardPage() {
       if (!session?.user) { router.replace("/portal"); return; }
       const tk = session.access_token ?? "";
       setToken(tk);
-      await loadData(tk);
-      setLoading(false);
-    });
+      // loadData throwing (network / JSON) used to leave the org member stuck
+      // on the spinner forever (no catch). Always resolve loading.
+      try { await loadData(tk); }
+      finally { setLoading(false); }
+    }).catch(() => { setLoading(false); router.replace("/portal"); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -883,8 +885,8 @@ export default function OrgDashboardPage() {
               )}
 
               <button onClick={addRequirement} disabled={saving}
-                className="inline-flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold transition-opacity disabled:opacity-50"
-                style={{ background: "var(--gold)", color: "#131312", borderRadius: "10px" }}>
+                className="bv-glow-gold bv-press inline-flex items-center gap-2 px-5 py-2.5 text-[13px] font-semibold disabled:opacity-50"
+                style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-md)" }}>
                 {saving ? <Spinner size="xs" color="#131312" /> : <Plus size={13} strokeWidth={2.2} />}
                 {saving ? T.saving : T.submitRequirement}
               </button>
@@ -901,8 +903,8 @@ export default function OrgDashboardPage() {
                 {T.tellUsWhatFacility}
               </p>
               <button onClick={() => setShowForm(true)}
-                className="mt-4 inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-4 py-2"
-                style={{ background: "var(--gold)", color: "#131312", borderRadius: "10px" }}>
+                className="bv-glow-gold bv-press mt-4 inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-4 py-2"
+                style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-md)" }}>
                 <Plus size={12} strokeWidth={2.2} />
                 {T.addFirstNeed}
               </button>
@@ -1006,8 +1008,8 @@ export default function OrgDashboardPage() {
                           </p>
                         )}
                         <button onClick={saveEditRequirement} disabled={saving}
-                          className="inline-flex items-center gap-2 px-5 py-2.5 text-[12.5px] font-semibold transition-opacity disabled:opacity-50"
-                          style={{ background: "var(--gold)", color: "#131312", borderRadius: "10px" }}>
+                          className="bv-glow-gold bv-press inline-flex items-center gap-2 px-5 py-2.5 text-[12.5px] font-semibold disabled:opacity-50"
+                          style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-md)" }}>
                           {saving ? <Spinner size="xs" color="#131312" /> : null}
                           {saving ? T.saving : T.saveChanges}
                         </button>
@@ -1350,7 +1352,7 @@ export default function OrgDashboardPage() {
                   <button
                     onClick={() => addOrgSlot(addSlotPhase!, addSlotType, addSlotLabel, addSlotLabelTrans, org.id)}
                     disabled={addSlotSaving || !addSlotLabel.trim()}
-                    className="flex-1 py-2.5 rounded-xl text-[12.5px] font-semibold disabled:opacity-40"
+                    className="bv-glow-gold bv-press flex-1 py-2.5 rounded-xl text-[12.5px] font-semibold disabled:opacity-40"
                     style={{ background: "var(--gold)", color: "#131312" }}>
                     {addSlotSaving ? "Saving…" : "Add"}
                   </button>

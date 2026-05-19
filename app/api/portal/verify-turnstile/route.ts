@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(req: NextRequest) {
-  const { token } = await req.json();
+  const body = await req.json().catch(() => ({}));
+  const token = typeof body?.token === "string" ? body.token : "";
   if (!token) return NextResponse.json({ success: false, error: "No token" }, { status: 400 });
 
   const secret = process.env.TURNSTILE_SECRET_KEY ?? "";

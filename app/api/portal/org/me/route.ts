@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
-import { requireUser } from "@/lib/admin-auth";
+import { requireUser, ciEmail } from "@/lib/admin-auth";
 
 /**
  * GET /api/portal/org/me
@@ -13,12 +13,16 @@ export async function GET(req: NextRequest) {
 
   const db = getServiceSupabase();
 
-  // Find org membership by email
-  const { data: membership } = await db
+  // Find org membership by email. Case-insensitive + duplicate-tolerant:
+  // sub_admin_email has no unique constraint, so a 2-org member has 2 rows
+  // and `.eq(...).maybeSingle()` THROWS (→ 500 → org-member can't load their
+  // own dashboard). Take row[0].
+  const { data: memberRows } = await db
     .from("organization_members")
     .select("org_id, role")
-    .eq("sub_admin_email", auth.email)
-    .maybeSingle();
+    .ilike("sub_admin_email", ciEmail(auth.email))
+    .limit(1);
+  const membership = (memberRows ?? [])[0] as { org_id: string; role: string } | undefined;
 
   if (!membership) {
     return NextResponse.json({ error: "Not an org member" }, { status: 403 });

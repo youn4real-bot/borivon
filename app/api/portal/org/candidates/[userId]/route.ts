@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
-import { requireUser } from "@/lib/admin-auth";
+import { requireUser, ciEmail } from "@/lib/admin-auth";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -28,12 +28,15 @@ export async function GET(
 
   const db = getServiceSupabase();
 
-  // Verify caller is an org member and get their org id
-  const { data: membership } = await db
+  // Verify caller is an org member and get their org id. Case-insensitive +
+  // duplicate-tolerant (no unique constraint; 2-org member has 2 rows and
+  // `.eq(...).maybeSingle()` throws → 500 on their own dossier view).
+  const { data: memberRows } = await db
     .from("organization_members")
     .select("org_id")
-    .eq("sub_admin_email", auth.email)
-    .maybeSingle();
+    .ilike("sub_admin_email", ciEmail(auth.email))
+    .limit(1);
+  const membership = (memberRows ?? [])[0] as { org_id: string } | undefined;
 
   if (!membership) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });

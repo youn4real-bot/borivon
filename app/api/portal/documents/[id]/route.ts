@@ -4,7 +4,10 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const ROOT_FOLDER_ID = process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID ?? "";
+// Must match the rest of the app (upload/route.ts, delete-user/route.ts).
+// The old `GOOGLE_DRIVE_ROOT_FOLDER_ID` is never set → archiving was always
+// skipped while the DB row was still deleted (LAW #33 silent-loss bug).
+const ROOT_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID ?? "";
 
 function getDriveClient() {
   const auth = new google.auth.GoogleAuth({
@@ -72,10 +75,13 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
   if (d.drive_file_id && ROOT_FOLDER_ID) {
     try {
       const drive = getDriveClient();
+      // Candidate name lives in `candidate_profiles` keyed by `user_id`
+      // (the `profiles` table does not exist → lookup always returned null →
+      // file got archived under a raw-UUID folder instead of the real one).
       const { data: profile } = await db
-        .from("profiles")
+        .from("candidate_profiles")
         .select("first_name, last_name")
-        .eq("id", auth.userId)
+        .eq("user_id", auth.userId)
         .maybeSingle();
       const p = profile as { first_name?: string; last_name?: string } | null;
       const folderName = p?.first_name && p?.last_name

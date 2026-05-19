@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
-import { requireUser, requireAdminRole } from "@/lib/admin-auth";
+import { requireUser, requireAdminRole, ciEmail } from "@/lib/admin-auth";
 import { canAccessPost } from "@/lib/feedAccess";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -34,11 +34,15 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
 
   const isOwner = (post as { user_id: string }).user_id === auth.userId;
 
-  const { data: sub } = await db
+  // Duplicate-tolerant + case-insensitive (sub_admins.email has no unique
+  // constraint; `.eq(...).maybeSingle()` throws on dup rows → 500 blocks the
+  // post delete for that sub-admin).
+  const { data: subRows } = await db
     .from("sub_admins")
     .select("email")
-    .eq("email", auth.email)
-    .maybeSingle();
+    .ilike("email", ciEmail(auth.email))
+    .limit(1);
+  const sub = (subRows ?? [])[0];
   const isAdmin = !!sub || auth.email === (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
 
   if (!isOwner && !isAdmin) {

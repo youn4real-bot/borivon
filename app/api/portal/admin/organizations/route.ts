@@ -99,8 +99,10 @@ export async function POST(req: NextRequest) {
     if (clash) return NextResponse.json({ error: "Code already in use" }, { status: 409 });
   }
 
-  // Generate a unique member invite code (UUID-based, lowercase)
-  const memberCode = Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 10);
+  // Generate a unique member invite code. crypto (not Math.random — that's a
+  // predictable PRNG; this code grants org-admin + the gold tick, so it must
+  // be unguessable).
+  const memberCode = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "").slice(0, 8);
 
   const { data, error } = await db.from("organizations").insert({
     name, notes: notes || null, invite_code: code, member_invite_code: memberCode,

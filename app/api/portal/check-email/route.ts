@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { enforceRateLimitDistributed } from "@/lib/rateLimit";
+import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 
 // POST { email } → { exists: boolean }
 // Used by the signup form to block re-registration for existing accounts.
@@ -36,7 +37,11 @@ export async function POST(req: NextRequest) {
     const { data, error } = await db.auth.admin.listUsers({ page, perPage: PER_PAGE });
     if (error) return NextResponse.json({ exists: false });
     const users = data?.users ?? [];
-    if (users.some(u => (u.email ?? "").toLowerCase() === email)) {
+    // A deleted account that was FK-blocked and only soft-disabled (banned /
+    // user_metadata.deleted, original email may still be on the row) must NOT
+    // count as "exists" — the user's rule is "deleted = free to re-register".
+    // Every other auth-list path filters ghosts; this one must too.
+    if (users.some(u => !isSoftDeletedAuthUser(u) && (u.email ?? "").toLowerCase() === email)) {
       return NextResponse.json({ exists: true });
     }
     if (users.length < PER_PAGE) break;

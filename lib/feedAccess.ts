@@ -37,17 +37,26 @@ export async function getAccessibleOrgIds(
       isOrgMember: false,
     };
   }
-  const { data: memberRows } = await db
+  const { data: memberRows, error: memberErr } = await db
     .from("organization_members")
     .select("org_id")
     .eq("sub_admin_email", email);
-  const memberOrgIds = ((memberRows ?? []) as { org_id: string }[]).map(r => r.org_id);
-
-  const { data: candRows } = await db
+  const { data: candRows, error: candErr } = await db
     .from("candidate_organizations")
     .select("org_id")
     .eq("candidate_user_id", userId)
     .eq("status", "approved");
+
+  // FAIL CLOSED: the old code ignored errors → on a transient blip an
+  // org-member was misclassified isOrgMember=false, which SKIPS the
+  // global-feed block → they could read/post the global Borivon channel.
+  // On any error, treat them as an org member with NO accessible orgs:
+  // blocked from global AND from every org channel until it recovers.
+  if (memberErr || candErr) {
+    return { orgIds: new Set<string>(), isOrgMember: true };
+  }
+
+  const memberOrgIds = ((memberRows ?? []) as { org_id: string }[]).map(r => r.org_id);
   const candOrgIds = ((candRows ?? []) as { org_id: string }[]).map(r => r.org_id);
 
   return {
@@ -77,7 +86,9 @@ export async function canAccessPost(
   userId: string,
   email: string,
 ): Promise<PostAccess> {
-  // Try to read org_id; fall back if the column doesn't exist yet.
+  const adminEmail = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
+
+  // Try to read org_id; fall back ONLY if the column genuinely doesn't exist.
   let orgId: string | null = null;
   let columnMissing = false;
   {
@@ -86,7 +97,16 @@ export async function canAccessPost(
       .select("org_id")
       .eq("id", postId)
       .maybeSingle();
-    if (error?.message?.includes("org_id")) {
+    if (error) {
+      // SECURITY: the old check was `error.message.includes("org_id")` — ANY
+      // error string mentioning the column (a transient permission/RLS error)
+      // tripped the "no org channels" branch and granted access. Only Postgres
+      // 42703 (undefined_column) is a real missing column. Anything else →
+      // fail closed.
+      const undefinedColumn =
+        (error as { code?: string }).code === "42703" ||
+        /column .*org_id.* does not exist/i.test(error.message ?? "");
+      if (!undefinedColumn) return { ok: false, status: 403 };
       columnMissing = true;
     } else {
       if (!data) return { ok: false, status: 404 };
@@ -94,15 +114,16 @@ export async function canAccessPost(
     }
   }
 
+  const { orgIds, isOrgMember } = await getAccessibleOrgIds(db, userId, email);
+
   if (columnMissing) {
-    // No org channels in this DB — every post is global. Still confirm the
-    // post exists so we don't authorize actions on a phantom id.
+    // No org_id column → every post is the global Borivon channel. Confirm
+    // the post exists, and still enforce the global rule: org members are
+    // blocked from the global feed (supreme always allowed).
+    if (isOrgMember && email !== adminEmail) return { ok: false, status: 403 };
     const { data } = await db.from("feed_posts").select("id").eq("id", postId).maybeSingle();
     return data ? { ok: true } : { ok: false, status: 404 };
   }
-
-  const adminEmail = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
-  const { orgIds, isOrgMember } = await getAccessibleOrgIds(db, userId, email);
 
   if (orgId === null) {
     // Global Borivon community — org members are blocked (it's not theirs),

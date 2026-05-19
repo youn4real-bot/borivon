@@ -10,6 +10,7 @@ import { Spinner } from "@/components/ui/states";
 import { useLang } from "@/components/LangContext";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { relativeTimeShort } from "@/lib/relativeTime";
+import { playNotifChime } from "@/lib/notifSound";
 import { translateDocLabel } from "@/lib/fileKeys";
 import { useDismiss } from "@/lib/useDismiss";
 
@@ -155,6 +156,35 @@ type AdminNotif = {
   user_verified: boolean;
 };
 
+// ── New-arrival tracker ───────────────────────────────────────────────────────
+// Robust chime + entry-animation, independent of HOW the refresh arrived
+// (realtime push, poll, or open). The realtime channel is flaky for
+// admin_notifications (RLS-gated); driving the chime off id-diffing in the
+// fetch path means the sound + slide-in always fire, even when only the poll
+// delivered the new row. boot=first load → no chime for the initial backlog.
+function useNewArrivals() {
+  const seen  = useRef<Set<string>>(new Set());
+  const boot  = useRef(true);
+  const clrT  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [newIds, setNewIds] = useState<Set<string>>(new Set());
+  const track = useCallback((ids: string[], shouldChime: (id: string) => boolean) => {
+    if (boot.current) {
+      ids.forEach(i => seen.current.add(i));
+      boot.current = false;
+      return;
+    }
+    const fresh = ids.filter(i => !seen.current.has(i));
+    ids.forEach(i => seen.current.add(i));
+    if (!fresh.length) return;
+    if (fresh.some(shouldChime)) playNotifChime();
+    setNewIds(new Set(fresh));
+    if (clrT.current) clearTimeout(clrT.current);
+    clrT.current = setTimeout(() => setNewIds(new Set()), 700);
+  }, []);
+  useEffect(() => () => { if (clrT.current) clearTimeout(clrT.current); }, []);
+  return { newIds, track };
+}
+
 // ── Bell button ───────────────────────────────────────────────────────────────
 
 function BellButton({ unread, open, onClick }: { unread: number; open: boolean; onClick: () => void }) {
@@ -285,6 +315,7 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
   const router = useRouter();
   const { lang } = useLang();
   const bt = BELL_T[lang] ?? BELL_T.fr;
+  const { newIds, track } = useNewArrivals();
 
   const fetch_ = useCallback(async () => {
     const { data, error } = await supabase
@@ -300,19 +331,26 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
       console.error("[NotificationBell] fetch failed:", error.message);
       return;
     }
-    setNotifs(data ?? []);
-  }, [userId]);
+    const list = (data ?? []) as CandidateNotif[];
+    setNotifs(list);
+    track(list.map(n => n.id), id => !list.find(x => x.id === id)?.read);
+  }, [userId, track]);
 
   useEffect(() => {
     fetch_();
+    // Poll backstop: realtime can silently not deliver (publication / RLS /
+    // dropped socket). 15s poll guarantees the bell — and the chime, now
+    // driven by fetch_ — fires even with realtime down. Realtime just makes
+    // it instant when it IS up.
+    const timer = setInterval(fetch_, 15_000);
     const ch = supabase
       .channel(`notifs-${userId}`)
       .on("postgres_changes",
         { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${userId}` },
-        (p) => setNotifs(prev => [p.new as CandidateNotif, ...prev])
+        () => { fetch_(); }
       )
       .subscribe();
-    return () => { supabase.removeChannel(ch); };
+    return () => { clearInterval(timer); supabase.removeChannel(ch); };
   }, [userId, fetch_]);
 
   // Outside-press + Esc handled via shared hook (lib/useDismiss).
@@ -337,7 +375,7 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
   // Issue 14.1: show a spinner on the tapped notification while resolving the doc
   const [pendingNotifId, setPendingNotifId] = useState<string | null>(null);
 
-  function toggle() { setOpen(o => !o); }
+  function toggle() { if (!open) fetch_(); setOpen(o => !o); }
 
   async function markOneRead(n: CandidateNotif) {
     if (n.read) return;
@@ -418,7 +456,7 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
             // Parse "**Lebenslauf**" bold markers in verifiedNext
             const verifiedNextParts = bt.verifiedNext.split(/\*\*(.*?)\*\*/g);
             return (
-              <div key={n.id}>
+              <div key={n.id} style={newIds.has(n.id) ? { animation: "bvNotifIn .34s var(--ease-out) both" } : undefined}>
                 {i > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
                 <button
                   className="bv-row-hover w-full text-left px-4 py-3 flex items-start gap-3"
@@ -528,27 +566,32 @@ function AdminBell({ accessToken }: { accessToken: string }) {
   const router = useRouter();
   const { lang } = useLang();
   const t = BELL_T[lang as keyof typeof BELL_T] ?? BELL_T.en;
+  const { newIds, track } = useNewArrivals();
 
   const fetch_ = useCallback(async () => {
     try {
       const res = await fetch("/api/portal/admin/notifications", { headers: { Authorization: `Bearer ${accessToken}` } });
       if (!res.ok) return;
       const json = await res.json();
-      setNotifs(json.notifications ?? []);
+      const list = (json.notifications ?? []) as AdminNotif[];
+      setNotifs(list);
+      // Chime + slide-in are driven HERE, not in the realtime callback —
+      // admin_notifications realtime is RLS-gated and often doesn't deliver,
+      // so the sound never fired. id-diffing fires it regardless of source.
+      track(list.map(n => n.id), id => !list.find(x => x.id === id)?.read);
     } catch { /* offline / hot-reload */ }
-  }, [accessToken]);
+  }, [accessToken, track]);
 
   useEffect(() => {
     fetch_();
-    const timer = setInterval(fetch_, 60_000);
-    // Realtime channel — admin_notifications inserts (signups, uploads,
-    // sign-request events) push to the bell instantly so a fresh signup
-    // doesn't sit invisible for up to a minute waiting on the poll.
+    // 15s poll backstop (was 60s) so the bell stays live even when the
+    // realtime socket is down — the common case for admin_notifications.
+    const timer = setInterval(fetch_, 15_000);
     const channel = supabase
       .channel("admin-notifs-bell")
       .on("postgres_changes",
         { event: "INSERT", schema: "public", table: "admin_notifications" },
-        () => fetch_(),
+        () => { fetch_(); },
       )
       .subscribe();
     return () => { clearInterval(timer); supabase.removeChannel(channel); };
@@ -582,7 +625,7 @@ function AdminBell({ accessToken }: { accessToken: string }) {
   const overdueCount = sorted.filter(n => !n.read && ageHours(n) >= 48).length;
   const displayed = tab === "unread" ? sorted.filter(n => !n.read) : sorted;
 
-  function toggle() { setOpen(o => !o); }
+  function toggle() { if (!open) fetch_(); setOpen(o => !o); }
 
   async function markOneRead(n: AdminNotif) {
     if (n.read) return;
@@ -680,7 +723,7 @@ function AdminBell({ accessToken }: { accessToken: string }) {
                 ? { bg: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }
                 : { bg: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" };
               return (
-                <div key={n.id}>
+                <div key={n.id} style={newIds.has(n.id) ? { animation: "bvNotifIn .34s var(--ease-out) both" } : undefined}>
                   {i > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
                   <button
                     className="w-full text-left px-4 py-3 flex items-start gap-3 transition-colors hover:bg-[rgba(255,255,255,0.03)]"
@@ -769,7 +812,7 @@ export function NotificationBell() {
       const user = session?.user ?? null;
       if (!user) { if (!cancelled) setState({ kind: "none" }); return; }
       // Ask the server for our role; never compare against a NEXT_PUBLIC_ admin email.
-      let role: "admin" | "sub_admin" | null = null;
+      let role: "admin" | "sub_admin" | "org_member" | "candidate" | null = null;
       try {
         if (session?.access_token) {
           const res = await fetch("/api/portal/me/role", {
@@ -779,8 +822,15 @@ export function NotificationBell() {
         }
       } catch { /* offline */ }
       if (cancelled) return;
-      if (role === "admin") setState({ kind: "admin", accessToken: session?.access_token ?? "" });
-      else                  setState({ kind: "candidate", userId: user.id, accessToken: session?.access_token ?? "" });
+      // Sub-admins share the supreme admin's candidate notification queue
+      // (uploads / signups / doc-signed). They were wrongly getting the
+      // CANDIDATE bell (their own empty personal feed) → "No notifications
+      // yet". The /api/portal/admin/notifications endpoint already scopes
+      // correctly per LAW #25, so both admin + sub_admin use AdminBell.
+      if (role === "admin" || role === "sub_admin")
+        setState({ kind: "admin", accessToken: session?.access_token ?? "" });
+      else
+        setState({ kind: "candidate", userId: user.id, accessToken: session?.access_token ?? "" });
     };
     supabase.auth.getSession().then(({ data: { session } }) => apply(session));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => apply(session));

@@ -3,6 +3,8 @@ import { google } from "googleapis";
 import { PDFDocument, degrees } from "pdf-lib";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
+import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
+import { dlTokenUserId } from "@/lib/dlToken";
 
 function getDriveClient() {
   const auth = new google.auth.GoogleAuth({
@@ -68,27 +70,31 @@ async function isAuthorised(
     return canActOnCandidate(adminAuth.role, adminAuth.email, origDoc.user_id);
   }
 
-  // Header OR ?access_token query (iOS navigations can't send a header).
+  // Header JWT (fetch) OR short-lived signed download token (?dlt=, iOS
+  // navigation). Raw JWT is no longer accepted from the URL.
   const authHeader = req.headers.get("authorization");
   const headerJwt = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : "";
-  const queryJwt = req.nextUrl.searchParams.get("access_token") ?? "";
-  const jwt = headerJwt || queryJwt;
-  if (!jwt) return false;
-  const { data: { user }, error } = await getAnonVerifyClient().auth.getUser(jwt);
-  if (error || !user) return false;
+  let actorId: string | null = null;
+  if (headerJwt) {
+    const { data: { user }, error } = await getAnonVerifyClient().auth.getUser(headerJwt);
+    if (!error && user && !isSoftDeletedAuthUser(user)) actorId = user.id;
+  } else {
+    actorId = dlTokenUserId(req);
+  }
+  if (!actorId) return false;
 
   const { count: origCount } = await db
     .from("documents")
     .select("id", { count: "exact", head: true })
     .eq(origDriveId ? "drive_file_id" : "id", origDriveId ?? origDocId!)
-    .eq("user_id", user.id);
+    .eq("user_id", actorId);
   if (!origCount) return false;
 
   const { count: transCount } = await db
     .from("documents")
     .select("id", { count: "exact", head: true })
     .eq(transDriveId ? "drive_file_id" : "id", transDriveId ?? transDocId!)
-    .eq("user_id", user.id);
+    .eq("user_id", actorId);
   return !!transCount;
 }
 

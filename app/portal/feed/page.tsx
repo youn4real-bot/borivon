@@ -240,8 +240,8 @@ function CommentsModal({
   if (typeof document === "undefined") return null;
   return createPortal(
     <div
-      className="fixed inset-x-0 bottom-0 top-[58px] z-[9999] flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
+      className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", paddingBottom: "max(1rem, env(safe-area-inset-bottom))", animation: "bvFadeRise .22s var(--ease-out)" }}
       onClick={onClose}
     >
       <div
@@ -249,9 +249,10 @@ function CommentsModal({
         style={{
           background: "var(--card)",
           border: "1px solid var(--border)",
-          borderRadius: "var(--r-lg)",
+          borderRadius: "var(--r-2xl)",
           boxShadow: "var(--shadow-lg)",
           maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)",
+          animation: "bvFadeRise .28s var(--ease-out)",
         }}
         onClick={e => e.stopPropagation()}
       >
@@ -746,6 +747,7 @@ export default function FeedPage() {
     let cancelled = false;
 
     (async () => {
+     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) { router.replace("/portal"); return; }
       if (cancelled) return;
@@ -797,7 +799,13 @@ export default function FeedPage() {
       }
 
       await loadPosts(tk, 0, firstOrgId);
-      if (!cancelled) setLoading(false);
+     } catch (e) {
+       // Never leave the feed stuck on the loader (getSession reject /
+       // loadPosts throw). Reveal — the feed has its own error/empty state.
+       console.error("[feed bootstrap] failed:", e);
+     } finally {
+       if (!cancelled) setLoading(false);
+     }
     })();
 
     return () => { cancelled = true; };
@@ -1095,13 +1103,13 @@ export default function FeedPage() {
                 <p className="text-[11px]" style={{ color: "var(--danger)" }}>{postError}</p>
               )}
               <button onClick={handlePost} disabled={!canPost || posting}
-                className="flex items-center gap-2 text-[12px] font-semibold px-5 py-2 rounded-full transition-all active:scale-[0.97]"
+                className={`bv-press flex items-center gap-2 text-[12px] font-semibold px-5 py-2 rounded-full ${canPost && !posting ? "bv-glow-gold" : ""}`}
                 style={{
                   background: canPost ? "var(--gold)" : "transparent",
                   color: canPost ? "#131312" : "var(--w3)",
                   border: `1px solid ${canPost ? "var(--gold)" : "var(--border)"}`,
                   cursor: canPost && !posting ? "pointer" : "default",
-                  transition: "all var(--dur-1) var(--ease)",
+                  transition: "background var(--dur-1) var(--ease), color var(--dur-1) var(--ease), border-color var(--dur-1) var(--ease)",
                 }}>
                 {posting ? <><Loader2 size={12} strokeWidth={2} className="animate-spin" />{t.posting}</> : t.post}
               </button>

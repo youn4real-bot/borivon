@@ -176,12 +176,12 @@ export function GoldButton({
 }) {
   return (
     <button type={type} onClick={onClick} disabled={disabled}
-      className={`inline-flex items-center justify-center gap-1.5 text-[13px] font-semibold px-5 py-2 transition-all hover:-translate-y-0.5 hover:opacity-95 disabled:opacity-40 disabled:translate-y-0 ${className}`}
+      className={`bv-glow-gold bv-press inline-flex items-center justify-center gap-1.5 text-[13px] font-semibold px-5 py-2 disabled:opacity-40 ${className}`}
       style={{
         background: "var(--gold)",
         color: "#131312",
         borderRadius: "var(--r-md)",
-        boxShadow: "0 4px 14px var(--border-gold), 0 0 0 1px var(--border-gold)",
+        boxShadow: "var(--shadow-gold-sm)",
       }}>
       {children}
     </button>
@@ -204,7 +204,7 @@ export function GhostButton({
 }) {
   return (
     <button onClick={onClick} disabled={disabled}
-      className={`text-[12.5px] font-medium px-4 py-2 transition-colors disabled:opacity-50 ${className}`}
+      className={`bv-press text-[12.5px] font-medium px-4 py-2 disabled:opacity-50 ${className}`}
       style={{ background: "transparent", color: "var(--w3)", border: "none" }}>
       {children}
     </button>

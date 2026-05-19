@@ -5,6 +5,7 @@ import { requireAdminRole, canActOnCandidate, getVisibleCandidateIds } from "@/l
 import { DOC_STATUSES, ALLOWED_PROFILE_FIELDS } from "@/lib/constants";
 import { sendDocApprovedEmail, sendDocRejectedEmail } from "@/lib/email";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
+import { cvFieldsFromProfile, PASSPORT_DERIVED_COLUMNS, type ProfileLike } from "@/lib/personalData";
 
 // GET — fetch candidates + their docs (filtered for sub-admins)
 // Optional ?userId=X — return only docs for that candidate (used by targeted
@@ -518,6 +519,27 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "No valid fields" }, { status: 400 });
   }
 
+  // Defense-in-depth (LAW #37 — admin edits must ALWAYS save): the three
+  // date columns are Postgres `date`. The admin date inputs emit ISO, but a
+  // single stray "DD.MM.YYYY" / "" would fail the WHOLE atomic UPDATE and the
+  // entire edit would silently not persist. Normalise here so no date format
+  // can ever block the save. Empty → null (clears the column, never errors).
+  const toIsoDate = (v: unknown): string | null => {
+    if (typeof v !== "string") return v == null ? null : (v as string);
+    const s = v.trim();
+    if (!s) return null;
+    const de = s.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+    if (de) return `${de[3]}-${de[2]}-${de[1]}`;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    const d = new Date(s);
+    return isNaN(d.getTime())
+      ? null
+      : `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+  };
+  for (const dk of ["dob", "issue_date", "passport_expiry"] as const) {
+    if (dk in cleanProfile) cleanProfile[dk] = toIsoDate(cleanProfile[dk]);
+  }
+
   const newPassportStatus = cleanProfile.passport_status as string | undefined;
 
   // When rejecting the passport, wipe all OCR-extracted fields in the same
@@ -550,6 +572,10 @@ export async function PATCH(req: NextRequest) {
     prevPassportStatus = (prior as { passport_status?: string | null } | null)?.passport_status ?? null;
   }
 
+  // UPDATE the existing row (safest — only sets the provided columns, no
+  // partial-upsert NOT-NULL / onConflict-constraint pitfalls). If no row
+  // exists yet (rare), INSERT one. Return the EXACT Postgres error so a
+  // failing column/type/constraint is visible instead of silently reverting.
   const { data: updatedRows, error } = await db
     .from("candidate_profiles")
     .update(cleanProfile)
@@ -558,10 +584,70 @@ export async function PATCH(req: NextRequest) {
 
   if (error) {
     console.error("[admin PATCH] update profile failed:", error);
-    return NextResponse.json({ error: "Internal error" }, { status: 500 });
+    return NextResponse.json({ error: `Save failed: ${error.message}` }, { status: 500 });
   }
   if (!updatedRows || updatedRows.length === 0) {
-    return NextResponse.json({ error: "Profile not found" }, { status: 404 });
+    // No existing row → create it.
+    const { error: insErr } = await db
+      .from("candidate_profiles")
+      .insert({ ...cleanProfile, user_id: userId });
+    if (insErr) {
+      console.error("[admin PATCH] insert profile failed:", insErr);
+      return NextResponse.json({ error: `Save failed: ${insErr.message}` }, { status: 500 });
+    }
+  }
+
+  // ── STREAMLINE PROPAGATION (LAW #37) ──────────────────────────────────────
+  // candidate_profiles is the single source of truth. The CV builder reads a
+  // stored `cv_draft` JSON snapshot — without this, an admin passport edit
+  // (incl. the new per-field autosave) would leave cv_draft (and any future
+  // consumer that reads it) STALE. Re-derive the canonical personal subset
+  // and merge it over the existing draft so every downstream stays consistent
+  // — regardless of passport_status (pending/approved), regardless of whether
+  // the candidate ever re-opens the builder. Non-fatal: never block the save.
+  if (PASSPORT_DERIVED_COLUMNS.some(c => c in cleanProfile)) {
+    try {
+      const { data: freshRow } = await db
+        .from("candidate_profiles")
+        .select("cv_draft, first_name, last_name, dob, city_of_birth, country_of_birth, nationality, city_of_residence, country_of_residence, address_postal, address_street, address_number, marital_status, children_ages")
+        .eq("user_id", userId)
+        .maybeSingle();
+      const draft = (freshRow as { cv_draft?: Record<string, unknown> | null } | null)?.cv_draft;
+      if (draft && typeof draft === "object") {
+        const canonical = cvFieldsFromProfile(freshRow as ProfileLike);
+        await db
+          .from("candidate_profiles")
+          .update({ cv_draft: { ...draft, ...canonical } })
+          .eq("user_id", userId);
+      }
+    } catch (e) {
+      console.error("[admin PATCH] cv_draft propagation failed (non-fatal):", e);
+    }
+  }
+
+  // NAME SYNC — when an admin/sub-admin corrects first/last name (typos,
+  // swapped order), the candidate's name is shown ALL OVER the app from auth
+  // `user_metadata.full_name` (dashboard greeting, feed, messages, admin
+  // list, profile slug), NOT candidate_profiles. Push the corrected name
+  // into auth metadata too so the fix shows cleanly everywhere — candidate
+  // side and every admin side. Skipped on rejection (names get wiped there).
+  if (newPassportStatus !== "rejected" && ("first_name" in cleanProfile || "last_name" in cleanProfile)) {
+    try {
+      const { data: cp } = await db
+        .from("candidate_profiles")
+        .select("first_name, last_name")
+        .eq("user_id", userId)
+        .maybeSingle();
+      const fn = ((cp as { first_name?: string | null } | null)?.first_name ?? "").toString().trim();
+      const ln = ((cp as { last_name?: string | null } | null)?.last_name ?? "").toString().trim();
+      const full = [fn, ln].filter(Boolean).join(" ");
+      // Supabase merges user_metadata keys — invite_code etc. are preserved.
+      await db.auth.admin.updateUserById(userId, {
+        user_metadata: { first_name: fn || null, last_name: ln || null, full_name: full || null },
+      });
+    } catch (e) {
+      console.error("[admin PATCH] auth name sync failed (non-fatal):", e);
+    }
   }
 
   // Notify candidate when passport data is rejected — only on actual transition

@@ -26,11 +26,16 @@ export async function GET(req: NextRequest) {
   // 3. Check org membership BEFORE sub_admin — org members are also added to
   //    sub_admins (so the admin panel can show their name), but they should be
   //    routed to the org dashboard, not the admin panel.
-  const { data: membership } = await db
+  // organization_members has NO unique constraint on sub_admin_email — a
+  // member of 2 orgs has 2 rows, and `.maybeSingle()` THROWS on >1 row →
+  // the org-member is misrouted to /portal/admin / broken inbox (the
+  // "STILL CANDIDATE" class, relocated here). Duplicate-tolerant: take row[0].
+  const { data: memberRows } = await db
     .from("organization_members")
     .select("org_id, role")
     .ilike("sub_admin_email", ciEmail(user.email))
-    .maybeSingle();
+    .limit(1);
+  const membership = (memberRows ?? [])[0] as { org_id: string; role: string } | undefined;
 
   if (membership) {
     const { data: org } = await db

@@ -50,6 +50,10 @@ function PortalPageInner() {
   const [otpErr, setOtpErr]           = useState("");
   const [otpBusy, setOtpBusy]         = useState(false);
   const [resendIn, setResendIn]       = useState(0);
+  // The address the code was actually sent to. FROZEN at signup — the email
+  // <input> stays editable, so verifying/resending against the live `email`
+  // state let an edit (or autofill) silently retarget a different address.
+  const [verifyEmail, setVerifyEmail] = useState("");
 
   useEffect(() => {
     if (resendIn <= 0) return;
@@ -62,21 +66,30 @@ function PortalPageInner() {
   // Shared: once a session exists (auto-confirm OR after OTP verify), redeem
   // any pending invite and route by the resolved role. One place so the
   // signup + OTP paths can't drift.
-  async function redeemAndRoute(code: string): Promise<boolean> {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) return false;
+  async function redeemAndRoute(code: string, explicitToken?: string): Promise<boolean> {
+    // Prefer a token handed in directly (e.g. the session verifyOtp just
+    // minted) — getSession() can lag a tick behind verifyOtp resolving, and
+    // that race used to drop a freshly-onboarded sub-admin onto the candidate
+    // dashboard with the invite never redeemed ("STILL CANDIDATE").
+    let token = explicitToken;
+    if (!token) {
+      const { data: { session } } = await supabase.auth.getSession();
+      token = session?.access_token;
+    }
+    if (!token) return false;
+    const access_token = token;
     // Parity with the old link/callback flow: notify admins of the new
     // signup. Server route is idempotent (dedupes by email) + only reached
     // on the signup/auto-confirm/OTP path (never plain login), so no spam.
     fetch("/api/portal/admin/signup-notify", {
       method: "POST",
-      headers: { Authorization: `Bearer ${session.access_token}` },
+      headers: { Authorization: `Bearer ${access_token}` },
     }).catch(() => { /* best-effort, mirrors old behavior */ });
     let inviteType: string | null = null;
     if (code) {
       try {
         const r = await fetch(`/api/portal/invite/${encodeURIComponent(code)}`, {
-          method: "POST", headers: { Authorization: `Bearer ${session.access_token}` },
+          method: "POST", headers: { Authorization: `Bearer ${access_token}` },
         });
         if (r.ok) inviteType = (await r.json()).type ?? null;
       } catch { /* ignore */ }
@@ -87,7 +100,7 @@ function PortalPageInner() {
     else if (inviteType === "sub-admin") dest = "/portal/admin";
     else {
       try {
-        const rr = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${session.access_token}` } });
+        const rr = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${access_token}` } });
         const { role } = await rr.json().catch(() => ({}));
         if (role === "org_member") dest = "/portal/org/dashboard";
         else if (role === "admin" || role === "sub_admin") dest = "/portal/admin";
@@ -98,11 +111,12 @@ function PortalPageInner() {
   }
 
   async function verifyCode() {
-    if (otp.trim().length !== 6 || otpBusy) return;
+    if (otp.trim().length < 6 || otpBusy) return;
     setOtpBusy(true); setOtpErr("");
+    let mintedToken: string | undefined;
     try {
-      const { error: err } = await supabase.auth.verifyOtp({
-        email: email.trim().toLowerCase(), token: otp.trim(), type: "signup",
+      const { data: vData, error: err } = await supabase.auth.verifyOtp({
+        email: verifyEmail, token: otp.trim(), type: "signup",
       });
       if (err) {
         const m = err.message || "";
@@ -115,18 +129,32 @@ function PortalPageInner() {
         );
         setOtpBusy(false); return;
       }
+      mintedToken = vData?.session?.access_token;
     } catch {
       setOtpErr(t.pErrNetwork); setOtpBusy(false); return;
     }
-    try { if (await redeemAndRoute(inviteCode.trim())) return; } catch { /* fall through */ }
-    router.replace("/portal/dashboard");
+    // Route on the session verifyOtp just minted (avoids the getSession
+    // race). If it's not ready, poll briefly — but NEVER fall back to a hard
+    // /portal/dashboard without a confirmed role: that dumped freshly
+    // onboarded sub-admins onto the candidate dashboard, invite unredeemed.
+    try { if (await redeemAndRoute(inviteCode.trim(), mintedToken)) return; } catch { /* retry below */ }
+    for (let i = 0; i < 6; i++) {
+      await new Promise(r => setTimeout(r, 400));
+      try { if (await redeemAndRoute(inviteCode.trim())) return; } catch { /* keep trying */ }
+    }
+    setOtpErr(
+      lang === "de" ? "Bestätigt, aber die Sitzung lädt nicht. Bitte erneut anmelden."
+      : lang === "fr" ? "Vérifié, mais la session ne se charge pas. Veuillez vous reconnecter."
+      : "Verified, but the session didn't load. Please sign in again.",
+    );
+    setOtpBusy(false);
   }
 
   async function resendCode() {
     if (resendIn > 0 || otpBusy) return;
     setOtpErr("");
     try {
-      await supabase.auth.resend({ type: "signup", email: email.trim().toLowerCase() });
+      await supabase.auth.resend({ type: "signup", email: verifyEmail });
       setResendIn(30);
     } catch {
       setOtpErr(t.pErrNetwork);
@@ -214,6 +242,9 @@ function PortalPageInner() {
         setError(t.pErrNetwork);
         setLoading(false); return;
       }
+      // Freeze the verification target NOW — the email <input> stays editable
+      // on the code screen; verify/resend must use what the code was sent to.
+      setVerifyEmail(email.trim().toLowerCase());
       // Keep code in localStorage as belt-and-suspenders fallback
       try { localStorage.setItem("bv_invite_code", code); } catch { /* private mode */ }
 
@@ -337,13 +368,13 @@ function PortalPageInner() {
               ? "Wir haben einen 6-stelligen Code an {e} gesendet."
               : lang === "fr"
               ? "Nous avons envoyé un code à 6 chiffres à {e}."
-              : "We sent a 6-digit code to {e}.").replace("{e}", email)}
+              : "We sent a 6-digit code to {e}.").replace("{e}", verifyEmail)}
           </p>
 
           <input
             value={otp}
-            onChange={e => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-            onKeyDown={e => { if (e.key === "Enter" && otp.length === 6) verifyCode(); }}
+            onChange={e => setOtp(e.target.value.replace(/\D/g, "").slice(0, 10))}
+            onKeyDown={e => { if (e.key === "Enter" && otp.length >= 6) verifyCode(); }}
             inputMode="numeric"
             autoComplete="one-time-code"
             autoFocus
@@ -358,8 +389,8 @@ function PortalPageInner() {
             <p className="text-[12.5px] mb-3" style={{ color: "var(--danger)" }}>{otpErr}</p>
           )}
 
-          <button onClick={verifyCode} disabled={otp.length !== 6 || otpBusy}
-            className="w-full py-3 rounded-xl text-[14px] font-semibold transition-opacity hover:opacity-90 disabled:opacity-40 mb-3"
+          <button onClick={verifyCode} disabled={otp.length < 6 || otpBusy}
+            className="bv-glow-gold bv-press w-full py-3 rounded-xl text-[14px] font-semibold disabled:opacity-40 mb-3"
             style={{ background: "var(--gold)", color: "#131312" }}>
             {otpBusy ? "…" : (lang === "de" ? "Bestätigen" : lang === "fr" ? "Vérifier" : "Verify")}
           </button>
@@ -491,8 +522,8 @@ function PortalPageInner() {
             )}
 
             <button type="submit" disabled={loading}
-              className="w-full py-4 text-[14px] font-semibold tracking-wide transition-all hover:opacity-90 hover:-translate-y-0.5 active:scale-[0.98] disabled:opacity-60 disabled:hover:translate-y-0"
-              style={{ background: "var(--gold)", color: "#131312", marginTop: "4px", borderRadius: "12px", boxShadow: "var(--shadow-gold-sm)", border: "none" }}>
+              className="bv-glow-gold bv-press w-full py-4 text-[14px] font-semibold tracking-wide disabled:opacity-60"
+              style={{ background: "var(--gold)", color: "#131312", marginTop: "4px", borderRadius: "var(--r-lg)", boxShadow: "var(--shadow-gold-sm)", border: "none" }}>
               {loading ? "…" : mode === "login" ? t.pBtnLogin : t.pBtnSignup}
             </button>
           </form>

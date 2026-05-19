@@ -9,6 +9,7 @@ import { useLang } from "@/components/LangContext";
 import { AdminDocPreviewModal } from "@/components/AdminDocPreviewModal";
 import { isIOSDevice } from "@/lib/platform";
 import { triggerIosDownload } from "@/lib/iosDownload";
+import { useDlToken, withDlt, appendDlt } from "@/lib/dlClient";
 import { PdfViewer } from "@/components/PdfViewer";
 import { IosPdfFrame } from "@/components/IosPdfFrame";
 import { AdminRejectModal } from "@/components/AdminRejectModal";
@@ -18,7 +19,7 @@ import {
   Lock, Unlock, IdCard, FileText, Folder, FilePen, Save, Eye,
   CheckCircle2, XCircle, AlertTriangle, PartyPopper,
 } from "@/components/PortalIcons";
-import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap } from "lucide-react";
+import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen } from "lucide-react";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -148,6 +149,64 @@ function computeFamilienstandAdmin(marital_status: string | null, children_ages:
   if (sorted.length === 0) return marital_status;
   const kindStr = sorted.length === 1 ? "1 Kind" : `${sorted.length} Kinder`;
   return `${marital_status}, ${kindStr} (${sorted.join(", ")})`;
+}
+
+/**
+ * German-format date input (TT.MM.JJJJ, dotted, day.month.year). The native
+ * <input type=date> renders in the browser locale (mm/dd/yyyy here); same
+ * trick as the passport editor — a read-only German display with a
+ * transparent native date picker overlaid for the calendar. Value in/out is
+ * ISO `YYYY-MM-DD` | null.
+ */
+function DeDateInput({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
+  const raw = (value ?? "").slice(0, 10);
+  const deM = raw.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  const iso = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? raw : (deM ? `${deM[3]}-${deM[2]}-${deM[1]}` : "");
+  const ger = iso ? `${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(0, 4)}` : "";
+  return (
+    <div className="relative">
+      <input readOnly value={ger} placeholder="TT.MM.JJJJ"
+        className="w-full rounded-lg px-2.5 py-2 text-xs outline-none cursor-pointer"
+        style={{ background: "var(--bg2)", border: "1px solid var(--border2)", color: "var(--w)" }} />
+      <input type="date" value={iso}
+        onClick={e => { const el = e.currentTarget as HTMLInputElement & { showPicker?: () => void }; el.showPicker?.(); }}
+        onChange={e => onChange(e.target.value || null)}
+        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+        style={{ colorScheme: "dark" }}
+        aria-label="TT.MM.JJJJ" />
+    </div>
+  );
+}
+
+/**
+ * One titled block inside the candidate "Status" modal. EVERY status project
+ * (B2, Vaccines, and future ones: Visa, Medical, Contract, …) renders as a
+ * <StatusSection> so they all look identical and stay in order. To add a new
+ * project: (1) add its column(s)/JSON to candidate_status + the API
+ * select/sanitize, (2) add the field(s) to CandStatus + EMPTY_STATUS, (3)
+ * drop one more <StatusSection title="…"> into the modal. Autosave / flush /
+ * last-write-wins already cover any new field automatically.
+ */
+// Status → Assignment options. ADD NEW agencies/sites/employers HERE only.
+// (Reminder data inside candidate_status; separate from the real org system.)
+const ASSIGN_AGENCIES: { id: string; name: string; sites: { id: string; name: string }[] }[] = [
+  { id: "calmaroi", name: "Calmaroi", sites: [
+    { id: "kiel",    name: "UKSH Kiel" },
+    { id: "luebeck", name: "UKSH Lübeck" },
+  ] },
+];
+const ASSIGN_EMPLOYERS: { id: string; name: string }[] = [
+  { id: "amb_murnau", name: "Amb Murnau" },
+];
+
+function StatusSection({ title, first, children }: { title: string; first?: boolean; children: React.ReactNode }) {
+  return (
+    <section className="space-y-3">
+      {!first && <div style={{ height: 1, background: "var(--border)" }} />}
+      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] pt-1" style={{ color: "var(--gold)" }}>{title}</p>
+      <div className="space-y-3">{children}</div>
+    </section>
+  );
 }
 
 function timeAgo(iso: string, lang?: string) {
@@ -425,6 +484,9 @@ export default function AdminPage() {
   const { lang } = useLang();
   const t = translations[lang];
   const [accessToken, setAccessToken] = useState("");
+  // Pre-minted short-lived signed download token (kept fresh) so iOS file
+  // URLs carry ?dlt= not the raw admin JWT, readable in-gesture.
+  const dlt = useDlToken(accessToken || null);
   /** Supabase auth user ID of the currently logged-in admin */
   const [currentUserId, setCurrentUserId] = useState("");
   /** true only for the supreme admin (ADMIN_EMAIL) — org/sub-admins cannot grant/revoke the blue tick */
@@ -632,13 +694,14 @@ export default function AdminPage() {
   // passport on top, data below — scroll freely to compare).
   const [ppStripUrl, setPpStripUrl] = useState<string | null>(null);
   useEffect(() => {
-    if (!previewDoc || !/pass/i.test(previewDoc.file_type) || !previewDoc.drive_file_id) {
+    if (!previewDoc || !/pass/i.test(previewDoc.file_type) || !previewDoc.id) {
       setPpStripUrl(null);
       return;
     }
     let revoked = false;
     let url = "";
-    fetch(`/api/portal/file?id=${previewDoc.drive_file_id}`, { headers: { Authorization: `Bearer ${accessToken}` } })
+    // ?docId= → always the CURRENT drive_file_id (never the archived old one).
+    fetch(`/api/portal/file?docId=${previewDoc.id}`, { headers: { Authorization: `Bearer ${accessToken}` } })
       .then(r => r.ok ? r.blob() : null)
       .then(blob => { if (blob && !revoked) { url = URL.createObjectURL(blob); setPpStripUrl(url); } })
       .catch(() => {});
@@ -747,6 +810,13 @@ export default function AdminPage() {
   };
   const adminFileInputRef = React.useRef<HTMLInputElement>(null);
   const adminUploadTargetRef = React.useRef<string | null>(null);
+  // Admin upload/swap of an Essentials/Qualifications doc ON BEHALF of the
+  // candidate (separate from the Bearbeitung/Visum slot wizard above).
+  const adminDocFileInputRef = React.useRef<HTMLInputElement>(null);
+  // `passportPdf` marks a passport PDF-ONLY replace (no OCR, no data change) —
+  // routed to /api/portal/admin/replace-passport-pdf instead of /upload.
+  const adminDocUploadRef = React.useRef<{ key: string; label: string; passportPdf?: { docId: string } } | null>(null);
+  const [adminDocBusy, setAdminDocBusy] = useState<Set<string>>(new Set());
   // Local cache of the File the admin just uploaded, keyed by slotId. Lets the
   // placement wizard render INSTANTLY without round-tripping to Supabase Storage
   // for the slot-template fetch — we already have the bytes client-side.
@@ -774,6 +844,195 @@ export default function AdminPage() {
   const [passportInfoEditMode, setPassportInfoEditMode] = useState(false);
   const [passportInfoEdits, setPassportInfoEdits]       = useState<Partial<CandidateProfile>>({});
   const [passportInfoSaving, setPassportInfoSaving]     = useState(false);
+  // ── Per-field AUTOSAVE (LAW #37) ──────────────────────────────────────────
+  // Every passport-data field an admin/sub-admin changes is persisted
+  // automatically (debounced) — NO "Save" button reliance. A live mirror ref
+  // lets an abrupt close still flush the last edits, so a change can never be
+  // lost. `passportAutoSaved` drives a tiny "Gespeichert ✓" indicator.
+  const pInfoEditsRef = useRef<Partial<CandidateProfile>>({});
+  const ppSaveTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [passportAutoSaved, setPassportAutoSaved] = useState(false);
+
+  // ── Admin-only candidate STATUS reminders (B2, …) ─────────────────────────
+  // Candidate side gets NOTHING (RLS-locked table, admin API only).
+  type CandStatus = {
+    b2_complete: boolean | null;
+    b2_cert_date: string | null;
+    b2_exam_written: boolean | null;          // null unset / true wrote / false not yet
+    b2_exam_written_date: string | null;      // when they sat the exam
+    b2_results_expected_date: string | null;  // expected results date
+    b2_planned_exam_date: string | null;      // expected date to write
+    b2_registration_status: "paid" | "waiting" | null; // registered+paid | waiting for site
+    b2_notes: string | null;                  // free-text admin notes
+    vaccines: Vaccines;                       // Masern / Varizell doses
+    assign_type: "agency" | "employer" | null;
+    assign_agency: string | null;             // agency key (type=agency)
+    assign_site: string | null;               // site under the agency
+    assign_employer: string | null;           // direct-employer key
+  };
+  type VaxDose = { got: boolean | null; done_date: string | null; expected_date: string | null };
+  type VaxKey = "masern" | "varizell";
+  type Vaccines = Record<VaxKey, { doses: VaxDose[]; cert_expected: string | null }>;
+  const EMPTY_DOSE: VaxDose = { got: null, done_date: null, expected_date: null };
+  // Baseline: 1× Masern is the mandatory minimum (always shown). Varizell is
+  // add-only (UKSH wants 2 Masern + 2 Varizell; other hospitals vary).
+  const emptyVaccines = (): Vaccines => ({
+    masern:   { doses: [{ ...EMPTY_DOSE }], cert_expected: null },
+    varizell: { doses: [],                 cert_expected: null },
+  });
+  const EMPTY_STATUS: CandStatus = {
+    b2_complete: null, b2_cert_date: null,
+    b2_exam_written: null, b2_exam_written_date: null, b2_results_expected_date: null,
+    b2_planned_exam_date: null, b2_registration_status: null, b2_notes: null,
+    vaccines: emptyVaccines(),
+    assign_type: null, assign_agency: null, assign_site: null, assign_employer: null,
+  };
+  // Normalize whatever the API returns into a safe Vaccines object (old rows
+  // have vaccines = null; Masern must always have ≥1 dose).
+  const normVaccines = (v: unknown): Vaccines => {
+    const base = emptyVaccines();
+    if (!v || typeof v !== "object") return base;
+    const src = v as Record<string, unknown>;
+    (["masern", "varizell"] as VaxKey[]).forEach(k => {
+      const r = src[k] as { doses?: unknown; cert_expected?: unknown } | undefined;
+      if (!r || typeof r !== "object") return;
+      const doses = Array.isArray(r.doses)
+        ? r.doses.slice(0, 2).map((d): VaxDose => {
+            const o = (d && typeof d === "object" ? d : {}) as Record<string, unknown>;
+            return {
+              got: o.got === true ? true : o.got === false ? false : null,
+              done_date: typeof o.done_date === "string" ? o.done_date : null,
+              expected_date: typeof o.expected_date === "string" ? o.expected_date : null,
+            };
+          })
+        : [];
+      base[k] = {
+        doses: k === "masern" && doses.length === 0 ? [{ ...EMPTY_DOSE }] : doses,
+        cert_expected: typeof r.cert_expected === "string" ? r.cert_expected : null,
+      };
+    });
+    return base;
+  };
+  const [statusOpen, setStatusOpen]       = useState(false);
+  // Left-rail category (like the candidate dashboard). Add a tab id here +
+  // an entry in STATUS_TABS + a content block to introduce a new project.
+  const [statusTab, setStatusTab]         = useState<"b2" | "assign" | "vaccine" | "notes">("b2");
+  const [statusForm, setStatusForm]       = useState<CandStatus>(EMPTY_STATUS);
+  const [statusLoading, setStatusLoading] = useState(false);
+  const [statusAutoSaved, setStatusAutoSaved] = useState(false);
+  // Autosave plumbing (mirrors the passport autosave; LAW #37, last-write-
+  // wins per the user's decision). Seed = the snapshot last persisted, so we
+  // don't re-save the just-loaded state. Ref mirror lets close/switch flush
+  // the final keystrokes.
+  const statusSeedRef  = useRef<string>("");
+  const statusSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const statusFormRef  = useRef<CandStatus>(EMPTY_STATUS);
+
+  async function openStatusModal() {
+    if (!selectedUser || !accessToken) return;
+    setStatusOpen(true);
+    setStatusTab("b2");
+    setStatusLoading(true);
+    setStatusForm(EMPTY_STATUS);
+    statusSeedRef.current = JSON.stringify(EMPTY_STATUS);
+    statusFormRef.current = EMPTY_STATUS;
+    try {
+      const r = await fetch(`/api/portal/admin/candidate-status?userId=${selectedUser}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (r.ok) {
+        const j = await r.json();
+        if (j.status) {
+          const loaded = { ...EMPTY_STATUS, ...j.status, vaccines: normVaccines(j.status?.vaccines) };
+          setStatusForm(loaded);
+          statusFormRef.current = loaded;
+          statusSeedRef.current = JSON.stringify(loaded);
+        }
+      }
+    } catch { /* ignore — start blank */ }
+    setStatusLoading(false);
+  }
+
+  // The autosave writer. Last-write-wins: whichever admin/sub-admin saves
+  // last wins. Explicit uid so a candidate switch can't mis-target.
+  const persistStatus = React.useCallback(async (snap: CandStatus, uid: string, tok: string) => {
+    try {
+      const r = await fetch("/api/portal/admin/candidate-status", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${tok}` },
+        body: JSON.stringify({ userId: uid, ...snap }),
+        keepalive: true,
+      });
+      if (r.ok) {
+        statusSeedRef.current = JSON.stringify(snap);
+        setStatusAutoSaved(true);
+        setTimeout(() => setStatusAutoSaved(false), 1600);
+      } else {
+        let msg = `HTTP ${r.status}`;
+        try { const j = await r.json(); if (j?.error) msg = j.error; } catch { /* ignore */ }
+        console.error("[candidate-status autosave] failed:", msg);
+        // Retry once (network/transient) — never lose the edit.
+        if (statusSaveTimer.current) clearTimeout(statusSaveTimer.current);
+        statusSaveTimer.current = setTimeout(() => { void persistStatus(snap, uid, tok); }, 4000);
+      }
+    } catch (e) {
+      console.error("[candidate-status autosave] error:", e);
+      if (statusSaveTimer.current) clearTimeout(statusSaveTimer.current);
+      statusSaveTimer.current = setTimeout(() => { void persistStatus(snap, uid, tok); }, 4000);
+    }
+  }, []);
+
+  // Debounced per-change autosave while the modal is open.
+  useEffect(() => {
+    statusFormRef.current = statusForm;
+    if (!statusOpen || statusLoading) return;
+    if (!selectedUser || !accessToken) return;
+    if (JSON.stringify(statusForm) === statusSeedRef.current) return; // nothing changed
+    if (statusSaveTimer.current) clearTimeout(statusSaveTimer.current);
+    const snap = statusForm, uid = selectedUser, tok = accessToken;
+    statusSaveTimer.current = setTimeout(() => { void persistStatus(snap, uid, tok); }, 600);
+    return () => { if (statusSaveTimer.current) clearTimeout(statusSaveTimer.current); };
+  }, [statusForm, statusOpen, statusLoading, selectedUser, accessToken, persistStatus]);
+
+  // Flush the last edits then close (no "discard" — every change is
+  // committed; outside-click / X / Done all route here).
+  function closeStatusModal() {
+    if (statusSaveTimer.current) clearTimeout(statusSaveTimer.current);
+    const snap = statusFormRef.current;
+    if (selectedUser && accessToken && JSON.stringify(snap) !== statusSeedRef.current) {
+      void persistStatus(snap, selectedUser, accessToken);
+    }
+    setStatusOpen(false);
+  }
+
+  // Candidate switch / unmount: flush pending status for the OUTGOING
+  // candidate (uid+tok captured here so it can't mis-target).
+  useEffect(() => {
+    const uid = selectedUser, tok = accessToken;
+    return () => {
+      if (statusSaveTimer.current) clearTimeout(statusSaveTimer.current);
+      const snap = statusFormRef.current;
+      if (uid && tok && JSON.stringify(snap) !== statusSeedRef.current) {
+        fetch("/api/portal/admin/candidate-status", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${tok}` },
+          body: JSON.stringify({ userId: uid, ...snap }),
+          keepalive: true,
+        }).catch(() => {});
+        statusSeedRef.current = JSON.stringify(snap);
+      }
+    };
+  }, [selectedUser, accessToken]);
+
+  // Immutable vaccine mutators (autosave picks up the statusForm change).
+  const setVax = (key: VaxKey, m: (v: Vaccines[VaxKey]) => Vaccines[VaxKey]) =>
+    setStatusForm(f => ({ ...f, vaccines: { ...f.vaccines, [key]: m(f.vaccines[key]) } }));
+  const setDose = (key: VaxKey, i: number, patch: Partial<VaxDose>) =>
+    setVax(key, v => ({ ...v, doses: v.doses.map((d, idx) => idx === i ? { ...d, ...patch } : d) }));
+  const addDose = (key: VaxKey) =>
+    setVax(key, v => v.doses.length >= 2 ? v : ({ ...v, doses: [...v.doses, { ...EMPTY_DOSE }] }));
+  const removeDose = (key: VaxKey, i: number) =>
+    setVax(key, v => ({ ...v, doses: v.doses.filter((_, idx) => idx !== i) }));
   // Admin-side per-field review checklist — same UX as candidate's confirmation
   // boxes (orange ring → green tick). The admin clicks each field to mark it as
   // reviewed; once all populated fields are ticked, an "Approve" hint highlights.
@@ -781,7 +1040,75 @@ export default function AdminPage() {
   const [docHistory, setDocHistory] = useState<Doc[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   // Which doc id has the revoke/reject context menu open (null = none)
-  const [revokeMenu, setRevokeMenu] = useState<{ id: string; el: HTMLElement } | null>(null);
+  const [revokeMenu, setRevokeMenu] = useState<{ id: string; el: HTMLElement; rect?: { top: number; left?: number; right?: number } } | null>(null);
+  // Open a ⋯ menu, capturing the trigger's screen coords AT CLICK TIME (when
+  // it is guaranteed laid-out). The menu renders at these fixed coords with
+  // ZERO post-click DOM measurement — immune to the constantly-re-rendering
+  // candidate detail replacing the node (the "⋯ only works after opening a
+  // preview" bug). One helper → every ⋯ in this page behaves identically.
+  const openRowMenu = (
+    e: React.MouseEvent<HTMLElement>,
+    id: string,
+    align: "left" | "right" = "right",
+  ) => {
+    const b = e.currentTarget.getBoundingClientRect();
+    const rect = align === "left"
+      ? { top: b.bottom + 4, left: Math.max(8, b.left) }
+      : { top: b.bottom + 4, right: Math.max(8, window.innerWidth - b.right) };
+    setRevokeMenu(prev => (prev?.id === id ? null : { id, el: e.currentTarget, rect }));
+  };
+  const menuRect = (id: string) => (revokeMenu?.id === id ? revokeMenu.rect : undefined);
+
+  // Realtime: LIVE documents for the candidate currently being reviewed. The
+  // instant the candidate uploads (or another admin/sub-admin acts), the
+  // dossier reflects it with NO refresh — supreme admin, sub-admins and the
+  // candidate all stay in sync automatically.
+  useEffect(() => {
+    if (!selectedUser || !accessToken) return;
+    let alive = true;
+    const refresh = async () => {
+      const r = await fetch(`/api/portal/admin?userId=${selectedUser}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }).catch(() => null);
+      if (!alive || !r || !r.ok) return;
+      const j = await r.json();
+      const fresh: Doc[] = j.docs ?? [];
+      setDocs(prev => [...prev.filter(d => d.user_id !== selectedUser), ...fresh]);
+      if (Array.isArray(j.docHistory)) setDocHistory(j.docHistory as Doc[]);
+      // Also refresh THIS candidate's profile so admins see extracted /
+      // edited passport data live. LAST-WRITE-WINS (user decision): the
+      // server row overwrites unconditionally — whoever saved last wins,
+      // even for a field another admin is mid-typing. (The editor's own
+      // unsaved edits are still never lost — H-F flush + M-A re-queue.)
+      const pj = j.profiles?.[selectedUser];
+      if (pj) setProfiles(prev => ({ ...prev, [selectedUser]: pj }));
+    };
+    // Pull fresh docs the INSTANT this candidate is opened — the page-load
+    // bootstrap may predate the candidate's upload, so without this the
+    // dossier shows empty boxes even though the notification already fired.
+    refresh();
+    const ch = supabase
+      .channel(`admin-docs-live-${selectedUser}`)
+      .on("postgres_changes",
+        { event: "*", schema: "public", table: "documents", filter: `user_id=eq.${selectedUser}` },
+        () => { refresh(); },
+      )
+      // Passport DATA (and any profile edit / OCR result) — push to the
+      // open admin dossier instantly. RLS may gate this for the admin
+      // client; the 8s poll below is the guaranteed fallback.
+      .on("postgres_changes",
+        { event: "*", schema: "public", table: "candidate_profiles", filter: `user_id=eq.${selectedUser}` },
+        () => { refresh(); },
+      )
+      .subscribe();
+    // Fallback poll while this candidate is open — realtime on `documents`
+    // can be RLS-gated for the admin's client, so guarantee sync within 8s
+    // even if the subscription never delivers. Cheap: one request / 8s,
+    // only while actively reviewing ONE candidate.
+    const timer = setInterval(refresh, 8_000);
+    return () => { alive = false; clearInterval(timer); supabase.removeChannel(ch); };
+  }, [selectedUser, accessToken]);
+
   // Passport FILE download state (pipeline view)
   const [passportPdfDl, setPassportPdfDl] = useState(false);
   // Merged-PDF download loading state keyed by paired item key
@@ -1148,6 +1475,11 @@ export default function AdminPage() {
         setProfiles(prev => ({ ...prev, [selectedUser]: { ...prev[selectedUser], ...passportEdits } }));
         setProfileSaved(true);
         setTimeout(() => { setProfileSaved(false); setPassportEditMode(false); }, 1500);
+      } else {
+        let msg = `HTTP ${res.status}`;
+        try { const j = await res.json(); if (j?.error) msg = j.error; } catch { /* ignore */ }
+        console.error("savePassport failed:", msg);
+        alert(`Passport-Daten speichern fehlgeschlagen:\n${msg}`);
       }
     } catch (err) {
       console.error("Save passport error:", err);
@@ -1171,6 +1503,12 @@ export default function AdminPage() {
       });
       if (res.ok) {
         setProfiles(prev => ({ ...prev, [selectedUser]: { ...prev[selectedUser], ...profileUpdate } }));
+      } else {
+        // Don't let a failed approve/reject look like it persisted.
+        let msg = `HTTP ${res.status}`;
+        try { const j = await res.json(); if (j?.error) msg = j.error; } catch { /* ignore */ }
+        console.error("reviewPassport failed:", msg);
+        alert(`Passport-Status speichern fehlgeschlagen:\n${msg}`);
       }
     } catch (err) {
       console.error("reviewPassport error:", err);
@@ -1319,28 +1657,103 @@ export default function AdminPage() {
     }
   }
 
-  /** Save edits made inside the passport info modal */
-  async function savePassportInfo() {
-    if (!selectedUser) return;
-    setPassportInfoSaving(true);
+  // NOTE: the old manual `savePassportInfo()` was removed — passport-data
+  // edits now AUTOSAVE per field via flushPassportInfo + the debounced
+  // effect below (LAW #37). The button it served is gone.
+
+  // Persist a snapshot of passport-data edits (the AUTOSAVE writer). Merges
+  // into the authoritative `profiles` on success so the panel + a later
+  // reload both show the saved value. On failure it RE-QUEUES the edits (so
+  // nothing is lost) and surfaces the exact reason (LAW #37 — never silent).
+  const flushPassportInfo = React.useCallback(async (snap: Partial<CandidateProfile>) => {
+    const uid = selectedUser;
+    if (!uid || !accessToken) return;
+    const keys = Object.keys(snap);
+    if (keys.length === 0) return;
     try {
       const res = await fetch("/api/portal/admin", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ userId: selectedUser, profile: passportInfoEdits }),
+        body: JSON.stringify({ userId: uid, profile: snap }),
       });
       if (res.ok) {
-        setProfiles(prev => ({ ...prev, [selectedUser]: { ...prev[selectedUser], ...passportInfoEdits } }));
-        setPassportInfoEditMode(false);
-        setPassportInfoEdits({});
+        setProfiles(prev => ({ ...prev, [uid]: { ...prev[uid], ...snap } }));
+        // Drop the saved keys from the pending mirror only if unchanged since.
+        for (const k of keys) {
+          if ((pInfoEditsRef.current as Record<string, unknown>)[k] === (snap as Record<string, unknown>)[k]) {
+            delete (pInfoEditsRef.current as Record<string, unknown>)[k];
+          }
+        }
+        setPassportAutoSaved(true);
+        setTimeout(() => setPassportAutoSaved(false), 1600);
+      } else {
+        // RE-QUEUE the failed keys (don't lose them) + auto-retry, then
+        // surface the reason. pInfoEditsRef keeps unsaved keys; re-merge in
+        // case they were dropped, and re-arm a retry.
+        pInfoEditsRef.current = { ...snap, ...pInfoEditsRef.current };
+        if (ppSaveTimer.current) clearTimeout(ppSaveTimer.current);
+        ppSaveTimer.current = setTimeout(() => { void flushPassportInfo({ ...pInfoEditsRef.current }); }, 4000);
+        let msg = `HTTP ${res.status}`;
+        try { const j = await res.json(); if (j?.error) msg = j.error; } catch { /* ignore */ }
+        console.error("[passport autosave] failed:", msg);
+        alert(`Passport-Daten automatisch speichern fehlgeschlagen:\n${msg}`);
       }
-    } catch (err) {
-      console.error("savePassportInfo error:", err);
-      showError(t.adErrPassportSave);
-    } finally {
-      setPassportInfoSaving(false);
+    } catch (e) {
+      // Network error — keep the edits queued and retry; never lose them.
+      pInfoEditsRef.current = { ...snap, ...pInfoEditsRef.current };
+      if (ppSaveTimer.current) clearTimeout(ppSaveTimer.current);
+      ppSaveTimer.current = setTimeout(() => { void flushPassportInfo({ ...pInfoEditsRef.current }); }, 4000);
+      console.error("[passport autosave] error:", e);
     }
+  }, [selectedUser, accessToken]);
+
+  // Debounced per-field autosave: any change to passportInfoEdits while
+  // editing → persist 600ms after the last keystroke. Covers EVERY field with
+  // zero per-input wiring (the existing onChange already updates the state).
+  useEffect(() => {
+    pInfoEditsRef.current = { ...pInfoEditsRef.current, ...passportInfoEdits };
+    if (!passportInfoEditMode) return;
+    if (Object.keys(passportInfoEdits).length === 0) return;
+    if (ppSaveTimer.current) clearTimeout(ppSaveTimer.current);
+    const snap = { ...passportInfoEdits };
+    ppSaveTimer.current = setTimeout(() => { void flushPassportInfo(snap); }, 600);
+    return () => { if (ppSaveTimer.current) clearTimeout(ppSaveTimer.current); };
+  }, [passportInfoEdits, passportInfoEditMode, flushPassportInfo]);
+
+  // Leave edit mode. Flushes any not-yet-saved edits FIRST so the last
+  // keystrokes before an abrupt close/cancel are never lost (LAW #37 —
+  // autosave model has no "discard": every change is committed).
+  function exitPassportEdit() {
+    if (ppSaveTimer.current) clearTimeout(ppSaveTimer.current);
+    const pending = { ...pInfoEditsRef.current, ...passportInfoEdits };
+    if (Object.keys(pending).length > 0) void flushPassportInfo(pending);
+    pInfoEditsRef.current = {};
+    setPassportInfoEditMode(false);
+    setPassportInfoEdits({});
   }
+
+  // LAW #37: never lose an admin's last passport-data keystrokes. On
+  // candidate switch / tab close / unmount, the cleanup flushes any pending
+  // edits for the OUTGOING candidate (uid + token captured here, so it can
+  // never mis-target the next candidate). Explicit fetch — no closure on the
+  // possibly-rebound flushPassportInfo.
+  useEffect(() => {
+    const uid = selectedUser;
+    const tok = accessToken;
+    return () => {
+      if (ppSaveTimer.current) clearTimeout(ppSaveTimer.current);
+      const pending = { ...pInfoEditsRef.current };
+      pInfoEditsRef.current = {};
+      if (uid && tok && Object.keys(pending).length > 0) {
+        fetch("/api/portal/admin", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${tok}` },
+          body: JSON.stringify({ userId: uid, profile: pending }),
+          keepalive: true,
+        }).catch(() => {});
+      }
+    };
+  }, [selectedUser, accessToken]);
 
   async function review(docId: string, status: string, feedbackOverride?: string | null) {
     setSaving(s => ({ ...s, [docId]: true }));
@@ -1445,6 +1858,104 @@ export default function AdminPage() {
     if (!selectedUser) return;
     adminUploadTargetRef.current = slotId;
     adminFileInputRef.current?.click();
+  }
+
+  // Admin uploads/swaps an Essentials/Qualifications doc ON BEHALF of the
+  // candidate. Mirrors EXACTLY what the candidate sends (fileKey + fileType)
+  // so the server stores the identical file_type and getAdminDocs(key) picks
+  // it up — only difference is forUserId (the upload route already scope-checks
+  // via canActOnCandidate and archives any replaced file per LAW #33). This is
+  // intentionally NOT the slot-wizard adminUploadFile below.
+  function triggerAdminDocUpload(key: string, label: string) {
+    if (!selectedUser) return;
+    adminDocUploadRef.current = { key, label };
+    adminDocFileInputRef.current?.click();
+  }
+  // Passport PDF-only replace (supreme admin). Same hidden input, but the
+  // onChange routes to replacePassportPdf — never the OCR upload path.
+  function triggerPassportPdfReplace(docId: string) {
+    if (!selectedUser) return;
+    adminDocUploadRef.current = { key: "id", label: "Reisepass", passportPdf: { docId } };
+    adminDocFileInputRef.current?.click();
+  }
+  async function replacePassportPdf(file: File, docId: string) {
+    if (!selectedUser || !accessToken) return;
+    setAdminDocBusy(prev => new Set(prev).add("id"));
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("userId", selectedUser);
+      fd.append("docId", docId);
+      const res = await fetch("/api/portal/admin/replace-passport-pdf", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}` },
+        body: fd,
+      });
+      if (res.ok && selectedUser) {
+        const r2 = await fetch(`/api/portal/admin?userId=${selectedUser}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }).catch(() => null);
+        if (r2 && r2.ok) {
+          const j2 = await r2.json();
+          const fresh: Doc[] = j2.docs ?? [];
+          setDocs(prev => [
+            ...prev.filter(d => d.user_id !== selectedUser),
+            ...fresh,
+          ]);
+          // If the passport preview is open, point it at the FRESH row so the
+          // modal re-fetches the new PDF (the old object kept the old
+          // drive_file_id → "preview still shows the old one").
+          const fd = fresh.find(d => d.id === docId);
+          if (fd) setPreviewDoc(prev => (prev?.id === docId ? fd : prev));
+        }
+      } else if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try { const j = await res.json(); if (j?.error) msg = j.error; } catch { /* ignore */ }
+        console.error("[replacePassportPdf] failed:", msg);
+        alert(`PDF ersetzen fehlgeschlagen: ${msg}`);
+      }
+    } catch (e) {
+      console.error("[replacePassportPdf] error:", e);
+      alert("PDF ersetzen fehlgeschlagen (Netzwerkfehler).");
+    } finally {
+      setAdminDocBusy(prev => { const n = new Set(prev); n.delete("id"); return n; });
+    }
+  }
+  async function adminDocUpload(file: File, key: string, label: string) {
+    if (!selectedUser || !accessToken) return;
+    setAdminDocBusy(prev => new Set(prev).add(key));
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("fileKey", key);
+      fd.append("fileType", label);
+      fd.append("forUserId", selectedUser);
+      const res = await fetch("/api/portal/upload", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}` },
+        body: fd,
+      });
+      if (res.ok && selectedUser) {
+        // Refresh this candidate's docs (same merge pattern as the slot path).
+        const r2 = await fetch(`/api/portal/admin?userId=${selectedUser}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }).catch(() => null);
+        if (r2 && r2.ok) {
+          const j2 = await r2.json();
+          const fresh: Doc[] = j2.docs ?? [];
+          setDocs(prev => [
+            ...prev.filter(d => d.user_id !== selectedUser),
+            ...fresh,
+          ]);
+        }
+      } else if (!res.ok) {
+        console.error("[adminDocUpload] upload failed:", res.status);
+      }
+    } catch (e) {
+      console.error("[adminDocUpload] error:", e);
+    } finally {
+      setAdminDocBusy(prev => { const n = new Set(prev); n.delete(key); return n; });
+    }
   }
 
   async function adminUploadFile(file: File, slotId: string) {
@@ -1873,10 +2384,19 @@ export default function AdminPage() {
     function getAdminDocs(key: string): Doc[] {
       if (key === "passport_data_pdf") {
         const p = profiles[selectedUser ?? ""];
-        if (!p || !p.passport_status) return [];
+        // Show the passport-DATA view as soon as ANY extracted field exists —
+        // not only after the candidate submits. So the moment a candidate
+        // uploads + OCR runs, admins see the (unsubmitted, "NICHT
+        // EINGEREICHT") data live. Status "" = neutral (LAW #4: not
+        // submitted). The label reads passport_status directly (null →
+        // "NICHT EINGEREICHT").
+        const hasData = !!(p && (p.passport_status || p.first_name || p.last_name
+          || p.passport_no || p.dob || p.nationality || p.city_of_birth
+          || p.issuing_authority || p.address_street || p.city_of_residence));
+        if (!p || !hasData) return [];
         const fn = (p.first_name ?? "vorname").toLowerCase().replace(/\s+/g, "_");
         const ln = (p.last_name  ?? "nachname").toLowerCase().replace(/\s+/g, "_");
-        return [{ id: "passport_data_pdf", user_id: selectedUser ?? "", file_name: `${fn}_${ln}_reisepass_daten.pdf`, file_type: "Reisepass Daten", uploaded_at: new Date().toISOString(), status: p.passport_status, feedback: null, drive_file_id: null, uploaded_by_admin: false }];
+        return [{ id: "passport_data_pdf", user_id: selectedUser ?? "", file_name: `${fn}_${ln}_reisepass_daten.pdf`, file_type: "Reisepass Daten", uploaded_at: new Date().toISOString(), status: p.passport_status ?? "", feedback: null, drive_file_id: null, uploaded_by_admin: false }];
       }
       const labels = FILE_KEY_ALL_LABELS[key];
       if (labels) return allDocs.filter(d => labels.has(d.file_type));
@@ -1909,20 +2429,25 @@ export default function AdminPage() {
     const currentItems = PHASE_ITEMS[activePhase].items;
 
     function downloadDoc(doc: Doc) {
-      if (!doc.drive_file_id) return;
+      if (!doc.drive_file_id && !doc.id) return;
+      // Address by stable doc id so the server resolves the CURRENT
+      // drive_file_id — a replaced passport always downloads the NEW PDF,
+      // never the archived old one (even from a stale client object).
+      const base = doc.id
+        ? `/api/portal/file?docId=${encodeURIComponent(doc.id)}`
+        : `/api/portal/file?id=${encodeURIComponent(doc.drive_file_id ?? "")}`;
       // iOS can't save a client blob — it must navigate to a server route
       // that streams an octet-stream attachment, which triggers the native
       // "Do you want to download…" prompt. Same fix as the candidate side.
       if (isIOSDevice()) {
+        if (!dlt) return;
         triggerIosDownload(
-          `/api/portal/file?id=${encodeURIComponent(doc.drive_file_id)}` +
-            `&dl=1&name=${encodeURIComponent(doc.file_name)}` +
-            `&access_token=${encodeURIComponent(accessToken)}`,
+          withDlt(`${base}&dl=1&name=${encodeURIComponent(doc.file_name)}`, dlt),
           doc.file_name,
         );
         return;
       }
-      fetch(`/api/portal/file?id=${doc.drive_file_id}`, { headers: { Authorization: `Bearer ${accessToken}` } })
+      fetch(base, { headers: { Authorization: `Bearer ${accessToken}` } })
         .then(r => r.blob())
         .then(blob => {
           const url = URL.createObjectURL(blob);
@@ -2150,7 +2675,7 @@ export default function AdminPage() {
           void p_info; // status check intentionally dropped
 
           return (
-            <div className={`fixed inset-x-0 z-[750] flex justify-center p-4 bv-passport-info-outer ${isVerificationPhase ? "bv-side-data" : "items-center"}`}
+            <div className={`fixed inset-x-0 z-[9999] flex justify-center p-4 bv-passport-info-outer ${isVerificationPhase ? "bv-side-data" : "items-center"}`}
               style={{
                 top: isVerificationPhase ? undefined : "calc(58px + var(--bv-subnav-h, 0px))",
                 bottom: isVerificationPhase ? undefined : "0",
@@ -2158,7 +2683,7 @@ export default function AdminPage() {
                 backdropFilter: isVerificationPhase ? undefined : "blur(8px)",
                 pointerEvents: isVerificationPhase ? "none" : "auto",
               }}
-              onClick={() => { setShowPassportInfo(false); setPassportInfoEditMode(false); setPassportInfoEdits({}); }}>
+              onClick={() => { exitPassportEdit(); setShowPassportInfo(false); }}>
               {/* Side-by-side rule:
                     Laptop → data form sits in the RIGHT half, centered
                     Phone  → data form takes the BOTTOM half (passport above) */}
@@ -2241,7 +2766,7 @@ export default function AdminPage() {
                       {/* Phone: the ONLY close button — dismisses BOTH the
                           passport strip AND the data card (the data header's
                           own X is hidden on phone to avoid a duplicate). */}
-                      <button onClick={() => { setPreviewDoc(null); setShowPassportInfo(false); setPassportInfoEditMode(false); setPassportInfoEdits({}); }}
+                      <button onClick={() => { exitPassportEdit(); setPreviewDoc(null); setShowPassportInfo(false); }}
                         className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
                         style={{ color: "var(--w3)" }}>
                         <XIcon size={14} strokeWidth={1.8} />
@@ -2255,11 +2780,15 @@ export default function AdminPage() {
                           <Spinner size="md" />
                         </div>
                       ) : /\.pdf$/i.test(previewDoc?.file_name ?? "") ? (
-                        // iOS: pdf.js canvas is blank in WebKit → native iframe
-                        // straight from the server route (token in query).
-                        isIOSDevice() && previewDoc?.drive_file_id ? (
+                        // Passport PDFs are often JPEG2000 → pdf.js renders
+                        // them BLANK (and blank on iOS WebKit). Use the native
+                        // engine on EVERY platform, addressed by ?docId= so it
+                        // always serves the CURRENT (post-replace) file, never
+                        // the archived old one. pdf.js only as a no-token
+                        // fallback.
+                        previewDoc?.id && dlt ? (
                           <IosPdfFrame
-                            src={`/api/portal/file?id=${encodeURIComponent(previewDoc.drive_file_id)}&access_token=${encodeURIComponent(accessToken)}`}
+                            src={withDlt(`/api/portal/file?docId=${encodeURIComponent(previewDoc.id)}`, dlt)}
                             title={previewDoc?.file_name}
                           />
                         ) : (
@@ -2298,8 +2827,9 @@ export default function AdminPage() {
                       <button
                         onClick={() => {
                           if (passportInfoEditMode) {
-                            setPassportInfoEditMode(false); setPassportInfoEdits({});
+                            exitPassportEdit(); // flush pending, then leave edit mode
                           } else {
+                            pInfoEditsRef.current = {};
                             setPassportInfoEditMode(true); setPassportInfoEdits({});
                           }
                         }}
@@ -2338,11 +2868,12 @@ export default function AdminPage() {
                             // iOS can't download a client blob — stream via
                             // GET (small payload in query), in-gesture anchor.
                             if (isIOSDevice() && accessToken) {
+                              if (!dlt) { setPassportDataPdfDl(false); return; }
                               const json = JSON.stringify({ groups: passportDisplayGroups, docTitle, docSubtitle, filename: outName });
                               const b64 = btoa(unescape(encodeURIComponent(json)))
                                 .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
                               triggerIosDownload(
-                                `/api/portal/admin/passport-data-pdf?dl=1&d=${b64}&access_token=${encodeURIComponent(accessToken)}`,
+                                withDlt(`/api/portal/admin/passport-data-pdf?dl=1&d=${b64}`, dlt),
                                 outName,
                                 () => setPassportDataPdfDl(false),
                               );
@@ -2372,7 +2903,7 @@ export default function AdminPage() {
                           : <Download size={14} strokeWidth={1.8} />}
                       </button>
                     )}
-                    <button onClick={() => { setShowPassportInfo(false); setPassportInfoEditMode(false); setPassportInfoEdits({}); }}
+                    <button onClick={() => { exitPassportEdit(); setShowPassportInfo(false); }}
                       className={`bv-icon-btn w-8 h-8 rounded-full ${isVerificationPhase ? "hidden sm:flex" : "flex"} items-center justify-center flex-shrink-0`}
                       style={{ color: "var(--w3)" }}>
                       <XIcon size={14} strokeWidth={1.8} />
@@ -2559,18 +3090,21 @@ export default function AdminPage() {
                   <div className="flex items-center gap-2">
                     {passportInfoEditMode ? (
                       <>
+                        {/* No "Save" button: every field autosaves on change
+                            (LAW #37). This just shows status + exits. */}
+                        <div className="flex-1 inline-flex items-center gap-1.5 text-xs"
+                          style={{ color: passportAutoSaved ? "var(--success)" : "var(--w3)" }}>
+                          {passportAutoSaved ? (
+                            <><CheckCircle2 size={12} strokeWidth={1.8} /> {lang === "fr" ? "Enregistré automatiquement" : lang === "de" ? "Automatisch gespeichert" : "Auto-saved"}</>
+                          ) : (
+                            <><Save size={12} strokeWidth={1.8} /> {lang === "fr" ? "Enregistrement automatique" : lang === "de" ? "Wird automatisch gespeichert" : "Saves automatically"}</>
+                          )}
+                        </div>
                         <button
-                          onClick={savePassportInfo}
-                          disabled={passportInfoSaving || Object.keys(passportInfoEdits).length === 0}
-                          className="flex-1 py-2 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80 disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
-                          style={{ background: "var(--info-bg)", color: "var(--info)" }}>
-                          {passportInfoSaving ? "Saving…" : <><Save size={12} strokeWidth={1.8} /> Save changes</>}
-                        </button>
-                        <button
-                          onClick={() => { setPassportInfoEditMode(false); setPassportInfoEdits({}); }}
-                          className="bv-row-hover py-2 px-3 text-xs"
-                          style={{ color: "var(--w3)" }}>
-                          Cancel
+                          onClick={exitPassportEdit}
+                          className="bv-row-hover py-2 px-3 text-xs font-semibold"
+                          style={{ color: "var(--w2)" }}>
+                          {lang === "fr" ? "Terminé" : lang === "de" ? "Fertig" : "Done"}
                         </button>
                       </>
                     ) : pst !== "approved" ? (
@@ -2673,7 +3207,339 @@ export default function AdminPage() {
                 </h1>
                 <p className="text-[12.5px] mt-1 truncate" style={{ color: "var(--w3)" }}>{user.email}</p>
               </div>
+              {/* Admin-only STATUS reminders (B2 …). Candidate never sees this. */}
+              <button
+                onClick={openStatusModal}
+                className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3.5 py-2 rounded-full transition-opacity hover:opacity-80 flex-shrink-0"
+                style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                <Zap size={12} strokeWidth={2} /> {lang === "fr" ? "Statut" : "Status"}
+              </button>
             </div>
+
+            {/* ── Admin-only STATUS modal (LAW #36) — candidate never sees ── */}
+            {statusOpen && typeof window !== "undefined" && createPortal(
+              (() => {
+                const L = lang === "fr"
+                  ? { title:"Statut", q1:"B2 terminé ?", yes:"Oui", no:"Non", cert:"Date du certificat", save:"Enregistrer", cancel:"Annuler", loading:"Chargement…", hint:"Visible uniquement par les admins — le candidat ne voit rien.", wroteQ:"A-t-il passé l'examen ?", wrote:"A passé l'examen", notwrote:"Pas encore passé", examWritten:"Date de l'examen passé", resultsExpected:"Date prévue des résultats", plannedExam:"Date prévue de l'examen", regPaid:"Inscrit — frais payés", regWaiting:"En attente d'ouverture du site", secB2:"B2", secVax:"Vaccins", got:"Reçu", notgot:"Pas encore", doseDate:"Date du vaccin", doseExpected:"Date prévue", certExpected:"Certificat / complet le", dose:"Dose", addDose:"Ajouter une dose", mand:"obligatoire" }
+                  : lang === "de"
+                  ? { title:"Status", q1:"B2 abgeschlossen?", yes:"Ja", no:"Nein", cert:"Zertifikatsdatum", save:"Speichern", cancel:"Abbrechen", loading:"Laden…", hint:"Nur für Admins sichtbar — der Kandidat sieht nichts.", wroteQ:"Prüfung abgelegt?", wrote:"Prüfung abgelegt", notwrote:"Noch nicht abgelegt", examWritten:"Datum der abgelegten Prüfung", resultsExpected:"Voraussichtliches Ergebnisdatum", plannedExam:"Voraussichtlicher Prüfungstermin", regPaid:"Angemeldet — Gebühren bezahlt", regWaiting:"Wartet auf Öffnung der Website", secB2:"B2", secVax:"Impfungen", got:"Geimpft", notgot:"Noch nicht", doseDate:"Impfdatum", doseExpected:"Voraussichtliches Datum", certExpected:"Nachweis / vollständig bis", dose:"Dosis", addDose:"Dosis hinzufügen", mand:"Pflicht" }
+                  : { title:"Status", q1:"B2 complete?", yes:"Yes", no:"No", cert:"Certificate date", save:"Save", cancel:"Cancel", loading:"Loading…", hint:"Admin-only — the candidate never sees this.", wroteQ:"Did they write the exam?", wrote:"Wrote the exam", notwrote:"Didn't write yet", examWritten:"Exam written on", resultsExpected:"Expected results date", plannedExam:"Expected exam date", regPaid:"Registered — fees paid", regWaiting:"Waiting for website to open", secB2:"B2", secVax:"Vaccines", got:"Received", notgot:"Not yet", doseDate:"Vaccination date", doseExpected:"Expected date", certExpected:"Certificate / complete by", dose:"Dose", addDose:"Add a dose", mand:"required" };
+                const pill = (active: boolean) => ({
+                  background: active ? "var(--gdim)" : "var(--bg2)",
+                  color: active ? "var(--gold)" : "var(--w3)",
+                  border: `1px solid ${active ? "var(--border-gold)" : "var(--border)"}`,
+                });
+                // Left-rail categories — add a project = one more entry here
+                // + one more `statusTab === "<id>"` content block below.
+                const STATUS_TABS: { id: "b2" | "assign" | "vaccine" | "notes"; label: string; Icon: typeof GraduationCap }[] = [
+                  { id: "b2",      label: L.secB2,                                                                 Icon: GraduationCap },
+                  { id: "assign",  label: lang === "fr" ? "Affectation" : lang === "de" ? "Zuweisung" : "Assignment", Icon: Building2 },
+                  { id: "vaccine", label: L.secVax,                                                                Icon: Syringe },
+                  { id: "notes",   label: lang === "de" ? "Notizen" : "Notes",                                     Icon: NotebookPen },
+                ];
+                const assignT = lang === "fr"
+                  ? { sec:"Affectation", to:"Affecter à", agency:"Agence", employer:"Employeur direct", pickAg:"Agence", pickSite:"Site / employeur", pickEmp:"Employeur" }
+                  : lang === "de"
+                  ? { sec:"Zuweisung", to:"Zuweisen an", agency:"Agentur", employer:"Direkter Arbeitgeber", pickAg:"Agentur", pickSite:"Standort / Arbeitgeber", pickEmp:"Arbeitgeber" }
+                  : { sec:"Assignment", to:"Assign to", agency:"Agency", employer:"Direct employer", pickAg:"Agency", pickSite:"Site / employer", pickEmp:"Employer" };
+                return (
+                <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
+                  style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
+                  onClick={closeStatusModal}>
+                  <div className="w-full max-w-2xl rounded-[20px] overflow-hidden flex flex-col"
+                    onClick={e => e.stopPropagation()}
+                    style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)",
+                      // FIXED medium height (not content-adaptive) — extra
+                      // space is fine; only shrinks on a short viewport.
+                      height: "min(560px, calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px))",
+                      maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)" }}>
+                    <div className="flex items-center justify-between px-5 py-4 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
+                      <div>
+                        <p className="text-sm font-semibold" style={{ color: "var(--w)" }}>{L.title}</p>
+                        <p className="text-[10.5px] mt-0.5" style={{ color: "var(--w3)" }}>{L.hint}</p>
+                      </div>
+                      <button onClick={closeStatusModal}
+                        className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center" style={{ color: "var(--w3)" }}>
+                        <XIcon size={14} strokeWidth={1.8} />
+                      </button>
+                    </div>
+                    <div className="flex flex-1" style={{ minHeight: 0 }}>
+                      {/* Left category rail — EXACTLY the candidate-dashboard
+                          sidebar language: floating (no border), premium
+                          minimalist icon + tiny label, gold + slight scale on
+                          active, thin connector line between items. */}
+                      <div className="flex-shrink-0 w-[64px] sm:w-[76px] overflow-y-auto py-4">
+                        {STATUS_TABS.map((tb, ti) => {
+                          const isActive = statusTab === tb.id;
+                          const Icon = tb.Icon;
+                          return (
+                            <div key={tb.id} className="flex flex-col items-center">
+                              <button onClick={() => setStatusTab(tb.id)} title={tb.label}
+                                className="bv-lift-hover w-full flex flex-col items-center gap-1 py-1 cursor-pointer"
+                                style={{ background: "transparent", border: "none" }}>
+                                <span className="relative flex items-center justify-center w-8 h-8 rounded-full leading-none select-none"
+                                  style={{
+                                    color: isActive ? "var(--gold)" : "var(--w3)",
+                                    transform: isActive ? "scale(1.08)" : "scale(1)",
+                                    transition: "color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease)",
+                                  }}>
+                                  <Icon size={15} strokeWidth={1.7} />
+                                </span>
+                                <span className="text-[8.5px] text-center leading-tight font-medium px-0.5 w-full"
+                                  style={{ color: isActive ? "var(--gold)" : "var(--w3)" }}>{tb.label}</span>
+                              </button>
+                              {ti < STATUS_TABS.length - 1 && (
+                                <div className="w-px" style={{ height: 18, background: "var(--border)" }} />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="flex-1 px-5 py-5 overflow-y-auto" style={{ minHeight: 0 }}>
+                      {statusLoading ? (
+                        <p className="text-xs text-center py-6" style={{ color: "var(--w3)" }}>{L.loading}</p>
+                      ) : (
+                        <>
+                          {statusTab === "b2" && (
+                          <StatusSection title={L.secB2} first>
+                          <div>
+                            <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{L.q1}</label>
+                            <div className="flex gap-2">
+                              <button onClick={() => setStatusForm(f => ({ ...f, b2_complete: true }))}
+                                className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                                style={pill(statusForm.b2_complete === true)}>{L.yes}</button>
+                              <button onClick={() => setStatusForm(f => ({ ...f, b2_complete: false }))}
+                                className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                                style={pill(statusForm.b2_complete === false)}>{L.no}</button>
+                            </div>
+                          </div>
+
+                          {statusForm.b2_complete === true && (
+                            <div>
+                              <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{L.cert}</label>
+                              <DeDateInput value={statusForm.b2_cert_date} onChange={v => setStatusForm(f => ({ ...f, b2_cert_date: v }))} />
+                            </div>
+                          )}
+
+                          {statusForm.b2_complete === false && (
+                            <>
+                              {/* Did they write the exam? */}
+                              <div>
+                                <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{L.wroteQ}</label>
+                                <div className="flex gap-2">
+                                  <button onClick={() => setStatusForm(f => ({ ...f, b2_exam_written: true }))}
+                                    className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                                    style={pill(statusForm.b2_exam_written === true)}>{L.wrote}</button>
+                                  <button onClick={() => setStatusForm(f => ({ ...f, b2_exam_written: false }))}
+                                    className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                                    style={pill(statusForm.b2_exam_written === false)}>{L.notwrote}</button>
+                                </div>
+                              </div>
+
+                              {/* Wrote it → exam date + expected results date */}
+                              {statusForm.b2_exam_written === true && (
+                                <>
+                                  <div>
+                                    <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{L.examWritten}</label>
+                                    <DeDateInput value={statusForm.b2_exam_written_date} onChange={v => setStatusForm(f => ({ ...f, b2_exam_written_date: v }))} />
+                                  </div>
+                                  <div>
+                                    <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{L.resultsExpected}</label>
+                                    <DeDateInput value={statusForm.b2_results_expected_date} onChange={v => setStatusForm(f => ({ ...f, b2_results_expected_date: v }))} />
+                                  </div>
+                                </>
+                              )}
+
+                              {/* Didn't write → expected exam date + registration state */}
+                              {statusForm.b2_exam_written === false && (
+                                <>
+                                  <div>
+                                    <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{L.plannedExam}</label>
+                                    <DeDateInput value={statusForm.b2_planned_exam_date} onChange={v => setStatusForm(f => ({ ...f, b2_planned_exam_date: v }))} />
+                                  </div>
+                                  <div className="flex gap-2">
+                                    <button onClick={() => setStatusForm(f => ({ ...f, b2_registration_status: "paid" }))}
+                                      className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                                      style={pill(statusForm.b2_registration_status === "paid")}>{L.regPaid}</button>
+                                    <button onClick={() => setStatusForm(f => ({ ...f, b2_registration_status: "waiting" }))}
+                                      className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                                      style={pill(statusForm.b2_registration_status === "waiting")}>{L.regWaiting}</button>
+                                  </div>
+                                </>
+                              )}
+                            </>
+                          )}
+                          </StatusSection>
+                          )}
+
+                          {statusTab === "assign" && (
+                          <StatusSection title={assignT.sec} first>
+                            <div>
+                              <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{assignT.to}</label>
+                              <div className="flex gap-2">
+                                <button onClick={() => setStatusForm(f => ({ ...f, assign_type: "agency", assign_employer: null }))}
+                                  className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                                  style={pill(statusForm.assign_type === "agency")}>{assignT.agency}</button>
+                                <button onClick={() => setStatusForm(f => ({ ...f, assign_type: "employer", assign_agency: null, assign_site: null }))}
+                                  className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                                  style={pill(statusForm.assign_type === "employer")}>{assignT.employer}</button>
+                              </div>
+                            </div>
+
+                            {statusForm.assign_type === "agency" && (
+                              <>
+                                <div>
+                                  <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{assignT.pickAg}</label>
+                                  <div className="flex flex-wrap gap-2">
+                                    {ASSIGN_AGENCIES.map(a => (
+                                      <button key={a.id}
+                                        onClick={() => setStatusForm(f => ({ ...f, assign_agency: a.id, assign_site: f.assign_agency === a.id ? f.assign_site : null }))}
+                                        className="px-3.5 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                                        style={pill(statusForm.assign_agency === a.id)}>{a.name}</button>
+                                    ))}
+                                  </div>
+                                </div>
+                                {statusForm.assign_agency && (
+                                  <div>
+                                    <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{assignT.pickSite}</label>
+                                    <div className="flex flex-wrap gap-2">
+                                      {(ASSIGN_AGENCIES.find(a => a.id === statusForm.assign_agency)?.sites ?? []).map(s => (
+                                        <button key={s.id}
+                                          onClick={() => setStatusForm(f => ({ ...f, assign_site: s.id }))}
+                                          className="px-3.5 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                                          style={pill(statusForm.assign_site === s.id)}>{s.name}</button>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </>
+                            )}
+
+                            {statusForm.assign_type === "employer" && (
+                              <div>
+                                <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{assignT.pickEmp}</label>
+                                <div className="flex flex-wrap gap-2">
+                                  {ASSIGN_EMPLOYERS.map(e => (
+                                    <button key={e.id}
+                                      onClick={() => setStatusForm(f => ({ ...f, assign_employer: e.id }))}
+                                      className="px-3.5 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                                      style={pill(statusForm.assign_employer === e.id)}>{e.name}</button>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </StatusSection>
+                          )}
+
+                          {statusTab === "vaccine" && (
+                          <StatusSection title={L.secVax} first>
+                          {([
+                            { key: "masern"   as VaxKey, name: "Masern" },
+                            { key: "varizell" as VaxKey, name: "Varizell" },
+                          ]).map(({ key, name }) => {
+                            const vx = statusForm.vaccines[key];
+                            return (
+                              <div key={key} className="rounded-xl p-3 space-y-3"
+                                style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+                                <p className="text-xs font-semibold" style={{ color: "var(--w)" }}>{name}</p>
+                                {vx.doses.map((d, i) => {
+                                  const mandatory = key === "masern" && i === 0;
+                                  return (
+                                    <div key={i} className="rounded-lg p-2.5 space-y-2"
+                                      style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-[11px] font-medium" style={{ color: "var(--w2)" }}>
+                                          {L.dose} {i + 1}
+                                          {mandatory && <span className="ml-1.5 text-[9px] px-1.5 py-0.5 rounded" style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>{L.mand}</span>}
+                                        </span>
+                                        {!mandatory && (
+                                          <button onClick={() => removeDose(key, i)} aria-label="remove"
+                                            className="bv-icon-btn w-6 h-6 rounded-full flex items-center justify-center" style={{ color: "var(--w3)" }}>
+                                            <Trash2 size={11} strokeWidth={1.8} />
+                                          </button>
+                                        )}
+                                      </div>
+                                      <div className="flex gap-2">
+                                        <button onClick={() => setDose(key, i, { got: true })}
+                                          className="flex-1 py-1.5 rounded-lg text-[11px] font-semibold transition-opacity hover:opacity-80"
+                                          style={pill(d.got === true)}>{L.got}</button>
+                                        <button onClick={() => setDose(key, i, { got: false })}
+                                          className="flex-1 py-1.5 rounded-lg text-[11px] font-semibold transition-opacity hover:opacity-80"
+                                          style={pill(d.got === false)}>{L.notgot}</button>
+                                      </div>
+                                      {d.got === true && (
+                                        <div>
+                                          <label className="text-[10px] font-medium mb-1 block" style={{ color: "var(--w3)" }}>{L.doseDate}</label>
+                                          <DeDateInput value={d.done_date} onChange={v => setDose(key, i, { done_date: v })} />
+                                        </div>
+                                      )}
+                                      {d.got === false && (
+                                        <div>
+                                          <label className="text-[10px] font-medium mb-1 block" style={{ color: "var(--w3)" }}>{L.doseExpected}</label>
+                                          <DeDateInput value={d.expected_date} onChange={v => setDose(key, i, { expected_date: v })} />
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                                {vx.doses.length < 2 && (
+                                  <button onClick={() => addDose(key)}
+                                    className="w-full py-1.5 rounded-lg text-[11px] font-semibold transition-opacity hover:opacity-80 inline-flex items-center justify-center gap-1.5"
+                                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                                    <Plus size={11} strokeWidth={2} /> {L.addDose}
+                                  </button>
+                                )}
+                                <div>
+                                  <label className="text-[10px] font-medium mb-1 block" style={{ color: "var(--w3)" }}>{L.certExpected}</label>
+                                  <DeDateInput value={vx.cert_expected} onChange={v => setVax(key, p => ({ ...p, cert_expected: v }))} />
+                                </div>
+                              </div>
+                            );
+                          })}
+                          </StatusSection>
+                          )}
+
+                          {/* ▸ ADD FUTURE STATUS PROJECTS HERE: one entry in
+                                STATUS_TABS + one `{statusTab === "<id>" && (
+                                <StatusSection title="…" first> … </StatusSection>
+                                )}` block. Autosave covers the fields. ◂ */}
+
+                          {statusTab === "notes" && (
+                          <StatusSection title={lang === "de" ? "Notizen" : "Notes"} first>
+                            <textarea
+                              rows={3}
+                              value={statusForm.b2_notes ?? ""}
+                              onChange={e => setStatusForm(f => ({ ...f, b2_notes: e.target.value }))}
+                              placeholder={lang === "fr" ? "Quelques notes…" : lang === "de" ? "Ein paar Notizen…" : "A couple of notes…"}
+                              className="w-full rounded-lg px-2.5 py-2 text-xs outline-none resize-y"
+                              style={{ background: "var(--bg2)", border: "1px solid var(--border2)", color: "var(--w)", minHeight: 64 }} />
+                          </StatusSection>
+                          )}
+                        </>
+                      )}
+                      </div>
+                    </div>
+                    <div className="px-5 py-4 flex-shrink-0 flex items-center justify-between gap-2" style={{ borderTop: "1px solid var(--border)" }}>
+                      {/* No Save button — autosaves on every change
+                          (last-write-wins). This just shows status + closes. */}
+                      <span className="inline-flex items-center gap-1.5 text-[11px]"
+                        style={{ color: statusAutoSaved ? "var(--success)" : "var(--w3)" }}>
+                        {statusAutoSaved
+                          ? <><CheckCircle2 size={12} strokeWidth={1.8} /> {lang === "fr" ? "Enregistré automatiquement" : lang === "de" ? "Automatisch gespeichert" : "Auto-saved"}</>
+                          : <><SaveIcon size={12} strokeWidth={1.8} /> {lang === "fr" ? "Enregistrement automatique" : lang === "de" ? "Wird automatisch gespeichert" : "Saves automatically"}</>}
+                      </span>
+                      <button onClick={closeStatusModal}
+                        className="bv-row-hover py-2 px-4 text-xs font-semibold rounded-xl"
+                        style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                        {lang === "fr" ? "Terminé" : lang === "de" ? "Fertig" : "Done"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                );
+              })(),
+              document.body,
+            )}
 
 
             {/* Always two-column: sidebar + content */}
@@ -2980,12 +3846,12 @@ export default function AdminPage() {
                                             )}
                                             <div className="relative flex-shrink-0">
                                               <button
-                                                onClick={e => { e.stopPropagation(); setRevokeMenu(prev => prev?.id === menuId ? null : { id: menuId, el: e.currentTarget as HTMLElement }); }}
+                                                onClick={e => { e.stopPropagation(); openRowMenu(e, menuId); }}
                                                 className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
                                                 style={{ color: "var(--w2)" }}>
                                                 <MoreHorizontal size={14} strokeWidth={1.8} />
                                               </button>
-                                              <DropdownMenu open={revokeMenu?.id === menuId} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === menuId ? revokeMenu.el : null}>
+                                              <DropdownMenu open={revokeMenu?.id === menuId} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === menuId ? revokeMenu.el : null} anchorRect={menuRect(menuId)}>
                                                     <button
                                                       onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSlotConfigPopup({ slotId: slot.id, admin_signs: slot.admin_signs, candidate_signs: slot.candidate_signs, admin_fills: slot.admin_fills, candidate_fills: slot.candidate_fills, pdf_has_native_fields: !!slot.pdf_has_native_fields }); }}
                                                       className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
@@ -3075,9 +3941,13 @@ export default function AdminPage() {
                                             const mfn = mergedPdfName(origDocs[0]?.file_name, slot.label);
                                             // iOS: server-route navigation → native download prompt.
                                             if (isIOSDevice()) {
+                                              if (!dlt) return;
                                               triggerIosDownload(
-                                                `/api/portal/documents/merge-pdf?origDocId=${encodeURIComponent(origDocs[0].id)}&transDocId=${encodeURIComponent(transDocs[0].id)}` +
-                                                  `&dl=1&name=${encodeURIComponent(mfn)}&access_token=${encodeURIComponent(accessToken)}`,
+                                                withDlt(
+                                                  `/api/portal/documents/merge-pdf?origDocId=${encodeURIComponent(origDocs[0].id)}&transDocId=${encodeURIComponent(transDocs[0].id)}` +
+                                                    `&dl=1&name=${encodeURIComponent(mfn)}`,
+                                                  dlt,
+                                                ),
                                                 mfn,
                                               );
                                               return;
@@ -3123,12 +3993,12 @@ export default function AdminPage() {
                                       {/* Three-dots — Edit label + Delete */}
                                       <div className="relative flex-shrink-0">
                                         <button
-                                          onClick={e => { e.stopPropagation(); setRevokeMenu(prev => prev?.id === slot.id ? null : { id: slot.id, el: e.currentTarget as HTMLElement }); }}
+                                          onClick={e => { e.stopPropagation(); openRowMenu(e, slot.id); }}
                                           className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
                                           style={{ color: "var(--w2)" }}>
                                           <MoreHorizontal size={14} strokeWidth={1.8} />
                                         </button>
-                                        <DropdownMenu open={revokeMenu?.id === slot.id} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === slot.id ? revokeMenu.el : null}>
+                                        <DropdownMenu open={revokeMenu?.id === slot.id} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === slot.id ? revokeMenu.el : null} anchorRect={menuRect(slot.id)}>
                                               <button
                                                 onClick={e => { e.stopPropagation(); setRevokeMenu(null); setEditingSlotId(slot.id); setEditingSlotLabel(slot.label); setEditingSlotLabelTrans(slot.label_trans ?? ""); setEditingSlotInstructions(slot.instructions ?? ""); }}
                                                 className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
@@ -3215,12 +4085,12 @@ export default function AdminPage() {
                                                   {subDoc && (
                                                     <div className="relative flex-shrink-0">
                                                       <button
-                                                        onClick={e => { e.stopPropagation(); setRevokeMenu(prev => prev?.id === subDoc!.id ? null : { id: subDoc!.id, el: e.currentTarget as HTMLElement }); }}
+                                                        onClick={e => { e.stopPropagation(); openRowMenu(e, subDoc!.id); }}
                                                         className="bv-icon-btn w-8 h-8 flex items-center justify-center rounded-full"
                                                         style={{ color: "var(--w2)" }}>
                                                         <MoreHorizontal size={12} strokeWidth={1.8} />
                                                       </button>
-                                                      <DropdownMenu open={revokeMenu?.id === subDoc.id} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === subDoc.id ? revokeMenu.el : null}>
+                                                      <DropdownMenu open={revokeMenu?.id === subDoc.id} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === subDoc.id ? revokeMenu.el : null} anchorRect={menuRect(subDoc.id)}>
                                                             <button
                                                               onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ docId: subDoc?.id ?? null, driveFileId: subDoc?.drive_file_id ?? null, label: subLabel }); }}
                                                               className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
@@ -3293,7 +4163,7 @@ export default function AdminPage() {
                             <button
                               onClick={() => addPhaseSlot(addSlotPhase!, addSlotLabel, "")}
                               disabled={addSlotSaving || !addSlotLabel.trim()}
-                              className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold transition-all disabled:opacity-40"
+                              className="bv-glow-gold bv-press flex-1 py-2.5 rounded-xl text-[13px] font-semibold disabled:opacity-40"
                               style={{ background: "var(--gold)", color: "#131312" }}>
                               {addSlotSaving
                                 ? (lang === "de" ? "Speichern…" : lang === "fr" ? "Enregistrement…" : "Saving…")
@@ -3487,8 +4357,8 @@ export default function AdminPage() {
                                 {lang === "de" ? "Überspringen" : lang === "fr" ? "Passer" : "Skip"}
                               </button>
                               <button onClick={() => saveSlotConfig(cfg)} disabled={slotConfigSaving}
-                                className="flex-1 py-2.5 text-[12px] font-semibold transition-all disabled:opacity-40 hover:opacity-95"
-                                style={{ background: "var(--gold)", color: "#131312", borderRadius: 10, boxShadow: "0 4px 14px var(--border-gold), 0 0 0 1px var(--border-gold)" }}>
+                                className="bv-glow-gold bv-press flex-1 py-2.5 text-[12px] font-semibold disabled:opacity-40"
+                                style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-md)", boxShadow: "var(--shadow-gold-sm)" }}>
                                 {slotConfigSaving
                                   ? (lang === "de" ? "Speichern…" : lang === "fr" ? "Enregistrement…" : "Saving…")
                                   : (lang === "de" ? "Bestätigen" : lang === "fr" ? "Confirmer" : "Confirm")}
@@ -3607,8 +4477,19 @@ export default function AdminPage() {
                       if (item.key === "passport_data_pdf") {
                         const p = profiles[selectedUser ?? ""];
                         const pst = p?.passport_status ?? null;
-                        const hasData = !!pst;
-                        const cSt = !hasData ? "empty" : pst === "approved" ? "approved" : pst === "rejected" ? "rejected" : "pending";
+                        // hasData: SAME broad predicate as getAdminDocs — the
+                        // row must be openable/actionable the moment OCR
+                        // fills fields, not only after submit (LAW #37).
+                        const hasData = !!(p && (p.passport_status || p.first_name || p.last_name
+                          || p.passport_no || p.dob || p.nationality || p.city_of_birth
+                          || p.issuing_authority || p.address_street || p.city_of_residence));
+                        // Color (LAW #4): not submitted (pst null) = NEUTRAL
+                        // even if extracted data exists; only a real review
+                        // status colors it.
+                        const cSt = pst === "approved" ? "approved"
+                          : pst === "rejected" ? "rejected"
+                          : pst === "pending" ? "pending"
+                          : "empty";
                         const sc2 = cSt === "approved" ? { bg: "var(--success-border)",  txt: "var(--success)", bdr: "1px solid var(--success-border)" }
                                   : cSt === "rejected"  ? { bg: "var(--danger-bg)",  txt: "var(--danger)", bdr: "1px solid var(--danger-bg)" }
                                   : cSt === "pending"   ? { bg: "rgba(245,158,11,0.12)", txt: "#f59e0b", bdr: "1px solid rgba(245,158,11,0.3)" }
@@ -3640,13 +4521,13 @@ export default function AdminPage() {
                                   {/* Approved: revoke ⋯ menu */}
                                   {hasData && cSt === "approved" && (
                                     <div className="relative mt-1.5 inline-block">
-                                      <button onClick={e => setRevokeMenu(prev => prev?.id === "passport_data_pdf" ? null : { id: "passport_data_pdf", el: e.currentTarget as HTMLElement })}
+                                      <button onClick={e => openRowMenu(e, "passport_data_pdf", "left")}
                                         title="Revoke approval" aria-label="More actions"
                                         className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full bv-touch"
                                         style={{ color: "var(--w2)" }}>
                                         <MoreHorizontal size={13} strokeWidth={1.8} />
                                       </button>
-                                      <DropdownMenu open={revokeMenu?.id === "passport_data_pdf"} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === "passport_data_pdf" ? revokeMenu.el : null} align="left">
+                                      <DropdownMenu open={revokeMenu?.id === "passport_data_pdf"} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === "passport_data_pdf" ? revokeMenu.el : null} align="left" anchorRect={menuRect("passport_data_pdf")}>
                                             <button onClick={() => { setRevokeMenu(null); openRejectModal({ kind: "passport", label: item.label, initialFeedback: passportDataFeedback }); }}
                                               className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
                                               style={{ color: "var(--danger)" }}><RotateCcw size={11} strokeWidth={1.8} /> Revoke</button>
@@ -3669,9 +4550,12 @@ export default function AdminPage() {
                                         // iOS: navigate to the server route (token in query,
                                         // octet-stream) → native download prompt.
                                         if (isIOSDevice()) {
+                                          if (!dlt) return;
                                           triggerIosDownload(
-                                            `/api/portal/passport-pdf?userId=${encodeURIComponent(selectedUser)}` +
-                                              `&dl=1&access_token=${encodeURIComponent(accessToken)}`,
+                                            withDlt(
+                                              `/api/portal/passport-pdf?userId=${encodeURIComponent(selectedUser)}&dl=1`,
+                                              dlt,
+                                            ),
                                             pdfFn,
                                           );
                                           return;
@@ -3727,12 +4611,16 @@ export default function AdminPage() {
                         const mHasPending   = mOrigSt === "pending"  || mTransSt === "pending";
                         const mPairColor = mBothApproved ? "#16a34a" : mHasPending ? "#f59e0b" : null;
 
-                        const renderSubDoc = (subDoc: Doc | undefined, subLabel: string) => {
+                        const renderSubDoc = (subDoc: Doc | undefined, subLabel: string, subKey: string, docLabel: string) => {
                           const sst = !subDoc ? "empty" : subDoc.status;
                           const ssc = sst === "approved" ? { bg: "var(--success-bg)", txt: "var(--success)", bdr: "var(--success-border)" }
-                            : sst === "rejected" ? { bg: "var(--danger-bg)", txt: "var(--danger)", bdr: "var(--danger-bg)" }
-                            : sst === "pending"  ? { bg: "rgba(245,158,11,0.12)", txt: "#f59e0b", bdr: "rgba(245,158,11,0.3)" }
+                            : sst === "rejected" ? { bg: "var(--danger-bg)", txt: "var(--danger)", bdr: "var(--danger-border)" }
+                            : sst === "pending"  ? { bg: "var(--warning-bg)", txt: "var(--warning)", bdr: "var(--warning-border)" }
                             : { bg: "var(--bg2)", txt: "var(--w3)", bdr: "var(--border)" };
+                          // Stable menu id even when nothing is uploaded yet, so the
+                          // ⋯ (with "Upload") works on empty sub-rows too.
+                          const menuId = subDoc ? subDoc.id : "newdoc:" + subKey;
+                          const busy = adminDocBusy.has(subKey);
                           return (
                             <div
                               className={`rounded-xl px-3 py-3${subDoc ? " bv-row-hover cursor-pointer" : ""}`}
@@ -3741,68 +4629,88 @@ export default function AdminPage() {
                               <div className="flex items-center gap-1.5">
                                 <div className="flex-1 min-w-0">
                                   <p className="text-[11.5px] font-medium tracking-tight" style={{ color: subDoc ? ssc.txt : "var(--w2)" }}>{subLabel}</p>
-                                  {!subDoc && <p className="text-[10px]" style={{ color: "var(--w3)" }}>{lang === "de" ? "Nicht eingereicht" : "Not submitted"}</p>}
+                                  {!subDoc && <p className="text-[10px]" style={{ color: "var(--w3)" }}>{lang === "de" ? "Nicht eingereicht" : lang === "fr" ? "Non soumis" : "Not submitted"}</p>}
                                   {subDoc && sst === "rejected" && subDoc.feedback && (
                                     <p className="text-[10px] mt-0.5 truncate" style={{ color: "var(--danger)" }}>{subDoc.feedback}</p>
                                   )}
                                 </div>
-                                {subDoc && (
-                                  <div className="flex items-center gap-1 flex-shrink-0"
-                                    onClick={e => e.stopPropagation()}
-                                    onMouseDown={e => e.stopPropagation()}>
-                                    {subDoc.drive_file_id && (
+                                <div className="flex items-center gap-1 flex-shrink-0"
+                                  onClick={e => e.stopPropagation()}
+                                  onMouseDown={e => e.stopPropagation()}>
+                                  {subDoc?.drive_file_id && (
+                                    <button type="button"
+                                      onClick={() => downloadDoc(subDoc)}
+                                      title={t.aDownload}
+                                      className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
+                                      style={{ color: "var(--w2)" }}>
+                                      <Download size={13} strokeWidth={1.8} />
+                                    </button>
+                                  )}
+                                  {subDoc && sst === "pending" && !subDoc.uploaded_by_admin && (
+                                    <>
                                       <button type="button"
-                                        onClick={() => downloadDoc(subDoc)}
-                                        title={t.aDownload}
-                                        className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
-                                        style={{ color: "var(--w2)" }}>
-                                        <Download size={13} strokeWidth={1.8} />
+                                        onClick={() => openRejectModal({ kind: "doc", docId: subDoc.id, label: subLabel, initialFeedback: subDoc.feedback ?? "" })}
+                                        disabled={saving[subDoc.id]}
+                                        className="bv-icon-btn bv-icon-btn--reject w-9 h-9 flex items-center justify-center rounded-full disabled:opacity-40">
+                                        <XCircle size={15} strokeWidth={1.8} />
                                       </button>
-                                    )}
-                                    {sst === "pending" && !subDoc.uploaded_by_admin && (
-                                      <>
-                                        <button type="button"
-                                          onClick={() => openRejectModal({ kind: "doc", docId: subDoc.id, label: subLabel, initialFeedback: subDoc.feedback ?? "" })}
-                                          disabled={saving[subDoc.id]}
-                                          className="bv-icon-btn bv-icon-btn--reject w-9 h-9 flex items-center justify-center rounded-full disabled:opacity-40">
-                                          <XCircle size={15} strokeWidth={1.8} />
-                                        </button>
-                                        <button type="button"
-                                          onClick={() => review(subDoc.id, "approved")}
-                                          disabled={saving[subDoc.id]}
-                                          className="bv-icon-btn bv-icon-btn--approve w-9 h-9 flex items-center justify-center rounded-full disabled:opacity-40">
-                                          <CheckCircle2 size={15} strokeWidth={1.8} />
-                                        </button>
-                                      </>
-                                    )}
-                                    {subDoc.drive_file_id && (
-                                      <div className="relative flex-shrink-0">
-                                        <button
-                                          onClick={e => { e.stopPropagation(); setRevokeMenu(prev => prev?.id === subDoc.id ? null : { id: subDoc.id, el: e.currentTarget as HTMLElement }); }}
-                                          className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
-                                          style={{ color: "var(--w2)" }}>
-                                          <MoreHorizontal size={15} strokeWidth={1.8} />
-                                        </button>
-                                        <DropdownMenu open={revokeMenu?.id === subDoc.id} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === subDoc.id ? revokeMenu.el : null}>
-                                              <button
-                                                onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ docId: subDoc.id, driveFileId: subDoc.drive_file_id!, label: subLabel }); }}
-                                                className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
-                                                style={{ color: "var(--w)" }}>
-                                                <FilePen size={11} strokeWidth={1.8} /> Signature
-                                              </button>
-                                              {sst === "approved" && (
-                                                <button
-                                                  onClick={e => { e.stopPropagation(); setRevokeMenu(null); openRejectModal({ kind: "doc", docId: subDoc.id, label: subLabel, initialFeedback: subDoc.feedback ?? "" }); }}
-                                                  className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
-                                                  style={{ color: "var(--danger)" }}>
-                                                  <RotateCcw size={11} strokeWidth={1.8} /> Revoke
-                                                </button>
-                                              )}
-                                        </DropdownMenu>
-                                      </div>
-                                    )}
+                                      <button type="button"
+                                        onClick={() => review(subDoc.id, "approved")}
+                                        disabled={saving[subDoc.id]}
+                                        className="bv-icon-btn bv-icon-btn--approve w-9 h-9 flex items-center justify-center rounded-full disabled:opacity-40">
+                                        <CheckCircle2 size={15} strokeWidth={1.8} />
+                                      </button>
+                                    </>
+                                  )}
+                                  {/* ⋯ — ALWAYS rendered (even with no doc) so the
+                                      admin can Upload-on-behalf when the candidate
+                                      submitted nothing, or Swap an existing one. */}
+                                  <div className="relative flex-shrink-0">
+                                    <button
+                                      onClick={e => {
+                                        e.stopPropagation();
+                                        // Measure NOW, while the button is guaranteed laid-out
+                                        // & valid (it was just clicked). The menu renders at
+                                        // these exact coords — no later DOM read that the
+                                        // re-render churn could zero out.
+                                        const _b = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                        const _rect = { top: _b.bottom + 4, right: Math.max(8, window.innerWidth - _b.right) };
+                                        setRevokeMenu(prev => prev?.id === menuId ? null : { id: menuId, el: e.currentTarget as HTMLElement, rect: _rect });
+                                      }}
+                                      title="More actions" aria-label="More actions"
+                                      className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
+                                      style={{ color: "var(--w2)" }}>
+                                      {busy
+                                        ? <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                                        : <MoreHorizontal size={15} strokeWidth={1.8} />}
+                                    </button>
+                                    <DropdownMenu open={revokeMenu?.id === menuId} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === menuId ? revokeMenu.el : null} anchorRect={revokeMenu?.id === menuId ? revokeMenu.rect : undefined}>
+                                          {!subDoc ? (
+                                            <button
+                                              onClick={e => { e.stopPropagation(); setRevokeMenu(null); triggerAdminDocUpload(subKey, docLabel); }}
+                                              className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                              style={{ color: "var(--gold)" }}>
+                                              <Upload size={11} strokeWidth={1.8} /> {lang === "fr" ? "Téléverser" : lang === "de" ? "Hochladen" : "Upload"}
+                                            </button>
+                                          ) : (
+                                            <button
+                                              onClick={e => { e.stopPropagation(); setRevokeMenu(null); triggerAdminDocUpload(subKey, docLabel); }}
+                                              className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                              style={{ color: "var(--gold)" }}>
+                                              <Upload size={11} strokeWidth={1.8} /> {lang === "fr" ? "Remplacer" : lang === "de" ? "Ersetzen" : "Swap"}
+                                            </button>
+                                          )}
+                                          {subDoc && sst === "approved" && (
+                                            <button
+                                              onClick={e => { e.stopPropagation(); setRevokeMenu(null); openRejectModal({ kind: "doc", docId: subDoc.id, label: subLabel, initialFeedback: subDoc.feedback ?? "" }); }}
+                                              className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                              style={{ color: "var(--danger)" }}>
+                                              <RotateCcw size={11} strokeWidth={1.8} /> {lang === "fr" ? "Révoquer" : lang === "de" ? "Widerrufen" : "Revoke"}
+                                            </button>
+                                          )}
+                                    </DropdownMenu>
                                   </div>
-                                )}
+                                </div>
                               </div>
                             </div>
                           );
@@ -3814,12 +4722,17 @@ export default function AdminPage() {
                         return (
                           <div key={item.key}>
                             {idx > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
-                            {/* Master header — click to preview merged PDF */}
+                            {/* Master header — click toggles the Original /
+                                Übersetzt sub-boxes, EXACTLY like the candidate
+                                side. (Merged-PDF download stays on its own
+                                button; preview via opening a sub-box.) */}
                             <div
                               className={`px-3 py-3 flex items-center gap-2${canMerge ? " cursor-pointer bv-row-hover" : ""}`}
-                              onClick={() => {
-                                if (canMerge) setMergePreview({ origDocId: origDoc!.id, transDocId: transDoc!.id, label: item.label });
-                              }}>
+                              onClick={() => setExpandedPairs(prev => {
+                                const n = new Set(prev);
+                                n.has(item.key) ? n.delete(item.key) : n.add(item.key);
+                                return n;
+                              })}>
                               <div className="flex-1 min-w-0">
                                 <p className="text-[11.5px] font-medium tracking-tight" style={{ color: mPairColor ?? "var(--w)" }}>{item.label}</p>
                                 {item.optional && (
@@ -3839,9 +4752,13 @@ export default function AdminPage() {
                                     if (isMergeDl) return;
                                     const mfn = mergedPdfName(origDoc?.file_name, item.label);
                                     if (isIOSDevice()) {
+                                      if (!dlt) return;
                                       triggerIosDownload(
-                                        `/api/portal/documents/merge-pdf?origDocId=${encodeURIComponent(origDoc!.id)}&transDocId=${encodeURIComponent(transDoc!.id)}` +
-                                          `&dl=1&name=${encodeURIComponent(mfn)}&access_token=${encodeURIComponent(accessToken)}`,
+                                        withDlt(
+                                          `/api/portal/documents/merge-pdf?origDocId=${encodeURIComponent(origDoc!.id)}&transDocId=${encodeURIComponent(transDoc!.id)}` +
+                                            `&dl=1&name=${encodeURIComponent(mfn)}`,
+                                          dlt,
+                                        ),
                                         mfn,
                                       );
                                       return;
@@ -3887,8 +4804,8 @@ export default function AdminPage() {
                             {/* Sub-boxes — only shown when expanded */}
                             {isExpanded && (
                               <div className="px-3 pb-3 space-y-1.5">
-                                {renderSubDoc(origDoc,  "Original")}
-                                {renderSubDoc(transDoc, "Übersetzt")}
+                                {renderSubDoc(origDoc,  "Original",  item.key,      item.label)}
+                                {renderSubDoc(transDoc, "Übersetzt", item.transKey, item.label)}
                               </div>
                             )}
                           </div>
@@ -4012,12 +4929,12 @@ export default function AdminPage() {
                                             {d.drive_file_id && (
                                               <div className="relative flex-shrink-0">
                                                 <button
-                                                  onClick={(e) => { e.stopPropagation(); setRevokeMenu(prev => prev?.id === d.id ? null : { id: d.id, el: e.currentTarget as HTMLElement }); }}
+                                                  onClick={(e) => { e.stopPropagation(); openRowMenu(e, d.id); }}
                                                   title="More actions" aria-label="More actions"
                                                   className="bv-icon-btn w-6 h-6 flex items-center justify-center rounded-full bv-touch"
                                                   style={{ color: "var(--w2)" }}
                                                 ><MoreHorizontal size={11} strokeWidth={1.8} /></button>
-                                                <DropdownMenu open={revokeMenu?.id === d.id} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === d.id ? revokeMenu.el : null}>
+                                                <DropdownMenu open={revokeMenu?.id === d.id} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === d.id ? revokeMenu.el : null} anchorRect={menuRect(d.id)}>
                                                       {d.status === "approved" && (
                                                         <button
                                                           onClick={() => { setRevokeMenu(null); openRejectModal({ kind: "doc", docId: d.id, label: d.file_name, initialFeedback: d.feedback ?? "" }); }}
@@ -4079,27 +4996,44 @@ export default function AdminPage() {
                                   {doc.drive_file_id && (
                                     <div className="relative" onClick={(e) => e.stopPropagation()}>
                                       <button
-                                        onClick={(e) => { e.stopPropagation(); setRevokeMenu(prev => prev?.id === doc.id ? null : { id: doc.id, el: e.currentTarget as HTMLElement }); }}
+                                        onClick={(e) => { e.stopPropagation(); openRowMenu(e, doc.id); }}
                                         title="More actions" aria-label="More actions"
                                         className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
                                         style={{ color: "var(--w2)" }}>
                                         <MoreHorizontal size={14} strokeWidth={1.8} />
                                       </button>
-                                      <DropdownMenu open={revokeMenu?.id === doc.id} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === doc.id ? revokeMenu.el : null}>
-                                            {/* Always-useful actions for BOTH supreme admin
-                                                and every sub-admin — menu is never empty. */}
-                                            <button
-                                              onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); setPreviewDoc(doc); }}
-                                              className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
-                                              style={{ color: "var(--w)" }}>
-                                              <Eye size={11} strokeWidth={1.8} /> Open
-                                            </button>
-                                            <button
-                                              onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); downloadDoc(doc); }}
-                                              className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
-                                              style={{ color: "var(--w)" }}>
-                                              <Download size={11} strokeWidth={1.8} /> Download
-                                            </button>
+                                      <DropdownMenu open={revokeMenu?.id === doc.id} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === doc.id ? revokeMenu.el : null} anchorRect={menuRect(doc.id)}>
+                                            {/* Open / Download / Reject removed —
+                                                they already exist as the row's
+                                                icon buttons. Menu keeps the
+                                                actions not available as icons. */}
+                                            {/* Ersetzen — replace the candidate's
+                                                uploaded doc. This menu only
+                                                renders when doc + drive_file_id
+                                                exist, so the "only if uploaded"
+                                                rule is already satisfied. Same
+                                                behaviour as the Qualifications
+                                                Swap. */}
+                                            {item.key === "id" ? (
+                                              /* Passport is special: PDF-ONLY
+                                                 replace (no OCR, no data/status
+                                                 change). Supreme admin only. */
+                                              isSuperAdmin && (
+                                                <button
+                                                  onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); triggerPassportPdfReplace(doc.id); }}
+                                                  className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                                  style={{ color: "var(--gold)" }}>
+                                                  <Upload size={11} strokeWidth={1.8} /> {lang === "fr" ? "Remplacer le PDF" : lang === "de" ? "PDF ersetzen" : "Replace PDF"}
+                                                </button>
+                                              )
+                                            ) : (
+                                              <button
+                                                onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); triggerAdminDocUpload(item.key, item.label); }}
+                                                className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                                style={{ color: "var(--gold)" }}>
+                                                <Upload size={11} strokeWidth={1.8} /> {lang === "fr" ? "Remplacer" : lang === "de" ? "Ersetzen" : "Swap"}
+                                              </button>
+                                            )}
                                             {item.key === "cv_de" && selectedUser && (
                                               <button
                                                 onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); window.open(`/portal/cv-builder?candidateId=${selectedUser}`, "_blank"); }}
@@ -4115,15 +5049,6 @@ export default function AdminPage() {
                                                 className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium disabled:opacity-40 inline-flex items-center gap-1.5"
                                                 style={{ color: "var(--success)" }}>
                                                 <CheckCircle2 size={11} strokeWidth={1.8} /> {lang === "fr" ? "Approuver" : lang === "de" ? "Genehmigen" : "Approve"}
-                                              </button>
-                                            )}
-                                            {doc.status === "pending" && (
-                                              <button
-                                                onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); openRejectModal({ kind: "doc", docId: doc.id, label: item.label, initialFeedback: doc.feedback ?? "" }); }}
-                                                disabled={saving[doc.id]}
-                                                className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium disabled:opacity-40 inline-flex items-center gap-1.5"
-                                                style={{ color: "var(--danger)" }}>
-                                                <XCircle size={11} strokeWidth={1.8} /> {lang === "fr" ? "Refuser" : lang === "de" ? "Ablehnen" : "Reject"}
                                               </button>
                                             )}
                                             {doc.status === "approved" && (
@@ -4272,6 +5197,21 @@ export default function AdminPage() {
         }}
       />
       <input
+        ref={adminDocFileInputRef}
+        type="file"
+        accept=".pdf,application/pdf"
+        style={{ display: "none" }}
+        onChange={e => {
+          const file = e.target.files?.[0];
+          const t = adminDocUploadRef.current;
+          if (file && t) {
+            if (t.passportPdf) replacePassportPdf(file, t.passportPdf.docId);
+            else adminDocUpload(file, t.key, t.label);
+          }
+          e.target.value = "";
+        }}
+      />
+      <input
         ref={sigManualFileRef}
         type="file"
         accept=".pdf,application/pdf"
@@ -4335,7 +5275,7 @@ export default function AdminPage() {
               </button>
               <button onClick={() => saveSlotLabel(editingSlotId!, editingSlotLabel, editingSlotLabelTrans, editingSlotInstructions)}
                 disabled={!editingSlotLabel.trim()}
-                className="flex-1 py-3 rounded-xl text-[13px] font-semibold transition-all disabled:opacity-40"
+                className="bv-glow-gold bv-press flex-1 py-3 rounded-xl text-[13px] font-semibold disabled:opacity-40"
                 style={{ background: "var(--gold)", color: "#131312" }}>
                 Save
               </button>
@@ -4425,7 +5365,7 @@ export default function AdminPage() {
                       });
                     }
                   }}
-                  className="flex-1 py-2 rounded-xl text-[12px] font-semibold transition-colors disabled:opacity-40"
+                  className="bv-glow-gold bv-press flex-1 py-2 rounded-xl text-[12px] font-semibold disabled:opacity-40"
                   style={{ background: "var(--gold)", color: "#131312" }}>
                   Confirm
                 </button>
@@ -4593,7 +5533,7 @@ export default function AdminPage() {
                       setPlacementWizard(prev => prev ? { ...prev, stepIdx: prev.stepIdx + 1 } : prev);
                     }
                   }}
-                  className="text-[11.5px] font-semibold px-3 py-1.5 rounded-xl disabled:opacity-40 transition-opacity hover:opacity-95"
+                  className="bv-glow-gold bv-press text-[11.5px] font-semibold px-3 py-1.5 rounded-xl disabled:opacity-40"
                   style={{ background: "var(--gold)", color: "#131312" }}>
                   {placementSubmitting
                     ? "…"
@@ -4723,7 +5663,7 @@ export default function AdminPage() {
                     </p>
                   </div>
                   <button type="button" onClick={e => { e.stopPropagation(); sigManualFileRef.current?.click(); }}
-                    className="inline-flex items-center gap-2 px-5 py-2 rounded-full text-[13px] font-semibold transition-opacity hover:opacity-80"
+                    className="bv-glow-gold bv-press inline-flex items-center gap-2 px-5 py-2 rounded-full text-[13px] font-semibold"
                     style={{ background: "var(--gold)", color: "#131312" }}>
                     <Upload size={13} strokeWidth={2} />
                     {lang === "fr" ? "Choisir un PDF" : lang === "de" ? "PDF auswählen" : "Choose PDF"}
@@ -4797,7 +5737,13 @@ export default function AdminPage() {
                             // needs a FRESH tap to download (a download after
                             // this await is blocked), so surface a button.
                             setIosSignedDl({
-                              url: `/api/portal/admin/sign-request?adminDownload=1&name=${encodeURIComponent(sigModal.label + ".pdf")}&access_token=${encodeURIComponent(accessToken)}`,
+                              // Built after an await already (gesture spent) →
+                              // mint async; the actual save is a later fresh
+                              // tap on the surfaced button (token still valid).
+                              url: await appendDlt(
+                                `/api/portal/admin/sign-request?adminDownload=1&name=${encodeURIComponent(sigModal.label + ".pdf")}`,
+                                accessToken,
+                              ),
                               name: `${sigModal.label}.pdf`,
                             });
                             setSigSending(false);
@@ -4821,7 +5767,7 @@ export default function AdminPage() {
                   return (
                     <>
                       <button onClick={() => doSubmit("save")} disabled={sigSending || !selectedUser || !hasPdf}
-                        className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold transition-opacity disabled:opacity-40"
+                        className="bv-glow-gold bv-press flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold disabled:opacity-40"
                         style={{ background: "var(--gold)", color: "#131312" }}>
                         {sigSending ? spin : <><SaveIcon size={13} strokeWidth={2} /> {lang === "fr" ? "Sauvegarder" : lang === "de" ? "Speichern" : "Save"}</>}
                       </button>
@@ -4834,7 +5780,7 @@ export default function AdminPage() {
                             setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null);
                             setSigAdminSig(null); setSigAdminWantSave(true); setSigOrgSig(null); setSigOrgWantSave(true);
                           }}
-                          className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold"
+                          className="bv-glow-gold bv-press flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold"
                           style={{ background: "var(--gold)", color: "#131312" }}>
                           <Download size={13} strokeWidth={2} /> {lang === "fr" ? "Appuyez pour enregistrer" : lang === "de" ? "Tippen zum Speichern" : "Tap to save PDF"}
                         </button>
@@ -5140,13 +6086,15 @@ export default function AdminPage() {
             );
           })()}
 
-          {/* ── Tools strip — invite + agencies ── superadmin only ── */}
-          {isSuperAdmin && (
+          {/* ── Tools strip — invite + agencies ──
+              Candidate invite: ALL admins (supreme + sub-admins).
+              Org-admin + sub-admin invites: supreme only. ── */}
+          {roleResolved && (
             <div className="mt-4 mb-5 space-y-px" style={{ borderRadius: "var(--r-xl)", border: "1px solid var(--border)" }}>
 
               {/* Candidate invite row — generates a /join link that lands on
                   /portal/dashboard after signup. */}
-              <div className="flex items-center gap-3 px-4 py-3" style={{ background: "var(--card)", borderRadius: "var(--r-xl) var(--r-xl) 0 0" }}>
+              <div className="flex items-center gap-3 px-4 py-3" style={{ background: "var(--card)", borderRadius: isSuperAdmin ? "var(--r-xl) var(--r-xl) 0 0" : "var(--r-xl)" }}>
                 <span className="flex-1 flex items-center gap-2"><User size={16} strokeWidth={1.6} style={{ color: "var(--w3)" }} /><span className="text-[12px]" style={{ color: "var(--w3)" }}>Invitation Link</span></span>
                 {inviteUrl ? (
                   <div className="flex items-center gap-2 flex-shrink-0">
@@ -5188,6 +6136,7 @@ export default function AdminPage() {
                 )}
               </div>
 
+              {isSuperAdmin && (<>
               {/* Org-admin invite row — generates a /join link that lands on
                   /portal/org/dashboard after signup. Requires picking which
                   org the new admin will manage. */}
@@ -5307,6 +6256,7 @@ export default function AdminPage() {
                   </button>
                 )}
               </div>
+              </>)}
 
           </div>
           )}
@@ -5530,6 +6480,21 @@ export default function AdminPage() {
           e.target.value = "";
         }}
       />
+      <input
+        ref={adminDocFileInputRef}
+        type="file"
+        accept=".pdf,application/pdf"
+        style={{ display: "none" }}
+        onChange={e => {
+          const file = e.target.files?.[0];
+          const t = adminDocUploadRef.current;
+          if (file && t) {
+            if (t.passportPdf) replacePassportPdf(file, t.passportPdf.docId);
+            else adminDocUpload(file, t.key, t.label);
+          }
+          e.target.value = "";
+        }}
+      />
 
       {/* Hidden file input for manual PDF upload inside sig modal */}
       <input
@@ -5578,7 +6543,7 @@ export default function AdminPage() {
               <button
                 onClick={() => saveSlotLabel(editingSlotId!, editingSlotLabel, editingSlotLabelTrans, editingSlotInstructions)}
                 disabled={!editingSlotLabel.trim()}
-                className="flex-1 py-3 rounded-xl text-[13px] font-semibold transition-all disabled:opacity-40"
+                className="bv-glow-gold bv-press flex-1 py-3 rounded-xl text-[13px] font-semibold disabled:opacity-40"
                 style={{ background: "var(--gold)", color: "#131312" }}>
                 Save
               </button>
@@ -5683,7 +6648,7 @@ export default function AdminPage() {
                   <button
                     type="button"
                     onClick={e => { e.stopPropagation(); sigManualFileRef.current?.click(); }}
-                    className="inline-flex items-center gap-2 px-5 py-2 rounded-full text-[13px] font-semibold transition-opacity hover:opacity-80"
+                    className="bv-glow-gold bv-press inline-flex items-center gap-2 px-5 py-2 rounded-full text-[13px] font-semibold"
                     style={{ background: "var(--gold)", color: "#131312" }}>
                     <Upload size={13} strokeWidth={2} />
                     {lang === "fr" ? "Choisir un PDF" : lang === "de" ? "PDF auswählen" : "Choose PDF"}
@@ -5760,7 +6725,13 @@ export default function AdminPage() {
                             // needs a FRESH tap to download (a download after
                             // this await is blocked), so surface a button.
                             setIosSignedDl({
-                              url: `/api/portal/admin/sign-request?adminDownload=1&name=${encodeURIComponent(sigModal.label + ".pdf")}&access_token=${encodeURIComponent(accessToken)}`,
+                              // Built after an await already (gesture spent) →
+                              // mint async; the actual save is a later fresh
+                              // tap on the surfaced button (token still valid).
+                              url: await appendDlt(
+                                `/api/portal/admin/sign-request?adminDownload=1&name=${encodeURIComponent(sigModal.label + ".pdf")}`,
+                                accessToken,
+                              ),
                               name: `${sigModal.label}.pdf`,
                             });
                             setSigSending(false);
@@ -5784,7 +6755,7 @@ export default function AdminPage() {
                   return (
                     <>
                       <button onClick={() => doSubmit("save")} disabled={sigSending || !selectedUser || !hasPdf}
-                        className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold transition-opacity disabled:opacity-40"
+                        className="bv-glow-gold bv-press flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold disabled:opacity-40"
                         style={{ background: "var(--gold)", color: "#131312" }}>
                         {sigSending ? spin : <><SaveIcon size={13} strokeWidth={2} /> {lang === "fr" ? "Sauvegarder" : lang === "de" ? "Speichern" : "Save"}</>}
                       </button>
@@ -5797,7 +6768,7 @@ export default function AdminPage() {
                             setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null);
                             setSigAdminSig(null); setSigAdminWantSave(true); setSigOrgSig(null); setSigOrgWantSave(true);
                           }}
-                          className="flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold"
+                          className="bv-glow-gold bv-press flex-shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-[13px] font-semibold"
                           style={{ background: "var(--gold)", color: "#131312" }}>
                           <Download size={13} strokeWidth={2} /> {lang === "fr" ? "Appuyez pour enregistrer" : lang === "de" ? "Tippen zum Speichern" : "Tap to save PDF"}
                         </button>

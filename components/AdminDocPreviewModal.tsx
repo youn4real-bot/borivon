@@ -11,8 +11,10 @@ import { ZoomPanRotateViewer } from "@/components/ZoomPanRotateViewer";
 import { IosPdfFrame } from "@/components/IosPdfFrame";
 import { isIOSDevice } from "@/lib/platform";
 import { triggerIosDownload } from "@/lib/iosDownload";
+import { useDlToken, withDlt } from "@/lib/dlClient";
 import { Spinner } from "@/components/ui/states";
 import { useLang } from "@/components/LangContext";
+import { translateDocLabel } from "@/lib/fileKeys";
 
 const dm = {
   en: {
@@ -111,8 +113,10 @@ export function AdminDocPreviewModal({
     // iOS renders PDFs via the native iframe (server URL) — no blob needed.
     // Skip the blob fetch so a large PDF isn't downloaded twice on mobile.
     if (isIOSDevice() && (doc.file_name.split(".").pop() ?? "").toLowerCase() === "pdf") return;
+    // Stable doc id → server resolves the CURRENT drive_file_id (never the
+    // archived old one after a replace). Same rule as fileBase below.
     const fetchUrl = overrideFetchUrl
-      ?? (doc.drive_file_id ? `/api/portal/file?id=${doc.drive_file_id}` : `/api/portal/file?docId=${doc.id}`);
+      ?? (doc.id ? `/api/portal/file?docId=${doc.id}` : `/api/portal/file?id=${doc.drive_file_id ?? ""}`);
     if (!fetchUrl) return;
     let mounted = true;
     let url = "";
@@ -126,7 +130,7 @@ export function AdminDocPreviewModal({
       .then(blob => { if (!mounted) return; url = URL.createObjectURL(blob); setBlobUrl(url); })
       .catch(err => { if (err.name !== "AbortError") console.error("Preview fetch error:", err); });
     return () => { mounted = false; ctrl.abort(); if (url) URL.revokeObjectURL(url); };
-  }, [overrideFetchUrl, doc.drive_file_id, accessToken]);
+  }, [overrideFetchUrl, doc.id, doc.drive_file_id, accessToken]);
 
   async function approve() {
     if (submitting) return;
@@ -196,26 +200,48 @@ export function AdminDocPreviewModal({
   // download a blob `<a download>`. Mirror the candidate-side fix: native
   // PDF iframe for preview + server route (?dl=1&access_token) for download.
   const iosMode = isIOSDevice();
+  // Passport scans are very often JPEG2000 (JPXDecode) — pdf.js renders those
+  // BLANK/washed (decode error is swallowed) while the actual PDF bytes are
+  // perfectly intact. The browser's NATIVE PDF engine (PDFium/PDFKit, via the
+  // IosPdfFrame iframe) decodes them correctly. So passports always use the
+  // native frame, on every platform — not just iOS. This is the permanent
+  // fix for the recurring "passport data erased" report.
+  const isPdfDoc      = (doc.file_name.split(".").pop() ?? "").toLowerCase() === "pdf";
+  const isPassportDoc = /pass/i.test(doc.file_type);
+  const nativePdf     = isPdfDoc && (iosMode || isPassportDoc);
+  // iOS file URLs carry a short-lived signed token (?dlt=), never the raw JWT.
+  // The native frame is a top-level <iframe> request that can't send an
+  // Authorization header, so it needs the same signed token on desktop too.
+  const dlt = useDlToken((iosMode || nativePdf) ? accessToken : null);
+  // Address by the STABLE doc id, NOT the volatile drive_file_id. After a
+  // "PDF ersetzen" the drive_file_id changes; any device still holding the
+  // old doc object (e.g. Android not yet refreshed) would keep fetching the
+  // OLD/archived file. With ?docId= the server resolves the CURRENT
+  // drive_file_id from the row every time → preview AND download always show
+  // the newest PDF; the archived one is never referenced again.
   const fileBase = overrideFetchUrl
-    ?? (doc.drive_file_id
-      ? `/api/portal/file?id=${encodeURIComponent(doc.drive_file_id)}`
-      : `/api/portal/file?docId=${encodeURIComponent(doc.id)}`);
+    ?? (doc.id
+      ? `/api/portal/file?docId=${encodeURIComponent(doc.id)}`
+      : `/api/portal/file?id=${encodeURIComponent(doc.drive_file_id ?? "")}`);
   const withQ = (u: string, qs: string) => u + (u.includes("?") ? "&" : "?") + qs;
-  const iosPreviewUrl  = withQ(fileBase, `access_token=${encodeURIComponent(accessToken)}`);
-  const iosDownloadUrl = withQ(fileBase, `dl=1&name=${encodeURIComponent(doc.file_name)}&access_token=${encodeURIComponent(accessToken)}`);
+  const iosPreviewUrl  = dlt ? withDlt(fileBase, dlt) : "";
+  const iosDownloadUrl = dlt ? withDlt(withQ(fileBase, `dl=1&name=${encodeURIComponent(doc.file_name)}`), dlt) : "";
 
   // Portal to document.body so this modal always escapes any ancestor
   // stacking-context created by backdrop-filter (e.g. the mobile bottom bar).
   if (typeof document === "undefined") return null;
 
   return createPortal(
-   <div className={`fixed inset-x-0 z-[700] flex justify-center p-2 bv-doc-preview-outer ${sideBySide ? "bv-side-preview" : "items-center"}`}
+   <div className={`fixed inset-x-0 z-[1100] flex justify-center p-2 bv-doc-preview-outer ${sideBySide ? "bv-side-preview" : "items-center"}`}
       style={{
         top: "calc(58px + var(--bv-subnav-h, 0px))",
         paddingTop: "6px",
         bottom: 0,
+        // LAW #27 keeps the darker 0.72 wash for the doc viewer; LAW #36 adds
+        // the blur on BOTH layouts so it never reads as a flat scrim.
         background: sideBySide ? "rgba(0,0,0,0.45)" : "rgba(0,0,0,0.72)",
-        backdropFilter: sideBySide ? "blur(8px)" : undefined,
+        backdropFilter: "blur(8px)",
+        WebkitBackdropFilter: "blur(8px)",
       }}
       onClick={() => { if (!submitting) onClose(); }}>
       {/* Side-by-side mode (passport verification phase):
@@ -276,7 +302,7 @@ export function AdminDocPreviewModal({
         <div className="flex items-center justify-between px-5 py-3.5"
           style={{ borderBottom: "1px solid var(--border)" }}>
           <div className="min-w-0 flex-1 mr-3">
-            <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-0.5" style={{ color: "var(--w3)" }}>{doc.file_type}</p>
+            <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-0.5" style={{ color: "var(--w3)" }}>{translateDocLabel(doc.file_type, lang as "fr" | "en" | "de")}</p>
             <p className="text-[13.5px] font-semibold truncate tracking-tight" style={{ color: "var(--w)" }}>{doc.file_name}</p>
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
@@ -312,7 +338,7 @@ export function AdminDocPreviewModal({
             {iosMode ? (
               <button
                 type="button"
-                onClick={() => triggerIosDownload(iosDownloadUrl, doc.file_name)}
+                onClick={() => { if (iosDownloadUrl) triggerIosDownload(iosDownloadUrl, doc.file_name); }}
                 title={dt.download} aria-label={dt.download}
                 className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center"
                 style={{ color: "var(--w2)", background: "transparent", border: "none" }}>
@@ -364,9 +390,13 @@ export function AdminDocPreviewModal({
 
         {/* ── Body ── PDF / image / "download to view" fallback */}
         <div className="flex-1" style={{ minHeight: 0, position: "relative" }}>
-          {iosMode && (doc.file_name.split(".").pop() ?? "").toLowerCase() === "pdf" ? (
-            // iOS PDF: native iframe straight from the server route — no blob
-            // wait, no blank pdf.js canvas. Renders immediately.
+          {nativePdf ? (
+            // Native PDF iframe straight from the server route — no blob
+            // wait, no blank pdf.js canvas (the JPEG2000 passport bug).
+            // Used for ALL passports + everything on iOS. Waits for the token.
+            !iosPreviewUrl ? (
+              <div className="w-full h-full flex items-center justify-center"><Spinner /></div>
+            ) : (
             <IosPdfFrame
               src={iosPreviewUrl}
               title={doc.file_name}
@@ -382,6 +412,7 @@ export function AdminDocPreviewModal({
                 }).catch(e => console.error("[rotation] persist failed:", e));
               }}
             />
+            )
           ) : blobUrl ? (() => {
             const ext = (doc.file_name.split(".").pop() ?? "").toLowerCase();
             if (ext === "pdf") {
@@ -397,10 +428,12 @@ export function AdminDocPreviewModal({
                   body: JSON.stringify({ deltaRotation: 90 }),
                 }).catch(e => console.error("[rotation] persist failed:", e));
               };
-              // iOS: pdf.js canvas stays blank in WebKit → native iframe,
-              // loaded straight from the server route (token in query).
-              return iosMode
-                ? <IosPdfFrame src={iosPreviewUrl} title={doc.file_name} onRotate={persistRotate} />
+              // Native iframe for passports + iOS (pdf.js blanks JPEG2000 /
+              // WebKit canvas). pdf.js viewer for normal desktop docs.
+              return nativePdf
+                ? (iosPreviewUrl
+                    ? <IosPdfFrame src={iosPreviewUrl} title={doc.file_name} onRotate={persistRotate} />
+                    : <div className="w-full h-full flex items-center justify-center"><Spinner /></div>)
                 : <PdfViewer src={blobUrl} onRotate={persistRotate} />;
             }
             if (ext === "docx") return <DocxViewer src={blobUrl} fileName={doc.file_name} />;
@@ -420,7 +453,7 @@ export function AdminDocPreviewModal({
                 <p className="text-[12.5px] opacity-80 mb-4">{dt.downloadToOpen}</p>
                 {iosMode ? (
                   <button type="button"
-                    onClick={() => triggerIosDownload(iosDownloadUrl, doc.file_name)}
+                    onClick={() => { if (iosDownloadUrl) triggerIosDownload(iosDownloadUrl, doc.file_name); }}
                     className="inline-flex items-center gap-2 px-4 py-2 text-[13px] font-semibold"
                     style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)", border: "none" }}>
                     <Download size={13} strokeWidth={1.8} /> {dt.download}

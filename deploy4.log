@@ -1,0 +1,167 @@
+Retrieving project…
+Deploying borivonteam/borivon
+Uploading [--------------------] (0.0B/559.7KB)
+Uploading [=====---------------] (142.6KB/559.7KB)
+Uploading [==========----------] (286.6KB/559.7KB)
+Uploading [===============-----] (430.6KB/559.7KB)
+Uploading [====================] (559.7KB/559.7KB)
+Inspect: https://vercel.com/borivonteam/borivon/HJgM2mafjtdpcZYDVtnTpNWSNiPi [6s]
+Production: https://borivon-a679qq62i-borivonteam.vercel.app [6s]
+https://borivon-a679qq62i-borivonteam.vercel.appBuilding...
+Building...
+Building: Running build in Washington, D.C., USA (East) – iad1
+Building: Build machine configuration: 2 cores, 8 GB
+Building: Retrieving list of deployment files...
+Building: Downloading 282 deployment files...
+Building: Restored build cache from previous deployment (EWdtUz8oajZ4XtGkEjVyArJnX3gx)
+Building: Running "vercel build"
+Building: Vercel CLI 53.3.2
+Building: Running "install" command: `npm install`...
+Building: up to date, audited 288 packages in 4s
+Building: 49 packages are looking for funding
+Building: run `npm fund` for details
+Building: 2 vulnerabilities (1 moderate, 1 high)
+Building: To address all issues, run:
+Building: npm audit fix
+Building: Run `npm audit` for details.
+Building: Detected Next.js version: 15.5.13
+Building: Running "npm run build"
+Building: > borivon@1.0.0 build
+Building: > next build
+Building: ▲ Next.js 15.5.13
+Building: - Experiments (use with caution):
+Building: · optimizePackageImports
+Building: Creating an optimized production build ...
+Building: ✓ Compiled successfully in 22.3s
+Building: Linting and checking validity of types ...
+Building: Collecting page data ...
+Building: Generating static pages (0/83) ...
+Building: Generating static pages (20/83)
+Building: Generating static pages (41/83)
+Building: Generating static pages (62/83)
+Building: ✓ Generating static pages (83/83)
+Building: Finalizing page optimization ...
+Building: Collecting build traces ...
+Building: Route (app)                                                  Size  First Load JS
+Building: ┌ ○ /                                                     24.5 kB         215 kB
+Building: ├ ○ /_not-found                                             338 B         103 kB
+Building: ├ ƒ /[slug]                                               4.49 kB         192 kB
+Building: ├ ƒ /api/leads                                              338 B         103 kB
+Building: ├ ƒ /api/p/[slug]                                           338 B         103 kB
+Building: ├ ƒ /api/portal/admin                                       338 B         103 kB
+Building: ├ ƒ /api/portal/admin-photo                                 338 B         103 kB
+Building: ├ ƒ /api/portal/admin/agencies                              338 B         103 kB
+Building: ├ ƒ /api/portal/admin/agency-profile                        338 B         103 kB
+Building: ├ ƒ /api/portal/admin/bootstrap-reset                       338 B         103 kB
+Building: ├ ƒ /api/portal/admin/cv-draft                              338 B         103 kB
+Building: ├ ƒ /api/portal/admin/delete-user                           338 B         103 kB
+Building: ├ ƒ /api/portal/admin/invite-candidate                      338 B         103 kB
+Building: ├ ƒ /api/portal/admin/invite-sub-admin                      338 B         103 kB
+Building: ├ ƒ /api/portal/admin/me/signature                          338 B         103 kB
+Building: ├ ƒ /api/portal/admin/messages                              338 B         103 kB
+Building: ├ ƒ /api/portal/admin/migrate-drive-public                  338 B         103 kB
+Building: ├ ƒ /api/portal/admin/notifications                         338 B         103 kB
+Building: ├ ƒ /api/portal/admin/notifications/[id]/doc                338 B         103 kB
+Building: ├ ƒ /api/portal/admin/org-needs                             338 B         103 kB
+Building: ├ ƒ /api/portal/admin/organization-requests                 338 B         103 kB
+Building: ├ ƒ /api/portal/admin/organizations                         338 B         103 kB
+Building: ├ ƒ /api/portal/admin/organizations/[id]                    338 B         103 kB
+Building: ├ ƒ /api/portal/admin/organizations/[id]/candidates         338 B         103 kB
+Building: ├ ƒ /api/portal/admin/organizations/[id]/generate-invite    338 B         103 kB
+Building: ├ ƒ /api/portal/admin/organizations/[id]/members            338 B         103 kB
+Building: ├ ƒ /api/portal/admin/organizations/[id]/regenerate-code    338 B         103 kB
+Building: ├ ƒ /api/portal/admin/organizations/[id]/requirements       338 B         103 kB
+Building: ├ ƒ /api/portal/admin/passport-data-pdf                     338 B         103 kB
+Building: ├ ƒ /api/portal/admin/pdf-mappings                          338 B         103 kB
+Building: ├ ƒ /api/portal/admin/phase-slots/notify                    338 B         103 kB
+Building: ├ ƒ /api/portal/admin/profile-photo                         338 B         103 kB
+Building: ├ ƒ /api/portal/admin/sign-request                          338 B         103 kB
+Building: ├ ƒ /api/portal/admin/sign-request/[id]                     338 B         103 kB
+Building: ├ ƒ /api/portal/admin/signup-notify                         338 B         103 kB
+Building: ├ ƒ /api/portal/admin/slot-template                         338 B         103 kB
+Building: ├ ƒ /api/portal/admin/sub-admins                            338 B         103 kB
+Building: ├ ƒ /api/portal/admin/sub-admins/assign                     338 B         103 kB
+Building: ├ ƒ /api/portal/admin/suggested-matches                     338 B         103 kB
+Building: ├ ƒ /api/portal/admin/users                                 338 B         103 kB
+Building: ├ ƒ /api/portal/admin/verify-user                           338 B         103 kB
+Building: ├ ƒ /api/portal/check-email                                 338 B         103 kB
+Building: ├ ƒ /api/portal/cv/generate                                 338 B         103 kB
+Building: ├ ƒ /api/portal/cv/preview-file                             338 B         103 kB
+Building: ├ ƒ /api/portal/documents                                   338 B         103 kB
+Building: ├ ƒ /api/portal/documents/[id]                              338 B         103 kB
+Building: ├ ƒ /api/portal/documents/merge-pdf                         338 B         103 kB
+Building: ├ ƒ /api/portal/feed                                        338 B         103 kB
+Building: ├ ƒ /api/portal/feed/[id]                                   338 B         103 kB
+Building: ├ ƒ /api/portal/feed/[id]/comments                          338 B         103 kB
+Building: ├ ƒ /api/portal/feed/[id]/like                              338 B         103 kB
+Building: ├ ƒ /api/portal/feed/communities                            338 B         103 kB
+Building: ├ ƒ /api/portal/feed/gifs                                   338 B         103 kB
+Building: ├ ƒ /api/portal/feed/seen                                   338 B         103 kB
+Building: ├ ƒ /api/portal/feed/unread                                 338 B         103 kB
+Building: ├ ƒ /api/portal/file                                        338 B         103 kB
+Building: ├ ƒ /api/portal/invite/[code]                               338 B         103 kB
+Building: ├ ƒ /api/portal/me/cv-draft                                 338 B         103 kB
+Building: ├ ƒ /api/portal/me/organizations                            338 B         103 kB
+Building: ├ ƒ /api/portal/me/passport-data-pdf                        338 B         103 kB
+Building: ├ ƒ /api/portal/me/profile-photo                            338 B         103 kB
+Building: ├ ƒ /api/portal/me/redeem-code                              338 B         103 kB
+Building: ├ ƒ /api/portal/me/role                                     338 B         103 kB
+Building: ├ ƒ /api/portal/me/sign-requests                            338 B         103 kB
+Building: ├ ƒ /api/portal/me/sign-requests/[id]/sign                  338 B         103 kB
+Building: ├ ƒ /api/portal/me/signature                                338 B         103 kB
+Building: ├ ƒ /api/portal/me/verified                                 338 B         103 kB
+Building: ├ ƒ /api/portal/messages                                    338 B         103 kB
+Building: ├ ƒ /api/portal/notifications/[id]/doc                      338 B         103 kB
+Building: ├ ƒ /api/portal/org/candidates/[userId]                     338 B         103 kB
+Building: ├ ƒ /api/portal/org/me                                      338 B         103 kB
+Building: ├ ƒ /api/portal/org/requirements                            338 B         103 kB
+Building: ├ ƒ /api/portal/passport                                    338 B         103 kB
+Building: ├ ƒ /api/portal/passport-pdf                                338 B         103 kB
+Building: ├ ƒ /api/portal/phase-slots                                 338 B         103 kB
+Building: ├ ƒ /api/portal/pipeline                                    338 B         103 kB
+Building: ├ ƒ /api/portal/pipeline/me                                 338 B         103 kB
+Building: ├ ƒ /api/portal/qr                                          338 B         103 kB
+Building: ├ ƒ /api/portal/slot-template                               338 B         103 kB
+Building: ├ ƒ /api/portal/stripe/checkout                             338 B         103 kB
+Building: ├ ƒ /api/portal/stripe/webhook                              338 B         103 kB
+Building: ├ ƒ /api/portal/upload                                      338 B         103 kB
+Building: ├ ƒ /api/portal/verify-turnstile                            338 B         103 kB
+Building: ├ ƒ /api/webhooks/docuseal                                  338 B         103 kB
+Building: ├ ƒ /email-logo                                             338 B         103 kB
+Building: ├ ƒ /join/[...parts]                                      5.28 kB         198 kB
+Building: ├ ƒ /p/[slug]                                               547 B         103 kB
+Building: ├ ○ /portal                                               5.32 kB         195 kB
+Building: ├ ○ /portal/admin                                         76.7 kB         471 kB
+Building: ├ ○ /portal/admin/manage                                  4.32 kB         203 kB
+Building: ├ ○ /portal/admin/organizations                           11.5 kB         210 kB
+Building: ├ ○ /portal/auth/callback                                 3.56 kB         196 kB
+Building: ├ ○ /portal/cv-builder                                    27.8 kB         238 kB
+Building: ├ ○ /portal/dashboard                                     46.9 kB         441 kB
+Building: ├ ○ /portal/feed                                          13.1 kB         205 kB
+Building: ├ ƒ /portal/org/candidates/[userId]                       3.59 kB         200 kB
+Building: ├ ○ /portal/org/dashboard                                 12.5 kB         209 kB
+Building: ├ ○ /portal/terms                                         9.13 kB         133 kB
+Building: ├ ○ /privacy-policy                                       7.94 kB         132 kB
+Building: ├ ○ /refund-policy                                        3.25 kB         127 kB
+Building: ├ ○ /robots.txt                                             338 B         103 kB
+Building: ├ ○ /sitemap.xml                                            338 B         103 kB
+Building: └ ○ /terms                                                   7 kB         131 kB
+Building: + First Load JS shared by all                              102 kB
+Building: ├ chunks/1255-b9d6af830fc1c74c.js                       45.9 kB
+Building: ├ chunks/4bd1b696-f785427dddbba9fb.js                   54.2 kB
+Building: └ other shared chunks (total)                           2.19 kB
+Building: ○  (Static)   prerendered as static content
+Building: ƒ  (Dynamic)  server-rendered on demand
+Building: Traced Next.js server files in: 73.782ms
+Building: Created all serverless functions in: 831.767ms
+Building: Collected static files (public/, static/, .next/static): 17.934ms
+Building: Build Completed in /vercel/output [1m]
+Building: Deploying outputs...
+Building: Deployment completed
+Building: Creating build cache...
+[2K[1A[2K[GProduction: https://borivon-a679qq62i-borivonteam.vercel.app [2m]
+Completing...
+Aliased: https://www.borivon.com [2m]
+Common next commands:
+- `vercel inspect borivon-a679qq62i-borivonteam.vercel.app --logs`
+- `vercel redeploy borivon-a679qq62i-borivonteam.vercel.app`EXIT=0

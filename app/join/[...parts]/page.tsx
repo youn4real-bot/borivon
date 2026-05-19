@@ -305,8 +305,8 @@ export default function JoinPage() {
           ) : (
             <div className="space-y-3">
               <button onClick={() => goTo("register")}
-                className="w-full py-3.5 text-[14.5px] font-bold rounded-2xl transition-all hover:opacity-90 hover:-translate-y-0.5 active:scale-[0.98]"
-                style={{ background: "var(--gold)", color: "#131312", boxShadow: "0 4px 18px var(--border-gold)" }}>
+                className="bv-glow-gold bv-press w-full py-3.5 text-[14.5px] font-bold rounded-2xl"
+                style={{ background: "var(--gold)", color: "#131312", boxShadow: "var(--shadow-gold-sm)" }}>
                 {isMember ? i18n.ctaMember : i18n.ctaCandidate}
               </button>
               <button onClick={() => goTo("login")}

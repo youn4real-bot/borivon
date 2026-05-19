@@ -22,6 +22,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   if (!UUID_RE.test(orgId)) return NextResponse.json({ error: "Invalid org id" }, { status: 400 });
   const body = await req.json().catch(() => ({}));
   const type: "candidate" | "member" = body.type === "member" ? "member" : "candidate";
+  // Optional: lock this single-use invite to ONE email. Sensitive
+  // (org-admin) invites should use this so a forwarded/leaked link can't be
+  // redeemed by anyone else. Empty = unbound (legacy behaviour).
+  const rawEmail = typeof body.email === "string" ? body.email.trim().toLowerCase() : "";
+  const invitedEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail) ? rawEmail : null;
 
   const db = getServiceSupabase();
 
@@ -36,13 +41,17 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   // Generate a unique code (UUID, no dashes)
   const code = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "").slice(0, 8);
 
-  const { error } = await db.from("invite_tokens").insert({
-    org_id: orgId,
-    type,
-    code,
-  });
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  // Insert with invited_email when bound. Tolerate a not-yet-migrated DB
+  // (column missing) by retrying without it — invite generation must never
+  // break just because the migration hasn't been applied yet.
+  let insErr = (await db.from("invite_tokens").insert(
+    invitedEmail ? { org_id: orgId, type, code, invited_email: invitedEmail }
+                 : { org_id: orgId, type, code },
+  )).error;
+  if (insErr && invitedEmail && /invited_email|column|schema cache/i.test(insErr.message)) {
+    insErr = (await db.from("invite_tokens").insert({ org_id: orgId, type, code })).error;
+  }
+  if (insErr) return NextResponse.json({ error: insErr.message }, { status: 500 });
 
   const origin = req.nextUrl.origin;
   // Human-readable role word in the path so a shared link is self-evident

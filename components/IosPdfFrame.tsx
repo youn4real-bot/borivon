@@ -45,7 +45,15 @@ export function IosPdfFrame({
   // one. A per-open cache-bust forces a fresh fetch every time the popup
   // mounts, so a persisted rotation is always reflected on reopen.
   const bustRef = useRef(Date.now());
-  const bustedSrc = src + (src.includes("?") ? "&" : "?") + "_v=" + bustRef.current;
+  // `#toolbar=0&navpanes=0&scrollbar=0` hides the browser's BUILT-IN PDF
+  // toolbar (page nav / zoom / print / kebab) so this native frame looks
+  // exactly like the pdf.js PdfViewer used for every other doc (e.g. the B2
+  // Sprachzertifikat) — only our own floating toolbar shows. Honored by
+  // Chromium (Chrome/Edge/Android); Safari/iOS never render that bar anyway.
+  // The hash MUST be the very last URL segment (after the query string).
+  const bustedSrc =
+    src + (src.includes("?") ? "&" : "?") + "_v=" + bustRef.current +
+    "#toolbar=0&navpanes=0&scrollbar=0";
 
   // Measure the available area so a 90°/270° rotation can swap W/H and still
   // fill the popup (instead of overflowing).

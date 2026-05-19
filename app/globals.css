@@ -247,9 +247,13 @@ h1, h2, h3 {
   border-radius: 10px;
 }
 
-/* Hero title em → gold italic */
+/* Hero title <em> — gold Lexend (NOT italic, NOT serif). The design system
+   reserves DM Serif Display strictly for the "Borivon." wordmark; inline
+   emphasis is gold in the same Lexend face as the surrounding type. */
 .hero-title em {
-  font-style: italic;
+  font-family: var(--font-sans);
+  font-style: normal;
+  font-weight: 500;
   color: var(--gold);
 }
 
@@ -312,17 +316,20 @@ textarea:focus {
   gap: 0.5rem;
   padding: 0.6rem 1.05rem;
   border-radius: var(--r-md);
+  font-family: var(--font-sans);
   font-size: 0.825rem;
   font-weight: 600;
   letter-spacing: 0.01em;
   line-height: 1;
   cursor: pointer;
   user-select: none;
+  border: 1px solid transparent;
   transition:
     background var(--dur-1) var(--ease),
     border-color var(--dur-1) var(--ease),
     color var(--dur-1) var(--ease),
     transform var(--dur-1) var(--ease),
+    box-shadow var(--dur-1) var(--ease),
     opacity var(--dur-1) var(--ease);
 }
 .bv-btn:active:not(:disabled) { transform: translateY(1px); }
@@ -351,6 +358,22 @@ textarea:focus {
 }
 .bv-btn-primary-lg:hover:not(:disabled) { box-shadow: var(--shadow-gold-hover); }
 
+/* ── Gold CTA glow — EXACTLY per the Borivon design system ────────────────
+   The system's only "glow" is a soft gold drop-shadow at REST that
+   intensifies on hover (README: "Gold drop-shadows for primary CTAs only:
+   0 5px 16px … rest → 0 10px 30px … hover"). No idle pulse — the motion
+   budget is finite and the system forbids springs/bounces. This single
+   reusable class gives any gold button that exact brand treatment so the
+   glow is identical everywhere. Hover is gated to real pointer devices so
+   it can never latch after a tap on iOS (premium intent on every platform).
+   Reduced-motion is honored globally; there is no animation here anyway.   */
+.bv-glow-gold { box-shadow: var(--shadow-gold-sm); }
+@media (hover: hover) {
+  .bv-glow-gold:hover:not(:disabled) { box-shadow: var(--shadow-gold-hover); }
+}
+.bv-glow-gold:disabled,
+.bv-glow-gold[aria-disabled="true"] { box-shadow: none; }
+
 .bv-btn-ghost {
   background: var(--bg2);
   color: var(--w2);
@@ -359,24 +382,26 @@ textarea:focus {
 .bv-btn-ghost:hover:not(:disabled) { color: var(--w); border-color: var(--border2); }
 
 .bv-btn-danger {
-  background: rgba(224, 82, 82, 0.08);
-  color: #e05252;
-  border: 1px solid rgba(224, 82, 82, 0.22);
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid var(--danger-border);
 }
 .bv-btn-danger:hover:not(:disabled) { background: rgba(224, 82, 82, 0.14); }
 
-/* Input — consistent rhythm, gold focus ring */
+/* Input — consistent rhythm, gold focus ring (matches design-system spec) */
 .bv-input {
   width: 100%;
   background: var(--bg2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border2);
   border-radius: var(--r-md);
   color: var(--w);
-  padding: 0.625rem 0.8rem;
+  padding: 0.7rem 0.9rem;
+  font-family: var(--font-sans);
   font-size: 0.875rem;
   line-height: 1.4;
   transition: border-color var(--dur-1) var(--ease), background var(--dur-1) var(--ease);
 }
+.bv-input.error { border-color: rgba(224, 82, 82, 0.7); background: rgba(224, 82, 82, 0.04); }
 .bv-input::placeholder { color: var(--w3); opacity: 0.45; }
 
 /* Global law: all placeholders site-wide are faint grey — never dark/visible */
@@ -426,6 +451,19 @@ textarea::placeholder { color: var(--w3) !important; opacity: 0.4 !important; }
   text-transform: uppercase;
   color: var(--w3);
 }
+
+/* Form field label + required marker — design-system spec component. */
+.bv-label {
+  display: block;
+  font-family: var(--font-sans);
+  font-size: 0.69rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--w3);
+  margin-bottom: 6px;
+}
+.bv-label .req { color: var(--gold); margin-left: 2px; }
 
 /* ────────────────────────────────────────────────────────────────────────
    MOTION PRIMITIVES — opt-in entrance + interaction utilities.
@@ -596,6 +634,14 @@ textarea::placeholder { color: var(--w3) !important; opacity: 0.4 !important; }
 @keyframes bvSlideUp {
   from { transform: translateY(100%); opacity: 0.5; }
   to   { transform: translateY(0);    opacity: 1; }
+}
+
+/* A freshly-arrived notification row drops in from above + fades, so a new
+   item appearing at the top of an OPEN bell reads as motion, not a jump.
+   Applied only to genuinely-new ids (tracked in JS), cleared after it runs. */
+@keyframes bvNotifIn {
+  from { opacity: 0; transform: translateY(-12px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 /* Premium hover-able row — used for doc slots, candidate list rows,
@@ -785,12 +831,14 @@ textarea::placeholder { color: var(--w3) !important; opacity: 0.4 !important; }
   letter-spacing: -0.025em;
   color: var(--w);
 }
+/* Hero <em> — gold accent in the SAME Lexend face as the rest of the hero.
+   DM Serif Display Italic is reserved STRICTLY for the "Borivon." wordmark
+   (+ the giant background "B"); the design system forbids it for <em>. */
 .bv-hero em {
-  font-family: var(--font-display);
-  font-style: italic;
+  font-family: var(--font-sans);
+  font-style: normal;
+  font-weight: 500;
   color: var(--gold);
-  font-weight: 400;
-  letter-spacing: -0.02em;
 }
 
 .bv-h1 {
@@ -1047,6 +1095,70 @@ textarea::placeholder { color: var(--w3) !important; opacity: 0.4 !important; }
     top: calc(58px + var(--bv-subnav-h)) !important;
   }
 }
+
+/* ────────────────────────────────────────────────────────────────────────
+   UNIFIED PREMIUM BASELINE — applies to EVERY corner, every party, both
+   platforms. Cascades onto ad-hoc inline-styled controls too, so the whole
+   site feels like one smooth, intentional surface without rewriting every
+   component. The richer primitives above (.bv-btn / .bv-icon-btn /
+   .bv-row-hover / .bv-press) all beat these element-level rules on
+   specificity, so nothing regresses — this only fills the gaps.
+   ──────────────────────────────────────────────────────────────────────── */
+
+/* Every interactive element transitions its visual state on the SAME easing
+   + duration → no more instant/janky color or shadow snaps anywhere. Only
+   the properties that actually change animate; transform/opacity/box-shadow
+   are GPU-composited (smooth on iOS + Android). */
+a,
+button,
+[role="button"],
+summary,
+label[for],
+.bv-tap {
+  transition:
+    color var(--dur-1) var(--ease),
+    background-color var(--dur-1) var(--ease),
+    border-color var(--dur-1) var(--ease),
+    box-shadow var(--dur-2) var(--ease),
+    transform var(--dur-2) var(--ease),
+    opacity var(--dur-1) var(--ease);
+}
+
+/* Tactile press for plain controls that don't already opt into a richer
+   primitive. Scale-only (no layout), tiny amplitude = premium, not bouncy.
+   Excludes elements that own their press feel so we never double-apply. */
+@media (hover: none) and (pointer: coarse) {
+  button:not(:disabled):not(.bv-btn):not(.bv-icon-btn):not(.bv-press):not(.bv-row-hover):active,
+  [role="button"]:not(.bv-btn):not(.bv-icon-btn):not(.bv-press):not(.bv-row-hover):active {
+    transform: scale(0.97);
+  }
+}
+
+/* iOS momentum scrolling + contained overscroll (kills the whole-page
+   rubber-band when flicking inside a modal/list on iPhone). */
+html, body { -webkit-overflow-scrolling: touch; }
+.bv-scroll,
+[data-scroll],
+.overflow-y-auto,
+.overflow-auto,
+.overflow-y-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* Premium text selection — faint gold wash instead of the harsh OS blue.
+   (The pdfjs .textLayer keeps its own ::selection — higher specificity.) */
+::selection {
+  background: color-mix(in oklab, var(--gold) 26%, transparent);
+  color: var(--w);
+}
+
+/* Unified route entrance — opt-in on a page/section root so navigating the
+   site reveals content with the same calm rise everywhere. GPU-only. */
+.bv-page-enter { animation: bvFadeRise 0.42s var(--ease-out) both; }
+
+/* Image render polish — avoids the half-painted "pop" as photos decode. */
+img { -webkit-user-drag: none; }
 
 /* ── PDF text selection layer (pdfjs-dist v4 canonical CSS) ─────────────── */
 /* Copied verbatim from pdfjs-dist/web/pdf_viewer.css — do not hand-edit */

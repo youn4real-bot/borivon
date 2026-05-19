@@ -57,7 +57,8 @@ export async function POST(req: NextRequest) {
   const { data: { user }, error: authErr } = await getAnonVerifyClient().auth.getUser(jwt);
   if (authErr || !user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
 
-  const body = await req.json();
+  // Guard: a truncated/empty autosave body must not 500 the passport save.
+  const body = await req.json().catch(() => ({}));
 
   // Draft autosave: persist the extracted/edited fields to the DB so the
   // data is permanent and loads on ANY device (phone/laptop) at any phase.

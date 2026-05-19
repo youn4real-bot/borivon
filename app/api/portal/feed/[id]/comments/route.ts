@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
-import { requireUser } from "@/lib/admin-auth";
+import { requireUser, ciEmail } from "@/lib/admin-auth";
 import { canAccessPost } from "@/lib/feedAccess";
 import { enforceRateLimit } from "@/lib/rateLimit";
 
@@ -161,7 +161,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     .eq("user_id", auth.userId)
     .maybeSingle();
 
-  const { data: sub } = await db.from("sub_admins").select("email").eq("email", auth.email).maybeSingle();
+  // Duplicate-tolerant + case-insensitive: sub_admins.email has no unique
+  // constraint, so `.eq(...).maybeSingle()` THROWS on dup rows → 500 blocks
+  // the comment/delete for any sub-admin with a duplicate row.
+  const { data: subRows } = await db.from("sub_admins").select("email").ilike("email", ciEmail(auth.email)).limit(1);
+  const sub = (subRows ?? [])[0];
   const isBorivonTeam = !!sub || auth.email === (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
   const isSuperAdmin = auth.email === (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
 
@@ -243,7 +247,11 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
   if (!comment) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const isOwner = (comment as { user_id: string }).user_id === auth.userId;
-  const { data: sub } = await db.from("sub_admins").select("email").eq("email", auth.email).maybeSingle();
+  // Duplicate-tolerant + case-insensitive: sub_admins.email has no unique
+  // constraint, so `.eq(...).maybeSingle()` THROWS on dup rows → 500 blocks
+  // the comment/delete for any sub-admin with a duplicate row.
+  const { data: subRows } = await db.from("sub_admins").select("email").ilike("email", ciEmail(auth.email)).limit(1);
+  const sub = (subRows ?? [])[0];
   const isAdmin = !!sub || auth.email === (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
 
   if (!isOwner && !isAdmin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });

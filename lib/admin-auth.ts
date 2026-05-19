@@ -12,6 +12,7 @@
 
 import { NextRequest } from "next/server";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
+import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 
 /**
  * Case-insensitive EXACT email match for Postgres `ilike`.
@@ -57,12 +58,29 @@ export async function requireAdminRole(req: NextRequest): Promise<AdminAuthResul
   const { data, error } = await getAnonVerifyClient().auth.getUser(jwt);
   if (error || !data?.user) return { ok: false, status: 401, error: "Invalid token" };
 
+  // A "deleted" account whose hard-delete was FK-blocked is only banned +
+  // email-scrambled + user_metadata.deleted=true — its existing JWT (and
+  // refresh token) can still mint valid sessions. Lists filter ghosts, but
+  // the AUTH GATE itself did not — a deleted sub-admin kept full admin
+  // access until token expiry. Reject here so deleted = gone everywhere.
+  if (isSoftDeletedAuthUser(data.user)) {
+    return { ok: false, status: 401, error: "Account disabled" };
+  }
+
   const email = (data.user.email ?? "").trim().toLowerCase();
   if (!email) return { ok: false, status: 401, error: "User has no email" };
 
+  return resolveRoleForEmail(email, data.user.id);
+}
+
+/**
+ * email → role. Shared by requireAdminRole (header JWT) and roleByUserId
+ * (signed download-token path) so both resolve roles identically.
+ */
+async function resolveRoleForEmail(email: string, userId: string): Promise<AdminAuthResult> {
   // 1) Full admin?
   if (email === getAdminEmail()) {
-    return { ok: true, role: "admin", email, userId: data.user.id, agencyId: null, isAgencyAdmin: false };
+    return { ok: true, role: "admin", email, userId, agencyId: null, isAgencyAdmin: false };
   }
 
   // 2) Sub-admin? (lookup against `sub_admins` table)
@@ -80,13 +98,29 @@ export async function requireAdminRole(req: NextRequest): Promise<AdminAuthResul
   const sub = (subRows ?? [])[0];
   if (sub) {
     return {
-      ok: true, role: "sub_admin", email, userId: data.user.id,
+      ok: true, role: "sub_admin", email, userId,
       agencyId: (sub as { agency_id: string | null }).agency_id ?? null,
       isAgencyAdmin: (sub as { is_agency_admin: boolean }).is_agency_admin ?? false,
     };
   }
 
   return { ok: false, status: 403, error: "Forbidden" };
+}
+
+/**
+ * Resolve a role from a user id (no JWT) — for routes reached via the
+ * short-lived signed download token (iOS top-level navigation, no header).
+ * Re-checks soft-deleted so a token minted just before deletion can't act.
+ */
+export async function roleByUserId(userId: string): Promise<AdminAuthResult> {
+  if (!userId) return { ok: false, status: 401, error: "No user" };
+  const { data } = await getServiceSupabase().auth.admin.getUserById(userId);
+  const u = data?.user;
+  if (!u) return { ok: false, status: 401, error: "Invalid token" };
+  if (isSoftDeletedAuthUser(u)) return { ok: false, status: 401, error: "Account disabled" };
+  const email = (u.email ?? "").trim().toLowerCase();
+  if (!email) return { ok: false, status: 401, error: "User has no email" };
+  return resolveRoleForEmail(email, u.id);
 }
 
 /**
@@ -108,11 +142,15 @@ export async function canActOnCandidate(role: AdminRole, subAdminEmail: string, 
   // Duplicate-tolerant (sub_admins.email has no UNIQUE constraint — see
   // requireAdminRole). `.maybeSingle()` would throw on dupes and silently
   // strip the sub-admin's access.
-  const { data: subRows } = await db
+  const { data: subRows, error: subErr } = await db
     .from("sub_admins")
     .select("is_agency_admin")
     .ilike("email", ciEmail(subAdminEmail))
     .limit(1);
+  // FAIL CLOSED: a DB blip on this lookup used to default isAgencyAdmin=false
+  // → "regular sub-admin sees all" → an org admin transiently gained global
+  // candidate access. On error, deny.
+  if (subErr) return false;
   const isAgencyAdmin = ((subRows ?? [])[0] as { is_agency_admin: boolean } | undefined)?.is_agency_admin ?? false;
 
   // Regular sub-admin sees all candidates (LAW #25).
@@ -150,11 +188,16 @@ export async function getVisibleCandidateIds(subAdminEmail: string): Promise<str
   // Duplicate-tolerant (sub_admins.email has no UNIQUE constraint — see
   // requireAdminRole). `.maybeSingle()` would throw on dupes and silently
   // strip the sub-admin's access.
-  const { data: subRows } = await db
+  const { data: subRows, error: subErr } = await db
     .from("sub_admins")
     .select("is_agency_admin")
     .ilike("email", ciEmail(subAdminEmail))
     .limit(1);
+  // FAIL CLOSED: on a lookup error, scope to NOTHING ([]) rather than the
+  // old fail-open `null` ("sees all") — a transient blip must never widen an
+  // org admin to global visibility (and never let them mark-all global
+  // notifications read).
+  if (subErr) return [];
   const isAgencyAdmin = ((subRows ?? [])[0] as { is_agency_admin: boolean } | undefined)?.is_agency_admin ?? false;
 
   // Regular sub-admin sees all candidates.
@@ -196,6 +239,12 @@ export async function requireUser(req: NextRequest): Promise<
   // Verify the JWT using the cached anon client
   const { data, error } = await getAnonVerifyClient().auth.getUser(jwt);
   if (error || !data?.user) return { ok: false, status: 401, error: "Invalid token" };
+
+  // Deleted (FK-blocked → soft-disabled) accounts must not authenticate even
+  // with a still-valid token. Same gate as requireAdminRole.
+  if (isSoftDeletedAuthUser(data.user)) {
+    return { ok: false, status: 401, error: "Account disabled" };
+  }
 
   return {
     ok: true,

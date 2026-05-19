@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
+import { canActOnCandidate } from "@/lib/admin-auth";
 import { createClient } from "@supabase/supabase-js";
 import { enforceRateLimit } from "@/lib/rateLimit";
 import { google } from "googleapis";
 import { JWT } from "google-auth-library";
 import { makeDrivePublic } from "@/lib/passport-pdf";
 import { natToLang } from "@/lib/countries";
+import { LABEL_TO_FILE_KEY } from "@/lib/fileKeys";
 import { PassThrough } from "stream";
 
 /**
@@ -828,10 +830,12 @@ async function runOCR(buffer: Buffer, mimeType: string): Promise<string> {
 
 export async function POST(req: NextRequest) {
   // ── Rate limit ───────────────────────────────────────────────────────────────
-  // Uploads hit Drive + DB + (sometimes) OCR — expensive and abuse-prone. 30
-  // req / min per IP is plenty for legitimate use; anything past that is bot
-  // or runaway client.
-  const rl = enforceRateLimit(req, "upload", { limit: 30, windowMs: 60_000 });
+  // Uploads hit Drive + DB + (sometimes) OCR — expensive and abuse-prone.
+  // A candidate filling Essentials + Qualifications (each orig + translated)
+  // back-to-back legitimately fires many uploads in a short burst, and the
+  // client now retries transients once — 30/min throttled that into a false
+  // "Fehler beim Hochladen.". 90/min per IP still stops bots/runaway clients.
+  const rl = enforceRateLimit(req, "upload", { limit: 90, windowMs: 60_000 });
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Too many uploads. Please wait." },
@@ -879,6 +883,15 @@ export async function POST(req: NextRequest) {
       isSubAdmin = (subRows ?? []).length > 0;
     }
     if (!isAdmin && !isSubAdmin) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    // LAW #25: a regular sub-admin sees all candidates, but an ORG-ADMIN
+    // (is_agency_admin=true) is scoped to their org. Without this an org-admin
+    // could upload an admin-approved doc into ANY candidate's Drive folder.
+    // canActOnCandidate returns true for supreme + regular sub-admin, and
+    // only in-scope for org-admins.
+    if (!isAdmin) {
+      const inScope = await canActOnCandidate("sub_admin", reqEmail, forUserId);
+      if (!inScope) return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    }
     userId = forUserId;
     uploadedByAdmin = true;
     // Resolve candidate's email for the admin_notifications row.
@@ -898,7 +911,12 @@ export async function POST(req: NextRequest) {
     .maybeSingle();
   const profFirst = (profileRow?.first_name ?? "").toString().trim();
   const profLast  = (profileRow?.last_name  ?? "").toString().trim();
-  const passportApproved = (profileRow as { passport_status?: string | null } | null)?.passport_status === "approved";
+  const profPassStatus = (profileRow as { passport_status?: string | null } | null)?.passport_status ?? null;
+  const passportApproved = profPassStatus === "approved";
+  // Did meaningful passport DATA already exist before this upload? If so a
+  // candidate re-upload must NOT clobber it with fresh OCR (user decision:
+  // keep admin-corrected/existing data — only the scan is replaced).
+  const hadPassportData = !!(profPassStatus || profFirst || profLast);
 
   // Registration name = server-trusted auth metadata for the RESOLVED userId
   // (the candidate, even on admin-for-candidate uploads). NEVER formData, so
@@ -970,15 +988,23 @@ export async function POST(req: NextRequest) {
   let oldDriveFileId: string | null = null;
   if (fileKey !== "other") {
     const dbLookup = getServiceSupabase();
-    const { data: existingDoc } = await dbLookup
+    // LAW #33: match the prior file by the STABLE fileKey, not the volatile
+    // translated `file_type` label. The passport label is language-dependent
+    // ("Reisepass"/"Passport"/"Passeport"); if the candidate re-uploads in a
+    // different UI language than the first upload, an `.eq("file_type", …)`
+    // lookup misses → old Drive file orphaned + a duplicate row. Resolve
+    // every label back to its fileKey and take the newest match.
+    const { data: rows } = await dbLookup
       .from("documents")
-      .select("drive_file_id")
+      .select("drive_file_id, file_type, uploaded_at")
       .eq("user_id", userId)
-      .eq("file_type", fileType)
       .order("uploaded_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    oldDriveFileId = existingDoc?.drive_file_id ?? null;
+      .limit(50);
+    const prior = (rows ?? []).find(d => {
+      const fk = LABEL_TO_FILE_KEY[d.file_type] ?? d.file_type;
+      return fk === fileKey && !!d.drive_file_id;
+    });
+    oldDriveFileId = prior?.drive_file_id ?? null;
   }
 
   // ── Google Drive upload ───────────────────────────────────────────────────────
@@ -1116,13 +1142,25 @@ export async function POST(req: NextRequest) {
     file_path: `gdrive/${userId}/${Date.now()}`,
     file_type: fileType, drive_file_id: driveFileId,
     uploaded_by_admin: uploadedByAdmin,
-    // LAW #15: admin-uploaded docs with no candidate action → immediately approved (green)
-    ...(uploadedByAdmin ? { status: "approved" } : {}),
+    // LAW #15: admin-uploaded docs (no candidate action) → immediately
+    // approved (green). LAW #3: a CANDIDATE submission is ALWAYS "pending"
+    // until a supreme admin / sub-admin explicitly approves — set it
+    // EXPLICITLY, never rely on the DB column default (that default was
+    // surfacing candidate uploads as green/approved with zero review,
+    // e.g. the passport box). Approval is human-only.
+    status: uploadedByAdmin ? "approved" : "pending",
   });
   if (dbErr) {
     console.error("DB insert error:", dbErr);
     return NextResponse.json({ error: "Erreur d'enregistrement." }, { status: 500 });
   }
+
+  // Passport FILE re-upload by a candidate does NOT reopen the DATA review
+  // (user decision): if passport_status was "approved", the previously
+  // verified data stays approved — only the scan changed. The NEW file
+  // documents row is still inserted as "pending" (above) so an admin can
+  // glance at the fresh scan, but the data is NOT re-verified. (Deliberate
+  // exception to LAW #14 for the passport file/data split.)
 
   // Admin notification — `user_email` MUST be populated so the click-through
   // (`/api/portal/admin/notifications/<id>/doc`) can resolve the user_id.
@@ -1191,7 +1229,16 @@ export async function POST(req: NextRequest) {
       // ══ Strategy A: Azure Document Intelligence (primary) ══════════════════
       // Passport-specific model — structured JSON out, no parsing needed.
       // Active when AZURE_DOC_INTEL_ENDPOINT + AZURE_DOC_INTEL_KEY are set.
-      const azure = await analyzePassportAzure(buffer);
+      // Wrap in its own try: a transient Azure 5xx / auth / timeout THROW used
+      // to bubble to the outer catch and short-circuit OCR with
+      // passportData:null — even though Vision was available. Now we treat a
+      // throw the same as "no data" and let Strategy B (Vision) run.
+      let azure: Awaited<ReturnType<typeof analyzePassportAzure>> = null;
+      try {
+        azure = await analyzePassportAzure(buffer);
+      } catch (azErr) {
+        console.warn("[Azure] threw — falling back to Vision:", azErr instanceof Error ? azErr.message : String(azErr));
+      }
 
       if (azure) {
         // Azure returned structured fields — use them directly.
@@ -1293,11 +1340,11 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      return NextResponse.json({ success: true, passportData });
+      return NextResponse.json({ success: true, passportData, hadData: hadPassportData });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error("Passport OCR error:", msg);
-      return NextResponse.json({ success: true, passportData: null, _ocrError: msg });
+      return NextResponse.json({ success: true, passportData: null, _ocrError: msg, hadData: hadPassportData });
     }
   }
 

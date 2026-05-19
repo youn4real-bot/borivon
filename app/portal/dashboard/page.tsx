@@ -5,7 +5,7 @@ import { saveAs } from "file-saver";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 
-import { LABEL_TO_FILE_KEY, FILE_KEY_ALL_LABELS } from "@/lib/fileKeys";
+import { LABEL_TO_FILE_KEY, FILE_KEY_ALL_LABELS, translateDocLabel } from "@/lib/fileKeys";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { DOC_EXAMPLES } from "@/lib/docExamples";
@@ -21,6 +21,7 @@ import { X as XIcon, Download, Upload, RefreshCw, Info, ChevronDown } from "luci
 import { IosPdfFrame } from "@/components/IosPdfFrame";
 import { isIOSDevice } from "@/lib/platform";
 import { triggerIosDownload } from "@/lib/iosDownload";
+import { useDlToken, withDlt } from "@/lib/dlClient";
 import { flushSync } from "react-dom";
 import { PdfViewer } from "@/components/PdfViewer";
 import { PdfFieldFill } from "@/components/PdfFieldFill";
@@ -155,6 +156,9 @@ export default function DashboardPage() {
   const router = useRouter();
   const { t, lang } = useLang();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Slot key for the in-flight file pick. Set synchronously in openPicker so
+  // onFileChange never depends on the async `activeKey` state (fast-pick race).
+  const pendingKeyRef = useRef<string | null>(null);
 
   // Dynamic phase slots — loaded from API (replaces static bea_*/vis_* placeholders)
   type PhaseSlot = { id: string; phase: string; type: "simple" | "dual"; label: string; label_trans: string | null; position: number; action_type: string | null; instructions: string | null; template_pdf_path: string | null; form_fields: import("@/lib/pdfFieldEmbed").FormField[] | null; candidate_signature_zone: import("@/components/PdfZonePicker").SigZone | null; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean; pdf_has_native_fields: boolean };
@@ -252,6 +256,11 @@ export default function DashboardPage() {
 
   const [userId, setUserId]         = useState("");
   const [authToken, setAuthToken]   = useState("");
+  // Pre-minted short-lived signed download token (kept fresh) so iOS file
+  // URLs never carry the raw JWT, AND the download handlers can read it
+  // SYNCHRONOUSLY inside the tap gesture (a mint fetch would break the
+  // iOS in-gesture download requirement).
+  const dlt = useDlToken(authToken || null);
   const [firstName, setFirstName]   = useState("");
   const [lastName, setLastName]     = useState("");
   // Track which decided-doc IDs the candidate has already opened (seen).
@@ -486,19 +495,16 @@ export default function DashboardPage() {
       if (typeof v === "string") filled[k] = v;
     });
     setPassportModal({ ...filled, sex: normalizeSex(filled.sex, lang) });
-    // Restore the candidate's EXACT saved checkboxes if we have them.
-    // Legacy fallback (no saved set): auto-confirm fields that already
-    // have a value so they don't have to re-tick everything.
+    // LAW #38: confirmation boxes are ONLY ever set by an explicit human
+    // tick. Restore EXACTLY the candidate's previously-saved (human-checked)
+    // set — and NOTHING else. The old "auto-confirm every filled field"
+    // fallback is REMOVED: reopening an unfinished/extracted draft must show
+    // every box UNCHECKED (orange) until the human ticks it. Auto-checking is
+    // a LAW VIOLATION (it falsely marks OCR data as human-verified).
     const savedConfirmed = Array.isArray(p.passport_confirmed_fields)
       ? (p.passport_confirmed_fields as unknown[]).filter((x): x is keyof PassportData => typeof x === "string")
-      : null;
-    if (savedConfirmed && savedConfirmed.length > 0) {
-      setConfirmedFields(new Set(savedConfirmed));
-    } else {
-      setConfirmedFields(new Set(
-        (Object.keys(filled) as (keyof PassportData)[]).filter(k => filled[k]?.trim())
-      ));
-    }
+      : [];
+    setConfirmedFields(new Set(savedConfirmed));
   }, [userId, lang]);
 
   const [passportHint, setPassportHint] = useState<keyof PassportData | null>(null);
@@ -701,6 +707,23 @@ export default function DashboardPage() {
     return () => { supabase.removeChannel(ch); };
   }, [userId]);
 
+  // Realtime: LIVE documents — the instant an admin/sub-admin approves,
+  // rejects, requests, or uploads-on-behalf (or the candidate uploads on
+  // another device), the doc grid reflects it with NO refresh. keepPhase so
+  // the live update never yanks the phase nav out from under the candidate.
+  useEffect(() => {
+    if (!userId) return;
+    const ch = supabase
+      .channel(`docs-live-${userId}`)
+      .on("postgres_changes",
+        { event: "*", schema: "public", table: "documents", filter: `user_id=eq.${userId}` },
+        () => { loadDocs(userId, true); },
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
   // Realtime: keep pipeline unlock flags in sync when admin changes them
   useEffect(() => {
     if (!userId) return;
@@ -848,12 +871,18 @@ export default function DashboardPage() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!previewDoc?.drive_file_id) { setPreviewBlobUrl(null); return; }
+    if (!previewDoc?.id && !previewDoc?.drive_file_id) { setPreviewBlobUrl(null); return; }
     let mounted = true;
     let objectUrl = "";
     const controller = new AbortController();
     setPreviewLoading(true);
-    fetch(`/api/portal/file?id=${previewDoc.drive_file_id}`, {
+    // Timeout so a stalled Drive/proxy can't spin the preview forever — the
+    // .finally clears the spinner; the user can close/retry instead of an
+    // infinite spinner. (Native passport preview bypasses this blob anyway.)
+    const killT = setTimeout(() => controller.abort(), 20000);
+    // ?docId= → server resolves the CURRENT drive_file_id, so a replaced
+    // passport always previews the NEW PDF (never the archived old one).
+    fetch(previewDoc.id ? `/api/portal/file?docId=${previewDoc.id}` : `/api/portal/file?id=${previewDoc.drive_file_id}`, {
         signal: controller.signal,
         cache: "no-store",
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
@@ -865,13 +894,32 @@ export default function DashboardPage() {
         setPreviewBlobUrl(objectUrl);
       })
       .catch(err => { if (err.name !== "AbortError") console.error("Preview fetch error:", err); })
-      .finally(() => { if (mounted) setPreviewLoading(false); });
+      .finally(() => { clearTimeout(killT); if (mounted) setPreviewLoading(false); });
     return () => {
       mounted = false;
+      clearTimeout(killT);
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [previewDoc?.drive_file_id]);
+  }, [previewDoc?.id, previewDoc?.drive_file_id]);
+
+  // Keep an open preview pointed at the LIVE doc. After a replace/swap the
+  // old documents row is deleted and a new one (new id + drive_file_id) is
+  // created; an open preview holding the old id would 404/blank (native
+  // frame fetches ?docId=<old>). Remap to the same-slot doc, or close if it
+  // truly no longer exists.
+  useEffect(() => {
+    if (!previewDoc) return;
+    const same = docs.find(d => d.id === previewDoc.id);
+    if (same) {
+      if (same.drive_file_id !== previewDoc.drive_file_id) setPreviewDoc(same);
+      return;
+    }
+    const fk = LABEL_TO_FILE_KEY[previewDoc.file_type] ?? previewDoc.file_type;
+    const repl = docs.find(d => (LABEL_TO_FILE_KEY[d.file_type] ?? d.file_type) === fk);
+    setPreviewDoc(repl ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docs]);
 
   // Load seen-doc IDs from localStorage whenever userId becomes available.
   useEffect(() => {
@@ -914,6 +962,7 @@ export default function DashboardPage() {
     let cancelled = false;
 
     (async () => {
+     try {
       // ── 1. Auth (12s timeout for slow mobile networks) ──────────────────
       const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 12_000));
       const result = await Promise.race([supabase.auth.getSession(), timeout]);
@@ -1077,6 +1126,15 @@ export default function DashboardPage() {
       }).then(r => r.ok ? r.json() : null)
         .then(j => { if (!cancelled && j?.signature) setCandidateSavedSig(j.signature); })
         .catch(() => {});
+     } catch (e) {
+       // Bootstrap must NEVER leave the candidate stuck on the loader. Any
+       // unexpected throw (e.g. getSession rejecting on a corrupt persisted
+       // session) → reveal + bounce to login rather than spin forever.
+       console.error("[dashboard bootstrap] failed:", e);
+       if (!cancelled) { setLoading(false); router.replace("/portal"); }
+     } finally {
+       if (!cancelled) setLoading(false);
+     }
     })();
 
     // Keep authToken fresh across Supabase token rotations
@@ -1128,12 +1186,16 @@ export default function DashboardPage() {
     } catch (err) {
       console.error("loadDocs exception:", err);
     }
+    // Return the freshly-fetched list so callers (e.g. the upload self-heal)
+    // can synchronously check whether a doc actually landed without waiting
+    // for the `docs` state re-render.
+    const fetchedOut = fetched;
     // NOTE: setLoading(false) used to fire here; it's now gated on the
     // Promise.allSettled in the bootstrap useEffect below, so the dashboard
     // only reveals once docs + slots + profile + pipeline + orgs are all in.
 
     // Post-upload refresh: only update docs, never touch mode/phase
-    if (keepPhase) return;
+    if (keepPhase) return fetchedOut;
 
     // Stripe return — handle regardless of whether the user has docs yet
     const searchParams = new URLSearchParams(window.location.search);
@@ -1181,6 +1243,7 @@ export default function DashboardPage() {
         window.history.replaceState({}, "", window.location.pathname);
       }
     }
+    return fetchedOut;
   }
 
   function getDoc(key: string, fromDocs = docs): Doc | undefined {
@@ -1209,11 +1272,17 @@ export default function DashboardPage() {
     uploadFile(file, key);
   }
 
-  function uploadFile(file: File, key: string) {
+  function uploadFile(file: File, key: string, attempt = 1) {
     if (!userId) return;
     setUploadingKey(key);
     setSlotProgress(0);
     setSlotMsg(null);
+    // Snapshot the doc ids that exist FOR THIS SLOT right now. Must be
+    // per-slot (getDocAll(key)), NOT all docs: a global snapshot meant a
+    // pre-existing doc for this slot could read as "new" after a genuinely
+    // failed replace → false success + the old doc gets DELETEd = data loss.
+    // Per-slot: "landed" == a doc id for THIS slot that wasn't here before.
+    const prevAllIds = new Set(getDocAll(key).map(d => d.id));
 
     const item = ALL_ITEMS.find(i => i.key === key);
     // Dynamic slot keys are UUIDs (36 chars) or UUID_de — detect by pattern
@@ -1227,6 +1296,47 @@ export default function DashboardPage() {
     }
     // Dynamic slots store the UUID as file_type so getDoc(slotId) can match directly
     const fileType = isDynamic ? key : item!.label;
+
+    // Failure handler with self-heal + one silent retry. Before EVER showing
+    // an error: (1) reload docs and check whether the file actually landed
+    // (fast-upload response lost but server persisted it) → silent success;
+    // (2) on a transient (network / 5xx / 429 / status 0) retry once quietly;
+    // (3) only a genuine, repeated failure shows the red message. This is the
+    // "accept fast uploads, don't show that error" fix.
+    const transientTypes = new Set(["errNetwork"]);
+    const failSettle = async (type: "errUpload" | "errNetwork", transient: boolean) => {
+      xhrRef.current = null;
+      stopProgressCreep();
+      let fresh: Doc[] | undefined;
+      try { fresh = await loadDocs(userId, true); } catch { /* ignore */ }
+      const landed = (fresh ? getDocAll(key, fresh) : getDocAll(key))
+        .some(d => !prevAllIds.has(d.id));
+      if (landed) {
+        // It actually saved — finish exactly like a clean success.
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        const oldId = replaceDocIdRef.current;
+        const oldForKey = replaceForKeyRef.current;
+        replaceDocIdRef.current = null; replaceForKeyRef.current = null;
+        if (oldId && oldForKey === key) {
+          fetch(`/api/portal/documents/${oldId}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${authToken}` },
+          }).catch(e => console.error("[replace] cleanup delete failed:", e));
+        }
+        setSlotMsgTimed({ key, ok: true, type: "success" });
+        setUploadingKey(null);
+        return;
+      }
+      if ((transient || transientTypes.has(type)) && attempt < 2) {
+        // Quiet retry — no error shown, the progress bar simply continues.
+        uploadFile(file, key, attempt + 1);
+        return;
+      }
+      replaceDocIdRef.current = null; replaceForKeyRef.current = null;
+      setSlotMsgTimed({ key, ok: false, type });
+      setUploadingKey(null);
+    };
+
     const fd = new FormData();
     fd.append("file", file);
     fd.append("fileType", fileType);
@@ -1242,6 +1352,12 @@ export default function DashboardPage() {
 
     const xhr = new XMLHttpRequest();
     xhrRef.current = xhr;
+    // First terminal event wins. On a very fast upload the browser can fire a
+    // spurious `error`/`abort` AFTER a successful `load` (connection reset once
+    // the small response is already in) — that was overwriting the green
+    // success with a red "Fehler beim Hochladen." flash. Whichever of
+    // load/error/abort lands first settles it; later ones are ignored.
+    let settled = false;
     stopProgressCreep();
     xhr.upload.addEventListener("progress", (e) => {
       if (!e.lengthComputable) return;
@@ -1269,6 +1385,8 @@ export default function DashboardPage() {
       });
     }
     xhr.addEventListener("load", () => {
+      if (settled) return;
+      settled = true;
       xhrRef.current = null;
       stopProgressCreep();
       setSlotProgress(100);
@@ -1294,34 +1412,52 @@ export default function DashboardPage() {
           // Passport: show confirmation modal with extracted data
           if (key === "id") {
             const json = JSON.parse(xhr.responseText);
-            const blank: PassportData = { first_name: "", last_name: "", dob: "", sex: "", nationality: "", city_of_birth: "", country_of_birth: "", passport_no: "", passport_expiry: "", issuing_authority: "", issue_date: "", address_street: "", address_number: "", address_postal: "", city_of_residence: "", country_of_residence: "", marital_status: "", children_ages: "" };
-            const raw = json.passportData ? { ...blank, ...json.passportData } : blank;
-            // nationality and country_of_birth are ISO codes — select labels translate automatically
-            const extracted = { ...raw, sex: normalizeSex(raw.sex, lang) };
-            setPassportModal(extracted);
-            setConfirmedFields(new Set());
-            // Push extracted data to the DB immediately so it's permanent +
-            // visible on any other device right away (not just localStorage).
-            flushPassportDraft(extracted, authToken);
+            if (json.hadData) {
+              // RE-UPLOAD over existing data (user decision): keep the
+              // existing (possibly admin-corrected / approved) values —
+              // fresh OCR must NOT clobber them. Only the scan changed;
+              // restore the saved data into the modal, boxes per LAW #38.
+              reopenPassportData();
+            } else {
+              const blank: PassportData = { first_name: "", last_name: "", dob: "", sex: "", nationality: "", city_of_birth: "", country_of_birth: "", passport_no: "", passport_expiry: "", issuing_authority: "", issue_date: "", address_street: "", address_number: "", address_postal: "", city_of_residence: "", country_of_residence: "", marital_status: "", children_ages: "" };
+              const raw = json.passportData ? { ...blank, ...json.passportData } : blank;
+              // Clamp OCR sex to M/F/"" — an exotic value (e.g. "X", a
+              // localized first letter) has no dropdown option, so it would
+              // render "—" yet read as filled/confirmable. Empty → candidate
+              // picks it explicitly.
+              const _sx = normalizeSex(raw.sex, lang);
+              const extracted = { ...raw, sex: _sx === "M" || _sx === "F" ? _sx : "" };
+              setPassportModal(extracted);
+              setConfirmedFields(new Set());
+              // Push extracted data to the DB immediately so it's permanent +
+              // visible on any other device right away (not just localStorage).
+              flushPassportDraft(extracted, authToken);
+            }
           }
         } else {
-          replaceDocIdRef.current = null; replaceForKeyRef.current = null;
-          setSlotMsgTimed({ key, ok: false, type: "errUpload" });
+          // Non-2xx. status 0 / 429 / 5xx are transient (retry); but FIRST
+          // verify it didn't actually land — fast uploads often persist
+          // server-side while the response is lost.
+          const st = xhr.status;
+          void failSettle("errUpload", st === 0 || st === 429 || st >= 500);
+          return;
         }
       } catch {
-        replaceDocIdRef.current = null; replaceForKeyRef.current = null;
-        setSlotMsgTimed({ key, ok: false, type: "errUpload" });
+        // Parse/handler threw (e.g. passport JSON). If the doc landed,
+        // failSettle resolves it to a clean success instead of an error.
+        void failSettle("errUpload", false);
+        return;
       }
       setUploadingKey(null);
     });
     xhr.addEventListener("error", () => {
-      xhrRef.current = null;
-      stopProgressCreep();
-      replaceDocIdRef.current = null; replaceForKeyRef.current = null;
-      setSlotMsgTimed({ key, ok: false, type: "errNetwork" });
-      setUploadingKey(null);
+      if (settled) return;
+      settled = true;
+      void failSettle("errNetwork", true);
     });
     xhr.addEventListener("abort", () => {
+      if (settled) return;
+      settled = true;
       xhrRef.current = null;
       stopProgressCreep();
       replaceDocIdRef.current = null; replaceForKeyRef.current = null;
@@ -1333,19 +1469,37 @@ export default function DashboardPage() {
   }
 
   function openPicker(key: string) {
-    setActiveKey(key);
+    // CRITICAL: the target slot is carried in a REF, set synchronously here —
+    // NOT read back from the `activeKey` STATE in onFileChange. State updates
+    // are async; on a FAST pick the change event fires before React commits
+    // the re-render, so the old code uploaded under a stale/empty key → the
+    // clicked slot got nothing → "Fehler beim Hochladen.". Slow picking just
+    // gave React enough time to re-render, masking the race. The ref has the
+    // right key the instant the dialog opens, regardless of pick speed.
+    pendingKeyRef.current = key;
+    setActiveKey(key); // still drives the input's `accept` attribute
     setTimeout(() => fileInputRef.current?.click(), 0);
   }
 
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (file && activeKey) handleFile(file, activeKey);
+    const k = pendingKeyRef.current ?? activeKey;
+    // Allow re-picking the SAME file again later (onChange won't fire if the
+    // input still holds the previous selection).
+    e.target.value = "";
+    if (file && k) handleFile(file, k);
   }
 
   // Issue 13.2: give visible feedback when a download fails (used by both the
   // per-slot Download button and the "other" sub-row button)
-  async function handleDownload(driveFileId: string, fileName: string, slotKey: string) {
+  async function handleDownload(driveFileId: string, fileName: string, slotKey: string, docId?: string) {
     if (downloadingIds.has(driveFileId)) return; // already in flight
+    // When a docId is given, address the file by it so the server resolves
+    // the CURRENT drive_file_id — a replaced passport always downloads the
+    // NEW PDF, never the archived old one (works from a stale client object).
+    const fileQ = docId
+      ? `/api/portal/file?docId=${encodeURIComponent(docId)}`
+      : `/api/portal/file?id=${encodeURIComponent(driveFileId)}`;
 
     const isIOS = isIOSDevice();
 
@@ -1364,16 +1518,17 @@ export default function DashboardPage() {
     // clicked inside the tap gesture. We hit the server route with dl=1 so it
     // forces the attachment header. No fetch (gesture must stay intact).
     if (isIOS && authToken) {
-      const fileUrl =
-        `/api/portal/file?id=${encodeURIComponent(driveFileId)}` +
-        `&dl=1&name=${encodeURIComponent(fileName || "document")}` +
-        `&access_token=${encodeURIComponent(authToken)}`;
+      if (!dlt) { clearSpin(); return; } // token not minted yet (momentary)
+      const fileUrl = withDlt(
+        `${fileQ}&dl=1&name=${encodeURIComponent(fileName || "document")}`,
+        dlt,
+      );
       triggerIosDownload(fileUrl, fileName || "document", clearSpin);
       return;
     }
 
     try {
-      const r = await fetch(`/api/portal/file?id=${driveFileId}`, {
+      const r = await fetch(fileQ, {
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -1495,8 +1650,9 @@ export default function DashboardPage() {
     // it directly (in-gesture anchor) with token + dl=1 → real download.
     const _isIOS = isIOSDevice();
     if (_isIOS && authToken) {
+      if (!dlt) { clearSpin(); return; }
       triggerIosDownload(
-        `/api/portal/documents/merge-pdf?origDocId=${encodeURIComponent(origDocId)}&transDocId=${encodeURIComponent(transDocId)}&dl=1&name=${encodeURIComponent(fn)}&access_token=${encodeURIComponent(authToken)}`,
+        withDlt(`/api/portal/documents/merge-pdf?origDocId=${encodeURIComponent(origDocId)}&transDocId=${encodeURIComponent(transDocId)}&dl=1&name=${encodeURIComponent(fn)}`, dlt),
         fn,
         clearSpin,
       );
@@ -1520,8 +1676,8 @@ export default function DashboardPage() {
 
   const statusColor = (s: string) =>
     s === "approved" ? { bg: "var(--success-bg)", text: "var(--success)", border: "var(--success-border)" } :
-    s === "rejected"  ? { bg: "var(--danger-bg)", text: "var(--danger)", border: "var(--danger-bg)" } :
-    { bg: "rgba(245,158,11,0.12)", text: "#f59e0b", border: "rgba(245,158,11,0.3)" };
+    s === "rejected"  ? { bg: "var(--danger-bg)", text: "var(--danger)", border: "var(--danger-border)" } :
+    { bg: "var(--warning-bg)", text: "var(--warning)", border: "var(--warning-border)" };
 
   const statusLabel = (s: string) =>
     s === "approved" ? t.pStatusApproved :
@@ -1629,7 +1785,7 @@ export default function DashboardPage() {
               <button
                 onClick={() => handleUpgradeToPremium("premium_onetime")}
                 disabled={upgradeLoading}
-                className="w-full py-3 rounded-xl text-[14px] font-semibold tracking-tight transition-all hover:opacity-90 inline-flex items-center justify-center gap-2"
+                className="bv-glow-gold bv-press w-full py-3 rounded-xl text-[14px] font-semibold tracking-tight inline-flex items-center justify-center gap-2"
                 style={{ background: "var(--gold)", color: "#131312", cursor: upgradeLoading ? "wait" : "pointer" }}>
                 {upgradeLoading
                   ? (lang === "de" ? "Bitte warten…" : lang === "en" ? "Please wait…" : "Veuillez patienter…")
@@ -1684,8 +1840,8 @@ export default function DashboardPage() {
             </div>
             <div className="p-4">
               <button type="button" onClick={() => setDocHintOpen(null)}
-                className="block w-full text-center px-5 py-3 text-[14px] font-semibold tracking-tight transition-all hover:opacity-90"
-                style={{ background: "var(--gold)", color: "#131312", borderRadius: "12px", border: "none", cursor: "pointer" }}>
+                className="bv-glow-gold bv-press block w-full text-center px-5 py-3 text-[14px] font-semibold tracking-tight"
+                style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-lg)", border: "none", cursor: "pointer" }}>
                 {lang === "de" ? "Verstanden" : lang === "en" ? "Got it" : "Compris"}
               </button>
             </div>
@@ -1887,7 +2043,7 @@ export default function DashboardPage() {
           <div className="flex items-center justify-between px-5 py-3.5"
             style={{ borderBottom: "1px solid var(--border)" }}>
             <div className="min-w-0 flex-1 mr-3">
-              <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-0.5" style={{ color: "var(--w3)" }}>{previewDoc.file_type}</p>
+              <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-0.5" style={{ color: "var(--w3)" }}>{translateDocLabel(previewDoc.file_type, lang as "fr" | "en" | "de")}</p>
               <p className="text-[13.5px] font-semibold truncate tracking-tight" style={{ color: "var(--w)" }}>{previewDoc.file_name}</p>
             </div>
             {/* Passport preview is identical to any other doc (Sprachzertifikat
@@ -1898,7 +2054,7 @@ export default function DashboardPage() {
             {pendingSignReq && (
               <button
                 onClick={() => setDocViewerSignReq(pendingSignReq)}
-                className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-bold transition-all hover:opacity-85 active:scale-[0.97] mr-1"
+                className="bv-glow-gold bv-press flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11.5px] font-bold mr-1"
                 style={{ background: "var(--gold)", color: "#131312" }}
                 title={lang === "de" ? "Signieren" : lang === "fr" ? "Signer" : "Sign document"}>
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -1929,7 +2085,7 @@ export default function DashboardPage() {
                 is only a last resort when there's no drive file at all. */}
             {previewDoc.drive_file_id ? (
               <button
-                onClick={() => handleDownload(previewDoc.drive_file_id!, previewDoc.file_name, previewDoc.file_type)}
+                onClick={() => handleDownload(previewDoc.drive_file_id!, previewDoc.file_name, previewDoc.file_type, previewDoc.id)}
                 disabled={downloadingIds.has(previewDoc.drive_file_id)}
                 className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center"
                 style={{ color: "var(--w2)" }}
@@ -1961,22 +2117,31 @@ export default function DashboardPage() {
           </div>
           {/* Preview — PDF, image, or fallback download. */}
           <div className="flex-1" style={{ minHeight: 0, position: "relative" }}>
-            {previewLoading || !previewBlobUrl ? (
-              <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#525659" }}>
-                <Spinner size="md" />
-              </div>
-            ) : (() => {
+            {(() => {
               const ext = (previewDoc.file_name.split(".").pop() ?? "").toLowerCase();
               const _isIOS = isIOSDevice();
-              if (ext === "pdf" && _isIOS && previewDoc.drive_file_id && authToken) {
-                // iOS: pdf.js <canvas> never paints on WebKit (Safari AND
-                // Chrome — all iOS browsers are WebKit). Use the OS-native
-                // PDF engine + a desktop-matching toolbar (instant CSS
-                // rotate/zoom; pinch-zoom & scroll are native).
+              // Passports are very often JPEG2000 → pdf.js renders them BLANK
+              // (decode error swallowed) though the bytes are intact. Force
+              // the browser-native PDF engine for ALL passports, every
+              // platform — not just iOS. Permanent fix for the recurring
+              // "passport data erased" report.
+              const _nativePdf = ext === "pdf" && (_isIOS || /pass/i.test(previewDoc.file_type));
+              if (_nativePdf) {
+                // NEVER fall back to pdf.js for a passport (it blanks
+                // JPEG2000). If the signed token isn't minted yet, WAIT
+                // (spinner) — and don't gate the native frame behind the
+                // blob fetch (it has its own src + can hang).
+                if (!(previewDoc.id && authToken && dlt)) {
+                  return (
+                    <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#525659" }}>
+                      <Spinner size="md" />
+                    </div>
+                  );
+                }
                 return (
                   <div style={{ position: "absolute", inset: 0 }}>
                     <IosPdfFrame
-                      src={`/api/portal/file?id=${encodeURIComponent(previewDoc.drive_file_id)}&access_token=${encodeURIComponent(authToken)}`}
+                      src={withDlt(`/api/portal/file?docId=${encodeURIComponent(previewDoc.id)}`, dlt)}
                       title={previewDoc.file_name}
                       onRotate={() => {
                         fetch(`/api/portal/documents/${previewDoc.id}`, {
@@ -1996,6 +2161,12 @@ export default function DashboardPage() {
                   </div>
                 );
               }
+              // Non-passport docs still gate on the blob fetch.
+              if (previewLoading || !previewBlobUrl) return (
+                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#525659" }}>
+                  <Spinner size="md" />
+                </div>
+              );
               if (ext === "pdf") return (
                 <div style={{ position: "relative", height: "100%" }}>
                   <PdfViewer
@@ -2036,7 +2207,7 @@ export default function DashboardPage() {
                   <p className="text-[14px] font-semibold mb-2">Preview not available for .{ext}</p>
                   <p className="text-[12.5px] opacity-80 mb-4">Download the file to open it in your default app.</p>
                   <a href={previewBlobUrl} download={previewDoc.file_name}
-                    className="inline-flex items-center gap-2 px-4 py-2 text-[13px] font-semibold"
+                    className="bv-glow-gold bv-press inline-flex items-center gap-2 px-4 py-2 text-[13px] font-semibold"
                     style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)" }}>
                     <Download size={13} strokeWidth={1.8} /> Download
                   </a>
@@ -2389,7 +2560,7 @@ export default function DashboardPage() {
               const bothApproved = origSt === "approved" && transSt === "approved";
               const hasRejected  = origSt === "rejected"  || transSt === "rejected";
               const hasPending   = origSt === "pending"   || transSt === "pending";
-              const pairColor = bothApproved ? "#16a34a" : hasRejected ? "#ef4444" : hasPending ? "#f59e0b" : null;
+              const pairColor = bothApproved ? "var(--success)" : hasRejected ? "var(--danger)" : hasPending ? "var(--warning)" : null;
               return (
                 <div key={item.key}>
                   {idx > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
@@ -2450,7 +2621,7 @@ export default function DashboardPage() {
                         const sst = !sub.subDoc ? "empty" : sub.subDoc.status;
                         const ssc = sst === "approved" ? { bg: "var(--success-bg)", txt: "var(--success)", bdr: "var(--success-border)" }
                           : sst === "rejected" ? { bg: "var(--danger-bg)", txt: "var(--danger)", bdr: "var(--danger-bg)" }
-                          : sst === "pending"  ? { bg: "rgba(245,158,11,0.12)", txt: "#f59e0b", bdr: "rgba(245,158,11,0.3)" }
+                          : sst === "pending"  ? { bg: "var(--warning-bg)", txt: "var(--warning)", bdr: "var(--warning-border)" }
                           : { bg: "var(--bg2)", txt: "var(--w3)", bdr: "var(--border)" };
                         const isSubUp = uploadingKey === sub.subKey;
                         const isDragSub = dragOverKey === sub.subKey;
@@ -2552,8 +2723,17 @@ export default function DashboardPage() {
             const rowSt: "approved" | "rejected" | "pending" | null = !uploaded
               ? (slotNeedsCandidateAction ? "pending" : null)
               : isOther ? (otherHasRejected ? "rejected" : otherAllApproved ? "approved" : "pending")
+              // Passport is TWO parts: the PDF doc + the DATA (passport_status).
+              // LAW #4: the box must reflect BOTH — red if either rejected,
+              // green only if the doc is approved AND the data is approved,
+              // otherwise pending. (Old code looked at the PDF doc only, so a
+              // rejected/unsubmitted passport could still show green/orange.)
+              : item.key === "id"
+                ? ((doc!.status === "rejected" || passportStatus === "rejected") ? "rejected"
+                   : (doc!.status === "approved" && passportStatus === "approved") ? "approved"
+                   : "pending")
               : (doc!.status === "approved" ? "approved" : doc!.status === "rejected" ? "rejected" : "pending");
-            const rowColor = rowSt === "approved" ? "#16a34a" : rowSt === "rejected" ? "#ef4444" : rowSt === "pending" ? "#f59e0b" : null;
+            const rowColor = rowSt === "approved" ? "var(--success)" : rowSt === "rejected" ? "var(--danger)" : rowSt === "pending" ? "var(--warning)" : null;
 
             const exUrl      = DOC_EXAMPLES[item.key];
             const isUploading = uploadingKey === item.key;
@@ -2751,8 +2931,8 @@ export default function DashboardPage() {
                             )}
                             <button
                               onClick={(e) => { e.stopPropagation(); openPicker(item.key); }}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11.5px] font-semibold tracking-tight transition-opacity hover:opacity-90"
-                              style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)", boxShadow: "var(--shadow-sm)" }}>
+                              className="bv-glow-gold bv-press inline-flex items-center gap-1.5 px-3 py-1.5 text-[11.5px] font-semibold tracking-tight"
+                              style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)", boxShadow: "var(--shadow-gold-sm)" }}>
                               <Upload size={12} strokeWidth={1.8} />
                               {lang === "fr" ? "Renvoyer le document" : lang === "de" ? "Neu hochladen" : "Re-upload"}
                             </button>
@@ -3131,11 +3311,12 @@ export default function DashboardPage() {
             // as every other iOS download. Anchor clicked in-gesture.
             const _isIOS = isIOSDevice();
             if (_isIOS && authToken) {
+              if (!dlt) { setPassportDataDl(false); return; }
               const json = JSON.stringify({ groups: pdfGroups, docTitle, docSubtitle, filename: outName });
               const b64 = btoa(unescape(encodeURIComponent(json)))
                 .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
               triggerIosDownload(
-                `/api/portal/me/passport-data-pdf?dl=1&d=${b64}&access_token=${encodeURIComponent(authToken)}`,
+                withDlt(`/api/portal/me/passport-data-pdf?dl=1&d=${b64}`, dlt),
                 outName,
                 () => setPassportDataDl(false),
               );
@@ -3259,7 +3440,7 @@ export default function DashboardPage() {
                 <div className="flex items-center justify-between px-5 py-3 flex-shrink-0"
                   style={{ borderBottom: "1px solid var(--border)", background: "var(--card)" }}>
                   <div className="min-w-0 flex-1 mr-3">
-                    <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-0.5" style={{ color: "var(--w3)" }}>{previewDoc.file_type}</p>
+                    <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-0.5" style={{ color: "var(--w3)" }}>{translateDocLabel(previewDoc.file_type, lang as "fr" | "en" | "de")}</p>
                     <p className="text-[13.5px] font-semibold truncate tracking-tight" style={{ color: "var(--w)" }}>{previewDoc.file_name}</p>
                   </div>
                   {/* Phone: this is the ONLY close button — it dismisses BOTH
@@ -3274,34 +3455,45 @@ export default function DashboardPage() {
                 {/* Opens INSTANTLY with a spinner; the PDF fills in place
                     once the blob loads — same model as the admin laptop. */}
                 <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
-                  {!previewBlobUrl ? (
+                  {(() => {
+                    const _isPdf = /\.pdf$/i.test(previewDoc?.file_name ?? "");
+                    // Passport scans are JPEG2000 → pdf.js blanks them on
+                    // EVERY platform (not just iOS). Native frame for ALL
+                    // passports + everything on iOS. Doesn't need the blob,
+                    // so it isn't gated behind the blob spinner.
+                    const _nativePP = _isPdf
+                      && (isIOSDevice() || /pass/i.test(previewDoc?.file_type ?? ""))
+                      && !!previewDoc?.drive_file_id && !!authToken && !!dlt;
+                    if (_nativePP) {
+                      return (
+                        <IosPdfFrame
+                          src={withDlt(`/api/portal/file?docId=${encodeURIComponent(previewDoc!.id)}`, dlt!)}
+                          title={previewDoc!.file_name}
+                          onRotate={() => {
+                            fetch(`/api/portal/documents/${previewDoc!.id}`, {
+                              method: "PATCH",
+                              headers: {
+                                "Content-Type": "application/json",
+                                ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+                              },
+                              body: JSON.stringify({ deltaRotation: 90 }),
+                            }).catch(e => console.error("[rotation] persist failed:", e));
+                          }}
+                        />
+                      );
+                    }
+                    return !previewBlobUrl ? (
                     <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#525659" }}>
                       <Spinner size="md" />
                     </div>
-                  ) : /\.pdf$/i.test(previewDoc?.file_name ?? "")
-                       && isIOSDevice()
-                       && previewDoc?.drive_file_id && authToken ? (
-                    <IosPdfFrame
-                      src={`/api/portal/file?id=${encodeURIComponent(previewDoc.drive_file_id)}&access_token=${encodeURIComponent(authToken)}`}
-                      title={previewDoc.file_name}
-                      onRotate={() => {
-                        fetch(`/api/portal/documents/${previewDoc.id}`, {
-                          method: "PATCH",
-                          headers: {
-                            "Content-Type": "application/json",
-                            ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-                          },
-                          body: JSON.stringify({ deltaRotation: 90 }),
-                        }).catch(e => console.error("[rotation] persist failed:", e));
-                      }}
-                    />
-                  ) : /\.pdf$/i.test(previewDoc?.file_name ?? "") ? (
+                  ) : _isPdf ? (
                     <PdfViewer src={previewBlobUrl} />
                   ) : (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={previewBlobUrl} alt="passport"
                       style={{ width: "100%", height: "100%", objectFit: "contain" }} />
-                  )}
+                  );
+                  })()}
                 </div>
               </div>
             )}
@@ -3739,11 +3931,12 @@ export default function DashboardPage() {
                       // iOS can't save a POST→blob — stream via GET (payload in
                       // query) so it triggers the native download prompt.
                       if (isIOSDevice() && authToken) {
+                        if (!dlt) return;
                         const j = JSON.stringify({ groups: pdfGroups, docTitle, docSubtitle, filename: outName });
                         const b64 = btoa(unescape(encodeURIComponent(j)))
                           .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
                         triggerIosDownload(
-                          `/api/portal/me/passport-data-pdf?dl=1&d=${b64}&access_token=${encodeURIComponent(authToken)}`,
+                          withDlt(`/api/portal/me/passport-data-pdf?dl=1&d=${b64}`, dlt),
                           outName,
                         );
                         return;
@@ -3761,7 +3954,7 @@ export default function DashboardPage() {
                       setTimeout(() => URL.revokeObjectURL(url), 0);
                     } catch { alert(t.dErrDownload); }
                   }}
-                  className="w-full py-2.5 rounded-xl font-semibold text-sm inline-flex items-center justify-center gap-2 transition-opacity hover:opacity-90"
+                  className="bv-glow-gold bv-press w-full py-2.5 rounded-xl font-semibold text-sm inline-flex items-center justify-center gap-2"
                   style={{ background: "var(--gold)", color: "#131312" }}>
                   <Download size={14} strokeWidth={1.8} />
                   {lang === "fr" ? "Télécharger les données" : lang === "de" ? "Daten herunterladen" : "Download data"}
@@ -3806,7 +3999,7 @@ export default function DashboardPage() {
                       // Button turns yellow immediately after submission
                       setPassportStatus("pending");
                     }}
-                    className="w-full py-2.5 rounded-xl font-semibold text-sm transition-opacity hover:opacity-90 disabled:opacity-50"
+                    className="bv-glow-gold bv-press w-full py-2.5 rounded-xl font-semibold text-sm disabled:opacity-50"
                     style={{ background: "var(--gold)", color: "#131312" }}>
                     {passportSaving ? "…" : allConfirmed
                       ? (lang === "fr" ? "Envoyer" : lang === "de" ? "Absenden" : "Submit")

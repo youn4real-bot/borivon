@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { getServiceSupabase } from "@/lib/supabase";
-import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
+import { requireAdminRole, canActOnCandidate, roleByUserId } from "@/lib/admin-auth";
+import { dlTokenUserId } from "@/lib/dlToken";
 import { PDFDocument } from "pdf-lib";
 
 function getDriveClient() {
@@ -58,18 +59,13 @@ const BUCKET = "sign-documents";
 
 export async function GET(req: NextRequest) {
   // iOS download path: a top-level navigation can't send an Authorization
-  // header, so accept ?access_token and promote it to a Bearer header so the
-  // normal requireAdminRole check is reused. Streams the admin's most recent
-  // "download signed PDF" output (stashed by the POST adminOnly branch).
+  // header. Header path → normal requireAdminRole; no header → resolve role
+  // from the short-lived signed download token (?dlt=). The stash is keyed by
+  // the admin's own userId so the token only ever yields its holder's file.
   if (req.nextUrl.searchParams.get("adminDownload") === "1") {
-    let authReq = req;
-    const qTok = req.nextUrl.searchParams.get("access_token");
-    if (qTok && !req.headers.get("authorization")) {
-      const h = new Headers(req.headers);
-      h.set("authorization", `Bearer ${qTok}`);
-      authReq = new NextRequest(req.url, { headers: h });
-    }
-    const dAuth = await requireAdminRole(authReq);
+    const dAuth = req.headers.get("authorization")
+      ? await requireAdminRole(req)
+      : await roleByUserId(dlTokenUserId(req) ?? "");
     if (!dAuth.ok) return NextResponse.json({ error: dAuth.error }, { status: dAuth.status });
     const db = getServiceSupabase();
     const { data: blob, error } = await db.storage.from(BUCKET).download(`admin-dl/${dAuth.userId}.pdf`);

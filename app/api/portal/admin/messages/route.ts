@@ -19,13 +19,27 @@ async function isOrgSide(
   role: string,
   email: string,
 ): Promise<boolean> {
-  if (role === "admin") return false;
+  if (role === "admin") return false; // supreme is always Borivon team
+  // An org admin is a sub_admins row with is_agency_admin=true. The old check
+  // only looked at organization_members — an org admin invited but not yet a
+  // member (or a casing mismatch) slipped INTO the shared Borivon Support
+  // inbox and could read/reply to their org candidates as "Borivon Support".
+  // Treat is_agency_admin=true as org-side regardless of membership rows.
+  const { data: subRows, error: subErr } = await db
+    .from("sub_admins")
+    .select("is_agency_admin")
+    .ilike("email", ciEmail(email))
+    .limit(1);
+  if (subErr) return true; // FAIL CLOSED — unknown role never gets the team inbox
+  if (((subRows ?? [])[0] as { is_agency_admin?: boolean } | undefined)?.is_agency_admin === true) {
+    return true;
+  }
   const { data } = await db
     .from("organization_members")
     .select("sub_admin_email")
     .ilike("sub_admin_email", ciEmail(email))
-    .maybeSingle();
-  return !!data;
+    .limit(1);
+  return !!(data ?? [])[0];
 }
 
 /**

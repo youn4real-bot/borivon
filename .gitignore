@@ -41,3 +41,6 @@ next-env.d.ts
 
 # stray files
 *.pdf
+
+# Local deploy capture logs (vercel CLI stdout) — never committed
+deploy_*.log

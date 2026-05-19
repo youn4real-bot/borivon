@@ -5,24 +5,30 @@ import { PassportDataDocument } from "@/components/PassportDataDocument";
 import type { PassportDataPdfGroup } from "@/components/PassportDataDocument";
 import { requireAdminRole } from "@/lib/admin-auth";
 import { getAnonVerifyClient } from "@/lib/supabase";
+import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
+import { dlTokenUserId } from "@/lib/dlToken";
 import { registerPdfFonts } from "@/lib/pdf-fonts";
 
 registerPdfFonts();
 
 /**
  * GET — iOS-safe download (iOS can't download a client blob). Small payload
- * in the query, streamed as a forced attachment. Auth via header OR
- * ?access_token (iOS navigations can't send an Authorization header). This
- * only renders admin-supplied display text into a PDF — it reads no data.
+ * in the query, streamed as a forced attachment. Auth via header OR a
+ * short-lived signed token (?dlt=, iOS navigations can't send a header).
+ * This only renders client-supplied display text into a PDF — it reads no
+ * data — so a valid actor is all that's required.
  */
 export async function GET(req: NextRequest) {
   const header = req.headers.get("authorization");
   const headerJwt = header?.startsWith("Bearer ") ? header.slice(7) : "";
-  const queryJwt = req.nextUrl.searchParams.get("access_token") ?? "";
-  const jwt = headerJwt || queryJwt;
-  if (!jwt) return new Response("Unauthorized", { status: 401 });
-  const { data: { user }, error } = await getAnonVerifyClient().auth.getUser(jwt);
-  if (error || !user) return new Response("Unauthorized", { status: 401 });
+  let actorId: string | null = null;
+  if (headerJwt) {
+    const { data: { user }, error } = await getAnonVerifyClient().auth.getUser(headerJwt);
+    if (!error && user && !isSoftDeletedAuthUser(user)) actorId = user.id;
+  } else {
+    actorId = dlTokenUserId(req);
+  }
+  if (!actorId) return new Response("Unauthorized", { status: 401 });
 
   const d = req.nextUrl.searchParams.get("d") ?? "";
   if (!d || d.length > 200_000) return new Response("Bad request", { status: 400 });

@@ -2,9 +2,46 @@ import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { PDFDocument, degrees } from "pdf-lib";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
-import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
+import { requireAdminRole, canActOnCandidate, roleByUserId } from "@/lib/admin-auth";
+import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
+import { dlTokenUserId } from "@/lib/dlToken";
 
 const BUCKET = "sign-documents";
+
+/**
+ * Apply a view rotation to a PDF — but NEVER at the cost of the file's
+ * content. pdf-lib's load()→save() round-trip silently drops page content
+ * for some scanner-produced PDFs (object-stream/incremental-update layouts
+ * common in phone passport scans) → the candidate's passport rendered blank
+ * ("the data got erased"). This bug is intermittent because it only triggers
+ * on those specific PDFs once a rotation is set.
+ *
+ * Rule: the uploaded PDF must come back EXACTLY as uploaded. If the rotate
+ * re-save throws, OR yields an empty/degenerate result (no pages, or the
+ * byte size collapsed — the tell-tale of dropped image/content streams),
+ * we return the ORIGINAL bytes untouched. Worst case: that one view isn't
+ * rotated; the passport is never erased.
+ */
+async function safeRotatePdf(original: Buffer, rotation: number): Promise<Buffer> {
+  if (rotation === 0) return original;
+  try {
+    const pdfDoc = await PDFDocument.load(original, { ignoreEncryption: true, updateMetadata: false });
+    const pages = pdfDoc.getPages();
+    if (pages.length === 0) return original;
+    for (const page of pages) {
+      const cur = page.getRotation().angle;
+      page.setRotation(degrees((cur + rotation) % 360));
+    }
+    const out = Buffer.from(await pdfDoc.save());
+    // Degenerate-output guard: a correct rotate-only re-save is ~the same
+    // size (images are kept by reference). A large size collapse means
+    // pdf-lib dropped content → serve the untouched original instead.
+    if (out.length < 1024 || out.length < original.length * 0.5) return original;
+    return out;
+  } catch {
+    return original; // encrypted / unsupported / parse failure → never erase
+  }
+}
 
 function getDriveClient() {
   const auth = new google.auth.GoogleAuth({
@@ -37,24 +74,45 @@ async function isAuthorised(
     return canActOnCandidate(adminAuth.role, adminAuth.email, doc.user_id);
   }
 
-  // Candidate auth: Bearer header (desktop/Android fetch) OR ?access_token=
-  // query param. iOS cannot attach an Authorization header to a top-level
-  // navigation / window.open, so the query token is the ONLY way the file
-  // can be opened directly in Safari's viewer. Same JWT, same user — just a
-  // different transport. Responses are no-store so it isn't cached.
+  // Candidate auth: Bearer header (desktop/Android fetch) OR — for iOS, which
+  // can't attach a header to a top-level navigation / <iframe src> — a
+  // short-lived signed download token (?dlt=). The raw Supabase JWT is NEVER
+  // accepted from the URL anymore (it would leak into logs/referrer as a
+  // ~1h full-API credential).
   const authHeader = req.headers.get("authorization");
   const headerJwt = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : "";
-  const queryJwt = req.nextUrl.searchParams.get("access_token") ?? "";
-  const jwt = headerJwt || queryJwt;
-  if (!jwt) return false;
-  const { data: { user }, error } = await getAnonVerifyClient().auth.getUser(jwt);
-  if (error || !user) return false;
+  let actorId: string | null = null;
+  if (headerJwt) {
+    const { data: { user }, error } = await getAnonVerifyClient().auth.getUser(headerJwt);
+    if (!error && user && !isSoftDeletedAuthUser(user)) actorId = user.id;
+  } else {
+    actorId = dlTokenUserId(req);
+  }
+  if (!actorId) return false;
+
+  // The token/header holder may be an ADMIN or SUB-ADMIN viewing a
+  // candidate's doc (e.g. the passport preview now uses the native iframe =
+  // token path, which previously only authorised the doc OWNER → "Forbidden"
+  // for admins after a PDF replace). Resolve their role by user id and apply
+  // the SAME rule as the header-admin path. Plain candidates → roleByUserId
+  // is not ok → fall through to the owner check (unchanged).
+  const r = await roleByUserId(actorId);
+  if (r.ok) {
+    if (r.role === "admin") return true;
+    const { data: sdoc } = await db
+      .from("documents")
+      .select("user_id")
+      .eq(fileId ? "drive_file_id" : "id", fileId ?? docId!)
+      .maybeSingle();
+    if (!sdoc) return false;
+    return canActOnCandidate(r.role, r.email, sdoc.user_id);
+  }
 
   const { data: doc } = await db
     .from("documents")
     .select("id")
     .eq(fileId ? "drive_file_id" : "id", fileId ?? docId!)
-    .eq("user_id", user.id)
+    .eq("user_id", actorId)
     .maybeSingle();
   return !!doc;
 }
@@ -116,18 +174,9 @@ export async function GET(req: NextRequest) {
       .from(BUCKET)
       .download(signedStoragePath);
     if (!dlErr && blob) {
-      let outBuf = Buffer.from(await blob.arrayBuffer());
-      if (rotation !== 0) {
-        try {
-          const pdfDoc = await PDFDocument.load(outBuf);
-          for (const page of pdfDoc.getPages()) {
-            const cur = page.getRotation().angle;
-            page.setRotation(degrees((cur + rotation) % 360));
-          }
-          outBuf = Buffer.from(await pdfDoc.save());
-        } catch { /* serve original on rotate failure */ }
-      }
-      return new NextResponse(outBuf, {
+      const srcBuf = Buffer.from(await blob.arrayBuffer());
+      const outBuf = await safeRotatePdf(srcBuf, rotation);
+      return new NextResponse(new Uint8Array(outBuf), {
         headers: {
           "Content-Type": ctype(req, "application/pdf"),
           "Content-Disposition": disposition(req, "document"),
@@ -162,24 +211,16 @@ export async function GET(req: NextRequest) {
       stream.on("error", reject);
     });
 
-    let outBuf = Buffer.concat(chunks);
+    const srcBuf = Buffer.concat(chunks);
 
-    // If this is a PDF with a saved rotation, bake it into the file so both
-    // previews and downloads reflect the new orientation.
-    if (rotation !== 0 && mimeType === "application/pdf") {
-      try {
-        const pdfDoc = await PDFDocument.load(outBuf);
-        for (const page of pdfDoc.getPages()) {
-          const cur = page.getRotation().angle;
-          page.setRotation(degrees((cur + rotation) % 360));
-        }
-        outBuf = Buffer.from(await pdfDoc.save());
-      } catch (e) {
-        console.warn("[file proxy] pdf rotate failed, serving original:", e);
-      }
-    }
+    // If this is a PDF with a saved rotation, apply it — but safeRotatePdf
+    // guarantees the original is returned untouched if the re-save would
+    // corrupt/blank it (the scanned-passport "data erased" bug).
+    const outBuf = mimeType === "application/pdf"
+      ? await safeRotatePdf(srcBuf, rotation)
+      : srcBuf;
 
-    return new NextResponse(outBuf, {
+    return new NextResponse(new Uint8Array(outBuf), {
       headers: {
         "Content-Type": ctype(req, mimeType),
         "Content-Disposition": disposition(req, "document"),
@@ -201,19 +242,9 @@ export async function GET(req: NextRequest) {
         console.error("[file proxy] Storage fallback also failed:", dlErr);
         return new NextResponse("File not found", { status: 404 });
       }
-      let outBuf = Buffer.from(await blob.arrayBuffer());
-      // Apply rotation for PDFs (same as Drive path)
-      if (rotation !== 0) {
-        try {
-          const pdfDoc = await PDFDocument.load(outBuf);
-          for (const page of pdfDoc.getPages()) {
-            const cur = page.getRotation().angle;
-            page.setRotation(degrees((cur + rotation) % 360));
-          }
-          outBuf = Buffer.from(await pdfDoc.save());
-        } catch { /* serve original on rotate failure */ }
-      }
-      return new NextResponse(outBuf, {
+      const srcBuf = Buffer.from(await blob.arrayBuffer());
+      const outBuf = await safeRotatePdf(srcBuf, rotation);
+      return new NextResponse(new Uint8Array(outBuf), {
         headers: {
           "Content-Type": ctype(req, "application/pdf"),
           "Content-Disposition": disposition(req, "document"),

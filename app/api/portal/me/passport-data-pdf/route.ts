@@ -5,6 +5,8 @@ import { PassportDataDocument } from "@/components/PassportDataDocument";
 import type { PassportDataPdfGroup } from "@/components/PassportDataDocument";
 import { requireUser } from "@/lib/admin-auth";
 import { getAnonVerifyClient } from "@/lib/supabase";
+import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
+import { dlTokenUserId } from "@/lib/dlToken";
 import { registerPdfFonts } from "@/lib/pdf-fonts";
 
 registerPdfFonts();
@@ -26,16 +28,22 @@ async function renderPdf(
  * query and the PDF is streamed as a forced attachment. Auth via header OR
  * ?access_token (iOS navigations can't send an Authorization header).
  *   ?d=<base64url JSON {groups,docTitle,docSubtitle,filename}>
- *   &access_token=<jwt>  &dl=1
+ *   &dlt=<signed download token>  &dl=1
  */
 export async function GET(req: NextRequest) {
+  // Header JWT (fetch) OR short-lived signed token (?dlt=, iOS navigation).
+  // The PDF is rendered purely from the client-supplied ?d= payload (the
+  // user's own data they just typed) — we only require a valid actor.
   const header = req.headers.get("authorization");
   const headerJwt = header?.startsWith("Bearer ") ? header.slice(7) : "";
-  const queryJwt = req.nextUrl.searchParams.get("access_token") ?? "";
-  const jwt = headerJwt || queryJwt;
-  if (!jwt) return new Response("Unauthorized", { status: 401 });
-  const { data: { user }, error } = await getAnonVerifyClient().auth.getUser(jwt);
-  if (error || !user) return new Response("Unauthorized", { status: 401 });
+  let actorId: string | null = null;
+  if (headerJwt) {
+    const { data: { user }, error } = await getAnonVerifyClient().auth.getUser(headerJwt);
+    if (!error && user && !isSoftDeletedAuthUser(user)) actorId = user.id;
+  } else {
+    actorId = dlTokenUserId(req);
+  }
+  if (!actorId) return new Response("Unauthorized", { status: 401 });
 
   const d = req.nextUrl.searchParams.get("d") ?? "";
   if (!d || d.length > 200_000) return new Response("Bad request", { status: 400 });

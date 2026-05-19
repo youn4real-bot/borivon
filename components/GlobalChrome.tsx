@@ -17,7 +17,7 @@ function HomeLoginButton() {
   return (
     <button
       onClick={() => window.dispatchEvent(new CustomEvent("bv:open-auth"))}
-      className="text-[13px] font-semibold px-4 py-1.5 rounded-full transition-all hover:opacity-90 active:scale-[0.97]"
+      className="bv-glow-gold bv-press text-[13px] font-semibold px-4 py-1.5 rounded-full"
       style={{
         background: "var(--gold)",
         color: "#131312",

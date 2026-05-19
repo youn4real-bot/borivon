@@ -53,11 +53,10 @@ export function toIsoCode(v: string | null | undefined): string {
   return DISPLAY_TO_ISO[up] ?? "";
 }
 
-function natAdjDe(v: string | null | undefined): string {
-  if (!v) return "—";
-  const iso = toIsoCode(v) || v.trim().toUpperCase();
-  return (NAT_ADJ[iso] ?? NAT_MAP[iso] ?? v).toUpperCase();
-}
+// natAdjDe (German nationality ADJECTIVE) removed — the Staatsangehörigkeit
+// row now renders the COUNTRY NAME via countryDe (user decision: CV +
+// passport PDF + admin all show "Marokko", consistently). NAT_ADJ is still
+// used to build DISPLAY_TO_ISO below.
 
 function countryDe(v: string | null | undefined): string {
   if (!v) return "—";
@@ -122,7 +121,7 @@ export async function generatePassportPdf(profile: any): Promise<Buffer> {
         { label: "Vorname",            value: firstName,                          warn: false },
         { label: "Geburtsdatum",       value: fmtDate(profile.dob),              warn: false },
         { label: "Geschlecht",         value: sexLabel,                           warn: false },
-        { label: "Staatsangehörigkeit",value: natAdjDe(profile.nationality),     warn: false },
+        { label: "Staatsangehörigkeit",value: countryDe(profile.nationality),    warn: false },
         { label: "Geburtsort",         value: up(profile.city_of_birth),         warn: false },
         { label: "Geburtsland",        value: countryDe(profile.country_of_birth), warn: false },
       ],

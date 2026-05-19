@@ -100,45 +100,12 @@ export async function GET(
     ) ?? null;
   }
 
-  // Fall back to scanning auth.users metadata when there's no profile row.
-  if (!match && !isAdminSlug) {
-    try {
-      let page = 1;
-      while (page <= MAX_SCAN_PAGES) {
-        const { data: usersList } = await db.auth.admin.listUsers({ perPage: 200, page });
-        const list = usersList?.users ?? [];
-        if (list.length === 0) break;
-        const u = list.find(u => {
-          const fn = (u.user_metadata?.first_name as string | undefined) ?? "";
-          const ln = (u.user_metadata?.last_name  as string | undefined) ?? "";
-          return buildProfileSlug(fn, ln, u.id) === slugLower;
-        });
-        if (u) {
-          // Try to fetch profile_photo from candidate_profiles even without
-          // a name match (the legacy listUsers fallback path).
-          const { data: prof } = await db
-            .from("candidate_profiles")
-            .select("profile_photo")
-            .eq("user_id", u.id)
-            .maybeSingle();
-          match = {
-            user_id: u.id,
-            first_name: (u.user_metadata?.first_name as string) ?? null,
-            last_name:  (u.user_metadata?.last_name  as string) ?? null,
-            city_of_residence: null,
-            country_of_residence: null,
-            nationality: null,
-            profile_photo: (prof as { profile_photo?: string | null } | null)?.profile_photo ?? null,
-          };
-          break;
-        }
-        if (list.length < 200) break;
-        page++;
-      }
-    } catch (err) {
-      console.warn("[/api/p] listUsers fallback failed:", err);
-    }
-  }
+  // SECURITY: the legacy fallback here scanned ALL of auth.users and
+  // resolved ANY account by name → exposing name + profile photo of users
+  // (incl. non-candidates: sub-admins, org members) who never opted into a
+  // public profile, and amplifying every bot miss into a 2000-row admin-API
+  // sweep. A public profile now requires an explicit candidate_profiles row
+  // (the matched-by-slug query above). No row → 404. Removed entirely.
 
   if (!match) {
     return NextResponse.json(

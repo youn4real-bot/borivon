@@ -6,6 +6,12 @@ import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 export async function GET(req: NextRequest) {
   const auth = await requireAdminRole(req);
   if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status });
+  // Supreme-admin ONLY. This returns the entire auth.users base (every email +
+  // name + photo + role classification). Sub-admins / org-admins are scoped
+  // per LAW #25 and must never get this dump — the UI already gates the panel
+  // to isSuperAdmin; this is the matching server gate (sibling routes do the
+  // same). Without it any sub_admin could exfiltrate the whole user list.
+  if (auth.role !== "admin") return Response.json({ error: "Forbidden" }, { status: 403 });
 
   const db = getServiceSupabase();
 

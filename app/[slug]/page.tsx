@@ -100,7 +100,7 @@ export default function PublicProfilePage() {
     return (
       <main className="min-h-screen flex items-center justify-center px-4 pt-[72px]" style={{ background: "var(--bg)" }}>
         <div className="w-full max-w-[420px] text-center px-8 py-10"
-          style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.08)" }}>
+          style={{ background: "var(--card)", borderRadius: "var(--r-2xl)", boxShadow: "var(--shadow-lg)" }}>
           <h1 className="text-[18px] font-semibold mb-2" style={{ color: "var(--w)" }}>
             {lang === "de" ? "Profil nicht gefunden" : lang === "en" ? "Profile not found" : "Profil introuvable"}
           </h1>
@@ -124,7 +124,7 @@ export default function PublicProfilePage() {
     <main className="bv-page-bottom min-h-screen flex items-start justify-center px-4 pt-[88px]" style={{ background: "var(--bg)" }}>
       <div className="w-full max-w-[460px]">
         <div className="px-8 py-10 text-center"
-          style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.08)" }}>
+          style={{ background: "var(--card)", borderRadius: "var(--r-2xl)", boxShadow: "var(--shadow-lg)" }}>
 
           {/* Avatar — photo from CV builder if uploaded, otherwise initial */}
           {profile.photoUrl ? (
@@ -199,8 +199,8 @@ export default function PublicProfilePage() {
                   if (!viewerStatus.verified)       { setPopup("verify");   return; }
                   router.push("/portal/dashboard");
                 }}
-                className="inline-flex items-center gap-2 px-6 py-2.5 text-[13px] font-semibold tracking-tight transition-opacity hover:opacity-90"
-                style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)", boxShadow: "var(--shadow-sm)" }}>
+                className="bv-glow-gold bv-press inline-flex items-center gap-2 px-6 py-2.5 text-[13px] font-semibold tracking-tight"
+                style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-md)", boxShadow: "var(--shadow-gold-sm)" }}>
                 {lang === "de" ? "Nachricht" : lang === "en" ? "Message" : "Message"}
               </button>
             </div>
@@ -213,12 +213,12 @@ export default function PublicProfilePage() {
 
       {/* ── Message-CTA popups ───────────────────────────────────────────── */}
       {popup && (
-        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[800] flex items-center justify-center p-4"
-          style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)" }}
+        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4"
+          style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
           onClick={() => setPopup(null)}>
           <div className="w-full max-w-[400px] p-6 text-center overflow-y-auto"
-            style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-lg)", boxShadow: "var(--shadow-lg)",
-                     maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)" }}
+            style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-2xl)", boxShadow: "var(--shadow-lg)",
+                     maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)", animation: "bvFadeRise .28s var(--ease-out)" }}
             onClick={e => e.stopPropagation()}>
             {popup === "register" ? (
               <>

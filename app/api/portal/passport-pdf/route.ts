@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
-import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
+import { requireAdminRole, canActOnCandidate, roleByUserId } from "@/lib/admin-auth";
+import { dlTokenUserId } from "@/lib/dlToken";
 import {
   generatePassportPdf,
   getDriveClient,
@@ -16,17 +17,12 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // ── GET — download passport PDF ───────────────────────────────────────────────
 export async function GET(req: NextRequest) {
   // iOS downloads navigate to this URL directly (no Authorization header is
-  // possible on a top-level navigation), so accept the JWT via ?access_token
-  // too. Clone the request with it promoted to a Bearer header so the normal
-  // requireAdminRole + canActOnCandidate path is reused unchanged.
-  let authReq = req;
-  const qToken = req.nextUrl.searchParams.get("access_token");
-  if (qToken && !req.headers.get("authorization")) {
-    const h = new Headers(req.headers);
-    h.set("authorization", `Bearer ${qToken}`);
-    authReq = new NextRequest(req.url, { headers: h });
-  }
-  const auth = await requireAdminRole(authReq);
+  // possible on a top-level navigation). Header path → normal requireAdminRole.
+  // No header → resolve role from the short-lived signed download token
+  // (?dlt=). The raw JWT is never accepted from the URL anymore.
+  const auth = req.headers.get("authorization")
+    ? await requireAdminRole(req)
+    : await roleByUserId(dlTokenUserId(req) ?? "");
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const userId = req.nextUrl.searchParams.get("userId");

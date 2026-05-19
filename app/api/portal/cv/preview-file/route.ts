@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
+import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
+import { dlTokenUserId } from "@/lib/dlToken";
 
 /**
  * Transient store for the CV-builder's just-generated PDF.
@@ -42,18 +44,23 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
+  // Header JWT (fetch) OR short-lived signed download token (?dlt=, iOS
+  // navigation). Raw JWT is no longer accepted from the URL.
   const header = req.headers.get("authorization");
   const headerJwt = header?.startsWith("Bearer ") ? header.slice(7) : "";
-  const queryJwt = req.nextUrl.searchParams.get("access_token") ?? "";
-  const jwt = headerJwt || queryJwt;
-  if (!jwt) return new NextResponse("Unauthorized", { status: 401 });
-  const { data: { user }, error } = await getAnonVerifyClient().auth.getUser(jwt);
-  if (error || !user) return new NextResponse("Unauthorized", { status: 401 });
+  let actorId: string | null = null;
+  if (headerJwt) {
+    const { data: { user }, error } = await getAnonVerifyClient().auth.getUser(headerJwt);
+    if (!error && user && !isSoftDeletedAuthUser(user)) actorId = user.id;
+  } else {
+    actorId = dlTokenUserId(req);
+  }
+  if (!actorId) return new NextResponse("Unauthorized", { status: 401 });
 
   const db = getServiceSupabase();
   const { data: blob, error: dlErr } = await db.storage
     .from(BUCKET)
-    .download(objectPath(user.id));
+    .download(objectPath(actorId));
   if (dlErr || !blob) return new NextResponse("Not found", { status: 404 });
 
   const dl = req.nextUrl.searchParams.get("dl") === "1";

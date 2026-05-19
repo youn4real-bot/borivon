@@ -22,6 +22,7 @@ import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import type { CVData, WorkEntry, EduEntry, MonthYear } from "@/components/CVDocument";
 import { COUNTRY_MAP, natToLang, ISO3_TO_ISO2, ISO3_TO_PHONE } from "@/lib/countries";
+import { isoToDDMMYYYY, computeFamilienstand } from "@/lib/personalData";
 import {
   SectionIcon, type SectionKind,
   IdCard, Sparkles, FileText, CheckCircle2, AlertTriangle, User,
@@ -34,6 +35,7 @@ import { PdfViewer } from "@/components/PdfViewer";
 import { IosPdfFrame } from "@/components/IosPdfFrame";
 import { isIOSDevice } from "@/lib/platform";
 import { triggerIosDownload } from "@/lib/iosDownload";
+import { useDlToken, withDlt } from "@/lib/dlClient";
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -233,18 +235,9 @@ function toNatDe(v: string | null | undefined): string {
   return natToLang(v, "de");
 }
 
-/** Compute the Familienstand string for the CV from profile fields */
-function computeFamilienstand(marital_status: string | null | undefined, children_ages: string | null | undefined): string {
-  if (!marital_status) return "";
-  if (marital_status === "ledig") return "ledig";
-  let ages: number[] = [];
-  try { ages = JSON.parse(children_ages || "[]"); } catch { ages = []; }
-  if (!Array.isArray(ages) || ages.length === 0) return marital_status;
-  const sorted = [...ages].filter(a => typeof a === "number" && a >= 0).sort((a, b) => b - a);
-  if (sorted.length === 0) return marital_status;
-  const kindStr = sorted.length === 1 ? "1 Kind" : `${sorted.length} Kinder`;
-  return `${marital_status}, ${kindStr} (${sorted.join(", ")})`;
-}
+// computeFamilienstand + isoToDDMMYYYY now come from the canonical
+// lib/personalData (single source of truth — LAW #37 streamline) so the CV
+// and the server-side cv_draft propagation can never diverge.
 
 /** Parse a Familienstand string back into its parts. */
 function parseMaritalStatus(s: string): { base: string; ages: number[] } {
@@ -299,13 +292,7 @@ function makeCVData(email = ""): CVData {
   };
 }
 
-/** Convert ISO date YYYY-MM-DD → DD.MM.YYYY for display in form */
-function isoToDDMMYYYY(iso: string | null): string {
-  if (!iso) return "";
-  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (m) return `${m[3]}.${m[2]}.${m[1]}`;
-  return iso;
-}
+/* isoToDDMMYYYY → imported from @/lib/personalData (canonical, single source). */
 
 // ─── Primitive UI components ─────────────────────────────────────────────────
 
@@ -915,8 +902,8 @@ function InternshipInfoPopup({ open, onClose }: { open: boolean; onClose: () => 
           </div>
           <div className="p-4">
             <button type="button" onClick={onClose}
-              className="block w-full text-center px-5 py-3 text-[14px] font-semibold tracking-tight transition-all hover:opacity-90"
-              style={{ background: "var(--gold)", color: "#131312", borderRadius: "12px", border: "none", cursor: "pointer" }}>
+              className="bv-glow-gold bv-press block w-full text-center px-5 py-3 text-[14px] font-semibold tracking-tight"
+              style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-lg)", border: "none", cursor: "pointer" }}>
               {close}
             </button>
           </div>
@@ -1098,8 +1085,8 @@ function AbiturInfoPopup({ open, onClose }: { open: boolean; onClose: () => void
           </div>
           <div className="p-4">
             <button type="button" onClick={onClose}
-              className="block w-full text-center px-5 py-3 text-[14px] font-semibold tracking-tight transition-all hover:opacity-90"
-              style={{ background: "var(--gold)", color: "#131312", borderRadius: "12px", border: "none", cursor: "pointer" }}>
+              className="bv-glow-gold bv-press block w-full text-center px-5 py-3 text-[14px] font-semibold tracking-tight"
+              style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-lg)", border: "none", cursor: "pointer" }}>
               {close}
             </button>
           </div>
@@ -1571,8 +1558,8 @@ function PassportLockPopup({ open, onClose, passportStatus }: {
           </div>
           <div className="flex flex-col gap-2 p-4">
             <a href="/portal/dashboard"
-              className="block w-full text-center px-5 py-3 text-[14px] font-semibold tracking-tight transition-all hover:opacity-90"
-              style={{ background: "var(--gold)", color: "#131312", borderRadius: "12px", textDecoration: "none" }}>
+              className="bv-glow-gold bv-press block w-full text-center px-5 py-3 text-[14px] font-semibold tracking-tight"
+              style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-lg)", textDecoration: "none" }}>
               {cta}
             </a>
             <button type="button" onClick={onClose}
@@ -1780,6 +1767,9 @@ function CVBuilderInner() {
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const [edvInput, setEdvInput]     = useState("");
   const [authToken, setAuthToken]   = useState("");
+  // Pre-minted short-lived signed download token (kept fresh) so iOS file
+  // URLs carry ?dlt= not the raw JWT, readable synchronously in-gesture.
+  const dlt = useDlToken(authToken || null);
 
   // Validation errors — set of field keys that failed required check
   const [validationErrors, setValidationErrors] = useState<Set<string>>(new Set());
@@ -1959,6 +1949,53 @@ function CVBuilderInner() {
     if (data) applyProfile(data);
   }
 
+  // ── INSTANT passport → CV sync (LAW #37 streamline) ───────────────────────
+  // An open CV reflects a passport-data edit IMMEDIATELY — no reload, no
+  // reopen. Realtime push on the candidate's profile row applies the
+  // passport-wins overlay (`applyProfile`) the instant it changes; a 6s poll
+  // is the fallback for the cases realtime is RLS-gated (admin↔candidate).
+  // `applyProfile` already merges passport-over-draft, so this is consistent
+  // with the on-open reconciliation — just live.
+  const ppSigRef = useRef<string>("");
+  useEffect(() => {
+    const ppTargetId = adminCandidateId ?? userId;
+    if (!ppTargetId) return;
+    const COLS = "first_name,last_name,dob,nationality,city_of_birth,country_of_birth,country_of_residence,address_street,address_number,address_postal,city_of_residence,phone,marital_status,children_ages";
+    const sigOf = (row: Record<string, unknown>) =>
+      JSON.stringify(COLS.split(",").map(c => row[c] ?? ""));
+    const maybeApply = (row: Record<string, unknown> | null | undefined) => {
+      if (!row) return;
+      const sig = sigOf(row);
+      if (sig === ppSigRef.current) return; // no real change → no flash/churn
+      ppSigRef.current = sig;
+      applyProfile(row as Parameters<typeof applyProfile>[0]);
+    };
+    let cancelled = false;
+    // Seed the signature from the current row WITHOUT applying — the mount
+    // bootstrap already reconciled, so we only react to FUTURE changes.
+    (async () => {
+      const { data } = await supabase
+        .from("candidate_profiles").select(COLS).eq("user_id", ppTargetId).maybeSingle();
+      if (!cancelled && data) ppSigRef.current = sigOf(data as Record<string, unknown>);
+    })();
+    const ch = supabase
+      .channel(`cv-pp-${ppTargetId}`)
+      .on("postgres_changes",
+        { event: "UPDATE", schema: "public", table: "candidate_profiles", filter: `user_id=eq.${ppTargetId}` },
+        (p) => maybeApply(p.new as Record<string, unknown>),
+      )
+      .subscribe();
+    const tick = async () => {
+      if (typeof document !== "undefined" && document.hidden) return;
+      const { data } = await supabase
+        .from("candidate_profiles").select(COLS).eq("user_id", ppTargetId).maybeSingle();
+      if (!cancelled) maybeApply(data as Record<string, unknown> | null);
+    };
+    const timer = setInterval(tick, 6000);
+    return () => { cancelled = true; clearInterval(timer); supabase.removeChannel(ch); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, adminCandidateId]);
+
   // ── Auth ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -2092,15 +2129,17 @@ function CVBuilderInner() {
             // values stored in older drafts (e.g. "marokkanisch" → "Marokko") so the
             // <select> can match by German name and not show "—".
             if (merged.nationality) merged.nationality = toNatDe(merged.nationality);
-            // Locked-field policy:
-            //  - APPROVED  → passport DB beats draft (admin corrections win)
+            // Locked-field policy (LAW #37 — admin passport edits ALWAYS flow
+            // into the CV, every phase, never stale):
             //  - REJECTED  → wipe locked fields entirely; the candidate must
             //                re-upload, so showing stale "verified" data
             //                would be misleading + risk leaking it to the CV
-            //  - PENDING / unset → fill empties from DB, keep typed values
+            //  - ANY OTHER (pending / approved / unset) → passport DB ALWAYS
+            //    beats the draft whenever it has a value (admin/sub-admin
+            //    corrections are the new norm); only fall back to the typed
+            //    draft value where passport is empty.
             if (profile) {
               const status = profile.passport_status as string | null | undefined;
-              const isApproved = status === "approved";
               const isRejected = status === "rejected";
               if (isRejected) {
                 merged.firstName         = "";
@@ -2113,9 +2152,14 @@ function CVBuilderInner() {
                 merged.postalCode        = "";
                 merged.address           = "";
                 merged.countryOfResidence = "";
+                merged.addressNumber     = "";
+                merged.maritalStatus     = "";
               } else {
+                // Passport value ALWAYS wins when present (any phase) — an
+                // edited passport field must never be shadowed by an old
+                // typed draft value. Empty passport → keep the draft.
                 const pickPP = (drafted: string | undefined, fromPassport: string) =>
-                  isApproved && fromPassport ? fromPassport : (drafted || fromPassport);
+                  fromPassport || drafted || "";
                 merged.firstName      = pickPP(merged.firstName,                                    profile.first_name        || "");
                 merged.lastName       = pickPP(merged.lastName,                                     profile.last_name         || "");
                 merged.birthDate      = pickPP(merged.birthDate,                                    isoToDDMMYYYY(profile.dob ?? null));
@@ -2127,8 +2171,11 @@ function CVBuilderInner() {
                 merged.postalCode        = pickPP(merged.postalCode,                                 profile.address_postal    || "");
                 merged.address           = pickPP(merged.address,                                    [profile.address_street, profile.address_number].filter(Boolean).join(" ") || "");
                 merged.addressNumber     = pickPP(merged.addressNumber ?? "",                        (profile.address_number ?? "").trim());
+                // Familienstand is passport-derived → refresh from passport
+                // (never stale). Only in the non-rejected branch; a rejected
+                // passport already wiped it above.
+                merged.maritalStatus = computeFamilienstand(profile.marital_status, profile.children_ages) || merged.maritalStatus;
               }
-              if (!merged.maritalStatus) merged.maritalStatus = computeFamilienstand(profile.marital_status, profile.children_ages);
             }
             // Always enforce the sex-based internship title as the very last
             // step — this guarantees the draft's stored title (possibly empty
@@ -2534,8 +2581,9 @@ function CVBuilderInner() {
     // iOS: blob downloads don't work — stream the stashed copy as a forced
     // attachment (same proven path as every other iOS download).
     if (isIOSDevice() && iosCvNonce && authToken) {
+      if (!dlt) { setCvDl(false); return; }
       triggerIosDownload(
-        `/api/portal/cv/preview-file?dl=1&name=${encodeURIComponent(name)}&access_token=${encodeURIComponent(authToken)}&_=${iosCvNonce}`,
+        withDlt(`/api/portal/cv/preview-file?dl=1&name=${encodeURIComponent(name)}&_=${iosCvNonce}`, dlt),
         name,
         () => setCvDl(false),
       );
@@ -3573,8 +3621,8 @@ function CVBuilderInner() {
         {!pdfUrl ? (
           <div className="text-center mt-2 bv-sticky-bottom">
             <button onClick={handleGenerate} disabled={generating}
-              className="inline-flex items-center gap-2 px-8 py-4 text-[14px] font-semibold tracking-tight transition-all hover:opacity-90 hover:-translate-y-0.5 active:scale-[0.98] disabled:opacity-50 w-full sm:w-auto justify-center"
-              style={{ background: "var(--gold)", color: "#131312", borderRadius: "16px", boxShadow: "var(--shadow-gold-lg)" }}>
+              className="bv-glow-gold bv-press inline-flex items-center gap-2 px-8 py-4 text-[14px] font-semibold tracking-tight disabled:opacity-50 w-full sm:w-auto justify-center"
+              style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-lg)", boxShadow: "var(--shadow-gold-lg)" }}>
               {generating ? (
                 <><Spinner size="sm" color="#131312" /> {t.cvb_generating}</>
               ) : <><FileText size={15} strokeWidth={1.8} /> {t.cvb_generateBtn}</>}
@@ -3615,8 +3663,8 @@ function CVBuilderInner() {
               <div className="flex flex-col items-center gap-3">
                 {/* Keep Editing — big primary */}
                 <button onClick={() => { setPdfUrl(null); setPdfBlob(null); setUploaded(false); }}
-                  className="inline-flex items-center gap-2 px-8 py-4 text-[14px] font-semibold tracking-tight transition-all hover:opacity-90 hover:-translate-y-0.5 active:scale-[0.98] w-full sm:w-auto justify-center"
-                  style={{ background: "var(--gold)", color: "#131312", borderRadius: "16px", boxShadow: "var(--shadow-gold-lg)" }}>
+                  className="bv-glow-gold bv-press inline-flex items-center gap-2 px-8 py-4 text-[14px] font-semibold tracking-tight w-full sm:w-auto justify-center"
+                  style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-lg)", boxShadow: "var(--shadow-gold-lg)" }}>
                   <FilePen size={15} strokeWidth={1.8} /> {t.cvb_keepEditing}
                 </button>
                 <div className="flex gap-2.5 justify-center flex-wrap mt-1">
@@ -3804,9 +3852,9 @@ function CVBuilderInner() {
               (pdf.js canvas can't paint on WebKit); desktop/Android keep
               the full pdf.js viewer. */}
           <div className="flex-1 min-h-0" style={{ position: "relative" }}>
-            {isIOSDevice() && iosCvNonce && authToken ? (
+            {isIOSDevice() && iosCvNonce && authToken && dlt ? (
               <IosPdfFrame
-                src={`/api/portal/cv/preview-file?access_token=${encodeURIComponent(authToken)}&_=${iosCvNonce}`}
+                src={withDlt(`/api/portal/cv/preview-file?_=${iosCvNonce}`, dlt)}
                 title="Lebenslauf"
               />
             ) : (
@@ -3844,8 +3892,8 @@ function CVBuilderInner() {
           </p>
           {/* Keep Editing — big */}
           <button onClick={() => setShowSubmitConfirm(false)}
-            className="inline-flex items-center gap-2 px-8 py-4 text-[14px] font-semibold tracking-tight transition-all hover:opacity-90 hover:-translate-y-0.5 active:scale-[0.98] w-full justify-center mb-3"
-            style={{ background: "var(--gold)", color: "#131312", borderRadius: "16px", boxShadow: "var(--shadow-gold-lg)" }}>
+            className="bv-glow-gold bv-press inline-flex items-center gap-2 px-8 py-4 text-[14px] font-semibold tracking-tight w-full justify-center mb-3"
+            style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-lg)", boxShadow: "var(--shadow-gold-lg)" }}>
             <FilePen size={15} strokeWidth={1.8} /> {t.cvb_keepEditing}
           </button>
           {/* Submit — smaller */}
