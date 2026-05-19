@@ -33,26 +33,27 @@ export async function GET(req: NextRequest) {
   const employerId = (profile as { employer_id?: string } | null)?.employer_id ?? null;
   const legacyCampus = (profile as { uksh_campus?: string } | null)?.uksh_campus ?? null;
 
-  let employer: { name: string; address_lines: string[] } | null = null;
+  type Emp = { name: string; address_lines: string[] };
+  let employer: Emp | null = null;
 
   if (employerId) {
     const { data, error } = await db
       .from("employers")
       .select("name, address_lines")
       .eq("id", employerId)
-      .maybeSingle();
+      .maybeSingle<Emp>();
     if (error) {
       console.error("[me/employer] lookup failed:", error);
       return NextResponse.json({ error: "Internal error" }, { status: 500 });
     }
-    employer = data as typeof employer;
+    employer = data ?? null;
   } else if (legacyCampus && LEGACY_CAMPUS_TO_SLUG[legacyCampus]) {
     const { data } = await db
       .from("employers")
       .select("name, address_lines")
       .eq("slug", LEGACY_CAMPUS_TO_SLUG[legacyCampus])
-      .maybeSingle();
-    employer = data as typeof employer;
+      .maybeSingle<Emp>();
+    employer = data ?? null;
   }
 
   if (!employer) return NextResponse.json({ assigned: false });
