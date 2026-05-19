@@ -2749,6 +2749,11 @@ export default function DashboardPage() {
             // when empty (incl. multi-doc 'other' under the 5-file cap), or
             // routes to the CV builder for the CV row.
             const isCv = item.key === "cv_de";
+            const isLetter = item.key === "letter";
+            // Builder-backed docs (CV + Motivationsschreiben) are created in a
+            // dedicated editor page, never uploaded as an arbitrary file.
+            const isBuilder = isCv || isLetter;
+            const builderPath = isCv ? "/portal/cv-builder" : "/portal/motivationsschreiben";
             const isFillSlot = "form_fields" in item && Array.isArray((item as {form_fields?: unknown}).form_fields) && ((item as {form_fields?: unknown[]}).form_fields?.length ?? 0) > 0;
             // LAW #13 / LAW #34: candidate task flags on dynamic B/V slots
             const needsCandidateSign = (item as {candidate_signs?: boolean}).candidate_signs === true;
@@ -2762,16 +2767,16 @@ export default function DashboardPage() {
             const fillDone = needsCandidateFill && uploaded; // fill submit = upload
             // LAW #13: all required candidate tasks must be done before slot is "complete"
             const allTasksDone = (!needsCandidateSign || signDone) && (!needsCandidateFill || fillDone);
-            const rowEmptyUpload = !uploaded && !isOther && !isCv;
+            const rowEmptyUpload = !uploaded && !isOther && !isBuilder;
             const rowEmptyOther  = isOther && allOtherDocs.length < 5;
-            const rowEmptyCv     = isCv && !uploaded;
+            const rowEmptyCv     = isBuilder && !uploaded;
             const rowClickable =
               (!isOther && uploaded && doc?.drive_file_id && !isUploading) ||
               ((rowEmptyUpload || rowEmptyOther || rowEmptyCv) && !isUploading) ||
               ((isFillSlot || isInlineSign) && !uploaded && !isUploading);
             const rowOnClick = !rowClickable
               ? undefined
-              : rowEmptyCv ? () => router.push("/portal/cv-builder")
+              : rowEmptyCv ? () => router.push(builderPath)
               : ((isFillSlot || isInlineSign) && !uploaded) ? () => {
                   const slotId = item.key;
                   const fields = (item as {form_fields?: import("@/lib/pdfFieldEmbed").FormField[]}).form_fields ?? [];
@@ -2976,7 +2981,7 @@ export default function DashboardPage() {
                         {/* CV slots: candidates MUST use the builder so every
                             CV follows our format. No upload option, just the
                             primary "Build my CV" CTA in gold. */}
-                        {!uploaded && (item.key === "cv_de") && (
+                        {!uploaded && isBuilder && (
                           <span
                             aria-hidden="true"
                             className="inline-flex items-center justify-center w-9 h-9 rounded-full flex-shrink-0"
@@ -2988,7 +2993,7 @@ export default function DashboardPage() {
                         {/* Empty state → decorative upload icon. The whole row
                             is the click target, so the icon stays purely visual
                             (no button hover bg). */}
-                        {!uploaded && !isOther && item.key !== "cv" && item.key !== "cv_de" && (
+                        {!uploaded && !isOther && !isBuilder && (
                           <span
                             aria-hidden="true"
                             className="inline-flex items-center justify-center w-9 h-9 rounded-full flex-shrink-0"
@@ -3019,12 +3024,12 @@ export default function DashboardPage() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              // CVs must be rebuilt via the builder — never
-                              // replaced with an arbitrary upload, so we
-                              // route to /portal/cv-builder instead of
-                              // opening the file picker.
-                              if (item.key === "cv_de") {
-                                window.open("/portal/cv-builder", "_blank");
+                              // Builder docs (CV + Motivationsschreiben) must
+                              // be rebuilt via their editor — never replaced
+                              // with an arbitrary upload, so we route to the
+                              // builder instead of opening the file picker.
+                              if (isBuilder) {
+                                window.open(builderPath, "_blank");
                               } else {
                                 openPicker(item.key);
                               }
