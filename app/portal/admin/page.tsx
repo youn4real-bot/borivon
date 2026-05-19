@@ -657,6 +657,11 @@ export default function AdminPage() {
   const [expandedRow, setExpandedRow]   = useState<string | null>(null);
   const [rowDropdownPos, setRowDropdownPos] = useState<{ top: number; right: number } | null>(null);
   const [rowPlacing, setRowPlacing]     = useState<Record<string, boolean>>({});
+  // UKSH employer/campus assignment per candidate (drives the
+  // Motivationsschreiben recipient address). null = not assigned yet.
+  const [employerByUser, setEmployerByUser] = useState<Record<string, string | null>>({});
+  const [employerSaving, setEmployerSaving] = useState<Record<string, boolean>>({});
+  const [allEmployers, setAllEmployers] = useState<{ id: string; name: string }[]>([]);
   const [searchQuery, setSearchQuery]   = useState("");
   const [filterMode, setFilterMode]     = useState<"all" | "pending" | "stuck" | "clear">("all");
   const [pipeline, setPipeline]         = useState<AdminPipeline>(DEFAULT_PIPELINE);
@@ -1156,6 +1161,52 @@ export default function AdminPage() {
       showError(t.adErrNetwork);
     } finally {
       setPlacing(false);
+    }
+  }
+
+  /** Load the active employer list (once) + this candidate's current
+      employer when the row dropdown opens. */
+  async function loadEmployer(userId: string) {
+    try {
+      if (allEmployers.length === 0) {
+        const er = await fetch("/api/portal/admin/employers", {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (er.ok) {
+          const ej = await er.json();
+          setAllEmployers(ej.employers ?? []);
+        }
+      }
+      const res = await fetch(`/api/portal/admin/assign-employer?candidateUserId=${userId}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!res.ok) return;
+      const j = await res.json();
+      setEmployerByUser(prev => ({ ...prev, [userId]: j.employerId ?? null }));
+    } catch { /* ignore — UI just shows unassigned */ }
+  }
+
+  /** Admin assigns / changes the candidate's employer. */
+  async function assignEmployer(userId: string, employerId: string) {
+    if (employerSaving[userId]) return;
+    const prev = employerByUser[userId] ?? null;
+    setEmployerByUser(p => ({ ...p, [userId]: employerId }));   // optimistic
+    setEmployerSaving(p => ({ ...p, [userId]: true }));
+    try {
+      const res = await fetch("/api/portal/admin/assign-employer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ candidateUserId: userId, employerId }),
+      });
+      if (!res.ok) {
+        setEmployerByUser(p => ({ ...p, [userId]: prev }));     // revert
+        showError(t.adErrNetwork);
+      }
+    } catch {
+      setEmployerByUser(p => ({ ...p, [userId]: prev }));
+      showError(t.adErrNetwork);
+    } finally {
+      setEmployerSaving(p => { const n = { ...p }; delete n[userId]; return n; });
     }
   }
 
@@ -4101,6 +4152,7 @@ export default function AdminPage() {
                               const rect = (e.currentTarget as HTMLButtonElement).getBoundingClientRect();
                               setRowDropdownPos({ top: rect.bottom + 6, right: window.innerWidth - rect.right });
                               setExpandedRow(uid);
+                              loadEmployer(uid);
                             }}
                             aria-label="Match with org"
                             aria-expanded={isExpanded}
@@ -4435,58 +4487,90 @@ export default function AdminPage() {
           <div className="rounded-xl p-3"
             style={{ position: "fixed", top: rowDropdownPos.top, right: rowDropdownPos.right, zIndex: 600, background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", minWidth: 200 }}
             onClick={e => e.stopPropagation()}>
-            {(candidateOrgs[expandedRow] ?? []).length > 0 ? (
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[10.5px] font-medium w-full mb-1" style={{ color: "var(--w3)" }}>
-                  {lang === "de" ? "Zugewiesen:" : lang === "fr" ? "Assigné :" : "Matched with:"}
-                </span>
-                {(candidateOrgs[expandedRow] ?? []).map(o => (
-                  <span key={o.id} className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full"
-                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                    {o.name}
-                  </span>
-                ))}
-              </div>
-            ) : (
-              <div>
-                <p className="text-[10.5px] font-medium mb-2" style={{ color: "var(--w3)" }}>
-                  {lang === "de" ? "Mit Organisation:" : lang === "fr" ? "Associer :" : "Match with:"}
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {allOrgs.map(org => {
-                    const uid = expandedRow;
-                    const alreadyLinked = (candidateOrgs[uid] ?? []).some(o => o.id === org.id);
-                    const isLoading = rowPlacing[`${uid}-${org.id}`];
-                    return (
-                      <button key={org.id}
-                        disabled={alreadyLinked || isLoading}
-                        onClick={async e => {
-                          e.stopPropagation();
-                          if (alreadyLinked || isLoading) return;
-                          setRowPlacing(p => ({ ...p, [`${uid}-${org.id}`]: true }));
-                          try {
-                            const res = await fetch(`/api/portal/admin/organizations/${org.id}/candidates`, {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-                              body: JSON.stringify({ candidateUserId: uid, status: "approved" }),
-                            });
-                            if (res.ok) {
-                              setCandidateOrgs(prev => ({ ...prev, [uid]: [...(prev[uid] ?? []), { id: org.id, name: org.name }] }));
-                              setExpandedRow(null); setRowDropdownPos(null);
-                            }
-                          } catch { /* ignore */ }
-                          setRowPlacing(p => { const n = { ...p }; delete n[`${uid}-${org.id}`]; return n; });
-                        }}
-                        className="inline-flex items-center gap-1 text-[11px] font-semibold px-3 py-1.5 rounded-full transition-all disabled:opacity-40"
-                        style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
-                        {isLoading ? "…" : `+ ${org.name}`}
-                      </button>
-                    );
-                  })}
-                  {allOrgs.length === 0 && <p className="text-[11px]" style={{ color: "var(--w3)" }}>No organizations yet</p>}
+            {(() => {
+              const uid = expandedRow;
+              const orgs = candidateOrgs[uid] ?? [];
+              const hasOrg = orgs.length > 0;
+              const assignedEmployer = employerByUser[uid] ?? null;
+              const saving = !!employerSaving[uid];
+              return (
+                <div className="flex flex-col gap-3" style={{ minWidth: 210 }}>
+
+                  {/* Agency / Organisation */}
+                  <div>
+                    <p className="text-[10.5px] font-medium mb-2" style={{ color: "var(--w3)" }}>
+                      {lang === "de" ? "Agentur:" : lang === "fr" ? "Agence :" : "Agency:"}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {allOrgs.map(org => {
+                        const linked = orgs.some(o => o.id === org.id);
+                        const isLoading = rowPlacing[`${uid}-${org.id}`];
+                        return (
+                          <button key={org.id}
+                            disabled={isLoading}
+                            onClick={async e => {
+                              e.stopPropagation();
+                              if (linked || isLoading) return;
+                              setRowPlacing(p => ({ ...p, [`${uid}-${org.id}`]: true }));
+                              try {
+                                const res = await fetch(`/api/portal/admin/organizations/${org.id}/candidates`, {
+                                  method: "POST",
+                                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                                  body: JSON.stringify({ candidateUserId: uid, status: "approved" }),
+                                });
+                                if (res.ok) {
+                                  // Keep the dropdown open — the admin now picks
+                                  // the employer (UKSH campus) right below.
+                                  setCandidateOrgs(prev => ({ ...prev, [uid]: [...(prev[uid] ?? []), { id: org.id, name: org.name }] }));
+                                }
+                              } catch { /* ignore */ }
+                              setRowPlacing(p => { const n = { ...p }; delete n[`${uid}-${org.id}`]; return n; });
+                            }}
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold px-3 py-1.5 rounded-full transition-all disabled:opacity-40"
+                            style={ linked
+                              ? { background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }
+                              : { background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" } }>
+                            {isLoading ? "…" : linked ? org.name : `+ ${org.name}`}
+                          </button>
+                        );
+                      })}
+                      {allOrgs.length === 0 && <p className="text-[11px]" style={{ color: "var(--w3)" }}>No organizations yet</p>}
+                    </div>
+                  </div>
+
+                  {/* Employer (UKSH campus) — appears once an agency is set */}
+                  {hasOrg && (
+                    <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10 }}>
+                      <p className="text-[10.5px] font-medium mb-2" style={{ color: "var(--w3)" }}>
+                        {lang === "de" ? "Arbeitgeber:" : lang === "fr" ? "Employeur :" : "Employer:"}
+                      </p>
+                      <div className="flex flex-col gap-1.5">
+                        {allEmployers.map(emp => {
+                          const active = assignedEmployer === emp.id;
+                          return (
+                            <button key={emp.id}
+                              disabled={saving}
+                              onClick={e => { e.stopPropagation(); assignEmployer(uid, emp.id); }}
+                              className="inline-flex items-center justify-between text-[11px] font-semibold px-3 py-1.5 rounded-full transition-all disabled:opacity-50"
+                              style={ active
+                                ? { background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }
+                                : { background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" } }>
+                              <span>{emp.name}</span>
+                              {active && <span style={{ fontSize: 12 }}>✓</span>}
+                            </button>
+                          );
+                        })}
+                        {allEmployers.length === 0 && (
+                          <p className="text-[11px]" style={{ color: "var(--w3)" }}>
+                            {lang === "de" ? "Keine Arbeitgeber" : lang === "fr" ? "Aucun employeur" : "No employers yet"}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              );
+            })()}
           </div>
         </>,
         document.body,
