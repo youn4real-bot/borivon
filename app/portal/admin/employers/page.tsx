@@ -16,7 +16,7 @@ import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
-import { Plus, Save as SaveIcon, X as XIcon, Pencil, Power, PowerOff } from "lucide-react";
+import { Plus, Save as SaveIcon, X as XIcon, Pencil, Power, PowerOff, Image as ImageIcon, Trash2 } from "lucide-react";
 
 type Employer = {
   id: string;
@@ -46,6 +46,32 @@ const EMPTY_DRAFT: DraftForm = {
   slug: "", name: "", addressText: "", notes: "", active: true,
   source: "direct", agencyId: null,
 };
+
+type Agency = {
+  id: string;
+  name: string;
+  notes: string | null;
+  logo_filename: string | null;
+  footer_text: string | null;
+};
+type AgencyDraft = {
+  id?: string;
+  name: string;
+  addressText: string;            // multiline; becomes footer_text on save
+  logoDataUrl: string | null;     // data: URL or legacy filename
+  notes: string;
+};
+const EMPTY_AGENCY: AgencyDraft = { name: "", addressText: "", logoDataUrl: null, notes: "" };
+
+function toAgencyDraft(o: Agency): AgencyDraft {
+  return {
+    id: o.id,
+    name: o.name,
+    addressText: o.footer_text ?? "",
+    logoDataUrl: o.logo_filename ?? null,
+    notes: o.notes ?? "",
+  };
+}
 
 function toDraft(e: Employer): DraftForm {
   return {
@@ -84,6 +110,15 @@ export default function AdminEmployersPage() {
         errAgency: "Veuillez choisir une agence.",
         errSave: "Échec de l'enregistrement", errAutoSave: "Échec de l'enregistrement automatique",
         errToggle: "Échec du changement de statut", errNet: "(Erreur réseau)",
+        tabEmployers: "Employeurs", tabAgencies: "Agences",
+        agencyHint: "Une agence achemine les candidats vers un employeur final. Son logo et son adresse apparaissent sur les CV et lettres des candidats affectés.",
+        newAgency: "Nouvelle agence", emptyAgencies: "Aucune agence pour l'instant.",
+        modalNewAgency: "Nouvelle agence", modalEditAgency: "Modifier l'agence",
+        agencyName: "Nom *",
+        agencyAddress: "Adresse (pied de CV)", agencyAddressHint: "(une ligne par ligne — apparaît sous chaque page du CV)",
+        logoLbl: "Logo", logoUpload: "Téléverser un logo", logoReplace: "Remplacer le logo", logoRemove: "Retirer",
+        logoTooBig: "Image trop grande — max 300 Ko.",
+        usedBy: (n: number) => `Utilisée par ${n} employeur${n !== 1 ? "s" : ""}`,
       }
     : lang === "de"
     ? {
@@ -105,6 +140,15 @@ export default function AdminEmployersPage() {
         errAgency: "Bitte eine Agentur auswählen.",
         errSave: "Speichern fehlgeschlagen", errAutoSave: "Auto-Speichern fehlgeschlagen",
         errToggle: "Statuswechsel fehlgeschlagen", errNet: "(Netzwerkfehler)",
+        tabEmployers: "Arbeitgeber", tabAgencies: "Agenturen",
+        agencyHint: "Eine Agentur vermittelt Kandidaten an einen finalen Arbeitgeber. Ihr Logo und ihre Adresse erscheinen auf CV und Anschreiben der zugewiesenen Kandidaten.",
+        newAgency: "Neue Agentur", emptyAgencies: "Noch keine Agenturen.",
+        modalNewAgency: "Neue Agentur", modalEditAgency: "Agentur bearbeiten",
+        agencyName: "Name *",
+        agencyAddress: "Adresse (CV-Fußzeile)", agencyAddressHint: "(eine pro Zeile — erscheint unter jeder CV-Seite)",
+        logoLbl: "Logo", logoUpload: "Logo hochladen", logoReplace: "Logo ersetzen", logoRemove: "Entfernen",
+        logoTooBig: "Bild zu groß — max 300 KB.",
+        usedBy: (n: number) => `Genutzt von ${n} Arbeitgeber${n !== 1 ? "n" : ""}`,
       }
     : {
         title: "Manage employers",
@@ -125,12 +169,23 @@ export default function AdminEmployersPage() {
         errAgency: "Please select an agency.",
         errSave: "Save failed", errAutoSave: "Auto-save failed",
         errToggle: "Status change failed", errNet: "(Network error)",
+        tabEmployers: "Employers", tabAgencies: "Agencies",
+        agencyHint: "An agency routes candidates to a final employer. Its logo and address appear on the CV and motivation letter of every assigned candidate.",
+        newAgency: "New agency", emptyAgencies: "No agencies yet.",
+        modalNewAgency: "New agency", modalEditAgency: "Edit agency",
+        agencyName: "Name *",
+        agencyAddress: "Address (CV footer)", agencyAddressHint: "(one line per line — shown under every CV page)",
+        logoLbl: "Logo", logoUpload: "Upload logo", logoReplace: "Replace logo", logoRemove: "Remove",
+        logoTooBig: "Image too large — max 300 KB.",
+        usedBy: (n: number) => `Used by ${n} employer${n !== 1 ? "s" : ""}`,
       };
   const [accessToken, setAccessToken] = useState<string>("");
   const [loading, setLoading]         = useState(true);
+  const [tab, setTab]                 = useState<"employers" | "agencies">("employers");
   const [employers, setEmployers]     = useState<Employer[]>([]);
-  const [orgs, setOrgs]               = useState<{ id: string; name: string }[]>([]);
+  const [orgs, setOrgs]               = useState<Agency[]>([]);
   const [draft, setDraft]             = useState<DraftForm | null>(null);
+  const [agencyDraft, setAgencyDraft] = useState<AgencyDraft | null>(null);
   const [saving, setSaving]           = useState(false);
   const [autoSaved, setAutoSaved]     = useState(false);
   // Autosave plumbing (edit mode only). seed = the JSON snapshot last
@@ -139,8 +194,15 @@ export default function AdminEmployersPage() {
   const seedRef   = useRef<string>("");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const formRef   = useRef<DraftForm | null>(null);
+  // Agency autosave plumbing (separate state — modal lives independently).
+  const agSeedRef   = useRef<string>("");
+  const agSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const agFormRef   = useRef<AgencyDraft | null>(null);
   // id → org name (for the "via {agency}" badge in the list).
   const orgsById = new Map(orgs.map(o => [o.id, o.name] as const));
+  // employer count per agency (for "Used by N employers" line).
+  const empCountByAgency = new Map<string, number>();
+  for (const e of employers) if (e.agency_id) empCountByAgency.set(e.agency_id, (empCountByAgency.get(e.agency_id) ?? 0) + 1);
 
   // Auth — supreme only. Anything else → bounce to dashboard.
   useEffect(() => {
@@ -172,8 +234,8 @@ export default function AdminEmployersPage() {
       }
       if (or.ok) {
         const j = await or.json();
-        const list = (j.orgs ?? []) as { id: string; name: string }[];
-        setOrgs(list.map(o => ({ id: o.id, name: o.name })));
+        const list = (j.orgs ?? []) as Array<{ id: string; name: string; notes: string | null; logo_filename: string | null; footer_text: string | null }>;
+        setOrgs(list.map(o => ({ id: o.id, name: o.name, notes: o.notes ?? null, logo_filename: o.logo_filename ?? null, footer_text: o.footer_text ?? null })));
       }
     } catch { /* offline */ }
     setLoading(false);
@@ -294,7 +356,126 @@ export default function AdminEmployersPage() {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     const d = formRef.current;
     if (d && d.id && JSON.stringify(d) !== seedRef.current) void persistEdit(d);
+    if (agSaveTimer.current) clearTimeout(agSaveTimer.current);
+    const ad = agFormRef.current;
+    if (ad && ad.id && JSON.stringify(ad) !== agSeedRef.current) void persistAgency(ad);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [persistEdit]);
+
+  // ── Agency create (POST /api/portal/admin/organizations) ─────────────────
+  async function saveAgency() {
+    if (!agencyDraft) return;
+    if (!agencyDraft.name.trim()) { alert(L.errName); return; }
+    setSaving(true);
+    try {
+      // 1) create the org row
+      const r = await fetch("/api/portal/admin/organizations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ name: agencyDraft.name.trim(), notes: agencyDraft.notes.trim() || undefined }),
+      });
+      if (!r.ok) {
+        let msg = `HTTP ${r.status}`;
+        try { const j = await r.json(); if (j?.error) msg = j.error; } catch { /* ignore */ }
+        alert(`${L.errSave}:\n${msg}`);
+        return;
+      }
+      const j = await r.json();
+      const newId = j?.org?.id as string | undefined;
+      // 2) write branding (footer_text + logo) in a follow-up PATCH so the
+      //    POST endpoint can stay focused on identity fields.
+      if (newId) {
+        const footer = agencyDraft.addressText.trim();
+        const logo   = agencyDraft.logoDataUrl ?? "";
+        if (footer || logo) {
+          await fetch(`/api/portal/admin/organizations/${newId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+            body: JSON.stringify({ footerText: footer, logoFilename: logo }),
+          }).catch(() => null);
+        }
+      }
+      setAgencyDraft(null);
+      await load(accessToken);
+    } catch {
+      alert(`${L.errSave} ${L.errNet}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ── Agency edit autosave ────────────────────────────────────────────────
+  const persistAgency = useCallback(async (d: AgencyDraft) => {
+    if (!d.id) return;
+    if (!d.name.trim()) return; // wait for valid state
+    const body = {
+      name: d.name.trim(),
+      notes: d.notes.trim(),
+      footerText: d.addressText.trim(),
+      logoFilename: d.logoDataUrl ?? "",
+    };
+    try {
+      const r = await fetch(`/api/portal/admin/organizations/${d.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify(body),
+        keepalive: true,
+      });
+      if (r.ok) {
+        agSeedRef.current = JSON.stringify(d);
+        setAutoSaved(true);
+        setTimeout(() => setAutoSaved(false), 1600);
+        // Reflect in the local list without a full reload.
+        setOrgs(prev => prev.map(o => o.id === d.id ? {
+          ...o,
+          name: d.name.trim(),
+          notes: d.notes.trim() || null,
+          footer_text: d.addressText.trim() || null,
+          logo_filename: d.logoDataUrl || null,
+        } : o));
+      } else {
+        let msg = `HTTP ${r.status}`;
+        try { const j = await r.json(); if (j?.error) msg = j.error; } catch { /* ignore */ }
+        if (agSaveTimer.current) clearTimeout(agSaveTimer.current);
+        agSaveTimer.current = setTimeout(() => { void persistAgency(d); }, 4000);
+        alert(`${L.errAutoSave}:\n${msg}`);
+      }
+    } catch {
+      if (agSaveTimer.current) clearTimeout(agSaveTimer.current);
+      agSaveTimer.current = setTimeout(() => { void persistAgency(d); }, 4000);
+    }
+  }, [accessToken]);
+
+  useEffect(() => {
+    agFormRef.current = agencyDraft;
+    if (!agencyDraft || !agencyDraft.id) return;
+    const sig = JSON.stringify(agencyDraft);
+    if (sig === agSeedRef.current) return;
+    if (agSaveTimer.current) clearTimeout(agSaveTimer.current);
+    const snap = agencyDraft;
+    agSaveTimer.current = setTimeout(() => { void persistAgency(snap); }, 600);
+    return () => { if (agSaveTimer.current) clearTimeout(agSaveTimer.current); };
+  }, [agencyDraft, persistAgency]);
+
+  function closeAgencyDraft() {
+    if (agSaveTimer.current) clearTimeout(agSaveTimer.current);
+    const d = agFormRef.current;
+    if (d && d.id && JSON.stringify(d) !== agSeedRef.current) void persistAgency(d);
+    setAgencyDraft(null);
+  }
+
+  // Read a chosen file as a data: URL, capped at 300 KB raw to keep the
+  // base64 payload under the API's 300 KB ceiling (org logos live in
+  // logo_filename — see /api/portal/admin/organizations/[id] PATCH).
+  function onLogoFile(file: File) {
+    if (file.size > 300_000) { alert(L.logoTooBig); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = String(reader.result ?? "");
+      setAgencyDraft(d => d ? { ...d, logoDataUrl: url } : d);
+    };
+    reader.readAsDataURL(file);
+  }
 
   async function toggleActive(emp: Employer) {
     const body = { id: emp.id, active: !emp.active };
@@ -318,19 +499,83 @@ export default function AdminEmployersPage() {
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-3">
         <div>
           <h1 className="text-[22px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>{L.title}</h1>
-          <p className="text-[12px] mt-0.5" style={{ color: "var(--w3)" }}>{L.hint}</p>
+          <p className="text-[12px] mt-0.5" style={{ color: "var(--w3)" }}>{tab === "employers" ? L.hint : L.agencyHint}</p>
         </div>
-        <button onClick={() => { seedRef.current = ""; setDraft({ ...EMPTY_DRAFT }); }}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-[12px] font-semibold transition-opacity hover:opacity-80"
-          style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-          <Plus size={13} strokeWidth={2} /> {L.newBtn}
-        </button>
+        {tab === "employers" ? (
+          <button onClick={() => { seedRef.current = ""; setDraft({ ...EMPTY_DRAFT }); }}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-[12px] font-semibold transition-opacity hover:opacity-80"
+            style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+            <Plus size={13} strokeWidth={2} /> {L.newBtn}
+          </button>
+        ) : (
+          <button onClick={() => { agSeedRef.current = ""; setAgencyDraft({ ...EMPTY_AGENCY }); }}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-[12px] font-semibold transition-opacity hover:opacity-80"
+            style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+            <Plus size={13} strokeWidth={2} /> {L.newAgency}
+          </button>
+        )}
       </div>
 
-      {loading ? (
+      {/* Segmented tabs — Employers | Agencies */}
+      <div className="flex gap-2 mb-4">
+        {(["employers", "agencies"] as const).map(k => {
+          const active = tab === k;
+          return (
+            <button key={k} type="button" onClick={() => setTab(k)}
+              className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+              style={{
+                background: active ? "var(--gdim)" : "var(--bg2)",
+                color:      active ? "var(--gold)" : "var(--w3)",
+                border: `1px solid ${active ? "var(--border-gold)" : "var(--border)"}`,
+              }}>
+              {k === "employers" ? L.tabEmployers : L.tabAgencies}
+            </button>
+          );
+        })}
+      </div>
+
+      {tab === "agencies" ? (
+        loading ? (
+          <p className="text-[12px] py-8 text-center" style={{ color: "var(--w3)" }}>{L.loading}</p>
+        ) : orgs.length === 0 ? (
+          <p className="text-[12px] py-8 text-center" style={{ color: "var(--w3)" }}>{L.emptyAgencies}</p>
+        ) : (
+          <div className="rounded-2xl overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+            {orgs.map((o, idx) => {
+              const usedN = empCountByAgency.get(o.id) ?? 0;
+              return (
+                <div key={o.id} className="px-4 py-3 flex items-center gap-3"
+                  style={{ borderTop: idx === 0 ? "none" : "1px solid var(--border)" }}>
+                  <div className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden"
+                    style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+                    {o.logo_filename ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={o.logo_filename.startsWith("data:") ? o.logo_filename : `/logos/${o.logo_filename}`} alt={o.name}
+                        style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+                    ) : (
+                      <ImageIcon size={14} strokeWidth={1.6} style={{ color: "var(--w3)" }} />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[13.5px] font-semibold truncate" style={{ color: "var(--w)" }}>{o.name}</p>
+                    <p className="text-[11.5px] mt-0.5 truncate" style={{ color: "var(--w3)" }}>
+                      {o.footer_text ? o.footer_text.split("\n").join(" · ") : L.usedBy(usedN)}
+                    </p>
+                  </div>
+                  <button onClick={() => { const d = toAgencyDraft(o); agSeedRef.current = JSON.stringify(d); setAgencyDraft(d); }}
+                    title={L.edit} aria-label={L.edit}
+                    className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ color: "var(--w2)" }}>
+                    <Pencil size={13} strokeWidth={1.8} />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )
+      ) : loading ? (
         <p className="text-[12px] py-8 text-center" style={{ color: "var(--w3)" }}>{L.loading}</p>
       ) : employers.length === 0 ? (
         <p className="text-[12px] py-8 text-center" style={{ color: "var(--w3)" }}>{L.empty}</p>
@@ -378,6 +623,110 @@ export default function AdminEmployersPage() {
             </div>
           ))}
         </div>
+      )}
+
+      {agencyDraft && typeof window !== "undefined" && createPortal(
+        <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
+          style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
+          onClick={() => { if (saving) return; if (agencyDraft?.id) closeAgencyDraft(); else setAgencyDraft(null); }}>
+          <div className="w-full max-w-md rounded-[20px] overflow-hidden flex flex-col"
+            onClick={e => e.stopPropagation()}
+            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)" }}>
+            <div className="flex items-center justify-between px-5 py-4 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
+              <p className="text-sm font-semibold" style={{ color: "var(--w)" }}>
+                {agencyDraft.id ? L.modalEditAgency : L.modalNewAgency}
+              </p>
+              <button onClick={() => { if (saving) return; if (agencyDraft?.id) closeAgencyDraft(); else setAgencyDraft(null); }}
+                className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center" style={{ color: "var(--w3)" }}>
+                <XIcon size={14} strokeWidth={1.8} />
+              </button>
+            </div>
+            <div className="px-5 py-5 overflow-y-auto space-y-3" style={{ minHeight: 0 }}>
+              <div>
+                <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{L.agencyName}</label>
+                <input value={agencyDraft.name} onChange={e => setAgencyDraft(d => d ? { ...d, name: e.target.value } : d)}
+                  placeholder="Calmaroi GmbH"
+                  className="w-full rounded-lg px-2.5 py-2 text-xs outline-none"
+                  style={{ background: "var(--bg2)", border: "1px solid var(--border2)", color: "var(--w)" }} />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{L.logoLbl}</label>
+                <div className="flex items-center gap-3">
+                  <div className="w-14 h-14 rounded-lg flex items-center justify-center overflow-hidden flex-shrink-0"
+                    style={{ background: "var(--bg2)", border: "1px solid var(--border2)" }}>
+                    {agencyDraft.logoDataUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={agencyDraft.logoDataUrl.startsWith("data:") ? agencyDraft.logoDataUrl : `/logos/${agencyDraft.logoDataUrl}`} alt=""
+                        style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+                    ) : (
+                      <ImageIcon size={18} strokeWidth={1.6} style={{ color: "var(--w3)" }} />
+                    )}
+                  </div>
+                  <label className="bv-row-hover py-1.5 px-3 text-[11px] font-semibold rounded-lg cursor-pointer inline-flex items-center gap-1.5"
+                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                    {agencyDraft.logoDataUrl ? L.logoReplace : L.logoUpload}
+                    <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="hidden"
+                      onChange={e => { const f = e.target.files?.[0]; if (f) onLogoFile(f); e.currentTarget.value = ""; }} />
+                  </label>
+                  {agencyDraft.logoDataUrl && (
+                    <button type="button" onClick={() => setAgencyDraft(d => d ? { ...d, logoDataUrl: null } : d)}
+                      className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center" title={L.logoRemove} aria-label={L.logoRemove}
+                      style={{ color: "var(--danger)" }}>
+                      <Trash2 size={13} strokeWidth={1.8} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>
+                  {L.agencyAddress} <span style={{ color: "var(--w3)" }}>{L.agencyAddressHint}</span>
+                </label>
+                <textarea rows={4} value={agencyDraft.addressText}
+                  onChange={e => setAgencyDraft(d => d ? { ...d, addressText: e.target.value } : d)}
+                  placeholder={"Calmaroi GmbH\nRömerstraße 15 · 63450\nwww.calmaroi.de"}
+                  className="w-full rounded-lg px-2.5 py-2 text-xs outline-none resize-y"
+                  style={{ background: "var(--bg2)", border: "1px solid var(--border2)", color: "var(--w)", minHeight: 90 }} />
+              </div>
+
+              <div>
+                <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{L.notesLbl}</label>
+                <textarea rows={2} value={agencyDraft.notes}
+                  onChange={e => setAgencyDraft(d => d ? { ...d, notes: e.target.value } : d)}
+                  className="w-full rounded-lg px-2.5 py-2 text-xs outline-none resize-y"
+                  style={{ background: "var(--bg2)", border: "1px solid var(--border2)", color: "var(--w)", minHeight: 56 }} />
+              </div>
+            </div>
+            <div className="px-5 py-4 flex-shrink-0 flex items-center justify-between gap-2" style={{ borderTop: "1px solid var(--border)" }}>
+              {agencyDraft.id ? (
+                <>
+                  <span className="inline-flex items-center gap-1.5 text-[11px]"
+                    style={{ color: autoSaved ? "var(--success)" : "var(--w3)" }}>
+                    <SaveIcon size={12} strokeWidth={1.8} />
+                    {autoSaved ? L.autoSaved : L.autoSaving}
+                  </span>
+                  <button onClick={closeAgencyDraft}
+                    className="bv-row-hover py-2 px-4 text-xs font-semibold rounded-xl"
+                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                    {L.done}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button onClick={saveAgency} disabled={saving}
+                    className="flex-1 py-2 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80 disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
+                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                    {saving ? "…" : <><SaveIcon size={12} strokeWidth={1.8} /> {L.save}</>}
+                  </button>
+                  <button onClick={() => !saving && setAgencyDraft(null)}
+                    className="bv-row-hover py-2 px-3 text-xs" style={{ color: "var(--w3)" }}>{L.cancel}</button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body,
       )}
 
       {draft && typeof window !== "undefined" && createPortal(

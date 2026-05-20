@@ -29,7 +29,12 @@ function rateLimited(userId: string): boolean {
 async function resolveBrand(userId: string): Promise<CVBrand> {
   const db = getServiceSupabase();
 
-  // Find the candidate's first approved org that has a logo configured
+  // Branding resolution chain:
+  //   1) direct candidate_organizations link (legacy + member self-signup)
+  //   2) employer.agency_id from the candidate's assignment — so a candidate
+  //      assigned to "UKSH Kiel (via Calmaroi)" picks up Calmaroi's branding
+  //      without any extra link rows.
+  let orgId: string | null = null;
   const { data: link } = await db
     .from("candidate_organizations")
     .select("org_id")
@@ -37,13 +42,32 @@ async function resolveBrand(userId: string): Promise<CVBrand> {
     .eq("status", "approved")
     .limit(1)
     .maybeSingle();
+  if (link?.org_id) orgId = link.org_id;
 
-  if (!link?.org_id) return {};
+  if (!orgId) {
+    const { data: prof } = await db
+      .from("candidate_profiles")
+      .select("employer_id")
+      .eq("user_id", userId)
+      .maybeSingle();
+    const empId = (prof as { employer_id?: string | null } | null)?.employer_id ?? null;
+    if (empId) {
+      const { data: emp } = await db
+        .from("employers")
+        .select("agency_id")
+        .eq("id", empId)
+        .maybeSingle();
+      const agId = (emp as { agency_id?: string | null } | null)?.agency_id ?? null;
+      if (agId) orgId = agId;
+    }
+  }
+
+  if (!orgId) return {};
 
   const { data: org } = await db
     .from("organizations")
     .select("name, logo_filename, footer_text")
-    .eq("id", link.org_id)
+    .eq("id", orgId)
     .single();
 
   if (!org) return {};
