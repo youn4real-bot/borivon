@@ -31,6 +31,7 @@ import { Upload, FilePen, Ban, Check, Plus, X as XIcon, ArrowLeft, Info, Downloa
 import type { LucideIcon } from "lucide-react";
 import { PageLoader, Spinner, AutosaveIndicator } from "@/components/ui/states";
 import { CvCollabPresence } from "@/components/CvCollabPresence";
+import { CvCollabCursors }  from "@/components/CvCollabCursors";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { PhotoCropModal } from "@/components/PhotoCropModal";
 import { PdfViewer } from "@/components/PdfViewer";
@@ -1847,6 +1848,10 @@ function CVBuilderInner() {
   const [collabPeers, setCollabPeers] = useState<import("@/components/CvCollabPresence").CollabPeer[]>([]);
   const [selfPeer, setSelfPeer]       = useState<import("@/components/CvCollabPresence").CollabPeer | null>(null);
   const [viewerRole, setViewerRole]   = useState<"admin" | "sub_admin" | "candidate">("candidate");
+  // State (not just ref) so the floating-cursor portal can re-render when
+  // the channel becomes available — it needs the channel as a prop to
+  // attach its own broadcast listener.
+  const [collabChannel, setCollabChannel] = useState<RealtimeChannel | null>(null);
   const lastLocalEditAt    = useRef<number>(0);
   const lastBroadcastSig   = useRef<string>("");
   const applyingRemoteRef  = useRef<boolean>(false);
@@ -2231,6 +2236,10 @@ function CVBuilderInner() {
         console.log("[cv-collab] channel status:", status, "room:", `cv-collab-${target}`);
       }
       if (status === "SUBSCRIBED") {
+        // Expose the channel to the floating-cursor portal — that component
+        // only attaches its broadcast listeners once it sees a non-null
+        // channel prop, which avoids missed events during the join race.
+        setCollabChannel(ch);
         try {
           const r = await ch.track({
             id:          selfPeer.id,
@@ -2257,6 +2266,7 @@ function CVBuilderInner() {
       try { void ch.untrack(); } catch { /* ignore */ }
       supabase.removeChannel(ch);
       collabChannelRef.current = null;
+      setCollabChannel(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, adminCandidateId, selfPeer, viewerRole, authToken]);
@@ -3086,6 +3096,13 @@ function CVBuilderInner() {
               />
               <AutosaveIndicator savedAt={savedAt} error={saveError} />
             </div>
+            {/* Floating "who's editing here" disc — portals to document.body. */}
+            <CvCollabCursors
+              channel={collabChannel}
+              selfPeer={selfPeer}
+              peers={collabPeers}
+              viewerRole={viewerRole}
+            />
           </div>
           <div className="text-center">
             <h1 className="font-semibold tracking-[-0.02em] leading-tight" style={{ color: "var(--w)" }}>
