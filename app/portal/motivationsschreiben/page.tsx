@@ -381,55 +381,32 @@ export default function MotivationsschreibenPage() {
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
-    const COLS = "first_name,last_name,country_of_residence,address_street,address_number,address_postal,city_of_residence,phone,passport_status,cv_draft";
     const pull = async () => {
-      const { data, error } = await supabase.from("candidate_profiles").select(COLS).eq("user_id", userId).maybeSingle();
-      if (typeof window !== "undefined") {
-        const row = data as ProfileRow | null;
-        // eslint-disable-next-line no-console
-        console.log("[letter] pull", {
-          ok: !error,
-          hasData: !!row,
-          error: error?.message,
-          passport: {
-            first_name:           row?.first_name           ?? null,
-            last_name:            row?.last_name            ?? null,
-            address_street:       row?.address_street       ?? null,
-            address_number:       row?.address_number       ?? null,
-            address_postal:       row?.address_postal       ?? null,
-            city_of_residence:    row?.city_of_residence    ?? null,
-            country_of_residence: row?.country_of_residence ?? null,
-            phone:                row?.phone                ?? null,
-            passport_status:      row?.passport_status      ?? null,
-          },
-          cv_draft_keys: row?.cv_draft ? Object.keys(row.cv_draft) : null,
-          cv_draft_personal: row?.cv_draft ? {
-            firstName:          row.cv_draft.firstName          ?? null,
-            lastName:           row.cv_draft.lastName           ?? null,
-            address:            row.cv_draft.address            ?? null,
-            addressNumber:      row.cv_draft.addressNumber      ?? null,
-            postalCode:         row.cv_draft.postalCode         ?? null,
-            city:               row.cv_draft.city               ?? null,
-            countryOfResidence: row.cv_draft.countryOfResidence ?? null,
-            phone:              row.cv_draft.phone              ?? null,
-          } : null,
-          signup_meta: signupMetaRef.current,
+      if (!authToken) return;
+      try {
+        const r = await fetch("/api/portal/me/letter-data", {
+          headers: { Authorization: `Bearer ${authToken}` },
         });
-      }
-      if (cancelled || !data) return;
-      const merged = mergePersonFromRow(data as ProfileRow, personEmailRef.current, signupMetaRef.current);
-      if (typeof window !== "undefined") {
-        // eslint-disable-next-line no-console
-        console.log("[letter] merged", merged);
-      }
-      setPerson(prev => {
-        if (!prev) return merged;
-        // Skip churn when nothing changed (avoid focus loss on inputs).
-        if (JSON.stringify(prev) === JSON.stringify(merged)) return prev;
-        return merged;
-      });
-      const ps = (data as ProfileRow).passport_status;
-      if (ps === "pending" || ps === "approved" || ps === "rejected") setPassportStatus(ps);
+        if (!r.ok) return;
+        const j = await r.json() as {
+          sender: { firstName: string; lastName: string; street: string; number: string; postal: string; city: string; country: string; phone: string; email: string };
+          passportStatus: string | null;
+        };
+        if (typeof window !== "undefined") {
+          // eslint-disable-next-line no-console
+          console.log("[letter] pull (server)", j.sender, "passport_status:", j.passportStatus);
+        }
+        if (cancelled) return;
+        const merged: Person = { ...j.sender };
+        setPerson(prev => {
+          if (!prev) return merged;
+          if (JSON.stringify(prev) === JSON.stringify(merged)) return prev;
+          return merged;
+        });
+        if (j.passportStatus === "pending" || j.passportStatus === "approved" || j.passportStatus === "rejected") {
+          setPassportStatus(j.passportStatus);
+        }
+      } catch { /* offline */ }
     };
     // Keep the realtime websocket auth in lock-step with our REST JWT —
     // without this, postgres_changes silently doesn't deliver after a
@@ -479,30 +456,54 @@ export default function MotivationsschreibenPage() {
       setUserId(uid);
       setAuthToken(session.access_token);
 
-      const { data: au } = await supabase.auth.getUser();
-      const email = au?.user?.email ?? "";
-      // Cache signup metadata for the live-sync effect below — every account
-      // has first_name/last_name set at sign-up (see /portal page.tsx sign-up
-      // flow), so this is the universal fallback when passport hasn't filled
-      // candidate_profiles yet.
-      signupMetaRef.current = (au?.user?.user_metadata ?? null) as SignupMeta | null;
-
-      // Pull BOTH the approved-passport fields AND the live cv_draft from
-      // the same row — cover letter merges them so candidates always see
-      // something pre-filled even before passport approval, AND so phone /
-      // address edits in the CV builder show up here instantly (per user
-      // request 2026-05: phone in CV builder -> cover letter, no admin
-      // approval required).
-      const { data: p } = await supabase
-        .from("candidate_profiles")
-        .select("first_name,last_name,country_of_residence,address_street,address_number,address_postal,city_of_residence,phone,passport_status,cv_draft")
-        .eq("user_id", uid)
-        .maybeSingle();
-
-      if (!cancelled) {
-        setPerson(mergePersonFromRow(p, email, signupMetaRef.current));
-        const ps = p?.passport_status as string | undefined;
-        if (ps === "pending" || ps === "approved" || ps === "rejected") setPassportStatus(ps);
+      // Sender block resolved SERVER-SIDE via service-role — the anon
+      // supabase client was sometimes returning nulls for the address
+      // columns (column-level RLS or a stale row), so this endpoint
+      // bypasses any client-RLS uncertainty. Returns the fully merged
+      // sender (passport > cv_draft > signup metadata) in one round-trip.
+      try {
+        const r = await fetch("/api/portal/me/letter-data", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+        if (!cancelled && r.ok) {
+          const j = await r.json() as {
+            sender: { firstName: string; lastName: string; street: string; number: string; postal: string; city: string; country: string; phone: string; email: string };
+            passportStatus: string | null;
+          };
+          setPerson({
+            firstName: j.sender.firstName,
+            lastName:  j.sender.lastName,
+            street:    j.sender.street,
+            number:    j.sender.number,
+            postal:    j.sender.postal,
+            city:      j.sender.city,
+            country:   j.sender.country,
+            phone:     j.sender.phone,
+            email:     j.sender.email,
+          });
+          if (j.passportStatus === "pending" || j.passportStatus === "approved" || j.passportStatus === "rejected") {
+            setPassportStatus(j.passportStatus);
+          }
+          // Keep the live-sync effect's refs in step.
+          personEmailRef.current = j.sender.email;
+        }
+      } catch {
+        // Fallback: anon client read so the page still hydrates if the
+        // dedicated endpoint is offline (shouldn't happen, but defensive).
+        const { data: p } = await supabase
+          .from("candidate_profiles")
+          .select("first_name,last_name,country_of_residence,address_street,address_number,address_postal,city_of_residence,phone,passport_status,cv_draft")
+          .eq("user_id", uid)
+          .maybeSingle();
+        const { data: au2 } = await supabase.auth.getUser();
+        const fallbackEmail = au2?.user?.email ?? "";
+        const meta = (au2?.user?.user_metadata ?? null) as SignupMeta | null;
+        signupMetaRef.current = meta;
+        if (!cancelled) {
+          setPerson(mergePersonFromRow(p as ProfileRow | null, fallbackEmail, meta));
+          const ps = p?.passport_status as string | undefined;
+          if (ps === "pending" || ps === "approved" || ps === "rejected") setPassportStatus(ps);
+        }
       }
 
       // Assigned employer comes from the backend (admin assignment →
