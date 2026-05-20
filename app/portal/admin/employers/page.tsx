@@ -11,7 +11,7 @@
  * - Address lines: one per line in a textarea → text[] in the DB.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { supabase } from "@/lib/supabase";
@@ -67,6 +67,13 @@ export default function AdminEmployersPage() {
   const [orgs, setOrgs]               = useState<{ id: string; name: string }[]>([]);
   const [draft, setDraft]             = useState<DraftForm | null>(null);
   const [saving, setSaving]           = useState(false);
+  const [autoSaved, setAutoSaved]     = useState(false);
+  // Autosave plumbing (edit mode only). seed = the JSON snapshot last
+  // persisted; saveTimer = the in-flight debounce; formRef mirrors `draft`
+  // so close/unmount can flush the last keystrokes.
+  const seedRef   = useRef<string>("");
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const formRef   = useRef<DraftForm | null>(null);
   // id → org name (for the "via {agency}" badge in the list).
   const orgsById = new Map(orgs.map(o => [o.id, o.name] as const));
 
@@ -151,6 +158,79 @@ export default function AdminEmployersPage() {
     }
   }
 
+  // ── Edit-mode autosave (no Save button) ─────────────────────────────────
+  // PATCH the current draft 600 ms after the last keystroke. Skips when
+  // required fields are empty (Name + at least one address line). On close
+  // / unmount the last edits are flushed so a change can never be lost.
+  const persistEdit = useCallback(async (d: DraftForm) => {
+    if (!d.id) return;
+    const addressLines = d.addressText.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    if (!d.name.trim() || addressLines.length === 0) return; // wait for valid state
+    if (d.source === "agency" && !d.agencyId) return;
+    const body: Record<string, unknown> = {
+      id: d.id,
+      slug: d.slug.trim() || null,
+      name: d.name.trim(),
+      address_lines: addressLines,
+      notes: d.notes.trim() || null,
+      active: d.active,
+      agency_id: d.source === "agency" ? d.agencyId : null,
+    };
+    try {
+      const r = await fetch("/api/portal/admin/employers", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify(body),
+        keepalive: true,
+      });
+      if (r.ok) {
+        seedRef.current = JSON.stringify(d);
+        setAutoSaved(true);
+        setTimeout(() => setAutoSaved(false), 1600);
+        // Reflect the saved row in the list without a full reload.
+        const j = await r.json().catch(() => null) as { employer?: Employer } | null;
+        if (j?.employer) setEmployers(prev => prev.map(e => e.id === j.employer!.id ? j.employer! : e));
+      } else {
+        let msg = `HTTP ${r.status}`;
+        try { const j = await r.json(); if (j?.error) msg = j.error; } catch { /* ignore */ }
+        // Re-arm a retry; surface the reason so it's never silent.
+        if (saveTimer.current) clearTimeout(saveTimer.current);
+        saveTimer.current = setTimeout(() => { void persistEdit(d); }, 4000);
+        alert(`Auto-Speichern fehlgeschlagen:\n${msg}`);
+      }
+    } catch {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(() => { void persistEdit(d); }, 4000);
+    }
+  }, [accessToken]);
+
+  // Debounced effect: any draft change in EDIT mode → PATCH after 600 ms idle.
+  useEffect(() => {
+    formRef.current = draft;
+    if (!draft || !draft.id) return;
+    const sig = JSON.stringify(draft);
+    if (sig === seedRef.current) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    const snap = draft;
+    saveTimer.current = setTimeout(() => { void persistEdit(snap); }, 600);
+    return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
+  }, [draft, persistEdit]);
+
+  // Close: flush pending edits in EDIT mode (no "discard" — autosave model).
+  function closeDraft() {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    const d = formRef.current;
+    if (d && d.id && JSON.stringify(d) !== seedRef.current) void persistEdit(d);
+    setDraft(null);
+  }
+
+  // Page unmount / route change: flush.
+  useEffect(() => () => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    const d = formRef.current;
+    if (d && d.id && JSON.stringify(d) !== seedRef.current) void persistEdit(d);
+  }, [persistEdit]);
+
   async function toggleActive(emp: Employer) {
     const body = { id: emp.id, active: !emp.active };
     try {
@@ -180,7 +260,7 @@ export default function AdminEmployersPage() {
             Treibt die Zuweisungs-Auswahl und den Motivationsschreiben-Empfängerblock. Nur sichtbar für den Supreme-Admin.
           </p>
         </div>
-        <button onClick={() => setDraft({ ...EMPTY_DRAFT })}
+        <button onClick={() => { seedRef.current = ""; setDraft({ ...EMPTY_DRAFT }); }}
           className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-[12px] font-semibold transition-opacity hover:opacity-80"
           style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
           <Plus size={13} strokeWidth={2} /> Neuer Arbeitgeber
@@ -222,7 +302,7 @@ export default function AdminEmployersPage() {
                 </p>
               </div>
               <div className="flex items-center gap-1 flex-shrink-0">
-                <button onClick={() => setDraft(toDraft(e))} title="Bearbeiten" aria-label="Bearbeiten"
+                <button onClick={() => { const d = toDraft(e); seedRef.current = JSON.stringify(d); setDraft(d); }} title="Bearbeiten" aria-label="Bearbeiten"
                   className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center" style={{ color: "var(--w2)" }}>
                   <Pencil size={13} strokeWidth={1.8} />
                 </button>
@@ -240,7 +320,7 @@ export default function AdminEmployersPage() {
       {draft && typeof window !== "undefined" && createPortal(
         <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
           style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
-          onClick={() => !saving && setDraft(null)}>
+          onClick={() => { if (saving) return; if (draft?.id) closeDraft(); else setDraft(null); }}>
           <div className="w-full max-w-md rounded-[20px] overflow-hidden flex flex-col"
             onClick={e => e.stopPropagation()}
             style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)" }}>
@@ -248,7 +328,7 @@ export default function AdminEmployersPage() {
               <p className="text-sm font-semibold" style={{ color: "var(--w)" }}>
                 {draft.id ? "Arbeitgeber bearbeiten" : "Neuer Arbeitgeber"}
               </p>
-              <button onClick={() => !saving && setDraft(null)}
+              <button onClick={() => { if (saving) return; if (draft?.id) closeDraft(); else setDraft(null); }}
                 className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center" style={{ color: "var(--w3)" }}>
                 <XIcon size={14} strokeWidth={1.8} />
               </button>
@@ -329,14 +409,32 @@ export default function AdminEmployersPage() {
                 Aktiv (für Zuweisung verfügbar)
               </label>
             </div>
-            <div className="px-5 py-4 flex-shrink-0 flex items-center gap-2" style={{ borderTop: "1px solid var(--border)" }}>
-              <button onClick={save} disabled={saving}
-                className="flex-1 py-2 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80 disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
-                style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                {saving ? "…" : <><SaveIcon size={12} strokeWidth={1.8} /> Speichern</>}
-              </button>
-              <button onClick={() => !saving && setDraft(null)}
-                className="bv-row-hover py-2 px-3 text-xs" style={{ color: "var(--w3)" }}>Abbrechen</button>
+            <div className="px-5 py-4 flex-shrink-0 flex items-center justify-between gap-2" style={{ borderTop: "1px solid var(--border)" }}>
+              {draft.id ? (
+                <>
+                  {/* Edit mode: no Save button — autosaves on every change. */}
+                  <span className="inline-flex items-center gap-1.5 text-[11px]"
+                    style={{ color: autoSaved ? "var(--success)" : "var(--w3)" }}>
+                    <SaveIcon size={12} strokeWidth={1.8} />
+                    {autoSaved ? "Automatisch gespeichert" : "Wird automatisch gespeichert"}
+                  </span>
+                  <button onClick={closeDraft}
+                    className="bv-row-hover py-2 px-4 text-xs font-semibold rounded-xl"
+                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                    Fertig
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button onClick={save} disabled={saving}
+                    className="flex-1 py-2 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80 disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
+                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                    {saving ? "…" : <><SaveIcon size={12} strokeWidth={1.8} /> Speichern</>}
+                  </button>
+                  <button onClick={() => !saving && setDraft(null)}
+                    className="bv-row-hover py-2 px-3 text-xs" style={{ color: "var(--w3)" }}>Abbrechen</button>
+                </>
+              )}
             </div>
           </div>
         </div>,
