@@ -343,6 +343,10 @@ export default function MotivationsschreibenPage() {
   const [uploadErr, setUploadErr] = useState("");
   const [showPreview, setShowPreview] = useState(false);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
+  // Temporary debug payload from /api/portal/me/letter-data — shown inline
+  // when the sender block has missing fields so the cause is visible
+  // without DevTools (see body block below). Drop once stabilised.
+  const [letterDebug, setLetterDebug] = useState<Record<string, unknown> | null>(null);
 
   const setPdfUrl = useCallback((next: string | null) => {
     setPdfUrlRaw(prev => {
@@ -391,11 +395,13 @@ export default function MotivationsschreibenPage() {
         const j = await r.json() as {
           sender: { firstName: string; lastName: string; street: string; number: string; postal: string; city: string; country: string; phone: string; email: string };
           passportStatus: string | null;
+          _debug?: unknown;
         };
         if (typeof window !== "undefined") {
           // eslint-disable-next-line no-console
-          console.log("[letter] pull (server)", j.sender, "passport_status:", j.passportStatus);
+          console.log("[letter] pull (server)", j.sender, "passport_status:", j.passportStatus, "debug:", j._debug);
         }
+        if (j._debug) setLetterDebug(j._debug as Record<string, unknown>);
         if (cancelled) return;
         const merged: Person = { ...j.sender };
         setPerson(prev => {
@@ -469,7 +475,9 @@ export default function MotivationsschreibenPage() {
           const j = await r.json() as {
             sender: { firstName: string; lastName: string; street: string; number: string; postal: string; city: string; country: string; phone: string; email: string };
             passportStatus: string | null;
+            _debug?: unknown;
           };
+          if (j._debug) setLetterDebug(j._debug as Record<string, unknown>);
           setPerson({
             firstName: j.sender.firstName,
             lastName:  j.sender.lastName,
@@ -760,6 +768,37 @@ export default function MotivationsschreibenPage() {
               </h1>
             </div>
           </div>
+
+          {/* DEBUG — shows raw DB values when sender block has missing fields.
+              Visible only to candidates with at least one blank sender field
+              so a fully-populated letter doesn't show it. Remove after
+              verifying the fill works for everyone. */}
+          {letterDebug && (!person?.street || !person?.postal || !person?.city) && (
+            <div className="bv-noprint mb-4 mx-auto" style={{ maxWidth: 794 }}>
+              <details style={{ background: "var(--card)", border: "1px solid var(--border-gold)", borderRadius: 12, padding: "8px 12px" }}>
+                <summary className="text-[11.5px] font-semibold cursor-pointer" style={{ color: "var(--gold)" }}>
+                  Sender block is missing fields — click to inspect what the server returned
+                </summary>
+                <pre style={{
+                  fontSize: 10.5,
+                  lineHeight: 1.45,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-all",
+                  color: "var(--w2)",
+                  marginTop: 10,
+                  maxHeight: 320,
+                  overflow: "auto",
+                }}>
+                  {String(JSON.stringify(letterDebug, null, 2) ?? "")}
+                </pre>
+                <p className="text-[10px] mt-2" style={{ color: "var(--w3)" }}>
+                  If <code>passport.address_street</code> is <code>null</code> but you entered an address as admin, it means
+                  the admin edit didn't persist into the candidate's row. Tell Claude what you see here and the fix
+                  follows in one round-trip.
+                </p>
+              </details>
+            </div>
+          )}
 
           {/* Document sheet */}
           <div id="bv-doc-sheet" className="mx-auto"
