@@ -30,6 +30,8 @@ import {
 import { Upload, FilePen, Ban, Check, Plus, X as XIcon, ArrowLeft, Info, Download, Lock, Briefcase, Smartphone, Car, BookOpen, Dumbbell, Plane, Music } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { PageLoader, Spinner, AutosaveIndicator } from "@/components/ui/states";
+import { CvCollabPresence } from "@/components/CvCollabPresence";
+import type { RealtimeChannel } from "@supabase/supabase-js";
 import { PhotoCropModal } from "@/components/PhotoCropModal";
 import { PdfViewer } from "@/components/PdfViewer";
 import { IosPdfFrame } from "@/components/IosPdfFrame";
@@ -1834,6 +1836,22 @@ function CVBuilderInner() {
   const [savedAt, setSavedAt]       = useState<Date | null>(null);
   const [saveError, setSaveError]   = useState(false);
 
+  // ── Live collab state (Google-Docs-style) ───────────────────────────────
+  // Every editor (candidate, sub-admin, supreme admin) joins a Supabase
+  // Realtime channel keyed by the canonical candidate id, broadcasts
+  // their cvData on edits, and tracks presence with their identity.
+  // Candidate POV anonymises all admin peers to a Borivon "B" avatar
+  // (see components/CvCollabPresence). Admin POV resolves real admin
+  // photos via /api/portal/admin/profiles (POST { emails }) so admins
+  // know which colleague is also in the doc.
+  const [collabPeers, setCollabPeers] = useState<import("@/components/CvCollabPresence").CollabPeer[]>([]);
+  const [selfPeer, setSelfPeer]       = useState<import("@/components/CvCollabPresence").CollabPeer | null>(null);
+  const [viewerRole, setViewerRole]   = useState<"admin" | "sub_admin" | "candidate">("candidate");
+  const lastLocalEditAt    = useRef<number>(0);
+  const lastBroadcastSig   = useRef<string>("");
+  const applyingRemoteRef  = useRef<boolean>(false);
+  const collabChannelRef     = useRef<RealtimeChannel | null>(null);
+
   // ── Draft key (per user) ──────────────────────────────────────────────────
   // When admin edits a candidate's CV, key by candidateId so we don't
   // overwrite the admin's own draft.
@@ -1841,11 +1859,21 @@ function CVBuilderInner() {
     ? (adminCandidateId ? `bv-cv-draft-${adminCandidateId}` : `bv-cv-draft-${userId}`)
     : null;
 
-  // ── Auto-save draft (localStorage immediately + server after 2.5 s) ─────────
+  // ── Auto-save draft (localStorage immediately + server after 800 ms) ─────
+  // 800 ms is the Google-Docs-feel sweet spot: short enough that another
+  // editor sees changes within a second of you stopping, long enough that
+  // a fast typist doesn't burn one PUT per keystroke. The live broadcast
+  // channel further down (cv-collab-<canonicalId>) re-broadcasts to peers
+  // immediately after every successful server write.
   useEffect(() => {
     // Never save during initial load — draft hasn't been restored yet, so cvData
     // is still the empty default state and would overwrite the saved draft.
     if (!draftKey || !userId || !authToken || loading) return;
+    // Mark local-typing time UNLESS this state change came from a remote
+    // apply (so we don't fight other editors' broadcasts).
+    if (!applyingRemoteRef.current) {
+      lastLocalEditAt.current = Date.now();
+    }
     const { photo, ...rest } = cvData;
     void photo;
     // 1. Always write to localStorage for instant in-tab cache
@@ -1853,7 +1881,13 @@ function CVBuilderInner() {
       localStorage.setItem(draftKey, JSON.stringify(rest));
       setSaveError(false);
     } catch { setSaveError(true); }
-    // 2. Debounce the server write — fire 2.5 s after the last change
+    // 2. Skip server PUT + broadcast when the change came from a remote
+    //    apply — that would just echo and burn cycles.
+    if (applyingRemoteRef.current) {
+      applyingRemoteRef.current = false;
+      return;
+    }
+    // 3. Debounce the server write + collab broadcast.
     if (serverSaveTimer.current) clearTimeout(serverSaveTimer.current);
     serverSaveTimer.current = setTimeout(() => {
       const draftUrl = adminCandidateId
@@ -1864,9 +1898,36 @@ function CVBuilderInner() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
         body: JSON.stringify(rest),
       })
-        .then(r => { if (r.ok) setSavedAt(new Date()); else setSaveError(true); })
+        .then(r => {
+          if (r.ok) {
+            setSavedAt(new Date());
+            // Live broadcast to every other editor in the channel. The
+            // signature memo prevents an echo when WE'RE the one that
+            // just applied a remote payload.
+            const sig = JSON.stringify(rest);
+            if (sig !== lastBroadcastSig.current && selfPeer && collabChannelRef.current) {
+              lastBroadcastSig.current = sig;
+              try {
+                void collabChannelRef.current.send({
+                  type: "broadcast",
+                  event: "draft-update",
+                  payload: { by: selfPeer.id, patch: rest, at: Date.now() },
+                });
+                // Also bump our presence so peers see the gold "typing"
+                // dot pulse for a moment.
+                void collabChannelRef.current.track({
+                  ...selfPeer,
+                  editing: true,
+                  editingAt: Date.now(),
+                });
+              } catch { /* offline / channel not joined */ }
+            }
+          } else {
+            setSaveError(true);
+          }
+        })
         .catch(() => setSaveError(true));
-    }, 2500);
+    }, 800);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cvData, draftKey, loading]);
 
@@ -1995,6 +2056,178 @@ function CVBuilderInner() {
     return () => { cancelled = true; clearInterval(timer); supabase.removeChannel(ch); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, adminCandidateId]);
+
+  // ── Live collaboration — resolve self identity ───────────────────────────
+  // Builds the `selfPeer` object once we know who's editing: candidate's
+  // own profile photo when they are the editor, or the admin's saved
+  // photo from admin_profiles when an admin/sub-admin is editing on the
+  // candidate's behalf. selfPeer is what we .track() on the presence
+  // channel below, so its `role` field drives the anonymisation logic on
+  // every OTHER tab.
+  useEffect(() => {
+    if (!userId || !authToken) return;
+    let cancelled = false;
+    (async () => {
+      // 1) viewer role
+      let role: "admin" | "sub_admin" | "candidate" = "candidate";
+      try {
+        const r = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${authToken}` } });
+        if (r.ok) {
+          const j = await r.json().catch(() => ({}));
+          if (j?.role === "admin" || j?.role === "sub_admin") role = j.role;
+        }
+      } catch { /* default = candidate */ }
+      if (cancelled) return;
+      setViewerRole(role);
+      // 2) viewer email (Supabase auth) — used as peer id + lookup key for
+      //    admin avatars.
+      const { data: au } = await supabase.auth.getUser();
+      const email = (au?.user?.email ?? "").toLowerCase();
+      // 3) display name + photo
+      let displayName = email.split("@")[0] || "—";
+      let photo: string | null = null;
+      // displayName from auth user_metadata first; fall back to email prefix.
+      const meta = au?.user?.user_metadata as { first_name?: string; last_name?: string } | undefined;
+      if (meta?.first_name || meta?.last_name) {
+        displayName = [meta.first_name, meta.last_name].filter(Boolean).join(" ").trim() || displayName;
+      }
+      if (role === "candidate") {
+        // Candidate-only fallback to candidate_profiles names (auth metadata
+        // may be empty if they signed up before names were captured).
+        const { data: prof } = await supabase
+          .from("candidate_profiles")
+          .select("first_name, last_name, profile_photo")
+          .eq("user_id", userId)
+          .maybeSingle();
+        const p = prof as { first_name?: string; last_name?: string; profile_photo?: string | null } | null;
+        if (!meta?.first_name && !meta?.last_name && (p?.first_name || p?.last_name)) {
+          displayName = [p.first_name, p.last_name].filter(Boolean).join(" ").trim() || displayName;
+        }
+        photo = p?.profile_photo ?? null;
+      } else {
+        // admin / sub_admin: reuse the shared /api/portal/me/profile-photo
+        // endpoint — same one ProfileIcon uses, so the photo an admin set
+        // in their My Profile modal lights up the collab presence too.
+        try {
+          const r = await fetch("/api/portal/me/profile-photo", { headers: { Authorization: `Bearer ${authToken}` } });
+          if (r.ok) {
+            const j = await r.json().catch(() => ({}));
+            if (typeof j?.photo === "string") photo = j.photo;
+          }
+        } catch { /* leave photo null → initials avatar */ }
+      }
+      if (cancelled) return;
+      setSelfPeer({
+        id:          email || userId,
+        role,
+        email,
+        displayName,
+        photo,
+        isSelf:      true,
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [userId, authToken]);
+
+  // ── Live collaboration — channel join + presence + broadcast receive ────
+  useEffect(() => {
+    const target = adminCandidateId ?? userId;
+    if (!target || !selfPeer) return;
+
+    type RawPeer = {
+      id: string;
+      role: "admin" | "sub_admin" | "candidate";
+      email: string;
+      displayName: string;
+      photo?: string | null;
+      editingAt?: number;
+    };
+
+    // Channel key — every editor of THIS candidate's CV joins the same room.
+    const ch = supabase.channel(`cv-collab-${target}`, {
+      config: { presence: { key: selfPeer.id } },
+    });
+    collabChannelRef.current = ch;
+
+    // Helper: turn raw Realtime presence state into our CollabPeer[] for
+    // the avatar row. Each peer self-reports photo + displayName when they
+    // .track(), so no extra DB lookup is needed. Candidate view will
+    // anonymise admin peers to the Borivon B downstream (CvCollabPresence).
+    function refresh() {
+      const state = ch.presenceState() as Record<string, RawPeer[]>;
+      const flat: RawPeer[] = Object.values(state).flat();
+      const now = Date.now();
+      const next = flat.map(p => ({
+        id:          p.id,
+        role:        p.role,
+        email:       p.email,
+        displayName: p.displayName,
+        photo:       p.photo ?? null,
+        editing:     !!(p.editingAt && now - p.editingAt < 1500),
+        isSelf:      p.id === selfPeer!.id,
+      } as import("@/components/CvCollabPresence").CollabPeer));
+      setCollabPeers(next);
+    }
+
+    ch.on("presence", { event: "sync" },   () => { refresh(); });
+    ch.on("presence", { event: "join"  },  () => { refresh(); });
+    ch.on("presence", { event: "leave" },  () => { refresh(); });
+
+    // Remote draft-update — apply if it didn't come from us and we aren't
+    // currently typing (1.5 s grace) so our keystrokes don't get clobbered.
+    ch.on("broadcast", { event: "draft-update" }, ({ payload }) => {
+      const p = payload as { by?: string; patch?: Partial<CVData>; at?: number };
+      if (!p?.patch || !p.by || p.by === selfPeer!.id) return;
+      if (Date.now() - lastLocalEditAt.current < 1500) return; // user is mid-typing
+      const sig = JSON.stringify(p.patch);
+      if (sig === lastBroadcastSig.current) return;
+      lastBroadcastSig.current = sig;
+      applyingRemoteRef.current = true;
+      setCvData(prev => ({ ...prev, ...p.patch, photo: prev.photo /* never overwrite local photo */ }));
+    });
+
+    ch.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        try {
+          await ch.track({
+            id:          selfPeer.id,
+            role:        selfPeer.role,
+            email:       selfPeer.email,
+            displayName: selfPeer.displayName,
+            photo:       selfPeer.photo,
+            editingAt:   0,
+          });
+        } catch { /* ignore */ }
+      }
+    });
+
+    return () => {
+      try { void ch.untrack(); } catch { /* ignore */ }
+      supabase.removeChannel(ch);
+      collabChannelRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, adminCandidateId, selfPeer, viewerRole]);
+
+  // Stale-pulse cleanup — drop the gold "typing" dot once the broadcast
+  // is older than 1.5 s, even if no presence event fires in between.
+  useEffect(() => {
+    const t = setInterval(() => {
+      setCollabPeers(prev => {
+        const now = Date.now();
+        let changed = false;
+        const next = prev.map(p => {
+          // We don't carry editingAt on the peer (only `editing`), so we
+          // just decay every editing flag after a tick. The next presence
+          // refresh from the channel resets it accurately.
+          if (p.editing) { changed = true; return { ...p, editing: false }; }
+          return p;
+        });
+        return changed ? next : prev;
+      });
+    }, 1700);
+    return () => clearInterval(t);
+  }, []);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
   // Keep the token state fresh whenever Supabase refreshes the JWT
@@ -2735,7 +2968,10 @@ function CVBuilderInner() {
               style={{ color: "var(--w3)" }}>
               <ArrowLeft size={13} strokeWidth={1.8} /> {adminCandidateId ? t.cvbBackToAdmin : t.cvb_backToPortal}
             </button>
-            <AutosaveIndicator savedAt={savedAt} error={saveError} />
+            <div className="flex items-center gap-3">
+              <CvCollabPresence peers={collabPeers} viewerRole={viewerRole} />
+              <AutosaveIndicator savedAt={savedAt} error={saveError} />
+            </div>
           </div>
           <div className="text-center">
             <h1 className="font-semibold tracking-[-0.02em] leading-tight" style={{ color: "var(--w)" }}>
