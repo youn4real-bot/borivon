@@ -71,24 +71,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
 
-  // Send "placed" notification to candidate when approved directly by admin.
-  if (status === "approved") {
-    const { data: org } = await db
-      .from("organizations")
-      .select("name")
-      .eq("id", id)
-      .maybeSingle();
-    const orgName = (org as { name: string } | null)?.name ?? "Organisation";
-    await db.from("notifications").insert({
-      user_id:  candidateUserId,
-      doc_id:   null,
-      doc_name: orgName,
-      doc_type: "placement",
-      action:   "placed",
-      feedback: null,
-      read:     false,
-    });
-  }
+  // Silent placement — no candidate notification, no email, no
+  // celebration. The candidate sees the org appear on their dashboard
+  // via the /api/portal/me/organizations poll, and that surface is the
+  // only signal. (Removed at user request 2026-05.)
 
   return NextResponse.json({ success: true });
 }

@@ -38,7 +38,6 @@ import { OrgCodeModal } from "@/components/OrgCodeModal";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { buildProfileSlug } from "@/lib/profile-slug";
 import { VerifiedCelebration } from "@/components/VerifiedCelebration";
-import { MatchedCelebration } from "@/components/MatchedCelebration";
 import { PaymentCelebration } from "@/components/PaymentCelebration";
 import { PortalTopNav } from "@/components/PortalTopNav";
 import { PendingSignatures } from "@/components/PendingSignatures";
@@ -349,8 +348,6 @@ export default function DashboardPage() {
   // the dashboard. Rejected entries are filtered out. Polled every 30 s so
   // admin-initiated placements appear without a page reload.
   const [linkedOrgs, setLinkedOrgs] = useState<{ id: string; name: string; status: string }[]>([]);
-  // Celebration modal — shown once per (user, orgId) on first detection of an approved match
-  const [celebrateOrg, setCelebrateOrg] = useState<{ id: string; name: string } | null>(null);
 
   // Payment tier — gates journey/pipeline access
   const [paymentTier, setPaymentTier] = useState<string | null>(null);
@@ -603,32 +600,10 @@ export default function DashboardPage() {
           if (!j?.orgs) return;
           const list = (j.orgs as { id: string; name: string; status: string }[])
             .filter(o => o.status !== "rejected");
-          setLinkedOrgs(prev => {
-            // Check if a NEW approved org appeared — show a subtle notification
-            const prevIds = new Set(prev.filter(o => o.status === "approved").map(o => o.id));
-            const newOrg = list.find(o => o.status === "approved" && !prevIds.has(o.id));
-            if (newOrg) {
-              // Dispatch event so any listeners (future notifications) can react
-              window.dispatchEvent(new CustomEvent("bv-org-placed", { detail: { name: newOrg.name } }));
-              // Show the celebration modal ONCE per (user, orgId).
-              // Write to localStorage immediately (before the modal mounts) so
-              // a quick refresh can't trigger the celebration a second time.
-              if (userId) {
-                try {
-                  const key = `bv-celebrated-orgs-${userId}`;
-                  const seen = JSON.parse(localStorage.getItem(key) ?? "[]") as string[];
-                  if (!seen.includes(newOrg.id)) {
-                    seen.push(newOrg.id);
-                    localStorage.setItem(key, JSON.stringify(seen));
-                    setCelebrateOrg({ id: newOrg.id, name: newOrg.name });
-                  }
-                } catch {
-                  setCelebrateOrg({ id: newOrg.id, name: newOrg.name });
-                }
-              }
-            }
-            return list;
-          });
+          // Silent update — no celebration, no toast, no event. Org cards
+          // simply appear / disappear on the dashboard. (Per user request:
+          // candidate gets no announcement about matching with an employer.)
+          setLinkedOrgs(list);
         })
         .catch(() => {});
     };
@@ -1079,7 +1054,9 @@ export default function DashboardPage() {
           .then(r => r.json())
           .then(({ pipeline: p }) => { if (!cancelled) setPipeline(p ?? null); })
           .catch(err => console.error("Pipeline fetch error:", err)),
-        // c) Linked orgs (org invite modal, matched celebration)
+        // c) Linked orgs — only used to render partner cards and gate the
+        //    org-invite modal. No celebration / notification on match
+        //    (per user 2026-05 — placement is silent).
         fetch(`/api/portal/me/organizations`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         })
@@ -1090,19 +1067,6 @@ export default function DashboardPage() {
               .filter(o => o.status !== "rejected");
             setLinkedOrgs(list);
             setOrgChecked(true);
-            const approvedOrgs = list.filter(o => o.status === "approved");
-            if (approvedOrgs.length > 0) {
-              try {
-                const key = `bv-celebrated-orgs-${user.id}`;
-                const seen = JSON.parse(localStorage.getItem(key) ?? "[]") as string[];
-                const uncelebrated = approvedOrgs.find(o => !seen.includes(o.id));
-                if (uncelebrated) {
-                  seen.push(uncelebrated.id);
-                  localStorage.setItem(key, JSON.stringify(seen));
-                  setCelebrateOrg({ id: uncelebrated.id, name: uncelebrated.name });
-                }
-              } catch { /* private mode */ }
-            }
           })
           .catch(() => { if (!cancelled) setOrgChecked(true); }),
       ]);
@@ -4672,16 +4636,8 @@ export default function DashboardPage() {
       />
     )}
 
-    {/* ── Org-match celebration — shown once per (user, orgId) ── */}
-    {celebrateOrg && userId && (
-      <MatchedCelebration
-        userId={userId}
-        orgId={celebrateOrg.id}
-        orgName={celebrateOrg.name}
-        lang={lang as "fr" | "en" | "de"}
-        onDismiss={() => setCelebrateOrg(null)}
-      />
-    )}
+    {/* Org-match celebration removed — candidate placement is now silent
+        (no notification, no modal). User explicit request 2026-05. */}
 
     {/* ── Payment celebration — full-screen, shown once after Stripe redirect ── */}
     {paymentCelebration && userId && (

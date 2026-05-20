@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole } from "@/lib/admin-auth";
-import { sendPlacedEmail } from "@/lib/email";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -138,29 +137,10 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Notify candidate
-    const { data: org } = await db
-      .from("organizations")
-      .select("name")
-      .eq("id", match.org_id)
-      .maybeSingle();
-
-    const orgName = (org as { name: string } | null)?.name ?? "Organisation";
-    await db.from("notifications").insert({
-      user_id:  match.candidate_user_id,
-      doc_id:   null,
-      doc_name: orgName,
-      doc_type: "placement",
-      action:   "placed",
-      feedback: null,
-      read:     false,
-    });
-
-    // Fire placement email (fire-and-forget)
-    db.auth.admin.getUserById(match.candidate_user_id).then(({ data }) => {
-      const email = data?.user?.email;
-      if (email) sendPlacedEmail(email, orgName);
-    }).catch(() => {});
+    // Silent placement — no candidate notification, no placement email, no
+    // dashboard celebration. The candidate sees the org appear on their
+    // dashboard via the existing /api/portal/me/organizations poll, and that
+    // surface is the only signal. (Removed at user request 2026-05.)
   }
 
   return NextResponse.json({ success: true });

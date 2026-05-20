@@ -25,8 +25,18 @@ function rateLimited(userId: string): boolean {
   return false;
 }
 
-/** Resolve org branding for a candidate. Returns CVBrand with Borivon defaults if no org. */
-async function resolveBrand(userId: string): Promise<CVBrand> {
+/**
+ * Resolve org branding for a candidate's CV.
+ *
+ * Policy (per user 2026-05): agency / org branding is applied ONLY when an
+ * admin or sub-admin is generating the CV for the candidate. When the
+ * candidate themselves downloads, the CV is always the plain Borivon
+ * template — no logo override, no footer override.
+ *
+ * Returns CVBrand{} (Borivon defaults) for self-renders.
+ */
+async function resolveBrand(userId: string, byAdmin: boolean): Promise<CVBrand> {
+  if (!byAdmin) return {};
   const db = getServiceSupabase();
 
   // Branding resolution chain:
@@ -117,12 +127,14 @@ export async function POST(req: NextRequest) {
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const qCand = req.nextUrl.searchParams.get("candidateId");
   let targetUserId = auth.userId;
+  let byAdmin = false; // true only when an admin/sub-admin renders on behalf of a candidate
   if (qCand && UUID_RE.test(qCand) && qCand !== auth.userId) {
     const adm = await requireAdminRole(req);
     if (!adm.ok || !(await canActOnCandidate(adm.role, adm.email, qCand))) {
       return Response.json({ error: "Forbidden" }, { status: 403 });
     }
     targetUserId = qCand;
+    byAdmin = true;
   }
 
   if (rateLimited(targetUserId)) {
@@ -135,7 +147,7 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: "Payload too large" }, { status: 413 });
     }
     const data: CVData = JSON.parse(rawBody);
-    const brand = await resolveBrand(targetUserId);
+    const brand = await resolveBrand(targetUserId, byAdmin);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const element = React.createElement(CVDocument, { data, brand }) as any;

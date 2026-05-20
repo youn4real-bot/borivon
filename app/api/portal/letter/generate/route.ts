@@ -25,74 +25,13 @@ function rateLimited(userId: string): boolean {
 }
 
 async function resolveBrand(userId: string): Promise<LetterBrand> {
-  const db = getServiceSupabase();
-
-  // Resolution chain: direct candidate_organizations link first; else fall
-  // back to the agency_id on the candidate's assigned employer (so a
-  // "via Calmaroi" employer auto-brands the letter without an org link).
-  let orgId: string | null = null;
-  const { data: link } = await db
-    .from("candidate_organizations")
-    .select("org_id")
-    .eq("candidate_user_id", userId)
-    .eq("status", "approved")
-    .limit(1)
-    .maybeSingle();
-  if (link?.org_id) orgId = link.org_id;
-
-  if (!orgId) {
-    const { data: prof } = await db
-      .from("candidate_profiles")
-      .select("employer_id")
-      .eq("user_id", userId)
-      .maybeSingle();
-    const empId = (prof as { employer_id?: string | null } | null)?.employer_id ?? null;
-    if (empId) {
-      const { data: emp } = await db
-        .from("employers")
-        .select("agency_id")
-        .eq("id", empId)
-        .maybeSingle();
-      const agId = (emp as { agency_id?: string | null } | null)?.agency_id ?? null;
-      if (agId) orgId = agId;
-    }
-  }
-
-  if (!orgId) return {};
-
-  const { data: org } = await db
-    .from("organizations")
-    .select("name, logo_filename, footer_text")
-    .eq("id", orgId)
-    .single();
-
-  if (!org) return {};
-
-  const brand: LetterBrand = {};
-
-  if (org.logo_filename) {
-    if (org.logo_filename.startsWith("data:")) {
-      brand.logoSrc = org.logo_filename;
-    } else {
-      const logoPath = path.join(process.cwd(), "public", "logos", org.logo_filename);
-      if (fs.existsSync(logoPath)) {
-        const ext = path.extname(org.logo_filename).toLowerCase();
-        const mime =
-          ext === ".png"  ? "image/png"  :
-          ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" :
-          ext === ".webp" ? "image/webp"  :
-          "image/png";
-        const b64 = fs.readFileSync(logoPath).toString("base64");
-        brand.logoSrc = `data:${mime};base64,${b64}`;
-      }
-    }
-  }
-
-  if (org.footer_text) {
-    brand.footerLines = org.footer_text.split("\n").map((l: string) => l.trim()).filter(Boolean);
-  }
-
-  return brand;
+  // Letter is candidate-generated only. Per user 2026-05: candidate-side
+  // output is always plain Borivon — no agency / org branding override.
+  // The recipient block (employer name + address) is still auto-filled in
+  // the POST handler from candidate_profiles.employer_id — that is
+  // separate from brand and is preserved.
+  void userId;
+  return {};
 }
 
 export async function POST(req: NextRequest) {
