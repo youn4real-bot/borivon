@@ -33,11 +33,18 @@ type DraftForm = {
   id?: string;
   slug: string;
   name: string;
-  addressText: string; // multiline; split on save
+  addressText: string;            // multiline; split on save
   notes: string;
   active: boolean;
+  // Source — Direct employer (no agency) vs Through an agency (links to an
+  // organizations row). Schema: employers.agency_id FK organizations.id.
+  source: "direct" | "agency";
+  agencyId: string | null;
 };
-const EMPTY_DRAFT: DraftForm = { slug: "", name: "", addressText: "", notes: "", active: true };
+const EMPTY_DRAFT: DraftForm = {
+  slug: "", name: "", addressText: "", notes: "", active: true,
+  source: "direct", agencyId: null,
+};
 
 function toDraft(e: Employer): DraftForm {
   return {
@@ -47,6 +54,8 @@ function toDraft(e: Employer): DraftForm {
     addressText: (e.address_lines ?? []).join("\n"),
     notes: e.notes ?? "",
     active: e.active,
+    source: e.agency_id ? "agency" : "direct",
+    agencyId: e.agency_id,
   };
 }
 
@@ -55,8 +64,11 @@ export default function AdminEmployersPage() {
   const [accessToken, setAccessToken] = useState<string>("");
   const [loading, setLoading]         = useState(true);
   const [employers, setEmployers]     = useState<Employer[]>([]);
+  const [orgs, setOrgs]               = useState<{ id: string; name: string }[]>([]);
   const [draft, setDraft]             = useState<DraftForm | null>(null);
   const [saving, setSaving]           = useState(false);
+  // id → org name (for the "via {agency}" badge in the list).
+  const orgsById = new Map(orgs.map(o => [o.id, o.name] as const));
 
   // Auth — supreme only. Anything else → bounce to dashboard.
   useEffect(() => {
@@ -78,12 +90,18 @@ export default function AdminEmployersPage() {
   const load = useCallback(async (tok: string) => {
     setLoading(true);
     try {
-      const r = await fetch("/api/portal/admin/employers?all=1", {
-        headers: { Authorization: `Bearer ${tok}` },
-      });
-      if (r.ok) {
-        const j = await r.json();
+      const [er, or] = await Promise.all([
+        fetch("/api/portal/admin/employers?all=1", { headers: { Authorization: `Bearer ${tok}` } }),
+        fetch("/api/portal/admin/organizations",  { headers: { Authorization: `Bearer ${tok}` } }),
+      ]);
+      if (er.ok) {
+        const j = await er.json();
         setEmployers((j.employers ?? []) as Employer[]);
+      }
+      if (or.ok) {
+        const j = await or.json();
+        const list = (j.orgs ?? []) as { id: string; name: string }[];
+        setOrgs(list.map(o => ({ id: o.id, name: o.name })));
       }
     } catch { /* offline */ }
     setLoading(false);
@@ -97,12 +115,17 @@ export default function AdminEmployersPage() {
     if (!draft.name.trim()) { alert("Name erforderlich."); return; }
     if (addressLines.length === 0) { alert("Mindestens eine Adresszeile erforderlich."); return; }
 
+    if (draft.source === "agency" && !draft.agencyId) {
+      alert("Bitte eine Agentur auswählen.");
+      return;
+    }
     const body: Record<string, unknown> = {
       slug: draft.slug.trim() || null,
       name: draft.name.trim(),
       address_lines: addressLines,
       notes: draft.notes.trim() || null,
       active: draft.active,
+      agency_id: draft.source === "agency" ? draft.agencyId : null,
     };
     if (draft.id) body.id = draft.id;
 
@@ -180,6 +203,15 @@ export default function AdminEmployersPage() {
                     <span className="text-[10px] font-mono px-1.5 py-0.5 rounded"
                       style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>{e.slug}</span>
                   )}
+                  {e.agency_id ? (
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                      style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                      via {orgsById.get(e.agency_id) ?? "Agentur"}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                      style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>direkt</span>
+                  )}
                   {!e.active && (
                     <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded"
                       style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>inaktiv</span>
@@ -236,6 +268,46 @@ export default function AdminEmployersPage() {
                   className="w-full rounded-lg px-2.5 py-2 text-xs outline-none font-mono"
                   style={{ background: "var(--bg2)", border: "1px solid var(--border2)", color: "var(--w)" }} />
               </div>
+
+              {/* Source — Direct employer (no agency) vs Through an agency. */}
+              <div>
+                <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>Quelle</label>
+                <div className="flex gap-2">
+                  {(["direct", "agency"] as const).map(src => {
+                    const active = draft.source === src;
+                    return (
+                      <button key={src} type="button"
+                        onClick={() => setDraft(d => d ? { ...d, source: src, agencyId: src === "direct" ? null : d.agencyId } : d)}
+                        className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                        style={{
+                          background: active ? "var(--gdim)" : "var(--bg2)",
+                          color:      active ? "var(--gold)" : "var(--w3)",
+                          border: `1px solid ${active ? "var(--border-gold)" : "var(--border)"}`,
+                        }}>
+                        {src === "direct" ? "Direkter Arbeitgeber" : "Über Agentur"}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {draft.source === "agency" && (
+                <div>
+                  <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>Agentur *</label>
+                  <select value={draft.agencyId ?? ""}
+                    onChange={e => setDraft(d => d ? { ...d, agencyId: e.target.value || null } : d)}
+                    className="w-full rounded-lg px-2.5 py-2 text-xs outline-none"
+                    style={{ background: "var(--bg2)", border: "1px solid var(--border2)", color: "var(--w)" }}>
+                    <option value="">— wählen —</option>
+                    {orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                  </select>
+                  {orgs.length === 0 && (
+                    <p className="text-[10.5px] mt-1" style={{ color: "var(--w3)" }}>
+                      Noch keine Agenturen. Lege eine unter <span style={{ color: "var(--gold)" }}>Organisationen</span> an.
+                    </p>
+                  )}
+                </div>
+              )}
               <div>
                 <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>
                   Adresszeilen * <span style={{ color: "var(--w3)" }}>(eine pro Zeile)</span>
