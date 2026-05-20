@@ -130,12 +130,16 @@ export async function GET(req: NextRequest) {
   if (orgIdParam && UUID_RE.test(orgIdParam)) {
     orgId = orgIdParam;
   } else {
-    // Auto-detect: candidate's approved org
+    // Auto-detect: candidate's approved org. Admin-initiated links are
+    // excluded (user request 2026-05: candidate must not see content from
+    // agencies an admin placed them with). Candidate-self-joined orgs
+    // still get their org-specific slot templates.
     const { data: mem } = await db
       .from("candidate_organizations")
       .select("org_id")
       .eq("candidate_user_id", userId)
       .eq("status", "approved")
+      .neq("added_by", "admin")
       .maybeSingle();
     orgId = (mem as { org_id: string } | null)?.org_id ?? null;
   }

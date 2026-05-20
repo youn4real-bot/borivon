@@ -318,10 +318,16 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
   const { newIds, track } = useNewArrivals();
 
   const fetch_ = useCallback(async () => {
+    // doc_type='placement' is excluded: candidate must never see an
+    // org-match notification (user request 2026-05). Any legacy rows
+    // from before the silent-placement switch stay in the DB but never
+    // reach the bell. Same goes for the 15s realtime poll below — it
+    // calls this same fetch.
     const { data, error } = await supabase
       .from("notifications")
       .select("id, doc_id, doc_name, doc_type, action, feedback, read, created_at")
       .eq("user_id", userId)
+      .neq("doc_type", "placement")
       .order("created_at", { ascending: false })
       .limit(30);
     // On Supabase error: keep the existing notifications list rather than

@@ -36,12 +36,16 @@ export async function GET(req: NextRequest) {
     .eq("sub_admin_email", auth.email);
   const memberOrgIds = ((memberRows ?? []) as { org_id: string }[]).map(r => r.org_id);
 
-  // Org IDs the user is a CANDIDATE in (approved-linked).
+  // Org IDs the user is a CANDIDATE in (approved-linked). Admin-initiated
+  // links are excluded so an agency the admin placed the candidate with
+  // (e.g. Calmaroi) does NOT surface a feed channel. Candidate-self-joined
+  // orgs (invite code / self_signup) keep their community channel.
   const { data: candRows } = await db
     .from("candidate_organizations")
     .select("org_id")
     .eq("candidate_user_id", auth.userId)
-    .eq("status", "approved");
+    .eq("status", "approved")
+    .neq("added_by", "admin");
   const candOrgIds = ((candRows ?? []) as { org_id: string }[]).map(r => r.org_id);
 
   // Build ordered, de-duped org list and resolve names.
