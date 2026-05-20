@@ -274,19 +274,34 @@ type ProfileRow = {
   passport_status?:      string | null;
   cv_draft?:             Record<string, unknown> | null;
 };
-function mergePersonFromRow(p: ProfileRow | null | undefined, email: string): Person {
+type SignupMeta = { first_name?: string; last_name?: string };
+function mergePersonFromRow(
+  p: ProfileRow | null | undefined,
+  email: string,
+  meta?: SignupMeta | null,
+): Person {
   const d = (p?.cv_draft ?? {}) as Record<string, unknown>;
   const draftStr = (k: string): string => {
     const v = d[k];
     return typeof v === "string" ? v : "";
   };
-  // Helper: passport (candidate_profiles) value, else cv_draft value, else "".
-  const pick = (passportV: string | null | undefined, draftK: string): string =>
-    (passportV && String(passportV).trim()) || draftStr(draftK).trim();
+  // Helper: passport (candidate_profiles) value, else cv_draft value,
+  // else signup user_metadata, else "". Signup metadata is the universal
+  // fallback — every account has first_name/last_name set at sign-up time,
+  // so name is NEVER blank on the cover letter regardless of whether the
+  // passport has been approved or the CV builder has been opened.
+  const pick = (
+    passportV: string | null | undefined,
+    draftK:    string,
+    metaV?:    string | null,
+  ): string =>
+    (passportV && String(passportV).trim())
+      || draftStr(draftK).trim()
+      || (metaV ? String(metaV).trim() : "");
 
   return {
-    firstName: pick(p?.first_name,           "firstName"),
-    lastName:  pick(p?.last_name,            "lastName"),
+    firstName: pick(p?.first_name,           "firstName", meta?.first_name),
+    lastName:  pick(p?.last_name,            "lastName",  meta?.last_name),
     street:    pick(p?.address_street,       "address"),
     number:    pick(p?.address_number,       "addressNumber"),
     postal:    pick(p?.address_postal,       "postalCode"),
@@ -360,16 +375,21 @@ export default function MotivationsschreibenPage() {
   // Postgres realtime push fires inside the candidate's own session (their
   // own row, RLS-allowed). A 5 s poll backstops the cases realtime is
   // blocked (suspended tab, channel error, RLS-gated cross-user).
-  const personEmailRef = useRef<string>("");
+  const personEmailRef  = useRef<string>("");
+  const signupMetaRef   = useRef<SignupMeta | null>(null);
   useEffect(() => { if (person?.email) personEmailRef.current = person.email; }, [person?.email]);
   useEffect(() => {
     if (!userId) return;
     let cancelled = false;
     const COLS = "first_name,last_name,country_of_residence,address_street,address_number,address_postal,city_of_residence,phone,passport_status,cv_draft";
     const pull = async () => {
-      const { data } = await supabase.from("candidate_profiles").select(COLS).eq("user_id", userId).maybeSingle();
+      const { data, error } = await supabase.from("candidate_profiles").select(COLS).eq("user_id", userId).maybeSingle();
+      if (typeof window !== "undefined") {
+        // eslint-disable-next-line no-console
+        console.log("[letter] pull", { ok: !error, hasData: !!data, error: error?.message });
+      }
       if (cancelled || !data) return;
-      const merged = mergePersonFromRow(data as ProfileRow, personEmailRef.current);
+      const merged = mergePersonFromRow(data as ProfileRow, personEmailRef.current, signupMetaRef.current);
       setPerson(prev => {
         if (!prev) return merged;
         // Skip churn when nothing changed (avoid focus loss on inputs).
@@ -379,13 +399,28 @@ export default function MotivationsschreibenPage() {
       const ps = (data as ProfileRow).passport_status;
       if (ps === "pending" || ps === "approved" || ps === "rejected") setPassportStatus(ps);
     };
+    // Keep the realtime websocket auth in lock-step with our REST JWT —
+    // without this, postgres_changes silently doesn't deliver after a
+    // session restore from localStorage (same bug we fixed for cv-collab).
+    if (authToken) { try { supabase.realtime.setAuth(authToken); } catch { /* offline */ } }
     const ch = supabase
       .channel(`letter-profile-${userId}`)
       .on("postgres_changes",
         { event: "UPDATE", schema: "public", table: "candidate_profiles", filter: `user_id=eq.${userId}` },
-        () => { void pull(); },
+        () => {
+          if (typeof window !== "undefined") {
+            // eslint-disable-next-line no-console
+            console.log("[letter] realtime UPDATE for user", userId);
+          }
+          void pull();
+        },
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (typeof window !== "undefined") {
+          // eslint-disable-next-line no-console
+          console.log("[letter] channel status:", status, `letter-profile-${userId}`);
+        }
+      });
     // 5 s poll backstop for cases realtime is suppressed.
     const t = setInterval(() => { if (!document.hidden) void pull(); }, 5000);
     const onVis = () => { if (!document.hidden) void pull(); };
@@ -398,7 +433,8 @@ export default function MotivationsschreibenPage() {
       document.removeEventListener("visibilitychange", onVis);
       supabase.removeChannel(ch);
     };
-  }, [userId]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, authToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -413,6 +449,11 @@ export default function MotivationsschreibenPage() {
 
       const { data: au } = await supabase.auth.getUser();
       const email = au?.user?.email ?? "";
+      // Cache signup metadata for the live-sync effect below — every account
+      // has first_name/last_name set at sign-up (see /portal page.tsx sign-up
+      // flow), so this is the universal fallback when passport hasn't filled
+      // candidate_profiles yet.
+      signupMetaRef.current = (au?.user?.user_metadata ?? null) as SignupMeta | null;
 
       // Pull BOTH the approved-passport fields AND the live cv_draft from
       // the same row — cover letter merges them so candidates always see
@@ -427,7 +468,7 @@ export default function MotivationsschreibenPage() {
         .maybeSingle();
 
       if (!cancelled) {
-        setPerson(mergePersonFromRow(p, email));
+        setPerson(mergePersonFromRow(p, email, signupMetaRef.current));
         const ps = p?.passport_status as string | undefined;
         if (ps === "pending" || ps === "approved" || ps === "rejected") setPassportStatus(ps);
       }
