@@ -1340,6 +1340,56 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // ── Persist OCR'd values into candidate_profiles immediately ─────────
+      // Fixes the Soufiane-class bug where OCR returned full data but
+      // nothing ever reached the DB (the client form had to be saved
+      // manually). With this, the candidate's row exists the moment the
+      // scan is uploaded — admin Approve just flips the status. Coalesce
+      // semantics: only fills columns that are currently null/empty,
+      // never overwrites admin or candidate edits.
+      if (passportData) {
+        try {
+          const dbsvc = getServiceSupabase();
+          const { data: existing } = await dbsvc
+            .from("candidate_profiles")
+            .select("user_id,first_name,last_name,dob,sex,nationality,passport_no,passport_expiry,city_of_birth,country_of_birth,issuing_authority,issue_date,address_street,address_number,address_postal,city_of_residence,country_of_residence,passport_status")
+            .eq("user_id", userId)
+            .maybeSingle();
+          const cur = (existing ?? {}) as Record<string, string | null | undefined>;
+          const PERSIST_FIELDS = [
+            "first_name","last_name","dob","sex","nationality",
+            "passport_no","passport_expiry","city_of_birth","country_of_birth",
+            "issuing_authority","issue_date",
+            "address_street","address_number","address_postal",
+            "city_of_residence","country_of_residence",
+          ] as const;
+          const incoming = passportData as Record<string, string | null | undefined>;
+          const toWrite: Record<string, unknown> = { user_id: userId };
+          let touched = false;
+          for (const k of PERSIST_FIELDS) {
+            const v = incoming[k];
+            const present = cur[k];
+            // Only fill when target is empty and incoming has a real value.
+            if ((present == null || present === "") && v != null && String(v).trim() !== "") {
+              toWrite[k] = String(v).trim();
+              touched = true;
+            }
+          }
+          // Set passport_status to "pending" only if no status yet — never
+          // demote an "approved" row back to pending.
+          if (touched && (cur.passport_status == null || cur.passport_status === "")) {
+            toWrite.passport_status = "pending";
+          }
+          if (touched) {
+            await dbsvc.from("candidate_profiles").upsert(toWrite, { onConflict: "user_id" });
+          }
+        } catch (e) {
+          // Non-fatal: keep the upload success path intact even if the
+          // coalesce write fails. Admin can still save manually.
+          console.error("[upload OCR persist] failed (non-fatal):", e);
+        }
+      }
+
       return NextResponse.json({ success: true, passportData, hadData: hadPassportData });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
