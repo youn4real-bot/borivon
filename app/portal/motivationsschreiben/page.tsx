@@ -295,6 +295,16 @@ export default function MotivationsschreibenPage() {
 
   const draftKey = useCallback((uid: string) => `bv_letter_body_${uid}`, []);
 
+  // Keep authToken state fresh across silent JWT refreshes (~55 min). Without
+  // this the initial-mount token goes stale during long edits and every
+  // subsequent generate / upload fails with "Invalid token".
+  useEffect(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      if (session?.access_token) setAuthToken(session.access_token);
+    });
+    return () => { sub.subscription.unsubscribe(); };
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -446,9 +456,15 @@ export default function MotivationsschreibenPage() {
         bodyParagraphs,
         closingName: [person.firstName, person.lastName].filter(Boolean).join(" "),
       };
+      // Pull a fresh session token — letter builder is a long-lived edit
+      // surface, the JWT in state can be stale after an hour of typing,
+      // and the server returns "Invalid token" on regen. Belt-and-braces.
+      const { data: { session: freshSess } } = await supabase.auth.getSession();
+      const tok = freshSess?.access_token ?? authToken;
+      if (freshSess?.access_token && freshSess.access_token !== authToken) setAuthToken(freshSess.access_token);
       const res = await fetch("/api/portal/letter/generate", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${tok}` },
         body: JSON.stringify(payload),
       });
       if (!res.ok) {
@@ -479,9 +495,12 @@ export default function MotivationsschreibenPage() {
       form.append("userId", userId);
       form.append("firstName", person.firstName);
       form.append("lastName", person.lastName);
+      const { data: { session: freshSess } } = await supabase.auth.getSession();
+      const tok = freshSess?.access_token ?? authToken;
+      if (freshSess?.access_token && freshSess.access_token !== authToken) setAuthToken(freshSess.access_token);
       const res = await fetch("/api/portal/upload", {
         method: "POST",
-        headers: { Authorization: `Bearer ${authToken}` },
+        headers: { Authorization: `Bearer ${tok}` },
         body: form,
       });
       if (!res.ok) {

@@ -1997,6 +1997,17 @@ function CVBuilderInner() {
   }, [userId, adminCandidateId]);
 
   // ── Auth ──────────────────────────────────────────────────────────────────
+  // Keep the token state fresh whenever Supabase refreshes the JWT
+  // (silent refresh fires every ~55 min). Without this listener the token
+  // captured at mount goes stale during long edit sessions and every
+  // subsequent generate / save returns 401 "Invalid token".
+  useEffect(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      if (session?.access_token) setAuthToken(session.access_token);
+    });
+    return () => { sub.subscription.unsubscribe(); };
+  }, []);
+
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (!session) { router.replace("/portal"); return; }
@@ -2535,11 +2546,23 @@ function CVBuilderInner() {
   async function doGenerate() {
     setGenerating(true); setGenError(""); setPdfBlob(null); setPdfUrl(null); setUploaded(false);
     try {
+      // CV builder is a long-lived edit surface — users iterate for an hour+
+      // before clicking generate. The Supabase JWT in `authToken` could be
+      // stale by then ("Invalid token" on regen). Always pull a fresh
+      // session right before the request so the Authorization header is
+      // never older than the supabase-js refresh cycle (~55 min). If the
+      // session can't be refreshed, fall back to whatever's in state so
+      // the request still attempts (server returns 401 -> generic error).
+      const { data: { session } } = await supabase.auth.getSession();
+      const tok = session?.access_token ?? authToken;
+      if (session?.access_token && session.access_token !== authToken) {
+        setAuthToken(session.access_token);
+      }
       const res = await fetch(
         `/api/portal/cv/generate${adminCandidateId ? `?candidateId=${encodeURIComponent(adminCandidateId)}` : ""}`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${tok}` },
           body: JSON.stringify(cvData),
         },
       );
@@ -2554,7 +2577,7 @@ function CVBuilderInner() {
         try {
           const up = await fetch("/api/portal/cv/preview-file", {
             method: "POST",
-            headers: { "Content-Type": "application/pdf", ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
+            headers: { "Content-Type": "application/pdf", ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
             body: blob,
           });
           if (up.ok) setIosCvNonce(Date.now());
