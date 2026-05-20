@@ -2132,7 +2132,7 @@ function CVBuilderInner() {
   // ── Live collaboration — channel join + presence + broadcast receive ────
   useEffect(() => {
     const target = adminCandidateId ?? userId;
-    if (!target || !selfPeer) return;
+    if (!target || !selfPeer || !authToken) return;
 
     type RawPeer = {
       id: string;
@@ -2143,9 +2143,21 @@ function CVBuilderInner() {
       editingAt?: number;
     };
 
+    // Critical for sessions restored from localStorage — supabase-js v2 only
+    // auto-sets the realtime auth header on a fresh SIGNED_IN event, not on
+    // INITIAL_SESSION. Without this the websocket connects but rejects every
+    // presence / broadcast payload from this client (silent — no error).
+    try { supabase.realtime.setAuth(authToken); } catch { /* offline */ }
+
     // Channel key — every editor of THIS candidate's CV joins the same room.
+    // private:false → no extra channel-level RLS check. broadcast.self:false
+    // means we don't receive our own broadcasts (we already have the local
+    // state). presence.key is our unique presence slot in the room.
     const ch = supabase.channel(`cv-collab-${target}`, {
-      config: { presence: { key: selfPeer.id } },
+      config: {
+        presence:  { key: selfPeer.id },
+        broadcast: { self: false, ack: false },
+      },
     });
     collabChannelRef.current = ch;
 
@@ -2187,9 +2199,13 @@ function CVBuilderInner() {
     });
 
     ch.subscribe(async (status) => {
+      if (typeof window !== "undefined") {
+        // eslint-disable-next-line no-console
+        console.log("[cv-collab] channel status:", status, "room:", `cv-collab-${target}`);
+      }
       if (status === "SUBSCRIBED") {
         try {
-          await ch.track({
+          const r = await ch.track({
             id:          selfPeer.id,
             role:        selfPeer.role,
             email:       selfPeer.email,
@@ -2197,7 +2213,16 @@ function CVBuilderInner() {
             photo:       selfPeer.photo,
             editingAt:   0,
           });
-        } catch { /* ignore */ }
+          if (typeof window !== "undefined") {
+            // eslint-disable-next-line no-console
+            console.log("[cv-collab] tracked self:", r, selfPeer);
+          }
+        } catch (e) {
+          if (typeof window !== "undefined") {
+            // eslint-disable-next-line no-console
+            console.warn("[cv-collab] track failed:", e);
+          }
+        }
       }
     });
 
@@ -2207,7 +2232,7 @@ function CVBuilderInner() {
       collabChannelRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, adminCandidateId, selfPeer, viewerRole]);
+  }, [userId, adminCandidateId, selfPeer, viewerRole, authToken]);
 
   // Stale-pulse cleanup — drop the gold "typing" dot once the broadcast
   // is older than 1.5 s, even if no presence event fires in between.
@@ -2236,7 +2261,13 @@ function CVBuilderInner() {
   // subsequent generate / save returns 401 "Invalid token".
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
-      if (session?.access_token) setAuthToken(session.access_token);
+      if (session?.access_token) {
+        setAuthToken(session.access_token);
+        // Keep the realtime websocket auth in lock-step with the REST JWT —
+        // without this, presence + broadcast silently fail after the first
+        // silent refresh (websocket holds onto the original JWT).
+        try { supabase.realtime.setAuth(session.access_token); } catch { /* offline */ }
+      }
     });
     return () => { sub.subscription.unsubscribe(); };
   }, []);
@@ -2969,7 +3000,13 @@ function CVBuilderInner() {
               <ArrowLeft size={13} strokeWidth={1.8} /> {adminCandidateId ? t.cvbBackToAdmin : t.cvb_backToPortal}
             </button>
             <div className="flex items-center gap-3">
-              <CvCollabPresence peers={collabPeers} viewerRole={viewerRole} />
+              {/* Always include selfPeer so the row is visible even before the
+                  realtime presence sync fires (mirrors how Google Docs shows
+                  your own avatar instantly). Once peers join, they replace it. */}
+              <CvCollabPresence
+                peers={collabPeers.length > 0 ? collabPeers : (selfPeer ? [selfPeer] : [])}
+                viewerRole={viewerRole}
+              />
               <AutosaveIndicator savedAt={savedAt} error={saveError} />
             </div>
           </div>
