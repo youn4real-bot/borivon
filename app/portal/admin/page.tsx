@@ -1494,13 +1494,38 @@ export default function AdminPage() {
     }
   }
 
-  /** Approve or reject passport data — updates passport_status + optional feedback */
+  /** Approve or reject passport data — updates passport_status + optional feedback.
+   *  On APPROVE we also persist every visible passport-data field in the same
+   *  PATCH so the row reflects exactly what the admin saw on screen — covers
+   *  the case where the form held OCR'd / typed values that hadn't yet flushed
+   *  through the per-field autosave debounce. (Without this, "Approve" alone
+   *  would leave address_street / city_of_residence / etc. null — exactly the
+   *  Soufiane bug.) */
   async function reviewPassport(status: "approved" | "rejected" | "pending", feedback?: string) {
     if (!selectedUser) return;
     setPassportInfoSaving(true);
     try {
       const profileUpdate: Partial<CandidateProfile> = { passport_status: status };
       if (feedback !== undefined) profileUpdate.passport_feedback = feedback || null;
+      // On APPROVE, snapshot every visible passport-data field into the same
+      // PATCH so the row reflects exactly what's on screen (merged loaded
+      // profile + any unsaved edits in the autosave debounce window).
+      if (status === "approved") {
+        const loaded  = (profiles[selectedUser] ?? {}) as Partial<CandidateProfile>;
+        const pending = { ...(pInfoEditsRef.current ?? {}), ...passportInfoEdits } as Partial<CandidateProfile>;
+        const SNAPSHOT_FIELDS = [
+          "first_name", "last_name", "dob", "sex", "nationality",
+          "passport_no", "passport_expiry", "city_of_birth", "country_of_birth",
+          "issuing_authority", "issue_date",
+          "address_street", "address_number", "address_postal",
+          "city_of_residence", "country_of_residence",
+          "marital_status", "children_ages",
+        ] as const;
+        for (const k of SNAPSHOT_FIELDS) {
+          const v = (pending[k] ?? loaded[k]) as string | null | undefined;
+          if (v != null && v !== "") (profileUpdate as Record<string, unknown>)[k] = v;
+        }
+      }
       const res = await fetch("/api/portal/admin", {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
