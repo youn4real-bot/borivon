@@ -1851,6 +1851,14 @@ function CVBuilderInner() {
   const lastBroadcastSig   = useRef<string>("");
   const applyingRemoteRef  = useRef<boolean>(false);
   const collabChannelRef     = useRef<RealtimeChannel | null>(null);
+  // `false` until the *second* cvData-effect tick — used to suppress the
+  // bogus "user is typing" stamp that fires when the initial draft load
+  // first lands in state.
+  const firstPostLoadRef     = useRef<boolean>(false);
+  // Remembers the JSON snapshot of the last cvData we observed via either
+  // remote broadcast OR poll, so the poll backstop never re-applies a row
+  // that's already on screen (and never re-broadcasts it back out).
+  const lastRemoteSnapshot   = useRef<string>("");
 
   // ── Draft key (per user) ──────────────────────────────────────────────────
   // When admin edits a candidate's CV, key by candidateId so we don't
@@ -1870,10 +1878,15 @@ function CVBuilderInner() {
     // is still the empty default state and would overwrite the saved draft.
     if (!draftKey || !userId || !authToken || loading) return;
     // Mark local-typing time UNLESS this state change came from a remote
-    // apply (so we don't fight other editors' broadcasts).
-    if (!applyingRemoteRef.current) {
+    // apply (so we don't fight other editors' broadcasts). Skip the very
+    // first run after `loading` flips false — that's the initial draft
+    // load applying to state, not a keystroke. Without this guard the
+    // first inbound broadcast within 1.5 s of page-open was being treated
+    // as conflicting with our "typing" and dropped.
+    if (!applyingRemoteRef.current && firstPostLoadRef.current) {
       lastLocalEditAt.current = Date.now();
     }
+    firstPostLoadRef.current = true;
     const { photo, ...rest } = cvData;
     void photo;
     // 1. Always write to localStorage for instant in-tab cache
@@ -2167,9 +2180,23 @@ function CVBuilderInner() {
     // anonymise admin peers to the Borivon B downstream (CvCollabPresence).
     function refresh() {
       const state = ch.presenceState() as Record<string, RawPeer[]>;
-      const flat: RawPeer[] = Object.values(state).flat();
       const now = Date.now();
-      const next = flat.map(p => ({
+      // Collapse to one peer per presence-key. A presence key holds an
+      // ARRAY of metas (one per connection / tab / phantom-not-yet-timed-
+      // -out), and `Object.values(state).flat()` was producing one circle
+      // per ghost — hence the "5 of me" stack you saw. Reduce by id and
+      // keep the most-recently-active meta so the gold pulse still tracks
+      // the live tab.
+      const byId = new Map<string, RawPeer>();
+      for (const metas of Object.values(state)) {
+        for (const meta of metas) {
+          const prev = byId.get(meta.id);
+          if (!prev || (meta.editingAt ?? 0) > (prev.editingAt ?? 0)) {
+            byId.set(meta.id, meta);
+          }
+        }
+      }
+      const next = Array.from(byId.values()).map(p => ({
         id:          p.id,
         role:        p.role,
         email:       p.email,
@@ -2233,6 +2260,56 @@ function CVBuilderInner() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userId, adminCandidateId, selfPeer, viewerRole, authToken]);
+
+  // ── Live collab — 5 s poll backstop ─────────────────────────────────────
+  // Even when realtime broadcast works perfectly there are edge cases
+  // (CHANNEL_ERROR, paused tab, network blip) where a peer would miss an
+  // update. Poll the same cv-draft GET endpoint every 5 s and re-apply if
+  // the server's version differs from what we last saw — same merge rules
+  // as the broadcast handler (skip if the local user typed in the last
+  // 1.5 s, never overwrite local photo).
+  useEffect(() => {
+    if (!authToken || loading) return;
+    if (typeof document === "undefined") return;
+    const url = adminCandidateId
+      ? `/api/portal/admin/cv-draft?candidateId=${adminCandidateId}`
+      : "/api/portal/me/cv-draft";
+
+    let cancelled = false;
+    const tick = async () => {
+      if (document.hidden) return;
+      try {
+        const r = await fetch(url, { headers: { Authorization: `Bearer ${authToken}` } });
+        if (!r.ok) return;
+        const j = await r.json().catch(() => ({}));
+        const remote = j?.draft as Partial<CVData> | null;
+        if (!remote) return;
+        const sig = JSON.stringify(remote);
+        if (sig === lastRemoteSnapshot.current) return;
+        lastRemoteSnapshot.current = sig;
+        if (Date.now() - lastLocalEditAt.current < 1500) return;
+        // Local cvData already matches? Don't churn. Otherwise apply.
+        applyingRemoteRef.current = true;
+        lastBroadcastSig.current  = sig;
+        setCvData(prev => {
+          if (cancelled) return prev;
+          return { ...prev, ...remote, photo: prev.photo };
+        });
+      } catch { /* offline */ }
+    };
+    // Fire once immediately so the first reveal is no-op aligned, then
+    // every 5 s afterwards.
+    void tick();
+    const t = setInterval(tick, 5000);
+    const onVis = () => { if (!document.hidden) void tick(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authToken, adminCandidateId, loading]);
 
   // Stale-pulse cleanup — drop the gold "typing" dot once the broadcast
   // is older than 1.5 s, even if no presence event fires in between.
