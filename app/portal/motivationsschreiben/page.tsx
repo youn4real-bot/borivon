@@ -252,6 +252,53 @@ function EmployerPendingPopup({ open, onClose }: { open: boolean; onClose: () =>
   );
 }
 
+// ─── Person merger (passport-data over cv_draft) ─────────────────────────────
+//
+// User-stated rule (2026-05):
+//   - After a passport is approved, name + address auto-fill from the
+//     approved Reisepass data.
+//   - Phone number is special: pulled from the CV builder instantly, no
+//     admin approval required. Whichever side last typed it wins.
+//   - Fields the passport never carries (or that the candidate filled in
+//     the CV builder before passport submission) fall back to cv_draft so
+//     the cover letter never starts blank.
+type ProfileRow = {
+  first_name?:           string | null;
+  last_name?:            string | null;
+  country_of_residence?: string | null;
+  address_street?:       string | null;
+  address_number?:       string | null;
+  address_postal?:       string | null;
+  city_of_residence?:    string | null;
+  phone?:                string | null;
+  passport_status?:      string | null;
+  cv_draft?:             Record<string, unknown> | null;
+};
+function mergePersonFromRow(p: ProfileRow | null | undefined, email: string): Person {
+  const d = (p?.cv_draft ?? {}) as Record<string, unknown>;
+  const draftStr = (k: string): string => {
+    const v = d[k];
+    return typeof v === "string" ? v : "";
+  };
+  // Helper: passport (candidate_profiles) value, else cv_draft value, else "".
+  const pick = (passportV: string | null | undefined, draftK: string): string =>
+    (passportV && String(passportV).trim()) || draftStr(draftK).trim();
+
+  return {
+    firstName: pick(p?.first_name,           "firstName"),
+    lastName:  pick(p?.last_name,            "lastName"),
+    street:    pick(p?.address_street,       "address"),
+    number:    pick(p?.address_number,       "addressNumber"),
+    postal:    pick(p?.address_postal,       "postalCode"),
+    city:      pick(p?.city_of_residence,    "city"),
+    country:   pick(p?.country_of_residence, "countryOfResidence"),
+    // Phone — cv_draft FIRST (instant, no admin approval). Fall back to
+    // the persisted candidate_profiles.phone if the draft hasn't filled it.
+    phone:     (draftStr("phone").trim() || (p?.phone ?? "")).trim(),
+    email,
+  };
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function MotivationsschreibenPage() {
@@ -305,6 +352,54 @@ export default function MotivationsschreibenPage() {
     return () => { sub.subscription.unsubscribe(); };
   }, []);
 
+  // ── Live sync of name/address/phone from candidate_profiles ─────────────
+  // The cover letter needs to react when:
+  //   - admin approves the passport (writes first_name, address_*, …),
+  //   - candidate (or admin) edits the CV builder (writes cv_draft.phone,
+  //     cv_draft.firstName, etc.).
+  // Postgres realtime push fires inside the candidate's own session (their
+  // own row, RLS-allowed). A 5 s poll backstops the cases realtime is
+  // blocked (suspended tab, channel error, RLS-gated cross-user).
+  const personEmailRef = useRef<string>("");
+  useEffect(() => { if (person?.email) personEmailRef.current = person.email; }, [person?.email]);
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    const COLS = "first_name,last_name,country_of_residence,address_street,address_number,address_postal,city_of_residence,phone,passport_status,cv_draft";
+    const pull = async () => {
+      const { data } = await supabase.from("candidate_profiles").select(COLS).eq("user_id", userId).maybeSingle();
+      if (cancelled || !data) return;
+      const merged = mergePersonFromRow(data as ProfileRow, personEmailRef.current);
+      setPerson(prev => {
+        if (!prev) return merged;
+        // Skip churn when nothing changed (avoid focus loss on inputs).
+        if (JSON.stringify(prev) === JSON.stringify(merged)) return prev;
+        return merged;
+      });
+      const ps = (data as ProfileRow).passport_status;
+      if (ps === "pending" || ps === "approved" || ps === "rejected") setPassportStatus(ps);
+    };
+    const ch = supabase
+      .channel(`letter-profile-${userId}`)
+      .on("postgres_changes",
+        { event: "UPDATE", schema: "public", table: "candidate_profiles", filter: `user_id=eq.${userId}` },
+        () => { void pull(); },
+      )
+      .subscribe();
+    // 5 s poll backstop for cases realtime is suppressed.
+    const t = setInterval(() => { if (!document.hidden) void pull(); }, 5000);
+    const onVis = () => { if (!document.hidden) void pull(); };
+    document.addEventListener("visibilitychange", onVis);
+    // Fire once immediately so first reveal already has the freshest data.
+    void pull();
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVis);
+      supabase.removeChannel(ch);
+    };
+  }, [userId]);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -319,24 +414,20 @@ export default function MotivationsschreibenPage() {
       const { data: au } = await supabase.auth.getUser();
       const email = au?.user?.email ?? "";
 
+      // Pull BOTH the approved-passport fields AND the live cv_draft from
+      // the same row — cover letter merges them so candidates always see
+      // something pre-filled even before passport approval, AND so phone /
+      // address edits in the CV builder show up here instantly (per user
+      // request 2026-05: phone in CV builder -> cover letter, no admin
+      // approval required).
       const { data: p } = await supabase
         .from("candidate_profiles")
-        .select("first_name,last_name,country_of_residence,address_street,address_number,address_postal,city_of_residence,phone,passport_status")
+        .select("first_name,last_name,country_of_residence,address_street,address_number,address_postal,city_of_residence,phone,passport_status,cv_draft")
         .eq("user_id", uid)
         .maybeSingle();
 
       if (!cancelled) {
-        setPerson({
-          firstName: p?.first_name ?? "",
-          lastName:  p?.last_name ?? "",
-          street:    p?.address_street ?? "",
-          number:    p?.address_number ?? "",
-          postal:    p?.address_postal ?? "",
-          city:      p?.city_of_residence ?? "",
-          country:   p?.country_of_residence ?? "",
-          phone:     p?.phone ?? "",
-          email,
-        });
+        setPerson(mergePersonFromRow(p, email));
         const ps = p?.passport_status as string | undefined;
         if (ps === "pending" || ps === "approved" || ps === "rejected") setPassportStatus(ps);
       }
