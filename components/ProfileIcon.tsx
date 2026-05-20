@@ -509,6 +509,19 @@ export function ProfileIcon() {
                     </svg>
                     {T.manageAdmins}
                   </button>
+                  <button
+                    onClick={() => { setOpen(false); router.push("/portal/admin/employers"); }}
+                    className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
+                    style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
+                    onMouseEnter={e => { e.currentTarget.style.background = "var(--bg2)"; e.currentTarget.style.color = "var(--w)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--w2)"; }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect x="2" y="7" width="20" height="14" rx="2"/>
+                      <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+                    </svg>
+                    {lang === "fr" ? "Employeurs" : lang === "de" ? "Arbeitgeber" : "Employers"}
+                  </button>
                 </>
               )}
               {user.profileSlug && !user.isOrgMember && !user.isAdmin && (
