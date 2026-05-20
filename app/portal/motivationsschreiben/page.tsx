@@ -385,11 +385,43 @@ export default function MotivationsschreibenPage() {
     const pull = async () => {
       const { data, error } = await supabase.from("candidate_profiles").select(COLS).eq("user_id", userId).maybeSingle();
       if (typeof window !== "undefined") {
+        const row = data as ProfileRow | null;
         // eslint-disable-next-line no-console
-        console.log("[letter] pull", { ok: !error, hasData: !!data, error: error?.message });
+        console.log("[letter] pull", {
+          ok: !error,
+          hasData: !!row,
+          error: error?.message,
+          passport: {
+            first_name:           row?.first_name           ?? null,
+            last_name:            row?.last_name            ?? null,
+            address_street:       row?.address_street       ?? null,
+            address_number:       row?.address_number       ?? null,
+            address_postal:       row?.address_postal       ?? null,
+            city_of_residence:    row?.city_of_residence    ?? null,
+            country_of_residence: row?.country_of_residence ?? null,
+            phone:                row?.phone                ?? null,
+            passport_status:      row?.passport_status      ?? null,
+          },
+          cv_draft_keys: row?.cv_draft ? Object.keys(row.cv_draft) : null,
+          cv_draft_personal: row?.cv_draft ? {
+            firstName:          row.cv_draft.firstName          ?? null,
+            lastName:           row.cv_draft.lastName           ?? null,
+            address:            row.cv_draft.address            ?? null,
+            addressNumber:      row.cv_draft.addressNumber      ?? null,
+            postalCode:         row.cv_draft.postalCode         ?? null,
+            city:               row.cv_draft.city               ?? null,
+            countryOfResidence: row.cv_draft.countryOfResidence ?? null,
+            phone:              row.cv_draft.phone              ?? null,
+          } : null,
+          signup_meta: signupMetaRef.current,
+        });
       }
       if (cancelled || !data) return;
       const merged = mergePersonFromRow(data as ProfileRow, personEmailRef.current, signupMetaRef.current);
+      if (typeof window !== "undefined") {
+        // eslint-disable-next-line no-console
+        console.log("[letter] merged", merged);
+      }
       setPerson(prev => {
         if (!prev) return merged;
         // Skip churn when nothing changed (avoid focus loss on inputs).
