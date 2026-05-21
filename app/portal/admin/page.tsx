@@ -5003,6 +5003,38 @@ export default function AdminPage() {
                                   Wrapper stops both click + mousedown bubbling
                                   so the parent row's "preview doc" handler
                                   can never swallow these button clicks. */}
+                              {/* Empty-state action: "Edit cover letter" works
+                                  BEFORE the candidate has submitted anything
+                                  (Nicht eingereicht). Mirrors the cv_de Edit
+                                  affordance but visible without a doc. Other
+                                  slots ignore this branch. */}
+                              {!isMulti && !doc && item.key === "letter" && selectedUser && (
+                                <div className="flex items-center gap-1.5 flex-shrink-0"
+                                  onClick={(e) => e.stopPropagation()}
+                                  onMouseDown={(e) => e.stopPropagation()}>
+                                  <div className="relative" onClick={(e) => e.stopPropagation()}>
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); openRowMenu(e, `letter-empty-${selectedUser}`); }}
+                                      title="More actions" aria-label="More actions"
+                                      className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
+                                      style={{ color: "var(--w2)" }}>
+                                      <MoreHorizontal size={14} strokeWidth={1.8} />
+                                    </button>
+                                    <DropdownMenu
+                                      open={revokeMenu?.id === `letter-empty-${selectedUser}`}
+                                      onClose={() => setRevokeMenu(null)}
+                                      anchor={revokeMenu?.id === `letter-empty-${selectedUser}` ? revokeMenu.el : null}
+                                      anchorRect={menuRect(`letter-empty-${selectedUser}`)}>
+                                      <button
+                                        onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); window.open(`/portal/motivationsschreiben?candidate=${selectedUser}`, "_blank"); }}
+                                        className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                        style={{ color: "var(--w)" }}>
+                                        <FilePen size={11} strokeWidth={1.8} /> {lang === "fr" ? "Modifier la lettre" : lang === "de" ? "Anschreiben bearbeiten" : "Edit cover letter"}
+                                      </button>
+                                    </DropdownMenu>
+                                  </div>
+                                </div>
+                              )}
                               {!isMulti && doc && (
                                 <div className="flex items-center gap-1.5 flex-shrink-0"
                                   onClick={(e) => e.stopPropagation()}
@@ -5080,6 +5112,14 @@ export default function AdminPage() {
                                                 className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
                                                 style={{ color: "var(--w)" }}>
                                                 <FilePen size={11} strokeWidth={1.8} /> Edit CV
+                                              </button>
+                                            )}
+                                            {item.key === "letter" && selectedUser && (
+                                              <button
+                                                onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); window.open(`/portal/motivationsschreiben?candidate=${selectedUser}`, "_blank"); }}
+                                                className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                                style={{ color: "var(--w)" }}>
+                                                <FilePen size={11} strokeWidth={1.8} /> {lang === "fr" ? "Modifier la lettre" : lang === "de" ? "Anschreiben bearbeiten" : "Edit cover letter"}
                                               </button>
                                             )}
                                             {doc.status !== "approved" && (

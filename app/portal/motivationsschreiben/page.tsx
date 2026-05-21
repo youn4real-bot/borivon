@@ -16,7 +16,7 @@
 import * as React from "react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PortalTopNav } from "@/components/PortalTopNav";
@@ -337,8 +337,19 @@ function mergePersonFromRow(
 
 export default function MotivationsschreibenPage() {
   const router  = useRouter();
+  const params  = useSearchParams();
   const { lang } = useLang();
   const t = T[lang as keyof typeof T] ?? T.en;
+
+  // Admin-edit mode: /portal/motivationsschreiben?candidate=<uid> opens
+  // THIS page on behalf of another candidate. The session user must be
+  // admin/sub_admin AND able to act on that candidate (gated server-side
+  // by /api/portal/letter-body's resolveTarget). When `adminCandidateId`
+  // is set, every read/write keys off it instead of session.user.id.
+  const adminCandidateId = (() => {
+    const c = params?.get("candidate") ?? "";
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(c) ? c : null;
+  })();
 
   const [loading, setLoading] = useState(true);
   const [userId,  setUserId]  = useState<string | null>(null);
@@ -375,6 +386,12 @@ export default function MotivationsschreibenPage() {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const draftKey = useCallback((uid: string) => `bv_letter_body_${uid}`, []);
+
+  // Effective candidate whose letter we're editing. For the candidate
+  // viewing their own page, this equals their session user id. For an
+  // admin opening ?candidate=<uid>, it's the target candidate. Used for
+  // server fetches, localStorage drafts, and the collab channel room.
+  const target = adminCandidateId ?? userId;
 
   // ── Live-collab state (mirrors CV builder — same channel pattern,
   //     same scrubbing rules, same anonymised candidate-side avatar). ──
@@ -522,10 +539,30 @@ export default function MotivationsschreibenPage() {
       } catch { /* unassigned — hourglass state */ }
 
       if (!cancelled) {
-        const saved = localStorage.getItem(draftKey(uid));
+        // Server is the source of truth for the letter body now (admin
+        // edit + cross-device sync). Pull it first; fall back to the
+        // legacy localStorage draft only when the server has nothing
+        // (first-time editor or migration not yet applied).
+        const bodyTarget = adminCandidateId ?? uid;
+        const lsKey = draftKey(bodyTarget);
+        const lsSaved = localStorage.getItem(lsKey) ?? "";
+        let serverBody: string | null = null;
+        try {
+          const qs = adminCandidateId ? `?userId=${encodeURIComponent(adminCandidateId)}` : "";
+          const r = await fetch(`/api/portal/letter-body${qs}`, {
+            headers: { Authorization: `Bearer ${session.access_token}` },
+            cache: "no-store",
+          });
+          if (r.ok) {
+            const j = await r.json() as { body?: string | null };
+            serverBody = j.body ?? null;
+          }
+        } catch { /* offline — fall through to localStorage */ }
         if (editorRef.current) {
-          editorRef.current.innerHTML = saved?.trim() ? saved : "";
+          const initial = (serverBody ?? lsSaved ?? "").trim() ? (serverBody ?? lsSaved) : "";
+          editorRef.current.innerHTML = initial;
           lastGoodHTML.current = editorRef.current.innerHTML;
+          lastBroadcastSig.current = editorRef.current.innerHTML;
           setWordCount(countWords(editorRef.current.textContent ?? ""));
         }
         // Safety net — guarantee `person` is non-null before we drop the
@@ -620,11 +657,10 @@ export default function MotivationsschreibenPage() {
   // letter so the two surfaces don't share presence rooms. Main channel
   // is candidate + admins (scrubbed); side channel is admins only (full).
   useEffect(() => {
-    if (!userId || !selfPeer || !authToken) return;
+    if (!target || !selfPeer || !authToken) return;
     // Keep the websocket auth fresh after session restores.
     try { supabase.realtime.setAuth(authToken); } catch { /* offline */ }
 
-    const target = userId; // letter is always the candidate's own
     const ch = supabase.channel(`letter-collab-${target}`, {
       config: {
         presence:  { key: selfPeer.id },
@@ -732,7 +768,7 @@ export default function MotivationsschreibenPage() {
         supabase.removeChannel(adminCh);
       }
     };
-  }, [userId, selfPeer, authToken]);
+  }, [target, selfPeer, authToken]);
 
   // ── Live collab — peer-pulse decay (mirrors CV builder) ─────────────────
   // Drop each peer's `editing` flag back to false after ~1.5s of no
@@ -753,11 +789,33 @@ export default function MotivationsschreibenPage() {
   }, []);
 
   function scheduleSave() {
-    if (!userId) return;
+    const t = adminCandidateId ?? userId;
+    if (!t) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => {
-      if (editorRef.current && userId) {
-        localStorage.setItem(draftKey(userId), editorRef.current.innerHTML);
+    saveTimer.current = setTimeout(async () => {
+      const el = editorRef.current;
+      if (!el) return;
+      const html = el.innerHTML;
+      // 1. localStorage — instant local backup. Keyed by target so an
+      //    admin viewing a candidate's letter doesn't trample their own
+      //    draft (and vice-versa).
+      try { localStorage.setItem(draftKey(t), html); } catch { /* quota */ }
+      // 2. Server — last-write-wins. PUT every debounce tick; the
+      //    autosave indicator surfaces success / failure to the editor.
+      if (authToken) {
+        try {
+          const qs = adminCandidateId ? `?userId=${encodeURIComponent(adminCandidateId)}` : "";
+          const r = await fetch(`/api/portal/letter-body${qs}`, {
+            method:  "PUT",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+            body:    JSON.stringify({ body: html }),
+          });
+          if (r.ok) setSavedAt(new Date());
+        } catch { /* offline — local copy is still saved */ }
+      } else {
+        // No auth token yet (very first paint) — still mark saved so the
+        // local persistence is acknowledged. The next save round-trips
+        // to the server.
         setSavedAt(new Date());
       }
     }, 700);
