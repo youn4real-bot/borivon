@@ -375,9 +375,14 @@ const s = StyleSheet.create({
 
   // ── Languages ──────────────────────────────────────────────────────────────
   langRow: { flexDirection: "row", flexWrap: "wrap" },
-  langItem: { marginRight: 20, marginBottom: 3, flexDirection: "row", alignItems: "baseline" },
+  langItem: { marginRight: 20, marginBottom: 3, flexDirection: "column", alignItems: "flex-start" },
+  langInline: { flexDirection: "row", alignItems: "baseline" },
   langName: { fontSize: 9, fontWeight: 700, marginRight: 3 },
   langLevel: { fontSize: 8, color: MUTED },
+  // Deutsch B1/B2 detail line — Prüfung type, status, dates. Sits under
+  // the level chip in slightly smaller muted text so an employer reading
+  // the CV gets the full context without it competing with the headline.
+  langDetail: { fontSize: 7.5, color: MUTED, marginTop: 1, lineHeight: 1.3 },
 
   // ── EDV chips ──────────────────────────────────────────────────────────────
   edvRow: { flexDirection: "row", flexWrap: "wrap" },
@@ -433,6 +438,103 @@ function PDRow({ label, value }: { label: string; value: string }) {
       <Text style={s.pdValue}>{value}</Text>
     </View>
   );
+}
+
+/**
+ * Format a Deutsch B1/B2 detail block into a compact one-line summary
+ * for the printed CV. Mirrors the decision-tree fields the candidate
+ * fills in the CV-builder panel:
+ *
+ *   • Got cert with date   → "Goethe-Zertifikat B2 · 03/2026"
+ *   • Full pass, no cert   → "Goethe-Zertifikat B2 · bestanden"
+ *   • Partial pass         → "Goethe B2 · Lesen, Hören bestanden"
+ *   • Failed, retake plan  → "Goethe B2 nicht bestanden · Nachprüfung 06/2026 (Platz bestätigt)"
+ *   • Not yet written      → "Goethe B2 · geplant 06/2026 (Platz bestätigt)"
+ *   • Not yet, status only → "Goethe B2 · Anmeldung läuft"
+ *
+ * Returns "" when there's nothing meaningful to display (the language
+ * line then just shows name + level as before — no empty muted line).
+ */
+function formatDeutschDetail(b: B2Detail | undefined, level: "B1" | "B2"): string {
+  if (!b) return "";
+
+  const examLabel = (p: B2Detail["pruefung"]): string =>
+    p === "goethe" ? "Goethe-Zertifikat"
+    : p === "telc"  ? "telc Deutsch"
+    : p === "oesd"  ? "ÖSD"
+    : "";
+  const my = (m: MonthYear | undefined): string =>
+    !m || (!m.month && !m.year) ? "" : `${m.month || "??"}/${m.year || "????"}`;
+  const reg = (s: RegStatus): string =>
+    s === "confirmed" ? "Platz bestätigt"
+    : s === "expected" ? "Anmeldung läuft"
+    : "";
+
+  const exam = examLabel(b.pruefung ?? null);
+  const head = exam ? `${exam} ${level}` : `Deutsch ${level}`;
+
+  // ── Branch: not yet written ──
+  if (b.written === "no") {
+    const parts: string[] = [];
+    const date = my(b.notYetDate);
+    if (date) parts.push(`geplant ${date}`);
+    const r = reg(b.notYetRegStatus ?? null);
+    if (r) parts.push(`(${r})`);
+    if (parts.length === 0) return "";
+    return `${head} · ${parts.join(" ")}`;
+  }
+
+  // ── Branch: written, full pass ──
+  if (b.written === "yes" && b.result === "full") {
+    const certDate = my(b.certificateDate);
+    if (b.certificateStatus === "got" && certDate) return `${head} · ${certDate}`;
+    if (b.certificateStatus === "got") return `${head} · bestanden`;
+    if (b.certificateStatus === "waiting") {
+      const exp = my(b.certificateExpectedDate);
+      return exp
+        ? `${head} · bestanden, Zertifikat erwartet ${exp}`
+        : `${head} · bestanden, Zertifikat in Bearbeitung`;
+    }
+    return `${head} · bestanden`;
+  }
+
+  // ── Branch: written, partial pass — list passed modules + planned ones ──
+  if (b.written === "yes" && b.result === "partial" && b.modules) {
+    const MOD_LABEL: Record<string, string> = {
+      lesen: "Lesen", hoeren: "Hören", schreiben: "Schreiben", sprechen: "Sprechen",
+      schriftlich: "Schriftlich", muendlich: "Mündlich",
+    };
+    const passed: string[] = [];
+    const planned: string[] = [];
+    for (const [key, m] of Object.entries(b.modules)) {
+      const label = MOD_LABEL[key] ?? key;
+      if (m.passed) {
+        const d = my(m.passedDate);
+        passed.push(d ? `${label} ${d}` : label);
+      } else if (m.expectedDate?.month || m.expectedDate?.year) {
+        const d = my(m.expectedDate);
+        const r = reg(m.expectedRegStatus ?? null);
+        planned.push(r ? `${label} ${d} (${r})` : `${label} ${d}`);
+      }
+    }
+    const segs: string[] = [];
+    if (passed.length) segs.push(`${passed.join(", ")} bestanden`);
+    if (planned.length) segs.push(`offen: ${planned.join(", ")}`);
+    if (segs.length === 0) return `${head} teilbestanden`;
+    return `${head} · ${segs.join(" · ")}`;
+  }
+
+  // ── Branch: written, failed — show retake plan ──
+  if (b.written === "yes" && b.result === "failed") {
+    const date = my(b.retakeDate);
+    const r = reg(b.retakeRegStatus ?? null);
+    if (date && r) return `${head} nicht bestanden · Nachprüfung ${date} (${r})`;
+    if (date)     return `${head} nicht bestanden · Nachprüfung ${date}`;
+    return `${head} nicht bestanden`;
+  }
+
+  // Nothing meaningful filled in → don't render anything.
+  return "";
 }
 
 function WorkRow({ entry }: { entry: WorkEntry }) {
@@ -655,12 +757,28 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
           <View style={s.section}>
             <SectionHead title="Sprachkenntnisse" />
             <View style={s.langRow}>
-              {activeLangs.map((l, i) => (
-                <View key={i} style={s.langItem}>
-                  <Text style={s.langName}>{l.name}:</Text>
-                  <Text style={s.langLevel}>{l.level}</Text>
-                </View>
-              ))}
+              {activeLangs.map((l, i) => {
+                // Deutsch B1/B2 — render the decision-tree detail
+                // (Prüfung type, status, dates) below the level chip.
+                const isDeutsch = (l.name ?? "").trim().toLowerCase() === "deutsch";
+                const lvl = (l.level ?? "").toUpperCase();
+                const detail =
+                  isDeutsch && (lvl === "B1" || lvl === "B2")
+                    ? formatDeutschDetail(
+                        lvl === "B1" ? l.b1 : l.b2,
+                        lvl as "B1" | "B2",
+                      )
+                    : "";
+                return (
+                  <View key={i} style={s.langItem}>
+                    <View style={s.langInline}>
+                      <Text style={s.langName}>{l.name}:</Text>
+                      <Text style={s.langLevel}>{l.level}</Text>
+                    </View>
+                    {detail ? <Text style={s.langDetail}>{detail}</Text> : null}
+                  </View>
+                );
+              })}
             </View>
           </View>
         )}
