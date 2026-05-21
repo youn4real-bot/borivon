@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
 import { validateImageDataUrl } from "@/lib/validateDataUrl";
+import { enforceRateLimit } from "@/lib/rateLimit";
 
 const MAX_SIG_BYTES = 200_000; // ~150 KB is plenty for a signature PNG
 
@@ -26,6 +27,17 @@ export async function GET(req: NextRequest) {
 export async function PUT(req: NextRequest) {
   const auth = await requireUser(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  // Signature is uploaded once per re-capture (typical flow: take photo,
+  // accept, done). 12/min is generous — covers retake-loop UX while
+  // stopping a buggy/abusive client from thrashing storage writes.
+  const rl = enforceRateLimit(req, "me-signature", { limit: 12, windowMs: 60_000 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Too many saves — slow down" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
+  }
 
   const raw = await req.text();
   if (raw.length > MAX_SIG_BYTES * 1.5) {

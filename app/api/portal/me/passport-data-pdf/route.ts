@@ -8,6 +8,7 @@ import { getAnonVerifyClient } from "@/lib/supabase";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 import { dlTokenUserId } from "@/lib/dlToken";
 import { registerPdfFonts } from "@/lib/pdf-fonts";
+import { enforceRateLimit } from "@/lib/rateLimit";
 
 registerPdfFonts();
 
@@ -76,6 +77,18 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await requireUser(req);
   if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status });
+
+  // PDF generation is CPU-heavy (@react-pdf font subsetting + render).
+  // Without a cap an authenticated client could spray this and pin the
+  // lambda. 10/min is roomy for the legitimate "download my passport
+  // data sheet" flow which fires at most once per click.
+  const rl = enforceRateLimit(req, "me-passport-pdf", { limit: 10, windowMs: 60_000 });
+  if (!rl.ok) {
+    return Response.json(
+      { error: "Too many requests — wait a moment" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
+  }
 
   let groups: PassportDataPdfGroup[];
   let filename: string;

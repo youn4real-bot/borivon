@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { uploadPassportPdfToDrive } from "@/lib/passport-pdf";
+import { enforceRateLimit } from "@/lib/rateLimit";
 
 // DD.MM.YYYY → YYYY-MM-DD for Postgres date columns
 function toIso(s: string | null | undefined): string | null {
@@ -56,6 +57,19 @@ export async function POST(req: NextRequest) {
   const jwt = authHeader.slice(7);
   const { data: { user }, error: authErr } = await getAnonVerifyClient().auth.getUser(jwt);
   if (authErr || !user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+
+  // Anti-spam: the passport form autosaves on every change → a generous
+  // cap covers legitimate typing without leaving an abuse surface. 60/min
+  // = one save per second, which is more than the client's debounce
+  // will ever produce. A bug or malicious client trying to thrash DB
+  // writes hits the 429 quickly.
+  const rl = enforceRateLimit(req, "passport-save", { limit: 60, windowMs: 60_000 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Too many saves — slow down" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
+  }
 
   // Guard: a truncated/empty autosave body must not 500 the passport save.
   const body = await req.json().catch(() => ({}));
