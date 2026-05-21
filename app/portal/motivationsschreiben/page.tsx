@@ -504,6 +504,17 @@ export default function MotivationsschreibenPage() {
           lastGoodHTML.current = editorRef.current.innerHTML;
           setWordCount(countWords(editorRef.current.textContent ?? ""));
         }
+        // Safety net — guarantee `person` is non-null before we drop the
+        // loader, so an API failure on /api/portal/me/letter-data never
+        // leaves the page stuck on the spinner. (Real bug: the gate
+        // `loading || !person` would hang forever if the endpoint
+        // returned non-200 because setPerson is only called on r.ok.)
+        setPerson(prev => prev ?? {
+          firstName: "", lastName: "",
+          street: "", number: "", postal: "", city: "", country: "",
+          phone: "",
+          email: session.user.email ?? "",
+        });
         setLoading(false);
       }
     })();
