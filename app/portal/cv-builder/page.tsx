@@ -1971,10 +1971,12 @@ function CVBuilderInner() {
         keepalive: true,
       }).catch(() => { /* best-effort */ });
     };
-    window.addEventListener("visibilitychange", flush);
+    // visibilitychange fires on document, NOT window — registering it on
+    // window silently never triggers, so a hide-tab edit was being lost.
+    document.addEventListener("visibilitychange", flush);
     window.addEventListener("pagehide", flush);
     return () => {
-      window.removeEventListener("visibilitychange", flush);
+      document.removeEventListener("visibilitychange", flush);
       window.removeEventListener("pagehide", flush);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2231,17 +2233,13 @@ function CVBuilderInner() {
     });
 
     ch.subscribe(async (status) => {
-      if (typeof window !== "undefined") {
-        // eslint-disable-next-line no-console
-        console.log("[cv-collab] channel status:", status, "room:", `cv-collab-${target}`);
-      }
       if (status === "SUBSCRIBED") {
         // Expose the channel to the floating-cursor portal — that component
         // only attaches its broadcast listeners once it sees a non-null
         // channel prop, which avoids missed events during the join race.
         setCollabChannel(ch);
         try {
-          const r = await ch.track({
+          await ch.track({
             id:          selfPeer.id,
             role:        selfPeer.role,
             email:       selfPeer.email,
@@ -2249,16 +2247,7 @@ function CVBuilderInner() {
             photo:       selfPeer.photo,
             editingAt:   0,
           });
-          if (typeof window !== "undefined") {
-            // eslint-disable-next-line no-console
-            console.log("[cv-collab] tracked self:", r, selfPeer);
-          }
-        } catch (e) {
-          if (typeof window !== "undefined") {
-            // eslint-disable-next-line no-console
-            console.warn("[cv-collab] track failed:", e);
-          }
-        }
+        } catch { /* track may fail on slow channels — presence sync will retry */ }
       }
     });
 
@@ -2268,8 +2257,12 @@ function CVBuilderInner() {
       collabChannelRef.current = null;
       setCollabChannel(null);
     };
+    // viewerRole intentionally NOT a dep — it's not read inside the
+    // effect (CvCollabPresence and CvCollabCursors get it via prop) and
+    // including it would tear down + rejoin the channel every time the
+    // role resolves, dropping presence + replaying every broadcast.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, adminCandidateId, selfPeer, viewerRole, authToken]);
+  }, [userId, adminCandidateId, selfPeer, authToken]);
 
   // ── Live collab — 5 s poll backstop ─────────────────────────────────────
   // Even when realtime broadcast works perfectly there are edge cases

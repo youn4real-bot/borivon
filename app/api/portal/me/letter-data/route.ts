@@ -87,34 +87,5 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     sender,
     passportStatus: p?.passport_status ?? null,
-    // Debug payload — surfaces the raw passport columns + cv_draft personal
-    // subset + signup metadata, so a "field is blank" report can be diagnosed
-    // visually on the cover letter page itself. Drop once the issue is closed.
-    _debug: {
-      passport: {
-        first_name:           p?.first_name           ?? null,
-        last_name:            p?.last_name            ?? null,
-        address_street:       p?.address_street       ?? null,
-        address_number:       p?.address_number       ?? null,
-        address_postal:       p?.address_postal       ?? null,
-        city_of_residence:    p?.city_of_residence    ?? null,
-        country_of_residence: p?.country_of_residence ?? null,
-        phone:                p?.phone                ?? null,
-        passport_status:      p?.passport_status      ?? null,
-      },
-      cv_draft_personal: p?.cv_draft ? {
-        firstName:          (p.cv_draft as Record<string, unknown>).firstName          ?? null,
-        lastName:           (p.cv_draft as Record<string, unknown>).lastName           ?? null,
-        address:            (p.cv_draft as Record<string, unknown>).address            ?? null,
-        addressNumber:      (p.cv_draft as Record<string, unknown>).addressNumber      ?? null,
-        postalCode:         (p.cv_draft as Record<string, unknown>).postalCode         ?? null,
-        city:               (p.cv_draft as Record<string, unknown>).city               ?? null,
-        countryOfResidence: (p.cv_draft as Record<string, unknown>).countryOfResidence ?? null,
-        phone:              (p.cv_draft as Record<string, unknown>).phone              ?? null,
-      } : null,
-      cv_draft_all_keys: p?.cv_draft ? Object.keys(p.cv_draft) : null,
-      signup_metadata: { first_name: metaFirst, last_name: metaLast },
-      row_exists: !!p,
-    },
   });
 }

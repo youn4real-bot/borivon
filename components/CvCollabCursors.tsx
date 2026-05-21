@@ -129,7 +129,19 @@ export function CvCollabCursors({ channel, selfPeer, peers, viewerRole }: Props)
   }, [channel, selfPeer]);
 
   // ── Position avatars by section id ────────────────────────────────────
+  // Only runs the requestAnimationFrame loop when there's at least one
+  // remote peer with an active sectionId — otherwise we'd burn 60fps of
+  // getBoundingClientRect() calls (battery + scroll jank) on every open
+  // tab even when nobody is collaborating. Scroll + resize listeners are
+  // also conditional so an idle tab stays idle.
   useEffect(() => {
+    const hasActivePeer = peers.some(
+      p => !p.isSelf && peerFields[p.id] && peerFields[p.id]!.sectionId,
+    );
+    if (!hasActivePeer) {
+      setPositions({});
+      return;
+    }
     const update = () => {
       const next: Record<string, { x: number; y: number } | null> = {};
       const now = Date.now();

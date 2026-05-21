@@ -1503,13 +1503,18 @@ export default function AdminPage() {
    *  Soufiane bug.) */
   async function reviewPassport(status: "approved" | "rejected" | "pending", feedback?: string) {
     if (!selectedUser) return;
+    // Cancel the trailing per-field autosave so it can't fire AFTER this
+    // approve PATCH and re-PATCH the same keys (duplicate network call) —
+    // or worse, if approve fails, mask the failure with a separate
+    // success path.
+    if (ppSaveTimer.current) { clearTimeout(ppSaveTimer.current); ppSaveTimer.current = null; }
     setPassportInfoSaving(true);
     try {
       const profileUpdate: Partial<CandidateProfile> = { passport_status: status };
       if (feedback !== undefined) profileUpdate.passport_feedback = feedback || null;
-      // On APPROVE, snapshot every visible passport-data field into the same
-      // PATCH so the row reflects exactly what's on screen (merged loaded
-      // profile + any unsaved edits in the autosave debounce window).
+      // On APPROVE, snapshot every visible passport-data field into the
+      // same PATCH so the row reflects exactly what's on screen (merged
+      // loaded profile + any unsaved edits in the autosave debounce window).
       if (status === "approved") {
         const loaded  = (profiles[selectedUser] ?? {}) as Partial<CandidateProfile>;
         const pending = { ...(pInfoEditsRef.current ?? {}), ...passportInfoEdits } as Partial<CandidateProfile>;
@@ -1533,6 +1538,12 @@ export default function AdminPage() {
       });
       if (res.ok) {
         setProfiles(prev => ({ ...prev, [selectedUser]: { ...prev[selectedUser], ...profileUpdate } }));
+        // Approve persisted every visible field above — clear the local
+        // edit buffers so the trailing autosave doesn't re-PATCH them.
+        if (status === "approved") {
+          pInfoEditsRef.current = {};
+          setPassportInfoEdits({});
+        }
       } else {
         // Don't let a failed approve/reject look like it persisted.
         let msg = `HTTP ${res.status}`;
