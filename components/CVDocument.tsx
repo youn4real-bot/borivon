@@ -244,6 +244,10 @@ const s = StyleSheet.create({
   },
   logoImage: {
     height: 46,
+    // Cap the width so a panoramic / banner-shaped logo can't overflow
+    // the header area horizontally — react-pdf will preserve aspect
+    // ratio inside this box via objectFit:"contain".
+    maxWidth: 240,
     objectFit: "contain",
   },
   logoTextRow: {
@@ -467,7 +471,11 @@ function WorkRow({ entry }: { entry: WorkEntry }) {
           .map(b => (b ?? "").trim())
           .filter(Boolean)
           .map((bullet, i) => (
-            <View key={i} style={s.bulletRow} wrap={false}>
+            // No wrap={false} — react-pdf otherwise refuses to break an
+            // overly-long bullet across pages, which forces a giant
+            // whitespace gap before a page break or pushes the bullet
+            // into the fixed-footer area.
+            <View key={i} style={s.bulletRow}>
               <Text style={s.bulletDot}>•</Text>
               <Text style={s.bulletText}>{bullet}</Text>
             </View>
@@ -562,9 +570,15 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
     return [...others, ...deutsch];
   })();
 
+  // When the admin picked "Keine" CV branding, the fixed header + footer
+  // are skipped — but s.page reserves their height as padding. Collapse
+  // it back down so the page doesn't have ~136pt of dead whitespace.
+  const pageStyle = brand?.noBranding
+    ? [s.page, { paddingTop: 36, paddingBottom: 36 }]
+    : s.page;
   return (
     <Document title={`Lebenslauf – ${fullName}`} author="Borivon" language="de">
-      <Page size="A4" style={s.page} wrap>
+      <Page size="A4" style={pageStyle} wrap>
 
         {/* ── FIXED HEADER — logo + rule, every page.
             Hidden completely when brand.noBranding is set (admin-toggled
