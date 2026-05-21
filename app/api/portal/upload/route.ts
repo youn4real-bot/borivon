@@ -9,6 +9,7 @@ import { makeDrivePublic } from "@/lib/passport-pdf";
 import { natToLang } from "@/lib/countries";
 import { LABEL_TO_FILE_KEY } from "@/lib/fileKeys";
 import { PassThrough } from "stream";
+import { createHash } from "crypto";
 
 /**
  * Normalize any country value (ISO 3166-1 alpha-3 like "MAR", or a name in
@@ -1142,6 +1143,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Upload failed: ${msg}` }, { status: 500 });
   }
 
+  // LAW #39 belt-and-suspenders: snapshot the upload's sha256 BEFORE any
+  // downstream processing reads the buffer. Stored alongside the row so
+  // /api/portal/file can detect a regression that mutates passport bytes
+  // anywhere in the pipeline — divergent hash on serve falls back to the
+  // Storage doc-cache (which holds the original upload). Computed for
+  // every doctype, used today only for passports; available for future
+  // integrity checks on other doctypes without a re-migration.
+  const fileSha256 = createHash("sha256").update(buffer).digest("hex");
+
   // ── Supabase insert ───────────────────────────────────────────────────────────
   const db = getServiceSupabase();
   const { error: dbErr } = await db.from("documents").insert({
@@ -1149,6 +1159,7 @@ export async function POST(req: NextRequest) {
     file_path: `gdrive/${userId}/${Date.now()}`,
     file_type: fileType, drive_file_id: driveFileId,
     uploaded_by_admin: uploadedByAdmin,
+    file_sha256: fileSha256,
     // LAW #15: admin-uploaded docs (no candidate action) → immediately
     // approved (green). LAW #3: a CANDIDATE submission is ALWAYS "pending"
     // until a supreme admin / sub-admin explicitly approves — set it
@@ -1158,8 +1169,28 @@ export async function POST(req: NextRequest) {
     status: uploadedByAdmin ? "approved" : "pending",
   });
   if (dbErr) {
-    console.error("DB insert error:", dbErr);
-    return NextResponse.json({ error: "Erreur d'enregistrement." }, { status: 500 });
+    // Schema-tolerant fallback: if the file_sha256 column hasn't been
+    // migrated yet, retry the insert without it. New uploads will then
+    // skip the hash audit until the SQL migration runs; everything else
+    // continues to work. The error path is the ONLY surface that knows
+    // about the missing column.
+    const msg = (dbErr as { message?: string })?.message ?? "";
+    if (/file_sha256|column .* does not exist|schema cache/i.test(msg)) {
+      const { error: retryErr } = await db.from("documents").insert({
+        user_id: userId, file_name: structuredName,
+        file_path: `gdrive/${userId}/${Date.now()}`,
+        file_type: fileType, drive_file_id: driveFileId,
+        uploaded_by_admin: uploadedByAdmin,
+        status: uploadedByAdmin ? "approved" : "pending",
+      });
+      if (retryErr) {
+        console.error("DB insert error (no-sha retry):", retryErr);
+        return NextResponse.json({ error: "Erreur d'enregistrement." }, { status: 500 });
+      }
+    } else {
+      console.error("DB insert error:", dbErr);
+      return NextResponse.json({ error: "Erreur d'enregistrement." }, { status: 500 });
+    }
   }
 
   // Passport FILE re-upload by a candidate does NOT reopen the DATA review

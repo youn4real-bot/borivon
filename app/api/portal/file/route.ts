@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { PDFDocument, degrees } from "pdf-lib";
+import { createHash } from "crypto";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate, roleByUserId } from "@/lib/admin-auth";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
@@ -8,6 +9,58 @@ import { dlTokenUserId } from "@/lib/dlToken";
 import { isPassportFileType } from "@/lib/passportFile";
 
 const BUCKET = "sign-documents";
+
+/**
+ * LAW #39 belt-and-suspenders. Verify the served bytes match the sha256
+ * snapshotted at upload time. If they DIVERGE — i.e. some future code
+ * path silently mutated the passport — we transparently fall back to the
+ * Supabase Storage backup (doc-cache/<driveFileId>) which holds the
+ * original upload bytes, and we log a critical error naming the served
+ * source so the regression is findable in the Vercel logs.
+ *
+ * Only called for passport docs. Other doctypes legitimately get
+ * rotated server-side and their served bytes won't match upload hash.
+ *
+ * Returns the verified bytes (original if hash matched, storage backup
+ * otherwise). If the storage backup is also broken or unavailable, the
+ * original served bytes come back unchanged — the user always gets
+ * SOMETHING; the log is how we find the corrupting code path.
+ */
+async function ensurePassportIntegrity(
+  served: Buffer,
+  storedHash: string | null,
+  driveFileId: string | null,
+  source: string,
+): Promise<Buffer> {
+  if (!storedHash || !driveFileId) return served;
+  const actual = createHash("sha256").update(served).digest("hex");
+  if (actual === storedHash) return served;
+
+  console.error(
+    `[file-proxy] LAW #39 hash mismatch on passport — source=${source} ` +
+    `driveFileId=${driveFileId} stored=${storedHash.slice(0, 12)}… ` +
+    `served=${actual.slice(0, 12)}… falling back to Storage backup`,
+  );
+
+  try {
+    const db = getServiceSupabase();
+    const { data: blob } = await db.storage
+      .from(BUCKET)
+      .download(`doc-cache/${driveFileId}`);
+    if (blob) {
+      const backup = Buffer.from(await blob.arrayBuffer());
+      const backupHash = createHash("sha256").update(backup).digest("hex");
+      if (backupHash === storedHash) return backup;
+      console.error(
+        `[file-proxy] LAW #39 storage backup ALSO mismatches — ` +
+        `driveFileId=${driveFileId} backup=${backupHash.slice(0, 12)}…`,
+      );
+    }
+  } catch (e) {
+    console.error("[file-proxy] LAW #39 fallback fetch threw:", e);
+  }
+  return served; // last-resort: something > nothing
+}
 
 /**
  * Apply a view rotation to a PDF — but NEVER at the cost of the file's
@@ -151,23 +204,47 @@ export async function GET(req: NextRequest) {
   const allowed = await isAuthorised(req, fileId, docId);
   if (!allowed) return new NextResponse("Forbidden", { status: 403 });
 
-  // Resolve drive_file_id + rotation + signed_storage_path + file_type in one shot.
+  // Resolve drive_file_id + rotation + signed_storage_path + file_type + sha256
+  // in one shot. file_sha256 may not exist in older deployments — wrap the
+  // select so a missing column degrades gracefully (integrity check just
+  // skips until the supabase/add_file_sha256.sql migration is applied).
   const db = getServiceSupabase();
   let rotation = 0;
   let signedStoragePath: string | null = null;
   let fileType: string | null = null;
+  let fileSha256: string | null = null;
   {
-    const { data } = await db
-      .from("documents")
-      .select("drive_file_id, rotation, signed_storage_path, file_type")
-      .eq(fileId ? "drive_file_id" : "id", fileId ?? docId!)
-      .maybeSingle();
+    type Row = {
+      drive_file_id: string | null;
+      rotation: number | null;
+      signed_storage_path: string | null;
+      file_type: string | null;
+      file_sha256?: string | null;
+    };
+    let data: Row | null = null;
+    {
+      const res = await db
+        .from("documents")
+        .select("drive_file_id, rotation, signed_storage_path, file_type, file_sha256")
+        .eq(fileId ? "drive_file_id" : "id", fileId ?? docId!)
+        .maybeSingle();
+      if (res.error && /file_sha256|column .* does not exist|schema cache/i.test(res.error.message ?? "")) {
+        const res2 = await db
+          .from("documents")
+          .select("drive_file_id, rotation, signed_storage_path, file_type")
+          .eq(fileId ? "drive_file_id" : "id", fileId ?? docId!)
+          .maybeSingle();
+        data = (res2.data as Row | null) ?? null;
+      } else {
+        data = (res.data as Row | null) ?? null;
+      }
+    }
     if (data) {
-      const row = data as { drive_file_id: string | null; rotation: number | null; signed_storage_path: string | null; file_type: string | null };
-      if (!fileId) fileId = row.drive_file_id ?? null;
-      rotation = ((row.rotation ?? 0) % 360 + 360) % 360;
-      signedStoragePath = row.signed_storage_path ?? null;
-      fileType = row.file_type ?? null;
+      if (!fileId) fileId = data.drive_file_id ?? null;
+      rotation = ((data.rotation ?? 0) % 360 + 360) % 360;
+      signedStoragePath = data.signed_storage_path ?? null;
+      fileType = data.file_type ?? null;
+      fileSha256 = data.file_sha256 ?? null;
     }
   }
 
@@ -190,7 +267,13 @@ export async function GET(req: NextRequest) {
     if (!dlErr && blob) {
       const srcBuf = Buffer.from(await blob.arrayBuffer());
       const outBuf = await safeRotatePdf(srcBuf, effectiveRotation);
-      return new NextResponse(new Uint8Array(outBuf), {
+      // LAW #39 integrity audit on signed-storage-path passport serves.
+      // (Signed paths are usually post-signature flows, not passport scans,
+      // but we check anyway — costs ~1ms on a passport-sized PDF.)
+      const verified = isPassportFileType(fileType)
+        ? await ensurePassportIntegrity(outBuf, fileSha256, fileId, "signed-storage")
+        : outBuf;
+      return new NextResponse(new Uint8Array(verified), {
         headers: {
           "Content-Type": ctype(req, "application/pdf"),
           "Content-Disposition": disposition(req, "document"),
@@ -235,7 +318,15 @@ export async function GET(req: NextRequest) {
       ? await safeRotatePdf(srcBuf, effectiveRotation)
       : srcBuf;
 
-    return new NextResponse(new Uint8Array(outBuf), {
+    // LAW #39 integrity audit on Drive-sourced passport serves. If the
+    // bytes don't match the hash we recorded on upload, fall back to the
+    // Storage backup and log loudly so the corrupting code path is
+    // findable in the server log.
+    const verified = isPassportFileType(fileType) && mimeType === "application/pdf"
+      ? await ensurePassportIntegrity(outBuf, fileSha256, fileId, "drive")
+      : outBuf;
+
+    return new NextResponse(new Uint8Array(verified), {
       headers: {
         "Content-Type": ctype(req, mimeType),
         "Content-Disposition": disposition(req, "document"),
@@ -259,7 +350,14 @@ export async function GET(req: NextRequest) {
       }
       const srcBuf = Buffer.from(await blob.arrayBuffer());
       const outBuf = await safeRotatePdf(srcBuf, effectiveRotation);
-      return new NextResponse(new Uint8Array(outBuf), {
+      // LAW #39: even in the Drive-failed fallback, audit passport bytes.
+      // The storage backup SHOULD match the upload hash (mirrored at
+      // upload time); a divergence here would mean even the backup got
+      // corrupted, which is the kind of edge we want to know about loudly.
+      const verified = isPassportFileType(fileType)
+        ? await ensurePassportIntegrity(outBuf, fileSha256, fileId, "storage-fallback")
+        : outBuf;
+      return new NextResponse(new Uint8Array(verified), {
         headers: {
           "Content-Type": ctype(req, "application/pdf"),
           "Content-Disposition": disposition(req, "document"),
