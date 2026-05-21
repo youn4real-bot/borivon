@@ -67,9 +67,12 @@ export async function GET(req: NextRequest) {
   if (g.error) return g.error;
 
   const db = getServiceSupabase();
+  // assign_type/agency/site/employer columns RETIRED 2026-05. Canonical
+  // assignment now lives in candidate_profiles.employer_id +
+  // candidate_organizations only.
   const { data, error } = await db
     .from("candidate_status")
-    .select("b2_complete, b2_cert_date, b2_exam_written, b2_exam_written_date, b2_results_expected_date, b2_planned_exam_date, b2_registration_status, b2_notes, vaccines, assign_type, assign_agency, assign_site, assign_employer, b2_next_exam_date, b2_next_exam_confirmed, updated_at")
+    .select("b2_complete, b2_cert_date, b2_exam_written, b2_exam_written_date, b2_results_expected_date, b2_planned_exam_date, b2_registration_status, b2_notes, vaccines, b2_next_exam_date, b2_next_exam_confirmed, updated_at")
     .eq("user_id", userId!)
     .maybeSingle();
   if (error) {
@@ -89,6 +92,9 @@ export async function PUT(req: NextRequest) {
     v === true ? true : v === false ? false : null;
 
   const regStatus = body.b2_registration_status;
+  // assign_* fields retired 2026-05 — any legacy keys in the body are
+  // ignored and never written. Canonical assignment is now
+  // candidate_profiles.employer_id + candidate_organizations only.
   const row = {
     user_id:                  userId!,
     b2_complete:              asBool(body.b2_complete),
@@ -100,18 +106,6 @@ export async function PUT(req: NextRequest) {
     b2_registration_status:   regStatus === "paid" || regStatus === "waiting" ? regStatus : null,
     b2_notes:                 typeof body.b2_notes === "string" ? body.b2_notes.slice(0, 4000) || null : null,
     vaccines:                 sanitizeVaccines(body.vaccines),
-    // Assignment — clear the irrelevant branch server-side so the data is
-    // always self-consistent. (Whitelisting is light; keys are short.)
-    ...((): { assign_type: string | null; assign_agency: string | null; assign_site: string | null; assign_employer: string | null } => {
-      const t = body.assign_type === "agency" || body.assign_type === "employer" ? body.assign_type : null;
-      const s = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 64) : null);
-      return {
-        assign_type:     t,
-        assign_agency:   t === "agency"   ? s(body.assign_agency)   : null,
-        assign_site:     t === "agency"   ? s(body.assign_site)     : null,
-        assign_employer: t === "employer" ? s(body.assign_employer) : null,
-      };
-    })(),
     updated_at:               new Date().toISOString(),
   };
 

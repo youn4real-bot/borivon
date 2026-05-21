@@ -35,6 +35,7 @@ import { PortalTopNav } from "@/components/PortalTopNav";
 import { FILE_KEY_ALL_LABELS } from "@/lib/fileKeys";
 import { removeImageBg } from "@/lib/removeImageBg";
 import { stampSigOnPdf } from "@/lib/stampSigOnPdf";
+import { AdminSigSection } from "@/components/admin/AdminSigSection";
 
 const ADMIN_PHASES: { title: string; shortTitle: string; kind: PhaseKind; keys: string[] }[] = [
   { title: "ID & CV",     shortTitle: "ID",      kind: "id",          keys: ["id", "cv_de", "letter", "langcert", "other"] },
@@ -233,223 +234,8 @@ function mergedPdfName(srcFileName: string | null | undefined, label: string): s
 
 // ── Preview modal moved to components/AdminDocPreviewModal.tsx ────────────────
 
-const SIG_PARTY_META = {
-  admin: { accent: "#5b9bd5", bg: "rgba(91,155,213,0.08)", border: "rgba(91,155,213,0.3)", storageKey: "borivon_admin_sig" },
-};
-
-function AdminSigSection({ lang, sig, wantSave, bgRemoving, onSig, onWantSave, onUpload, onDropFile }: {
-  lang: string;
-  party?: "admin";
-  sig: string | null;
-  wantSave: boolean;
-  bgRemoving: boolean;
-  onSig: (s: string | null) => void;
-  onWantSave: (v: boolean) => void;
-  onUpload: () => void;
-  onDropFile: (file: File) => void;
-}) {
-  const lbl = (en: string, fr: string, de: string) => lang === "fr" ? fr : lang === "de" ? de : en;
-  const meta = SIG_PARTY_META.admin;
-  const title = lbl("Your signature (Admin)", "Votre signature (Admin)", "Ihre Unterschrift (Admin)");
-  const [dragOver, setDragOver] = useState(false);
-
-  // Crop state
-  const [cropMode, setCropMode]         = useState(false);
-  const [cropDrag, setCropDrag]         = useState<{ sx: number; sy: number; ex: number; ey: number } | null>(null);
-  const [cropDragging, setCropDragging] = useState(false);
-  const cropImgRef       = useRef<HTMLImageElement>(null);
-  const cropContainerRef = useRef<HTMLDivElement>(null);
-
-  // Saved sig — reactive so "Use Saved" always reflects the latest saved value
-  const [savedSig, setSavedSig] = useState<string | null>(() =>
-    typeof window !== "undefined" ? localStorage.getItem(meta.storageKey) : null
-  );
-  // Auto-sync: when sig changes and wantSave is on, persist immediately so
-  // "Use Saved" on the next sign request loads the freshest sig (not a stale one).
-  useEffect(() => {
-    if (wantSave && sig) {
-      localStorage.setItem(meta.storageKey, sig);
-      setSavedSig(sig);
-    }
-  }, [sig, wantSave]);
-
-  function applyCrop() {
-    if (!cropDrag || !cropImgRef.current || !cropContainerRef.current || !sig) return;
-    const cw = cropContainerRef.current.offsetWidth;
-    const ch = cropContainerRef.current.offsetHeight;
-    const img = cropImgRef.current;
-    const scaleX = img.naturalWidth / cw;
-    const scaleY = img.naturalHeight / ch;
-    const x = Math.max(0, Math.round(Math.min(cropDrag.sx, cropDrag.ex) * scaleX));
-    const y = Math.max(0, Math.round(Math.min(cropDrag.sy, cropDrag.ey) * scaleY));
-    const w = Math.min(img.naturalWidth - x, Math.round(Math.abs(cropDrag.ex - cropDrag.sx) * scaleX));
-    const h = Math.min(img.naturalHeight - y, Math.round(Math.abs(cropDrag.ey - cropDrag.sy) * scaleY));
-    if (w < 5 || h < 5) return;
-    const canvas = document.createElement("canvas");
-    canvas.width = w; canvas.height = h;
-    canvas.getContext("2d")!.drawImage(img, x, y, w, h, 0, 0, w, h);
-    onSig(canvas.toDataURL("image/png"));
-    setCropMode(false); setCropDrag(null);
-  }
-
-  const cropPortal = cropMode && sig ? createPortal(
-    <div className="fixed inset-0 z-[2000] flex flex-col items-center justify-center gap-4"
-      style={{ background: "rgba(0,0,0,0.92)" }}
-      onClick={e => { if (e.target === e.currentTarget) { setCropMode(false); setCropDrag(null); } }}>
-      <p className="text-[12px] font-semibold select-none" style={{ color: "rgba(255,255,255,0.6)" }}>
-        {lbl("Drag to select crop area", "Faites glisser pour sélectionner", "Bereich ziehen zum Zuschneiden")}
-      </p>
-      <div ref={cropContainerRef} className="relative select-none"
-        style={{ cursor: "crosshair", background: "#fff" }}
-        onMouseDown={e => {
-          const r = cropContainerRef.current!.getBoundingClientRect();
-          const sx = e.clientX - r.left, sy = e.clientY - r.top;
-          setCropDrag({ sx, sy, ex: sx, ey: sy }); setCropDragging(true);
-        }}
-        onMouseMove={e => {
-          if (!cropDragging) return;
-          const r = cropContainerRef.current!.getBoundingClientRect();
-          setCropDrag(d => d ? { ...d, ex: e.clientX - r.left, ey: e.clientY - r.top } : null);
-        }}
-        onMouseUp={() => setCropDragging(false)}
-        onMouseLeave={() => setCropDragging(false)}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img ref={cropImgRef} src={sig} alt="crop" draggable={false}
-          style={{ display: "block", maxWidth: "80vw", maxHeight: "65vh", userSelect: "none", pointerEvents: "none" }} />
-        {cropDrag && (
-          <div style={{
-            position: "absolute",
-            left: Math.min(cropDrag.sx, cropDrag.ex), top: Math.min(cropDrag.sy, cropDrag.ey),
-            width: Math.abs(cropDrag.ex - cropDrag.sx), height: Math.abs(cropDrag.ey - cropDrag.sy),
-            border: "2px solid #fff", background: "rgba(255,255,255,0.08)",
-            boxShadow: "0 0 0 9999px rgba(0,0,0,0.5)", pointerEvents: "none",
-          }} />
-        )}
-      </div>
-      <div className="flex gap-3">
-        <button onClick={applyCrop}
-          disabled={!cropDrag || Math.abs(cropDrag.ex - cropDrag.sx) < 5 || Math.abs(cropDrag.ey - cropDrag.sy) < 5}
-          className="px-6 py-2 rounded-full text-[12.5px] font-semibold disabled:opacity-40 transition-opacity hover:opacity-80"
-          style={{ background: meta.accent, color: "#fff" }}>
-          {lbl("Apply crop", "Appliquer", "Zuschneiden")}
-        </button>
-        <button onClick={() => { setCropMode(false); setCropDrag(null); }}
-          className="px-6 py-2 rounded-full text-[12.5px] font-semibold transition-opacity hover:opacity-80"
-          style={{ background: "rgba(255,255,255,0.12)", color: "#fff" }}>
-          {lbl("Cancel", "Annuler", "Abbrechen")}
-        </button>
-      </div>
-    </div>,
-    document.body,
-  ) : null;
-
-  return (
-    <>
-    <div className="rounded-2xl p-4 space-y-3" style={{ background: meta.bg, border: `1.5px solid ${meta.border}` }}>
-        <p className="text-[11.5px] font-semibold" style={{ color: meta.accent }}>
-          ✍ {title}
-        </p>
-
-        {/* Upload dropzone — shown when no sig yet */}
-        {!sig && (
-          <>
-          {savedSig && (
-            <button type="button"
-              onClick={() => onSig(savedSig)}
-              className="w-full py-2 text-[12px] font-semibold rounded-xl transition-opacity hover:opacity-80"
-              style={{ background: "rgba(91,155,213,0.14)", color: meta.accent, border: `1.5px solid ${meta.border}` }}>
-              ✓ {lbl("Use saved", "Utiliser enregistrée", "Gespeicherte nutzen")}
-            </button>
-          )}
-          <div
-            onClick={() => { if (!bgRemoving) onUpload(); }}
-            onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={e => {
-              e.preventDefault();
-              setDragOver(false);
-              const file = e.dataTransfer.files[0];
-              if (file && file.type.startsWith("image/")) onDropFile(file);
-            }}
-            className="rounded-xl flex flex-col items-center justify-center gap-2 cursor-pointer transition-all"
-            style={{
-              minHeight: 110,
-              border: `2px dashed ${dragOver ? meta.accent : meta.border}`,
-              background: dragOver ? meta.bg : "#fff",
-            }}
-          >
-            {bgRemoving ? (
-              <span className="w-5 h-5 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: meta.accent }} />
-            ) : (
-              <>
-                <Upload size={20} strokeWidth={1.5} style={{ color: meta.accent, opacity: 0.7 }} />
-                <p className="text-[12px] text-center px-4" style={{ color: "var(--w3)" }}>
-                  {lbl("Drop signature photo or click to upload", "Déposez ou cliquez pour importer", "Unterschrift ablegen oder klicken")}
-                </p>
-              </>
-            )}
-          </div>
-          </>
-        )}
-
-        {/* Action buttons when sig exists */}
-        {sig && !bgRemoving && (
-          <div className="flex items-center gap-2 flex-wrap">
-            {savedSig && sig !== savedSig && (
-              <button
-                type="button"
-                onClick={() => onSig(savedSig)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80"
-                style={{ background: meta.bg, color: meta.accent, border: `1px solid ${meta.border}` }}>
-                {lbl("Use saved", "Utiliser enregistrée", "Gespeicherte nutzen")}
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={onUpload}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80"
-              style={{ background: meta.bg, color: meta.accent, border: `1px solid ${meta.border}` }}>
-              <Upload size={11} strokeWidth={2} />
-              {lbl("Replace", "Remplacer", "Ersetzen")}
-            </button>
-            <button
-              type="button"
-              onClick={() => { setCropMode(true); setCropDrag(null); }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80"
-              style={{ background: meta.bg, color: meta.accent, border: `1px solid ${meta.border}` }}>
-              ✂ {lbl("Crop", "Recadrer", "Zuschneiden")}
-            </button>
-            <button
-              type="button"
-              onClick={() => onSig(null)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-opacity hover:opacity-80"
-              style={{ background: meta.bg, color: meta.accent, border: `1px solid ${meta.border}` }}>
-              ✕ {lbl("Clear", "Effacer", "Löschen")}
-            </button>
-          </div>
-        )}
-
-        <label className="flex items-center gap-2 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={wantSave}
-            onChange={e => {
-              onWantSave(e.target.checked);
-              if (e.target.checked && sig) { localStorage.setItem(meta.storageKey, sig); setSavedSig(sig); }
-              else if (!e.target.checked) { localStorage.removeItem(meta.storageKey); setSavedSig(null); }
-            }}
-            className="rounded"
-            style={{ accentColor: meta.accent }}
-          />
-          <span className="text-[11px]" style={{ color: "var(--w3)" }}>
-            {lbl("Save for next time", "Enregistrer pour la prochaine fois", "Für nächstes Mal speichern")}
-          </span>
-        </label>
-    </div>
-    {cropPortal}
-    </>
-  );
-}
+// AdminSigSection + SIG_PARTY_META extracted →
+// components/admin/AdminSigSection.tsx (2026-05).
 
 // ── Sortable slot wrapper (dnd-kit) ───────────────────────────────────────────
 function SortableSlotItem({ id, children }: { id: string; children: React.ReactNode }) {
@@ -868,10 +654,10 @@ export default function AdminPage() {
     b2_registration_status: "paid" | "waiting" | null; // registered+paid | waiting for site
     b2_notes: string | null;                  // free-text admin notes
     vaccines: Vaccines;                       // Masern / Varizell doses
-    assign_type: "agency" | "employer" | null;
-    assign_agency: string | null;             // agency key (type=agency)
-    assign_site: string | null;               // site under the agency
-    assign_employer: string | null;           // direct-employer key
+    // Assignment columns (assign_type/agency/site/employer) RETIRED 2026-05.
+    // Canonical truth: candidate_profiles.employer_id (employerByUser)
+    // + candidate_organizations link (candidateOrgs). UI pills derive from
+    // those + a non-persisted view-toggle (assignTypeUI).
   };
   type VaxDose = { got: boolean | null; done_date: string | null; expected_date: string | null };
   type VaxKey = "masern" | "varizell";
@@ -888,7 +674,6 @@ export default function AdminPage() {
     b2_exam_written: null, b2_exam_written_date: null, b2_results_expected_date: null,
     b2_planned_exam_date: null, b2_registration_status: null, b2_notes: null,
     vaccines: emptyVaccines(),
-    assign_type: null, assign_agency: null, assign_site: null, assign_employer: null,
   };
   // Normalize whatever the API returns into a safe Vaccines object (old rows
   // have vaccines = null; Masern must always have ≥1 dose).
@@ -920,6 +705,10 @@ export default function AdminPage() {
   // Left-rail category (like the candidate dashboard). Add a tab id here +
   // an entry in STATUS_TABS + a content block to introduce a new project.
   const [statusTab, setStatusTab]         = useState<"b2" | "assign" | "vaccine" | "notes">("b2");
+  // Non-persisted view toggle for the assign tab. Defaults to whatever the
+  // canonical assignment implies; admin can flip it manually to view the
+  // other branch before picking. Cleared on modal close.
+  const [assignTypeUI, setAssignTypeUI]   = useState<"agency" | "employer" | null>(null);
   const [statusForm, setStatusForm]       = useState<CandStatus>(EMPTY_STATUS);
   const [statusLoading, setStatusLoading] = useState(false);
   const [statusAutoSaved, setStatusAutoSaved] = useState(false);
@@ -937,8 +726,12 @@ export default function AdminPage() {
     setStatusTab("b2");
     setStatusLoading(true);
     setStatusForm(EMPTY_STATUS);
+    setAssignTypeUI(null);
     statusSeedRef.current = JSON.stringify(EMPTY_STATUS);
     statusFormRef.current = EMPTY_STATUS;
+    // Ensure canonical assignment is loaded (employer_id + employer list)
+    // so the assign tab can derive its highlighted pill from real data.
+    void loadEmployer(selectedUser);
     try {
       const r = await fetch(`/api/portal/admin/candidate-status?userId=${selectedUser}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -3464,26 +3257,56 @@ export default function AdminPage() {
                           </StatusSection>
                           )}
 
-                          {statusTab === "assign" && (
+                          {statusTab === "assign" && (() => {
+                            // ── Derived assignment state (no DB echo) ────────
+                            // Canonical sources only:
+                            //   • candidateOrgs[uid]   → approved agency link(s)
+                            //   • employerByUser[uid]  → candidate_profiles.employer_id
+                            //   • allEmployers[]       → employer→agencyId map
+                            // Plus a NON-persisted view toggle (assignTypeUI)
+                            // so admin can flip branches before any pick.
+                            const linkedOrg     = selectedUser ? (candidateOrgs[selectedUser] ?? [])[0] ?? null : null;
+                            const linkedEmpId   = selectedUser ? employerByUser[selectedUser] ?? null : null;
+                            const linkedEmp     = linkedEmpId ? allEmployers.find(e => e.id === linkedEmpId) ?? null : null;
+                            // Derived current type: agency if there's an org
+                            // link OR the assigned employer belongs to one;
+                            // employer if there's a direct employer with no
+                            // agency; otherwise null.
+                            const derivedType: "agency" | "employer" | null =
+                              linkedOrg || linkedEmp?.agencyId ? "agency"
+                              : linkedEmp ? "employer"
+                              : null;
+                            const shownType: "agency" | "employer" | null = assignTypeUI ?? derivedType;
+                            // Highlighted agency = the linked org (first approved).
+                            const shownAgencyId = linkedOrg?.id ?? null;
+                            // Highlighted site (employer-under-agency) =
+                            // employer_id IFF that employer's agencyId matches
+                            // the shown agency. Stops a stale direct-employer
+                            // assignment leaking into the agency branch.
+                            const shownSiteId = shownAgencyId && linkedEmp?.agencyId === shownAgencyId ? linkedEmp.id : null;
+                            // Highlighted direct-employer = employer_id IFF
+                            // that employer has no agency.
+                            const shownDirectEmpId = linkedEmp && !linkedEmp.agencyId ? linkedEmp.id : null;
+                            return (
                           <StatusSection title={assignT.sec} first>
                             <div>
                               <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{assignT.to}</label>
                               <div className="flex gap-2">
-                                <button onClick={() => setStatusForm(f => ({ ...f, assign_type: "agency", assign_employer: null }))}
+                                <button onClick={() => setAssignTypeUI("agency")}
                                   className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
-                                  style={pill(statusForm.assign_type === "agency")}>{assignT.agency}</button>
-                                <button onClick={() => setStatusForm(f => ({ ...f, assign_type: "employer", assign_agency: null, assign_site: null }))}
+                                  style={pill(shownType === "agency")}>{assignT.agency}</button>
+                                <button onClick={() => setAssignTypeUI("employer")}
                                   className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
-                                  style={pill(statusForm.assign_type === "employer")}>{assignT.employer}</button>
+                                  style={pill(shownType === "employer")}>{assignT.employer}</button>
                               </div>
                             </div>
 
                             {/* AGENCY branch — pick from live `organizations`
-                                table. Clicking an agency ALSO writes a
+                                table. Clicking an agency writes a
                                 candidate_organizations approved link so the
                                 CV picks up the agency's logo + footer
                                 (via the existing resolveBrand chain). */}
-                            {statusForm.assign_type === "agency" && (
+                            {shownType === "agency" && (
                               <>
                                 <div>
                                   <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{assignT.pickAg}</label>
@@ -3491,18 +3314,24 @@ export default function AdminPage() {
                                     {allOrgs.map(a => (
                                       <button key={a.id}
                                         onClick={() => {
-                                          setStatusForm(f => ({ ...f, assign_agency: a.id, assign_site: f.assign_agency === a.id ? f.assign_site : null }));
-                                          // Real assignment → candidate_organizations link
+                                          // Real assignment → candidate_organizations link.
+                                          // Optimistic local update so the pill
+                                          // re-highlights immediately.
                                           if (selectedUser && accessToken) {
+                                            const uid = selectedUser;
+                                            setCandidateOrgs(prev => ({
+                                              ...prev,
+                                              [uid]: [{ id: a.id, name: a.name }, ...(prev[uid] ?? []).filter(o => o.id !== a.id)],
+                                            }));
                                             void fetch(`/api/portal/admin/organizations/${a.id}/candidates`, {
                                               method: "POST",
                                               headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-                                              body: JSON.stringify({ candidateUserId: selectedUser, status: "approved" }),
+                                              body: JSON.stringify({ candidateUserId: uid, status: "approved" }),
                                             }).catch(() => {});
                                           }
                                         }}
                                         className="px-3.5 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
-                                        style={pill(statusForm.assign_agency === a.id)}>{a.name}</button>
+                                        style={pill(shownAgencyId === a.id)}>{a.name}</button>
                                     ))}
                                     {allOrgs.length === 0 && (
                                       <p className="text-[11px]" style={{ color: "var(--w3)" }}>
@@ -3511,30 +3340,23 @@ export default function AdminPage() {
                                     )}
                                   </div>
                                 </div>
-                                {statusForm.assign_agency && (
+                                {shownAgencyId && (
                                   <div>
                                     <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{assignT.pickSite}</label>
                                     <div className="flex flex-wrap gap-2">
                                       {allEmployers
-                                        .filter(e => e.agencyId === statusForm.assign_agency)
+                                        .filter(e => e.agencyId === shownAgencyId)
                                         .map(e => (
                                           <button key={e.id}
                                             onClick={() => {
-                                              setStatusForm(f => ({ ...f, assign_site: e.id }));
-                                              // Real assignment → candidate_profiles.employer_id
-                                              // → letter recipient + CV branding via employer.agency_id.
-                                              if (selectedUser && accessToken) {
-                                                void fetch("/api/portal/admin/assign-employer", {
-                                                  method: "POST",
-                                                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-                                                  body: JSON.stringify({ candidateUserId: selectedUser, employerId: e.id }),
-                                                }).catch(() => {});
-                                              }
+                                              // Real assignment → candidate_profiles.employer_id.
+                                              // assignEmployer() handles optimistic UI + revert.
+                                              if (selectedUser) void assignEmployer(selectedUser, e.id);
                                             }}
                                             className="px-3.5 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
-                                            style={pill(statusForm.assign_site === e.id)}>{e.name}</button>
+                                            style={pill(shownSiteId === e.id)}>{e.name}</button>
                                         ))}
-                                      {allEmployers.filter(e => e.agencyId === statusForm.assign_agency).length === 0 && (
+                                      {allEmployers.filter(e => e.agencyId === shownAgencyId).length === 0 && (
                                         <p className="text-[11px]" style={{ color: "var(--w3)" }}>
                                           Diese Agentur hat noch keine Arbeitgeber.
                                         </p>
@@ -3549,11 +3371,11 @@ export default function AdminPage() {
                                     Borivon regardless of this toggle —
                                     resolveBrand short-circuits when
                                     byAdmin === false. */}
-                                {statusForm.assign_agency && selectedUser && (() => {
+                                {shownAgencyId && selectedUser && (() => {
                                   const cur = profiles[selectedUser]?.cv_use_agency_branding;
                                   // Default to TRUE when undefined / null (matches DB column default)
                                   const on = cur === false ? false : true;
-                                  const agencyName = allOrgs.find(o => o.id === statusForm.assign_agency)?.name ?? "—";
+                                  const agencyName = allOrgs.find(o => o.id === shownAgencyId)?.name ?? "—";
                                   return (
                                     <div className="mt-2 p-3 rounded-xl flex items-start gap-3"
                                       style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
@@ -3629,24 +3451,17 @@ export default function AdminPage() {
                                 Writes candidate_profiles.employer_id. No
                                 agency branding (employer.agency_id is null
                                 → CV stays Borivon for the admin too). */}
-                            {statusForm.assign_type === "employer" && (
+                            {shownType === "employer" && (
                               <div>
                                 <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{assignT.pickEmp}</label>
                                 <div className="flex flex-wrap gap-2">
                                   {allEmployers.filter(e => !e.agencyId).map(emp => (
                                     <button key={emp.id}
                                       onClick={() => {
-                                        setStatusForm(f => ({ ...f, assign_employer: emp.id }));
-                                        if (selectedUser && accessToken) {
-                                          void fetch("/api/portal/admin/assign-employer", {
-                                            method: "POST",
-                                            headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-                                            body: JSON.stringify({ candidateUserId: selectedUser, employerId: emp.id }),
-                                          }).catch(() => {});
-                                        }
+                                        if (selectedUser) void assignEmployer(selectedUser, emp.id);
                                       }}
                                       className="px-3.5 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
-                                      style={pill(statusForm.assign_employer === emp.id)}>{emp.name}</button>
+                                      style={pill(shownDirectEmpId === emp.id)}>{emp.name}</button>
                                   ))}
                                   {allEmployers.filter(e => !e.agencyId).length === 0 && (
                                     <p className="text-[11px]" style={{ color: "var(--w3)" }}>
@@ -3657,7 +3472,8 @@ export default function AdminPage() {
                               </div>
                             )}
                           </StatusSection>
-                          )}
+                            );
+                          })()}
 
                           {statusTab === "vaccine" && (
                           <StatusSection title={L.secVax} first>
@@ -6432,7 +6248,7 @@ export default function AdminPage() {
                           onClick={() => { setOrgInviteDropdown(false); setNewOrgName(""); setNewOrgModal(true); }}
                           className="bv-row-hover w-full text-left px-3 py-2.5 text-[11.5px] font-medium inline-flex items-center gap-1.5"
                           style={{ color: "var(--w3)", borderTop: allOrgs.length > 0 ? "1px solid var(--border)" : undefined }}>
-                          <Plus size={11} strokeWidth={2} /> New organization admin
+                          <Plus size={11} strokeWidth={2} /> New agency admin
                         </button>
                       </div>
                     )}
@@ -6499,14 +6315,14 @@ export default function AdminPage() {
                 onClick={e => e.stopPropagation()}
                 style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)", overflowY: "auto" }}>
                   <div className="px-5 pt-5 pb-4">
-                    <p className="text-[14px] font-semibold mb-1" style={{ color: "var(--w)" }}>New organization</p>
-                    <p className="text-[11.5px] mb-4" style={{ color: "var(--w3)" }}>Creates the org and generates an admin invite link.</p>
+                    <p className="text-[14px] font-semibold mb-1" style={{ color: "var(--w)" }}>New agency</p>
+                    <p className="text-[11.5px] mb-4" style={{ color: "var(--w3)" }}>Creates the agency and generates an admin invite link.</p>
                     <input
                       autoFocus
                       value={newOrgName}
                       onChange={e => setNewOrgName(e.target.value)}
                       onKeyDown={async e => { if (e.key === "Enter") e.currentTarget.blur(); }}
-                      placeholder="Organization name"
+                      placeholder="Agency name"
                       className="w-full rounded-xl px-3 py-2.5 text-[13px] outline-none"
                       style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)" }}
                     />
@@ -6677,7 +6493,7 @@ export default function AdminPage() {
                           </button>
                         );
                       })}
-                      {allOrgs.length === 0 && <p className="text-[11px]" style={{ color: "var(--w3)" }}>No organizations yet</p>}
+                      {allOrgs.length === 0 && <p className="text-[11px]" style={{ color: "var(--w3)" }}>No agencies yet</p>}
                     </div>
                   </div>
 

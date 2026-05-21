@@ -14,10 +14,10 @@ import { useLang } from "@/components/LangContext";
 
 const t = {
   en: {
-    organizations: "Organizations",
+    organizations: "Agencies",
     manageAdmins: "Manage admins",
     myProfile: "My profile",
-    joinOrganization: "Join organization",
+    joinOrganization: "Join agency",
     signOut: "Sign out",
     users: "Users",
     deleteAccountTitle: "Delete your account?",
@@ -39,10 +39,10 @@ const t = {
     adminOf: "Admin of",
   },
   fr: {
-    organizations: "Organisations",
+    organizations: "Agences",
     manageAdmins: "Gérer les admins",
     myProfile: "Mon profil",
-    joinOrganization: "Rejoindre une organisation",
+    joinOrganization: "Rejoindre une agence",
     signOut: "Se déconnecter",
     users: "Utilisateurs",
     deleteAccountTitle: "Supprimer votre compte ?",
@@ -64,10 +64,10 @@ const t = {
     adminOf: "Admin de",
   },
   de: {
-    organizations: "Organisationen",
+    organizations: "Agenturen",
     manageAdmins: "Admins verwalten",
     myProfile: "Mein Profil",
-    joinOrganization: "Organisation beitreten",
+    joinOrganization: "Agentur beitreten",
     signOut: "Abmelden",
     users: "Benutzer",
     deleteAccountTitle: "Ihr Konto löschen?",

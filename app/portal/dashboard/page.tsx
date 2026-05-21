@@ -2267,7 +2267,7 @@ export default function DashboardPage() {
                 {org.name}
               </p>
               <p className="text-[12px] mt-0.5" style={{ color: "var(--w3)" }}>
-                {lang === "de" ? "Ihr Partner-Unternehmen" : lang === "en" ? "Your partner organization" : "Votre organisation partenaire"}
+                {lang === "de" ? "Ihre Partner-Agentur" : lang === "en" ? "Your partner agency" : "Votre agence partenaire"}
               </p>
             </div>
             <span className="text-[10px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full flex-shrink-0"

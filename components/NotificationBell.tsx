@@ -501,7 +501,7 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
                         {n.doc_name && (
                           <p className="text-[11px] mt-1 px-2 py-1 rounded-lg leading-snug inline-block truncate"
                             style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", maxWidth: "100%" }}>
-                            {bt.placedWith}: <strong>{cleanLabel(n.doc_name, "Organisation")}</strong>
+                            {bt.placedWith}: <strong>{cleanLabel(n.doc_name, lang === "de" ? "Agentur" : lang === "fr" ? "Agence" : "Agency")}</strong>
                           </p>
                         )}
                       </>

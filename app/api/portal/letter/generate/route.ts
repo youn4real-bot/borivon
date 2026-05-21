@@ -51,28 +51,23 @@ export async function POST(req: NextRequest) {
 
     // Resolve the recipient (employer) SERVER-SIDE from the candidate's own
     // admin assignment — never trust client-sent recipient lines, and refuse
-    // to generate until an employer is assigned. Canonical: employer_id;
-    // legacy fallback: the deprecated uksh_campus enum.
+    // to generate until an employer is assigned. Canonical: employer_id.
     const db = getServiceSupabase();
     const { data: prof } = await db
       .from("candidate_profiles")
-      .select("employer_id, uksh_campus")
+      .select("employer_id")
       .eq("user_id", auth.userId)
       .maybeSingle();
     const employerId = (prof as { employer_id?: string } | null)?.employer_id ?? null;
-    const legacyCampus = (prof as { uksh_campus?: string } | null)?.uksh_campus ?? null;
-    const legacySlug =
-      legacyCampus === "kiel" ? "uksh_kiel" :
-      legacyCampus === "luebeck" ? "uksh_luebeck" : null;
 
-    if (!employerId && !legacySlug) {
+    if (!employerId) {
       return Response.json({ error: "No employer assigned" }, { status: 400 });
     }
-    const empQuery = db.from("employers").select("name, address_lines");
-    const { data: emp } = await (employerId
-      ? empQuery.eq("id", employerId)
-      : empQuery.eq("slug", legacySlug as string)
-    ).maybeSingle();
+    const { data: emp } = await db
+      .from("employers")
+      .select("name, address_lines")
+      .eq("id", employerId)
+      .maybeSingle();
     const lines = (emp as { address_lines?: string[] } | null)?.address_lines;
     const employerName = (emp as { name?: string } | null)?.name ?? "";
     if (!lines || lines.length === 0) {

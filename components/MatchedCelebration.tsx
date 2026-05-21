@@ -47,13 +47,13 @@ const T = {
   fr: {
     title:   "Bravo 🎉",
     matched: "Vous avez été associé à",
-    body:    "Votre organisation partenaire vous attend en Allemagne. Continuez à téléverser vos documents pour avancer.",
+    body:    "Votre agence partenaire vous attend en Allemagne. Continuez à téléverser vos documents pour avancer.",
     btn:     "Continuer",
   },
   en: {
     title:   "Congrats 🎉",
     matched: "You've been matched with",
-    body:    "Your partner organization is waiting for you in Germany. Keep uploading your documents to move forward.",
+    body:    "Your partner agency is waiting for you in Germany. Keep uploading your documents to move forward.",
     btn:     "Let's go",
   },
   de: {

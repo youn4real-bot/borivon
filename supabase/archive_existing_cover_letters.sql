@@ -1,3 +1,4 @@
+-- DEPRECATED 2026-05: ran against the now-retired uksh_campus column (see uksh_campus_retire.sql). Kept for history.
 -- ─────────────────────────────────────────────────────────────────────────────
 -- ONE-TIME archive of every existing candidate-uploaded cover letter PDF.
 --

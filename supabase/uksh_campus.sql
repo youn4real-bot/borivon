@@ -1,3 +1,4 @@
+-- DEPRECATED 2026-05: column retired by uksh_campus_retire.sql. Keep this file for history; never re-apply.
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Run once in Supabase → SQL Editor
 -- UKSH campus assignment on candidate_profiles.

@@ -26,7 +26,7 @@ import { useLang } from "@/components/LangContext";
 
 const T = {
   fr: {
-    title: "Rejoindre votre organisation",
+    title: "Rejoindre votre agence",
     sub:   "Saisissez le code que votre partenaire vous a donné. Une fois validé, ils pourront suivre votre parcours.",
     label: "Code d'invitation",
     join:  "Rejoindre",
@@ -36,7 +36,7 @@ const T = {
     networkErr:  "Erreur réseau. Réessayez.",
   },
   en: {
-    title: "Join your organization",
+    title: "Join your agency",
     sub:   "Paste the invite code your recruitment partner gave you. Once verified, they'll be able to support your journey.",
     label: "Invite code",
     join:  "Join",
@@ -46,7 +46,7 @@ const T = {
     networkErr:  "Network error. Please try again.",
   },
   de: {
-    title: "Organisation beitreten",
+    title: "Agentur beitreten",
     sub:   "Geben Sie den Einladungscode Ihres Partners ein. Nach Bestätigung können sie Ihren Werdegang unterstützen.",
     label: "Einladungscode",
     join:  "Beitreten",

@@ -325,7 +325,7 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
                     K = candidate · A = Borivon admin · O = org admin */}
                 <span
                   className="text-[11px] font-bold rounded-full flex-shrink-0 flex items-center justify-center"
-                  title={u.kind === "borivon" ? T.roleAdmin : u.kind === "org" ? "Organization admin" : T.roleCandidate}
+                  title={u.kind === "borivon" ? T.roleAdmin : u.kind === "org" ? "Agency admin" : T.roleCandidate}
                   style={{
                     width: 22, height: 22,
                     background: u.kind === "candidate" ? "var(--bg2)" : "var(--gdim)",

@@ -78,7 +78,7 @@ export async function GET(req: NextRequest) {
   }
 
   for (const id of allOrgIds) {
-    communities.push({ kind: "org", id, name: names[id] ?? "Organization" });
+    communities.push({ kind: "org", id, name: names[id] ?? "Agency" });
   }
 
   return NextResponse.json({ communities });
