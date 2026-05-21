@@ -98,7 +98,7 @@ export type RegStatus = "expected" | "confirmed" | null;
 export interface B2Detail {
   // ── Decision-tree fields ──
   written?:                "yes" | "no" | null;
-  result?:                 "full" | "partial" | "failed" | null;
+  result?:                 "full" | "partial" | "failed" | "waiting" | null;
   pruefung?:               "telc" | "goethe" | "oesd" | null;
   certificateStatus?:      "got" | "waiting" | null;
   certificateDate?:        MonthYear;
@@ -531,6 +531,11 @@ function formatDeutschDetail(b: B2Detail | undefined, level: "B1" | "B2"): strin
     if (date && r) return `${head} nicht bestanden · Nachprüfung ${date} (${r})`;
     if (date)     return `${head} nicht bestanden · Nachprüfung ${date}`;
     return `${head} nicht bestanden`;
+  }
+
+  // ── Branch: written, awaiting result — terminal state ──
+  if (b.written === "yes" && b.result === "waiting") {
+    return `${head} · Ergebnis ausstehend`;
   }
 
   // Nothing meaningful filled in → don't render anything.

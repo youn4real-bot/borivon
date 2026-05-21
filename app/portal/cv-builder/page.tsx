@@ -4137,9 +4137,10 @@ function CVBuilderInner() {
                     written_yes:  "Ja",
                     written_no:   "Noch nicht",
                     resultQ:      "Ergebnis?",
-                    result_full:  "Voll bestanden",
-                    result_part:  "Teilbestanden",
-                    result_fail:  "Nicht bestanden",
+                    result_full:    "Voll bestanden",
+                    result_part:    "Teilbestanden",
+                    result_fail:    "Nicht bestanden",
+                    result_waiting: "Wartet auf Ergebnis",
                     pruefungQ:    "Welche Prüfung?",
                     certQ:        "Zertifikat erhalten?",
                     cert_got:     "Erhalten",
@@ -4163,9 +4164,10 @@ function CVBuilderInner() {
                     written_yes:  "Oui",
                     written_no:   "Pas encore",
                     resultQ:      "Résultat ?",
-                    result_full:  "Réussi entièrement",
-                    result_part:  "Partiellement réussi",
-                    result_fail:  "Non réussi",
+                    result_full:    "Réussi entièrement",
+                    result_part:    "Partiellement réussi",
+                    result_fail:    "Non réussi",
+                    result_waiting: "En attente du résultat",
                     pruefungQ:    "Quel examen ?",
                     certQ:        "Certificat reçu ?",
                     cert_got:     "Reçu",
@@ -4189,9 +4191,10 @@ function CVBuilderInner() {
                     written_yes:  "Yes",
                     written_no:   "Not yet",
                     resultQ:      "Result?",
-                    result_full:  "Fully passed",
-                    result_part:  "Partially passed",
-                    result_fail:  "Not passed",
+                    result_full:    "Fully passed",
+                    result_part:    "Partially passed",
+                    result_fail:    "Not passed",
+                    result_waiting: "Awaiting result",
                     pruefungQ:    "Which exam?",
                     certQ:        "Got your certificate?",
                     cert_got:     "Received",
@@ -4304,17 +4307,23 @@ function CVBuilderInner() {
                         <div>
                           <Label>{L.resultQ}</Label>
                           <div className="flex gap-2 flex-wrap">
-                            {(["full", "partial", "failed"] as const).map(opt => {
+                            {(["full", "partial", "failed", "waiting"] as const).map(opt => {
                               const active = b.result === opt;
-                              const label = opt === "full" ? L.result_full : opt === "partial" ? L.result_part : L.result_fail;
+                              const label =
+                                opt === "full"    ? L.result_full
+                              : opt === "partial" ? L.result_part
+                              : opt === "failed"  ? L.result_fail
+                              :                     L.result_waiting;
                               return (
                                 <button key={opt} type="button"
                                   onClick={() => updateB({
                                     result: active ? null : opt,
                                     // Reset every downstream branch's field set.
-                                    // "full"   branch: pruefung, certificate*
-                                    // "partial"branch: pruefung, modules
-                                    // "failed" branch: retakeDate, retakeRegStatus
+                                    // "full"    branch: pruefung, certificate*
+                                    // "partial" branch: pruefung, modules
+                                    // "failed"  branch: retakeDate, retakeRegStatus
+                                    // "waiting" branch: TERMINAL — no follow-ups,
+                                    //                   just wipes the others.
                                     pruefung:                null,
                                     certificateStatus:       null,
                                     certificateDate:         undefined,
@@ -4323,8 +4332,8 @@ function CVBuilderInner() {
                                     retakeRegStatus:         null,
                                     modules:                 {},
                                   })}
-                                  className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
-                                  style={segPill(active)}>
+                                  className="py-2 px-3 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                                  style={{ ...segPill(active), flex: "1 1 0", minWidth: 0 }}>
                                   {label}
                                 </button>
                               );
