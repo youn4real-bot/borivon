@@ -44,6 +44,8 @@ type RemoteMap = Record<string, CaretPos>;
 const STALE_MS         = 8000;
 const BROADCAST_THROT  = 80;     // ms — cap selection-change emit rate
 const AVATAR_SIZE      = 22;     // px, slightly smaller than presence chip
+const AVATAR_GAP_RIGHT = 8;      // px from editor's right edge
+const AVATAR_CLUSTER   = 6;      // px overlap when multiple peers share a line
 const CARET_WIDTH      = 2;      // px
 
 export function LetterCollabCaret({
@@ -215,8 +217,30 @@ export function LetterCollabCaret({
   const eRect = editor.getBoundingClientRect();
   const activePeers = peers.filter(p => !p.isSelf && remote[p.id]);
   if (activePeers.length === 0) return null;
+  // Suppress reference-only react warning for `tick`.
+  void tick;
 
-  const anonymise = viewerRole === "candidate";
+  // Bucket peers by the LINE they sit on (caret y rounded to the
+  // line's vertical band). Multiple peers on the same line get
+  // clustered on the right edge — each one shifts slightly left so
+  // their avatars don't overlap.
+  const lineBuckets = new Map<number, typeof activePeers>();
+  for (const p of activePeers) {
+    const c = remote[p.id]!;
+    const band = Math.round(c.y / Math.max(8, c.h));
+    const arr = lineBuckets.get(band) ?? [];
+    arr.push(p);
+    lineBuckets.set(band, arr);
+  }
+  // Stable order within a bucket — by peer id — so the cluster
+  // doesn't reshuffle on every state tick.
+  for (const arr of lineBuckets.values()) {
+    arr.sort((a, b) => a.id.localeCompare(b.id));
+  }
+  const clusterIndex = new Map<string, number>();
+  for (const arr of lineBuckets.values()) {
+    arr.forEach((p, i) => clusterIndex.set(p.id, i));
+  }
 
   return (
     <>
@@ -228,51 +252,78 @@ export function LetterCollabCaret({
       `}</style>
       {activePeers.map(peer => {
         const c = remote[peer.id]!;
-        const left = eRect.left + c.x;
-        const top  = eRect.top  + c.y;
+        const caretLeft = eRect.left + c.x;
+        const caretTop  = eRect.top  + c.y;
+        const peerIsAdmin = peer.role === "admin" || peer.role === "sub_admin";
+        const anonymise = viewerRole === "candidate";
         const label = anonymise ? "Borivon" : (peer.displayName || peer.email || "—");
-        // Suppress reference-only react warning for `tick`.
-        void tick;
+
+        // Caret line color:
+        //   • admin / sub-admin peer  → var(--w) (white in dark, black in
+        //                                light) — Borivon brand neutral
+        //   • candidate peer          → var(--gold) — always gold
+        // Glow halo matches the line color at low alpha.
+        const caretColor = peerIsAdmin ? "var(--w)" : "var(--gold)";
+        const caretGlow  = peerIsAdmin
+          ? "0 0 10px 1px var(--w), 0 0 3px 0 rgba(255,255,255,0.6)"
+          : "0 0 10px 1px rgba(201,162,64,0.85), 0 0 3px 0 rgba(255,215,140,0.55)";
+
+        // Avatar is PERMANENT on the right edge of the editor — only its
+        // vertical position changes (follows the caret line). Multiple
+        // peers on the same line cluster a few pixels apart so each is
+        // identifiable.
+        const idx = clusterIndex.get(peer.id) ?? 0;
+        const avatarRight = (window.innerWidth - eRect.right) + AVATAR_GAP_RIGHT;
+        const avatarTop   = caretTop + (c.h / 2) - (AVATAR_SIZE / 2);
+
+        // Avatar ring color matches the caret color so a glance at the
+        // ring tells you which line that avatar belongs to.
+        const ringColor = peerIsAdmin ? "var(--w)" : "var(--gold)";
+
         return (
           <div key={peer.id}
             className="fixed pointer-events-none"
             data-bv-collab-ignore="1"
             aria-hidden="true"
-            // 1090 sits above page content, below LAW #36 popups (z-1100).
             style={{ left: 0, top: 0, zIndex: 1090 }}>
-            {/* Vertical caret line with gold glow + blink. */}
+            {/* Vertical caret line — Borivon (admin) is white/black per
+                theme; candidate is always gold. Glow + blink. */}
             <div
               style={{
                 position: "fixed",
-                left: left,
-                top:  top,
-                width: CARET_WIDTH,
+                left:   caretLeft,
+                top:    caretTop,
+                width:  CARET_WIDTH,
                 height: c.h,
-                background: "var(--gold)",
-                boxShadow: "0 0 8px 1px rgba(201,162,64,0.85), 0 0 2px 0 rgba(255,255,255,0.5)",
+                background: caretColor,
+                boxShadow:  caretGlow,
                 borderRadius: 1,
                 animation: "bvLetterCaretBlink 1.0s steps(2, start) infinite",
               }}
             />
-            {/* Avatar chip — sits on the SAME LINE as the caret, just to
-                its right with a small gap. Half-overlaps the caret height
-                so it visually reads as the editor avatar. */}
+            {/* Avatar chip — anchored PERMANENTLY to the right edge of
+                the editor, tracking only the caret's vertical position.
+                Multiple peers on the same line cluster horizontally
+                (each one shifted left a few px so they don't overlap). */}
             <div
               title={label}
               style={{
                 position: "fixed",
-                left: left + 6,
-                top:  top + (c.h / 2) - (AVATAR_SIZE / 2),
-                width: AVATAR_SIZE,
+                right: avatarRight + idx * (AVATAR_SIZE + AVATAR_CLUSTER),
+                top:   avatarTop,
+                width:  AVATAR_SIZE,
                 height: AVATAR_SIZE,
                 borderRadius: "50%",
                 background: "var(--gdim)",
-                border: "2px solid var(--gold)",
-                boxShadow: "0 4px 12px rgba(201,162,64,0.45)",
+                border: `2px solid ${ringColor}`,
+                boxShadow: peerIsAdmin
+                  ? "0 4px 12px rgba(255,255,255,0.35)"
+                  : "0 4px 12px rgba(201,162,64,0.45)",
                 overflow: "hidden",
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
+                transition: "top 120ms var(--ease-out, ease-out), right 120ms var(--ease-out, ease-out)",
               }}>
               {anonymise ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -284,7 +335,7 @@ export function LetterCollabCaret({
                 <img src={peer.photo} alt={label}
                   style={{ width: "100%", height: "100%", borderRadius: "50%", objectFit: "cover" }} />
               ) : (
-                <span style={{ fontSize: 11, fontWeight: 700, color: "var(--gold)" }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: ringColor }}>
                   {(label || "?").trim().charAt(0).toUpperCase()}
                 </span>
               )}
