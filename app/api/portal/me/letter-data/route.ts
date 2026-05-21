@@ -42,7 +42,11 @@ export async function GET(req: NextRequest) {
   // can't even display their name. Insert a stub keyed by user_id so
   // every subsequent write is a cheap UPDATE — and the candidate's name
   // is already in the column for downstream consumers.
+  let autoCreateError: string | null = null;
+  let autoCreateAttempted = false;
+  let autoCreateSeed: Record<string, unknown> | null = null;
   if (!row) {
+    autoCreateAttempted = true;
     try {
       const headerJwt0 = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
       const { data: u0 } = await getAnonVerifyClient().auth.getUser(headerJwt0);
@@ -50,15 +54,22 @@ export async function GET(req: NextRequest) {
       const seed: Record<string, unknown> = { user_id: auth.userId };
       if (m0?.first_name) seed.first_name = String(m0.first_name).trim();
       if (m0?.last_name)  seed.last_name  = String(m0.last_name).trim();
-      await db.from("candidate_profiles").upsert(seed, { onConflict: "user_id" });
-      // Re-select so the rest of the function sees the freshly inserted row.
-      const { data: row2 } = await db
-        .from("candidate_profiles")
-        .select("first_name,last_name,address_street,address_number,address_postal,city_of_residence,country_of_residence,phone,passport_status,cv_draft")
-        .eq("user_id", auth.userId)
-        .maybeSingle();
-      row = row2;
-    } catch { /* best-effort */ }
+      autoCreateSeed = seed;
+      const { error: insErr } = await db.from("candidate_profiles").upsert(seed, { onConflict: "user_id" });
+      if (insErr) {
+        autoCreateError = `${insErr.code ?? ""}: ${insErr.message ?? String(insErr)}`;
+      } else {
+        const { data: row2, error: selErr } = await db
+          .from("candidate_profiles")
+          .select("first_name,last_name,address_street,address_number,address_postal,city_of_residence,country_of_residence,phone,passport_status,cv_draft")
+          .eq("user_id", auth.userId)
+          .maybeSingle();
+        if (selErr) autoCreateError = `reselect: ${selErr.message ?? String(selErr)}`;
+        row = row2;
+      }
+    } catch (e) {
+      autoCreateError = e instanceof Error ? e.message : String(e);
+    }
   }
 
   type Row = {
@@ -144,6 +155,10 @@ export async function GET(req: NextRequest) {
           phone:              (p.cv_draft as Record<string, unknown>).phone              ?? null,
         } : null,
         signup_metadata: { first_name: metaFirst, last_name: metaLast },
+        auto_create_attempted: autoCreateAttempted,
+        auto_create_seed: autoCreateSeed,
+        auto_create_error: autoCreateError,
+        auth_user_id: auth.userId,
       },
     } : {}),
   });
