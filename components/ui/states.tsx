@@ -39,9 +39,10 @@ export function Spinner({ size = "md", className = "", color }: { size?: Spinner
 
 // ── PageLoader — full-screen centered spinner (used at page mount) ─────────
 export function PageLoader({ message }: { message?: string }) {
+  const { t } = useLang();
   return (
     <main className="min-h-screen flex items-center justify-center px-4" style={{ background: "var(--bg)" }}>
-      <div className="text-center">
+      <div className="text-center" role="status" aria-live="polite" aria-label={message ?? t.aLoading}>
         <Spinner size="lg" />
         {message && <p className="mt-4 text-[12.5px]" style={{ color: "var(--w3)" }}>{message}</p>}
       </div>
@@ -127,10 +128,14 @@ export function Banner({
   className?: string;
 }) {
   const t = TONES[tone];
+  // Danger banners are alerts (assertive — interrupt); success/info/neutral
+  // banners are status messages (polite — wait for AT idle).
+  const role = tone === "danger" ? "alert" : "status";
+  const live = tone === "danger" ? "assertive" : "polite";
   return (
-    <div className={`inline-flex items-center gap-2 px-3 py-2 text-[12.5px] ${className}`}
+    <div role={role} aria-live={live} className={`inline-flex items-center gap-2 px-3 py-2 text-[12.5px] ${className}`}
       style={{ background: t.bg, color: t.color, border: `1px solid ${t.border}`, borderRadius: "var(--r-sm)" }}>
-      {Icon && <Icon size={13} strokeWidth={1.8} className="flex-shrink-0" />}
+      {Icon && <Icon size={13} strokeWidth={1.8} className="flex-shrink-0" aria-hidden="true" />}
       <span className="leading-snug">{children}</span>
     </div>
   );
@@ -173,11 +178,14 @@ export function AutosaveIndicator({
 
   const baseStyle = "inline-flex items-center gap-1.5 text-[11.5px] font-medium px-2.5 py-1 rounded-full";
 
+  // Wrap every state in role="status" + aria-live="polite" so screen
+  // readers hear each transition ("Saving…" → "Saved · just now" → on
+  // failure → "Couldn't save"). Decorative icons hidden from the AT.
   if (error) {
     return (
-      <span className={`${baseStyle} ${className}`}
+      <span role="status" aria-live="polite" className={`${baseStyle} ${className}`}
         style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
-        <CloudOff size={11} strokeWidth={1.8} />
+        <CloudOff size={11} strokeWidth={1.8} aria-hidden="true" />
         {t.aSaveError}
       </span>
     );
@@ -185,18 +193,18 @@ export function AutosaveIndicator({
 
   if (saving) {
     return (
-      <span className={`${baseStyle} ${className}`}
+      <span role="status" aria-live="polite" className={`${baseStyle} ${className}`}
         style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-        <Loader2 size={11} strokeWidth={2} className="animate-spin" />
+        <Loader2 size={11} strokeWidth={2} className="animate-spin" aria-hidden="true" />
         {t.aSaving}
       </span>
     );
   }
 
   return (
-    <span className={`${baseStyle} ${className}`}
+    <span role="status" aria-live="polite" className={`${baseStyle} ${className}`}
       style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
-      <Check size={11} strokeWidth={2} style={{ color: "var(--success)" }} />
+      <Check size={11} strokeWidth={2} style={{ color: "var(--success)" }} aria-hidden="true" />
       {t.aSaved} · {relativeTime(savedAt!, lang)}
     </span>
   );
