@@ -4072,6 +4072,7 @@ function CVBuilderInner() {
                     certExpect:   "Erwartet im",
                     modulesT:     "Module",
                     modPassed:    "Bestanden",
+                    modNotPassed: "Nicht bestanden",
                     modPassedAt:  "Bestanden am",
                     modRedoAt:    "Wiederholung geplant",
                     retakeAt:     "Vollständige Wiederholung geplant",
@@ -4093,6 +4094,7 @@ function CVBuilderInner() {
                     certExpect:   "Attendu pour",
                     modulesT:     "Modules",
                     modPassed:    "Réussi",
+                    modNotPassed: "Non réussi",
                     modPassedAt:  "Réussi le",
                     modRedoAt:    "Reprise prévue",
                     retakeAt:     "Reprise complète prévue",
@@ -4114,6 +4116,7 @@ function CVBuilderInner() {
                     certExpect:   "Expected on",
                     modulesT:     "Modules",
                     modPassed:    "Passed",
+                    modNotPassed: "Not passed",
                     modPassedAt:  "Passed on",
                     modRedoAt:    "Retake planned",
                     retakeAt:     "Full retake planned",
@@ -4238,39 +4241,64 @@ function CVBuilderInner() {
                         </>
                       )}
 
-                      {/* Step 4b — partial pass: module checklist */}
+                      {/* Step 4b — partial pass: per-module progressive
+                          disclosure. First just the module name + a two-
+                          pill choice (Bestanden / Nicht bestanden). The
+                          relevant date picker reveals only AFTER the
+                          choice is made, so the candidate isn't faced
+                          with 4 empty date inputs at once. Click the
+                          same pill again to unset → date picker hides.
+                      */}
                       {b.written === "yes" && b.result === "partial" && b.pruefung && moduleKeys.length > 0 && (
                         <div>
                           <Label>{L.modulesT}</Label>
                           <div className="space-y-2">
                             {moduleKeys.map(m => {
                               const cur = (b.modules ?? {})[m.key] ?? {};
-                              const passed = cur.passed === true;
+                              const choice: "passed" | "failed" | null =
+                                cur.passed === true ? "passed" :
+                                cur.passed === false ? "failed" : null;
                               return (
-                                <div key={m.key} className="flex items-start gap-3 p-2 rounded-lg"
+                                <div key={m.key} className="rounded-lg p-3 space-y-2.5"
                                   style={{ background: "var(--bg)", border: "1px solid var(--border)" }}>
-                                  <label className="inline-flex items-center gap-2 cursor-pointer select-none flex-shrink-0 mt-1 min-w-[110px]">
-                                    <input type="checkbox" checked={passed}
-                                      onChange={e => updateBModule(m.key, { passed: e.target.checked })} />
-                                    <span className="text-[13px] font-medium" style={{ color: "var(--w)" }}>{m.label}</span>
-                                  </label>
-                                  <div className="flex-1 min-w-0">
-                                    {passed ? (
-                                      <MonthYearPicker
-                                        label={L.modPassedAt}
-                                        value={cur.passedDate ?? { month: "", year: "" }}
-                                        onChange={v => updateBModule(m.key, { passedDate: v })}
-                                        lang={lang}
-                                      />
-                                    ) : (
-                                      <MonthYearPicker
-                                        label={L.modRedoAt}
-                                        value={cur.expectedDate ?? { month: "", year: "" }}
-                                        onChange={v => updateBModule(m.key, { expectedDate: v })}
-                                        lang={lang}
-                                      />
-                                    )}
+                                  <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>{m.label}</p>
+                                  <div className="flex gap-2">
+                                    <button type="button"
+                                      onClick={() => updateBModule(m.key, {
+                                        passed: choice === "passed" ? undefined : true,
+                                        // Clearing the other branch keeps stored state honest.
+                                        expectedDate: undefined,
+                                      })}
+                                      className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                                      style={segPill(choice === "passed")}>
+                                      {L.modPassed}
+                                    </button>
+                                    <button type="button"
+                                      onClick={() => updateBModule(m.key, {
+                                        passed: choice === "failed" ? undefined : false,
+                                        passedDate: undefined,
+                                      })}
+                                      className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                                      style={segPill(choice === "failed")}>
+                                      {L.modNotPassed}
+                                    </button>
                                   </div>
+                                  {choice === "passed" && (
+                                    <MonthYearPicker
+                                      label={L.modPassedAt}
+                                      value={cur.passedDate ?? { month: "", year: "" }}
+                                      onChange={v => updateBModule(m.key, { passedDate: v })}
+                                      lang={lang}
+                                    />
+                                  )}
+                                  {choice === "failed" && (
+                                    <MonthYearPicker
+                                      label={L.modRedoAt}
+                                      value={cur.expectedDate ?? { month: "", year: "" }}
+                                      onChange={v => updateBModule(m.key, { expectedDate: v })}
+                                      lang={lang}
+                                    />
+                                  )}
                                 </div>
                               );
                             })}
