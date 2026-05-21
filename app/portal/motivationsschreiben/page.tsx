@@ -727,13 +727,14 @@ function MotivationsschreibenPageInner() {
     ch.on("broadcast", { event: "letter-update" }, ({ payload }) => {
       const p = payload as { by?: string; html?: string; at?: number };
       if (!p?.html || !p.by || p.by === selfPeer!.id) return;
-      // Anti-clobber: don't overwrite local typing in flight. 400ms is
-      // the sweet spot — long enough that mid-word keystrokes survive,
-      // short enough that alternating-edit sessions stay in sync (the
-      // previous 1500ms grace was making the sync feel "sometimes
-      // works, sometimes doesn't" because back-and-forth bursts kept
-      // landing inside each other's grace window).
-      if (Date.now() - lastLocalEditAt.current < 400) return;
+      // Anti-clobber TIGHT — was 400ms, dropped to 30ms. The longer
+      // window was making the sync feel laggy because every keystroke
+      // from the remote landed inside our own grace and got dropped.
+      // 30ms is just enough to dodge a same-tick race (our own input
+      // event still in flight when the remote echo arrives); anything
+      // longer trades instant-feel for paranoia we don't need —
+      // last-write-wins converges on the next keystroke.
+      if (Date.now() - lastLocalEditAt.current < 30) return;
       if (p.html === lastBroadcastSig.current) return;
       lastBroadcastSig.current = p.html;
       const el = editorRef.current;
