@@ -4206,15 +4206,15 @@ function CVBuilderInner() {
                         </div>
                       </div>
 
-                      {/* Step 1b — Not yet: planned exam date + seat
-                          registration status. The candidate is still
-                          waiting for the school's roster or has paid a
-                          deposit / full fee for a confirmed seat. */}
+                      {/* Step 1b — Not yet: progressive disclosure to
+                          keep the panel calm. Reg-status FIRST (the
+                          semantic question — "do you have a seat or
+                          are you on a waitlist?"), THEN the planned
+                          date only after they've answered. Same
+                          smoothing pattern the module picker uses on
+                          the "yes" branch. */}
                       {b.written === "no" && (
                         <>
-                          <MonthYearPicker label={L.notYetDate}
-                            value={b.notYetDate ?? { month: "", year: "" }}
-                            onChange={v => updateB({ notYetDate: v })} lang={lang} />
                           <div>
                             <Label>{L.regStatus}</Label>
                             <div className="flex gap-2">
@@ -4222,7 +4222,14 @@ function CVBuilderInner() {
                                 const active = b.notYetRegStatus === opt;
                                 return (
                                   <button key={opt} type="button"
-                                    onClick={() => updateB({ notYetRegStatus: active ? null : opt })}
+                                    onClick={() => updateB({
+                                      notYetRegStatus: active ? null : opt,
+                                      // Clearing the status also clears the
+                                      // planned date — otherwise the date
+                                      // would persist as an orphan after the
+                                      // user toggles back to "no decision".
+                                      ...(active ? { notYetDate: undefined } : {}),
+                                    })}
                                     className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
                                     style={segPill(active)}>
                                     {opt === "expected" ? L.reg_expected : L.reg_confirmed}
@@ -4231,6 +4238,11 @@ function CVBuilderInner() {
                               })}
                             </div>
                           </div>
+                          {b.notYetRegStatus && (
+                            <MonthYearPicker label={L.notYetDate}
+                              value={b.notYetDate ?? { month: "", year: "" }}
+                              onChange={v => updateB({ notYetDate: v })} lang={lang} />
+                          )}
                         </>
                       )}
 
