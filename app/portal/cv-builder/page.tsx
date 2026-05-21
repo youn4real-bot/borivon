@@ -3062,15 +3062,6 @@ function CVBuilderInner() {
       <PortalTopNav />
       <div className="max-w-2xl mx-auto bv-enter-soft">
 
-        {/* Admin editing banner */}
-        {adminCandidateId && (
-          <div className="mb-4 px-4 py-2.5 rounded-xl flex items-center gap-2 text-[12px] font-medium"
-            style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)", color: "var(--gold)" }}>
-            <FilePen size={13} strokeWidth={1.8} />
-            {t.cvbAdminEditing}
-          </div>
-        )}
-
         {/* Header — refined hierarchy */}
         <div className="mb-8">
           <div className="flex items-center justify-between gap-3 mb-5">
