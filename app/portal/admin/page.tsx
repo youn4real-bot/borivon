@@ -84,6 +84,11 @@ type CandidateProfile = {
   profile_photo: string | null;
   payment_tier: string | null;
   placement_ready: boolean | null;
+  // Admin-only toggle: when FALSE the admin CV download uses plain
+  // Borivon instead of the assigned agency's logo + footer. Default
+  // TRUE (DB column default) — candidate-side CV always Borivon
+  // regardless of this flag.
+  cv_use_agency_branding: boolean | null;
 };
 
 type AdminPipeline = {
@@ -3537,6 +3542,85 @@ export default function AdminPage() {
                                     </div>
                                   </div>
                                 )}
+
+                                {/* ADMIN-ONLY: keep agency branding on admin
+                                    CV download, or strip to plain Borivon.
+                                    Default ON. Candidate-side CV is ALWAYS
+                                    Borivon regardless of this toggle —
+                                    resolveBrand short-circuits when
+                                    byAdmin === false. */}
+                                {statusForm.assign_agency && selectedUser && (() => {
+                                  const cur = profiles[selectedUser]?.cv_use_agency_branding;
+                                  // Default to TRUE when undefined / null (matches DB column default)
+                                  const on = cur === false ? false : true;
+                                  const agencyName = allOrgs.find(o => o.id === statusForm.assign_agency)?.name ?? "—";
+                                  return (
+                                    <div className="mt-2 p-3 rounded-xl flex items-start gap-3"
+                                      style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-[12px] font-semibold" style={{ color: "var(--w)" }}>
+                                          {lang === "de" ? `${agencyName}-Branding auf dem CV (Admin-Download)` : lang === "fr" ? `Branding ${agencyName} sur le CV (téléchargement admin)` : `${agencyName} branding on CV (admin download)`}
+                                        </p>
+                                        <p className="text-[10.5px] mt-0.5" style={{ color: "var(--w3)" }}>
+                                          {lang === "de"
+                                            ? "An: Logo + Adresse oben/unten. Aus: reines Borivon-Layout. Wirkt nur auf vom Admin generierte CVs — der Kandidat erhält immer Borivon."
+                                            : lang === "fr"
+                                            ? "Activé : logo + adresse. Désactivé : modèle Borivon. Affecte uniquement les CV générés par l'admin — le candidat reçoit toujours Borivon."
+                                            : "On: logo + footer. Off: plain Borivon template. Only affects admin-generated CVs — the candidate always gets Borivon."}
+                                        </p>
+                                      </div>
+                                      <button
+                                        type="button"
+                                        role="switch"
+                                        aria-checked={on}
+                                        onClick={() => {
+                                          if (!selectedUser || !accessToken) return;
+                                          const next = !on;
+                                          // Optimistic: update local profile state
+                                          setProfiles(prev => ({
+                                            ...prev,
+                                            [selectedUser]: { ...prev[selectedUser], cv_use_agency_branding: next },
+                                          }));
+                                          fetch("/api/portal/admin", {
+                                            method: "PATCH",
+                                            headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                                            body: JSON.stringify({ userId: selectedUser, profile: { cv_use_agency_branding: next } }),
+                                          }).then(r => {
+                                            if (!r.ok) {
+                                              // Revert on failure
+                                              setProfiles(prev => ({
+                                                ...prev,
+                                                [selectedUser]: { ...prev[selectedUser], cv_use_agency_branding: on },
+                                              }));
+                                            }
+                                          }).catch(() => {
+                                            setProfiles(prev => ({
+                                              ...prev,
+                                              [selectedUser]: { ...prev[selectedUser], cv_use_agency_branding: on },
+                                            }));
+                                          });
+                                        }}
+                                        className="relative inline-flex items-center flex-shrink-0 mt-0.5"
+                                        style={{
+                                          width: 40, height: 22,
+                                          borderRadius: 999,
+                                          background: on ? "var(--gold)" : "var(--bg)",
+                                          border: `1px solid ${on ? "var(--border-gold)" : "var(--border)"}`,
+                                          transition: "background .15s ease",
+                                          cursor: "pointer",
+                                        }}>
+                                        <span style={{
+                                          position: "absolute",
+                                          top: 2, left: on ? 20 : 2,
+                                          width: 16, height: 16,
+                                          borderRadius: "50%",
+                                          background: on ? "#131312" : "var(--w3)",
+                                          transition: "left .15s ease",
+                                        }} />
+                                      </button>
+                                    </div>
+                                  );
+                                })()}
                               </>
                             )}
 

@@ -171,7 +171,7 @@ export async function GET(req: NextRequest) {
   // simply be absent from the rows; the UI falls back to null gracefully.
   const { data: profileRows } = await db
     .from("candidate_profiles")
-    .select("user_id, first_name, last_name, dob, sex, nationality, passport_no, passport_expiry, city_of_birth, country_of_birth, issuing_authority, issue_date, address_street, address_number, address_postal, city_of_residence, country_of_residence, passport_status, passport_feedback, marital_status, children_ages, manually_verified, profile_photo, payment_tier, placement_ready")
+    .select("user_id, first_name, last_name, dob, sex, nationality, passport_no, passport_expiry, city_of_birth, country_of_birth, issuing_authority, issue_date, address_street, address_number, address_postal, city_of_residence, country_of_residence, passport_status, passport_feedback, marital_status, children_ages, manually_verified, profile_photo, payment_tier, placement_ready, cv_use_agency_branding")
     .in("user_id", userIds);
   const profiles: Record<string, {
     first_name: string | null; last_name: string | null;
@@ -190,6 +190,7 @@ export async function GET(req: NextRequest) {
     profile_photo: string | null;
     payment_tier: string | null;
     placement_ready: boolean | null;
+    cv_use_agency_branding: boolean | null;
   }> = {};
   for (const p of profileRows ?? []) {
     profiles[p.user_id] = p;

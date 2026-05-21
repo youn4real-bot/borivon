@@ -39,6 +39,19 @@ async function resolveBrand(userId: string, byAdmin: boolean): Promise<CVBrand> 
   if (!byAdmin) return {};
   const db = getServiceSupabase();
 
+  // Admin-only opt-out: when the candidate's row has
+  // cv_use_agency_branding === false, force the plain Borivon template
+  // even on the admin-side render. Default TRUE (column default), so
+  // every existing candidate keeps the agency-branding behavior.
+  const { data: prof } = await db
+    .from("candidate_profiles")
+    .select("employer_id, cv_use_agency_branding")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const useAgency = (prof as { cv_use_agency_branding?: boolean | null } | null)?.cv_use_agency_branding;
+  if (useAgency === false) return {};
+  const empId = (prof as { employer_id?: string | null } | null)?.employer_id ?? null;
+
   // Branding resolution chain:
   //   1) direct candidate_organizations link (legacy + member self-signup)
   //   2) employer.agency_id from the candidate's assignment — so a candidate
@@ -54,22 +67,14 @@ async function resolveBrand(userId: string, byAdmin: boolean): Promise<CVBrand> 
     .maybeSingle();
   if (link?.org_id) orgId = link.org_id;
 
-  if (!orgId) {
-    const { data: prof } = await db
-      .from("candidate_profiles")
-      .select("employer_id")
-      .eq("user_id", userId)
+  if (!orgId && empId) {
+    const { data: emp } = await db
+      .from("employers")
+      .select("agency_id")
+      .eq("id", empId)
       .maybeSingle();
-    const empId = (prof as { employer_id?: string | null } | null)?.employer_id ?? null;
-    if (empId) {
-      const { data: emp } = await db
-        .from("employers")
-        .select("agency_id")
-        .eq("id", empId)
-        .maybeSingle();
-      const agId = (emp as { agency_id?: string | null } | null)?.agency_id ?? null;
-      if (agId) orgId = agId;
-    }
+    const agId = (emp as { agency_id?: string | null } | null)?.agency_id ?? null;
+    if (agId) orgId = agId;
   }
 
   if (!orgId) return {};
