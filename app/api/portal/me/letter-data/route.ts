@@ -7,7 +7,7 @@ import { requireUser } from "@/lib/admin-auth";
  *
  * Service-role read so it bypasses any candidate_profiles RLS column
  * filter that may strip address fields from the candidate's own anon
- * client. Merging order (per user 2026-05):
+ * client. Merging order:
  *   1) passport-approved columns on candidate_profiles
  *      (address_street / _number / _postal / city_of_residence /
  *       country_of_residence / first_name / last_name / phone)
@@ -20,9 +20,11 @@ import { requireUser } from "@/lib/admin-auth";
  * so a number typed into the CV builder lands on the cover letter
  * instantly, no admin approval gate.
  *
- * Returns: { sender: { firstName, lastName, street, number, postal,
- *                       city, country, phone, email },
- *           passportStatus }
+ * Side effect: if no candidate_profiles row exists yet for this user,
+ * inserts a stub keyed by user_id + auth.users.user_metadata names so
+ * every downstream write is a cheap UPDATE on an existing row.
+ *
+ * Returns: { sender, passportStatus }
  */
 export async function GET(req: NextRequest) {
   const auth = await requireUser(req);
@@ -35,18 +37,14 @@ export async function GET(req: NextRequest) {
     .eq("user_id", auth.userId)
     .maybeSingle();
 
-  // ── ROOT-FIX: auto-create an empty row on first letter view ──
-  // Some candidates have NO row at all (their passport-data form was
-  // never submitted, the CV builder was never opened by them, and no
-  // admin has touched their record yet). Without a row the cover letter
-  // can't even display their name. Insert a stub keyed by user_id so
-  // every subsequent write is a cheap UPDATE — and the candidate's name
-  // is already in the column for downstream consumers.
-  let autoCreateError: string | null = null;
-  let autoCreateAttempted = false;
-  let autoCreateSeed: Record<string, unknown> | null = null;
+  // Auto-create empty row on first letter view. Some candidates have no
+  // candidate_profiles row at all (passport-data form never submitted,
+  // CV builder never opened, no admin touch). Without a row the cover
+  // letter can't even display their name. Insert a stub keyed by
+  // user_id seeded with names from auth.users.user_metadata so every
+  // subsequent write is a cheap UPDATE — and the candidate's name is
+  // already in the column for downstream consumers.
   if (!row) {
-    autoCreateAttempted = true;
     try {
       const headerJwt0 = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
       const { data: u0 } = await getAnonVerifyClient().auth.getUser(headerJwt0);
@@ -54,21 +52,19 @@ export async function GET(req: NextRequest) {
       const seed: Record<string, unknown> = { user_id: auth.userId };
       if (m0?.first_name) seed.first_name = String(m0.first_name).trim();
       if (m0?.last_name)  seed.last_name  = String(m0.last_name).trim();
-      autoCreateSeed = seed;
       const { error: insErr } = await db.from("candidate_profiles").upsert(seed, { onConflict: "user_id" });
       if (insErr) {
-        autoCreateError = `${insErr.code ?? ""}: ${insErr.message ?? String(insErr)}`;
+        console.error("[letter-data] auto-create upsert failed:", insErr.code, insErr.message);
       } else {
-        const { data: row2, error: selErr } = await db
+        const { data: row2 } = await db
           .from("candidate_profiles")
           .select("first_name,last_name,address_street,address_number,address_postal,city_of_residence,country_of_residence,phone,passport_status,cv_draft")
           .eq("user_id", auth.userId)
           .maybeSingle();
-        if (selErr) autoCreateError = `reselect: ${selErr.message ?? String(selErr)}`;
         row = row2;
       }
     } catch (e) {
-      autoCreateError = e instanceof Error ? e.message : String(e);
+      console.error("[letter-data] auto-create exception:", e);
     }
   }
 
@@ -121,45 +117,8 @@ export async function GET(req: NextRequest) {
     email,
   };
 
-  // Diagnostic surface — only returned when ?debug=1 is in the URL, so
-  // it never leaks to a normal candidate session. Use to inspect what
-  // the server actually reads for a candidate without touching the UI.
-  const wantDebug = req.nextUrl.searchParams.get("debug") === "1";
-
   return NextResponse.json({
     sender,
     passportStatus: p?.passport_status ?? null,
-    ...(wantDebug ? {
-      _debug: {
-        row_exists: !!p,
-        passport: {
-          first_name:           p?.first_name           ?? null,
-          last_name:            p?.last_name            ?? null,
-          address_street:       p?.address_street       ?? null,
-          address_number:       p?.address_number       ?? null,
-          address_postal:       p?.address_postal       ?? null,
-          city_of_residence:    p?.city_of_residence    ?? null,
-          country_of_residence: p?.country_of_residence ?? null,
-          phone:                p?.phone                ?? null,
-          passport_status:      p?.passport_status      ?? null,
-        },
-        cv_draft_keys: p?.cv_draft ? Object.keys(p.cv_draft as Record<string, unknown>) : null,
-        cv_draft_personal: p?.cv_draft ? {
-          firstName:          (p.cv_draft as Record<string, unknown>).firstName          ?? null,
-          lastName:           (p.cv_draft as Record<string, unknown>).lastName           ?? null,
-          address:            (p.cv_draft as Record<string, unknown>).address            ?? null,
-          addressNumber:      (p.cv_draft as Record<string, unknown>).addressNumber      ?? null,
-          postalCode:         (p.cv_draft as Record<string, unknown>).postalCode         ?? null,
-          city:               (p.cv_draft as Record<string, unknown>).city               ?? null,
-          countryOfResidence: (p.cv_draft as Record<string, unknown>).countryOfResidence ?? null,
-          phone:              (p.cv_draft as Record<string, unknown>).phone              ?? null,
-        } : null,
-        signup_metadata: { first_name: metaFirst, last_name: metaLast },
-        auto_create_attempted: autoCreateAttempted,
-        auto_create_seed: autoCreateSeed,
-        auto_create_error: autoCreateError,
-        auth_user_id: auth.userId,
-      },
-    } : {}),
   });
 }

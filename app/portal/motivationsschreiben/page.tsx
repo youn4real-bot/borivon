@@ -343,7 +343,6 @@ export default function MotivationsschreibenPage() {
   const [uploadErr, setUploadErr] = useState("");
   const [showPreview, setShowPreview] = useState(false);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
-  const [letterDebug, setLetterDebug] = useState<Record<string, unknown> | null>(null);
 
   const setPdfUrl = useCallback((next: string | null) => {
     setPdfUrlRaw(prev => {
@@ -445,23 +444,18 @@ export default function MotivationsschreibenPage() {
       // bypasses any client-RLS uncertainty. Returns the fully merged
       // sender (passport > cv_draft > signup metadata) in one round-trip.
       try {
-        // ?debug=1 in the cover-letter URL surfaces the raw DB snapshot
-        // in a dismissable panel — no PII leaks in normal navigation.
-        const wantDebug = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("debug") === "1";
-        const r = await fetch(`/api/portal/me/letter-data${wantDebug ? "?debug=1" : ""}`, {
+        const r = await fetch("/api/portal/me/letter-data", {
           headers: { Authorization: `Bearer ${session.access_token}` },
         });
         if (!cancelled && r.ok) {
           const j = await r.json() as {
             sender: { firstName: string; lastName: string; street: string; number: string; postal: string; city: string; country: string; phone: string; email: string };
             passportStatus: string | null;
-            _debug?: Record<string, unknown>;
           };
           setPerson({ ...j.sender });
           if (j.passportStatus === "pending" || j.passportStatus === "approved" || j.passportStatus === "rejected") {
             setPassportStatus(j.passportStatus);
           }
-          if (j._debug) setLetterDebug(j._debug);
         }
       } catch {
         // Fallback: anon client read so the page still hydrates if the
@@ -746,29 +740,6 @@ export default function MotivationsschreibenPage() {
               </h1>
             </div>
           </div>
-
-          {/* Debug panel — visible ONLY when the URL has ?debug=1. */}
-          {letterDebug && (
-            <div className="bv-noprint mb-4 mx-auto" style={{ maxWidth: 794 }}>
-              <details open style={{ background: "var(--card)", border: "1px solid var(--border-gold)", borderRadius: 12, padding: "10px 14px" }}>
-                <summary className="text-[12px] font-semibold cursor-pointer" style={{ color: "var(--gold)" }}>
-                  Debug: server-side row snapshot (?debug=1)
-                </summary>
-                <pre style={{
-                  fontSize: 11,
-                  lineHeight: 1.45,
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-all",
-                  color: "var(--w2)",
-                  marginTop: 10,
-                  maxHeight: 420,
-                  overflow: "auto",
-                }}>
-                  {String(JSON.stringify(letterDebug, null, 2) ?? "")}
-                </pre>
-              </details>
-            </div>
-          )}
 
           {/* Document sheet */}
           <div id="bv-doc-sheet" className="mx-auto"
