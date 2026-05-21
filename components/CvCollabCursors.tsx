@@ -2,32 +2,29 @@
 
 /**
  * CvCollabCursors — Google-Docs-style "who is editing where" floating
- * avatar bubble.
+ * avatar bubble, anchored to the actual input/button being clicked or
+ * focused (not just the section header).
  *
- * Sits on top of the cv-builder DOM and renders one absolute-positioned
- * disc per remote peer, anchored to the input/section that peer is
- * currently focused in. Anonymises to a Borivon "B" disc when the local
- * viewer is the candidate (same rule as the static top-right avatar row
- * in components/CvCollabPresence).
+ * Anonymisation rule:
+ *   - viewerRole === "candidate"  →  every non-self peer renders as the
+ *     Borivon "B" disc with no name. Candidate never learns which admin
+ *     is in the doc.
+ *   - viewerRole === admin / sub_admin  →  real photo + name for each
+ *     non-self peer.
  *
- * Transport: Supabase Realtime broadcast — MIT-licensed, the same pub/sub
- * primitive Liveblocks / PartyKit / supabase-presence-react wrap. We use
- * it directly so there is one transport across CV save, presence row, and
- * field focus.
+ * Transport: Supabase Realtime broadcast on channel cv-collab-<id>.
  *
  * Mechanism:
- *   - The local tab listens to `focusin` at the document level (bubbles
- *     up from every native input / textarea / contenteditable). When a
- *     new element is focused, it walks up to the nearest ancestor with a
- *     stable `id` (every SectionCard already has one) and broadcasts
- *     `{ peerId, sectionId }` to channel cv-collab-<candidateId>.
- *   - Remote tabs receive `field-focus` broadcasts, store `peerFields:
- *     Map<peerId, sectionId|null>`, and on every animation tick they
- *     resolve `sectionId -> getBoundingClientRect()` and render a small
- *     disc at the section's top-right.
- *   - DOM mutation (section open / close), scroll, and resize trigger a
- *     reposition pass — same as how Google Docs keeps its cursor avatars
- *     glued to paragraphs while you scroll.
+ *   1. focusin AND click at document level → identify the focused/clicked
+ *      element via a stable selector path. Broadcast { peerId, selector }
+ *      to peers.
+ *   2. Peers receive, store peerFields: Map<peerId, { selector, at }>.
+ *   3. Render loop (rAF, gated to only run when at least one peer has an
+ *      active selector) resolves selector → getBoundingClientRect →
+ *      positions an avatar at the top-right corner of that element.
+ *   4. Multiple peers anchored to the same element get clustered along
+ *      the right edge with a small horizontal offset so they don't
+ *      overlap.
  */
 
 import { useEffect, useState } from "react";
@@ -42,124 +39,186 @@ type Props = {
   viewerRole: CollabPeer["role"];
 };
 
-const ANON_SIZE = 28;
+const ANON_SIZE = 26;
 const STALE_MS  = 8000;
+const CLUSTER_OFFSET = 14; // px shift per stacked peer on the same element
+
+/** Stable selector for an element — used by the receiver to re-locate
+ *  the same DOM node on a peer's screen. Falls back from `#id` →
+ *  `[data-collab-id]` → a nth-of-type chain up to the nearest id-bearing
+ *  ancestor. Both peers run the same React tree, so the same path
+ *  resolves to the same element on both sides. */
+function selectorFor(el: HTMLElement): string | null {
+  if (el.id)               return `#${cssEscape(el.id)}`;
+  const collabId = el.dataset?.collabId;
+  if (collabId)            return `[data-collab-id="${collabId}"]`;
+  const parts: string[] = [];
+  let cur: HTMLElement | null = el;
+  while (cur && !cur.id) {
+    const parent: HTMLElement | null = cur.parentElement;
+    const tag = cur.tagName.toLowerCase();
+    if (!parent) { parts.unshift(tag); break; }
+    const tagName = cur.tagName;
+    const sameTag = (Array.from(parent.children) as Element[]).filter(c => c.tagName === tagName);
+    const idx = sameTag.indexOf(cur) + 1;
+    parts.unshift(`${tag}:nth-of-type(${idx})`);
+    cur = parent;
+  }
+  if (cur?.id) parts.unshift(`#${cssEscape(cur.id)}`);
+  return parts.join(" > ");
+}
+
+function cssEscape(s: string): string {
+  // Minimal escape — covers ids that React commonly generates.
+  if (typeof window !== "undefined" && (window as Window & { CSS?: { escape?: (s: string) => string } }).CSS?.escape) {
+    return (window as Window & { CSS: { escape: (s: string) => string } }).CSS.escape(s);
+  }
+  return s.replace(/([^a-zA-Z0-9_-])/g, "\\$1");
+}
+
+/** True for elements that count as "focusable / interactable" — we
+ *  broadcast on focus or click for these so an admin clicking into any
+ *  box (even a non-input like a button or a section header) lights up
+ *  the avatar on peers' screens. */
+function isInteractiveTarget(el: Element | null): boolean {
+  if (!(el instanceof HTMLElement)) return false;
+  if (el.dataset.bvCollabIgnore === "1") return false;
+  const tag = el.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON") return true;
+  if (el.isContentEditable) return true;
+  if (el.getAttribute("role") === "button") return true;
+  if (el.tabIndex >= 0) return true;
+  return !!el.closest("input, textarea, select, button, [contenteditable], [role='button']");
+}
 
 export function CvCollabCursors({ channel, selfPeer, peers, viewerRole }: Props) {
-  // Map peerId -> { sectionId, at }
-  const [peerFields, setPeerFields] = useState<Record<string, { sectionId: string | null; at: number }>>({});
-  // Recomputed every reposition tick.
-  const [positions, setPositions] = useState<Record<string, { x: number; y: number } | null>>({});
+  const [peerFields, setPeerFields] = useState<Record<string, { selector: string | null; at: number }>>({});
+  const [positions, setPositions] = useState<Record<string, { x: number; y: number; cluster: number } | null>>({});
 
-  // ── Local: focusin/focusout -> broadcast our active section ───────────
+  // ── Local: focus/click → broadcast a stable selector for the focused
+  //    or clicked target. focusin covers keyboard tabs + native form
+  //    focus; click covers buttons / non-focusable boxes the user just
+  //    interacted with. Walking up via closest() means even a click on
+  //    an inner <svg> or label resolves to the parent interactive box.
   useEffect(() => {
     if (!channel || !selfPeer) return;
-    let currentSection: string | null = null;
+    let currentSelector: string | null = null;
     let blurTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const send = (sectionId: string | null) => {
+    const send = (selector: string | null) => {
       try {
         void channel.send({
           type:    "broadcast",
           event:   "field-focus",
-          payload: { peerId: selfPeer.id, sectionId, at: Date.now() },
+          payload: { peerId: selfPeer.id, selector, at: Date.now() },
         });
       } catch { /* not yet subscribed */ }
     };
 
-    const sectionFromTarget = (target: EventTarget | null): string | null => {
+    const resolveTarget = (target: EventTarget | null): HTMLElement | null => {
       if (!(target instanceof HTMLElement)) return null;
-      // Prefer the input's own id when it has one; otherwise walk up to
-      // the nearest id-bearing ancestor. SectionCard renders id="<key>-section".
-      return target.id || target.closest<HTMLElement>("[id]")?.id || null;
+      // Find the interactive ancestor (covers svg/label/icon clicks too).
+      const interactive = isInteractiveTarget(target)
+        ? target
+        : target.closest<HTMLElement>("input, textarea, select, button, [contenteditable], [role='button']");
+      return interactive ?? null;
     };
 
-    const onFocusIn = (e: FocusEvent) => {
+    const handleEnter = (e: Event) => {
       if (blurTimer) { clearTimeout(blurTimer); blurTimer = null; }
-      const id = sectionFromTarget(e.target);
-      if (id !== currentSection) { currentSection = id; send(id); }
+      const el = resolveTarget(e.target);
+      if (!el) return;
+      const sel = selectorFor(el);
+      if (sel !== currentSelector) { currentSelector = sel; send(sel); }
     };
-    const onFocusOut = () => {
-      // Re-focus on the same section is common during clicks; debounce so
-      // we only clear when the user genuinely leaves the form.
+    const handleBlur = () => {
       if (blurTimer) clearTimeout(blurTimer);
       blurTimer = setTimeout(() => {
         if (!document.activeElement || document.activeElement === document.body) {
-          if (currentSection !== null) { currentSection = null; send(null); }
+          if (currentSelector !== null) { currentSelector = null; send(null); }
         }
-      }, 250);
+      }, 400);
     };
 
-    document.addEventListener("focusin",  onFocusIn);
-    document.addEventListener("focusout", onFocusOut);
-    // Heartbeat — re-broadcast the current section every 6 s so a tab that
-    // joined late still learns where we are.
-    const heartbeat = setInterval(() => { if (currentSection) send(currentSection); }, 6000);
+    document.addEventListener("focusin",  handleEnter);
+    document.addEventListener("click",    handleEnter, true);  // capture, so we beat React's handlers
+    document.addEventListener("focusout", handleBlur);
+    // Heartbeat so a tab that joined late learns where everyone is.
+    const heartbeat = setInterval(() => { if (currentSelector) send(currentSelector); }, 6000);
     return () => {
-      document.removeEventListener("focusin",  onFocusIn);
-      document.removeEventListener("focusout", onFocusOut);
+      document.removeEventListener("focusin",  handleEnter);
+      document.removeEventListener("click",    handleEnter, true);
+      document.removeEventListener("focusout", handleBlur);
       if (blurTimer) clearTimeout(blurTimer);
       clearInterval(heartbeat);
       send(null);
     };
   }, [channel, selfPeer]);
 
-  // ── Remote: subscribe to field-focus broadcasts ───────────────────────
+  // ── Remote: receive selector broadcasts ───────────────────────────────
   useEffect(() => {
     if (!channel) return;
     const sub = channel.on(
       "broadcast",
       { event: "field-focus" },
-      ({ payload }: { payload?: { peerId?: string; sectionId?: string | null; at?: number } }) => {
+      ({ payload }: { payload?: { peerId?: string; selector?: string | null; at?: number; sectionId?: string | null } }) => {
         const p = payload ?? {};
         if (!p.peerId) return;
         if (selfPeer && p.peerId === selfPeer.id) return;
+        // Back-compat: older clients still send sectionId. Convert to a
+        // selector so old + new clients interop while the deploy rolls out.
+        const incoming = (p.selector ?? (p.sectionId ? `#${cssEscape(p.sectionId)}` : null));
         setPeerFields(prev => ({
           ...prev,
-          [p.peerId!]: { sectionId: p.sectionId ?? null, at: p.at ?? Date.now() },
+          [p.peerId!]: { selector: incoming, at: p.at ?? Date.now() },
         }));
       },
     );
     return () => {
-      // supabase-js v2 has no per-handler off — when the parent removes
-      // the channel the handlers go with it. We just drop our state.
       void sub;
       setPeerFields({});
     };
   }, [channel, selfPeer]);
 
-  // ── Position avatars by section id ────────────────────────────────────
-  // Only runs the requestAnimationFrame loop when there's at least one
-  // remote peer with an active sectionId — otherwise we'd burn 60fps of
-  // getBoundingClientRect() calls (battery + scroll jank) on every open
-  // tab even when nobody is collaborating. Scroll + resize listeners are
-  // also conditional so an idle tab stays idle.
+  // ── Position avatars by selector. rAF gated to skip work when no
+  //    peer is anchored anywhere.
   useEffect(() => {
-    const hasActivePeer = peers.some(
-      p => !p.isSelf && peerFields[p.id] && peerFields[p.id]!.sectionId,
+    const activePeers = peers.filter(
+      p => !p.isSelf && peerFields[p.id] && peerFields[p.id]!.selector,
     );
-    if (!hasActivePeer) {
+    if (activePeers.length === 0) {
       setPositions({});
       return;
     }
     const update = () => {
-      const next: Record<string, { x: number; y: number } | null> = {};
+      const next: Record<string, { x: number; y: number; cluster: number } | null> = {};
+      // Group active peers by selector → enables side-by-side cluster
+      // positioning when two people are on the same element.
+      const bySelector = new Map<string, string[]>();
       const now = Date.now();
-      for (const peer of peers) {
-        if (peer.isSelf) continue;
+      for (const peer of activePeers) {
         const entry = peerFields[peer.id];
-        if (!entry || !entry.sectionId || now - entry.at > STALE_MS) {
-          next[peer.id] = null; continue;
+        if (!entry || !entry.selector || now - entry.at > STALE_MS) { next[peer.id] = null; continue; }
+        const arr = bySelector.get(entry.selector) ?? [];
+        arr.push(peer.id);
+        bySelector.set(entry.selector, arr);
+      }
+      for (const [selector, peerIds] of bySelector.entries()) {
+        let el: HTMLElement | null = null;
+        try { el = document.querySelector<HTMLElement>(selector); } catch { el = null; }
+        if (!el) {
+          for (const id of peerIds) next[id] = null;
+          continue;
         }
-        // Try the section id first; if not found, try the field id directly.
-        const el = document.getElementById(entry.sectionId);
-        if (!el) { next[peer.id] = null; continue; }
         const rect = el.getBoundingClientRect();
-        // Clamp into viewport so a section scrolled off-screen doesn't
-        // park the avatar at -300px / +9000px.
-        const x = Math.max(20, Math.min(window.innerWidth  - 20, rect.right - 14));
-        const y = Math.max(20, Math.min(window.innerHeight - 20, rect.top   + 14));
-        next[peer.id] = { x, y };
+        // Anchor at the TOP-RIGHT of the box, half-overlapping the corner.
+        const baseX = rect.right;
+        const baseY = rect.top;
+        peerIds.forEach((id, idx) => {
+          const x = Math.max(20, Math.min(window.innerWidth  - 20, baseX - idx * CLUSTER_OFFSET));
+          const y = Math.max(20, Math.min(window.innerHeight - 20, baseY));
+          next[id] = { x, y, cluster: idx };
+        });
       }
       setPositions(next);
     };
@@ -195,6 +254,7 @@ export function CvCollabCursors({ channel, selfPeer, peers, viewerRole }: Props)
         return (
           <div key={peer.id}
             className="pointer-events-none fixed"
+            data-bv-collab-ignore="1"
             title={label}
             aria-label={label}
             style={{
@@ -202,6 +262,8 @@ export function CvCollabCursors({ channel, selfPeer, peers, viewerRole }: Props)
               top:  pos.y,
               width: ANON_SIZE, height: ANON_SIZE,
               zIndex: 1500,
+              // Top-right anchor: nudge the disc so it half-overlaps the
+              // input's top-right corner instead of hovering off in space.
               transform: "translate(-50%, -50%)",
               animation: "bvCollabCursorPop .22s var(--ease-out)",
             }}>
@@ -232,7 +294,7 @@ export function CvCollabCursors({ channel, selfPeer, peers, viewerRole }: Props)
                 </span>
               )}
             </div>
-            {/* Subtle ring pulse so the avatar reads as a "live" presence */}
+            {/* Subtle pulse so the avatar reads as live presence */}
             <div className="absolute inset-0 rounded-full"
               style={{
                 boxShadow: "0 0 0 3px rgba(201,162,64,0.32)",
