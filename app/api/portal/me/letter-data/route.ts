@@ -110,8 +110,41 @@ export async function GET(req: NextRequest) {
     email,
   };
 
+  // Diagnostic surface — only returned when ?debug=1 is in the URL, so
+  // it never leaks to a normal candidate session. Use to inspect what
+  // the server actually reads for a candidate without touching the UI.
+  const wantDebug = req.nextUrl.searchParams.get("debug") === "1";
+
   return NextResponse.json({
     sender,
     passportStatus: p?.passport_status ?? null,
+    ...(wantDebug ? {
+      _debug: {
+        row_exists: !!p,
+        passport: {
+          first_name:           p?.first_name           ?? null,
+          last_name:            p?.last_name            ?? null,
+          address_street:       p?.address_street       ?? null,
+          address_number:       p?.address_number       ?? null,
+          address_postal:       p?.address_postal       ?? null,
+          city_of_residence:    p?.city_of_residence    ?? null,
+          country_of_residence: p?.country_of_residence ?? null,
+          phone:                p?.phone                ?? null,
+          passport_status:      p?.passport_status      ?? null,
+        },
+        cv_draft_keys: p?.cv_draft ? Object.keys(p.cv_draft as Record<string, unknown>) : null,
+        cv_draft_personal: p?.cv_draft ? {
+          firstName:          (p.cv_draft as Record<string, unknown>).firstName          ?? null,
+          lastName:           (p.cv_draft as Record<string, unknown>).lastName           ?? null,
+          address:            (p.cv_draft as Record<string, unknown>).address            ?? null,
+          addressNumber:      (p.cv_draft as Record<string, unknown>).addressNumber      ?? null,
+          postalCode:         (p.cv_draft as Record<string, unknown>).postalCode         ?? null,
+          city:               (p.cv_draft as Record<string, unknown>).city               ?? null,
+          countryOfResidence: (p.cv_draft as Record<string, unknown>).countryOfResidence ?? null,
+          phone:              (p.cv_draft as Record<string, unknown>).phone              ?? null,
+        } : null,
+        signup_metadata: { first_name: metaFirst, last_name: metaLast },
+      },
+    } : {}),
   });
 }
