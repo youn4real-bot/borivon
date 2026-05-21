@@ -506,7 +506,17 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
   const allEdu = [...datedEdu, ...data.eduEntries.filter(e => !datedEdu.find(d => d.id === e.id))];
 
   const allEdv      = [...data.edvSelected, ...data.edvCustomInputs.filter(Boolean)];
-  const activeLangs = data.langs.filter(l => l.name && l.level);
+  // Filter empty rows, then reorder so Deutsch always sits LAST in the
+  // language line on the printed CV. Deutsch carries the most detail
+  // (level + Prüfung context) so pushing it to the end keeps the
+  // shorter entries aligned together at the start of the row. Builder
+  // UI order is untouched — this is a render-time swap only.
+  const activeLangs = (() => {
+    const all = data.langs.filter(l => l.name && l.level);
+    const deutsch = all.filter(l => l.name === "Deutsch");
+    const others  = all.filter(l => l.name !== "Deutsch");
+    return [...others, ...deutsch];
+  })();
 
   return (
     <Document title={`Lebenslauf – ${fullName}`} author="Borivon" language="de">
