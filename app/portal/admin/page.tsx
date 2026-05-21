@@ -187,17 +187,10 @@ function DeDateInput({ value, onChange }: { value: string | null; onChange: (v: 
  * drop one more <StatusSection title="…"> into the modal. Autosave / flush /
  * last-write-wins already cover any new field automatically.
  */
-// Status → Assignment options. ADD NEW agencies/sites/employers HERE only.
-// (Reminder data inside candidate_status; separate from the real org system.)
-const ASSIGN_AGENCIES: { id: string; name: string; sites: { id: string; name: string }[] }[] = [
-  { id: "calmaroi", name: "Calmaroi", sites: [
-    { id: "kiel",    name: "UKSH Kiel" },
-    { id: "luebeck", name: "UKSH Lübeck" },
-  ] },
-];
-const ASSIGN_EMPLOYERS: { id: string; name: string }[] = [
-  { id: "amb_murnau", name: "Amb Murnau" },
-];
+// Status → Assignment options are pulled LIVE from the `organizations`
+// table (agencies) and the `employers` table (sites under an agency +
+// direct employers). Adding a new agency / employer now happens in the
+// Manage Employers UI; nothing to maintain here.
 
 function StatusSection({ title, first, children }: { title: string; first?: boolean; children: React.ReactNode }) {
   return (
@@ -719,7 +712,7 @@ export default function AdminPage() {
   // Motivationsschreiben recipient address). null = not assigned yet.
   const [employerByUser, setEmployerByUser] = useState<Record<string, string | null>>({});
   const [employerSaving, setEmployerSaving] = useState<Record<string, boolean>>({});
-  const [allEmployers, setAllEmployers] = useState<{ id: string; name: string }[]>([]);
+  const [allEmployers, setAllEmployers] = useState<{ id: string; name: string; agencyId?: string | null }[]>([]);
   const [searchQuery, setSearchQuery]   = useState("");
   const [filterMode, setFilterMode]     = useState<"all" | "pending" | "stuck" | "clear">("all");
   const [pipeline, setPipeline]         = useState<AdminPipeline>(DEFAULT_PIPELINE);
@@ -1251,10 +1244,17 @@ export default function AdminPage() {
           .then(j => { if (!cancelled && j?.isSuperAdmin) setIsSuperAdmin(true); })
           .catch(() => {})
           .finally(() => { if (!cancelled) setRoleResolved(true); }),
-        // b) Org list (for org switcher)
+        // b) Org list (for org switcher + Status->Assign agency picker)
         fetch("/api/portal/admin/organizations", { headers: { Authorization: `Bearer ${token}` } })
           .then(r => r.ok ? r.json() : null)
           .then(j => { if (!cancelled && j?.orgs) setAllOrgs(j.orgs); })
+          .catch(() => {}),
+        // b2) Employer list (for Status->Assign employer/site picker).
+        //     Picker shape includes agencyId so we can split into
+        //     "sites under an agency" vs "direct employers".
+        fetch("/api/portal/admin/employers", { headers: { Authorization: `Bearer ${token}` } })
+          .then(r => r.ok ? r.json() : null)
+          .then(j => { if (!cancelled && j?.employers) setAllEmployers(j.employers); })
           .catch(() => {}),
         // c) Bearbeitung phase slots
         fetch("/api/portal/phase-slots?phase=bearbeitung", { headers: { Authorization: `Bearer ${token}` } })
@@ -3473,45 +3473,102 @@ export default function AdminPage() {
                               </div>
                             </div>
 
+                            {/* AGENCY branch — pick from live `organizations`
+                                table. Clicking an agency ALSO writes a
+                                candidate_organizations approved link so the
+                                CV picks up the agency's logo + footer
+                                (via the existing resolveBrand chain). */}
                             {statusForm.assign_type === "agency" && (
                               <>
                                 <div>
                                   <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{assignT.pickAg}</label>
                                   <div className="flex flex-wrap gap-2">
-                                    {ASSIGN_AGENCIES.map(a => (
+                                    {allOrgs.map(a => (
                                       <button key={a.id}
-                                        onClick={() => setStatusForm(f => ({ ...f, assign_agency: a.id, assign_site: f.assign_agency === a.id ? f.assign_site : null }))}
+                                        onClick={() => {
+                                          setStatusForm(f => ({ ...f, assign_agency: a.id, assign_site: f.assign_agency === a.id ? f.assign_site : null }));
+                                          // Real assignment → candidate_organizations link
+                                          if (selectedUser && accessToken) {
+                                            void fetch(`/api/portal/admin/organizations/${a.id}/candidates`, {
+                                              method: "POST",
+                                              headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                                              body: JSON.stringify({ candidateUserId: selectedUser, status: "approved" }),
+                                            }).catch(() => {});
+                                          }
+                                        }}
                                         className="px-3.5 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
                                         style={pill(statusForm.assign_agency === a.id)}>{a.name}</button>
                                     ))}
+                                    {allOrgs.length === 0 && (
+                                      <p className="text-[11px]" style={{ color: "var(--w3)" }}>
+                                        Noch keine Agenturen — unter Arbeitgeber → Agenturen anlegen.
+                                      </p>
+                                    )}
                                   </div>
                                 </div>
                                 {statusForm.assign_agency && (
                                   <div>
                                     <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{assignT.pickSite}</label>
                                     <div className="flex flex-wrap gap-2">
-                                      {(ASSIGN_AGENCIES.find(a => a.id === statusForm.assign_agency)?.sites ?? []).map(s => (
-                                        <button key={s.id}
-                                          onClick={() => setStatusForm(f => ({ ...f, assign_site: s.id }))}
-                                          className="px-3.5 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
-                                          style={pill(statusForm.assign_site === s.id)}>{s.name}</button>
-                                      ))}
+                                      {allEmployers
+                                        .filter(e => e.agencyId === statusForm.assign_agency)
+                                        .map(e => (
+                                          <button key={e.id}
+                                            onClick={() => {
+                                              setStatusForm(f => ({ ...f, assign_site: e.id }));
+                                              // Real assignment → candidate_profiles.employer_id
+                                              // → letter recipient + CV branding via employer.agency_id.
+                                              if (selectedUser && accessToken) {
+                                                void fetch("/api/portal/admin/assign-employer", {
+                                                  method: "POST",
+                                                  headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                                                  body: JSON.stringify({ candidateUserId: selectedUser, employerId: e.id }),
+                                                }).catch(() => {});
+                                              }
+                                            }}
+                                            className="px-3.5 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                                            style={pill(statusForm.assign_site === e.id)}>{e.name}</button>
+                                        ))}
+                                      {allEmployers.filter(e => e.agencyId === statusForm.assign_agency).length === 0 && (
+                                        <p className="text-[11px]" style={{ color: "var(--w3)" }}>
+                                          Diese Agentur hat noch keine Arbeitgeber.
+                                        </p>
+                                      )}
                                     </div>
                                   </div>
                                 )}
                               </>
                             )}
 
+                            {/* DIRECT EMPLOYER branch — pick from live
+                                `employers` table where agency_id IS NULL.
+                                Writes candidate_profiles.employer_id. No
+                                agency branding (employer.agency_id is null
+                                → CV stays Borivon for the admin too). */}
                             {statusForm.assign_type === "employer" && (
                               <div>
                                 <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{assignT.pickEmp}</label>
                                 <div className="flex flex-wrap gap-2">
-                                  {ASSIGN_EMPLOYERS.map(e => (
-                                    <button key={e.id}
-                                      onClick={() => setStatusForm(f => ({ ...f, assign_employer: e.id }))}
+                                  {allEmployers.filter(e => !e.agencyId).map(emp => (
+                                    <button key={emp.id}
+                                      onClick={() => {
+                                        setStatusForm(f => ({ ...f, assign_employer: emp.id }));
+                                        if (selectedUser && accessToken) {
+                                          void fetch("/api/portal/admin/assign-employer", {
+                                            method: "POST",
+                                            headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                                            body: JSON.stringify({ candidateUserId: selectedUser, employerId: emp.id }),
+                                          }).catch(() => {});
+                                        }
+                                      }}
                                       className="px-3.5 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
-                                      style={pill(statusForm.assign_employer === e.id)}>{e.name}</button>
+                                      style={pill(statusForm.assign_employer === emp.id)}>{emp.name}</button>
                                   ))}
+                                  {allEmployers.filter(e => !e.agencyId).length === 0 && (
+                                    <p className="text-[11px]" style={{ color: "var(--w3)" }}>
+                                      Noch keine direkten Arbeitgeber.
+                                    </p>
+                                  )}
                                 </div>
                               </div>
                             )}
