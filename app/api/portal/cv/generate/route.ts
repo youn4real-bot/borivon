@@ -39,18 +39,23 @@ async function resolveBrand(userId: string, byAdmin: boolean): Promise<CVBrand> 
   if (!byAdmin) return {};
   const db = getServiceSupabase();
 
-  // Admin-only opt-out: when the candidate's row has
-  // cv_use_agency_branding === false, force the plain Borivon template
-  // even on the admin-side render. Default TRUE (column default), so
-  // every existing candidate keeps the agency-branding behavior.
+  // Two admin-only CV-branding flags model three states:
+  //   agency on + borivon on  → agency logo + footer
+  //   agency off + borivon on → plain Borivon (default {})
+  //   anything   + borivon off → strip ALL branding (noBranding: true)
   const { data: prof } = await db
     .from("candidate_profiles")
-    .select("employer_id, cv_use_agency_branding")
+    .select("employer_id, cv_use_agency_branding, cv_use_borivon_branding")
     .eq("user_id", userId)
     .maybeSingle();
-  const useAgency = (prof as { cv_use_agency_branding?: boolean | null } | null)?.cv_use_agency_branding;
-  if (useAgency === false) return {};
-  const empId = (prof as { employer_id?: string | null } | null)?.employer_id ?? null;
+  const p = (prof as { employer_id?: string | null; cv_use_agency_branding?: boolean | null; cv_use_borivon_branding?: boolean | null } | null);
+
+  // "No branding" wins over everything else.
+  if (p?.cv_use_borivon_branding === false) return { noBranding: true };
+
+  const useAgency = p?.cv_use_agency_branding;
+  if (useAgency === false) return {}; // plain Borivon
+  const empId = p?.employer_id ?? null;
 
   // Branding resolution chain:
   //   1) direct candidate_organizations link (legacy + member self-signup)

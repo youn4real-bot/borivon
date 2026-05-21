@@ -83,6 +83,10 @@ export interface CVBrand {
   logoSrc?: string;
   /** Footer lines. Default: ["contact@borivon.com"] */
   footerLines?: string[];
+  /** Strip ALL branding — no logo and no footer line at all. Admin
+   *  toggle exposed via candidate_profiles.cv_use_borivon_branding=false.
+   *  Wins over logoSrc / footerLines when set. */
+  noBranding?: boolean;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -448,26 +452,33 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
     <Document title={`Lebenslauf – ${fullName}`} author="Borivon" language="de">
       <Page size="A4" style={s.page} wrap>
 
-        {/* ── FIXED HEADER — logo + rule, every page ── */}
-        <View fixed style={s.fixedHeader}>
-          <View style={s.logoWrap}>
-            {brand?.logoSrc ? (
-              <Image src={brand.logoSrc} style={s.logoImage} />
-            ) : (
-              <View style={s.logoTextRow}>
-                <Text style={s.logoText}>Borivon</Text>
-                <Text style={s.logoGold}>.</Text>
-              </View>
-            )}
+        {/* ── FIXED HEADER — logo + rule, every page.
+            Hidden completely when brand.noBranding is set (admin-toggled
+            "no branding" mode). */}
+        {!brand?.noBranding && (
+          <View fixed style={s.fixedHeader}>
+            <View style={s.logoWrap}>
+              {brand?.logoSrc ? (
+                <Image src={brand.logoSrc} style={s.logoImage} />
+              ) : (
+                <View style={s.logoTextRow}>
+                  <Text style={s.logoText}>Borivon</Text>
+                  <Text style={s.logoGold}>.</Text>
+                </View>
+              )}
+            </View>
           </View>
-        </View>
+        )}
 
-        {/* ── FIXED FOOTER — contact line, every page ── */}
-        <View fixed style={s.fixedFooter}>
-          {footerLines.map((line, i) => (
-            <Text key={i} style={s.footerLine}>{line}</Text>
-          ))}
-        </View>
+        {/* ── FIXED FOOTER — contact line, every page.
+            Hidden completely when brand.noBranding is set. */}
+        {!brand?.noBranding && (
+          <View fixed style={s.fixedFooter}>
+            {footerLines.map((line, i) => (
+              <Text key={i} style={s.footerLine}>{line}</Text>
+            ))}
+          </View>
+        )}
 
         {/* ── DOCUMENT TITLE ── */}
         <Text style={s.docTitle}>Lebenslauf</Text>

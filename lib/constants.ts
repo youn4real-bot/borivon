@@ -50,11 +50,15 @@ export const ALLOWED_PROFILE_FIELDS = new Set<string>([
   "city_of_residence", "country_of_residence",
   "passport_status", "passport_feedback",
   "marital_status", "children_ages",
-  // Admin-only toggle: keep / strip agency branding on admin CV render.
-  // Default TRUE — when FALSE the admin-generated CV uses plain Borivon
-  // template regardless of any candidate_organizations / employer.agency_id
-  // assignment. Candidate-side CV is unaffected (always Borivon).
+  // Admin-only CV-branding flags (LAW #37 owner override).
+  // Together they model 3 states for admin-rendered CVs:
+  //   agency on + borivon on  → agency logo + footer
+  //   agency off + borivon on → plain Borivon
+  //   agency *  + borivon off → no branding at all
+  // Candidate-side CV is unaffected — always Borivon (resolveBrand
+  // short-circuits when byAdmin === false).
   "cv_use_agency_branding",
+  "cv_use_borivon_branding",
 ]);
 // NOTE: `manually_verified` is intentionally NOT in this allowlist.
 // It can ONLY be flipped via /api/portal/admin/verify-user, which requires
