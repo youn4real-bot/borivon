@@ -102,14 +102,18 @@ export interface CVData {
   email: string;
   workEntries: WorkEntry[];
   eduEntries: EduEntry[];
-  /** Each language entry. When name === "Deutsch" && level === "B2"
-   *  the optional `b2` block captures Prüfung details (telc / Goethe /
-   *  ÖSD), per-module completion, and the planned date for any
-   *  outstanding modules. All fields are optional — older cv_draft
-   *  payloads predate this and just have { name, level }. */
+  /** Each language entry. When name === "Deutsch", the optional `b1`
+   *  / `b2` blocks capture per-Prüfung exam details (status, dates,
+   *  Goethe / telc / ÖSD body, per-module completion, planned retake
+   *  dates for outstanding modules). All fields optional — older
+   *  cv_draft payloads just have { name, level }. The two blocks are
+   *  independent so a candidate that already passed B1 and is now
+   *  prepping B2 can store both states without one overwriting the
+   *  other. */
   langs: {
     name: string;
     level: string;
+    b1?: B2Detail;
     b2?: B2Detail;
   }[];
   edvSelected: string[];

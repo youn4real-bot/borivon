@@ -3942,37 +3942,50 @@ function CVBuilderInner() {
                   </div>
                 )}
 
-                {/* ── B2 Deutsch detail panel — reveal when this row is
-                    Deutsch + level B2. All fields optional. ── */}
-                {l.name === "Deutsch" && l.level === "B2" && (() => {
-                  const b2: B2Detail = l.b2 ?? {};
-                  const updateB2 = (patch: Partial<B2Detail>) => {
+                {/* ── German exam detail panel — reveals for Deutsch
+                    at level B1 OR B2. All fields optional.
+                    Module count per (level, Prüfung):
+                      Goethe (both B1+B2) → 4 modules
+                      telc (both)          → 2 modules
+                      ÖSD B2               → 2 modules
+                      ÖSD B1               → 4 modules
+                    ── */}
+                {l.name === "Deutsch" && (l.level === "B1" || l.level === "B2") && (() => {
+                  const level: "B1" | "B2" = l.level === "B1" ? "B1" : "B2";
+                  const bKey: "b1" | "b2" = level === "B1" ? "b1" : "b2";
+                  const b: B2Detail = (l[bKey] ?? {}) as B2Detail;
+                  const updateB = (patch: Partial<B2Detail>) => {
                     const ls = [...cvData.langs];
-                    ls[i] = { ...ls[i], b2: { ...b2, ...patch } };
+                    ls[i] = { ...ls[i], [bKey]: { ...b, ...patch } };
                     set("langs", ls);
                   };
-                  const updateB2Module = (key: string, patch: { done?: boolean; expectedDate?: MonthYear }) => {
-                    const prev = (b2.modules ?? {})[key] ?? {};
-                    const nextModules = { ...(b2.modules ?? {}), [key]: { ...prev, ...patch } };
-                    updateB2({ modules: nextModules });
+                  const updateBModule = (key: string, patch: { done?: boolean; expectedDate?: MonthYear }) => {
+                    const prev = (b.modules ?? {})[key] ?? {};
+                    const nextModules = { ...(b.modules ?? {}), [key]: { ...prev, ...patch } };
+                    updateB({ modules: nextModules });
                   };
-                  const moduleKeys: { key: string; label: string }[] = b2.pruefung === "goethe"
+                  // Goethe is 4-module at every level. ÖSD is 4-module at
+                  // B1 but only 2-module at B2. telc is 2-module everywhere.
+                  const isFourModule =
+                    b.pruefung === "goethe" ||
+                    (level === "B1" && b.pruefung === "oesd");
+                  const moduleKeys: { key: string; label: string }[] = isFourModule
                     ? [
                         { key: "lesen",     label: lang === "fr" ? "Lecture"          : lang === "en" ? "Reading"   : "Lesen" },
                         { key: "hoeren",    label: lang === "fr" ? "Écoute"           : lang === "en" ? "Listening" : "Hören" },
                         { key: "schreiben", label: lang === "fr" ? "Écriture"         : lang === "en" ? "Writing"   : "Schreiben" },
                         { key: "sprechen",  label: lang === "fr" ? "Expression orale" : lang === "en" ? "Speaking"  : "Sprechen" },
                       ]
-                    : b2.pruefung === "telc" || b2.pruefung === "oesd"
+                    : b.pruefung === "telc" || b.pruefung === "oesd"
                     ? [
                         { key: "schriftlich", label: lang === "fr" ? "Écrit" : lang === "en" ? "Written" : "Schriftlich" },
                         { key: "muendlich",   label: lang === "fr" ? "Oral"  : lang === "en" ? "Oral"    : "Mündlich" },
                       ]
                     : [];
                   const L = lang === "de" ? {
-                    title:    "B2 Deutsch — Details",
+                    title:    `${level} Deutsch — Details`,
                     hint:     "Optional. Hilft Admins, den Status deiner Prüfung im Blick zu behalten.",
-                    statusQ:  "B2 abgeschlossen?",
+                    statusQ:  `${level} abgeschlossen?`,
                     yes:      "Ja, bestanden",
                     no:       "Geplant",
                     passedOn: "Bestanden am",
@@ -3981,9 +3994,9 @@ function CVBuilderInner() {
                     modulesT: "Module",
                     redoOn:   "Wiederholung geplant",
                   } : lang === "fr" ? {
-                    title:    "Détails B2 allemand",
+                    title:    `Détails ${level} allemand`,
                     hint:     "Optionnel. Aide les admins à suivre l'état de votre examen.",
-                    statusQ:  "B2 réussi ?",
+                    statusQ:  `${level} réussi ?`,
                     yes:      "Oui, réussi",
                     no:       "Prévu",
                     passedOn: "Réussi le",
@@ -3992,9 +4005,9 @@ function CVBuilderInner() {
                     modulesT: "Modules",
                     redoOn:   "Reprise prévue",
                   } : {
-                    title:    "B2 German details",
+                    title:    `${level} German details`,
                     hint:     "Optional. Helps admins track the status of your exam.",
-                    statusQ:  "B2 passed?",
+                    statusQ:  `${level} passed?`,
                     yes:      "Yes, passed",
                     no:       "Planned",
                     passedOn: "Passed on",
@@ -4020,10 +4033,10 @@ function CVBuilderInner() {
                         <Label>{L.statusQ}</Label>
                         <div className="flex gap-2">
                           {(["yes", "no"] as const).map(opt => {
-                            const active = b2.passed === opt;
+                            const active = b.passed === opt;
                             return (
                               <button key={opt} type="button"
-                                onClick={() => updateB2({ passed: active ? null : opt })}
+                                onClick={() => updateB({ passed: active ? null : opt })}
                                 className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
                                 style={segPill(active)}>
                                 {opt === "yes" ? L.yes : L.no}
@@ -4033,24 +4046,24 @@ function CVBuilderInner() {
                         </div>
                       </div>
                       {/* Date pickers — passed-on for yes, planned-for for no */}
-                      {b2.passed === "yes" && (
-                        <MonthYearPicker label={L.passedOn} value={b2.passedDate ?? { month: "", year: "" }}
-                          onChange={v => updateB2({ passedDate: v })} lang={lang} />
+                      {b.passed === "yes" && (
+                        <MonthYearPicker label={L.passedOn} value={b.passedDate ?? { month: "", year: "" }}
+                          onChange={v => updateB({ passedDate: v })} lang={lang} />
                       )}
-                      {b2.passed === "no" && (
-                        <MonthYearPicker label={L.plannedOn} value={b2.expectedDate ?? { month: "", year: "" }}
-                          onChange={v => updateB2({ expectedDate: v })} lang={lang} />
+                      {b.passed === "no" && (
+                        <MonthYearPicker label={L.plannedOn} value={b.expectedDate ?? { month: "", year: "" }}
+                          onChange={v => updateB({ expectedDate: v })} lang={lang} />
                       )}
                       {/* Prüfung selector — Goethe / telc / ÖSD */}
-                      {b2.passed === "yes" && (
+                      {b.passed === "yes" && (
                         <div>
                           <Label>{L.pruefung}</Label>
                           <div className="flex gap-2">
                             {(["goethe", "telc", "oesd"] as const).map(p => {
-                              const active = b2.pruefung === p;
+                              const active = b.pruefung === p;
                               return (
                                 <button key={p} type="button"
-                                  onClick={() => updateB2({ pruefung: active ? null : p, modules: {} })}
+                                  onClick={() => updateB({ pruefung: active ? null : p, modules: {} })}
                                   className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
                                   style={segPill(active)}>
                                   {p === "goethe" ? "Goethe" : p === "telc" ? "telc" : "ÖSD"}
@@ -4061,19 +4074,19 @@ function CVBuilderInner() {
                         </div>
                       )}
                       {/* Module checklist + per-module redo date */}
-                      {b2.passed === "yes" && moduleKeys.length > 0 && (
+                      {b.passed === "yes" && moduleKeys.length > 0 && (
                         <div>
                           <Label>{L.modulesT}</Label>
                           <div className="space-y-2">
                             {moduleKeys.map(m => {
-                              const cur = (b2.modules ?? {})[m.key] ?? {};
+                              const cur = (b.modules ?? {})[m.key] ?? {};
                               const done = cur.done === true;
                               return (
                                 <div key={m.key} className="flex items-start gap-3 p-2 rounded-lg"
                                   style={{ background: "var(--bg)", border: "1px solid var(--border)" }}>
                                   <label className="inline-flex items-center gap-2 cursor-pointer select-none flex-shrink-0 mt-1">
                                     <input type="checkbox" checked={done}
-                                      onChange={e => updateB2Module(m.key, { done: e.target.checked })} />
+                                      onChange={e => updateBModule(m.key, { done: e.target.checked })} />
                                     <span className="text-[13px] font-medium" style={{ color: "var(--w)" }}>{m.label}</span>
                                   </label>
                                   {!done && (
@@ -4081,7 +4094,7 @@ function CVBuilderInner() {
                                       <MonthYearPicker
                                         label={L.redoOn}
                                         value={cur.expectedDate ?? { month: "", year: "" }}
-                                        onChange={v => updateB2Module(m.key, { expectedDate: v })}
+                                        onChange={v => updateBModule(m.key, { expectedDate: v })}
                                         lang={lang}
                                       />
                                     </div>
