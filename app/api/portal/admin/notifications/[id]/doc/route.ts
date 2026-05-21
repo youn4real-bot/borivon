@@ -53,7 +53,8 @@ export async function GET(
       .order("uploaded_at", { ascending: false })
       .limit(1);
     if (byName && byName.length > 0) {
-      console.log("[notif/doc] resolved via doc_name fallback (no email)");
+      // Quietly succeed — the fallback path is the normal case for older
+      // notifications written before we started persisting the email.
       return NextResponse.json({ doc: byName[0] });
     }
   }

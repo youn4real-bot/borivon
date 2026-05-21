@@ -565,8 +565,12 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
   // UI order is untouched — this is a render-time swap only.
   const activeLangs = (() => {
     const all = data.langs.filter(l => l.name && l.level);
-    const deutsch = all.filter(l => l.name === "Deutsch");
-    const others  = all.filter(l => l.name !== "Deutsch");
+    // Case-insensitive match so legacy drafts (saved as "deutsch", "DEUTSCH",
+    // " Deutsch ", etc.) still get reordered. Trim too — old admin imports
+    // sometimes left trailing whitespace from a copy-paste.
+    const isDeutsch = (n: string | undefined) => (n ?? "").trim().toLowerCase() === "deutsch";
+    const deutsch = all.filter(l => isDeutsch(l.name));
+    const others  = all.filter(l => !isDeutsch(l.name));
     return [...others, ...deutsch];
   })();
 

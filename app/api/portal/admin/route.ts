@@ -512,10 +512,19 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Allowlist filter — drop any field not in ALLOWED_PROFILE_FIELDS
+  // Allowlist filter — drop any field not in ALLOWED_PROFILE_FIELDS.
+  // Strict-cast the two known-boolean columns so a malformed value
+  // (a string "true", a number 1, an array) can't trip a partial
+  // 500 mid-PATCH or get coerced to something unexpected by Postgres.
+  const BOOLEAN_FIELDS = new Set(["cv_use_agency_branding", "cv_use_borivon_branding"]);
   const cleanProfile: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(profile as Record<string, unknown>)) {
-    if (ALLOWED_PROFILE_FIELDS.has(k)) cleanProfile[k] = v;
+    if (!ALLOWED_PROFILE_FIELDS.has(k)) continue;
+    if (BOOLEAN_FIELDS.has(k)) {
+      cleanProfile[k] = v === true ? true : v === false ? false : null;
+    } else {
+      cleanProfile[k] = v;
+    }
   }
   if (Object.keys(cleanProfile).length === 0) {
     return NextResponse.json({ error: "No valid fields" }, { status: 400 });

@@ -52,7 +52,14 @@ export async function GET(req: NextRequest) {
       const seed: Record<string, unknown> = { user_id: auth.userId };
       if (m0?.first_name) seed.first_name = String(m0.first_name).trim();
       if (m0?.last_name)  seed.last_name  = String(m0.last_name).trim();
-      const { error: insErr } = await db.from("candidate_profiles").upsert(seed, { onConflict: "user_id" });
+      // ignoreDuplicates so a concurrent request that already inserted a
+       // row wins — we DO NOT want this auto-create path to clobber a
+       // freshly written first_name/last_name from a parallel signup or
+       // CV-builder open. The follow-up SELECT below picks up whichever
+       // row landed first.
+      const { error: insErr } = await db
+        .from("candidate_profiles")
+        .upsert(seed, { onConflict: "user_id", ignoreDuplicates: true });
       if (insErr) {
         console.error("[letter-data] auto-create upsert failed:", insErr.code, insErr.message);
       } else {

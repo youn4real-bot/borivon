@@ -1278,20 +1278,22 @@ export async function POST(req: NextRequest) {
       // ══ Strategy B: Google Vision + MRZ/VIZ parser (fallback) ═════════════
       // Used when Azure is not configured or returned nothing.
       if (!passportData) {
-        console.log("[OCR] Using Google Vision fallback");
+        if (process.env.NODE_ENV !== "production") console.log("[OCR] Using Google Vision fallback");
 
         // Phase 1: standard PDF path
         const ocrText1 = await runOCR(buffer, file.type);
-        console.log("[Vision phase1] text (first 800):", ocrText1.slice(0, 800));
+        if (process.env.NODE_ENV !== "production") console.log("[Vision phase1] text (first 800):", ocrText1.slice(0, 800));
 
         let mrzData = parseMRZ(ocrText1);
         let vizData = parseVIZ(ocrText1);
 
         // Phase 2: raw JPEG extraction when MRZ not found
         if (!mrzData && file.type === "application/pdf") {
-          console.log("[Vision phase2] MRZ not found — trying embedded JPEGs...");
+          if (process.env.NODE_ENV !== "production") {
+            console.log("[Vision phase2] MRZ not found — trying embedded JPEGs...");
+          }
           const jpegs = [...extractJpegsFromPdf(buffer)].sort((a, b) => b.length - a.length);
-          console.log(`[Vision phase2] ${jpegs.length} JPEG(s) found`);
+          if (process.env.NODE_ENV !== "production") console.log(`[Vision phase2] ${jpegs.length} JPEG(s) found`);
           for (const jpeg of jpegs) {
             const ocrText2 = await runOCR(jpeg, "image/jpeg");
             const mrzData2 = parseMRZ(ocrText2);
