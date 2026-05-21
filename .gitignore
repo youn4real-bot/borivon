@@ -42,5 +42,6 @@ next-env.d.ts
 # stray files
 *.pdf
 
-# Local deploy capture logs (vercel CLI stdout) — never committed
-deploy_*.log
+# Local deploy capture logs (vercel CLI stdout) — never committed.
+# Pattern catches both `deploy_<slug>.log` and bare `deploy2.log` style.
+deploy*.log

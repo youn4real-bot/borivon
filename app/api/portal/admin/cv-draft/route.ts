@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
+import { backfillPassportFromCvDraft } from "@/lib/cvDraftBackfill";
 
 const MAX_DRAFT_BYTES = 500_000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -71,45 +72,12 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
 
-  // STEP 2 — best-effort reverse-propagation: cv_draft.* → passport
-  // columns when those columns are currently null/empty. Fully wrapped
-  // in try/catch and a separate update call so a propagation failure
-  // can NEVER cause the primary save to fail. The CV builder shows
-  // "Gespeichert" the moment STEP 1 succeeds; STEP 2 is a backfill
-  // for downstream consumers (cover letter sender block, admin
-  // passport-info card, …) and is allowed to silently no-op.
+  // STEP 2 — best-effort reverse-propagation cv_draft.* → passport
+  // columns when those columns are currently null/empty. Shared with
+  // /api/portal/me/cv-draft (see lib/cvDraftBackfill.ts).
   try {
-    const incoming = body as Record<string, unknown>;
-    const candidateFields: Record<string, string> = {};
-    const map: [string, string][] = [
-      ["first_name",           "firstName"],
-      ["last_name",            "lastName"],
-      ["address_street",       "address"],
-      ["address_number",       "addressNumber"],
-      ["address_postal",       "postalCode"],
-      ["city_of_residence",    "city"],
-      ["country_of_residence", "countryOfResidence"],
-      ["phone",                "phone"],
-    ];
-    for (const [col, draftKey] of map) {
-      const v = incoming[draftKey];
-      if (typeof v === "string" && v.trim() !== "") candidateFields[col] = v.trim();
-    }
-    if (Object.keys(candidateFields).length > 0) {
-      const { data: existing } = await db
-        .from("candidate_profiles")
-        .select("first_name,last_name,address_street,address_number,address_postal,city_of_residence,country_of_residence,phone")
-        .eq("user_id", candidateId)
-        .maybeSingle();
-      const cur = (existing ?? {}) as Record<string, string | null | undefined>;
-      const updates: Record<string, string> = {};
-      for (const [col, val] of Object.entries(candidateFields)) {
-        if (cur[col] == null || cur[col] === "") updates[col] = val;
-      }
-      if (Object.keys(updates).length > 0) {
-        await db.from("candidate_profiles").update(updates).eq("user_id", candidateId);
-      }
-    }
+    const err = await backfillPassportFromCvDraft(db, candidateId, body);
+    if (err) console.error("[admin cv-draft PUT] reverse-propagate (non-fatal):", err);
   } catch (e) {
     console.error("[admin cv-draft PUT] reverse-propagate (non-fatal):", e);
   }

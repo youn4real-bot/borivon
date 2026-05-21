@@ -287,7 +287,11 @@ export function CvCollabCursors({ channel, selfPeer, peers, viewerRole }: Props)
               left: pos.x,
               top:  pos.y,
               width: ANON_SIZE, height: ANON_SIZE,
-              zIndex: 1500,
+              // 1090 sits ABOVE normal page content but BELOW any
+              // LAW #36 popup (z-[1100]). Without this the floating
+              // cursor was rendering on top of the candidate profile
+              // popup — visual collision flagged 2026-05.
+              zIndex: 1090,
               // Top-right anchor: nudge the disc so it half-overlaps the
               // input's top-right corner instead of hovering off in space.
               transform: "translate(-50%, -50%)",
