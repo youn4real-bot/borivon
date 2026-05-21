@@ -2084,17 +2084,17 @@ export default function DashboardPage() {
             {(() => {
               const ext = (previewDoc.file_name.split(".").pop() ?? "").toLowerCase();
               const _isIOS = isIOSDevice();
-              // Passports are very often JPEG2000 → pdf.js renders them BLANK
-              // (decode error swallowed) though the bytes are intact. Force
-              // the browser-native PDF engine for ALL passports, every
-              // platform — not just iOS. Permanent fix for the recurring
-              // "passport data erased" report.
-              const _nativePdf = ext === "pdf" && (_isIOS || /pass/i.test(previewDoc.file_type));
+              const _isPassport = /pass/i.test(previewDoc.file_type);
+              // LAW #39: passport bytes are NEVER server-side mutated, but
+              // the persisted documents.rotation column still exists. Seed
+              // the viewer's client-side rotation from that column for
+              // passports so the orientation persists exactly like every
+              // other doc. iOS keeps IosPdfFrame (WebKit blanks pdf.js
+              // canvas regardless of mime); desktop now uses PdfViewer for
+              // EVERY pdf including passport.
+              const _docRotation = ((previewDoc as { rotation?: number | null }).rotation ?? 0);
+              const _nativePdf = ext === "pdf" && _isIOS;
               if (_nativePdf) {
-                // NEVER fall back to pdf.js for a passport (it blanks
-                // JPEG2000). If the signed token isn't minted yet, WAIT
-                // (spinner) — and don't gate the native frame behind the
-                // blob fetch (it has its own src + can hang).
                 if (!(previewDoc.id && authToken && dlt)) {
                   return (
                     <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#525659" }}>
@@ -2107,6 +2107,7 @@ export default function DashboardPage() {
                     <IosPdfFrame
                       src={withDlt(`/api/portal/file?docId=${encodeURIComponent(previewDoc.id)}`, dlt)}
                       title={previewDoc.file_name}
+                      initialRotation={_isPassport ? _docRotation : 0}
                       onRotate={() => {
                         fetch(`/api/portal/documents/${previewDoc.id}`, {
                           method: "PATCH",
@@ -2135,6 +2136,7 @@ export default function DashboardPage() {
                 <div style={{ position: "relative", height: "100%" }}>
                   <PdfViewer
                     src={previewBlobUrl}
+                    initialRotation={_isPassport ? _docRotation : undefined}
                     onRotate={() => {
                       fetch(`/api/portal/documents/${previewDoc.id}`, {
                         method: "PATCH",

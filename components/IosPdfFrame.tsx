@@ -28,6 +28,7 @@ export function IosPdfFrame({
   src,
   title,
   onRotate,
+  initialRotation,
 }: {
   src: string;
   title?: string;
@@ -35,10 +36,20 @@ export function IosPdfFrame({
    *  server-side (same API as the desktop viewer) so the orientation
    *  survives close/reopen — instant CSS rotation gives the live feedback. */
   onRotate?: () => void;
+  /**
+   * Seed the CSS rotation from the persisted documents.rotation value.
+   * Used for passport docs where the server can't bake rotation into the
+   * PDF (LAW #39 — passport bytes are never re-saved). Other docs already
+   * have rotation baked in by safeRotatePdf, so leave this at 0.
+   */
+  initialRotation?: number;
 }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
-  const [rot, setRot] = useState(0);     // 0 | 90 | 180 | 270
+  const [rot, setRot] = useState(() => {
+    const r = initialRotation ?? 0;
+    return ((r % 360) + 360) % 360;
+  });
   const [scale, setScale] = useState(1);
   // iOS Safari aggressively caches the PDF inside an iframe — on reopen it
   // would reuse the OLD (pre-rotation) copy instead of the freshly-baked

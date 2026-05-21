@@ -71,6 +71,11 @@ type Doc = {
   feedback: string | null;
   drive_file_id: string | null;
   uploaded_by_admin?: boolean;
+  /** Persisted rotation in DB (0/90/180/270). Used to seed client-side
+   *  rotation for passport docs (LAW #39: passport bytes are never re-saved
+   *  server-side, so the rotation lives in this column + is applied in the
+   *  viewer rather than baked into the PDF). */
+  rotation?: number | null;
 };
 
 export function AdminDocPreviewModal({
@@ -200,15 +205,18 @@ export function AdminDocPreviewModal({
   // download a blob `<a download>`. Mirror the candidate-side fix: native
   // PDF iframe for preview + server route (?dl=1&access_token) for download.
   const iosMode = isIOSDevice();
-  // Passport scans are very often JPEG2000 (JPXDecode) — pdf.js renders those
-  // BLANK/washed (decode error is swallowed) while the actual PDF bytes are
-  // perfectly intact. The browser's NATIVE PDF engine (PDFium/PDFKit, via the
-  // IosPdfFrame iframe) decodes them correctly. So passports always use the
-  // native frame, on every platform — not just iOS. This is the permanent
-  // fix for the recurring "passport data erased" report.
+  // LAW #39: passport bytes are never server-side mutated, which means the
+  // persisted documents.rotation column CAN'T be baked into the file. The
+  // pdf.js PdfViewer on desktop now accepts an `initialRotation` prop that
+  // seeds the canvas rotation client-side from `doc.rotation`, so passport
+  // rotation persists across opens exactly like B2 / every other doc.
+  //
+  // iOS still uses IosPdfFrame (WebKit blanks pdf.js canvas regardless of
+  // mime — platform issue, not file-content) and IosPdfFrame seeds its own
+  // CSS rotation from the same `doc.rotation`.
   const isPdfDoc      = (doc.file_name.split(".").pop() ?? "").toLowerCase() === "pdf";
   const isPassportDoc = /pass/i.test(doc.file_type);
-  const nativePdf     = isPdfDoc && (iosMode || isPassportDoc);
+  const nativePdf     = isPdfDoc && iosMode;
   // iOS file URLs carry a short-lived signed token (?dlt=), never the raw JWT.
   // The native frame is a top-level <iframe> request that can't send an
   // Authorization header, so it needs the same signed token on desktop too.
@@ -400,6 +408,9 @@ export function AdminDocPreviewModal({
             <IosPdfFrame
               src={iosPreviewUrl}
               title={doc.file_name}
+              // Passports persist rotation in documents.rotation (LAW #39
+              // bypass means server can't bake it in) — seed the frame.
+              initialRotation={isPassportDoc ? (doc.rotation ?? 0) : 0}
               onRotate={() => {
                 if (overrideFetchUrl || !doc.id) return;
                 fetch(`/api/portal/documents/${doc.id}`, {
@@ -428,13 +439,24 @@ export function AdminDocPreviewModal({
                   body: JSON.stringify({ deltaRotation: 90 }),
                 }).catch(e => console.error("[rotation] persist failed:", e));
               };
-              // Native iframe for passports + iOS (pdf.js blanks JPEG2000 /
-              // WebKit canvas). pdf.js viewer for normal desktop docs.
+              // Native iframe for iOS (WebKit blanks pdf.js canvas). Otherwise
+              // the pdf.js viewer for every doc INCLUDING passports — LAW #39
+              // means we serve pristine passport bytes, and pdf.js can render
+              // them fine on desktop. Passport rotation is seeded from
+              // doc.rotation since the server doesn't bake it in.
               return nativePdf
                 ? (iosPreviewUrl
-                    ? <IosPdfFrame src={iosPreviewUrl} title={doc.file_name} onRotate={persistRotate} />
+                    ? <IosPdfFrame
+                        src={iosPreviewUrl}
+                        title={doc.file_name}
+                        initialRotation={isPassportDoc ? (doc.rotation ?? 0) : 0}
+                        onRotate={persistRotate} />
                     : <div className="w-full h-full flex items-center justify-center"><Spinner /></div>)
-                : <PdfViewer src={blobUrl} onRotate={persistRotate} />;
+                : <PdfViewer
+                    src={blobUrl}
+                    onRotate={persistRotate}
+                    initialRotation={isPassportDoc ? (doc.rotation ?? 0) : undefined}
+                  />;
             }
             if (ext === "docx") return <DocxViewer src={blobUrl} fileName={doc.file_name} />;
             if (["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext)) {

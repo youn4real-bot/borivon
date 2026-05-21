@@ -59,6 +59,7 @@ export function PdfViewer({
   pageOverlay,
   onPagesLoaded,
   hideRotate,
+  initialRotation,
 }: {
   src: string;
   /** Fired once per rotate click (always +90°). Parent persists the delta. */
@@ -69,6 +70,15 @@ export function PdfViewer({
   onPagesLoaded?: (count: number) => void;
   /** Hide rotate button (e.g. zone picker — rotation breaks coord mapping). */
   hideRotate?: boolean;
+  /**
+   * Seed the canvas rotation when the server is NOT baking it into the PDF
+   * — used for passport docs (LAW #39: passport bytes are never re-saved
+   * server-side, so the persisted `documents.rotation` must be applied
+   * client-side here instead). For every other doctype the server already
+   * applied rotation via pdf-lib setRotation → pdfjs reads it as the page's
+   * intrinsic rotation → leave this undefined.
+   */
+  initialRotation?: number;
 }) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const pagesWrapRef  = useRef<HTMLDivElement>(null);
@@ -102,7 +112,12 @@ export function PdfViewer({
   const [pageSizes, setPageSizes] = useState<NaturalSize[]>([]);
   const [intrinsicRotations, setIntrinsicRotations] = useState<number[]>([]);
   const [scale, setScale]         = useState(1.0);
-  const [rotation, setRotation]   = useState(0);
+  // Seed rotation from the optional initial value (passport docs, where
+  // the server can't bake rotation into the PDF). Normalised to 0/90/180/270.
+  const [rotation, setRotation]   = useState(() => {
+    const r = initialRotation ?? 0;
+    return ((r % 360) + 360) % 360;
+  });
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(false);
 
@@ -117,7 +132,13 @@ export function PdfViewer({
     setPageSizes([]);
     setIntrinsicRotations([]);
     setScale(1.0);
-    setRotation(0);
+    // Honor initialRotation when the src changes (e.g. switching docs in
+    // the same modal). For passports this restores the persisted rotation;
+    // for everything else initialRotation is undefined → resets to 0.
+    {
+      const r = initialRotation ?? 0;
+      setRotation(((r % 360) + 360) % 360);
+    }
 
     let destroy: (() => void) | null = null;
 
