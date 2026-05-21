@@ -102,9 +102,10 @@ export const metadata: Metadata = {
     icon: "/favicon.png",
     apple: "/favicon.png",
   },
-  verification: {
-    google: "your-google-site-verification-token",
-  },
+  // verification: { google: "..." } removed — the default placeholder string
+  // was being rendered as a real <meta name="google-site-verification"> on
+  // every page, which Google Search Console would reject as invalid. Re-add
+  // this block (with a real token) only after claiming the property in GSC.
 };
 
 export const viewport: Viewport = {
