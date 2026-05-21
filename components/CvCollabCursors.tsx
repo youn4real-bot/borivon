@@ -43,37 +43,49 @@ const ANON_SIZE = 26;
 const STALE_MS  = 8000;
 const CLUSTER_OFFSET = 14; // px shift per stacked peer on the same element
 
-/** Stable selector for an element — used by the receiver to re-locate
- *  the same DOM node on a peer's screen. Falls back from `#id` →
- *  `[data-collab-id]` → a nth-of-type chain up to the nearest id-bearing
- *  ancestor. Both peers run the same React tree, so the same path
- *  resolves to the same element on both sides. */
-function selectorFor(el: HTMLElement): string | null {
-  if (el.id)               return `#${cssEscape(el.id)}`;
-  const collabId = el.dataset?.collabId;
-  if (collabId)            return `[data-collab-id="${collabId}"]`;
-  const parts: string[] = [];
-  let cur: HTMLElement | null = el;
-  while (cur && !cur.id) {
-    const parent: HTMLElement | null = cur.parentElement;
-    const tag = cur.tagName.toLowerCase();
-    if (!parent) { parts.unshift(tag); break; }
-    const tagName = cur.tagName;
-    const sameTag = (Array.from(parent.children) as Element[]).filter(c => c.tagName === tagName);
-    const idx = sameTag.indexOf(cur) + 1;
-    parts.unshift(`${tag}:nth-of-type(${idx})`);
-    cur = parent;
+/** Focus target encoding that survives small DOM differences between
+ *  admin and candidate views (lock icons rendered for one role only,
+ *  conditional buttons, etc). Sender walks UP to the closest id-bearing
+ *  ancestor and records the focused element's ordinal among siblings
+ *  of the same KIND inside that ancestor. Receiver resolves by re-
+ *  querying the same kind inside the same anchor — order is consistent
+ *  across views as long as the React tree renders the form fields in
+ *  the same order, which it does.
+ */
+type CollabTgt = {
+  anchorId: string | null;
+  kind: "input" | "button" | "anchor";
+  index: number;
+};
+
+function targetFor(el: HTMLElement): CollabTgt {
+  // Find closest id-bearing ancestor (typically a SectionCard wrapper).
+  let anchor: HTMLElement | null = el;
+  while (anchor && !anchor.id) anchor = anchor.parentElement;
+  const anchorId = anchor?.id ?? null;
+  if (!anchorId || !anchor) return { anchorId: null, kind: "anchor", index: -1 };
+  const tagName = el.tagName;
+  if (tagName === "INPUT" || tagName === "TEXTAREA" || tagName === "SELECT") {
+    const collection = Array.from(anchor.querySelectorAll<HTMLElement>("input, textarea, select"));
+    return { anchorId, kind: "input", index: collection.indexOf(el) };
   }
-  if (cur?.id) parts.unshift(`#${cssEscape(cur.id)}`);
-  return parts.join(" > ");
+  if (tagName === "BUTTON" || el.getAttribute("role") === "button") {
+    const collection = Array.from(anchor.querySelectorAll<HTMLElement>("button, [role='button']"));
+    return { anchorId, kind: "button", index: collection.indexOf(el) };
+  }
+  return { anchorId, kind: "anchor", index: -1 };
 }
 
-function cssEscape(s: string): string {
-  // Minimal escape — covers ids that React commonly generates.
-  if (typeof window !== "undefined" && (window as Window & { CSS?: { escape?: (s: string) => string } }).CSS?.escape) {
-    return (window as Window & { CSS: { escape: (s: string) => string } }).CSS.escape(s);
-  }
-  return s.replace(/([^a-zA-Z0-9_-])/g, "\\$1");
+function resolveTarget(t: CollabTgt): HTMLElement | null {
+  if (!t.anchorId) return null;
+  const anchor = document.getElementById(t.anchorId);
+  if (!anchor) return null;
+  if (t.kind === "anchor" || t.index < 0) return anchor;
+  const sel = t.kind === "input"
+    ? "input, textarea, select"
+    : "button, [role='button']";
+  const collection = Array.from(anchor.querySelectorAll<HTMLElement>(sel));
+  return collection[t.index] ?? anchor;
 }
 
 /** True for elements that count as "focusable / interactable" — we
@@ -92,59 +104,63 @@ function isInteractiveTarget(el: Element | null): boolean {
 }
 
 export function CvCollabCursors({ channel, selfPeer, peers, viewerRole }: Props) {
-  const [peerFields, setPeerFields] = useState<Record<string, { selector: string | null; at: number }>>({});
+  const [peerFields, setPeerFields] = useState<Record<string, { target: CollabTgt | null; at: number }>>({});
   const [positions, setPositions] = useState<Record<string, { x: number; y: number; cluster: number } | null>>({});
 
-  // ── Local: focus/click → broadcast a stable selector for the focused
-  //    or clicked target. focusin covers keyboard tabs + native form
-  //    focus; click covers buttons / non-focusable boxes the user just
-  //    interacted with. Walking up via closest() means even a click on
-  //    an inner <svg> or label resolves to the parent interactive box.
+  // ── Local: focus/click → broadcast a structured target descriptor
+  //    (anchorId + kind + index) that survives small DOM differences
+  //    between admin and candidate views (lock icons rendered for one
+  //    role only, conditional sections, etc).
   useEffect(() => {
     if (!channel || !selfPeer) return;
-    let currentSelector: string | null = null;
+    let currentKey: string | null = null;
     let blurTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const send = (selector: string | null) => {
+    const send = (t: CollabTgt | null) => {
       try {
         void channel.send({
           type:    "broadcast",
           event:   "field-focus",
-          payload: { peerId: selfPeer.id, selector, at: Date.now() },
+          payload: { peerId: selfPeer.id, target: t, at: Date.now() },
         });
       } catch { /* not yet subscribed */ }
     };
 
-    const resolveTarget = (target: EventTarget | null): HTMLElement | null => {
+    const interactiveAncestor = (target: EventTarget | null): HTMLElement | null => {
       if (!(target instanceof HTMLElement)) return null;
-      // Find the interactive ancestor (covers svg/label/icon clicks too).
-      const interactive = isInteractiveTarget(target)
+      return isInteractiveTarget(target)
         ? target
         : target.closest<HTMLElement>("input, textarea, select, button, [contenteditable], [role='button']");
-      return interactive ?? null;
     };
 
     const handleEnter = (e: Event) => {
       if (blurTimer) { clearTimeout(blurTimer); blurTimer = null; }
-      const el = resolveTarget(e.target);
+      const el = interactiveAncestor(e.target);
       if (!el) return;
-      const sel = selectorFor(el);
-      if (sel !== currentSelector) { currentSelector = sel; send(sel); }
+      const t = targetFor(el);
+      const key = `${t.anchorId}|${t.kind}|${t.index}`;
+      if (key !== currentKey) { currentKey = key; send(t); }
     };
     const handleBlur = () => {
       if (blurTimer) clearTimeout(blurTimer);
       blurTimer = setTimeout(() => {
         if (!document.activeElement || document.activeElement === document.body) {
-          if (currentSelector !== null) { currentSelector = null; send(null); }
+          if (currentKey !== null) { currentKey = null; send(null); }
         }
       }, 400);
     };
 
     document.addEventListener("focusin",  handleEnter);
-    document.addEventListener("click",    handleEnter, true);  // capture, so we beat React's handlers
+    document.addEventListener("click",    handleEnter, true);
     document.addEventListener("focusout", handleBlur);
-    // Heartbeat so a tab that joined late learns where everyone is.
-    const heartbeat = setInterval(() => { if (currentSelector) send(currentSelector); }, 6000);
+    const heartbeat = setInterval(() => {
+      if (currentKey) {
+        // Re-resolve from the live activeElement to ensure index is
+        // still correct after DOM mutations (entries added/removed).
+        const el = document.activeElement as HTMLElement | null;
+        if (el) send(targetFor(el));
+      }
+    }, 6000);
     return () => {
       document.removeEventListener("focusin",  handleEnter);
       document.removeEventListener("click",    handleEnter, true);
@@ -155,22 +171,30 @@ export function CvCollabCursors({ channel, selfPeer, peers, viewerRole }: Props)
     };
   }, [channel, selfPeer]);
 
-  // ── Remote: receive selector broadcasts ───────────────────────────────
+  // ── Remote: receive target broadcasts. Back-compat: older clients
+  //    that still send the legacy `selector` field are accepted by
+  //    wrapping the selector as an "anchor" target.
   useEffect(() => {
     if (!channel) return;
     const sub = channel.on(
       "broadcast",
       { event: "field-focus" },
-      ({ payload }: { payload?: { peerId?: string; selector?: string | null; at?: number; sectionId?: string | null } }) => {
+      ({ payload }: { payload?: { peerId?: string; target?: CollabTgt | null; selector?: string | null; sectionId?: string | null; at?: number } }) => {
         const p = payload ?? {};
         if (!p.peerId) return;
         if (selfPeer && p.peerId === selfPeer.id) return;
-        // Back-compat: older clients still send sectionId. Convert to a
-        // selector so old + new clients interop while the deploy rolls out.
-        const incoming = (p.selector ?? (p.sectionId ? `#${cssEscape(p.sectionId)}` : null));
+        let target: CollabTgt | null = null;
+        if (p.target && typeof p.target === "object") target = p.target;
+        else if (p.selector || p.sectionId) {
+          // Map legacy `selector` / `sectionId` to an anchor-only target.
+          // Both old shapes resolve to a single element via querySelector
+          // / getElementById on the receiver; we keep the avatar visible
+          // even if old clients are still in the channel.
+          target = { anchorId: p.sectionId ?? null, kind: "anchor", index: -1 };
+        }
         setPeerFields(prev => ({
           ...prev,
-          [p.peerId!]: { selector: incoming, at: p.at ?? Date.now() },
+          [p.peerId!]: { target, at: p.at ?? Date.now() },
         }));
       },
     );
@@ -180,11 +204,11 @@ export function CvCollabCursors({ channel, selfPeer, peers, viewerRole }: Props)
     };
   }, [channel, selfPeer]);
 
-  // ── Position avatars by selector. rAF gated to skip work when no
-  //    peer is anchored anywhere.
+  // ── Position avatars by resolved target. rAF gated to skip work
+  //    when no peer is anchored anywhere.
   useEffect(() => {
     const activePeers = peers.filter(
-      p => !p.isSelf && peerFields[p.id] && peerFields[p.id]!.selector,
+      p => !p.isSelf && peerFields[p.id] && peerFields[p.id]!.target,
     );
     if (activePeers.length === 0) {
       setPositions({});
@@ -192,26 +216,28 @@ export function CvCollabCursors({ channel, selfPeer, peers, viewerRole }: Props)
     }
     const update = () => {
       const next: Record<string, { x: number; y: number; cluster: number } | null> = {};
-      // Group active peers by selector → enables side-by-side cluster
-      // positioning when two people are on the same element.
-      const bySelector = new Map<string, string[]>();
+      // Group peers by their target key so 2+ on the same field cluster
+      // side-by-side rather than stacking on top of each other.
+      const byKey = new Map<string, string[]>();
+      const elByKey = new Map<string, HTMLElement | null>();
       const now = Date.now();
       for (const peer of activePeers) {
         const entry = peerFields[peer.id];
-        if (!entry || !entry.selector || now - entry.at > STALE_MS) { next[peer.id] = null; continue; }
-        const arr = bySelector.get(entry.selector) ?? [];
+        if (!entry || !entry.target || now - entry.at > STALE_MS) { next[peer.id] = null; continue; }
+        const t = entry.target;
+        const key = `${t.anchorId}|${t.kind}|${t.index}`;
+        if (!elByKey.has(key)) elByKey.set(key, resolveTarget(t));
+        const arr = byKey.get(key) ?? [];
         arr.push(peer.id);
-        bySelector.set(entry.selector, arr);
+        byKey.set(key, arr);
       }
-      for (const [selector, peerIds] of bySelector.entries()) {
-        let el: HTMLElement | null = null;
-        try { el = document.querySelector<HTMLElement>(selector); } catch { el = null; }
+      for (const [key, peerIds] of byKey.entries()) {
+        const el = elByKey.get(key) ?? null;
         if (!el) {
           for (const id of peerIds) next[id] = null;
           continue;
         }
         const rect = el.getBoundingClientRect();
-        // Anchor at the TOP-RIGHT of the box, half-overlapping the corner.
         const baseX = rect.right;
         const baseY = rect.top;
         peerIds.forEach((id, idx) => {
