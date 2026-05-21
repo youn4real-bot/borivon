@@ -14,7 +14,7 @@
  */
 
 import * as React from "react";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import { createPortal } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -335,7 +335,19 @@ function mergePersonFromRow(
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+// Suspense boundary required by Next 15 — useSearchParams() inside a
+// client page that's otherwise prerenderable would CSR-bailout the
+// whole route. Wrap the body so prerender succeeds with the fallback
+// loader, then hydrate dynamically once the URL is available.
 export default function MotivationsschreibenPage() {
+  return (
+    <Suspense fallback={<PageLoader />}>
+      <MotivationsschreibenPageInner />
+    </Suspense>
+  );
+}
+
+function MotivationsschreibenPageInner() {
   const router  = useRouter();
   const params  = useSearchParams();
   const { lang } = useLang();
