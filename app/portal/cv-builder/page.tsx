@@ -32,6 +32,30 @@ import type { LucideIcon } from "lucide-react";
 import { PageLoader, Spinner, AutosaveIndicator } from "@/components/ui/states";
 import { CvCollabPresence } from "@/components/CvCollabPresence";
 import { CvCollabCursors }  from "@/components/CvCollabCursors";
+import type { CollabPeer }  from "@/components/CvCollabPresence";
+
+/** Strip admin identity (email / displayName / photo) from a presence
+ *  payload before broadcasting on a shared channel. Candidate must
+ *  never learn which admin is editing — and a candidate-side DevTools
+ *  user CAN read raw WebSocket frames, bypassing the UI anonymization.
+ *  This keeps the channel payload itself anonymous when the sender is
+ *  an admin or sub-admin. Candidate-side track keeps full info because
+ *  the candidate's own client already has that data anyway. */
+function scrubPresencePayload(self: CollabPeer, editing: boolean) {
+  const base = {
+    id:        self.id,
+    role:      self.role,
+    editingAt: editing ? Date.now() : 0,
+  };
+  const isAdminSender = self.role === "admin" || self.role === "sub_admin";
+  if (isAdminSender) return base;
+  return {
+    ...base,
+    email:       self.email,
+    displayName: self.displayName,
+    photo:       self.photo,
+  };
+}
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { PhotoCropModal } from "@/components/PhotoCropModal";
 import { PdfViewer } from "@/components/PdfViewer";
@@ -1936,12 +1960,12 @@ function CVBuilderInner() {
                   payload: { by: selfPeer.id, patch: rest, at: Date.now() },
                 });
                 // Also bump our presence so peers see the gold "typing"
-                // dot pulse for a moment.
-                void collabChannelRef.current.track({
-                  ...selfPeer,
-                  editing: true,
-                  editingAt: Date.now(),
-                });
+                // dot pulse. Scrub sensitive fields for admin senders so
+                // a candidate sniffing the WS frames can't learn which
+                // admin is editing (LAW: candidate must know nothing
+                // about admin identity). Candidate's own track keeps
+                // their photo since their own client already has it.
+                void collabChannelRef.current.track(scrubPresencePayload(selfPeer, true));
               } catch { /* offline / channel not joined */ }
             }
           } else {
@@ -2243,14 +2267,7 @@ function CVBuilderInner() {
         // channel prop, which avoids missed events during the join race.
         setCollabChannel(ch);
         try {
-          await ch.track({
-            id:          selfPeer.id,
-            role:        selfPeer.role,
-            email:       selfPeer.email,
-            displayName: selfPeer.displayName,
-            photo:       selfPeer.photo,
-            editingAt:   0,
-          });
+          await ch.track(scrubPresencePayload(selfPeer, false));
         } catch { /* track may fail on slow channels — presence sync will retry */ }
       }
     });

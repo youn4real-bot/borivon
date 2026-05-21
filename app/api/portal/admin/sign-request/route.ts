@@ -205,6 +205,27 @@ export async function POST(req: NextRequest) {
     if (!(await canActOnCandidate(auth.role, auth.email, candidateId))) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+  } else if (driveFileId) {
+    // adminOnly mode + a Drive file id supplied. Look the file up in the
+    // documents table and gate access on canActOnCandidate(owner) — an
+    // org-admin sub-admin must not be able to stamp ANY candidate's
+    // Drive file just by knowing the file id (LAW #25 scope).
+    try {
+      const db = getServiceSupabase();
+      const { data: doc } = await db
+        .from("documents")
+        .select("user_id")
+        .eq("drive_file_id", driveFileId)
+        .maybeSingle();
+      const ownerId = (doc as { user_id?: string | null } | null)?.user_id ?? null;
+      if (ownerId && !(await canActOnCandidate(auth.role, auth.email, ownerId))) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+    } catch (e) {
+      console.error("[sign-request POST] drive-file ownership check failed:", e);
+      // Hard-fail rather than open up access on a lookup error.
+      return NextResponse.json({ error: "Internal error" }, { status: 500 });
+    }
   }
 
   // If we don't have the bytes yet, fetch from Drive

@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
-import { requireAdminRole } from "@/lib/admin-auth";
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
+import { UUID_RE } from "@/lib/uuid";
 
 /**
  * Admin assigns the candidate's employer (canonical:
@@ -22,6 +21,11 @@ export async function GET(req: NextRequest) {
 
   const uid = (req.nextUrl.searchParams.get("candidateUserId") ?? "").trim();
   if (!UUID_RE.test(uid)) return NextResponse.json({ error: "Invalid user id" }, { status: 400 });
+  // LAW #25 scope: an org-admin (is_agency_admin=true) sub-admin must
+  // only read employer assignment for candidates linked to their org.
+  if (!(await canActOnCandidate(auth.role, auth.email, uid))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const db = getServiceSupabase();
   const { data, error } = await db
@@ -45,6 +49,11 @@ export async function POST(req: NextRequest) {
   const uid  = typeof body?.candidateUserId === "string" ? body.candidateUserId.trim() : "";
   const raw  = body?.employerId;
   if (!UUID_RE.test(uid)) return NextResponse.json({ error: "Invalid user id" }, { status: 400 });
+  // LAW #25 scope: same gate on writes — org-admins cannot reassign a
+  // candidate that belongs to a different org.
+  if (!(await canActOnCandidate(auth.role, auth.email, uid))) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   let employerId: string | null;
   if (raw === null) {
