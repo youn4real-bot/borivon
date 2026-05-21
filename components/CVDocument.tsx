@@ -33,6 +33,12 @@ export interface WorkEntry {
   start: MonthYear;
   end: MonthYear | null;
   gapReason: string;
+  /** 3-4 bullet points describing what the candidate did at this job /
+   *  internship. Stored as an array of lines as typed (empty lines OK
+   *  during edit). Filtered to non-empty trimmed lines when rendering
+   *  to the PDF. Optional for backwards-compat with older cv_draft
+   *  payloads that predate this field. */
+  taetigkeiten?: string[];
 }
 
 export interface EduEntry {
@@ -47,6 +53,31 @@ export interface EduEntry {
   diplomaIssued?: MonthYear;
   abiturFocus?: string;
   country?: string;
+}
+
+/**
+ * B2 Deutsch exam detail block. Stored on the language entry when the
+ * candidate selects level B2 for Deutsch. Every field is optional —
+ * absence means "not specified".
+ *
+ *   passed:        "yes" | "no" | null  — overall status. Default null.
+ *   passedDate:    MonthYear — when the exam was passed (when status="yes")
+ *   expectedDate:  MonthYear — when the exam is planned (when status="no")
+ *   pruefung:      "telc" | "goethe" | "oesd" | null — which exam body.
+ *   modules:       per-module completion map. Keys depend on pruefung:
+ *                    - goethe: lesen, hoeren, schreiben, sprechen
+ *                    - telc / oesd: schriftlich, muendlich
+ *                  Each module: { done?: boolean, expectedDate?: MonthYear }.
+ *                  expectedDate is the planned redo date for missing
+ *                  modules (when done === false). Older payloads may
+ *                  store partial maps; render code tolerates that.
+ */
+export interface B2Detail {
+  passed?: "yes" | "no" | null;
+  passedDate?: MonthYear;
+  expectedDate?: MonthYear;
+  pruefung?: "telc" | "goethe" | "oesd" | null;
+  modules?: Record<string, { done?: boolean; expectedDate?: MonthYear }>;
 }
 
 export interface CVData {
@@ -71,7 +102,16 @@ export interface CVData {
   email: string;
   workEntries: WorkEntry[];
   eduEntries: EduEntry[];
-  langs: { name: string; level: string }[];
+  /** Each language entry. When name === "Deutsch" && level === "B2"
+   *  the optional `b2` block captures Prüfung details (telc / Goethe /
+   *  ÖSD), per-module completion, and the planned date for any
+   *  outstanding modules. All fields are optional — older cv_draft
+   *  payloads predate this and just have { name, level }. */
+  langs: {
+    name: string;
+    level: string;
+    b2?: B2Detail;
+  }[];
   edvSelected: string[];
   edvCustomInputs: string[];
   driverLicense: string;
@@ -273,6 +313,11 @@ const s = StyleSheet.create({
   entryTitle: { fontSize: 9, fontWeight: 700, color: DARK, marginBottom: 1.5 },
   entrySubtitle: { fontSize: 8, color: MUTED, marginBottom: 1 },
   entryDept: { fontSize: 8, color: GOLD, marginTop: 1.5 },
+  // Tätigkeiten bullet list — small dot + indented text, sits below
+  // the department line. Each bullet is one entry of WorkEntry.taetigkeiten.
+  bulletRow:   { flexDirection: "row", marginTop: 2.5 },
+  bulletDot:   { fontSize: 8.5, color: NAVY, width: 8, lineHeight: 1.35 },
+  bulletText:  { fontSize: 8, color: DARK, flex: 1, lineHeight: 1.4 },
   entryGap: { fontSize: 8.5, color: MUTED },
   entryGapReason: { fontSize: 8, color: MUTED },
 
@@ -368,6 +413,17 @@ function WorkRow({ entry }: { entry: WorkEntry }) {
         {entry.departments.length > 0 ? (
           <Text style={s.entryDept}>{entry.departments.join("  ·  ")}</Text>
         ) : null}
+        {/* Tätigkeiten bullets — only non-empty trimmed lines. Each is
+            its own row so wrap behavior + page break stay clean. */}
+        {(entry.taetigkeiten ?? [])
+          .map(b => (b ?? "").trim())
+          .filter(Boolean)
+          .map((bullet, i) => (
+            <View key={i} style={s.bulletRow} wrap={false}>
+              <Text style={s.bulletDot}>•</Text>
+              <Text style={s.bulletText}>{bullet}</Text>
+            </View>
+          ))}
       </View>
     </View>
   );

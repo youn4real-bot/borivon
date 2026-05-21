@@ -20,7 +20,7 @@ import { createPortal, flushSync } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
-import type { CVData, WorkEntry, EduEntry, MonthYear } from "@/components/CVDocument";
+import type { CVData, WorkEntry, EduEntry, MonthYear, B2Detail } from "@/components/CVDocument";
 import { COUNTRY_MAP, natToLang, ISO3_TO_ISO2, ISO3_TO_PHONE } from "@/lib/countries";
 import { isoToDDMMYYYY, computeFamilienstand } from "@/lib/personalData";
 import {
@@ -274,7 +274,7 @@ function makeCVData(email = ""): CVData {
     nationality: "", maritalStatus: "",
     address: "", addressNumber: "", postalCode: "", city: "", phone: "", email,
     workEntries: [
-      { id: `work-default-${Date.now()}`, isGap: false, title: "", employer: "", location: "", country: "Marokko", departments: [], start: { month: "", year: "" }, end: { month: "", year: "" }, gapReason: "" },
+      { id: `work-default-${Date.now()}`, isGap: false, title: "", employer: "", location: "", country: "Marokko", departments: [], taetigkeiten: [], start: { month: "", year: "" }, end: { month: "", year: "" }, gapReason: "" },
     ],
     eduEntries: [
       { id: "edu-abitur",  type: "abitur",  institution: "", location: "", start: { month: "09", year: "" }, end: { month: "06", year: "" }, degree: "Abitur", nursingStatus: "complete", country: "Marokko" },
@@ -2700,15 +2700,15 @@ function CVBuilderInner() {
 
   // ── Work ──────────────────────────────────────────────────────────────────
   function addWork() {
-    const e: WorkEntry = { id: uid(), isGap: false, title: "", employer: "", location: "", country: "Marokko", departments: [], start: { month: "", year: "" }, end: { month: "", year: "" }, gapReason: "" };
+    const e: WorkEntry = { id: uid(), isGap: false, title: "", employer: "", location: "", country: "Marokko", departments: [], taetigkeiten: [], start: { month: "", year: "" }, end: { month: "", year: "" }, gapReason: "" };
     setCvData(d => ({ ...d, workEntries: [...d.workEntries, e] }));
   }
   function addGapEntry(gapStart: MonthYear, gapEnd: MonthYear) {
-    const e: WorkEntry = { id: uid(), isGap: true, title: "", employer: "", location: "", departments: [], start: gapStart, end: gapEnd, gapReason: "" };
+    const e: WorkEntry = { id: uid(), isGap: true, title: "", employer: "", location: "", departments: [], taetigkeiten: [], start: gapStart, end: gapEnd, gapReason: "" };
     setCvData(d => ({ ...d, workEntries: [...d.workEntries, e] }));
   }
   function quickAddForGap(g: SmartGap) {
-    const e: WorkEntry = { id: uid(), isGap: false, title: "", employer: "", location: "", country: "Marokko", departments: [], start: g.gapStart, end: g.gapEnd, gapReason: "" };
+    const e: WorkEntry = { id: uid(), isGap: false, title: "", employer: "", location: "", country: "Marokko", departments: [], taetigkeiten: [], start: g.gapStart, end: g.gapEnd, gapReason: "" };
     setCvData(d => ({ ...d, workEntries: [...d.workEntries, e] }));
     setShowGapPanel(false);
     setTimeout(() => document.getElementById("work-section")?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
@@ -3855,6 +3855,34 @@ function CVBuilderInner() {
                         />
                       </div>
                     </div>
+
+                    {/* Tätigkeiten — 3-4 bullet points describing what the
+                        candidate did at this position. Stored as raw
+                        lines so empty mid-edit lines don't blow away the
+                        cursor; empty trimmed lines are filtered out on
+                        the PDF render side. */}
+                    <div className="sm:col-span-2">
+                      <Label>
+                        {lang === "de" ? "Tätigkeiten" : lang === "en" ? "Activities" : "Tâches"}
+                        <span className="ml-1 text-[11px] font-normal" style={{ color: "var(--w3)" }}>
+                          {lang === "de" ? "(3–4 Stichpunkte, eine pro Zeile)"
+                            : lang === "en" ? "(3–4 bullets, one per line)"
+                            : "(3–4 puces, une par ligne)"}
+                        </span>
+                      </Label>
+                      <textarea
+                        value={(entry.taetigkeiten ?? []).join("\n")}
+                        onChange={e => updateWork(entry.id, { taetigkeiten: e.target.value.split("\n") })}
+                        placeholder={lang === "de"
+                          ? "z. B.\nPatientenpflege im Schichtdienst\nDokumentation in Pflegesoftware\nVerabreichung von Medikamenten\nZusammenarbeit im interdisziplinären Team"
+                          : lang === "en"
+                          ? "e.g.\nShift-based patient care\nDocumentation in nursing software\nMedication administration\nInterdisciplinary teamwork"
+                          : "ex.\nSoins aux patients en rotation\nDocumentation dans le logiciel de soins\nAdministration des médicaments\nTravail interdisciplinaire"}
+                        rows={5}
+                        className="w-full px-4 py-3 text-[14px] outline-none resize-y leading-relaxed"
+                        style={{ background: "var(--bg2)", border: "none", color: "var(--w)", borderRadius: "12px" }}
+                      />
+                    </div>
                   </div>
                 )}
               </div>
@@ -3913,6 +3941,160 @@ function CVBuilderInner() {
                     <RemoveBtn onClick={() => { const ls = cvData.langs.filter((_, idx) => idx !== i); set("langs", ls); }} label={t.cvb_remove} />
                   </div>
                 )}
+
+                {/* ── B2 Deutsch detail panel — reveal when this row is
+                    Deutsch + level B2. All fields optional. ── */}
+                {l.name === "Deutsch" && l.level === "B2" && (() => {
+                  const b2: B2Detail = l.b2 ?? {};
+                  const updateB2 = (patch: Partial<B2Detail>) => {
+                    const ls = [...cvData.langs];
+                    ls[i] = { ...ls[i], b2: { ...b2, ...patch } };
+                    set("langs", ls);
+                  };
+                  const updateB2Module = (key: string, patch: { done?: boolean; expectedDate?: MonthYear }) => {
+                    const prev = (b2.modules ?? {})[key] ?? {};
+                    const nextModules = { ...(b2.modules ?? {}), [key]: { ...prev, ...patch } };
+                    updateB2({ modules: nextModules });
+                  };
+                  const moduleKeys: { key: string; label: string }[] = b2.pruefung === "goethe"
+                    ? [
+                        { key: "lesen",     label: lang === "fr" ? "Lecture"          : lang === "en" ? "Reading"   : "Lesen" },
+                        { key: "hoeren",    label: lang === "fr" ? "Écoute"           : lang === "en" ? "Listening" : "Hören" },
+                        { key: "schreiben", label: lang === "fr" ? "Écriture"         : lang === "en" ? "Writing"   : "Schreiben" },
+                        { key: "sprechen",  label: lang === "fr" ? "Expression orale" : lang === "en" ? "Speaking"  : "Sprechen" },
+                      ]
+                    : b2.pruefung === "telc" || b2.pruefung === "oesd"
+                    ? [
+                        { key: "schriftlich", label: lang === "fr" ? "Écrit" : lang === "en" ? "Written" : "Schriftlich" },
+                        { key: "muendlich",   label: lang === "fr" ? "Oral"  : lang === "en" ? "Oral"    : "Mündlich" },
+                      ]
+                    : [];
+                  const L = lang === "de" ? {
+                    title:    "B2 Deutsch — Details",
+                    hint:     "Optional. Hilft Admins, den Status deiner Prüfung im Blick zu behalten.",
+                    statusQ:  "B2 abgeschlossen?",
+                    yes:      "Ja, bestanden",
+                    no:       "Geplant",
+                    passedOn: "Bestanden am",
+                    plannedOn:"Geplant für",
+                    pruefung: "Prüfung",
+                    modulesT: "Module",
+                    redoOn:   "Wiederholung geplant",
+                  } : lang === "fr" ? {
+                    title:    "Détails B2 allemand",
+                    hint:     "Optionnel. Aide les admins à suivre l'état de votre examen.",
+                    statusQ:  "B2 réussi ?",
+                    yes:      "Oui, réussi",
+                    no:       "Prévu",
+                    passedOn: "Réussi le",
+                    plannedOn:"Prévu pour",
+                    pruefung: "Examen",
+                    modulesT: "Modules",
+                    redoOn:   "Reprise prévue",
+                  } : {
+                    title:    "B2 German details",
+                    hint:     "Optional. Helps admins track the status of your exam.",
+                    statusQ:  "B2 passed?",
+                    yes:      "Yes, passed",
+                    no:       "Planned",
+                    passedOn: "Passed on",
+                    plannedOn:"Planned for",
+                    pruefung: "Exam",
+                    modulesT: "Modules",
+                    redoOn:   "Retake planned",
+                  };
+                  const segPill = (active: boolean) => ({
+                    background: active ? "var(--gdim)" : "var(--bg2)",
+                    color:      active ? "var(--gold)" : "var(--w3)",
+                    border:     `1px solid ${active ? "var(--border-gold)" : "var(--border)"}`,
+                  });
+                  return (
+                    <div className="mt-3 p-4 rounded-2xl space-y-3"
+                      style={{ background: "var(--bg2)", border: "1px solid var(--border-gold)" }}>
+                      <div>
+                        <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>{L.title}</p>
+                        <p className="text-[11px] mt-0.5" style={{ color: "var(--w3)" }}>{L.hint}</p>
+                      </div>
+                      {/* Status — Yes / No / cleared */}
+                      <div>
+                        <Label>{L.statusQ}</Label>
+                        <div className="flex gap-2">
+                          {(["yes", "no"] as const).map(opt => {
+                            const active = b2.passed === opt;
+                            return (
+                              <button key={opt} type="button"
+                                onClick={() => updateB2({ passed: active ? null : opt })}
+                                className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                                style={segPill(active)}>
+                                {opt === "yes" ? L.yes : L.no}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      {/* Date pickers — passed-on for yes, planned-for for no */}
+                      {b2.passed === "yes" && (
+                        <MonthYearPicker label={L.passedOn} value={b2.passedDate ?? { month: "", year: "" }}
+                          onChange={v => updateB2({ passedDate: v })} lang={lang} />
+                      )}
+                      {b2.passed === "no" && (
+                        <MonthYearPicker label={L.plannedOn} value={b2.expectedDate ?? { month: "", year: "" }}
+                          onChange={v => updateB2({ expectedDate: v })} lang={lang} />
+                      )}
+                      {/* Prüfung selector — Goethe / telc / ÖSD */}
+                      {b2.passed === "yes" && (
+                        <div>
+                          <Label>{L.pruefung}</Label>
+                          <div className="flex gap-2">
+                            {(["goethe", "telc", "oesd"] as const).map(p => {
+                              const active = b2.pruefung === p;
+                              return (
+                                <button key={p} type="button"
+                                  onClick={() => updateB2({ pruefung: active ? null : p, modules: {} })}
+                                  className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                                  style={segPill(active)}>
+                                  {p === "goethe" ? "Goethe" : p === "telc" ? "telc" : "ÖSD"}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                      {/* Module checklist + per-module redo date */}
+                      {b2.passed === "yes" && moduleKeys.length > 0 && (
+                        <div>
+                          <Label>{L.modulesT}</Label>
+                          <div className="space-y-2">
+                            {moduleKeys.map(m => {
+                              const cur = (b2.modules ?? {})[m.key] ?? {};
+                              const done = cur.done === true;
+                              return (
+                                <div key={m.key} className="flex items-start gap-3 p-2 rounded-lg"
+                                  style={{ background: "var(--bg)", border: "1px solid var(--border)" }}>
+                                  <label className="inline-flex items-center gap-2 cursor-pointer select-none flex-shrink-0 mt-1">
+                                    <input type="checkbox" checked={done}
+                                      onChange={e => updateB2Module(m.key, { done: e.target.checked })} />
+                                    <span className="text-[13px] font-medium" style={{ color: "var(--w)" }}>{m.label}</span>
+                                  </label>
+                                  {!done && (
+                                    <div className="flex-1 min-w-0">
+                                      <MonthYearPicker
+                                        label={L.redoOn}
+                                        value={cur.expectedDate ?? { month: "", year: "" }}
+                                        onChange={v => updateB2Module(m.key, { expectedDate: v })}
+                                        lang={lang}
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             ))}
             <AddButton onClick={() => set("langs", [...cvData.langs, { name: "", level: "" }])} label={t.cvb_addLang} />
