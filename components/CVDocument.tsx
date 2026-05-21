@@ -56,28 +56,58 @@ export interface EduEntry {
 }
 
 /**
- * B2 Deutsch exam detail block. Stored on the language entry when the
- * candidate selects level B2 for Deutsch. Every field is optional —
- * absence means "not specified".
+ * German exam (B1 or B2) detail block. Stored on the language entry
+ * for Deutsch. Every field is optional — absence = "not specified".
  *
- *   passed:        "yes" | "no" | null  — overall status. Default null.
- *   passedDate:    MonthYear — when the exam was passed (when status="yes")
- *   expectedDate:  MonthYear — when the exam is planned (when status="no")
- *   pruefung:      "telc" | "goethe" | "oesd" | null — which exam body.
- *   modules:       per-module completion map. Keys depend on pruefung:
- *                    - goethe: lesen, hoeren, schreiben, sprechen
- *                    - telc / oesd: schriftlich, muendlich
- *                  Each module: { done?: boolean, expectedDate?: MonthYear }.
- *                  expectedDate is the planned redo date for missing
- *                  modules (when done === false). Older payloads may
- *                  store partial maps; render code tolerates that.
+ * Decision-tree shape (set 2026-05):
+ *
+ *   1. written:    "yes" | "no" | null   "Hast du die Prüfung geschrieben?"
+ *   2. result:     "full" | "partial" | "failed" | null
+ *                  Only meaningful when written === "yes".
+ *   3. pruefung:   "telc" | "goethe" | "oesd" | null
+ *                  Asked when result is "full" or "partial".
+ *
+ * Result === "full":
+ *   - certificateStatus:        "got" | "waiting" | null
+ *   - certificateDate:          MonthYear (when status="got")
+ *   - certificateExpectedDate:  MonthYear (when status="waiting")
+ *
+ * Result === "partial":
+ *   - modules: per-module pass/fail + dates. Keys depend on pruefung:
+ *       - goethe (B1 and B2):   lesen, hoeren, schreiben, sprechen
+ *       - oesd  B1:             lesen, hoeren, schreiben, sprechen
+ *       - oesd  B2:             schriftlich, muendlich
+ *       - telc  (both):         schriftlich, muendlich
+ *     Each module: { passed?, passedDate?, expectedDate? }
+ *
+ * Result === "failed":
+ *   - retakeDate: MonthYear — planned full-retake date.
+ *
+ * Legacy fields (passed / passedDate / expectedDate +
+ * modules[*].done / modules[*].expectedDate) remain on the type so old
+ * cv_draft payloads don't fail validation; the new UI ignores them.
  */
 export interface B2Detail {
-  passed?: "yes" | "no" | null;
-  passedDate?: MonthYear;
+  // ── New decision-tree fields ──
+  written?:                "yes" | "no" | null;
+  result?:                 "full" | "partial" | "failed" | null;
+  pruefung?:               "telc" | "goethe" | "oesd" | null;
+  certificateStatus?:      "got" | "waiting" | null;
+  certificateDate?:        MonthYear;
+  certificateExpectedDate?: MonthYear;
+  retakeDate?:             MonthYear;
+  modules?: Record<string, {
+    passed?:       boolean;
+    passedDate?:   MonthYear;
+    expectedDate?: MonthYear;
+    // Legacy key (old shape) — `done` was the boolean before we
+    // renamed to `passed`. Kept so old payloads still type-check.
+    done?:         boolean;
+  }>;
+  // ── Legacy v1 fields — read by nothing in the new UI ──
+  passed?:       "yes" | "no" | null;
+  passedDate?:   MonthYear;
   expectedDate?: MonthYear;
-  pruefung?: "telc" | "goethe" | "oesd" | null;
-  modules?: Record<string, { done?: boolean; expectedDate?: MonthYear }>;
 }
 
 export interface CVData {

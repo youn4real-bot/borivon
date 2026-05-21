@@ -4011,14 +4011,19 @@ function CVBuilderInner() {
                   </div>
                 )}
 
-                {/* ── German exam detail panel — reveals for Deutsch
-                    at level B1 OR B2. All fields optional.
-                    Module count per (level, Prüfung):
-                      Goethe (both B1+B2) → 4 modules
-                      telc (both)          → 2 modules
-                      ÖSD B2               → 2 modules
-                      ÖSD B1               → 4 modules
-                    ── */}
+                {/* ── German exam detail panel (B1 or B2) ──
+                    Progressive disclosure decision tree:
+                       Step 1: Hast du die Prüfung geschrieben?
+                       Step 2 (yes): Ergebnis? voll | teil | nicht bestanden
+                       Step 3 (full/partial): Welche Prüfung?
+                       Step 4a (full): Zertifikat erhalten oder warten?
+                       Step 4b (partial): per-module pass/fail + date
+                       Step 4c (failed): planned retake date
+                    Module count rules unchanged:
+                       Goethe (B1+B2)  → 4 modules (Lesen/Hören/Schreiben/Sprechen)
+                       ÖSD B1          → 4 modules (same)
+                       ÖSD B2 + telc   → 2 modules (Schriftlich/Mündlich)
+                */}
                 {l.name === "Deutsch" && (l.level === "B1" || l.level === "B2") && (() => {
                   const level: "B1" | "B2" = l.level === "B1" ? "B1" : "B2";
                   const bKey: "b1" | "b2" = level === "B1" ? "b1" : "b2";
@@ -4028,13 +4033,11 @@ function CVBuilderInner() {
                     ls[i] = { ...ls[i], [bKey]: { ...b, ...patch } };
                     set("langs", ls);
                   };
-                  const updateBModule = (key: string, patch: { done?: boolean; expectedDate?: MonthYear }) => {
+                  const updateBModule = (key: string, patch: { passed?: boolean; passedDate?: MonthYear; expectedDate?: MonthYear }) => {
                     const prev = (b.modules ?? {})[key] ?? {};
                     const nextModules = { ...(b.modules ?? {}), [key]: { ...prev, ...patch } };
                     updateB({ modules: nextModules });
                   };
-                  // Goethe is 4-module at every level. ÖSD is 4-module at
-                  // B1 but only 2-module at B2. telc is 2-module everywhere.
                   const isFourModule =
                     b.pruefung === "goethe" ||
                     (level === "B1" && b.pruefung === "oesd");
@@ -4052,38 +4055,68 @@ function CVBuilderInner() {
                       ]
                     : [];
                   const L = lang === "de" ? {
-                    title:    `${level} Deutsch — Details`,
-                    hint:     "Optional. Hilft Admins, den Status deiner Prüfung im Blick zu behalten.",
-                    statusQ:  `${level} abgeschlossen?`,
-                    yes:      "Ja, bestanden",
-                    no:       "Geplant",
-                    passedOn: "Bestanden am",
-                    plannedOn:"Geplant für",
-                    pruefung: "Prüfung",
-                    modulesT: "Module",
-                    redoOn:   "Wiederholung geplant",
+                    title:        `${level} Deutsch — Details`,
+                    hint:         "Optional. Hilft Admins, den Status deiner Prüfung im Blick zu behalten.",
+                    writtenQ:     "Prüfung geschrieben?",
+                    written_yes:  "Ja",
+                    written_no:   "Noch nicht",
+                    resultQ:      "Ergebnis?",
+                    result_full:  "Voll bestanden",
+                    result_part:  "Teilbestanden",
+                    result_fail:  "Nicht bestanden",
+                    pruefungQ:    "Welche Prüfung?",
+                    certQ:        "Zertifikat erhalten?",
+                    cert_got:     "Erhalten",
+                    cert_wait:    "Warte noch",
+                    certDate:     "Ausgestellt am",
+                    certExpect:   "Erwartet im",
+                    modulesT:     "Module",
+                    modPassed:    "Bestanden",
+                    modPassedAt:  "Bestanden am",
+                    modRedoAt:    "Wiederholung geplant",
+                    retakeAt:     "Vollständige Wiederholung geplant",
                   } : lang === "fr" ? {
-                    title:    `Détails ${level} allemand`,
-                    hint:     "Optionnel. Aide les admins à suivre l'état de votre examen.",
-                    statusQ:  `${level} réussi ?`,
-                    yes:      "Oui, réussi",
-                    no:       "Prévu",
-                    passedOn: "Réussi le",
-                    plannedOn:"Prévu pour",
-                    pruefung: "Examen",
-                    modulesT: "Modules",
-                    redoOn:   "Reprise prévue",
+                    title:        `Détails ${level} allemand`,
+                    hint:         "Optionnel. Aide les admins à suivre l'état de votre examen.",
+                    writtenQ:     "Examen passé ?",
+                    written_yes:  "Oui",
+                    written_no:   "Pas encore",
+                    resultQ:      "Résultat ?",
+                    result_full:  "Réussi entièrement",
+                    result_part:  "Partiellement réussi",
+                    result_fail:  "Non réussi",
+                    pruefungQ:    "Quel examen ?",
+                    certQ:        "Certificat reçu ?",
+                    cert_got:     "Reçu",
+                    cert_wait:    "En attente",
+                    certDate:     "Émis le",
+                    certExpect:   "Attendu pour",
+                    modulesT:     "Modules",
+                    modPassed:    "Réussi",
+                    modPassedAt:  "Réussi le",
+                    modRedoAt:    "Reprise prévue",
+                    retakeAt:     "Reprise complète prévue",
                   } : {
-                    title:    `${level} German details`,
-                    hint:     "Optional. Helps admins track the status of your exam.",
-                    statusQ:  `${level} passed?`,
-                    yes:      "Yes, passed",
-                    no:       "Planned",
-                    passedOn: "Passed on",
-                    plannedOn:"Planned for",
-                    pruefung: "Exam",
-                    modulesT: "Modules",
-                    redoOn:   "Retake planned",
+                    title:        `${level} German details`,
+                    hint:         "Optional. Helps admins track the status of your exam.",
+                    writtenQ:     "Took the exam?",
+                    written_yes:  "Yes",
+                    written_no:   "Not yet",
+                    resultQ:      "Result?",
+                    result_full:  "Fully passed",
+                    result_part:  "Partially passed",
+                    result_fail:  "Not passed",
+                    pruefungQ:    "Which exam?",
+                    certQ:        "Got your certificate?",
+                    cert_got:     "Received",
+                    cert_wait:    "Waiting",
+                    certDate:     "Issued on",
+                    certExpect:   "Expected on",
+                    modulesT:     "Modules",
+                    modPassed:    "Passed",
+                    modPassedAt:  "Passed on",
+                    modRedoAt:    "Retake planned",
+                    retakeAt:     "Full retake planned",
                   };
                   const segPill = (active: boolean) => ({
                     background: active ? "var(--gdim)" : "var(--bg2)",
@@ -4097,36 +4130,66 @@ function CVBuilderInner() {
                         <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>{L.title}</p>
                         <p className="text-[11px] mt-0.5" style={{ color: "var(--w3)" }}>{L.hint}</p>
                       </div>
-                      {/* Status — Yes / No / cleared */}
+
+                      {/* Step 1 — Prüfung geschrieben? */}
                       <div>
-                        <Label>{L.statusQ}</Label>
+                        <Label>{L.writtenQ}</Label>
                         <div className="flex gap-2">
                           {(["yes", "no"] as const).map(opt => {
-                            const active = b.passed === opt;
+                            const active = b.written === opt;
                             return (
                               <button key={opt} type="button"
-                                onClick={() => updateB({ passed: active ? null : opt })}
+                                onClick={() => updateB({
+                                  written: active ? null : opt,
+                                  // Clear downstream fields when toggling off
+                                  // so old state doesn't linger.
+                                  ...(active || opt === "no" ? {
+                                    result: null,
+                                    pruefung: null,
+                                    certificateStatus: null,
+                                    modules: {},
+                                  } : {}),
+                                })}
                                 className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
                                 style={segPill(active)}>
-                                {opt === "yes" ? L.yes : L.no}
+                                {opt === "yes" ? L.written_yes : L.written_no}
                               </button>
                             );
                           })}
                         </div>
                       </div>
-                      {/* Date pickers — passed-on for yes, planned-for for no */}
-                      {b.passed === "yes" && (
-                        <MonthYearPicker label={L.passedOn} value={b.passedDate ?? { month: "", year: "" }}
-                          onChange={v => updateB({ passedDate: v })} lang={lang} />
-                      )}
-                      {b.passed === "no" && (
-                        <MonthYearPicker label={L.plannedOn} value={b.expectedDate ?? { month: "", year: "" }}
-                          onChange={v => updateB({ expectedDate: v })} lang={lang} />
-                      )}
-                      {/* Prüfung selector — Goethe / telc / ÖSD */}
-                      {b.passed === "yes" && (
+
+                      {/* Step 2 — Ergebnis? (only if written = yes) */}
+                      {b.written === "yes" && (
                         <div>
-                          <Label>{L.pruefung}</Label>
+                          <Label>{L.resultQ}</Label>
+                          <div className="flex gap-2 flex-wrap">
+                            {(["full", "partial", "failed"] as const).map(opt => {
+                              const active = b.result === opt;
+                              const label = opt === "full" ? L.result_full : opt === "partial" ? L.result_part : L.result_fail;
+                              return (
+                                <button key={opt} type="button"
+                                  onClick={() => updateB({
+                                    result: active ? null : opt,
+                                    // Reset downstream when switching result type
+                                    pruefung: null,
+                                    certificateStatus: null,
+                                    modules: {},
+                                  })}
+                                  className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                                  style={segPill(active)}>
+                                  {label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Step 3 — Welche Prüfung? (full or partial) */}
+                      {b.written === "yes" && (b.result === "full" || b.result === "partial") && (
+                        <div>
+                          <Label>{L.pruefungQ}</Label>
                           <div className="flex gap-2">
                             {(["goethe", "telc", "oesd"] as const).map(p => {
                               const active = b.pruefung === p;
@@ -4142,37 +4205,84 @@ function CVBuilderInner() {
                           </div>
                         </div>
                       )}
-                      {/* Module checklist + per-module redo date */}
-                      {b.passed === "yes" && moduleKeys.length > 0 && (
+
+                      {/* Step 4a — full pass: certificate status + date */}
+                      {b.written === "yes" && b.result === "full" && b.pruefung && (
+                        <>
+                          <div>
+                            <Label>{L.certQ}</Label>
+                            <div className="flex gap-2">
+                              {(["got", "waiting"] as const).map(opt => {
+                                const active = b.certificateStatus === opt;
+                                return (
+                                  <button key={opt} type="button"
+                                    onClick={() => updateB({ certificateStatus: active ? null : opt })}
+                                    className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                                    style={segPill(active)}>
+                                    {opt === "got" ? L.cert_got : L.cert_wait}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                          {b.certificateStatus === "got" && (
+                            <MonthYearPicker label={L.certDate}
+                              value={b.certificateDate ?? { month: "", year: "" }}
+                              onChange={v => updateB({ certificateDate: v })} lang={lang} />
+                          )}
+                          {b.certificateStatus === "waiting" && (
+                            <MonthYearPicker label={L.certExpect}
+                              value={b.certificateExpectedDate ?? { month: "", year: "" }}
+                              onChange={v => updateB({ certificateExpectedDate: v })} lang={lang} />
+                          )}
+                        </>
+                      )}
+
+                      {/* Step 4b — partial pass: module checklist */}
+                      {b.written === "yes" && b.result === "partial" && b.pruefung && moduleKeys.length > 0 && (
                         <div>
                           <Label>{L.modulesT}</Label>
                           <div className="space-y-2">
                             {moduleKeys.map(m => {
                               const cur = (b.modules ?? {})[m.key] ?? {};
-                              const done = cur.done === true;
+                              const passed = cur.passed === true;
                               return (
                                 <div key={m.key} className="flex items-start gap-3 p-2 rounded-lg"
                                   style={{ background: "var(--bg)", border: "1px solid var(--border)" }}>
-                                  <label className="inline-flex items-center gap-2 cursor-pointer select-none flex-shrink-0 mt-1">
-                                    <input type="checkbox" checked={done}
-                                      onChange={e => updateBModule(m.key, { done: e.target.checked })} />
+                                  <label className="inline-flex items-center gap-2 cursor-pointer select-none flex-shrink-0 mt-1 min-w-[110px]">
+                                    <input type="checkbox" checked={passed}
+                                      onChange={e => updateBModule(m.key, { passed: e.target.checked })} />
                                     <span className="text-[13px] font-medium" style={{ color: "var(--w)" }}>{m.label}</span>
                                   </label>
-                                  {!done && (
-                                    <div className="flex-1 min-w-0">
+                                  <div className="flex-1 min-w-0">
+                                    {passed ? (
                                       <MonthYearPicker
-                                        label={L.redoOn}
+                                        label={L.modPassedAt}
+                                        value={cur.passedDate ?? { month: "", year: "" }}
+                                        onChange={v => updateBModule(m.key, { passedDate: v })}
+                                        lang={lang}
+                                      />
+                                    ) : (
+                                      <MonthYearPicker
+                                        label={L.modRedoAt}
                                         value={cur.expectedDate ?? { month: "", year: "" }}
                                         onChange={v => updateBModule(m.key, { expectedDate: v })}
                                         lang={lang}
                                       />
-                                    </div>
-                                  )}
+                                    )}
+                                  </div>
                                 </div>
                               );
                             })}
                           </div>
                         </div>
+                      )}
+
+                      {/* Step 4c — failed: planned full retake date */}
+                      {b.written === "yes" && b.result === "failed" && (
+                        <MonthYearPicker label={L.retakeAt}
+                          value={b.retakeDate ?? { month: "", year: "" }}
+                          onChange={v => updateB({ retakeDate: v })} lang={lang} />
                       )}
                     </div>
                   );
