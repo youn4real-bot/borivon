@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { CvCollabPresence, type CollabPeer } from "@/components/CvCollabPresence";
-import { CvCollabCursors } from "@/components/CvCollabCursors";
+import { LetterCollabCaret } from "@/components/LetterCollabCaret";
 import { scrubPresencePayload, fullPresencePayload, isAdminRole } from "@/lib/collabPresence";
 
 
@@ -1220,14 +1220,19 @@ function MotivationsschreibenPageInner() {
         onClose={() => setEmployerPopupOpen(false)}
       />
 
-      {/* Live-collab floating cursors — mirrors CV builder. Portal'd to
-          document.body so it always sits above the doc sheet without
-          inheriting transform/overflow constraints. */}
-      <CvCollabCursors
+      {/* Live-collab caret — Google-Docs-style. Renders a blinking
+          glowing vertical line at the remote editor's caret position +
+          a small avatar chip on the SAME line, tracking horizontally as
+          they type. Different from the CV builder's CvCollabCursors
+          (which anchors to focused form fields) — the letter has a
+          single contentEditable body, so we follow the actual caret
+          inside the text instead of the element corner. */}
+      <LetterCollabCaret
         channel={collabChannel}
         selfPeer={selfPeer}
         peers={collabPeers}
         viewerRole={viewerRole}
+        editorRef={editorRef}
       />
 
       {/* ── PDF Preview modal (copied from CV builder) ── */}
