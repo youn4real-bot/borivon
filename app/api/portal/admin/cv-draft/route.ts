@@ -57,9 +57,36 @@ export async function PUT(req: NextRequest) {
   }
 
   const db = getServiceSupabase();
+  // Reverse-propagate cv_draft → passport columns when they're empty, so
+  // the cover letter (and every other downstream that reads passport
+  // columns) is populated for ANY candidate who has touched the CV
+  // builder. Coalesce: never overwrite an existing non-empty value.
+  const incoming = body as Record<string, unknown>;
+  const draftToPassport: Record<string, string | null> = {
+    first_name:           typeof incoming.firstName          === "string" ? incoming.firstName.trim()          : "",
+    last_name:            typeof incoming.lastName           === "string" ? incoming.lastName.trim()           : "",
+    address_street:       typeof incoming.address            === "string" ? incoming.address.trim()            : "",
+    address_number:       typeof incoming.addressNumber      === "string" ? incoming.addressNumber.trim()      : "",
+    address_postal:       typeof incoming.postalCode         === "string" ? incoming.postalCode.trim()         : "",
+    city_of_residence:    typeof incoming.city               === "string" ? incoming.city.trim()               : "",
+    country_of_residence: typeof incoming.countryOfResidence === "string" ? incoming.countryOfResidence.trim() : "",
+    phone:                typeof incoming.phone              === "string" ? incoming.phone.trim()              : "",
+  };
+
+  const { data: existing } = await db
+    .from("candidate_profiles")
+    .select("first_name,last_name,address_street,address_number,address_postal,city_of_residence,country_of_residence,phone")
+    .eq("user_id", candidateId)
+    .maybeSingle();
+  const cur = (existing ?? {}) as Record<string, string | null | undefined>;
+  const toWrite: Record<string, unknown> = { user_id: candidateId, cv_draft: body };
+  for (const [k, v] of Object.entries(draftToPassport)) {
+    if (v && (cur[k] == null || cur[k] === "")) toWrite[k] = v;
+  }
+
   const { error } = await db
     .from("candidate_profiles")
-    .upsert({ user_id: candidateId, cv_draft: body }, { onConflict: "user_id" });
+    .upsert(toWrite, { onConflict: "user_id" });
 
   if (error) {
     console.error("[admin cv-draft PUT] error:", error);
