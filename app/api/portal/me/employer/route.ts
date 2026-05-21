@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
-import { requireUser } from "@/lib/admin-auth";
+import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * The logged-in candidate's assigned employer for the Motivationsschreiben
@@ -11,15 +13,33 @@ import { requireUser } from "@/lib/admin-auth";
  *   200 { assigned: false }
  */
 export async function GET(req: NextRequest) {
-  const auth = await requireUser(req);
-  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  // Target resolution mirrors /me/letter-data: ?userId= present →
+  // admin acting on another candidate (must canActOnCandidate); absent
+  // → caller's own row.
+  const paramUid = req.nextUrl.searchParams.get("userId");
+  let targetUid: string;
+  if (paramUid) {
+    if (!UUID_RE.test(paramUid)) {
+      return NextResponse.json({ error: "Invalid userId" }, { status: 400 });
+    }
+    const aAuth = await requireAdminRole(req);
+    if (!aAuth.ok) return NextResponse.json({ error: aAuth.error }, { status: aAuth.status });
+    if (!(await canActOnCandidate(aAuth.role, aAuth.email, paramUid))) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    targetUid = paramUid;
+  } else {
+    const auth = await requireUser(req);
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+    targetUid = auth.userId;
+  }
 
   const db = getServiceSupabase();
 
   const { data: profile } = await db
     .from("candidate_profiles")
     .select("employer_id")
-    .eq("user_id", auth.userId)
+    .eq("user_id", targetUid)
     .maybeSingle();
 
   const employerId = (profile as { employer_id?: string } | null)?.employer_id ?? null;

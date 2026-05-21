@@ -440,7 +440,12 @@ function MotivationsschreibenPageInner() {
     const pull = async () => {
       if (!authToken) return;
       try {
-        const r = await fetch("/api/portal/me/letter-data", {
+        // Admin viewing ?candidate=<uid> passes that uid through so we
+        // fetch the CANDIDATE's sender block, not the admin's session
+        // identity (otherwise the letter showed the admin's name +
+        // address instead of the candidate's).
+        const qs = adminCandidateId ? `?userId=${encodeURIComponent(adminCandidateId)}` : "";
+        const r = await fetch(`/api/portal/me/letter-data${qs}`, {
           headers: { Authorization: `Bearer ${authToken}` },
         });
         if (!r.ok) return;
@@ -503,7 +508,8 @@ function MotivationsschreibenPageInner() {
       // bypasses any client-RLS uncertainty. Returns the fully merged
       // sender (passport > cv_draft > signup metadata) in one round-trip.
       try {
-        const r = await fetch("/api/portal/me/letter-data", {
+        const qs = adminCandidateId ? `?userId=${encodeURIComponent(adminCandidateId)}` : "";
+        const r = await fetch(`/api/portal/me/letter-data${qs}`, {
           headers: { Authorization: `Bearer ${session.access_token}` },
         });
         if (!cancelled && r.ok) {
@@ -537,7 +543,8 @@ function MotivationsschreibenPageInner() {
       // Assigned employer comes from the backend (admin assignment →
       // employers table). Single source of truth, server-resolved.
       try {
-        const r = await fetch("/api/portal/me/employer", {
+        const qs = adminCandidateId ? `?userId=${encodeURIComponent(adminCandidateId)}` : "";
+        const r = await fetch(`/api/portal/me/employer${qs}`, {
           headers: { Authorization: `Bearer ${session.access_token}` },
         });
         if (!cancelled && r.ok) {
@@ -720,15 +727,60 @@ function MotivationsschreibenPageInner() {
     ch.on("broadcast", { event: "letter-update" }, ({ payload }) => {
       const p = payload as { by?: string; html?: string; at?: number };
       if (!p?.html || !p.by || p.by === selfPeer!.id) return;
-      if (Date.now() - lastLocalEditAt.current < 1500) return;
+      // Anti-clobber: don't overwrite local typing in flight. 400ms is
+      // the sweet spot — long enough that mid-word keystrokes survive,
+      // short enough that alternating-edit sessions stay in sync (the
+      // previous 1500ms grace was making the sync feel "sometimes
+      // works, sometimes doesn't" because back-and-forth bursts kept
+      // landing inside each other's grace window).
+      if (Date.now() - lastLocalEditAt.current < 400) return;
       if (p.html === lastBroadcastSig.current) return;
       lastBroadcastSig.current = p.html;
       const el = editorRef.current;
       if (!el) return;
+      // Snapshot caret position so we can restore it after innerHTML
+      // assignment (which collapses the selection to the start).
+      const sel = window.getSelection();
+      const focused = !!document.activeElement && el.contains(document.activeElement as Node);
+      let savedOffset = -1;
+      if (focused && sel && sel.rangeCount > 0 && el.contains(sel.anchorNode)) {
+        // Sum text-length up to the current anchor — a stable cursor
+        // anchor that survives DOM replacement.
+        const range = document.createRange();
+        range.setStart(el, 0);
+        range.setEnd(sel.anchorNode!, sel.anchorOffset);
+        savedOffset = range.toString().length;
+      }
       applyingRemoteRef.current = true;
       el.innerHTML = p.html;
       lastGoodHTML.current = p.html;
       setWordCount(countWords(el.textContent ?? ""));
+      // CRITICAL: innerHTML assignment does NOT fire an `input` event,
+      // so the lazy clear in handleBodyInput never runs → next local
+      // keystroke sees applyingRemoteRef=true and SKIPS the broadcast,
+      // making the sync look intermittent. Clear here, at the apply
+      // site, exactly when the apply finishes.
+      applyingRemoteRef.current = false;
+      // Restore caret if we were focused.
+      if (focused && savedOffset >= 0) {
+        try {
+          const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+          let remaining = savedOffset;
+          let node: Text | null = null;
+          while (walker.nextNode()) {
+            const n = walker.currentNode as Text;
+            if (remaining <= n.length) { node = n; break; }
+            remaining -= n.length;
+          }
+          if (node) {
+            const r = document.createRange();
+            r.setStart(node, remaining);
+            r.collapse(true);
+            sel?.removeAllRanges();
+            sel?.addRange(r);
+          }
+        } catch { /* fall back to default cursor placement */ }
+      }
     });
 
     ch.subscribe(async (status) => {

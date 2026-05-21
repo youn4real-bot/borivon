@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
-import { requireUser } from "@/lib/admin-auth";
+import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * GET — return the resolved sender block for the cover letter.
@@ -27,14 +29,33 @@ import { requireUser } from "@/lib/admin-auth";
  * Returns: { sender, passportStatus }
  */
 export async function GET(req: NextRequest) {
-  const auth = await requireUser(req);
-  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  // Target resolution. When ?userId= is set, the caller is acting on
+  // ANOTHER candidate (admin viewing /portal/motivationsschreiben?candidate=
+  // <uid>); without it the caller is reading their own row. Mirrors the
+  // dual-auth pattern the /api/portal/letter-body route uses.
+  const paramUid = req.nextUrl.searchParams.get("userId");
+  let targetUid: string;
+  if (paramUid) {
+    if (!UUID_RE.test(paramUid)) {
+      return NextResponse.json({ error: "Invalid userId" }, { status: 400 });
+    }
+    const aAuth = await requireAdminRole(req);
+    if (!aAuth.ok) return NextResponse.json({ error: aAuth.error }, { status: aAuth.status });
+    if (!(await canActOnCandidate(aAuth.role, aAuth.email, paramUid))) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
+    targetUid = paramUid;
+  } else {
+    const auth = await requireUser(req);
+    if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+    targetUid = auth.userId;
+  }
 
   const db = getServiceSupabase();
   let { data: row } = await db
     .from("candidate_profiles")
     .select("first_name,last_name,address_street,address_number,address_postal,city_of_residence,country_of_residence,phone,passport_status,cv_draft")
-    .eq("user_id", auth.userId)
+    .eq("user_id", targetUid)
     .maybeSingle();
 
   // Auto-create empty row on first letter view. Some candidates have no
@@ -44,12 +65,16 @@ export async function GET(req: NextRequest) {
   // user_id seeded with names from auth.users.user_metadata so every
   // subsequent write is a cheap UPDATE — and the candidate's name is
   // already in the column for downstream consumers.
-  if (!row) {
+  // Auto-create runs ONLY for the self-acting path (no ?userId param) —
+  // admin viewing another candidate shouldn't create stub rows on the
+  // candidate's behalf, and the auth metadata we'd seed wouldn't be the
+  // candidate's anyway.
+  if (!row && !paramUid) {
     try {
       const headerJwt0 = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
       const { data: u0 } = await getAnonVerifyClient().auth.getUser(headerJwt0);
       const m0 = u0?.user?.user_metadata as { first_name?: string; last_name?: string } | undefined;
-      const seed: Record<string, unknown> = { user_id: auth.userId };
+      const seed: Record<string, unknown> = { user_id: targetUid };
       if (m0?.first_name) seed.first_name = String(m0.first_name).trim();
       if (m0?.last_name)  seed.last_name  = String(m0.last_name).trim();
       // ignoreDuplicates so a concurrent request that already inserted a
@@ -66,7 +91,7 @@ export async function GET(req: NextRequest) {
         const { data: row2 } = await db
           .from("candidate_profiles")
           .select("first_name,last_name,address_street,address_number,address_postal,city_of_residence,country_of_residence,phone,passport_status,cv_draft")
-          .eq("user_id", auth.userId)
+          .eq("user_id", targetUid)
           .maybeSingle();
         row = row2;
       }
@@ -91,17 +116,31 @@ export async function GET(req: NextRequest) {
 
   // Signup metadata is the universal name fallback — every account writes
   // first_name + last_name into auth.users.user_metadata at sign-up time.
-  const headerJwt = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
+  // When ?userId= is set, we look up THE TARGET candidate's auth row via
+  // service-role admin.getUserById — NOT the caller's. Otherwise admins
+  // viewing a candidate's letter would see their OWN name + email in the
+  // sender block.
   let metaFirst: string = "";
   let metaLast:  string = "";
   let email:     string = "";
-  try {
-    const { data: u } = await getAnonVerifyClient().auth.getUser(headerJwt);
-    email = u?.user?.email ?? "";
-    const meta = u?.user?.user_metadata as { first_name?: string; last_name?: string } | undefined;
-    metaFirst = meta?.first_name ?? "";
-    metaLast  = meta?.last_name  ?? "";
-  } catch { /* fall through with empty meta */ }
+  if (paramUid) {
+    try {
+      const { data: u } = await db.auth.admin.getUserById(targetUid);
+      email = u?.user?.email ?? "";
+      const meta = u?.user?.user_metadata as { first_name?: string; last_name?: string } | undefined;
+      metaFirst = meta?.first_name ?? "";
+      metaLast  = meta?.last_name  ?? "";
+    } catch { /* fall through with empty meta */ }
+  } else {
+    const headerJwt = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
+    try {
+      const { data: u } = await getAnonVerifyClient().auth.getUser(headerJwt);
+      email = u?.user?.email ?? "";
+      const meta = u?.user?.user_metadata as { first_name?: string; last_name?: string } | undefined;
+      metaFirst = meta?.first_name ?? "";
+      metaLast  = meta?.last_name  ?? "";
+    } catch { /* fall through with empty meta */ }
+  }
 
   const draft = (p?.cv_draft ?? {}) as Record<string, unknown>;
   const draftStr = (k: string): string => {
