@@ -200,15 +200,14 @@ export function AdminDocPreviewModal({
   // download a blob `<a download>`. Mirror the candidate-side fix: native
   // PDF iframe for preview + server route (?dl=1&access_token) for download.
   const iosMode = isIOSDevice();
-  // Passport scans are very often JPEG2000 (JPXDecode) — pdf.js renders those
-  // BLANK/washed (decode error is swallowed) while the actual PDF bytes are
-  // perfectly intact. The browser's NATIVE PDF engine (PDFium/PDFKit, via the
-  // IosPdfFrame iframe) decodes them correctly. So passports always use the
-  // native frame, on every platform — not just iOS. This is the permanent
-  // fix for the recurring "passport data erased" report.
+  // Passports used to force the native iframe on every platform because some
+  // scans are JPEG2000 (JPXDecode) which pdf.js renders blank. User request
+  // 2026-05: passport preview should behave identically to every other PDF
+  // (B2 Sprachzertifikat etc.) on desktop — i.e. the pdf.js canvas viewer
+  // with our floating toolbar. iOS keeps the native iframe (canvas blanks on
+  // WebKit regardless of mime).
   const isPdfDoc      = (doc.file_name.split(".").pop() ?? "").toLowerCase() === "pdf";
-  const isPassportDoc = /pass/i.test(doc.file_type);
-  const nativePdf     = isPdfDoc && (iosMode || isPassportDoc);
+  const nativePdf     = isPdfDoc && iosMode;
   // iOS file URLs carry a short-lived signed token (?dlt=), never the raw JWT.
   // The native frame is a top-level <iframe> request that can't send an
   // Authorization header, so it needs the same signed token on desktop too.
