@@ -33,20 +33,33 @@ export type CollabPeer = {
 };
 
 function BorivonB({ size }: { size: number }) {
+  // The real brand mark — same /favicon.png that ships in the tab bar
+  // (registered via app/layout.tsx metadata.icons). Using the live asset
+  // (not a CSS-rendered "B") so the candidate-side anonymised avatar
+  // always matches the actual Borivon identity, even if branding evolves.
+  // Round disc + gold-tinted ring matches the surrounding admin avatars
+  // visually so the row reads as a cohesive set of editors.
   return (
-    <div className="rounded-full flex items-center justify-center font-semibold select-none"
+    <div className="rounded-full overflow-hidden flex items-center justify-center select-none"
       style={{
         width: size, height: size,
         background: "var(--gdim)",
         border: "1px solid var(--border-gold)",
-        color: "var(--gold)",
-        fontFamily: "var(--font-serif, Georgia, serif)",
-        fontSize: Math.round(size * 0.55),
-        lineHeight: 1,
-        letterSpacing: "-0.02em",
       }}
       aria-label="Borivon">
-      B
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/favicon.png"
+        alt=""
+        draggable={false}
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          display: "block",
+          pointerEvents: "none",
+        }}
+      />
     </div>
   );
 }

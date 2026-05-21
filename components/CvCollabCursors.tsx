@@ -307,13 +307,18 @@ export function CvCollabCursors({ channel, selfPeer, peers, viewerRole }: Props)
                 overflow: "hidden",
               }}>
               {anonymise ? (
-                <span style={{
-                  fontFamily: "var(--font-serif, Georgia, serif)",
-                  fontWeight: 600,
-                  fontSize: Math.round(ANON_SIZE * 0.55),
-                  lineHeight: 1,
-                  letterSpacing: "-0.02em",
-                }}>B</span>
+                // Real brand mark from /favicon.png — single source of
+                // truth (same asset registered as the site favicon in
+                // app/layout.tsx). Matches CvCollabPresence so the avatar
+                // shown to candidates is consistent across the floating
+                // cursor + the top-right peer row.
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src="/favicon.png"
+                  alt=""
+                  draggable={false}
+                  style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", pointerEvents: "none" }}
+                />
               ) : peer.photo ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={peer.photo} alt={label}
