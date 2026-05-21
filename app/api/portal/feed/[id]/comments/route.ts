@@ -202,6 +202,21 @@ export async function PATCH(req: NextRequest, _ctx: { params: Promise<{ id: stri
 
   const db = getServiceSupabase();
 
+  // Channel gate: resolve commentId → post_id, then re-use the same
+  // canAccessPost check the GET/POST/DELETE branches already enforce.
+  // Without this, a user who once had access to a private org channel
+  // could keep toggling comment-likes after losing membership (UUID
+  // guessing is infeasible, but the stale-access vector is real).
+  const { data: parent } = await db
+    .from("feed_comments")
+    .select("post_id")
+    .eq("id", commentId)
+    .maybeSingle();
+  if (!parent) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const postId = (parent as { post_id: string }).post_id;
+  const access = await canAccessPost(db, postId, auth.userId, auth.email);
+  if (!access.ok) return NextResponse.json({ error: access.status === 404 ? "Not found" : "Forbidden" }, { status: access.status });
+
   const { data: existing } = await db
     .from("feed_comment_likes")
     .select("comment_id")

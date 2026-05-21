@@ -264,6 +264,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Bad request" }, { status: 400 });
   }
 
+  // LAW #20: rejection must carry non-empty feedback. AdminRejectModal
+  // enforces this client-side but defense-in-depth — a hand-crafted POST
+  // or a future client regression must NOT land an empty-reason rejection
+  // on the candidate. Quiet 400 → the client modal is the only legitimate
+  // caller and it already pre-validates.
+  if (status === "rejected") {
+    const trimmed = typeof feedback === "string" ? feedback.trim() : "";
+    if (!trimmed) {
+      return NextResponse.json({ error: "Rejection requires a reason" }, { status: 400 });
+    }
+  }
+
   const db = getServiceSupabase();
 
   // Sub-admins may only review docs for their assigned candidates

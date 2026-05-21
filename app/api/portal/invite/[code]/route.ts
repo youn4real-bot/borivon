@@ -220,12 +220,48 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ code: stri
   const { org, type, tokenId, agencyId: inviteAgencyId } = result;
   const db = getServiceSupabase();
 
+  // ── Atomic single-use claim ─────────────────────────────────────────────
+  // Race-window plug: read-then-update let two concurrent redeems BOTH
+  // succeed against the same single-use token (both saw used_by=null at
+  // SELECT time, both updated their own used_by, the second write won →
+  // but both grants already fired). Same hole was reusable via the
+  // deleted-prior-user fallback: two redeems could race to take a token
+  // freed by a soft-delete.
+  //
+  // Now: claim the token FIRST with a conditional UPDATE. The predicate
+  // matches the exact prior `used_by` we observed (null for an unused
+  // token, the deleted user's id for a reclaimable one, or our own id
+  // for the idempotent re-run). Postgres evaluates the predicate
+  // atomically with the write — if a concurrent redeem already won the
+  // row, affected_rows comes back 0 → we abort BEFORE granting any role.
+  if (tokenId) {
+    const claimer = db
+      .from("invite_tokens")
+      .update({ used_by: auth.userId, used_at: new Date().toISOString() })
+      .eq("id", tokenId)
+      .select("id");
+    const claimed = !result.alreadyUsed
+      ? await claimer.is("used_by", null)
+      : result.usedBy === auth.userId
+        ? await claimer.eq("used_by", auth.userId) // idempotent self
+        : await claimer.eq("used_by", result.usedBy!); // reclaim from deleted
+    if (claimed.error) {
+      console.error("[invite redeem] claim failed:", claimed.error);
+      return NextResponse.json({ error: "Internal error" }, { status: 500 });
+    }
+    if (!claimed.data || claimed.data.length === 0) {
+      // Another redeem took the token between our lookup and this claim.
+      return NextResponse.json({ error: "already_used" }, { status: 410 });
+    }
+  }
+
+  // NOTE: token is already claimed atomically above — the per-type
+  // branches below MUST NOT re-UPDATE invite_tokens.used_by (would race
+  // with the atomic claim and revive the double-redeem bug).
+
   if (type === "candidate") {
     // Candidate invites grant platform access only — no org linking.
     // Admin manually assigns candidates to orgs later from the admin panel.
-    if (tokenId) {
-      await db.from("invite_tokens").update({ used_by: auth.userId, used_at: new Date().toISOString() }).eq("id", tokenId);
-    }
     // Tag candidate with agency_id from the invite token (if any)
     if (inviteAgencyId) {
       await db.from("candidate_profiles").upsert(
@@ -248,9 +284,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ code: stri
       console.error("[invite redeem] sub_admins grant failed:", subErr);
       return NextResponse.json({ error: "Could not grant sub-admin: " + subErr }, { status: 500 });
     }
-    if (tokenId) {
-      await db.from("invite_tokens").update({ used_by: auth.userId, used_at: new Date().toISOString() }).eq("id", tokenId);
-    }
     return NextResponse.json({ org, type, status: "joined" });
   }
 
@@ -263,9 +296,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ code: stri
     .maybeSingle();
 
   if (existing) {
-    if (tokenId) {
-      await db.from("invite_tokens").update({ used_by: auth.userId, used_at: new Date().toISOString() }).eq("id", tokenId);
-    }
     return NextResponse.json({ org, type, alreadyMember: true });
   }
 
@@ -288,11 +318,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ code: stri
     { user_id: auth.userId, manually_verified: true },
     { onConflict: "user_id" },
   );
-
-  // Mark token as used
-  if (tokenId) {
-    await db.from("invite_tokens").update({ used_by: auth.userId, used_at: new Date().toISOString() }).eq("id", tokenId);
-  }
 
   return NextResponse.json({ org, type, status: "joined" });
 }
