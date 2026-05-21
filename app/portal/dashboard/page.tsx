@@ -2084,13 +2084,12 @@ export default function DashboardPage() {
             {(() => {
               const ext = (previewDoc.file_name.split(".").pop() ?? "").toLowerCase();
               const _isIOS = isIOSDevice();
-              // Passports used to force the native iframe on every platform
-              // because some scans are JPEG2000 (JPXDecode) which pdf.js
-              // renders blank. User request 2026-05: passport preview should
-              // behave identically to every other PDF (B2 Sprachzertifikat
-              // etc.) on desktop — i.e. the pdf.js canvas viewer. iOS keeps
-              // the native iframe (canvas blanks on WebKit regardless).
-              const _nativePdf = ext === "pdf" && _isIOS;
+              // Passports are very often JPEG2000 → pdf.js renders them BLANK
+              // (decode error swallowed) though the bytes are intact. Force
+              // the browser-native PDF engine for ALL passports, every
+              // platform — not just iOS. Permanent fix for the recurring
+              // "passport data erased" report.
+              const _nativePdf = ext === "pdf" && (_isIOS || /pass/i.test(previewDoc.file_type));
               if (_nativePdf) {
                 // NEVER fall back to pdf.js for a passport (it blanks
                 // JPEG2000). If the signed token isn't minted yet, WAIT
