@@ -26,6 +26,10 @@ import {
   ArrowLeft, Lock, FileText, Upload, X as XIcon, Download,
   CheckCircle2, AlertTriangle, FilePen, Hourglass,
 } from "lucide-react";
+import type { RealtimeChannel } from "@supabase/supabase-js";
+import { CvCollabPresence, type CollabPeer } from "@/components/CvCollabPresence";
+import { CvCollabCursors } from "@/components/CvCollabCursors";
+import { scrubPresencePayload, fullPresencePayload, isAdminRole } from "@/lib/collabPresence";
 
 
 const BETREFF_PREFIX = "Betreff: Motivationsschreiben für eine Tätigkeit als Pflegekraft am";
@@ -372,6 +376,17 @@ export default function MotivationsschreibenPage() {
 
   const draftKey = useCallback((uid: string) => `bv_letter_body_${uid}`, []);
 
+  // ── Live-collab state (mirrors CV builder — same channel pattern,
+  //     same scrubbing rules, same anonymised candidate-side avatar). ──
+  const [viewerRole, setViewerRole]   = useState<"admin" | "sub_admin" | "candidate">("candidate");
+  const [selfPeer, setSelfPeer]       = useState<CollabPeer | null>(null);
+  const [collabPeers, setCollabPeers] = useState<CollabPeer[]>([]);
+  const [collabChannel, setCollabChannel] = useState<RealtimeChannel | null>(null);
+  const collabChannelRef = useRef<RealtimeChannel | null>(null);
+  const lastLocalEditAt  = useRef(0);
+  const lastBroadcastSig = useRef("");
+  const applyingRemoteRef = useRef(false);
+
   // Keep authToken state fresh across silent JWT refreshes (~55 min). Without
   // this the initial-mount token goes stale during long edits and every
   // subsequent generate / upload fails with "Invalid token".
@@ -531,6 +546,212 @@ export default function MotivationsschreibenPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ── Live collaboration — resolve self identity ───────────────────────────
+  // Same shape the CV builder uses (CollabPeer): id, role, email,
+  // displayName, photo. Role resolves via /api/portal/me/role; photo +
+  // name come from candidate_profiles (or admin_profiles when the viewer
+  // is an admin/sub-admin — admins keep their photo in admin_profiles).
+  useEffect(() => {
+    if (!userId || !authToken) return;
+    let cancelled = false;
+    (async () => {
+      // 1. Resolve role.
+      let role: "admin" | "sub_admin" | "candidate" = "candidate";
+      try {
+        const r = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${authToken}` } });
+        if (r.ok) {
+          const j = await r.json() as { role?: string };
+          if (j.role === "admin" || j.role === "sub_admin") role = j.role;
+        }
+      } catch { /* default to candidate */ }
+      if (cancelled) return;
+      setViewerRole(role);
+
+      // 2. Resolve photo + displayName.
+      let photo: string | null = null;
+      let displayName = "";
+      let email = "";
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        email = user?.email ?? "";
+        displayName = (user?.user_metadata?.full_name ?? "").toString().trim() || email;
+      } catch { /* offline */ }
+      if (role === "candidate") {
+        try {
+          const { data: p } = await supabase
+            .from("candidate_profiles").select("profile_photo, first_name, last_name")
+            .eq("user_id", userId).maybeSingle();
+          const row = p as { profile_photo?: string | null; first_name?: string | null; last_name?: string | null } | null;
+          if (row?.profile_photo) photo = row.profile_photo;
+          if (row?.first_name || row?.last_name) {
+            displayName = [row.first_name, row.last_name].filter(Boolean).join(" ").trim() || displayName;
+          }
+        } catch { /* fall back to auth metadata */ }
+      } else {
+        // Admin / sub-admin photo lives in admin_profiles keyed by email.
+        try {
+          const { data: p } = await supabase
+            .from("admin_profiles").select("photo, display_name")
+            .eq("email", email.toLowerCase()).maybeSingle();
+          const row = p as { photo?: string | null; display_name?: string | null } | null;
+          if (row?.photo) photo = row.photo;
+          if (row?.display_name) displayName = row.display_name;
+        } catch { /* fall back */ }
+      }
+      if (cancelled) return;
+
+      // sessionStorage seed handles the page-mount race where presence
+      // tracks before the photo query resolves — matches CV builder.
+      setSelfPeer({
+        id:          userId,
+        role,
+        email,
+        displayName: displayName || email || "—",
+        photo,
+        editing:     false,
+        isSelf:      true,
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [userId, authToken]);
+
+  // ── Live collaboration — channel join + presence + broadcast receive ────
+  // Same room key shape as the CV builder uses, scoped to the cover
+  // letter so the two surfaces don't share presence rooms. Main channel
+  // is candidate + admins (scrubbed); side channel is admins only (full).
+  useEffect(() => {
+    if (!userId || !selfPeer || !authToken) return;
+    // Keep the websocket auth fresh after session restores.
+    try { supabase.realtime.setAuth(authToken); } catch { /* offline */ }
+
+    const target = userId; // letter is always the candidate's own
+    const ch = supabase.channel(`letter-collab-${target}`, {
+      config: {
+        presence:  { key: selfPeer.id },
+        broadcast: { self: false, ack: false },
+      },
+    });
+    collabChannelRef.current = ch;
+
+    type RawPeer = CollabPeer & { editingAt?: number };
+    const adminFullById = new Map<string, { email?: string; displayName?: string; photo?: string | null }>();
+
+    function refresh() {
+      const state = ch.presenceState() as Record<string, RawPeer[]>;
+      const now = Date.now();
+      const byId = new Map<string, RawPeer>();
+      for (const metas of Object.values(state)) {
+        for (const meta of metas) {
+          const prev = byId.get(meta.id);
+          if (!prev || (meta.editingAt ?? 0) > (prev.editingAt ?? 0)) byId.set(meta.id, meta);
+        }
+      }
+      const next = Array.from(byId.values()).map(p => {
+        const full = adminFullById.get(p.id);
+        return {
+          id:          p.id,
+          role:        p.role,
+          email:       full?.email       ?? p.email,
+          displayName: full?.displayName ?? p.displayName,
+          photo:       full?.photo       ?? p.photo ?? null,
+          editing:     !!(p.editingAt && now - p.editingAt < 1500),
+          isSelf:      p.id === selfPeer!.id,
+        } as CollabPeer;
+      });
+      setCollabPeers(next);
+    }
+
+    ch.on("presence", { event: "sync" },  refresh);
+    ch.on("presence", { event: "join" },  refresh);
+    ch.on("presence", { event: "leave" }, refresh);
+
+    // Remote letter-update — apply if it didn't come from us and we
+    // aren't currently typing (1.5s grace) so keystrokes never get
+    // clobbered. Set applyingRemoteRef so the resulting input event
+    // skips the re-broadcast.
+    ch.on("broadcast", { event: "letter-update" }, ({ payload }) => {
+      const p = payload as { by?: string; html?: string; at?: number };
+      if (!p?.html || !p.by || p.by === selfPeer!.id) return;
+      if (Date.now() - lastLocalEditAt.current < 1500) return;
+      if (p.html === lastBroadcastSig.current) return;
+      lastBroadcastSig.current = p.html;
+      const el = editorRef.current;
+      if (!el) return;
+      applyingRemoteRef.current = true;
+      el.innerHTML = p.html;
+      lastGoodHTML.current = p.html;
+      setWordCount(countWords(el.textContent ?? ""));
+    });
+
+    ch.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        setCollabChannel(ch);
+        try { await ch.track(scrubPresencePayload(selfPeer, false)); } catch { /* retry on sync */ }
+      }
+    });
+
+    // Admin side-channel — full-identity presence among admins.
+    const isAdminSelf = isAdminRole(selfPeer.role);
+    const adminCh = isAdminSelf
+      ? supabase.channel(`letter-collab-admins-${target}`, {
+          config: { presence: { key: selfPeer.id }, broadcast: { self: false, ack: false } },
+        })
+      : null;
+    if (adminCh) {
+      const refreshAdminMap = () => {
+        const state = adminCh.presenceState() as Record<string, RawPeer[]>;
+        adminFullById.clear();
+        for (const metas of Object.values(state)) {
+          for (const meta of metas) {
+            adminFullById.set(meta.id, {
+              email:       meta.email,
+              displayName: meta.displayName,
+              photo:       meta.photo ?? null,
+            });
+          }
+        }
+        refresh();
+      };
+      adminCh.on("presence", { event: "sync" },  refreshAdminMap);
+      adminCh.on("presence", { event: "join" },  refreshAdminMap);
+      adminCh.on("presence", { event: "leave" }, refreshAdminMap);
+      adminCh.subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          try { await adminCh.track(fullPresencePayload(selfPeer)); } catch { /* retry */ }
+        }
+      });
+    }
+
+    return () => {
+      try { void ch.untrack(); } catch { /* ignore */ }
+      supabase.removeChannel(ch);
+      collabChannelRef.current = null;
+      setCollabChannel(null);
+      if (adminCh) {
+        try { void adminCh.untrack(); } catch { /* ignore */ }
+        supabase.removeChannel(adminCh);
+      }
+    };
+  }, [userId, selfPeer, authToken]);
+
+  // ── Live collab — peer-pulse decay (mirrors CV builder) ─────────────────
+  // Drop each peer's `editing` flag back to false after ~1.5s of no
+  // broadcast so the gold pulse stops on idle peers even if their
+  // editingAt never gets refreshed.
+  useEffect(() => {
+    const t = setInterval(() => {
+      setCollabPeers(prev => {
+        let changed = false;
+        const next = prev.map(p => {
+          if (p.editing) { changed = true; return { ...p, editing: false }; }
+          return p;
+        });
+        return changed ? next : prev;
+      });
+    }, 1600);
+    return () => clearInterval(t);
+  }, []);
+
   function scheduleSave() {
     if (!userId) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -548,6 +769,11 @@ export default function MotivationsschreibenPage() {
   function handleBodyInput() {
     const el = editorRef.current;
     if (!el) return;
+    // Remote-update apply path bypasses the broadcast loop — without this,
+    // an incoming edit would re-broadcast back to the sender.
+    const isRemote = applyingRemoteRef.current;
+    applyingRemoteRef.current = false;
+
     const words = countWords(el.textContent ?? "");
     if (words > MAX_WORDS) {
       el.innerHTML = lastGoodHTML.current;
@@ -564,6 +790,26 @@ export default function MotivationsschreibenPage() {
     lastGoodHTML.current = el.innerHTML;
     setWordCount(words);
     scheduleSave();
+
+    // Live-collab broadcast — only for LOCAL edits (not for the apply
+    // path of an incoming remote update). 220ms debounce mirrors the CV
+    // builder's collab cadence: smooth feel without saturating the
+    // channel.
+    if (!isRemote && selfPeer && collabChannelRef.current) {
+      lastLocalEditAt.current = Date.now();
+      const sig = el.innerHTML;
+      if (sig !== lastBroadcastSig.current) {
+        lastBroadcastSig.current = sig;
+        void collabChannelRef.current.send({
+          type:  "broadcast",
+          event: "letter-update",
+          payload: { by: selfPeer.id, html: sig, at: Date.now() },
+        });
+        // Bump editingAt so the peer row's gold pulse keeps animating
+        // for ~1.5s after each keystroke (matches CV builder UX).
+        void collabChannelRef.current.track(scrubPresencePayload(selfPeer, true));
+      }
+    }
   }
 
   async function handleGenerate() {
@@ -742,6 +988,13 @@ export default function MotivationsschreibenPage() {
                   );
                 })()}
                 <AutosaveIndicator savedAt={savedAt} />
+                {/* Live-collab peer row — mirrors CV builder. Renders the
+                    Borivon favicon disc for admins from the candidate's
+                    POV, real photos admin↔admin via the side channel. */}
+                <CvCollabPresence
+                  peers={collabPeers.length > 0 ? collabPeers : (selfPeer ? [selfPeer] : [])}
+                  viewerRole={viewerRole}
+                />
               </div>
             </div>
             <div className="text-center">
@@ -895,6 +1148,16 @@ export default function MotivationsschreibenPage() {
       <EmployerPendingPopup
         open={employerPopupOpen}
         onClose={() => setEmployerPopupOpen(false)}
+      />
+
+      {/* Live-collab floating cursors — mirrors CV builder. Portal'd to
+          document.body so it always sits above the doc sheet without
+          inheriting transform/overflow constraints. */}
+      <CvCollabCursors
+        channel={collabChannel}
+        selfPeer={selfPeer}
+        peers={collabPeers}
+        viewerRole={viewerRole}
       />
 
       {/* ── PDF Preview modal (copied from CV builder) ── */}

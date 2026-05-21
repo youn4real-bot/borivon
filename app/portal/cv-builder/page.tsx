@@ -33,6 +33,7 @@ import { PageLoader, Spinner, AutosaveIndicator } from "@/components/ui/states";
 import { CvCollabPresence } from "@/components/CvCollabPresence";
 import { CvCollabCursors }  from "@/components/CvCollabCursors";
 import type { CollabPeer }  from "@/components/CvCollabPresence";
+import { scrubPresencePayload, fullPresencePayload, isAdminRole } from "@/lib/collabPresence";
 
 /** Strip admin identity (email / displayName / photo) from a presence
  *  payload before broadcasting on a shared channel. Candidate must
@@ -40,22 +41,9 @@ import type { CollabPeer }  from "@/components/CvCollabPresence";
  *  user CAN read raw WebSocket frames, bypassing the UI anonymization.
  *  This keeps the channel payload itself anonymous when the sender is
  *  an admin or sub-admin. Candidate-side track keeps full info because
- *  the candidate's own client already has that data anyway. */
-function scrubPresencePayload(self: CollabPeer, editing: boolean) {
-  const base = {
-    id:        self.id,
-    role:      self.role,
-    editingAt: editing ? Date.now() : 0,
-  };
-  const isAdminSender = self.role === "admin" || self.role === "sub_admin";
-  if (isAdminSender) return base;
-  return {
-    ...base,
-    email:       self.email,
-    displayName: self.displayName,
-    photo:       self.photo,
-  };
-}
+ *  the candidate's own client already has that data anyway.
+ *  Helper moved to lib/collabPresence.ts so the cover-letter editor can
+ *  share the same scrubbing rules. Re-imported above. */
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { PhotoCropModal } from "@/components/PhotoCropModal";
 import { PdfViewer } from "@/components/PdfViewer";
@@ -2228,7 +2216,7 @@ function CVBuilderInner() {
     // their FULL identity. We merge that into the main presence state at
     // refresh time so admin avatars show up for other admins, while the
     // candidate never sees this channel (they don't join).
-    const isAdminSelf = selfPeer.role === "admin" || selfPeer.role === "sub_admin";
+    const isAdminSelf = isAdminRole(selfPeer.role);
     const adminFullById = new Map<string, { email?: string; displayName?: string; photo?: string | null }>();
     const adminCh = isAdminSelf
       ? supabase.channel(`cv-collab-admins-${target}`, {
@@ -2333,14 +2321,7 @@ function CVBuilderInner() {
         if (status === "SUBSCRIBED") {
           try {
             // Full payload — only other admins ever see this channel.
-            await adminCh.track({
-              id:          selfPeer.id,
-              role:        selfPeer.role,
-              email:       selfPeer.email,
-              displayName: selfPeer.displayName,
-              photo:       selfPeer.photo ?? null,
-              editingAt:   0,
-            });
+            await adminCh.track(fullPresencePayload(selfPeer));
           } catch { /* presence sync will retry */ }
         }
       });
