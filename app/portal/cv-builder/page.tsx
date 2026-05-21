@@ -1647,6 +1647,7 @@ function getValidationErrorLabels(errors: Set<string>, lang: string): string[] {
     workEmployer:"Employeur", workLocation:"Ville (expérience)",
     workStart:"Début (expérience)", workEnd:"Fin (expérience)",
     workDepts:"Département de soins (expérience)",
+    workTaetigkeiten:"Tâches / Activités (au moins 3 points)",
     langLevel:"Niveau de langue", edvSelected:"Compétences informatiques (EDV)",
     driverLicense:"Permis de conduire", hobbies:"Loisirs / Intérêts",
     maritalStatus:"État civil",
@@ -1661,6 +1662,7 @@ function getValidationErrorLabels(errors: Set<string>, lang: string): string[] {
     workEmployer:"Arbeitgeber", workLocation:"Ort (Arbeit)",
     workStart:"Beginn (Arbeit)", workEnd:"Ende (Arbeit)",
     workDepts:"Fachbereiche (Arbeit)",
+    workTaetigkeiten:"Tätigkeiten (mindestens 3 Stichpunkte)",
     langLevel:"Sprachniveau", edvSelected:"EDV-Kenntnisse",
     driverLicense:"Führerschein", hobbies:"Hobbys",
     maritalStatus:"Familienstand",
@@ -1675,6 +1677,7 @@ function getValidationErrorLabels(errors: Set<string>, lang: string): string[] {
     workEmployer:"Employer", workLocation:"Location (work)",
     workStart:"Start date (work)", workEnd:"End date (work)",
     workDepts:"Departments (work)",
+    workTaetigkeiten:"Activities (at least 3 bullets)",
     langLevel:"Language level", edvSelected:"IT skills (EDV)",
     driverLicense:"Driver's license", hobbies:"Hobbies",
     maritalStatus:"Marital status",
@@ -1706,6 +1709,7 @@ function getValidationErrorLabels(errors: Set<string>, lang: string): string[] {
     if (key.startsWith("work_") && key.endsWith("_start"))      { add(L.workStart); continue; }
     if (key.startsWith("work_") && key.endsWith("_end"))        { add(L.workEnd); continue; }
     if (key.startsWith("work_") && key.endsWith("_departments")){ add(L.workDepts); continue; }
+    if (key.startsWith("work_") && key.endsWith("_taetigkeiten")){ add(L.workTaetigkeiten); continue; }
     if (key.startsWith("lang_") && key.endsWith("_level"))      { add(L.langLevel); continue; }
     if (key === "edvSelected")         { add(L.edvSelected); continue; }
     if (key === "driverLicense")       { add(L.driverLicense); continue; }
@@ -2831,6 +2835,10 @@ function CVBuilderInner() {
       // Title + departments required only for position 1; optional for position 2+
       if (nonGapCount === 0 && !w.title?.trim()) errors.add(`work_${w.id}_title`);
       if (nonGapCount === 0 && w.departments.length === 0) errors.add(`work_${w.id}_departments`);
+      // Tätigkeiten — every non-gap entry must have at least 3 non-empty
+      // bullets. Both candidate and admin sides see the same rule.
+      const filledBullets = (w.taetigkeiten ?? []).filter(b => (b ?? "").trim().length > 0).length;
+      if (filledBullets < 3) errors.add(`work_${w.id}_taetigkeiten`);
       nonGapCount++;
     }
 
@@ -3856,33 +3864,94 @@ function CVBuilderInner() {
                       </div>
                     </div>
 
-                    {/* Tätigkeiten — 3-4 bullet points describing what the
-                        candidate did at this position. Stored as raw
-                        lines so empty mid-edit lines don't blow away the
-                        cursor; empty trimmed lines are filtered out on
-                        the PDF render side. */}
-                    <div className="sm:col-span-2">
-                      <Label>
-                        {lang === "de" ? "Tätigkeiten" : lang === "en" ? "Activities" : "Tâches"}
-                        <span className="ml-1 text-[11px] font-normal" style={{ color: "var(--w3)" }}>
-                          {lang === "de" ? "(3–4 Stichpunkte, eine pro Zeile)"
-                            : lang === "en" ? "(3–4 bullets, one per line)"
-                            : "(3–4 puces, une par ligne)"}
-                        </span>
-                      </Label>
-                      <textarea
-                        value={(entry.taetigkeiten ?? []).join("\n")}
-                        onChange={e => updateWork(entry.id, { taetigkeiten: e.target.value.split("\n") })}
-                        placeholder={lang === "de"
-                          ? "z. B.\nPatientenpflege im Schichtdienst\nDokumentation in Pflegesoftware\nVerabreichung von Medikamenten\nZusammenarbeit im interdisziplinären Team"
-                          : lang === "en"
-                          ? "e.g.\nShift-based patient care\nDocumentation in nursing software\nMedication administration\nInterdisciplinary teamwork"
-                          : "ex.\nSoins aux patients en rotation\nDocumentation dans le logiciel de soins\nAdministration des médicaments\nTravail interdisciplinaire"}
-                        rows={5}
-                        className="w-full px-4 py-3 text-[14px] outline-none resize-y leading-relaxed"
-                        style={{ background: "var(--bg2)", border: "none", color: "var(--w)", borderRadius: "12px" }}
-                      />
-                    </div>
+                    {/* Tätigkeiten — bullet list with visible "•" prefix
+                        on every row. Mandatory: at least 3 non-empty
+                        bullets per non-gap work entry (LAW #19 + admin
+                        agreement 2026-05). Default 3 rows always
+                        visible; a "+" button adds extras, the "✕" lets
+                        you remove any beyond the 3rd. */}
+                    {(() => {
+                      const stored = entry.taetigkeiten ?? [];
+                      // Pad to a minimum of 3 visible rows so the user
+                      // sees three bullet slots even on a brand-new entry.
+                      const rows = stored.length >= 3
+                        ? stored
+                        : [...stored, ...Array(3 - stored.length).fill("")];
+                      const updateBullet = (idx: number, val: string) => {
+                        const next = [...rows];
+                        next[idx] = val;
+                        updateWork(entry.id, { taetigkeiten: next });
+                      };
+                      const addBullet = () => updateWork(entry.id, { taetigkeiten: [...rows, ""] });
+                      const removeBullet = (idx: number) => {
+                        updateWork(entry.id, { taetigkeiten: rows.filter((_, j) => j !== idx) });
+                      };
+                      const hasErr = validationErrors.has(`work_${entry.id}_taetigkeiten`);
+                      const phs = lang === "de" ? [
+                        "z. B. Patientenpflege im Schichtdienst",
+                        "z. B. Dokumentation in Pflegesoftware",
+                        "z. B. Verabreichung von Medikamenten",
+                        "z. B. Zusammenarbeit im interdisziplinären Team",
+                      ] : lang === "en" ? [
+                        "e.g. Shift-based patient care",
+                        "e.g. Documentation in nursing software",
+                        "e.g. Medication administration",
+                        "e.g. Interdisciplinary teamwork",
+                      ] : [
+                        "ex. Soins aux patients en rotation",
+                        "ex. Documentation dans le logiciel de soins",
+                        "ex. Administration des médicaments",
+                        "ex. Travail interdisciplinaire",
+                      ];
+                      const addAnother = lang === "de" ? "+ Weitere Tätigkeit"
+                        : lang === "en" ? "+ Add another"
+                        : "+ Ajouter une autre";
+                      return (
+                        <div className="sm:col-span-2"
+                          style={hasErr ? { outline: "1px solid var(--danger)", outlineOffset: "2px", borderRadius: "14px", padding: "4px" } : {}}>
+                          <Label required>
+                            {lang === "de" ? "Tätigkeiten" : lang === "en" ? "Activities" : "Tâches"}
+                            <span className="ml-1 text-[11px] font-normal" style={{ color: "var(--w3)" }}>
+                              {lang === "de" ? "(mindestens 3 Stichpunkte)"
+                                : lang === "en" ? "(at least 3 bullets)"
+                                : "(au moins 3 puces)"}
+                            </span>
+                          </Label>
+                          <div className="space-y-2">
+                            {rows.map((b, idx) => (
+                              <div key={idx} className="flex items-center gap-2">
+                                <span aria-hidden="true"
+                                  style={{ color: "var(--gold)", fontSize: 22, lineHeight: 1, width: 14, textAlign: "center", flexShrink: 0, userSelect: "none" }}>
+                                  •
+                                </span>
+                                <input
+                                  type="text"
+                                  value={b}
+                                  onChange={e => updateBullet(idx, e.target.value)}
+                                  placeholder={phs[idx] ?? phs[phs.length - 1]}
+                                  className="flex-1 min-w-0 px-3.5 py-3 text-[14px] outline-none"
+                                  style={{ background: "var(--bg2)", border: "none", color: "var(--w)", borderRadius: "10px" }}
+                                />
+                                {rows.length > 3 && (
+                                  <button type="button"
+                                    onClick={() => removeBullet(idx)}
+                                    aria-label={t.cvb_remove}
+                                    className="inline-flex items-center justify-center w-7 h-7 rounded-full transition-opacity hover:opacity-70 flex-shrink-0"
+                                    style={{ background: "var(--bg2)", color: "var(--w3)", border: "none", cursor: "pointer" }}>
+                                    <XIcon size={12} strokeWidth={2} />
+                                  </button>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                          <button type="button" onClick={addBullet}
+                            className="mt-2 inline-flex items-center gap-1 text-[12px] font-semibold transition-opacity hover:opacity-80"
+                            style={{ background: "transparent", border: "none", color: "var(--gold)", cursor: "pointer" }}>
+                            {addAnother}
+                          </button>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
               </div>
