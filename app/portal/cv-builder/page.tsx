@@ -20,7 +20,7 @@ import { createPortal, flushSync } from "react-dom";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
-import type { CVData, WorkEntry, EduEntry, MonthYear, B2Detail } from "@/components/CVDocument";
+import type { CVData, WorkEntry, EduEntry, MonthYear, B2Detail, RegStatus } from "@/components/CVDocument";
 import { COUNTRY_MAP, natToLang, ISO3_TO_ISO2, ISO3_TO_PHONE } from "@/lib/countries";
 import { isoToDDMMYYYY, computeFamilienstand } from "@/lib/personalData";
 import {
@@ -4033,7 +4033,7 @@ function CVBuilderInner() {
                     ls[i] = { ...ls[i], [bKey]: { ...b, ...patch } };
                     set("langs", ls);
                   };
-                  const updateBModule = (key: string, patch: { passed?: boolean; passedDate?: MonthYear; expectedDate?: MonthYear }) => {
+                  const updateBModule = (key: string, patch: { passed?: boolean; passedDate?: MonthYear; expectedDate?: MonthYear; expectedRegStatus?: RegStatus }) => {
                     const prev = (b.modules ?? {})[key] ?? {};
                     const nextModules = { ...(b.modules ?? {}), [key]: { ...prev, ...patch } };
                     updateB({ modules: nextModules });
@@ -4076,6 +4076,10 @@ function CVBuilderInner() {
                     modPassedAt:  "Bestanden am",
                     modRedoAt:    "Wiederholung geplant",
                     retakeAt:     "Vollständige Wiederholung geplant",
+                    notYetDate:   "Geplantes Prüfungsdatum",
+                    regStatus:    "Anmeldestatus",
+                    reg_expected: "Erwartet (Wartet auf Platz)",
+                    reg_confirmed:"Bestätigt & bezahlt",
                   } : lang === "fr" ? {
                     title:        `Détails ${level} allemand`,
                     hint:         "Optionnel. Aide les admins à suivre l'état de votre examen.",
@@ -4098,6 +4102,10 @@ function CVBuilderInner() {
                     modPassedAt:  "Réussi le",
                     modRedoAt:    "Reprise prévue",
                     retakeAt:     "Reprise complète prévue",
+                    notYetDate:   "Date d'examen prévue",
+                    regStatus:    "Statut d'inscription",
+                    reg_expected: "Prévu (en attente de place)",
+                    reg_confirmed:"Confirmé & payé",
                   } : {
                     title:        `${level} German details`,
                     hint:         "Optional. Helps admins track the status of your exam.",
@@ -4120,6 +4128,10 @@ function CVBuilderInner() {
                     modPassedAt:  "Passed on",
                     modRedoAt:    "Retake planned",
                     retakeAt:     "Full retake planned",
+                    notYetDate:   "Planned exam date",
+                    regStatus:    "Registration status",
+                    reg_expected: "Expected (waiting for seat)",
+                    reg_confirmed:"Confirmed & paid",
                   };
                   const segPill = (active: boolean) => ({
                     background: active ? "var(--gdim)" : "var(--bg2)",
@@ -4160,6 +4172,34 @@ function CVBuilderInner() {
                           })}
                         </div>
                       </div>
+
+                      {/* Step 1b — Not yet: planned exam date + seat
+                          registration status. The candidate is still
+                          waiting for the school's roster or has paid a
+                          deposit / full fee for a confirmed seat. */}
+                      {b.written === "no" && (
+                        <>
+                          <MonthYearPicker label={L.notYetDate}
+                            value={b.notYetDate ?? { month: "", year: "" }}
+                            onChange={v => updateB({ notYetDate: v })} lang={lang} />
+                          <div>
+                            <Label>{L.regStatus}</Label>
+                            <div className="flex gap-2">
+                              {(["expected", "confirmed"] as const).map(opt => {
+                                const active = b.notYetRegStatus === opt;
+                                return (
+                                  <button key={opt} type="button"
+                                    onClick={() => updateB({ notYetRegStatus: active ? null : opt })}
+                                    className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                                    style={segPill(active)}>
+                                    {opt === "expected" ? L.reg_expected : L.reg_confirmed}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </>
+                      )}
 
                       {/* Step 2 — Ergebnis? (only if written = yes) */}
                       {b.written === "yes" && (
@@ -4291,12 +4331,30 @@ function CVBuilderInner() {
                                     />
                                   )}
                                   {choice === "failed" && (
-                                    <MonthYearPicker
-                                      label={L.modRedoAt}
-                                      value={cur.expectedDate ?? { month: "", year: "" }}
-                                      onChange={v => updateBModule(m.key, { expectedDate: v })}
-                                      lang={lang}
-                                    />
+                                    <>
+                                      <MonthYearPicker
+                                        label={L.modRedoAt}
+                                        value={cur.expectedDate ?? { month: "", year: "" }}
+                                        onChange={v => updateBModule(m.key, { expectedDate: v })}
+                                        lang={lang}
+                                      />
+                                      <div>
+                                        <Label>{L.regStatus}</Label>
+                                        <div className="flex gap-2">
+                                          {(["expected", "confirmed"] as const).map(opt => {
+                                            const active = cur.expectedRegStatus === opt;
+                                            return (
+                                              <button key={opt} type="button"
+                                                onClick={() => updateBModule(m.key, { expectedRegStatus: active ? null : opt })}
+                                                className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                                                style={segPill(active)}>
+                                                {opt === "expected" ? L.reg_expected : L.reg_confirmed}
+                                              </button>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    </>
                                   )}
                                 </div>
                               );
@@ -4305,11 +4363,31 @@ function CVBuilderInner() {
                         </div>
                       )}
 
-                      {/* Step 4c — failed: planned full retake date */}
+                      {/* Step 4c — failed: planned full retake date +
+                          seat registration status (same pattern as
+                          the not-yet branch + per-module retakes). */}
                       {b.written === "yes" && b.result === "failed" && (
-                        <MonthYearPicker label={L.retakeAt}
-                          value={b.retakeDate ?? { month: "", year: "" }}
-                          onChange={v => updateB({ retakeDate: v })} lang={lang} />
+                        <>
+                          <MonthYearPicker label={L.retakeAt}
+                            value={b.retakeDate ?? { month: "", year: "" }}
+                            onChange={v => updateB({ retakeDate: v })} lang={lang} />
+                          <div>
+                            <Label>{L.regStatus}</Label>
+                            <div className="flex gap-2">
+                              {(["expected", "confirmed"] as const).map(opt => {
+                                const active = b.retakeRegStatus === opt;
+                                return (
+                                  <button key={opt} type="button"
+                                    onClick={() => updateB({ retakeRegStatus: active ? null : opt })}
+                                    className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
+                                    style={segPill(active)}>
+                                    {opt === "expected" ? L.reg_expected : L.reg_confirmed}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </>
                       )}
                     </div>
                   );

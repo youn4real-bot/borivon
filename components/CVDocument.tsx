@@ -87,22 +87,36 @@ export interface EduEntry {
  * modules[*].done / modules[*].expectedDate) remain on the type so old
  * cv_draft payloads don't fail validation; the new UI ignores them.
  */
+/** Seat-registration status that accompanies every UPCOMING exam date:
+ *   "expected"  = candidate is still waiting for the school to open
+ *                  seats (no money down).
+ *   "confirmed" = seat is locked in, deposit or full amount paid.
+ *   null        = not specified yet (default).
+ */
+export type RegStatus = "expected" | "confirmed" | null;
+
 export interface B2Detail {
-  // ── New decision-tree fields ──
+  // ── Decision-tree fields ──
   written?:                "yes" | "no" | null;
   result?:                 "full" | "partial" | "failed" | null;
   pruefung?:               "telc" | "goethe" | "oesd" | null;
   certificateStatus?:      "got" | "waiting" | null;
   certificateDate?:        MonthYear;
   certificateExpectedDate?: MonthYear;
+  // "Not yet" branch — when the candidate hasn't written the exam.
+  notYetDate?:             MonthYear;   // when they expect to write it
+  notYetRegStatus?:        RegStatus;   // school-seat status
+  // "Failed" branch — planned FULL retake.
   retakeDate?:             MonthYear;
+  retakeRegStatus?:        RegStatus;
   modules?: Record<string, {
-    passed?:       boolean;
-    passedDate?:   MonthYear;
-    expectedDate?: MonthYear;
+    passed?:            boolean;
+    passedDate?:        MonthYear;
+    expectedDate?:      MonthYear;
+    expectedRegStatus?: RegStatus;
     // Legacy key (old shape) — `done` was the boolean before we
     // renamed to `passed`. Kept so old payloads still type-check.
-    done?:         boolean;
+    done?:              boolean;
   }>;
   // ── Legacy v1 fields — read by nothing in the new UI ──
   passed?:       "yes" | "no" | null;
