@@ -5,6 +5,7 @@ import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate, roleByUserId } from "@/lib/admin-auth";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 import { dlTokenUserId } from "@/lib/dlToken";
+import { isPassportFileType } from "@/lib/passportFile";
 
 const BUCKET = "sign-documents";
 
@@ -170,8 +171,8 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Passports are NEVER re-saved server-side, even when rotation is set.
-  // pdf-lib's load → save round-trip can silently drop content streams on
+  // LAW #39: passport PDFs are NEVER server-side mutated. pdf-lib's
+  // load → save round-trip silently drops content streams on
   // scanner-produced PDFs (Moroccan passport scans hit this hard — the
   // photo + holograms survive but the MRZ + printed VIZ text come back
   // blank). The 50% size guard doesn't catch this case because the photo
@@ -179,8 +180,7 @@ export async function GET(req: NextRequest) {
   // when every text stream is dropped. Rotation for passports is purely
   // client-side (IosPdfFrame toolbar applies a CSS transform); the bytes
   // we serve are ALWAYS exactly what came out of Drive / Storage.
-  const isPassportFile = !!fileType && /pass/i.test(fileType);
-  const effectiveRotation = isPassportFile ? 0 : rotation;
+  const effectiveRotation = isPassportFileType(fileType) ? 0 : rotation;
 
   // If a signed version exists in Supabase Storage, serve it directly — skip Drive entirely.
   if (signedStoragePath) {
