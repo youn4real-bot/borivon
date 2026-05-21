@@ -704,6 +704,12 @@ export default function AdminPage() {
     return base;
   };
   const [statusOpen, setStatusOpen]       = useState(false);
+  // Snapshot of the candidate's cv_draft loaded alongside the status
+  // modal — surfaces the CV-builder B1/B2 decision-tree (Prüfung type,
+  // result, modules, dates, registration status) in the Status → B2
+  // tab as a clean key/value summary, with an "Edit in CV builder"
+  // shortcut so the admin can drill in without losing their place.
+  const [statusCvDraft, setStatusCvDraft] = useState<Record<string, unknown> | null>(null);
   // Left-rail category (like the candidate dashboard). Add a tab id here +
   // an entry in STATUS_TABS + a content block to introduce a new project.
   const [statusTab, setStatusTab]         = useState<"b2" | "assign" | "vaccine" | "notes">("b2");
@@ -731,21 +737,31 @@ export default function AdminPage() {
     setAssignTypeUI(null);
     statusSeedRef.current = JSON.stringify(EMPTY_STATUS);
     statusFormRef.current = EMPTY_STATUS;
+    setStatusCvDraft(null);
     // Ensure canonical assignment is loaded (employer_id + employer list)
     // so the assign tab can derive its highlighted pill from real data.
     void loadEmployer(selectedUser);
+    // Fan out the two reads (status row + cv_draft for the B1/B2
+    // summary). Both are non-blocking — status hydrates the form,
+    // cv_draft hydrates the new read-only B1/B2 summary in the B2 tab.
     try {
-      const r = await fetch(`/api/portal/admin/candidate-status?userId=${selectedUser}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (r.ok) {
-        const j = await r.json();
-        if (j.status) {
-          const loaded = { ...EMPTY_STATUS, ...j.status, vaccines: normVaccines(j.status?.vaccines) };
-          setStatusForm(loaded);
-          statusFormRef.current = loaded;
-          statusSeedRef.current = JSON.stringify(loaded);
-        }
+      const [statusRes, draftRes] = await Promise.allSettled([
+        fetch(`/api/portal/admin/candidate-status?userId=${selectedUser}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(`/api/portal/admin/cv-draft?candidateId=${selectedUser}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }).then(r => r.ok ? r.json() : null).catch(() => null),
+      ]);
+      if (statusRes.status === "fulfilled" && statusRes.value?.status) {
+        const j = statusRes.value;
+        const loaded = { ...EMPTY_STATUS, ...j.status, vaccines: normVaccines(j.status?.vaccines) };
+        setStatusForm(loaded);
+        statusFormRef.current = loaded;
+        statusSeedRef.current = JSON.stringify(loaded);
+      }
+      if (draftRes.status === "fulfilled" && draftRes.value?.draft) {
+        setStatusCvDraft(draftRes.value.draft as Record<string, unknown>);
       }
     } catch { /* ignore — start blank */ }
     setStatusLoading(false);
@@ -3189,6 +3205,126 @@ export default function AdminPage() {
                         <>
                           {statusTab === "b2" && (
                           <StatusSection title={L.secB2} first>
+                          {/* ── CV-builder Deutsch summary ─────────────────
+                              The full B1/B2 decision-tree the candidate
+                              filled in cv-builder (Prüfung type, result,
+                              modules, dates, seat status). Read-only
+                              here — admin clicks "In CV-Builder bearbeiten"
+                              to drill in. Single source of truth lives in
+                              cv_draft so we don't fork the schema. */}
+                          {(() => {
+                            if (!statusCvDraft) return null;
+                            type B2Det = Record<string, unknown>;
+                            const langs = Array.isArray((statusCvDraft as { langs?: unknown }).langs)
+                              ? ((statusCvDraft as { langs: { name?: string; level?: string; b1?: B2Det; b2?: B2Det }[] }).langs)
+                              : [];
+                            const de = langs.find(l => (l.name ?? "").trim().toLowerCase() === "deutsch");
+                            if (!de) return null;
+                            const lvl = de.level ?? "";
+                            const isB1or2 = lvl === "B1" || lvl === "B2";
+                            const b: B2Det | null = isB1or2 ? ((lvl === "B1" ? de.b1 : de.b2) ?? null) : null;
+                            // Tiny formatter — same DE labels the cv-builder uses.
+                            const mY = (v: unknown): string => {
+                              if (!v || typeof v !== "object") return "—";
+                              const m = (v as { month?: string }).month ?? "";
+                              const y = (v as { year?: string }).year ?? "";
+                              return (m || y) ? `${m || "??"}/${y || "????"}` : "—";
+                            };
+                            const reg = (v: unknown): string =>
+                              v === "confirmed" ? (lang === "de" ? "Platz bestätigt" : lang === "fr" ? "Place confirmée" : "Seat confirmed")
+                            : v === "expected"  ? (lang === "de" ? "Anmeldung läuft" : lang === "fr" ? "Inscription en cours" : "Registration pending")
+                            : "—";
+                            const examLbl = (v: unknown): string =>
+                              v === "goethe" ? "Goethe"
+                            : v === "telc"   ? "telc"
+                            : v === "oesd"   ? "ÖSD"
+                            : "—";
+                            const resultLbl = (v: unknown): string =>
+                              v === "full"    ? (lang === "de" ? "Voll bestanden"   : lang === "fr" ? "Réussi entièrement"  : "Fully passed")
+                            : v === "partial" ? (lang === "de" ? "Teilbestanden"    : lang === "fr" ? "Partiellement réussi" : "Partially passed")
+                            : v === "failed"  ? (lang === "de" ? "Nicht bestanden"  : lang === "fr" ? "Non réussi"           : "Not passed")
+                            : v === "waiting" ? (lang === "de" ? "Wartet auf Ergebnis" : lang === "fr" ? "En attente du résultat" : "Awaiting result")
+                            : "—";
+
+                            type Row = { k: string; v: string };
+                            const rows: Row[] = [];
+                            const L2 = lang === "de"
+                              ? { lvl: "Stufe", written: "Prüfung geschrieben?", yes: "Ja", no: "Noch nicht", result: "Ergebnis", exam: "Prüfung", certStatus: "Zertifikat", certDate: "Zertifikatsdatum", certExp: "Erwartet", plannedDate: "Geplante Prüfung", seat: "Anmeldestatus", retake: "Nachprüfung", retakeReg: "Nachprüfung — Anmeldung", modules: "Module" }
+                              : lang === "fr"
+                              ? { lvl: "Niveau", written: "Examen passé ?", yes: "Oui", no: "Pas encore", result: "Résultat", exam: "Examen", certStatus: "Certificat", certDate: "Date du certificat", certExp: "Attendu", plannedDate: "Examen prévu", seat: "Statut inscription", retake: "Rattrapage", retakeReg: "Rattrapage — inscription", modules: "Modules" }
+                              : { lvl: "Level", written: "Exam written?", yes: "Yes", no: "Not yet", result: "Result", exam: "Exam", certStatus: "Certificate", certDate: "Certificate date", certExp: "Expected", plannedDate: "Planned exam", seat: "Registration", retake: "Retake", retakeReg: "Retake registration", modules: "Modules" };
+                            rows.push({ k: L2.lvl, v: lvl || "—" });
+                            if (b) {
+                              const w = b.written;
+                              rows.push({ k: L2.written, v: w === "yes" ? L2.yes : w === "no" ? L2.no : "—" });
+                              if (w === "yes") {
+                                rows.push({ k: L2.result, v: resultLbl(b.result) });
+                                if (b.result === "full" || b.result === "partial") {
+                                  rows.push({ k: L2.exam, v: examLbl(b.pruefung) });
+                                }
+                                if (b.result === "full") {
+                                  const cs = b.certificateStatus;
+                                  rows.push({
+                                    k: L2.certStatus,
+                                    v: cs === "got" ? (lang === "de" ? "Erhalten" : lang === "fr" ? "Reçu" : "Received")
+                                    : cs === "waiting" ? (lang === "de" ? "Wartet" : lang === "fr" ? "En attente" : "Waiting")
+                                    : "—",
+                                  });
+                                  if (cs === "got") rows.push({ k: L2.certDate, v: mY(b.certificateDate) });
+                                  if (cs === "waiting") rows.push({ k: L2.certExp, v: mY(b.certificateExpectedDate) });
+                                }
+                                if (b.result === "partial" && b.modules && typeof b.modules === "object") {
+                                  const MODL: Record<string, string> = { lesen: "Lesen", hoeren: "Hören", schreiben: "Schreiben", sprechen: "Sprechen", schriftlich: "Schriftlich", muendlich: "Mündlich" };
+                                  const m = b.modules as Record<string, { passed?: boolean; passedDate?: unknown; expectedDate?: unknown; expectedRegStatus?: unknown }>;
+                                  const parts: string[] = [];
+                                  for (const [key, val] of Object.entries(m)) {
+                                    const label = MODL[key] ?? key;
+                                    if (val.passed) parts.push(`${label} ✓ ${mY(val.passedDate)}`);
+                                    else if (val.expectedDate) parts.push(`${label} ⌛ ${mY(val.expectedDate)}`);
+                                  }
+                                  if (parts.length) rows.push({ k: L2.modules, v: parts.join(" · ") });
+                                }
+                                if (b.result === "failed") {
+                                  rows.push({ k: L2.retake, v: mY(b.retakeDate) });
+                                  rows.push({ k: L2.retakeReg, v: reg(b.retakeRegStatus) });
+                                }
+                              } else if (w === "no") {
+                                rows.push({ k: L2.seat, v: reg(b.notYetRegStatus) });
+                                rows.push({ k: L2.plannedDate, v: mY(b.notYetDate) });
+                              }
+                            }
+
+                            const editBtn = lang === "de" ? "In CV-Builder bearbeiten"
+                              : lang === "fr" ? "Modifier dans le CV-Builder"
+                              : "Edit in CV builder";
+
+                            return (
+                              <div className="rounded-xl px-3 py-3"
+                                style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+                                <div className="flex items-center justify-between mb-2">
+                                  <p className="text-[11px] font-semibold tracking-tight" style={{ color: "var(--w2)" }}>
+                                    {lang === "de" ? "CV-Builder · Deutsch" : lang === "fr" ? "CV-Builder · Allemand" : "CV builder · German"}
+                                  </p>
+                                  {selectedUser && (
+                                    <button
+                                      onClick={() => window.open(`/portal/cv-builder?candidateId=${selectedUser}`, "_blank")}
+                                      className="bv-row-hover inline-flex items-center gap-1 text-[10.5px] font-semibold px-2 py-1 rounded-md"
+                                      style={{ color: "var(--gold)", background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
+                                      <FilePen size={10} strokeWidth={1.8} /> {editBtn}
+                                    </button>
+                                  )}
+                                </div>
+                                <div className="space-y-1">
+                                  {rows.map((r, i) => (
+                                    <div key={i} className="flex items-baseline gap-2 text-[11.5px]">
+                                      <span style={{ color: "var(--w3)", minWidth: 110 }}>{r.k}</span>
+                                      <span style={{ color: "var(--w)", fontWeight: 500 }}>{r.v}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })()}
                           <div>
                             <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{L.q1}</label>
                             <div className="flex gap-2">
