@@ -4129,10 +4129,9 @@ function CVBuilderInner() {
                   return (
                     <div className="mt-3 p-4 rounded-2xl space-y-3"
                       style={{ background: "var(--bg2)", border: "1px solid var(--border-gold)" }}>
-                      <div>
-                        <p className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>{L.title}</p>
-                        <p className="text-[11px] mt-0.5" style={{ color: "var(--w3)" }}>{L.hint}</p>
-                      </div>
+                      {/* Header removed 2026-05 — went straight to the first
+                          question to save vertical space. L.title / L.hint
+                          strings remain in the L object for future reuse. */}
 
                       {/* Step 1 — Prüfung geschrieben? */}
                       <div>
