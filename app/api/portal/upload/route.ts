@@ -34,6 +34,13 @@ const ALLOWED_TYPES = [
 const MAX_SIZE_BYTES = 10 * 1024 * 1024;
 const ROOT_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID ?? "";
 
+// Passport OCR can hit Azure Computer Vision + Google Vision fallback +
+// embedded-JPEG retry path — 20-40s worst-case on a noisy phone scan. Pin
+// the lambda max to 60s so the request can't be silently killed by the
+// Vercel Pro default and an accidental plan change can't drop it back to
+// 10s without anyone noticing.
+export const maxDuration = 60;
+
 /** Read the first bytes of a buffer and infer the actual MIME type
    (browser-supplied `file.type` is trivial to spoof). Returns null if the
    format isn't one we explicitly recognize — in that case we fall back to
