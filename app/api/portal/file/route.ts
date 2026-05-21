@@ -150,23 +150,37 @@ export async function GET(req: NextRequest) {
   const allowed = await isAuthorised(req, fileId, docId);
   if (!allowed) return new NextResponse("Forbidden", { status: 403 });
 
-  // Resolve drive_file_id + rotation + signed_storage_path in one shot.
+  // Resolve drive_file_id + rotation + signed_storage_path + file_type in one shot.
   const db = getServiceSupabase();
   let rotation = 0;
   let signedStoragePath: string | null = null;
+  let fileType: string | null = null;
   {
     const { data } = await db
       .from("documents")
-      .select("drive_file_id, rotation, signed_storage_path")
+      .select("drive_file_id, rotation, signed_storage_path, file_type")
       .eq(fileId ? "drive_file_id" : "id", fileId ?? docId!)
       .maybeSingle();
     if (data) {
-      const row = data as { drive_file_id: string | null; rotation: number | null; signed_storage_path: string | null };
+      const row = data as { drive_file_id: string | null; rotation: number | null; signed_storage_path: string | null; file_type: string | null };
       if (!fileId) fileId = row.drive_file_id ?? null;
       rotation = ((row.rotation ?? 0) % 360 + 360) % 360;
       signedStoragePath = row.signed_storage_path ?? null;
+      fileType = row.file_type ?? null;
     }
   }
+
+  // Passports are NEVER re-saved server-side, even when rotation is set.
+  // pdf-lib's load → save round-trip can silently drop content streams on
+  // scanner-produced PDFs (Moroccan passport scans hit this hard — the
+  // photo + holograms survive but the MRZ + printed VIZ text come back
+  // blank). The 50% size guard doesn't catch this case because the photo
+  // is by far the largest stream → size stays close to original even
+  // when every text stream is dropped. Rotation for passports is purely
+  // client-side (IosPdfFrame toolbar applies a CSS transform); the bytes
+  // we serve are ALWAYS exactly what came out of Drive / Storage.
+  const isPassportFile = !!fileType && /pass/i.test(fileType);
+  const effectiveRotation = isPassportFile ? 0 : rotation;
 
   // If a signed version exists in Supabase Storage, serve it directly — skip Drive entirely.
   if (signedStoragePath) {
@@ -175,7 +189,7 @@ export async function GET(req: NextRequest) {
       .download(signedStoragePath);
     if (!dlErr && blob) {
       const srcBuf = Buffer.from(await blob.arrayBuffer());
-      const outBuf = await safeRotatePdf(srcBuf, rotation);
+      const outBuf = await safeRotatePdf(srcBuf, effectiveRotation);
       return new NextResponse(new Uint8Array(outBuf), {
         headers: {
           "Content-Type": ctype(req, "application/pdf"),
@@ -216,8 +230,9 @@ export async function GET(req: NextRequest) {
     // If this is a PDF with a saved rotation, apply it — but safeRotatePdf
     // guarantees the original is returned untouched if the re-save would
     // corrupt/blank it (the scanned-passport "data erased" bug).
+    // effectiveRotation is 0 for passport files so they never re-save.
     const outBuf = mimeType === "application/pdf"
-      ? await safeRotatePdf(srcBuf, rotation)
+      ? await safeRotatePdf(srcBuf, effectiveRotation)
       : srcBuf;
 
     return new NextResponse(new Uint8Array(outBuf), {
@@ -243,7 +258,7 @@ export async function GET(req: NextRequest) {
         return new NextResponse("File not found", { status: 404 });
       }
       const srcBuf = Buffer.from(await blob.arrayBuffer());
-      const outBuf = await safeRotatePdf(srcBuf, rotation);
+      const outBuf = await safeRotatePdf(srcBuf, effectiveRotation);
       return new NextResponse(new Uint8Array(outBuf), {
         headers: {
           "Content-Type": ctype(req, "application/pdf"),
