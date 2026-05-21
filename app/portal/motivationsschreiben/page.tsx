@@ -106,11 +106,26 @@ function Locked({ lines, align = "left", bold = false, lockable = false, onLock,
         const showWait = waitable && needsData(l);
         return (
           <div key={i} style={{
-            display: "flex", alignItems: "center", gap: 8,
+            display: "flex", alignItems: "flex-start", gap: 8,
             justifyContent: align === "right" ? "flex-end" : "flex-start",
           }}>
             {showLock && lockLead && lockBtn}
-            <span>{l || " "}</span>
+            <span style={{
+              // Hard stop at the vertical midline of the sheet so a long
+              // street address never crosses into the opposite column.
+              // Text wraps inside this 50% lane, staying aligned to the
+              // sender/recipient side it belongs to.
+              maxWidth: "50%",
+              textAlign: align === "right" ? "right" : "left",
+              // Wrap whole words to the next line — no hyphenation, no
+              // mid-word splits ("samst-ag" style). A space-separated
+              // address just wraps naturally; an unusually long single
+              // word would extend its own line rather than being broken.
+              overflowWrap: "normal",
+              wordBreak: "normal",
+              hyphens: "none",
+              whiteSpace: "normal",
+            }}>{l || " "}</span>
             {showLock && !lockLead && lockBtn}
             {showWait && waitBtn}
           </div>

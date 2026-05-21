@@ -55,9 +55,18 @@ const s = StyleSheet.create({
     lineHeight: 1.45,
     backgroundColor: "#FFFFFF",
   },
-  senderBlock: { alignItems: "flex-end", marginBottom: 26 },
+  // Sender stays in the RIGHT half of the page. maxWidth on the View
+  // forces long street addresses to wrap inside the 50% column instead
+  // of running edge-to-edge. alignSelf pushes the column to the right
+  // of the page; alignItems keeps the wrapped text right-aligned within
+  // the column. react-pdf's default wrap = word-wrap with NO
+  // hyphenation, which matches the "don't split words" requirement.
+  senderBlock: { alignItems: "flex-end", alignSelf: "flex-end", maxWidth: "50%", marginBottom: 26 },
   line: { fontSize: 10.5 },
-  recipientBlock: { marginBottom: 22 },
+  senderLine: { fontSize: 10.5, textAlign: "right" },
+  // Recipient mirrors the sender: stays in the LEFT half so even a long
+  // employer address never crosses the vertical midline.
+  recipientBlock: { marginBottom: 22, maxWidth: "50%" },
   dateRow: { flexDirection: "row", justifyContent: "flex-end", marginBottom: 24 },
   subject: { fontSize: 11, fontWeight: 700, marginBottom: 16 },
   salutation: { marginBottom: 12 },
@@ -82,13 +91,13 @@ export function LetterDocument({ data }: { data: LetterData; brand?: LetterBrand
     <Document>
       <Page size="A4" style={[s.page, { fontSize: fit.fs, lineHeight: fit.lh }]} wrap={false}>
 
-        {/* Sender — right aligned */}
+        {/* Sender — right aligned, capped at 50% of the page width */}
         <View style={s.senderBlock}>
-          <Text style={s.line}>{data.senderName || " "}</Text>
-          {!!data.senderStreet && <Text style={s.line}>{data.senderStreet}</Text>}
-          {!!data.senderPlace  && <Text style={s.line}>{data.senderPlace}</Text>}
-          {!!data.senderPhone  && <Text style={s.line}>Telefon: {data.senderPhone}</Text>}
-          {!!data.senderEmail  && <Text style={s.line}>{data.senderEmail}</Text>}
+          <Text style={s.senderLine}>{data.senderName || " "}</Text>
+          {!!data.senderStreet && <Text style={s.senderLine}>{data.senderStreet}</Text>}
+          {!!data.senderPlace  && <Text style={s.senderLine}>{data.senderPlace}</Text>}
+          {!!data.senderPhone  && <Text style={s.senderLine}>Telefon: {data.senderPhone}</Text>}
+          {!!data.senderEmail  && <Text style={s.senderLine}>{data.senderEmail}</Text>}
         </View>
 
         {/* Recipient — left aligned */}
