@@ -763,24 +763,35 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
             <SectionHead title="Sprachkenntnisse" />
             <View style={s.langRow}>
               {activeLangs.map((l, i) => {
-                // Deutsch B1/B2 — render the decision-tree detail
-                // (Prüfung type, status, dates) below the level chip.
+                // Deutsch on the printed CV is collapsed to B1 or B2 ONLY
+                // (user spec 2026-05). The full decision-tree data (Prüfung
+                // type, modules, certificate status etc.) still lives in
+                // cv_draft + the candidate's Status panel — but employers
+                // only need the headline level to decide whether to
+                // proceed. Rules:
+                //   • A1 / A2 selected → render as-is.
+                //   • B2 with result === "full" (fully bestanden) → "B2".
+                //   • Everything else for Deutsch → "B1" (B2 in progress,
+                //     partial / failed / waiting, raw B1 selection, or any
+                //     other level without an exam pass — conservative
+                //     default an employer can rely on).
                 const isDeutsch = (l.name ?? "").trim().toLowerCase() === "deutsch";
-                const lvl = (l.level ?? "").toUpperCase();
-                const detail =
-                  isDeutsch && (lvl === "B1" || lvl === "B2")
-                    ? formatDeutschDetail(
-                        lvl === "B1" ? l.b1 : l.b2,
-                        lvl as "B1" | "B2",
-                      )
-                    : "";
+                const rawLevel  = l.level ?? "";
+                const displayLevel = (() => {
+                  if (!isDeutsch) return rawLevel;
+                  if (rawLevel === "A1" || rawLevel === "A2") return rawLevel;
+                  if (rawLevel === "B2" && l.b2?.result === "full") return "B2";
+                  return "B1";
+                })();
                 return (
                   <View key={i} style={s.langItem}>
                     <View style={s.langInline}>
                       <Text style={s.langName}>{l.name}:</Text>
-                      <Text style={s.langLevel}>{l.level}</Text>
+                      <Text style={s.langLevel}>{displayLevel}</Text>
                     </View>
-                    {detail ? <Text style={s.langDetail}>{detail}</Text> : null}
+                    {/* Deutsch detail line intentionally suppressed —
+                        all decision-tree context lives in cv_draft +
+                        the admin Status panel (NOT the printed CV). */}
                   </View>
                 );
               })}
