@@ -1974,6 +1974,12 @@ function CVBuilderInner() {
         })
         .catch(() => setSaveError(true));
     }, 800);
+    // Cancel any pending timer if the effect re-runs (typing more, or
+    // draftKey changing because the admin navigated to another
+    // candidate's CV builder). Without this, the trailing setTimeout
+    // could fire AFTER the candidate switch with the old draftUrl and
+    // cvData captured in the closure — writing stale state.
+    return () => { if (serverSaveTimer.current) clearTimeout(serverSaveTimer.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cvData, draftKey, loading]);
 
@@ -4172,13 +4178,23 @@ function CVBuilderInner() {
                               <button key={opt} type="button"
                                 onClick={() => updateB({
                                   written: active ? null : opt,
-                                  // Clear downstream fields when toggling off
-                                  // so old state doesn't linger.
-                                  ...(active || opt === "no" ? {
-                                    result: null,
-                                    pruefung: null,
-                                    certificateStatus: null,
-                                    modules: {},
+                                  // Branching off "yes" → wipe every yes-branch field.
+                                  // Branching off "no"  → wipe every no-branch field.
+                                  // Doing both unconditionally keeps the stored draft
+                                  // honest no matter which way the toggle flips.
+                                  ...(opt === "no" || active ? {
+                                    result:                  null,
+                                    pruefung:                null,
+                                    certificateStatus:       null,
+                                    certificateDate:         undefined,
+                                    certificateExpectedDate: undefined,
+                                    retakeDate:              undefined,
+                                    retakeRegStatus:         null,
+                                    modules:                 {},
+                                  } : {}),
+                                  ...(opt === "yes" || active ? {
+                                    notYetDate:        undefined,
+                                    notYetRegStatus:   null,
                                   } : {}),
                                 })}
                                 className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
@@ -4230,10 +4246,17 @@ function CVBuilderInner() {
                                 <button key={opt} type="button"
                                   onClick={() => updateB({
                                     result: active ? null : opt,
-                                    // Reset downstream when switching result type
-                                    pruefung: null,
-                                    certificateStatus: null,
-                                    modules: {},
+                                    // Reset every downstream branch's field set.
+                                    // "full"   branch: pruefung, certificate*
+                                    // "partial"branch: pruefung, modules
+                                    // "failed" branch: retakeDate, retakeRegStatus
+                                    pruefung:                null,
+                                    certificateStatus:       null,
+                                    certificateDate:         undefined,
+                                    certificateExpectedDate: undefined,
+                                    retakeDate:              undefined,
+                                    retakeRegStatus:         null,
+                                    modules:                 {},
                                   })}
                                   className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
                                   style={segPill(active)}>
@@ -4275,7 +4298,20 @@ function CVBuilderInner() {
                                 const active = b.certificateStatus === opt;
                                 return (
                                   <button key={opt} type="button"
-                                    onClick={() => updateB({ certificateStatus: active ? null : opt })}
+                                    onClick={() => updateB({
+                                      certificateStatus: active ? null : opt,
+                                      // Wipe the OTHER branch's date so a
+                                      // stale "Ausgestellt am" doesn't ghost
+                                      // into a "Warte noch" or vice-versa.
+                                      ...(active ? {
+                                        certificateDate:         undefined,
+                                        certificateExpectedDate: undefined,
+                                      } : opt === "got" ? {
+                                        certificateExpectedDate: undefined,
+                                      } : {
+                                        certificateDate: undefined,
+                                      }),
+                                    })}
                                     className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
                                     style={segPill(active)}>
                                     {opt === "got" ? L.cert_got : L.cert_wait}
@@ -4322,8 +4358,13 @@ function CVBuilderInner() {
                                     <button type="button"
                                       onClick={() => updateBModule(m.key, {
                                         passed: choice === "passed" ? undefined : true,
-                                        // Clearing the other branch keeps stored state honest.
-                                        expectedDate: undefined,
+                                        // Unsetting choice (toggle off) → wipe BOTH
+                                        // dates and reg-status. Switching to "passed"
+                                        // → wipe the failed-branch fields. Keeps
+                                        // stored draft honest.
+                                        ...(choice === "passed"
+                                          ? { passedDate: undefined, expectedDate: undefined, expectedRegStatus: null }
+                                          : { expectedDate: undefined, expectedRegStatus: null }),
                                       })}
                                       className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
                                       style={segPill(choice === "passed")}>
@@ -4332,7 +4373,9 @@ function CVBuilderInner() {
                                     <button type="button"
                                       onClick={() => updateBModule(m.key, {
                                         passed: choice === "failed" ? undefined : false,
-                                        passedDate: undefined,
+                                        ...(choice === "failed"
+                                          ? { passedDate: undefined, expectedDate: undefined, expectedRegStatus: null }
+                                          : { passedDate: undefined }),
                                       })}
                                       className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
                                       style={segPill(choice === "failed")}>

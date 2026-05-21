@@ -50,25 +50,27 @@ export async function backfillPassportFromCvDraft(
   }
   if (Object.keys(candidateFields).length === 0) return null;
 
-  const { data: existing, error: selErr } = await db
-    .from("candidate_profiles")
-    .select("first_name,last_name,address_street,address_number,address_postal,city_of_residence,country_of_residence,phone")
-    .eq("user_id", userId)
-    .maybeSingle();
-  if (selErr) return `read: ${selErr.message ?? String(selErr)}`;
-
-  const cur = (existing ?? {}) as Record<string, string | null | undefined>;
-  const updates: Record<string, string> = {};
+  // RACE-SAFE: one UPDATE per field with `is(col, null)` in the WHERE.
+  // Postgres evaluates the predicate atomically with the write, so a
+  // concurrent PUT that just landed a value for `address_street` makes
+  // the matching null-check fail → 0 rows updated. The old read-then-
+  // write pattern allowed concurrent writers to clobber a fresh value
+  // by reading null between the other writer's STEP 1 and STEP 2.
   for (const [col, val] of Object.entries(candidateFields)) {
-    if (cur[col] == null || cur[col] === "") updates[col] = val;
+    const { error: updErr } = await db
+      .from("candidate_profiles")
+      .update({ [col]: val })
+      .eq("user_id", userId)
+      .is(col, null);
+    if (updErr) return `update(${col}): ${updErr.message ?? String(updErr)}`;
+    // Separately mop up "" → val case (the null-check above misses
+    // empty-string rows but those are equally safe to overwrite).
+    const { error: updErr2 } = await db
+      .from("candidate_profiles")
+      .update({ [col]: val })
+      .eq("user_id", userId)
+      .eq(col, "");
+    if (updErr2) return `update-empty(${col}): ${updErr2.message ?? String(updErr2)}`;
   }
-  if (Object.keys(updates).length === 0) return null;
-
-  const { error: updErr } = await db
-    .from("candidate_profiles")
-    .update(updates)
-    .eq("user_id", userId);
-  if (updErr) return `update: ${updErr.message ?? String(updErr)}`;
-
   return null;
 }
