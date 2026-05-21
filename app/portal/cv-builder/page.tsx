@@ -2215,6 +2215,30 @@ function CVBuilderInner() {
     });
     collabChannelRef.current = ch;
 
+    // Side-channel for admin↔admin full-identity presence.
+    //
+    // The MAIN channel above carries SCRUBBED admin presence (id + role
+    // only) because the candidate is also subscribed → admin email /
+    // displayName / photo must never leak there. Side effect: admins
+    // can't see each other's avatars either — every admin looked like
+    // an empty circle to every other admin.
+    //
+    // Fix: a parallel admin-only channel `cv-collab-admins-<canonicalId>`
+    // that ONLY admins + sub_admins subscribe to. On it, admins broadcast
+    // their FULL identity. We merge that into the main presence state at
+    // refresh time so admin avatars show up for other admins, while the
+    // candidate never sees this channel (they don't join).
+    const isAdminSelf = selfPeer.role === "admin" || selfPeer.role === "sub_admin";
+    const adminFullById = new Map<string, { email?: string; displayName?: string; photo?: string | null }>();
+    const adminCh = isAdminSelf
+      ? supabase.channel(`cv-collab-admins-${target}`, {
+          config: {
+            presence:  { key: selfPeer.id },
+            broadcast: { self: false, ack: false },
+          },
+        })
+      : null;
+
     // Helper: turn raw Realtime presence state into our CollabPeer[] for
     // the avatar row. Each peer self-reports photo + displayName when they
     // .track(), so no extra DB lookup is needed. Candidate view will
@@ -2237,15 +2261,23 @@ function CVBuilderInner() {
           }
         }
       }
-      const next = Array.from(byId.values()).map(p => ({
-        id:          p.id,
-        role:        p.role,
-        email:       p.email,
-        displayName: p.displayName,
-        photo:       p.photo ?? null,
-        editing:     !!(p.editingAt && now - p.editingAt < 1500),
-        isSelf:      p.id === selfPeer!.id,
-      } as import("@/components/CvCollabPresence").CollabPeer));
+      const next = Array.from(byId.values()).map(p => {
+        // Admin-channel merge: if this peer is an admin/sub_admin AND we
+        // (also an admin) have their full identity from the side channel,
+        // overlay it on top of the scrubbed main-channel payload. The
+        // candidate never reaches this branch — they don't subscribe to
+        // the admin channel so adminFullById stays empty on their side.
+        const full = adminFullById.get(p.id);
+        return {
+          id:          p.id,
+          role:        p.role,
+          email:       full?.email       ?? p.email,
+          displayName: full?.displayName ?? p.displayName,
+          photo:       full?.photo       ?? p.photo ?? null,
+          editing:     !!(p.editingAt && now - p.editingAt < 1500),
+          isSelf:      p.id === selfPeer!.id,
+        } as import("@/components/CvCollabPresence").CollabPeer;
+      });
       setCollabPeers(next);
     }
 
@@ -2278,11 +2310,51 @@ function CVBuilderInner() {
       }
     });
 
+    // Admin side-channel — join, track FULL identity, merge into main refresh.
+    if (adminCh) {
+      const refreshAdminMap = () => {
+        const state = adminCh.presenceState() as Record<string, RawPeer[]>;
+        adminFullById.clear();
+        for (const metas of Object.values(state)) {
+          for (const meta of metas) {
+            adminFullById.set(meta.id, {
+              email:       meta.email,
+              displayName: meta.displayName,
+              photo:       meta.photo ?? null,
+            });
+          }
+        }
+        refresh();
+      };
+      adminCh.on("presence", { event: "sync" },  refreshAdminMap);
+      adminCh.on("presence", { event: "join" },  refreshAdminMap);
+      adminCh.on("presence", { event: "leave" }, refreshAdminMap);
+      adminCh.subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          try {
+            // Full payload — only other admins ever see this channel.
+            await adminCh.track({
+              id:          selfPeer.id,
+              role:        selfPeer.role,
+              email:       selfPeer.email,
+              displayName: selfPeer.displayName,
+              photo:       selfPeer.photo ?? null,
+              editingAt:   0,
+            });
+          } catch { /* presence sync will retry */ }
+        }
+      });
+    }
+
     return () => {
       try { void ch.untrack(); } catch { /* ignore */ }
       supabase.removeChannel(ch);
       collabChannelRef.current = null;
       setCollabChannel(null);
+      if (adminCh) {
+        try { void adminCh.untrack(); } catch { /* ignore */ }
+        supabase.removeChannel(adminCh);
+      }
     };
     // viewerRole intentionally NOT a dep — it's not read inside the
     // effect (CvCollabPresence and CvCollabCursors get it via prop) and
