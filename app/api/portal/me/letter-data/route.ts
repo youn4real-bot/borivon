@@ -29,11 +29,37 @@ export async function GET(req: NextRequest) {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const db = getServiceSupabase();
-  const { data: row } = await db
+  let { data: row } = await db
     .from("candidate_profiles")
     .select("first_name,last_name,address_street,address_number,address_postal,city_of_residence,country_of_residence,phone,passport_status,cv_draft")
     .eq("user_id", auth.userId)
     .maybeSingle();
+
+  // ── ROOT-FIX: auto-create an empty row on first letter view ──
+  // Some candidates have NO row at all (their passport-data form was
+  // never submitted, the CV builder was never opened by them, and no
+  // admin has touched their record yet). Without a row the cover letter
+  // can't even display their name. Insert a stub keyed by user_id so
+  // every subsequent write is a cheap UPDATE — and the candidate's name
+  // is already in the column for downstream consumers.
+  if (!row) {
+    try {
+      const headerJwt0 = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
+      const { data: u0 } = await getAnonVerifyClient().auth.getUser(headerJwt0);
+      const m0 = u0?.user?.user_metadata as { first_name?: string; last_name?: string } | undefined;
+      const seed: Record<string, unknown> = { user_id: auth.userId };
+      if (m0?.first_name) seed.first_name = String(m0.first_name).trim();
+      if (m0?.last_name)  seed.last_name  = String(m0.last_name).trim();
+      await db.from("candidate_profiles").upsert(seed, { onConflict: "user_id" });
+      // Re-select so the rest of the function sees the freshly inserted row.
+      const { data: row2 } = await db
+        .from("candidate_profiles")
+        .select("first_name,last_name,address_street,address_number,address_postal,city_of_residence,country_of_residence,phone,passport_status,cv_draft")
+        .eq("user_id", auth.userId)
+        .maybeSingle();
+      row = row2;
+    } catch { /* best-effort */ }
+  }
 
   type Row = {
     first_name?:           string | null;

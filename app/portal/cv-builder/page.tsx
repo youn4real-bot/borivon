@@ -2399,6 +2399,23 @@ function CVBuilderInner() {
               if (merged.nationality) merged.nationality = toNatDe(merged.nationality);
               return merged;
             });
+
+            // ── ROOT-FIX: force-save the loaded snapshot to the server
+            // immediately. Without this, candidates whose data only lives in
+            // the admin's browser localStorage (rescued from earlier OCR runs
+            // that never persisted) never reach the DB — and every downstream
+            // (cover letter sender block, admin passport-info card, …) stays
+            // blank. The server-side reverse-propagation then backfills the
+            // passport columns from cv_draft.* fields.
+            const persistUrl = `/api/portal/admin/cv-draft?candidateId=${adminCandidateId}`;
+            const persistBody = { ...saved };
+            delete (persistBody as Record<string, unknown>).photo;
+            void fetch(persistUrl, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+              body: JSON.stringify(persistBody),
+              keepalive: true,
+            }).catch(() => { /* best-effort */ });
           } catch { /* invalid JSON */ }
         }
 
