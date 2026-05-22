@@ -378,6 +378,7 @@ function MotivationsschreibenPageInner() {
   const [employerLines, setEmployerLines] = useState<string[]>([]);
   const [employerName, setEmployerName] = useState<string>("");
   const [savedAt, setSavedAt] = useState<Date | null>(null);
+  const [saveError, setSaveError] = useState(false);
   const [passportStatus, setPassportStatus] = useState<null | "pending" | "approved" | "rejected">(null);
   const [lockedPopupOpen, setLockedPopupOpen] = useState(false);
   const [employerPopupOpen, setEmployerPopupOpen] = useState(false);
@@ -609,7 +610,15 @@ function MotivationsschreibenPageInner() {
           }
         } catch { /* offline — fall through to localStorage */ }
         if (editorRef.current) {
-          const initial = (serverBody ?? lsSaved ?? "").trim() ? (serverBody ?? lsSaved) : "";
+          // Prefer the server copy when it has content; otherwise fall
+          // back to the local draft. Using explicit has-content checks
+          // (not `serverBody ?? lsSaved`) so an EMPTY server value
+          // ("") doesn't shadow a non-empty localStorage draft — that
+          // bug would have wiped a local draft whenever the server row
+          // existed but was blank.
+          const serverHas = !!(serverBody && serverBody.trim());
+          const lsHas      = !!(lsSaved && lsSaved.trim());
+          const initial = serverHas ? serverBody! : lsHas ? lsSaved : "";
           editorRef.current.innerHTML = initial;
           lastGoodHTML.current = editorRef.current.innerHTML;
           lastBroadcastSig.current = editorRef.current.innerHTML;
@@ -884,38 +893,83 @@ function MotivationsschreibenPageInner() {
     return () => clearInterval(t);
   }, []);
 
+  // The actual server write — extracted so both the debounced autosave
+  // AND the flush-on-unload path can call it. keepalive lets a save fire
+  // even as the tab is being closed/refreshed.
+  const putLetterBody = React.useCallback(async (html: string, keepalive = false) => {
+    if (!authToken) return;
+    const qs = adminCandidateId ? `?userId=${encodeURIComponent(adminCandidateId)}` : "";
+    try {
+      const r = await fetch(`/api/portal/letter-body${qs}`, {
+        method:  "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body:    JSON.stringify({ body: html }),
+        keepalive,
+      });
+      if (r.ok) {
+        setSavedAt(new Date());
+        setSaveError(false);
+      } else {
+        // SURFACE the failure — a silent swallow here is exactly why
+        // "I typed and it was gone" happened: a 503 (cover_letter_body
+        // column not migrated) or 403 looked like a successful save.
+        setSaveError(true);
+        let msg = `HTTP ${r.status}`;
+        try { const j = await r.json(); if (j?.error) msg = j.error; } catch { /* ignore */ }
+        console.error("[letter-body PUT] failed:", msg);
+      }
+    } catch (e) {
+      setSaveError(true);
+      console.error("[letter-body PUT] error:", e);
+    }
+  }, [authToken, adminCandidateId]);
+
   function scheduleSave() {
     const t = adminCandidateId ?? userId;
     if (!t) return;
+    const el = editorRef.current;
+    if (!el) return;
+    const html = el.innerHTML;
+    // 1. localStorage SYNCHRONOUSLY on every keystroke — instant local
+    //    backup. Was previously inside the 700ms debounce, so a refresh
+    //    within that window lost everything. Now even an immediate
+    //    refresh keeps the local copy. Keyed by target so an admin
+    //    editing a candidate's letter doesn't trample their own draft.
+    try { localStorage.setItem(draftKey(t), html); } catch { /* quota */ }
+    // 2. Server PUT — debounced, last-write-wins. Surfaces success /
+    //    failure to the autosave indicator.
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(async () => {
+    saveTimer.current = setTimeout(() => { void putLetterBody(html); }, 700);
+  }
+
+  // Flush the latest body to the server the instant the tab is hidden or
+  // unloaded (refresh / close / nav-away). Without this, edits made inside
+  // the last 700ms debounce window were lost on a quick refresh — the exact
+  // "I typed and it was gone" report. keepalive lets the request complete
+  // after the page starts unloading. localStorage is already written
+  // synchronously per keystroke, so the local copy is safe regardless.
+  useEffect(() => {
+    const flush = () => {
       const el = editorRef.current;
       if (!el) return;
       const html = el.innerHTML;
-      // 1. localStorage — instant local backup. Keyed by target so an
-      //    admin viewing a candidate's letter doesn't trample their own
-      //    draft (and vice-versa).
-      try { localStorage.setItem(draftKey(t), html); } catch { /* quota */ }
-      // 2. Server — last-write-wins. PUT every debounce tick; the
-      //    autosave indicator surfaces success / failure to the editor.
-      if (authToken) {
-        try {
-          const qs = adminCandidateId ? `?userId=${encodeURIComponent(adminCandidateId)}` : "";
-          const r = await fetch(`/api/portal/letter-body${qs}`, {
-            method:  "PUT",
-            headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
-            body:    JSON.stringify({ body: html }),
-          });
-          if (r.ok) setSavedAt(new Date());
-        } catch { /* offline — local copy is still saved */ }
-      } else {
-        // No auth token yet (very first paint) — still mark saved so the
-        // local persistence is acknowledged. The next save round-trips
-        // to the server.
-        setSavedAt(new Date());
+      const t = adminCandidateId ?? userId;
+      if (t) { try { localStorage.setItem(draftKey(t), html); } catch { /* quota */ } }
+      if (html !== lastBroadcastSig.current || saveError) {
+        if (saveTimer.current) clearTimeout(saveTimer.current);
+        void putLetterBody(html, true);
       }
-    }, 700);
-  }
+    };
+    const onVis = () => { if (document.visibilityState === "hidden") flush(); };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVis);
+      // Component unmount (route change) — final flush.
+      flush();
+    };
+  }, [adminCandidateId, userId, saveError, putLetterBody, draftKey]);
 
   // Hard one-page cap: if an edit pushes the body over MAX_WORDS, revert to
   // the last in-budget state (caret to end). Deleting always passes, so the
@@ -1142,7 +1196,7 @@ function MotivationsschreibenPageInner() {
                     </span>
                   );
                 })()}
-                <AutosaveIndicator savedAt={savedAt} />
+                <AutosaveIndicator savedAt={savedAt} error={saveError} />
                 {/* Live-collab peer row — mirrors CV builder. Renders the
                     Borivon favicon disc for admins from the candidate's
                     POV, real photos admin↔admin via the side channel. */}
