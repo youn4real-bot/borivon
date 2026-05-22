@@ -3325,73 +3325,12 @@ export default function AdminPage() {
                               </div>
                             );
                           })()}
-                          <div>
-                            <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{L.q1}</label>
-                            <div className="flex gap-2">
-                              <button onClick={() => setStatusForm(f => ({ ...f, b2_complete: true }))}
-                                className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
-                                style={pill(statusForm.b2_complete === true)}>{L.yes}</button>
-                              <button onClick={() => setStatusForm(f => ({ ...f, b2_complete: false }))}
-                                className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
-                                style={pill(statusForm.b2_complete === false)}>{L.no}</button>
-                            </div>
-                          </div>
-
-                          {statusForm.b2_complete === true && (
-                            <div>
-                              <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{L.cert}</label>
-                              <DeDateInput value={statusForm.b2_cert_date} onChange={v => setStatusForm(f => ({ ...f, b2_cert_date: v }))} />
-                            </div>
-                          )}
-
-                          {statusForm.b2_complete === false && (
-                            <>
-                              {/* Did they write the exam? */}
-                              <div>
-                                <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{L.wroteQ}</label>
-                                <div className="flex gap-2">
-                                  <button onClick={() => setStatusForm(f => ({ ...f, b2_exam_written: true }))}
-                                    className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
-                                    style={pill(statusForm.b2_exam_written === true)}>{L.wrote}</button>
-                                  <button onClick={() => setStatusForm(f => ({ ...f, b2_exam_written: false }))}
-                                    className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
-                                    style={pill(statusForm.b2_exam_written === false)}>{L.notwrote}</button>
-                                </div>
-                              </div>
-
-                              {/* Wrote it → exam date + expected results date */}
-                              {statusForm.b2_exam_written === true && (
-                                <>
-                                  <div>
-                                    <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{L.examWritten}</label>
-                                    <DeDateInput value={statusForm.b2_exam_written_date} onChange={v => setStatusForm(f => ({ ...f, b2_exam_written_date: v }))} />
-                                  </div>
-                                  <div>
-                                    <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{L.resultsExpected}</label>
-                                    <DeDateInput value={statusForm.b2_results_expected_date} onChange={v => setStatusForm(f => ({ ...f, b2_results_expected_date: v }))} />
-                                  </div>
-                                </>
-                              )}
-
-                              {/* Didn't write → expected exam date + registration state */}
-                              {statusForm.b2_exam_written === false && (
-                                <>
-                                  <div>
-                                    <label className="text-[11px] font-medium mb-1.5 block" style={{ color: "var(--w2)" }}>{L.plannedExam}</label>
-                                    <DeDateInput value={statusForm.b2_planned_exam_date} onChange={v => setStatusForm(f => ({ ...f, b2_planned_exam_date: v }))} />
-                                  </div>
-                                  <div className="flex gap-2">
-                                    <button onClick={() => setStatusForm(f => ({ ...f, b2_registration_status: "paid" }))}
-                                      className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
-                                      style={pill(statusForm.b2_registration_status === "paid")}>{L.regPaid}</button>
-                                    <button onClick={() => setStatusForm(f => ({ ...f, b2_registration_status: "waiting" }))}
-                                      className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
-                                      style={pill(statusForm.b2_registration_status === "waiting")}>{L.regWaiting}</button>
-                                  </div>
-                                </>
-                              )}
-                            </>
-                          )}
+                          {/* The old editable "B2 abgeschlossen? / Prüfung
+                              abgelegt?" form was removed — it duplicated the
+                              data the candidate already fills in the CV
+                              builder (now shown in the read-only summary
+                              above). Single source of truth = cv_draft;
+                              edits happen via "In CV-Builder bearbeiten". */}
                           </StatusSection>
                           )}
 
