@@ -12,7 +12,16 @@
  *  - "Mit freundlichen Grüßen" + name
  */
 import React from "react";
-import { Document, Page, Text, View, StyleSheet } from "@react-pdf/renderer";
+import { Document, Page, Text, View, StyleSheet, Font } from "@react-pdf/renderer";
+
+// NEVER split a word across lines. react-pdf hyphenates by default
+// (breaks long words mid-word with a hyphen) — German cover letters
+// have long words and the user wants whole-word wrapping only. A
+// hyphenation callback that returns the word as a single chunk makes
+// every word unbreakable: if it doesn't fit on the current line it
+// drops whole to the next line. Module-scope so it registers once
+// when the generate route imports this component.
+Font.registerHyphenationCallback((word) => [word]);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -45,34 +54,40 @@ const INK = "#1C1C1E";
 const s = StyleSheet.create({
   page: {
     fontFamily: "Lexend",
-    fontSize: 10.5,
     color: INK,
     // DIN-5008-ish margins (top a touch tighter so it always fits one page)
     paddingTop: 48,
     paddingBottom: 40,
     paddingLeft: 64,
     paddingRight: 56,
-    lineHeight: 1.45,
     backgroundColor: "#FFFFFF",
+    // NOTE: fontSize + lineHeight are applied INLINE from the `fit`
+    // tier on <Page> so the WHOLE document scales as one unit. No child
+    // style below sets its own fontSize — every Text inherits the page
+    // size. That's the fix for "only the body resized": the sender,
+    // recipient, date, Betreff and closing now scale together.
   },
   // Sender stays in the RIGHT half of the page. maxWidth on the View
   // forces long street addresses to wrap inside the 50% column instead
   // of running edge-to-edge. alignSelf pushes the column to the right
   // of the page; alignItems keeps the wrapped text right-aligned within
-  // the column. react-pdf's default wrap = word-wrap with NO
-  // hyphenation, which matches the "don't split words" requirement.
+  // the column.
   senderBlock: { alignItems: "flex-end", alignSelf: "flex-end", maxWidth: "50%", marginBottom: 26 },
-  line: { fontSize: 10.5 },
-  senderLine: { fontSize: 10.5, textAlign: "right" },
+  line: {},
+  senderLine: { textAlign: "right" },
   // Recipient mirrors the sender: stays in the LEFT half so even a long
   // employer address never crosses the vertical midline.
   recipientBlock: { marginBottom: 22, maxWidth: "50%" },
   dateRow: { flexDirection: "row", justifyContent: "flex-end", marginBottom: 24 },
-  subject: { fontSize: 11, fontWeight: 700, marginBottom: 16 },
+  // Bold but NOT a different size — it scales with the page like
+  // everything else (the user wants one uniform text size per page).
+  subject: { fontWeight: 700, marginBottom: 16 },
   salutation: { marginBottom: 12 },
-  paragraph: { marginBottom: 10, textAlign: "left" },
+  paragraph: { textAlign: "left" },
   closing: { marginTop: 18 },
-  closingName: { marginTop: 22 },
+  // "Mit freundlichen Grüßen" and the name sit on consecutive lines —
+  // small gap, not a signature-sized void. (Was 22pt → felt detached.)
+  closingName: { marginTop: 3 },
 });
 
 // ─── Component ────────────────────────────────────────────────────────────────
