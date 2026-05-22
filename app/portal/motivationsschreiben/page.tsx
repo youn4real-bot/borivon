@@ -405,6 +405,14 @@ function MotivationsschreibenPageInner() {
   const editorRef = useRef<HTMLDivElement>(null);
   const lastGoodHTML = useRef<string>("");
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Holds the body HTML loaded during bootstrap until the editor div is
+  // actually mounted. CRITICAL: the page returns <PageLoader/> while
+  // `loading` is true, so the contentEditable doesn't exist yet when the
+  // bootstrap finishes its fetch — writing editorRef.current.innerHTML
+  // there was a no-op (ref null) and the loaded text was silently
+  // dropped → "I typed, refreshed, gone". A post-mount effect drains
+  // this ref into the editor once it's in the DOM.
+  const pendingBodyRef = useRef<string | null>(null);
 
   const draftKey = useCallback((uid: string) => `bv_letter_body_${uid}`, []);
 
@@ -609,7 +617,7 @@ function MotivationsschreibenPageInner() {
             serverBody = j.body ?? null;
           }
         } catch { /* offline — fall through to localStorage */ }
-        if (editorRef.current) {
+        {
           // Prefer the server copy when it has content; otherwise fall
           // back to the local draft. Using explicit has-content checks
           // (not `serverBody ?? lsSaved`) so an EMPTY server value
@@ -619,10 +627,12 @@ function MotivationsschreibenPageInner() {
           const serverHas = !!(serverBody && serverBody.trim());
           const lsHas      = !!(lsSaved && lsSaved.trim());
           const initial = serverHas ? serverBody! : lsHas ? lsSaved : "";
-          editorRef.current.innerHTML = initial;
-          lastGoodHTML.current = editorRef.current.innerHTML;
-          lastBroadcastSig.current = editorRef.current.innerHTML;
-          setWordCount(countWords(editorRef.current.textContent ?? ""));
+          // STASH it — the editor isn't mounted yet (PageLoader is up
+          // while loading=true). The post-mount effect below writes it
+          // into the editor once `loading` flips false and the div
+          // exists. Writing editorRef.current here would no-op (null ref)
+          // and the loaded text would vanish on every refresh.
+          pendingBodyRef.current = initial;
         }
         // Safety net — guarantee `person` is non-null before we drop the
         // loader, so an API failure on /api/portal/me/letter-data never
@@ -641,6 +651,23 @@ function MotivationsschreibenPageInner() {
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Drain the loaded body into the editor ONCE it's mounted. The bootstrap
+  // stashes the resolved body in pendingBodyRef while loading=true (editor
+  // not in DOM); this runs right after loading flips false and the
+  // contentEditable exists. This is the fix for "typed, refreshed, gone":
+  // the load now actually lands in the editor instead of no-op'ing on a
+  // null ref.
+  useEffect(() => {
+    if (loading) return;
+    const el = editorRef.current;
+    if (!el || pendingBodyRef.current === null) return;
+    el.innerHTML = pendingBodyRef.current;
+    lastGoodHTML.current = el.innerHTML;
+    lastBroadcastSig.current = el.innerHTML;
+    setWordCount(countWords(el.textContent ?? ""));
+    pendingBodyRef.current = null;
+  }, [loading]);
 
   // ── Live collaboration — resolve self identity ───────────────────────────
   // Same shape the CV builder uses (CollabPeer): id, role, email,
