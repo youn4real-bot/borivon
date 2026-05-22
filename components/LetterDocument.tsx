@@ -23,6 +23,59 @@ import { Document, Page, Text, View, StyleSheet, Font } from "@react-pdf/rendere
 // when the generate route imports this component.
 Font.registerHyphenationCallback((word) => [word]);
 
+// ── Balanced address wrapping ──────────────────────────────────────────────
+// react-pdf has no `text-wrap: balance`, so a long sender/recipient line
+// wraps greedily — line 1 packed to the column edge, line 2 a stub ("Nr.
+// 10"). For the right-aligned sender block that reads lopsided. We instead
+// PRE-split such lines into roughly even-width rows so both lines carry a
+// similar amount of text.
+//
+// Width is estimated per-glyph (uppercase is ~60% wider than lowercase in
+// Lexend) so an ALL-CAPS street and a mixed-case city line both balance
+// correctly and — critically — a line that already fits the column is left
+// as a single row (never split unnecessarily).
+function approxWidth(str: string): number {
+  let w = 0;
+  for (const ch of str) {
+    if (ch >= "A" && ch <= "Z") w += 1.0;
+    else if (ch >= "a" && ch <= "z") w += 0.62;
+    else if (ch === " ") w += 0.38;
+    else w += 0.6; // digits, punctuation, accented caps ≈ medium
+  }
+  return w;
+}
+
+/**
+ * Split `text` into 1-N rows of roughly equal estimated width. `capacity`
+ * is the column's width budget in the same per-glyph units approxWidth
+ * uses (≈ how much fits on one line before react-pdf would wrap). Words
+ * are never broken.
+ */
+function balanceWrap(text: string, capacity: number): string[] {
+  const t = (text ?? "").trim();
+  if (!t) return [];
+  const total = approxWidth(t);
+  if (total <= capacity) return [t];                 // fits one line — leave it
+  const words = t.split(/\s+/);
+  const lineCount = Math.max(2, Math.ceil(total / capacity));
+  const target = total / lineCount;                  // even width per row
+  const rows: string[] = [];
+  let cur = "";
+  for (const word of words) {
+    const candidate = cur ? `${cur} ${word}` : word;
+    // Start a new row once the current one passes the even-share target,
+    // but never create more rows than the natural wrap would (lineCount).
+    if (cur && approxWidth(candidate) > target && rows.length < lineCount - 1) {
+      rows.push(cur);
+      cur = word;
+    } else {
+      cur = candidate;
+    }
+  }
+  if (cur) rows.push(cur);
+  return rows;
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface LetterData {
@@ -102,24 +155,36 @@ export function LetterDocument({ data }: { data: LetterData; brand?: LetterBrand
     bodyChars < 1900 ? { fs: 9.5,  lh: 1.35, pmb: 8  } :
                        { fs: 9,    lh: 1.3,  pmb: 7  };
 
+  // Column capacity for the 50%-width sender/recipient lanes, in
+  // approxWidth units. Observed: ~44 all-caps glyphs fit one line at
+  // fs 10.5; smaller font fits proportionally more. Used only to decide
+  // when a line is long enough to warrant balanced wrapping.
+  const colCap = 44 * (10.5 / fit.fs);
+  const streetRows = balanceWrap(data.senderStreet, colCap);
+  const placeRows  = balanceWrap(data.senderPlace,  colCap);
+
   return (
     <Document>
       <Page size="A4" style={[s.page, { fontSize: fit.fs, lineHeight: fit.lh }]} wrap={false}>
 
-        {/* Sender — right aligned, capped at 50% of the page width */}
+        {/* Sender — right aligned, capped at 50% of the page width.
+            Long street / place lines are pre-balanced into even rows. */}
         <View style={s.senderBlock}>
           <Text style={s.senderLine}>{data.senderName || " "}</Text>
-          {!!data.senderStreet && <Text style={s.senderLine}>{data.senderStreet}</Text>}
-          {!!data.senderPlace  && <Text style={s.senderLine}>{data.senderPlace}</Text>}
+          {streetRows.map((r, i) => <Text key={`st${i}`} style={s.senderLine}>{r}</Text>)}
+          {placeRows.map((r, i)  => <Text key={`pl${i}`} style={s.senderLine}>{r}</Text>)}
           {!!data.senderPhone  && <Text style={s.senderLine}>Telefon: {data.senderPhone}</Text>}
           {!!data.senderEmail  && <Text style={s.senderLine}>{data.senderEmail}</Text>}
         </View>
 
-        {/* Recipient — left aligned */}
+        {/* Recipient — left aligned. Each admin-curated address line is
+            balanced too so a long single line doesn't leave a stub. */}
         <View style={s.recipientBlock}>
-          {data.recipientLines.map((l, i) => (
-            <Text key={i} style={s.line}>{l}</Text>
-          ))}
+          {data.recipientLines.flatMap((l, i) =>
+            balanceWrap(l, colCap).map((r, j) => (
+              <Text key={`rc${i}-${j}`} style={s.line}>{r}</Text>
+            )),
+          )}
         </View>
 
         {/* Date — right aligned */}
