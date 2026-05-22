@@ -3,13 +3,15 @@ import React from "react";
 import { renderToBuffer } from "@react-pdf/renderer";
 import { LetterDocument } from "@/components/LetterDocument";
 import type { LetterData, LetterBrand } from "@/components/LetterDocument";
-import { requireUser } from "@/lib/admin-auth";
+import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { registerPdfFonts } from "@/lib/pdf-fonts";
 import path from "path";
 import fs from "fs";
 
 registerPdfFonts();
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const RL_MAX = 20;
 const RL_WINDOW_MS = 60_000;
@@ -35,10 +37,31 @@ async function resolveBrand(userId: string): Promise<LetterBrand> {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireUser(req);
-  if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status });
+  // Target resolution mirrors the rest of the cover-letter routes:
+  //   • ?userId=<uid> present → admin generating on a candidate's behalf
+  //     (must be admin/sub_admin + canActOnCandidate). Recipient employer
+  //     + rate-limit key resolve from the CANDIDATE, not the admin — this
+  //     is the fix for "admin can't generate the PDF": the old code read
+  //     the admin's own (empty) employer_id and 400'd "No employer
+  //     assigned".
+  //   • no param → candidate generating their own letter.
+  const paramUid = req.nextUrl.searchParams.get("userId");
+  let targetUid: string;
+  if (paramUid) {
+    if (!UUID_RE.test(paramUid)) return Response.json({ error: "Invalid userId" }, { status: 400 });
+    const aAuth = await requireAdminRole(req);
+    if (!aAuth.ok) return Response.json({ error: aAuth.error }, { status: aAuth.status });
+    if (!(await canActOnCandidate(aAuth.role, aAuth.email, paramUid))) {
+      return Response.json({ error: "Forbidden" }, { status: 403 });
+    }
+    targetUid = paramUid;
+  } else {
+    const auth = await requireUser(req);
+    if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status });
+    targetUid = auth.userId;
+  }
 
-  if (rateLimited(auth.userId)) {
+  if (rateLimited(targetUid)) {
     return Response.json({ error: "Rate limit exceeded" }, { status: 429 });
   }
 
@@ -56,7 +79,7 @@ export async function POST(req: NextRequest) {
     const { data: prof } = await db
       .from("candidate_profiles")
       .select("employer_id")
-      .eq("user_id", auth.userId)
+      .eq("user_id", targetUid)
       .maybeSingle();
     const employerId = (prof as { employer_id?: string } | null)?.employer_id ?? null;
 
@@ -78,7 +101,7 @@ export async function POST(req: NextRequest) {
     // spoofed by the client, and works for any future non-UKSH employer).
     data.subject = `Betreff: Motivationsschreiben für eine Tätigkeit als Pflegekraft am ${employerName}`.trim();
 
-    const brand = await resolveBrand(auth.userId);
+    const brand = await resolveBrand(targetUid);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const element = React.createElement(LetterDocument, { data, brand }) as any;

@@ -435,33 +435,56 @@ function MotivationsschreibenPageInner() {
   // own row, RLS-allowed). A 5 s poll backstops the cases realtime is
   // blocked (suspended tab, channel error, RLS-gated cross-user).
   useEffect(() => {
-    if (!userId) return;
+    const room = adminCandidateId ?? userId;
+    if (!room) return;
     let cancelled = false;
     const pull = async () => {
       if (!authToken) return;
+      // Admin viewing ?candidate=<uid> passes that uid through so we fetch
+      // the CANDIDATE's data, not the admin's session identity.
+      const qs = adminCandidateId ? `?userId=${encodeURIComponent(adminCandidateId)}` : "";
+      // ── Sender block (identity) ──
       try {
-        // Admin viewing ?candidate=<uid> passes that uid through so we
-        // fetch the CANDIDATE's sender block, not the admin's session
-        // identity (otherwise the letter showed the admin's name +
-        // address instead of the candidate's).
-        const qs = adminCandidateId ? `?userId=${encodeURIComponent(adminCandidateId)}` : "";
         const r = await fetch(`/api/portal/me/letter-data${qs}`, {
           headers: { Authorization: `Bearer ${authToken}` },
         });
-        if (!r.ok) return;
-        const j = await r.json() as {
-          sender: { firstName: string; lastName: string; street: string; number: string; postal: string; city: string; country: string; phone: string; email: string };
-          passportStatus: string | null;
-        };
-        if (cancelled) return;
-        const merged: Person = { ...j.sender };
-        setPerson(prev => {
-          if (!prev) return merged;
-          if (JSON.stringify(prev) === JSON.stringify(merged)) return prev;
-          return merged;
+        if (r.ok) {
+          const j = await r.json() as {
+            sender: { firstName: string; lastName: string; street: string; number: string; postal: string; city: string; country: string; phone: string; email: string };
+            passportStatus: string | null;
+          };
+          if (!cancelled) {
+            const merged: Person = { ...j.sender };
+            setPerson(prev => {
+              if (!prev) return merged;
+              if (JSON.stringify(prev) === JSON.stringify(merged)) return prev;
+              return merged;
+            });
+            if (j.passportStatus === "pending" || j.passportStatus === "approved" || j.passportStatus === "rejected") {
+              setPassportStatus(j.passportStatus);
+            }
+          }
+        }
+      } catch { /* offline */ }
+      // ── Employer (recipient) — refetched on every pull so a fresh
+      //    admin match (e.g. UKSH Kiel just assigned) appears within
+      //    seconds for BOTH the candidate and any admin viewing the
+      //    letter, without a reload. Was previously fetched only on
+      //    mount → a match made while the page was open never showed. ──
+      try {
+        const er = await fetch(`/api/portal/me/employer${qs}`, {
+          headers: { Authorization: `Bearer ${authToken}` },
         });
-        if (j.passportStatus === "pending" || j.passportStatus === "approved" || j.passportStatus === "rejected") {
-          setPassportStatus(j.passportStatus);
+        if (er.ok && !cancelled) {
+          const ej = await er.json();
+          if (ej?.assigned && Array.isArray(ej.lines) && ej.lines.length) {
+            setEmployerLines(ej.lines);
+            setEmployerName(typeof ej.name === "string" ? ej.name : "");
+            setCampusAssigned(true);
+          } else {
+            // Unassigned (or just un-matched) → reflect that too.
+            setCampusAssigned(false);
+          }
         }
       } catch { /* offline */ }
     };
@@ -470,9 +493,9 @@ function MotivationsschreibenPageInner() {
     // session restore from localStorage (same bug we fixed for cv-collab).
     if (authToken) { try { supabase.realtime.setAuth(authToken); } catch { /* offline */ } }
     const ch = supabase
-      .channel(`letter-profile-${userId}`)
+      .channel(`letter-profile-${room}`)
       .on("postgres_changes",
-        { event: "UPDATE", schema: "public", table: "candidate_profiles", filter: `user_id=eq.${userId}` },
+        { event: "UPDATE", schema: "public", table: "candidate_profiles", filter: `user_id=eq.${room}` },
         () => { void pull(); },
       )
       .subscribe();
@@ -489,7 +512,7 @@ function MotivationsschreibenPageInner() {
       supabase.removeChannel(ch);
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId, authToken]);
+  }, [userId, adminCandidateId, authToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -991,7 +1014,8 @@ function MotivationsschreibenPageInner() {
       const { data: { session: freshSess } } = await supabase.auth.getSession();
       const tok = freshSess?.access_token ?? authToken;
       if (freshSess?.access_token && freshSess.access_token !== authToken) setAuthToken(freshSess.access_token);
-      const res = await fetch("/api/portal/letter/generate", {
+      const genQs = adminCandidateId ? `?userId=${encodeURIComponent(adminCandidateId)}` : "";
+      const res = await fetch(`/api/portal/letter/generate${genQs}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${tok}` },
         body: JSON.stringify(payload),
