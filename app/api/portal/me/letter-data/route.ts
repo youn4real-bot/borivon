@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
+import { natToLang } from "@/lib/countries";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -150,6 +151,15 @@ export async function GET(req: NextRequest) {
   const pick = (a: string | null | undefined, draftK: string, fallback?: string): string =>
     (a && String(a).trim()) || draftStr(draftK) || (fallback?.trim() ?? "");
 
+  // Country on the COVER LETTER is always the German name (the letter
+  // itself is always German, regardless of the candidate's UI language).
+  // The stored value may be an ISO-3 code ("MAR"), a name in any
+  // language, or a legacy adjective — natToLang(.., "de") normalises all
+  // of those to "Marokko" etc. so the address block never shows a raw
+  // code like "MAR".
+  const rawCountry = pick(p?.country_of_residence, "countryOfResidence");
+  const countryDe  = rawCountry ? natToLang(rawCountry, "de") : "";
+
   const sender = {
     firstName: pick(p?.first_name,           "firstName", metaFirst),
     lastName:  pick(p?.last_name,            "lastName",  metaLast),
@@ -157,7 +167,7 @@ export async function GET(req: NextRequest) {
     number:    pick(p?.address_number,       "addressNumber"),
     postal:    pick(p?.address_postal,       "postalCode"),
     city:      pick(p?.city_of_residence,    "city"),
-    country:   pick(p?.country_of_residence, "countryOfResidence"),
+    country:   countryDe,
     // Phone — cv_draft FIRST (instant, no admin approval), then DB column.
     phone:     draftStr("phone") || (p?.phone ?? "").trim(),
     email,
