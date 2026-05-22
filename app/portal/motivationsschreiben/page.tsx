@@ -81,10 +81,14 @@ const affBtnStyle: React.CSSProperties = {
   cursor: "pointer",
 };
 
-function Locked({ lines, align = "left", bold = false, lockable = false, onLock, lockLead = false, waitable = false, onWait }: {
+function Locked({ lines, align = "left", bold = false, lockable = false, onLock, lockLead = false, waitable = false, onWait, wide = false }: {
   lines: string[]; align?: "left" | "right"; bold?: boolean;
   lockable?: boolean; onLock?: () => void; lockLead?: boolean;
   waitable?: boolean; onWait?: () => void;
+  /** Full-width line (no 50% column cap). Use for the Betreff / salutation
+   *  / closing — only the sender + recipient address blocks need to stay
+   *  inside their half of the sheet. */
+  wide?: boolean;
 }) {
   // A line still needs its passport data when the "—" placeholder is present
   // (either the whole line, or embedded — e.g. the city in the date line).
@@ -118,8 +122,12 @@ function Locked({ lines, align = "left", bold = false, lockable = false, onLock,
               // Hard stop at the vertical midline of the sheet so a long
               // street address never crosses into the opposite column.
               // Text wraps inside this 50% lane, staying aligned to the
-              // sender/recipient side it belongs to.
-              maxWidth: "50%",
+              // sender/recipient side it belongs to. The Betreff /
+              // salutation / closing pass `wide` to use the full sheet
+              // width — otherwise the subject wrapped early ("…für eine"
+              // then a near-empty second line) once a long employer name
+              // like "UKSH Kiel" was appended.
+              maxWidth: wide ? "100%" : "50%",
               textAlign: align === "right" ? "right" : "left",
               // Wrap whole words to the next line — no hyphenation, no
               // mid-word splits ("samst-ag" style). A space-separated
@@ -1186,15 +1194,15 @@ function MotivationsschreibenPageInner() {
 
             <div style={{ marginTop: 28 }}>
               {campusAssigned ? (
-                <Locked align="left" lines={[`${BETREFF_PREFIX} ${employerName}`]} bold />
+                <Locked align="left" wide lines={[`${BETREFF_PREFIX} ${employerName}`]} bold />
               ) : (
-                <Locked align="left" bold waitable onWait={() => setEmployerPopupOpen(true)}
+                <Locked align="left" wide bold waitable onWait={() => setEmployerPopupOpen(true)}
                   lines={[`${BETREFF_PREFIX} —`]} />
               )}
             </div>
 
             <div style={{ marginTop: 20 }}>
-              <Locked align="left" lines={["Sehr geehrte Damen und Herren,"]} />
+              <Locked align="left" wide lines={["Sehr geehrte Damen und Herren,"]} />
             </div>
 
             <div id="bv-body" ref={editorRef} contentEditable
@@ -1203,7 +1211,7 @@ function MotivationsschreibenPageInner() {
               style={{ marginTop: 18, minHeight: "200px" }} />
 
             <div style={{ marginTop: 24 }}>
-              <Locked align="left" lockable onLock={() => setLockedPopupOpen(true)}
+              <Locked align="left" wide lockable onLock={() => setLockedPopupOpen(true)}
                 lines={["Mit freundlichen Grüßen", fullName]} />
             </div>
 
