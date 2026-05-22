@@ -998,9 +998,47 @@ function MotivationsschreibenPageInner() {
     };
   }, [adminCandidateId, userId, saveError, putLetterBody, draftKey]);
 
-  // Hard one-page cap: if an edit pushes the body over MAX_WORDS, revert to
-  // the last in-budget state (caret to end). Deleting always passes, so the
-  // candidate can edit their way back down.
+  // Paste handler — insert the clipboard as PLAIN TEXT at the caret.
+  // Two problems this fixes:
+  //   1. Rich paste from Word / Google Docs injected pages of inline-
+  //      styled <span>/<font> markup that broke the editor + bloated the
+  //      saved HTML.
+  //   2. The OLD hard one-page revert (below) nuked any paste that pushed
+  //      the body over MAX_WORDS — a full pasted cover letter (~300 words)
+  //      tripped it and the paste "did nothing". That's why sub-admins
+  //      (and everyone) "couldn't paste".
+  // Plain-text insertion via execCommand fires the input event, so
+  // handleBodyInput runs once and the autosave + word count update
+  // normally. Works for candidates and admins alike.
+  function handlePaste(e: React.ClipboardEvent<HTMLDivElement>) {
+    const text = e.clipboardData?.getData("text/plain") ?? "";
+    if (!text) return;            // nothing useful — let default handle it
+    e.preventDefault();
+    // execCommand is deprecated but still the most reliable cross-browser
+    // way to insert text at the caret inside a contentEditable AND keep
+    // the native undo stack. Falls back to a manual Range insert if the
+    // browser refuses it.
+    let ok = false;
+    try { ok = document.execCommand("insertText", false, text); } catch { ok = false; }
+    if (!ok) {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        range.deleteContents();
+        range.insertNode(document.createTextNode(text));
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+      handleBodyInput();
+    }
+  }
+
+  // Soft one-page guidance: the body may go OVER MAX_WORDS while editing
+  // / pasting — the counter turns red ("Limit – eine Seite") and the
+  // Generate button blocks until the candidate trims back under. We no
+  // longer hard-revert on overflow because that silently ate pastes. The
+  // one-page guarantee is enforced at GENERATE time instead.
   function handleBodyInput() {
     const el = editorRef.current;
     if (!el) return;
@@ -1010,18 +1048,6 @@ function MotivationsschreibenPageInner() {
     applyingRemoteRef.current = false;
 
     const words = countWords(el.textContent ?? "");
-    if (words > MAX_WORDS) {
-      el.innerHTML = lastGoodHTML.current;
-      const sel = window.getSelection();
-      if (sel) {
-        const range = document.createRange();
-        range.selectNodeContents(el);
-        range.collapse(false);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      }
-      return;
-    }
     lastGoodHTML.current = el.innerHTML;
     setWordCount(words);
     scheduleSave();
@@ -1072,6 +1098,16 @@ function MotivationsschreibenPageInner() {
       setGenError(lang === "de" ? `Zu kurz — mindestens ${MIN_RECOMMENDED} Wörter.`
         : lang === "fr" ? `Trop court — au moins ${MIN_RECOMMENDED} mots.`
         : `Too short — at least ${MIN_RECOMMENDED} words.`);
+      return;
+    }
+    // One-page guarantee enforced HERE (not via a typing/paste revert):
+    // refuse to generate while over the cap so the PDF never spills to a
+    // second page. Lets the editor hold an over-length draft (e.g. a
+    // fresh paste) that the candidate then trims before generating.
+    if (wordCount > MAX_WORDS) {
+      setGenError(lang === "de" ? `Zu lang — auf höchstens ${MAX_WORDS} Wörter kürzen (eine Seite).`
+        : lang === "fr" ? `Trop long — réduire à ${MAX_WORDS} mots max (une page).`
+        : `Too long — trim to ${MAX_WORDS} words max (one page).`);
       return;
     }
     const bodyText = editorRef.current?.innerText ?? "";
@@ -1288,7 +1324,7 @@ function MotivationsschreibenPageInner() {
 
             <div id="bv-body" ref={editorRef} contentEditable
               suppressContentEditableWarning data-ph={t.ph}
-              onInput={handleBodyInput} spellCheck
+              onInput={handleBodyInput} onPaste={handlePaste} spellCheck
               style={{ marginTop: 18, minHeight: "200px" }} />
 
             <div style={{ marginTop: 24 }}>
