@@ -19,8 +19,8 @@ import {
   Lock, Unlock, IdCard, FileText, Folder, FilePen, Save, Eye,
   CheckCircle2, XCircle, AlertTriangle, PartyPopper,
 } from "@/components/PortalIcons";
-import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen } from "lucide-react";
-import { DndContext, closestCorners, useDroppable, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragOverEvent } from "@dnd-kit/core";
+import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, GripVertical } from "lucide-react";
+import { DndContext, closestCorners, useDroppable, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragOverEvent, type CollisionDetection } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Spinner, PageLoader, EmptyState } from "@/components/ui/states";
@@ -279,6 +279,43 @@ function DroppableGroup({ id, highlighted, children }: { id: string; highlighted
       }}
     >
       {children}
+    </div>
+  );
+}
+
+// TWO drag types share one DndContext: category sections (id "cat:<uuid>") and
+// document boxes (plain slot id, dropped into buckets "<uuid>" / "__uncat__").
+// This collision strategy keeps them from interfering — a category drag only
+// sees category targets; a box drag only sees bucket/box targets.
+const slotCollision: CollisionDetection = (args) => {
+  const draggingCat = String(args.active.id).startsWith("cat:");
+  const scoped = args.droppableContainers.filter(c => String(c.id).startsWith("cat:") === draggingCat);
+  return closestCorners({ ...args, droppableContainers: scoped });
+};
+
+// A draggable CATEGORY section. The drag listeners go on a dedicated grip
+// handle (passed to the render-prop child) so dragging the handle reorders the
+// whole category, while the box rows inside keep their own drag behaviour.
+function SortableCategory({
+  id,
+  children,
+}: {
+  id: string;
+  children: (h: Pick<ReturnType<typeof useSortable>, "attributes" | "listeners"> & { isDragging: boolean }) => React.ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition: transition ?? "transform 200ms cubic-bezier(0.2,0,0,1)",
+        position: "relative",
+        zIndex: isDragging ? 998 : undefined,
+        opacity: isDragging ? 0.6 : 1,
+      }}
+    >
+      {children({ attributes, listeners, isDragging })}
     </div>
   );
 }
@@ -4447,6 +4484,29 @@ export default function AdminPage() {
                         const activeId = String(active.id);
                         const overId = String(over.id);
                         if (activeId === overId) return;
+
+                        // Category drag → reorder the whole category list (and
+                        // reflow slot positions, since category order drives layout).
+                        if (activeId.startsWith("cat:")) {
+                          const fromId = activeId.slice(4);
+                          const toId = overId.startsWith("cat:") ? overId.slice(4) : null;
+                          if (!toId || fromId === toId) return;
+                          const fromIdx = cats.findIndex(c => c.id === fromId);
+                          const toIdx = cats.findIndex(c => c.id === toId);
+                          if (fromIdx === -1 || toIdx === -1) return;
+                          const renum = arrayMove(cats, fromIdx, toIdx).map((c, i) => ({ ...c, position: i }));
+                          setSlotCategories(prev => ({ ...prev, [slotPhase]: renum }));
+                          if (accessToken) {
+                            void fetch("/api/portal/phase-slot-categories", {
+                              method: "PATCH",
+                              headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                              body: JSON.stringify({ positions: renum.map(c => ({ id: c.id, position: c.position })) }),
+                            }).catch(() => {});
+                          }
+                          reflowAndSave(slotPhase, phaseSlots[slotPhase] ?? [], renum);
+                          return;
+                        }
+
                         const from = findContainer(activeId);
                         const to = findContainer(overId);
                         if (!from || !to) return;
@@ -4492,10 +4552,10 @@ export default function AdminPage() {
                           ) : (
                             <DndContext
                               sensors={slotSensors}
-                              collisionDetection={closestCorners}
+                              collisionDetection={slotCollision}
                               measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
-                              onDragStart={e => setDraggingSlot(String(e.active.id))}
-                              onDragOver={(e: DragOverEvent) => setDragOverCat(e.over ? findContainer(String(e.over.id)) : null)}
+                              onDragStart={e => { const id = String(e.active.id); if (!id.startsWith("cat:")) setDraggingSlot(id); }}
+                              onDragOver={(e: DragOverEvent) => { if (String(e.active.id).startsWith("cat:")) return; setDragOverCat(e.over ? findContainer(String(e.over.id)) : null); }}
                               onDragCancel={() => { setDraggingSlot(null); setDragOverCat(null); }}
                               onDragEnd={onSlotDragEnd}
                             >
@@ -4506,14 +4566,23 @@ export default function AdminPage() {
 
                               {/* Foldable, reorderable categories. Deleting one un-groups
                                   its slots (never deletes them — see deleteSlotCategory). */}
+                              <SortableContext items={cats.map(c => `cat:${c.id}`)} strategy={verticalListSortingStrategy}>
                               {cats.map((cat, ci) => {
                                 const catSlots = slotsInCat(cat.id);
                                 const folded = foldedCats.has(cat.id);
                                 const editing = editingCatId === cat.id;
                                 return (
-                                  <div key={cat.id} className="mt-1.5" style={{ borderTop: ci === 0 && uncategorized.length === 0 ? "none" : "1px solid var(--border)" }}>
-                                    {/* Category header — click chevron/label to fold/rename */}
+                                  <SortableCategory key={cat.id} id={`cat:${cat.id}`}>
+                                  {({ attributes, listeners, isDragging }) => (
+                                  <div className="mt-1.5" style={{ borderTop: ci === 0 && uncategorized.length === 0 ? "none" : "1px solid var(--border)", ...(isDragging ? { background: "var(--card)", borderRadius: 12, boxShadow: "0 14px 36px rgba(0,0,0,0.20)" } : {}) }}>
+                                    {/* Category header — grip to reorder; chevron/label to fold/rename */}
                                     <div className="flex items-center gap-1 px-2 py-2">
+                                      <button type="button" {...attributes} {...listeners}
+                                        className="bv-icon-btn w-6 h-7 flex items-center justify-center rounded-md flex-shrink-0"
+                                        style={{ color: "var(--w3)", cursor: "grab", touchAction: "none" }}
+                                        aria-label={lang === "de" ? "Kategorie verschieben" : lang === "fr" ? "Déplacer la catégorie" : "Reorder category"}>
+                                        <GripVertical size={13} strokeWidth={2} />
+                                      </button>
                                       <button type="button"
                                         onClick={() => toggleFoldCat(cat.id)}
                                         className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0"
@@ -4577,8 +4646,11 @@ export default function AdminPage() {
                                         renderGroup handles the empty case (drop target). */}
                                     {!folded && renderGroup(catSlots, cat.id)}
                                   </div>
+                                  )}
+                                  </SortableCategory>
                                 );
                               })}
+                              </SortableContext>
 
                               {/* Add a new (empty) category */}
                               <button type="button"
