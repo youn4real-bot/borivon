@@ -18,7 +18,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
-const BATCH = 50;
+const BATCH = 15; // small: each row also does a Drive size lookup (rate-limited)
 
 type Tag = { id: string; name: string | null; type: string | null };
 

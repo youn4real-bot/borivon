@@ -19,6 +19,7 @@ export default function MigrateToR2Page() {
   const [log, setLog] = useState<string[]>([]);
 
   const [verifying, setVerifying] = useState(false);
+  const [auditComplete, setAuditComplete] = useState(false);
   const [vLog, setVLog] = useState<string[]>([]);
   const [vSummary, setVSummary] = useState<{ verified: number; missing: number; mismatch: number; notMigrated: number; total: number } | null>(null);
 
@@ -59,22 +60,35 @@ export default function MigrateToR2Page() {
   }
 
   async function verify() {
-    setVerifying(true); setVLog([]); setVSummary(null);
+    setVerifying(true); setVLog([]); setVSummary(null); setAuditComplete(false);
     let verified = 0, missing = 0, mismatch = 0, notMigrated = 0, total = 0;
+    let complete = false;
+    type V = {
+      verified?: number; missingInR2?: Failed[];
+      sizeMismatch?: (Failed & { r2: number; drive: number })[];
+      notMigrated?: Failed[]; total?: number; nextOffset?: number; done?: boolean; error?: string;
+    };
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
       if (!token) { vadd("⚠️ Not logged in as the supreme admin."); setVerifying(false); return; }
 
       let offset = 0;
-      for (let i = 0; i < 4000; i++) {
-        const res = await fetch("/api/portal/admin/verify-r2", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ offset }),
-        });
-        const j = await res.json().catch(() => ({}));
-        if (!res.ok) { vadd(`❌ Error: ${j.error ?? res.status}`); break; }
+      for (let i = 0; i < 10000; i++) {
+        // Retry a batch up to 3× — Drive can throttle / time out a batch.
+        let j: V | null = null;
+        for (let attempt = 1; attempt <= 3 && !j; attempt++) {
+          try {
+            const res = await fetch("/api/portal/admin/verify-r2", {
+              method: "POST",
+              headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+              body: JSON.stringify({ offset }),
+            });
+            if (res.ok) { j = (await res.json()) as V; }
+            else { vadd(`… batch @${offset} returned ${res.status} — retry ${attempt}/3`); await new Promise(r => setTimeout(r, 1500 * attempt)); }
+          } catch { vadd(`… batch @${offset} network hiccup — retry ${attempt}/3`); await new Promise(r => setTimeout(r, 1500 * attempt)); }
+        }
+        if (!j) { vadd(`⚠️ Audit paused at ${offset}. Click "Verify all files" again to finish.`); break; }
 
         verified += j.verified ?? 0;
         missing += j.missingInR2?.length ?? 0;
@@ -82,15 +96,19 @@ export default function MigrateToR2Page() {
         notMigrated += j.notMigrated?.length ?? 0;
         total = j.total ?? total;
 
-        (j.missingInR2 as Failed[] | undefined)?.forEach(f => vadd(`   ❌ MISSING in R2: ${f.name ?? f.id.slice(0, 8)} [${f.type ?? "?"}]`));
-        (j.sizeMismatch as (Failed & { r2: number; drive: number })[] | undefined)?.forEach(f => vadd(`   ⚠️ SIZE DIFFERS: ${f.name ?? f.id.slice(0, 8)} [${f.type ?? "?"}] — R2 ${f.r2}B vs Drive ${f.drive}B`));
-        (j.notMigrated as Failed[] | undefined)?.forEach(f => vadd(`   ⏭ not copied: ${f.name ?? f.id.slice(0, 8)} [${f.type ?? "?"}]`));
+        j.missingInR2?.forEach(f => vadd(`   ❌ MISSING in R2: ${f.name ?? f.id.slice(0, 8)} [${f.type ?? "?"}]`));
+        j.sizeMismatch?.forEach(f => vadd(`   ⚠️ SIZE DIFFERS: ${f.name ?? f.id.slice(0, 8)} [${f.type ?? "?"}] — R2 ${f.r2}B vs Drive ${f.drive}B`));
+        j.notMigrated?.forEach(f => vadd(`   ⏭ not copied: ${f.name ?? f.id.slice(0, 8)} [${f.type ?? "?"}]`));
 
         setVSummary({ verified, missing, mismatch, notMigrated, total });
-        offset = j.nextOffset ?? (offset + 50);
-        if (j.done) break;
+        offset = j.nextOffset ?? (offset + 15);
+        await new Promise(r => setTimeout(r, 250)); // gentle pacing vs Drive throttle
+        if (j.done) { complete = true; break; }
       }
-      vadd("— audit complete —");
+      if (complete) {
+        setAuditComplete(true);
+        vadd(`— audit complete: ${verified} verified, ${missing} missing, ${mismatch} size-diff, ${notMigrated} not copied —`);
+      }
     } catch (e) {
       vadd(`💥 ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -160,7 +178,10 @@ export default function MigrateToR2Page() {
           {" "}❌ Missing: <b style={{ color: vSummary.missing ? "#ef4444" : undefined }}>{vSummary.missing}</b> ·
           {" "}⚠️ Size diff: <b style={{ color: vSummary.mismatch ? "#f59e0b" : undefined }}>{vSummary.mismatch}</b> ·
           {" "}⏭ Not copied: <b>{vSummary.notMigrated}</b>
-          {vSummary.missing === 0 && vSummary.mismatch === 0 ? "  — all good 🎉" : ""}
+          {verifying ? "  — checking…"
+            : auditComplete && vSummary.missing === 0 && vSummary.mismatch === 0 ? "  — ✅ all files confirmed in R2 🎉"
+            : auditComplete ? "  — ⚠️ see problems above"
+            : "  — incomplete, click Verify again"}
         </p>
       )}
 
