@@ -215,7 +215,7 @@ export default function DashboardPage() {
       kind: "recognition" as PhaseKind,
       isTranslations: false,
       items: dynamicSlots.bea.map(s => ({
-        key: s.id, label: s.label, hint: "", category_id: s.category_id ?? null,
+        key: s.id, label: s.label, hint: "", category_id: s.category_id ?? null, position: s.position,
         ...(s.instructions ? { instructions: s.instructions } : {}),
         ...(s.form_fields?.length ? { form_fields: s.form_fields } : {}),
         ...(s.template_pdf_path ? { template_pdf_path: s.template_pdf_path } : {}),
@@ -231,7 +231,7 @@ export default function DashboardPage() {
       kind: "embassy" as PhaseKind,
       isTranslations: false,
       items: dynamicSlots.vis.map(s => ({
-        key: s.id, label: s.label, hint: "", category_id: s.category_id ?? null,
+        key: s.id, label: s.label, hint: "", category_id: s.category_id ?? null, position: s.position,
         ...(s.instructions ? { instructions: s.instructions } : {}),
         ...(s.form_fields?.length ? { form_fields: s.form_fields } : {}),
         ...(s.template_pdf_path ? { template_pdf_path: s.template_pdf_path } : {}),
@@ -3153,39 +3153,54 @@ export default function DashboardPage() {
             // No categories → flat list, byte-for-byte the pre-feature layout.
             if (phCats.length === 0) return currentPhase.items.map((item, idx) => renderItem(item, idx));
 
-            const uncategorized = currentPhase.items.filter(it => catOf(it) === null);
+            // Interleave loose boxes + categories by the SAME shared position scale
+            // the admin arranges, so a category can sit between two loose boxes.
+            // "Disjoint" position sets = already unified; otherwise (legacy data)
+            // fall back to categories-first.
+            const uncatItems = currentPhase.items.filter(it => catOf(it) === null);
+            const posOf = (it: (typeof currentPhase.items)[number]) => (it as { position?: number }).position ?? 0;
+            const boxPosSet = new Set(uncatItems.map(posOf));
+            const disjoint = phCats.every(c => !boxPosSet.has(c.position));
+            const merged = disjoint
+              ? [
+                  ...uncatItems.map(it => ({ k: "box" as const, it, pos: posOf(it) })),
+                  ...phCats.map(c => ({ k: "cat" as const, c, pos: c.position })),
+                ].sort((a, b) => a.pos - b.pos)
+              : [
+                  ...phCats.map(c => ({ k: "cat" as const, c, pos: c.position })),
+                  ...uncatItems.map(it => ({ k: "box" as const, it, pos: posOf(it) })),
+                ];
+
+            const renderCatSection = (cat: (typeof phCats)[number]) => {
+              const catItems = currentPhase.items.filter(it => catOf(it) === cat.id);
+              if (catItems.length === 0) return null; // empty categories stay hidden from candidates
+              const folded = foldedCats.has(cat.id);
+              return (
+                <div key={cat.id} className="mt-1">
+                  <button type="button"
+                    onClick={() => toggleFoldCat(cat.id)}
+                    aria-expanded={!folded}
+                    className="bv-row-hover w-full flex items-center gap-2 px-3 py-2.5 text-left"
+                    style={{ borderTop: "1px solid var(--border)" }}>
+                    <ChevronDown size={14} strokeWidth={2}
+                      style={{ color: "var(--w3)", transition: "transform var(--dur-2) var(--ease)", transform: folded ? "rotate(-90deg)" : "rotate(0deg)" }} />
+                    <span className="flex-1 min-w-0 text-[11.5px] font-semibold tracking-tight truncate" style={{ color: "var(--w)" }}>
+                      {cat.label || (lang === "de" ? "Dokumente" : lang === "fr" ? "Documents" : "Documents")}
+                    </span>
+                    <span className="text-[10px] flex-shrink-0" style={{ color: "var(--w3)" }}>{catItems.length}</span>
+                  </button>
+                  {!folded && (
+                    <div style={{ animation: "bvFadeRise .2s var(--ease-out)" }}>
+                      {catItems.map((item, i) => renderItem(item, i))}
+                    </div>
+                  )}
+                </div>
+              );
+            };
+
             return (
               <>
-                {/* Categories first (on top), matching the admin arrangement. Each
-                    is a foldable section — candidates fold/unfold locally. */}
-                {phCats.map(cat => {
-                  const catItems = currentPhase.items.filter(it => catOf(it) === cat.id);
-                  if (catItems.length === 0) return null; // empty categories stay hidden from candidates
-                  const folded = foldedCats.has(cat.id);
-                  return (
-                    <div key={cat.id} className="mt-1">
-                      <button type="button"
-                        onClick={() => toggleFoldCat(cat.id)}
-                        aria-expanded={!folded}
-                        className="bv-row-hover w-full flex items-center gap-2 px-3 py-2.5 text-left"
-                        style={{ borderTop: "1px solid var(--border)" }}>
-                        <ChevronDown size={14} strokeWidth={2}
-                          style={{ color: "var(--w3)", transition: "transform var(--dur-2) var(--ease)", transform: folded ? "rotate(-90deg)" : "rotate(0deg)" }} />
-                        <span className="flex-1 min-w-0 text-[11.5px] font-semibold tracking-tight truncate" style={{ color: "var(--w)" }}>
-                          {cat.label || (lang === "de" ? "Dokumente" : lang === "fr" ? "Documents" : "Documents")}
-                        </span>
-                        <span className="text-[10px] flex-shrink-0" style={{ color: "var(--w3)" }}>{catItems.length}</span>
-                      </button>
-                      {!folded && (
-                        <div style={{ animation: "bvFadeRise .2s var(--ease-out)" }}>
-                          {catItems.map((item, i) => renderItem(item, i))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-                {/* Loose (uncategorized) boxes at the bottom, beneath the categories. */}
-                {uncategorized.map((item, i) => renderItem(item, i))}
+                {merged.map((u, oi) => u.k === "box" ? renderItem(u.it, oi) : renderCatSection(u.c))}
               </>
             );
           })()}

@@ -283,15 +283,33 @@ function DroppableGroup({ id, highlighted, children }: { id: string; highlighted
   );
 }
 
-// TWO drag types share one DndContext: category sections (id "cat:<uuid>") and
-// document boxes (plain slot id, dropped into buckets "<uuid>" / "__uncat__").
-// This collision strategy keeps them from interfering — a category drag only
-// sees category targets; a box drag only sees bucket/box targets.
-const slotCollision: CollisionDetection = (args) => {
-  const draggingCat = String(args.active.id).startsWith("cat:");
-  const scoped = args.droppableContainers.filter(c => String(c.id).startsWith("cat:") === draggingCat);
-  return closestCorners({ ...args, droppableContainers: scoped });
-};
+// ── Unified top-level ordering ─────────────────────────────────────────────
+// Loose (uncategorized) boxes AND categories live in ONE ordered list so a
+// category can be dragged to ANY spot — including between two loose boxes.
+// Shared position scale: a loose box's slot.position and a category's
+// position are drawn from the same integer sequence (categorized boxes keep a
+// separate intra-category position). "Disjoint" = the two scales share no
+// value → already unified; otherwise it's legacy data (both start at 0) and we
+// fall back to categories-first / boxes-last until the next reflow normalises.
+type TopUnit = { kind: "box" | "cat"; id: string };
+function buildTopOrder(
+  uncatBoxes: { id: string; position: number }[],
+  cats: { id: string; position: number }[],
+): TopUnit[] {
+  const boxSet = new Set(uncatBoxes.map(b => b.position));
+  const disjoint = cats.every(c => !boxSet.has(c.position));
+  if (disjoint) {
+    return [
+      ...uncatBoxes.map(b => ({ kind: "box" as const, id: b.id, pos: b.position })),
+      ...cats.map(c => ({ kind: "cat" as const, id: c.id, pos: c.position })),
+    ].sort((a, b) => a.pos - b.pos).map(u => ({ kind: u.kind, id: u.id }));
+  }
+  // Legacy / overlapping scales → categories first, then loose boxes.
+  return [
+    ...[...cats].sort((a, b) => a.position - b.position).map(c => ({ kind: "cat" as const, id: c.id })),
+    ...[...uncatBoxes].sort((a, b) => a.position - b.position).map(b => ({ kind: "box" as const, id: b.id })),
+  ];
+}
 
 // A draggable CATEGORY section. The drag listeners go on a dedicated grip
 // handle (passed to the render-prop child) so dragging the handle reorders the
@@ -2241,17 +2259,42 @@ export default function AdminPage() {
       }
     } catch { /* migration pending / offline → stays flat */ }
   }
-  // Recompute global positions in DISPLAY order (uncategorized first, then
-  // each category in its order, slots within by current position) and
-  // persist. category_id changes ride along in the same PATCH.
-  function reflowAndSave(phase: string, slotsArr: PhaseSlot[], catsArr: SlotCategory[]) {
-    const inCat = (cid: string | null) =>
-      slotsArr.filter(s => (s.category_id ?? null) === cid).sort((a, b) => a.position - b.position);
-    const ordered: PhaseSlot[] = [...inCat(null)];
-    for (const c of [...catsArr].sort((a, b) => a.position - b.position)) ordered.push(...inCat(c.id));
-    const renum = ordered.map((s, i) => ({ ...s, position: i }));
-    setPhaseSlots(prev => ({ ...prev, [phase]: renum }));
-    void saveSlotOrder(phase, renum.map(s => ({ id: s.id, position: s.position, category_id: s.category_id ?? null })));
+  // Persist category positions (top-level rank) in one PATCH.
+  async function saveCategoryOrder(phase: string, cats: SlotCategory[]) {
+    if (!accessToken) return;
+    try {
+      await fetch("/api/portal/phase-slot-categories", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ positions: cats.map(c => ({ id: c.id, position: c.position })) }),
+      });
+    } catch { /* offline */ }
+  }
+  // Renumber EVERYTHING into a clean unified scale and persist.
+  //  • Top-level units (loose boxes + categories) get sequential ranks 0..T-1,
+  //    written to slot.position (loose boxes) / category.position (categories).
+  //  • Categorized boxes get a separate intra-category rank 0..k.
+  // Pass `order` to force a specific top-level arrangement (a drag result);
+  // omit it to preserve the current arrangement (via buildTopOrder).
+  function reflowAndSave(phase: string, slotsArr: PhaseSlot[], catsArr: SlotCategory[], order?: TopUnit[]) {
+    const uncatBoxes = slotsArr.filter(s => !s.category_id).map(s => ({ id: s.id, position: s.position }));
+    const top = order ?? buildTopOrder(uncatBoxes, catsArr);
+    const boxTop = new Map<string, number>();
+    const catTop = new Map<string, number>();
+    top.forEach((u, i) => { if (u.kind === "box") boxTop.set(u.id, i); else catTop.set(u.id, i); });
+    const nextSlots = slotsArr.map(s => (s.category_id ? s : { ...s, position: boxTop.get(s.id) ?? s.position }));
+    for (const c of catsArr) {
+      const inC = slotsArr.filter(s => s.category_id === c.id).sort((a, b) => a.position - b.position);
+      inC.forEach((s, idx) => {
+        const i = nextSlots.findIndex(n => n.id === s.id);
+        if (i >= 0) nextSlots[i] = { ...nextSlots[i], position: idx };
+      });
+    }
+    const nextCats = catsArr.map(c => ({ ...c, position: catTop.get(c.id) ?? c.position }));
+    setPhaseSlots(prev => ({ ...prev, [phase]: nextSlots }));
+    setSlotCategories(prev => ({ ...prev, [phase]: nextCats }));
+    void saveSlotOrder(phase, nextSlots.map(s => ({ id: s.id, position: s.position, category_id: s.category_id ?? null })));
+    void saveCategoryOrder(phase, nextCats);
   }
   async function createCategory(phase: string) {
     if (!accessToken) return;
@@ -2264,8 +2307,14 @@ export default function AdminPage() {
       if (res.ok) {
         const j = await res.json();
         const cat = j.category as SlotCategory;
-        setSlotCategories(prev => ({ ...prev, [phase]: [...(prev[phase] ?? []), cat] }));
+        const slotsArr = phaseSlots[phase] ?? [];
+        const catsArr = slotCategories[phase] ?? [];
+        const nextCats = [...catsArr, cat];
+        setSlotCategories(prev => ({ ...prev, [phase]: nextCats }));
         setEditingCatId(cat.id); setEditingCatLabel(cat.label ?? "");
+        // Append the new category at the END of the current top-level order.
+        const order = buildTopOrder(slotsArr.filter(s => !s.category_id).map(s => ({ id: s.id, position: s.position })), catsArr);
+        reflowAndSave(phase, slotsArr, nextCats, [...order, { kind: "cat", id: cat.id }]);
       } else {
         const j = await res.json().catch(() => ({}));
         alert((j as { error?: string }).error ?? "Could not create category");
@@ -2284,45 +2333,55 @@ export default function AdminPage() {
     } catch { /* offline */ }
   }
   async function deleteSlotCategory(phase: string, id: string) {
-    // Local: un-group the category's slots, drop the category, reflow.
-    const cats = (slotCategories[phase] ?? []).filter(c => c.id !== id);
-    const slotsArr = (phaseSlots[phase] ?? []).map(s => s.category_id === id ? { ...s, category_id: null } : s);
+    const before = phaseSlots[phase] ?? [];
+    const catsBefore = slotCategories[phase] ?? [];
+    const cats = catsBefore.filter(c => c.id !== id);
+    // Freed boxes (un-grouped) keep their relative order, appended at the end.
+    const freed = before.filter(s => s.category_id === id).sort((a, b) => a.position - b.position);
+    const slotsArr = before.map(s => s.category_id === id ? { ...s, category_id: null } : s);
     setSlotCategories(prev => ({ ...prev, [phase]: cats }));
-    if (!accessToken) return;
-    try {
-      await fetch("/api/portal/phase-slot-categories", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ id }),
-      });
-    } catch { /* offline */ }
-    reflowAndSave(phase, slotsArr, cats);
-  }
-  async function moveCategory(phase: string, id: string, dir: -1 | 1) {
-    const cats = [...(slotCategories[phase] ?? [])].sort((a, b) => a.position - b.position);
-    const idx = cats.findIndex(c => c.id === id);
-    const swap = idx + dir;
-    if (idx === -1 || swap < 0 || swap >= cats.length) return;
-    [cats[idx], cats[swap]] = [cats[swap], cats[idx]];
-    const renum = cats.map((c, i) => ({ ...c, position: i }));
-    setSlotCategories(prev => ({ ...prev, [phase]: renum }));
     if (accessToken) {
       try {
         await fetch("/api/portal/phase-slot-categories", {
-          method: "PATCH",
+          method: "DELETE",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-          body: JSON.stringify({ positions: renum.map(c => ({ id: c.id, position: c.position })) }),
+          body: JSON.stringify({ id }),
         });
       } catch { /* offline */ }
     }
-    // Slot display order depends on category order → reflow positions too.
-    reflowAndSave(phase, phaseSlots[phase] ?? [], renum);
+    const orderBefore = buildTopOrder(before.filter(s => !s.category_id).map(s => ({ id: s.id, position: s.position })), catsBefore);
+    const order: TopUnit[] = [
+      ...orderBefore.filter(u => !(u.kind === "cat" && u.id === id)),
+      ...freed.map(s => ({ kind: "box" as const, id: s.id })),
+    ];
+    reflowAndSave(phase, slotsArr, cats, order);
+  }
+  // Nudge a category one step up/down through the WHOLE top-level list
+  // (it can hop over a loose box, not just other categories).
+  function moveCategory(phase: string, id: string, dir: -1 | 1) {
+    const slotsArr = phaseSlots[phase] ?? [];
+    const catsArr = slotCategories[phase] ?? [];
+    const order = buildTopOrder(slotsArr.filter(s => !s.category_id).map(s => ({ id: s.id, position: s.position })), catsArr);
+    const idx = order.findIndex(u => u.kind === "cat" && u.id === id);
+    const swap = idx + dir;
+    if (idx === -1 || swap < 0 || swap >= order.length) return;
+    const next = [...order];
+    [next[idx], next[swap]] = [next[swap], next[idx]];
+    reflowAndSave(phase, slotsArr, catsArr, next);
   }
   function moveSlotToCategory(phase: string, slotId: string, catId: string | null) {
     setRevokeMenu(null);
-    const cats = slotCategories[phase] ?? [];
-    const slotsArr = (phaseSlots[phase] ?? []).map(s => s.id === slotId ? { ...s, category_id: catId } : s);
-    reflowAndSave(phase, slotsArr, cats);
+    const catsArr = slotCategories[phase] ?? [];
+    const before = phaseSlots[phase] ?? [];
+    const slotsArr = before.map(s => s.id === slotId ? { ...s, category_id: catId } : s);
+    if (catId === null) {
+      // Out to loose → append at the end of the top-level order.
+      const order = buildTopOrder(before.filter(s => !s.category_id).map(s => ({ id: s.id, position: s.position })), catsArr)
+        .filter(u => u.id !== slotId);
+      reflowAndSave(phase, slotsArr, catsArr, [...order, { kind: "box", id: slotId }]);
+    } else {
+      reflowAndSave(phase, slotsArr, catsArr);
+    }
   }
   function toggleFoldCat(id: string) {
     setFoldedCats(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -4440,21 +4499,28 @@ export default function AdminPage() {
                                 );
                               }; // end renderSlotRow
 
-                      // ── Cross-category drag-and-drop ───────────────────────
-                      // A box can be dragged from ANY group and dropped INTO ANY
-                      // other (or back to uncategorized). ONE DndContext spans
-                      // every group; each group is its own droppable bucket. On
-                      // drop we set the box's category_id + position, then reflow
-                      // renumbers GLOBAL positions in display order (uncategorized
-                      // first, then categories in order) so the category a box
-                      // lives in fully drives where it renders.
+                      // ── Unified drag surface ───────────────────────────────
+                      // ONE list holds loose boxes AND categories interleaved, so a
+                      // category can be dropped BETWEEN boxes (or a box pulled out to
+                      // sit between categories). buildTopOrder gives the current
+                      // arrangement; reflowAndSave renumbers the shared scale on drop.
                       const UNCAT = "__uncat__";
-                      const containerIds = new Set<string>([UNCAT, ...cats.map(c => c.id)]);
-                      const findContainer = (id: string): string | null => {
-                        if (containerIds.has(id)) return id;          // dropped on a bucket itself
-                        const s = slots.find(x => x.id === id);
-                        if (!s) return null;
-                        return s.category_id ?? UNCAT;                // else the box's current bucket
+                      const slotById = new Map(slots.map(s => [s.id, s] as const));
+                      const catById = new Map(cats.map(c => [c.id, c] as const));
+                      const uncatIdSet = new Set(uncategorized.map(s => s.id));
+                      const bucketIds = new Set<string>([UNCAT, ...cats.map(c => c.id)]);
+                      const topOrder = buildTopOrder(uncategorized.map(s => ({ id: s.id, position: s.position })), cats);
+                      const bucketOf = (id: string): string => slotById.get(id)?.category_id ?? UNCAT;
+
+                      // A CATEGORY drag targets top-level units (loose boxes + other
+                      // categories) → it can land between boxes. A BOX drag targets
+                      // boxes + buckets, never the category sortables.
+                      const collision: CollisionDetection = (args) => {
+                        const a = String(args.active.id);
+                        const scoped = a.startsWith("cat:")
+                          ? args.droppableContainers.filter(c => { const id = String(c.id); return id.startsWith("cat:") || uncatIdSet.has(id); })
+                          : args.droppableContainers.filter(c => !String(c.id).startsWith("cat:"));
+                        return closestCorners({ ...args, droppableContainers: scoped });
                       };
                       // One group's rows in a droppable + sortable zone. Empty
                       // buckets still render a slim hint so they can catch a drop.
@@ -4470,9 +4536,6 @@ export default function AdminPage() {
                         </DroppableGroup>
                       );
 
-                      // Persist a drag. Same-bucket reorder = arrayMove. Cross-
-                      // bucket drop also flips the box's category_id. Works whether
-                      // dropped on a bucket's empty area or onto a specific box.
                       const onSlotDragEnd = (event: DragEndEvent) => {
                         setDraggingSlot(null); setDragOverCat(null);
                         const { active, over } = event;
@@ -4481,61 +4544,121 @@ export default function AdminPage() {
                         const overId = String(over.id);
                         if (activeId === overId) return;
 
-                        // Category drag → reorder the whole category list (and
-                        // reflow slot positions, since category order drives layout).
+                        // ── Category drag → move it ANYWHERE in the top-level order
+                        //    (between loose boxes, or among other categories). ──
                         if (activeId.startsWith("cat:")) {
-                          const fromId = activeId.slice(4);
-                          const toId = overId.startsWith("cat:") ? overId.slice(4) : null;
-                          if (!toId || fromId === toId) return;
-                          const fromIdx = cats.findIndex(c => c.id === fromId);
-                          const toIdx = cats.findIndex(c => c.id === toId);
+                          const catId = activeId.slice(4);
+                          const fromIdx = topOrder.findIndex(u => u.kind === "cat" && u.id === catId);
+                          let toIdx: number;
+                          if (overId.startsWith("cat:")) toIdx = topOrder.findIndex(u => u.kind === "cat" && u.id === overId.slice(4));
+                          else if (overId === UNCAT) toIdx = topOrder.length - 1;
+                          else toIdx = topOrder.findIndex(u => u.kind === "box" && u.id === overId);
                           if (fromIdx === -1 || toIdx === -1) return;
-                          const renum = arrayMove(cats, fromIdx, toIdx).map((c, i) => ({ ...c, position: i }));
-                          setSlotCategories(prev => ({ ...prev, [slotPhase]: renum }));
-                          if (accessToken) {
-                            void fetch("/api/portal/phase-slot-categories", {
-                              method: "PATCH",
-                              headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-                              body: JSON.stringify({ positions: renum.map(c => ({ id: c.id, position: c.position })) }),
-                            }).catch(() => {});
-                          }
-                          reflowAndSave(slotPhase, phaseSlots[slotPhase] ?? [], renum);
+                          reflowAndSave(slotPhase, slots, cats, arrayMove(topOrder, fromIdx, toIdx));
                           return;
                         }
 
-                        const from = findContainer(activeId);
-                        const to = findContainer(overId);
-                        if (!from || !to) return;
+                        // ── Box drag ──
+                        const from = bucketOf(activeId);
+                        let to: string;
+                        if (overId.startsWith("cat:")) to = overId.slice(4);   // onto a category section → into it
+                        else if (bucketIds.has(overId)) to = overId;            // onto a bucket drop zone
+                        else to = bucketOf(overId);                             // onto a box → its bucket
 
+                        if (to === UNCAT) {
+                          // Box becomes loose, dropped at the over box's spot in the top order.
+                          const without = topOrder.filter(u => !(u.kind === "box" && u.id === activeId));
+                          let insertIdx = without.length;
+                          if (!overId.startsWith("cat:") && overId !== UNCAT) {
+                            const oi = without.findIndex(u => u.kind === "box" && u.id === overId);
+                            if (oi >= 0) insertIdx = oi;
+                          }
+                          without.splice(insertIdx, 0, { kind: "box", id: activeId });
+                          const nextSlots = slots.map(s => s.id === activeId ? { ...s, category_id: null } : s);
+                          reflowAndSave(slotPhase, nextSlots, cats, without);
+                          return;
+                        }
+
+                        // Reorder within a category, or move a box into one.
                         if (from === to) {
-                          const cid = to === UNCAT ? null : to;
-                          const arr = slotsInCat(cid);
+                          const arr = slotsInCat(to);
                           const oldIdx = arr.findIndex(s => s.id === activeId);
                           const newIdx = arr.findIndex(s => s.id === overId);
                           if (oldIdx === -1 || newIdx === -1) return;
-                          const reordered = arrayMove(arr, oldIdx, newIdx);
-                          const posMap = new Map(reordered.map((s, i) => [s.id, i] as const));
-                          const next = (phaseSlots[slotPhase] ?? []).map(s =>
-                            posMap.has(s.id) ? { ...s, position: posMap.get(s.id)! } : s);
+                          const re = arrayMove(arr, oldIdx, newIdx);
+                          const posMap = new Map(re.map((s, i) => [s.id, i] as const));
+                          const next = slots.map(s => posMap.has(s.id) ? { ...s, position: posMap.get(s.id)! } : s);
                           reflowAndSave(slotPhase, next, cats);
                           return;
                         }
-
-                        // Cross-bucket: splice the box into the target bucket.
-                        const targetCatId = to === UNCAT ? null : to;
-                        const activeSlot = slots.find(s => s.id === activeId);
+                        const targetItems = slotsInCat(to).filter(s => s.id !== activeId);
+                        const oi = targetItems.findIndex(s => s.id === overId);
+                        const insertIdx = oi === -1 ? targetItems.length : oi;
+                        const activeSlot = slotById.get(activeId);
                         if (!activeSlot) return;
-                        const targetItems = slotsInCat(targetCatId).filter(s => s.id !== activeId);
-                        const overIdx = targetItems.findIndex(s => s.id === overId);
-                        const insertIdx = overIdx === -1 ? targetItems.length : overIdx;
                         targetItems.splice(insertIdx, 0, activeSlot);
                         const posMap = new Map(targetItems.map((s, i) => [s.id, i] as const));
-                        const next = (phaseSlots[slotPhase] ?? []).map(s => {
-                          if (s.id === activeId) return { ...s, category_id: targetCatId, position: posMap.get(s.id)! };
+                        const next = slots.map(s => {
+                          if (s.id === activeId) return { ...s, category_id: to, position: posMap.get(s.id)! };
                           if (posMap.has(s.id)) return { ...s, position: posMap.get(s.id)! };
                           return s;
                         });
                         reflowAndSave(slotPhase, next, cats);
+                      };
+
+                      // One category section: a sortable unit in the top-level list.
+                      // The WHOLE header bar is the drag handle (controls inside
+                      // stopPropagation so they click, not drag). `oi` = its index in
+                      // the unified order (drives the top divider + arrow disabling).
+                      const renderCategorySection = (cat: SlotCategory, oi: number) => {
+                        const catSlots = slotsInCat(cat.id);
+                        const folded = foldedCats.has(cat.id);
+                        const editing = editingCatId === cat.id;
+                        return (
+                          <SortableCategory key={cat.id} id={`cat:${cat.id}`}>
+                          {({ attributes, listeners, isDragging }) => (
+                          <div style={{ borderTop: oi === 0 ? "none" : "1px solid var(--border)", marginTop: oi === 0 ? 0 : 6, ...(isDragging ? { background: "var(--card)", borderRadius: 12, boxShadow: "0 14px 36px rgba(0,0,0,0.20)" } : {}) }}>
+                            <div className="flex items-center gap-1 px-2 py-2" {...attributes} {...listeners} style={{ cursor: "grab", touchAction: "none" }}>
+                              <button type="button" onPointerDown={e => e.stopPropagation()} onClick={() => toggleFoldCat(cat.id)}
+                                className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0" style={{ color: "var(--w3)" }}
+                                aria-label={folded ? "Unfold" : "Fold"}>
+                                <ChevronDown size={14} strokeWidth={2} style={{ transition: "transform var(--dur-2) var(--ease)", transform: folded ? "rotate(-90deg)" : "rotate(0deg)" }} />
+                              </button>
+                              {editing ? (
+                                <input autoFocus onPointerDown={e => e.stopPropagation()} value={editingCatLabel}
+                                  onChange={e => setEditingCatLabel(e.target.value)}
+                                  onBlur={() => { renameCategory(slotPhase, cat.id, editingCatLabel.trim()); setEditingCatId(null); }}
+                                  onKeyDown={e => { if (e.key === "Enter") { renameCategory(slotPhase, cat.id, editingCatLabel.trim()); setEditingCatId(null); } if (e.key === "Escape") setEditingCatId(null); }}
+                                  placeholder={lang === "de" ? "Kategoriename" : lang === "fr" ? "Nom de catégorie" : "Category name"}
+                                  className="flex-1 min-w-0 px-2 py-1 text-[12px] font-semibold outline-none"
+                                  style={{ background: "var(--bg2)", border: "1px solid var(--border-gold)", borderRadius: "8px", color: "var(--w)" }} />
+                              ) : (
+                                <button type="button" onPointerDown={e => e.stopPropagation()} onClick={() => { setEditingCatId(cat.id); setEditingCatLabel(cat.label ?? ""); }}
+                                  className="flex-1 min-w-0 text-left" title={lang === "de" ? "Umbenennen" : lang === "fr" ? "Renommer" : "Rename"}>
+                                  <span className="text-[12px] font-semibold tracking-tight" style={{ color: cat.label ? "var(--w)" : "var(--w3)" }}>
+                                    {cat.label || (lang === "de" ? "Unbenannt" : lang === "fr" ? "Sans nom" : "Untitled")}
+                                  </span>
+                                  <span className="text-[10px] ml-1.5" style={{ color: "var(--w3)" }}>· {catSlots.length}</span>
+                                </button>
+                              )}
+                              <button type="button" onPointerDown={e => e.stopPropagation()} onClick={() => moveCategory(slotPhase, cat.id, -1)} disabled={oi === 0}
+                                className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0 disabled:opacity-25" style={{ color: "var(--w2)" }} aria-label="Move up">
+                                <ChevronDown size={13} strokeWidth={2} style={{ transform: "rotate(180deg)" }} />
+                              </button>
+                              <button type="button" onPointerDown={e => e.stopPropagation()} onClick={() => moveCategory(slotPhase, cat.id, 1)} disabled={oi === topOrder.length - 1}
+                                className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0 disabled:opacity-25" style={{ color: "var(--w2)" }} aria-label="Move down">
+                                <ChevronDown size={13} strokeWidth={2} />
+                              </button>
+                              <button type="button" onPointerDown={e => e.stopPropagation()} onClick={() => deleteSlotCategory(slotPhase, cat.id)}
+                                className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0" style={{ color: "var(--danger)" }} aria-label="Delete category">
+                                <Trash2 size={12} strokeWidth={1.8} />
+                              </button>
+                            </div>
+                            {!folded && renderGroup(catSlots, cat.id)}
+                          </div>
+                          )}
+                          </SortableCategory>
+                        );
                       };
 
                       return (
@@ -4548,115 +4671,22 @@ export default function AdminPage() {
                           ) : (
                             <DndContext
                               sensors={slotSensors}
-                              collisionDetection={slotCollision}
+                              collisionDetection={collision}
                               measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
                               onDragStart={e => { const id = String(e.active.id); if (!id.startsWith("cat:")) setDraggingSlot(id); }}
-                              onDragOver={(e: DragOverEvent) => { if (String(e.active.id).startsWith("cat:")) return; setDragOverCat(e.over ? findContainer(String(e.over.id)) : null); }}
+                              onDragOver={(e: DragOverEvent) => { if (String(e.active.id).startsWith("cat:")) return; setDragOverCat(e.over ? bucketOf(String(e.over.id)) : null); }}
                               onDragCancel={() => { setDraggingSlot(null); setDragOverCat(null); }}
                               onDragEnd={onSlotDragEnd}
                             >
-                              {/* Categories at the TOP so any category can be placed above
-                                  the loose boxes ("on top"). Drag a header to reorder them.
-                                  Deleting one un-groups its slots (never deletes them). */}
-                              <SortableContext items={cats.map(c => `cat:${c.id}`)} strategy={verticalListSortingStrategy}>
-                              {cats.map((cat, ci) => {
-                                const catSlots = slotsInCat(cat.id);
-                                const folded = foldedCats.has(cat.id);
-                                const editing = editingCatId === cat.id;
-                                return (
-                                  <SortableCategory key={cat.id} id={`cat:${cat.id}`}>
-                                  {({ attributes, listeners, isDragging }) => (
-                                  <div className="mt-1.5" style={{ borderTop: ci === 0 && uncategorized.length === 0 ? "none" : "1px solid var(--border)", ...(isDragging ? { background: "var(--card)", borderRadius: 12, boxShadow: "0 14px 36px rgba(0,0,0,0.20)" } : {}) }}>
-                                    {/* Category header — drag ANYWHERE on the bar to reorder
-                                        (whole frame is the handle, like a box row). Interactive
-                                        controls stopPropagation on pointer-down so they click,
-                                        not drag. */}
-                                    <div className="flex items-center gap-1 px-2 py-2" {...attributes} {...listeners}
-                                      style={{ cursor: "grab", touchAction: "none" }}>
-                                      <button type="button"
-                                        onPointerDown={e => e.stopPropagation()}
-                                        onClick={() => toggleFoldCat(cat.id)}
-                                        className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0"
-                                        style={{ color: "var(--w3)" }}
-                                        aria-label={folded ? "Unfold" : "Fold"}>
-                                        <ChevronDown size={14} strokeWidth={2}
-                                          style={{ transition: "transform var(--dur-2) var(--ease)", transform: folded ? "rotate(-90deg)" : "rotate(0deg)" }} />
-                                      </button>
-                                      {editing ? (
-                                        <input
-                                          autoFocus
-                                          onPointerDown={e => e.stopPropagation()}
-                                          value={editingCatLabel}
-                                          onChange={e => setEditingCatLabel(e.target.value)}
-                                          onBlur={() => { renameCategory(slotPhase, cat.id, editingCatLabel.trim()); setEditingCatId(null); }}
-                                          onKeyDown={e => {
-                                            if (e.key === "Enter") { renameCategory(slotPhase, cat.id, editingCatLabel.trim()); setEditingCatId(null); }
-                                            if (e.key === "Escape") setEditingCatId(null);
-                                          }}
-                                          placeholder={lang === "de" ? "Kategoriename" : lang === "fr" ? "Nom de catégorie" : "Category name"}
-                                          className="flex-1 min-w-0 px-2 py-1 text-[12px] font-semibold outline-none"
-                                          style={{ background: "var(--bg2)", border: "1px solid var(--border-gold)", borderRadius: "8px", color: "var(--w)" }}
-                                        />
-                                      ) : (
-                                        <button type="button"
-                                          onPointerDown={e => e.stopPropagation()}
-                                          onClick={() => { setEditingCatId(cat.id); setEditingCatLabel(cat.label ?? ""); }}
-                                          className="flex-1 min-w-0 text-left"
-                                          title={lang === "de" ? "Umbenennen" : lang === "fr" ? "Renommer" : "Rename"}>
-                                          <span className="text-[12px] font-semibold tracking-tight" style={{ color: cat.label ? "var(--w)" : "var(--w3)" }}>
-                                            {cat.label || (lang === "de" ? "Unbenannt" : lang === "fr" ? "Sans nom" : "Untitled")}
-                                          </span>
-                                          <span className="text-[10px] ml-1.5" style={{ color: "var(--w3)" }}>· {catSlots.length}</span>
-                                        </button>
-                                      )}
-                                      {/* Reorder ↑ / ↓ (precise nudge; drag the bar for big moves) */}
-                                      <button type="button"
-                                        onPointerDown={e => e.stopPropagation()}
-                                        onClick={() => moveCategory(slotPhase, cat.id, -1)}
-                                        disabled={ci === 0}
-                                        className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0 disabled:opacity-25"
-                                        style={{ color: "var(--w2)" }}
-                                        aria-label="Move category up">
-                                        <ChevronDown size={13} strokeWidth={2} style={{ transform: "rotate(180deg)" }} />
-                                      </button>
-                                      <button type="button"
-                                        onPointerDown={e => e.stopPropagation()}
-                                        onClick={() => moveCategory(slotPhase, cat.id, 1)}
-                                        disabled={ci === cats.length - 1}
-                                        className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0 disabled:opacity-25"
-                                        style={{ color: "var(--w2)" }}
-                                        aria-label="Move category down">
-                                        <ChevronDown size={13} strokeWidth={2} />
-                                      </button>
-                                      {/* Delete category (its slots become uncategorized) */}
-                                      <button type="button"
-                                        onPointerDown={e => e.stopPropagation()}
-                                        onClick={() => deleteSlotCategory(slotPhase, cat.id)}
-                                        className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0"
-                                        style={{ color: "var(--danger)" }}
-                                        aria-label="Delete category">
-                                        <Trash2 size={12} strokeWidth={1.8} />
-                                      </button>
-                                    </div>
-                                    {/* Category body — folds away like the CV accordion.
-                                        renderGroup handles the empty case (drop target). */}
-                                    {!folded && renderGroup(catSlots, cat.id)}
-                                  </div>
-                                  )}
-                                  </SortableCategory>
-                                );
-                              })}
+                              {/* ONE unified list — loose boxes and categories interleaved.
+                                  Drag a box OR a category to ANY spot; a category can land
+                                  between two loose boxes, or on top. */}
+                              <SortableContext items={topOrder.map(u => u.kind === "box" ? u.id : `cat:${u.id}`)} strategy={verticalListSortingStrategy}>
+                                {topOrder.map((u, oi) => {
+                                  if (u.kind === "box") { const s = slotById.get(u.id); return s ? renderSlotRow(s, oi) : null; }
+                                  const c = catById.get(u.id); return c ? renderCategorySection(c, oi) : null;
+                                })}
                               </SortableContext>
-
-                              {/* Loose (uncategorized) boxes — at the BOTTOM, beneath the
-                                  categories so a category can sit on top. Shown while a box
-                                  is dragging even if empty, so a box can be pulled back out
-                                  of a category. */}
-                              {(uncategorized.length > 0 || draggingSlot != null) && (
-                                <div style={cats.length > 0 ? { borderTop: "1px solid var(--border)", marginTop: 6, paddingTop: 2 } : undefined}>
-                                  {renderGroup(uncategorized, UNCAT)}
-                                </div>
-                              )}
 
                               {/* Add a new (empty) category */}
                               <button type="button"
