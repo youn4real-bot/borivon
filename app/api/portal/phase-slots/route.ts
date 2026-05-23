@@ -252,7 +252,8 @@ export async function PATCH(req: NextRequest) {
     template_pdf_path?: string | null;
     form_fields?: unknown;
     candidate_signature_zone?: unknown;
-    positions?: { id: string; position: number }[];
+    positions?: { id: string; position: number; category_id?: string | null }[];
+    category_id?: string | null;
     admin_signs?: boolean; candidate_signs?: boolean; admin_fills?: boolean; candidate_fills?: boolean;
     pdf_has_native_fields?: boolean;
   };
@@ -260,7 +261,7 @@ export async function PATCH(req: NextRequest) {
   const db = getServiceSupabase();
 
   if (body.positions) {
-    for (const { id, position } of body.positions) {
+    for (const { id, position, category_id } of body.positions) {
       if (!UUID_RE.test(id)) continue;
       // Sub-admins may only reorder slots belonging to their own orgs.
       if (auth.role !== "admin") {
@@ -271,8 +272,19 @@ export async function PATCH(req: NextRequest) {
           .eq("sub_admin_email", auth.email).eq("org_id", slotOrgId).maybeSingle();
         if (!mem) continue; // not in this org — skip
       }
-      const { error: posErr } = await db.from("phase_slots").update({ position }).eq("id", id);
-      if (posErr) console.error("[phase-slots PATCH reorder]", id, posErr);
+      // category_id is OPTIONAL in the reorder payload — when present we
+      // also move the slot into (or out of, when null) a category, so a
+      // cross-category drag persists both the new order AND the new group
+      // in one round-trip. Tolerate the column not existing yet (pre-
+      // migration): retry the update without it.
+      const patch: Record<string, unknown> = { position };
+      if (category_id !== undefined) patch.category_id = category_id;
+      const { error: posErr } = await db.from("phase_slots").update(patch).eq("id", id);
+      if (posErr && /category_id|column .* does not exist|schema cache/i.test(posErr.message ?? "")) {
+        await db.from("phase_slots").update({ position }).eq("id", id);
+      } else if (posErr) {
+        console.error("[phase-slots PATCH reorder]", id, posErr);
+      }
     }
     return NextResponse.json({ ok: true });
   }
@@ -313,9 +325,20 @@ export async function PATCH(req: NextRequest) {
   if (body.admin_fills           !== undefined) updates.admin_fills           = !!body.admin_fills;
   if (body.candidate_fills       !== undefined) updates.candidate_fills       = !!body.candidate_fills;
   if (body.pdf_has_native_fields !== undefined) updates.pdf_has_native_fields = !!body.pdf_has_native_fields;
+  // Move slot into / out of a category (null = uncategorized). Validated
+  // as UUID-or-null; tolerated when the column isn't migrated yet.
+  if (body.category_id !== undefined)
+    updates.category_id = (body.category_id && UUID_RE.test(body.category_id)) ? body.category_id : null;
 
-  if (Object.keys(updates).length > 0)
-    await db.from("phase_slots").update(updates).eq("id", body.id);
+  if (Object.keys(updates).length > 0) {
+    const { error: updErr } = await db.from("phase_slots").update(updates).eq("id", body.id);
+    if (updErr && /category_id|column .* does not exist|schema cache/i.test(updErr.message ?? "")) {
+      // Pre-migration fallback: drop category_id and retry the rest.
+      const { category_id: _omit, ...rest } = updates;
+      void _omit;
+      if (Object.keys(rest).length > 0) await db.from("phase_slots").update(rest).eq("id", body.id);
+    }
+  }
 
   // When the slot's label changes, every already-submitted document under
   // this slot is renamed to match (Drive + DB) so file names always reflect
