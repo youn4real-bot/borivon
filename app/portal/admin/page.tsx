@@ -2356,19 +2356,6 @@ export default function AdminPage() {
     ];
     reflowAndSave(phase, slotsArr, cats, order);
   }
-  // Nudge a category one step up/down through the WHOLE top-level list
-  // (it can hop over a loose box, not just other categories).
-  function moveCategory(phase: string, id: string, dir: -1 | 1) {
-    const slotsArr = phaseSlots[phase] ?? [];
-    const catsArr = slotCategories[phase] ?? [];
-    const order = buildTopOrder(slotsArr.filter(s => !s.category_id).map(s => ({ id: s.id, position: s.position })), catsArr);
-    const idx = order.findIndex(u => u.kind === "cat" && u.id === id);
-    const swap = idx + dir;
-    if (idx === -1 || swap < 0 || swap >= order.length) return;
-    const next = [...order];
-    [next[idx], next[swap]] = [next[swap], next[idx]];
-    reflowAndSave(phase, slotsArr, catsArr, next);
-  }
   function moveSlotToCategory(phase: string, slotId: string, catId: string | null) {
     setRevokeMenu(null);
     const catsArr = slotCategories[phase] ?? [];
@@ -4641,18 +4628,24 @@ export default function AdminPage() {
                                   <span className="text-[10px] ml-1.5" style={{ color: "var(--w3)" }}>· {catSlots.length}</span>
                                 </button>
                               )}
-                              <button type="button" onPointerDown={e => e.stopPropagation()} onClick={() => moveCategory(slotPhase, cat.id, -1)} disabled={oi === 0}
-                                className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0 disabled:opacity-25" style={{ color: "var(--w2)" }} aria-label="Move up">
-                                <ChevronDown size={13} strokeWidth={2} style={{ transform: "rotate(180deg)" }} />
-                              </button>
-                              <button type="button" onPointerDown={e => e.stopPropagation()} onClick={() => moveCategory(slotPhase, cat.id, 1)} disabled={oi === topOrder.length - 1}
-                                className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0 disabled:opacity-25" style={{ color: "var(--w2)" }} aria-label="Move down">
-                                <ChevronDown size={13} strokeWidth={2} />
-                              </button>
-                              <button type="button" onPointerDown={e => e.stopPropagation()} onClick={() => deleteSlotCategory(slotPhase, cat.id)}
-                                className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0" style={{ color: "var(--danger)" }} aria-label="Delete category">
-                                <Trash2 size={12} strokeWidth={1.8} />
-                              </button>
+                              {/* ⋯ menu — Delete (room to add more actions later). */}
+                              <div className="relative flex-shrink-0" onPointerDown={e => e.stopPropagation()}>
+                                <button type="button"
+                                  onClick={e => { e.stopPropagation(); openRowMenu(e, `catmenu:${cat.id}`); }}
+                                  className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full"
+                                  style={{ color: "var(--w2)" }}
+                                  aria-label={lang === "de" ? "Optionen" : lang === "fr" ? "Options" : "Options"}>
+                                  <MoreHorizontal size={14} strokeWidth={1.8} />
+                                </button>
+                                <DropdownMenu open={revokeMenu?.id === `catmenu:${cat.id}`} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === `catmenu:${cat.id}` ? revokeMenu.el : null} anchorRect={menuRect(`catmenu:${cat.id}`)}>
+                                  <button
+                                    onClick={e => { e.stopPropagation(); setRevokeMenu(null); deleteSlotCategory(slotPhase, cat.id); }}
+                                    className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                    style={{ color: "var(--danger)" }}>
+                                    <Trash2 size={11} strokeWidth={1.8} /> {lang === "de" ? "Kategorie löschen" : lang === "fr" ? "Supprimer la catégorie" : "Delete category"}
+                                  </button>
+                                </DropdownMenu>
+                              </div>
                             </div>
                             {!folded && renderGroup(catSlots, cat.id)}
                           </div>
