@@ -7,6 +7,7 @@ import { requireAdminRole, canActOnCandidate, roleByUserId } from "@/lib/admin-a
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 import { dlTokenUserId } from "@/lib/dlToken";
 import { isPassportFileType } from "@/lib/passportFile";
+import { r2GetObject } from "@/lib/r2";
 
 const BUCKET = "sign-documents";
 
@@ -213,6 +214,7 @@ export async function GET(req: NextRequest) {
   let signedStoragePath: string | null = null;
   let fileType: string | null = null;
   let fileSha256: string | null = null;
+  let r2Key: string | null = null;
   {
     type Row = {
       drive_file_id: string | null;
@@ -220,12 +222,13 @@ export async function GET(req: NextRequest) {
       signed_storage_path: string | null;
       file_type: string | null;
       file_sha256?: string | null;
+      r2_key?: string | null;
     };
     let data: Row | null = null;
     {
       const res = await db
         .from("documents")
-        .select("drive_file_id, rotation, signed_storage_path, file_type, file_sha256")
+        .select("drive_file_id, rotation, signed_storage_path, file_type, file_sha256, r2_key")
         .eq(fileId ? "drive_file_id" : "id", fileId ?? docId!)
         .maybeSingle();
       if (res.error && /file_sha256|column .* does not exist|schema cache/i.test(res.error.message ?? "")) {
@@ -245,6 +248,7 @@ export async function GET(req: NextRequest) {
       signedStoragePath = data.signed_storage_path ?? null;
       fileType = data.file_type ?? null;
       fileSha256 = data.file_sha256 ?? null;
+      r2Key = data.r2_key ?? null;
     }
   }
 
@@ -276,6 +280,28 @@ export async function GET(req: NextRequest) {
       return new NextResponse(new Uint8Array(verified), {
         headers: {
           "Content-Type": ctype(req, "application/pdf"),
+          "Content-Disposition": disposition(req, "document"),
+          "Cache-Control": "private, no-store, must-revalidate",
+        },
+      });
+    }
+  }
+
+  // Prefer Cloudflare R2 (free egress, no Drive rate limits). If the object
+  // isn't there yet (old file not migrated), fall through to Drive/Storage.
+  if (r2Key) {
+    const obj = await r2GetObject(r2Key);
+    if (obj) {
+      const mime = obj.contentType ?? "application/pdf";
+      const outBuf = mime === "application/pdf"
+        ? await safeRotatePdf(obj.body, effectiveRotation)
+        : obj.body;
+      const verified = isPassportFileType(fileType) && mime === "application/pdf"
+        ? await ensurePassportIntegrity(outBuf, fileSha256, fileId, "r2")
+        : outBuf;
+      return new NextResponse(new Uint8Array(verified), {
+        headers: {
+          "Content-Type": ctype(req, mime),
           "Content-Disposition": disposition(req, "document"),
           "Cache-Control": "private, no-store, must-revalidate",
         },

@@ -10,6 +10,7 @@ import { natToLang } from "@/lib/countries";
 import { LABEL_TO_FILE_KEY } from "@/lib/fileKeys";
 import { PassThrough } from "stream";
 import { createHash } from "crypto";
+import { r2Configured, r2Put, candidateKey } from "@/lib/r2";
 
 /**
  * Normalize any country value (ISO 3166-1 alpha-3 like "MAR", or a name in
@@ -1143,6 +1144,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Upload failed: ${msg}` }, { status: 500 });
   }
 
+  // ── Cloudflare R2 upload (primary going forward) ──────────────────────────
+  // R2 has free downloads + no Drive rate limits. During migration we keep the
+  // Drive copy above as a backup and the serve route prefers R2 → falls back to
+  // Drive, so nothing is lost if R2 ever hiccups. A unique timestamped key per
+  // upload means re-uploads never overwrite an older file (LAW #33: old bytes
+  // are preserved, just orphaned). Best-effort — a failed R2 put is non-fatal.
+  let r2Key: string | null = null;
+  if (r2Configured()) {
+    const key = candidateKey(userId, `${Date.now()}_${structuredName}`);
+    try {
+      await r2Put(key, buffer, file.type || "application/octet-stream");
+      r2Key = key;
+    } catch (r2Err) {
+      console.warn("[upload] R2 put failed (non-fatal; Drive backup remains):", r2Err);
+    }
+  }
+
   // LAW #39 belt-and-suspenders: snapshot the upload's sha256 BEFORE any
   // downstream processing reads the buffer. Stored alongside the row so
   // /api/portal/file can detect a regression that mutates passport bytes
@@ -1157,7 +1175,7 @@ export async function POST(req: NextRequest) {
   const { error: dbErr } = await db.from("documents").insert({
     user_id: userId, file_name: structuredName,
     file_path: `gdrive/${userId}/${Date.now()}`,
-    file_type: fileType, drive_file_id: driveFileId,
+    file_type: fileType, drive_file_id: driveFileId, r2_key: r2Key,
     uploaded_by_admin: uploadedByAdmin,
     file_sha256: fileSha256,
     // LAW #15: admin-uploaded docs (no candidate action) → immediately
