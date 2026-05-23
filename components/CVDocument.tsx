@@ -556,8 +556,13 @@ type Spacing = {
 function WorkRow({ entry, sp }: { entry: WorkEntry; sp: Spacing }) {
   const dr = dateRange(entry.start, entry.end);
   if (entry.isGap) {
+    // wrap={false}: keep the whole entry intact — never split a work
+    // "category" (date + title + employer + departments + bullets) across
+    // a page boundary. If it doesn't fit in the remaining space, react-pdf
+    // moves the WHOLE block to the next page. Safe because a single entry
+    // is always far shorter than a page (the density scaler guarantees it).
     return (
-      <View style={[s.entry, { marginBottom: sp.entryMb }]}>
+      <View wrap={false} style={[s.entry, { marginBottom: sp.entryMb }]}>
         <Text style={s.entryDate}>{dr}</Text>
         <View style={s.entryRight}>
           <Text style={s.entryGap}>Nicht berufstätig</Text>
@@ -567,7 +572,7 @@ function WorkRow({ entry, sp }: { entry: WorkEntry; sp: Spacing }) {
     );
   }
   return (
-    <View style={[s.entry, { marginBottom: sp.entryMb }]}>
+    <View wrap={false} style={[s.entry, { marginBottom: sp.entryMb }]}>
       <Text style={s.entryDate}>{dr}</Text>
       <View style={s.entryRight}>
         {entry.title ? <Text style={[s.entryTitle, { marginBottom: sp.titleMb }]}>{entry.title}</Text> : null}
@@ -608,8 +613,9 @@ function EduRow({ entry, sp }: { entry: EduEntry; sp: Spacing }) {
     ? nursingLabel(entry.nursingStatus, entry.degree || "Krankenpflegediplom")
     : (entry.degree || "");
   const dr = dateRange(entry.start, entry.end);
+  // wrap={false}: same keep-together rule as work entries.
   return (
-    <View style={[s.entry, { marginBottom: sp.entryMb }]}>
+    <View wrap={false} style={[s.entry, { marginBottom: sp.entryMb }]}>
       <Text style={s.entryDate}>{dr}</Text>
       <View style={s.entryRight}>
         {label ? <Text style={[s.entryTitle, { marginBottom: sp.titleMb }]}>{label}</Text> : null}
@@ -705,13 +711,17 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
     (n, e) => n + (e.taetigkeiten ?? []).filter(b => (b ?? "").trim()).length, 0,
   );
   const densityScore = allWork.length + allEdu.length + bulletCount * 0.5;
-  // d = 1.0 (roomy) → 0.45 (very tight). The example 8-job CV scores ~24
-  // → ~0.55, which pulls its near-empty 3rd page back onto page 2.
+  // d = 1.0 (roomy) → 0.4 (very tight). Tiers run a touch tighter than a
+  // pure "fit" would need because entries now keep-together (wrap=false):
+  // a page can end early to avoid splitting a block, wasting up to ~one
+  // entry's height per page break, so the rhythm has to claw that back to
+  // still land ≤ 2 pages. Short CVs (≤ 12) never page-break, so they pay
+  // nothing and render unchanged at d = 1.0.
   const d =
     densityScore <= 12 ? 1.0  :
-    densityScore <= 18 ? 0.78 :
-    densityScore <= 26 ? 0.55 :
-                         0.45;
+    densityScore <= 18 ? 0.72 :
+    densityScore <= 26 ? 0.50 :
+                         0.40;
   const sp: Spacing = {
     // Between work/edu entries — scaled, but floored so jobs stay distinct.
     entryMb:       Math.max(3.5, 6 * d),
