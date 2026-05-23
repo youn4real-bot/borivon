@@ -519,9 +519,19 @@ export default function AdminPage() {
   const [activePipelineStage, setActivePipelineStage] = useState<string | null>(null);
 
   // ── Dynamic phase slots (Bearbeitung / Visum) ──────────────────────────────
-  type PhaseSlot = { id: string; org_id: string | null; phase: string; position: number; type: "simple" | "dual"; label: string; label_trans: string | null; action_type: string | null; instructions: string | null; template_pdf_path: string | null; form_fields: import("@/lib/pdfFieldEmbed").FormField[] | null; candidate_signature_zone: import("@/components/PdfZonePicker").SigZone | null; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean; pdf_has_native_fields: boolean };
+  type PhaseSlot = { id: string; org_id: string | null; phase: string; position: number; type: "simple" | "dual"; label: string; label_trans: string | null; action_type: string | null; instructions: string | null; template_pdf_path: string | null; form_fields: import("@/lib/pdfFieldEmbed").FormField[] | null; candidate_signature_zone: import("@/components/PdfZonePicker").SigZone | null; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean; pdf_has_native_fields: boolean; category_id: string | null };
   const [phaseSlots, setPhaseSlots] = useState<Record<string, PhaseSlot[]>>({ bearbeitung: [], visum: [] });
   const [phaseSlotsLoaded, setPhaseSlotsLoaded] = useState<Record<string, boolean>>({ bearbeitung: false, visum: false });
+  // ── Slot CATEGORIES (admin-managed groups for Bearbeitung / Visum) ──────────
+  // Global-scoped (org_id null) here, mirroring how the admin slot manager
+  // loads global slots. Foldable + reorderable; deleting a category un-groups
+  // its slots (never deletes them). Backward compatible: zero categories →
+  // every slot stays uncategorized → identical to pre-feature flat list.
+  type SlotCategory = { id: string; org_id: string | null; phase: string; label: string; position: number };
+  const [slotCategories, setSlotCategories] = useState<Record<string, SlotCategory[]>>({ bearbeitung: [], visum: [] });
+  const [foldedCats, setFoldedCats]   = useState<Set<string>>(new Set());
+  const [editingCatId, setEditingCatId]   = useState<string | null>(null);
+  const [editingCatLabel, setEditingCatLabel] = useState("");
   // Add-slot modal
   const [addSlotPhase, setAddSlotPhase]               = useState<string | null>(null);
   const [addSlotLabel, setAddSlotLabel]               = useState("");
@@ -1083,6 +1093,11 @@ export default function AdminPage() {
             }
           })
           .catch(() => {}),
+        // c2) Bearbeitung slot categories
+        fetch("/api/portal/phase-slot-categories?phase=bearbeitung", { headers: { Authorization: `Bearer ${token}` } })
+          .then(r => r.ok ? r.json() : null)
+          .then(j => { if (!cancelled && j?.categories) setSlotCategories(prev => ({ ...prev, bearbeitung: j.categories })); })
+          .catch(() => {}),
         // d) Visum phase slots
         fetch("/api/portal/phase-slots?phase=visum", { headers: { Authorization: `Bearer ${token}` } })
           .then(r => r.ok ? r.json() : null)
@@ -1093,6 +1108,11 @@ export default function AdminPage() {
               setPhaseSlotsLoaded(prev => ({ ...prev, visum: true }));
             }
           })
+          .catch(() => {}),
+        // d2) Visum slot categories
+        fetch("/api/portal/phase-slot-categories?phase=visum", { headers: { Authorization: `Bearer ${token}` } })
+          .then(r => r.ok ? r.json() : null)
+          .then(j => { if (!cancelled && j?.categories) setSlotCategories(prev => ({ ...prev, visum: j.categories })); })
           .catch(() => {}),
         // e) Main admin data (docs, users, profiles, candidateOrgs)
         (async () => {
@@ -1685,6 +1705,8 @@ export default function AdminPage() {
     if (!accessToken || phaseSlotsLoaded[phase]) return;
     // Mark in-flight immediately to prevent concurrent fetches; reset on failure so retry is possible.
     setPhaseSlotsLoaded(prev => ({ ...prev, [phase]: true }));
+    // Categories load in parallel — independent of slot success.
+    void loadSlotCategories(phase);
     try {
       const res = await fetch(`/api/portal/phase-slots?phase=${phase}`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -2134,7 +2156,7 @@ export default function AdminPage() {
     }
   }
 
-  async function saveSlotOrder(phase: string, slots: { id: string; position: number }[]) {
+  async function saveSlotOrder(phase: string, slots: { id: string; position: number; category_id?: string | null }[]) {
     if (!accessToken) return;
     try {
       await fetch("/api/portal/phase-slots", {
@@ -2143,6 +2165,106 @@ export default function AdminPage() {
         body: JSON.stringify({ positions: slots }),
       });
     } catch { /* network error */ }
+  }
+
+  // ── Slot-category helpers ───────────────────────────────────────────────
+  async function loadSlotCategories(phase: string) {
+    if (!accessToken) return;
+    try {
+      const res = await fetch(`/api/portal/phase-slot-categories?phase=${phase}`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (res.ok) {
+        const j = await res.json();
+        setSlotCategories(prev => ({ ...prev, [phase]: (j.categories ?? []) as SlotCategory[] }));
+      }
+    } catch { /* migration pending / offline → stays flat */ }
+  }
+  // Recompute global positions in DISPLAY order (uncategorized first, then
+  // each category in its order, slots within by current position) and
+  // persist. category_id changes ride along in the same PATCH.
+  function reflowAndSave(phase: string, slotsArr: PhaseSlot[], catsArr: SlotCategory[]) {
+    const inCat = (cid: string | null) =>
+      slotsArr.filter(s => (s.category_id ?? null) === cid).sort((a, b) => a.position - b.position);
+    const ordered: PhaseSlot[] = [...inCat(null)];
+    for (const c of [...catsArr].sort((a, b) => a.position - b.position)) ordered.push(...inCat(c.id));
+    const renum = ordered.map((s, i) => ({ ...s, position: i }));
+    setPhaseSlots(prev => ({ ...prev, [phase]: renum }));
+    void saveSlotOrder(phase, renum.map(s => ({ id: s.id, position: s.position, category_id: s.category_id ?? null })));
+  }
+  async function createCategory(phase: string) {
+    if (!accessToken) return;
+    try {
+      const res = await fetch("/api/portal/phase-slot-categories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ phase, label: "" }),
+      });
+      if (res.ok) {
+        const j = await res.json();
+        const cat = j.category as SlotCategory;
+        setSlotCategories(prev => ({ ...prev, [phase]: [...(prev[phase] ?? []), cat] }));
+        setEditingCatId(cat.id); setEditingCatLabel(cat.label ?? "");
+      } else {
+        const j = await res.json().catch(() => ({}));
+        alert((j as { error?: string }).error ?? "Could not create category");
+      }
+    } catch { /* offline */ }
+  }
+  async function renameCategory(phase: string, id: string, label: string) {
+    setSlotCategories(prev => ({ ...prev, [phase]: (prev[phase] ?? []).map(c => c.id === id ? { ...c, label } : c) }));
+    if (!accessToken) return;
+    try {
+      await fetch("/api/portal/phase-slot-categories", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ id, label }),
+      });
+    } catch { /* offline */ }
+  }
+  async function deleteSlotCategory(phase: string, id: string) {
+    // Local: un-group the category's slots, drop the category, reflow.
+    const cats = (slotCategories[phase] ?? []).filter(c => c.id !== id);
+    const slotsArr = (phaseSlots[phase] ?? []).map(s => s.category_id === id ? { ...s, category_id: null } : s);
+    setSlotCategories(prev => ({ ...prev, [phase]: cats }));
+    if (!accessToken) return;
+    try {
+      await fetch("/api/portal/phase-slot-categories", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ id }),
+      });
+    } catch { /* offline */ }
+    reflowAndSave(phase, slotsArr, cats);
+  }
+  async function moveCategory(phase: string, id: string, dir: -1 | 1) {
+    const cats = [...(slotCategories[phase] ?? [])].sort((a, b) => a.position - b.position);
+    const idx = cats.findIndex(c => c.id === id);
+    const swap = idx + dir;
+    if (idx === -1 || swap < 0 || swap >= cats.length) return;
+    [cats[idx], cats[swap]] = [cats[swap], cats[idx]];
+    const renum = cats.map((c, i) => ({ ...c, position: i }));
+    setSlotCategories(prev => ({ ...prev, [phase]: renum }));
+    if (accessToken) {
+      try {
+        await fetch("/api/portal/phase-slot-categories", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({ positions: renum.map(c => ({ id: c.id, position: c.position })) }),
+        });
+      } catch { /* offline */ }
+    }
+    // Slot display order depends on category order → reflow positions too.
+    reflowAndSave(phase, phaseSlots[phase] ?? [], renum);
+  }
+  function moveSlotToCategory(phase: string, slotId: string, catId: string | null) {
+    setRevokeMenu(null);
+    const cats = slotCategories[phase] ?? [];
+    const slotsArr = (phaseSlots[phase] ?? []).map(s => s.id === slotId ? { ...s, category_id: catId } : s);
+    reflowAndSave(phase, slotsArr, cats);
+  }
+  function toggleFoldCat(id: string) {
+    setFoldedCats(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }
 
   // ── Rejection modal ──────────────────────────────────────────────────────
@@ -3825,32 +3947,14 @@ export default function AdminPage() {
                     {(activePipelineStage === "recognition" || activePipelineStage === "visum") && (() => {
                       const slotPhase = activePipelineStage === "recognition" ? "bearbeitung" : "visum";
                       const slots = (phaseSlots[slotPhase] ?? []).filter((s): s is PhaseSlot => s != null && !!s.id);
-                      return (
-                        <div className="mt-4" style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-                          <div className="px-2 py-2">
-                          {/* Slot rows */}
-                          {slots.length === 0 ? (
-                            <div className="px-3 py-5 text-center">
-                              <p className="text-[11px]" style={{ color: "var(--w3)" }}>No document slots — click <span style={{ color: "var(--gold)", fontWeight: 600 }}>+</span> to add one.</p>
-                            </div>
-                          ) : (
-                            <DndContext
-                              sensors={slotSensors}
-                              collisionDetection={closestCenter}
-                              onDragEnd={async (event: DragEndEvent) => {
-                                const { active, over } = event;
-                                if (!over || active.id === over.id) return;
-                                const oldIdx = slots.findIndex(s => s.id === active.id);
-                                const newIdx = slots.findIndex(s => s.id === over.id);
-                                if (oldIdx === -1 || newIdx === -1) return;
-                                const reordered = arrayMove(slots, oldIdx, newIdx).map((s, i) => ({ ...s, position: i }));
-                                setPhaseSlots(prev => ({ ...prev, [slotPhase]: reordered }));
-                                await saveSlotOrder(slotPhase, reordered.map(s => ({ id: s.id, position: s.position })));
-                              }}
-                            >
-                            <SortableContext items={slots.map(s => s.id)} strategy={verticalListSortingStrategy}>
-                            <div>
-                              {slots.map((slot, si) => {
+                      const cats = [...(slotCategories[slotPhase] ?? [])].sort((a, b) => a.position - b.position);
+                      const slotsInCat = (cid: string | null) =>
+                        slots.filter(s => (s.category_id ?? null) === cid).sort((a, b) => a.position - b.position);
+                      const uncategorized = slotsInCat(null);
+                      // Per-row renderer — reused across the uncategorized group AND
+                      // every category group. `si` is the index WITHIN its group
+                      // (drives the inter-row hairline divider).
+                      const renderSlotRow = (slot: PhaseSlot, si: number) => {
                                 const origDocs = getAdminDocs(slot.id);
                                 const transDocs = slot.type === "dual" ? getAdminDocs(slot.id + "_de") : [];
                                 const allSlotDocs = [...origDocs, ...transDocs];
@@ -3989,6 +4093,26 @@ export default function AdminPage() {
                                                         <RotateCcw size={11} strokeWidth={1.8} /> Revoke
                                                       </button>
                                                     )}
+                                                    {cats.length > 0 && (
+                                                      <>
+                                                        <div style={{ height: 1, background: "var(--border)" }} />
+                                                        <div className="px-3 pt-2 pb-1 text-[9px] font-semibold uppercase tracking-wider" style={{ color: "var(--w3)" }}>
+                                                          {lang === "de" ? "Verschieben nach" : lang === "fr" ? "Déplacer vers" : "Move to"}
+                                                        </div>
+                                                        {(slot.category_id ?? null) !== null && (
+                                                          <button onClick={e => { e.stopPropagation(); moveSlotToCategory(slotPhase, slot.id, null); }}
+                                                            className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5" style={{ color: "var(--w2)" }}>
+                                                            <ArrowLeft size={11} strokeWidth={1.8} /> {lang === "de" ? "Ohne Kategorie" : lang === "fr" ? "Sans catégorie" : "Uncategorized"}
+                                                          </button>
+                                                        )}
+                                                        {cats.filter(c => c.id !== (slot.category_id ?? null)).map(c => (
+                                                          <button key={c.id} onClick={e => { e.stopPropagation(); moveSlotToCategory(slotPhase, slot.id, c.id); }}
+                                                            className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5" style={{ color: "var(--w2)" }}>
+                                                            <ChevronDown size={11} strokeWidth={1.8} style={{ transform: "rotate(-90deg)" }} /> {c.label || (lang === "de" ? "Unbenannt" : lang === "fr" ? "Sans nom" : "Untitled")}
+                                                          </button>
+                                                        ))}
+                                                      </>
+                                                    )}
                                                     <button
                                                       onClick={e => { e.stopPropagation(); setRevokeMenu(null); deletePhaseSlot(slot.id, slotPhase); }}
                                                       className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
@@ -4120,6 +4244,26 @@ export default function AdminPage() {
                                                 style={{ color: "var(--w)" }}>
                                                 <FilePen size={11} strokeWidth={1.8} /> Edit label
                                               </button>
+                                              {cats.length > 0 && (
+                                                <>
+                                                  <div style={{ height: 1, background: "var(--border)" }} />
+                                                  <div className="px-3 pt-2 pb-1 text-[9px] font-semibold uppercase tracking-wider" style={{ color: "var(--w3)" }}>
+                                                    {lang === "de" ? "Verschieben nach" : lang === "fr" ? "Déplacer vers" : "Move to"}
+                                                  </div>
+                                                  {(slot.category_id ?? null) !== null && (
+                                                    <button onClick={e => { e.stopPropagation(); moveSlotToCategory(slotPhase, slot.id, null); }}
+                                                      className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5" style={{ color: "var(--w2)" }}>
+                                                      <ArrowLeft size={11} strokeWidth={1.8} /> {lang === "de" ? "Ohne Kategorie" : lang === "fr" ? "Sans catégorie" : "Uncategorized"}
+                                                    </button>
+                                                  )}
+                                                  {cats.filter(c => c.id !== (slot.category_id ?? null)).map(c => (
+                                                    <button key={c.id} onClick={e => { e.stopPropagation(); moveSlotToCategory(slotPhase, slot.id, c.id); }}
+                                                      className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5" style={{ color: "var(--w2)" }}>
+                                                      <ChevronDown size={11} strokeWidth={1.8} style={{ transform: "rotate(-90deg)" }} /> {c.label || (lang === "de" ? "Unbenannt" : lang === "fr" ? "Sans nom" : "Untitled")}
+                                                    </button>
+                                                  ))}
+                                                </>
+                                              )}
                                               <button
                                                 onClick={e => { e.stopPropagation(); setRevokeMenu(null); deletePhaseSlot(slot.id, slotPhase); }}
                                                 className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
@@ -4233,10 +4377,140 @@ export default function AdminPage() {
                                     )}
                                   </SortableSlotItem>
                                 );
-                              })}
+                              }; // end renderSlotRow
+
+                      // One group = one DnD zone. Drag reorders WITHIN the group;
+                      // cross-category moves go through each row's "Move to" menu.
+                      // After any reorder we renumber GLOBAL positions in display
+                      // order (uncategorized first, then categories in order) so a
+                      // slot's category fully determines where it shows.
+                      const renderGroup = (groupSlots: PhaseSlot[]) => (
+                        <DndContext
+                          sensors={slotSensors}
+                          collisionDetection={closestCenter}
+                          onDragEnd={(event: DragEndEvent) => {
+                            const { active, over } = event;
+                            if (!over || active.id === over.id) return;
+                            const oldIdx = groupSlots.findIndex(s => s.id === active.id);
+                            const newIdx = groupSlots.findIndex(s => s.id === over.id);
+                            if (oldIdx === -1 || newIdx === -1) return;
+                            const reordered = arrayMove(groupSlots, oldIdx, newIdx);
+                            const posInGroup = new Map(reordered.map((s, i) => [s.id, i] as const));
+                            const next = (phaseSlots[slotPhase] ?? []).map(s =>
+                              posInGroup.has(s.id) ? { ...s, position: posInGroup.get(s.id)! } : s);
+                            reflowAndSave(slotPhase, next, cats);
+                          }}
+                        >
+                          <SortableContext items={groupSlots.map(s => s.id)} strategy={verticalListSortingStrategy}>
+                            <div>{groupSlots.map((slot, si) => renderSlotRow(slot, si))}</div>
+                          </SortableContext>
+                        </DndContext>
+                      );
+
+                      return (
+                        <div className="mt-4" style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
+                          <div className="px-2 py-2">
+                          {slots.length === 0 ? (
+                            <div className="px-3 py-5 text-center">
+                              <p className="text-[11px]" style={{ color: "var(--w3)" }}>No document slots — click <span style={{ color: "var(--gold)", fontWeight: 600 }}>+</span> to add one.</p>
                             </div>
-                            </SortableContext>
-                            </DndContext>
+                          ) : (
+                            <>
+                              {/* Uncategorized slots render flat at the top — identical
+                                  to the pre-categories layout (fully backward compatible). */}
+                              {uncategorized.length > 0 && renderGroup(uncategorized)}
+
+                              {/* Foldable, reorderable categories. Deleting one un-groups
+                                  its slots (never deletes them — see deleteSlotCategory). */}
+                              {cats.map((cat, ci) => {
+                                const catSlots = slotsInCat(cat.id);
+                                const folded = foldedCats.has(cat.id);
+                                const editing = editingCatId === cat.id;
+                                return (
+                                  <div key={cat.id} className="mt-1.5" style={{ borderTop: ci === 0 && uncategorized.length === 0 ? "none" : "1px solid var(--border)" }}>
+                                    {/* Category header — click chevron/label to fold/rename */}
+                                    <div className="flex items-center gap-1 px-2 py-2">
+                                      <button type="button"
+                                        onClick={() => toggleFoldCat(cat.id)}
+                                        className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0"
+                                        style={{ color: "var(--w3)" }}
+                                        aria-label={folded ? "Unfold" : "Fold"}>
+                                        <ChevronDown size={14} strokeWidth={2}
+                                          style={{ transition: "transform var(--dur-2) var(--ease)", transform: folded ? "rotate(-90deg)" : "rotate(0deg)" }} />
+                                      </button>
+                                      {editing ? (
+                                        <input
+                                          autoFocus
+                                          value={editingCatLabel}
+                                          onChange={e => setEditingCatLabel(e.target.value)}
+                                          onBlur={() => { renameCategory(slotPhase, cat.id, editingCatLabel.trim()); setEditingCatId(null); }}
+                                          onKeyDown={e => {
+                                            if (e.key === "Enter") { renameCategory(slotPhase, cat.id, editingCatLabel.trim()); setEditingCatId(null); }
+                                            if (e.key === "Escape") setEditingCatId(null);
+                                          }}
+                                          placeholder={lang === "de" ? "Kategoriename" : lang === "fr" ? "Nom de catégorie" : "Category name"}
+                                          className="flex-1 min-w-0 px-2 py-1 text-[12px] font-semibold outline-none"
+                                          style={{ background: "var(--bg2)", border: "1px solid var(--border-gold)", borderRadius: "8px", color: "var(--w)" }}
+                                        />
+                                      ) : (
+                                        <button type="button"
+                                          onClick={() => { setEditingCatId(cat.id); setEditingCatLabel(cat.label ?? ""); }}
+                                          className="flex-1 min-w-0 text-left"
+                                          title={lang === "de" ? "Umbenennen" : lang === "fr" ? "Renommer" : "Rename"}>
+                                          <span className="text-[12px] font-semibold tracking-tight" style={{ color: cat.label ? "var(--w)" : "var(--w3)" }}>
+                                            {cat.label || (lang === "de" ? "Unbenannt" : lang === "fr" ? "Sans nom" : "Untitled")}
+                                          </span>
+                                          <span className="text-[10px] ml-1.5" style={{ color: "var(--w3)" }}>· {catSlots.length}</span>
+                                        </button>
+                                      )}
+                                      {/* Reorder ↑ / ↓ (slide the category up or down) */}
+                                      <button type="button"
+                                        onClick={() => moveCategory(slotPhase, cat.id, -1)}
+                                        disabled={ci === 0}
+                                        className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0 disabled:opacity-25"
+                                        style={{ color: "var(--w2)" }}
+                                        aria-label="Move category up">
+                                        <ChevronDown size={13} strokeWidth={2} style={{ transform: "rotate(180deg)" }} />
+                                      </button>
+                                      <button type="button"
+                                        onClick={() => moveCategory(slotPhase, cat.id, 1)}
+                                        disabled={ci === cats.length - 1}
+                                        className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0 disabled:opacity-25"
+                                        style={{ color: "var(--w2)" }}
+                                        aria-label="Move category down">
+                                        <ChevronDown size={13} strokeWidth={2} />
+                                      </button>
+                                      {/* Delete category (its slots become uncategorized) */}
+                                      <button type="button"
+                                        onClick={() => deleteSlotCategory(slotPhase, cat.id)}
+                                        className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0"
+                                        style={{ color: "var(--danger)" }}
+                                        aria-label="Delete category">
+                                        <Trash2 size={12} strokeWidth={1.8} />
+                                      </button>
+                                    </div>
+                                    {/* Category body — folds away like the CV accordion */}
+                                    {!folded && (
+                                      catSlots.length > 0
+                                        ? renderGroup(catSlots)
+                                        : <p className="px-3 pb-3 text-[10px]" style={{ color: "var(--w3)" }}>
+                                            {lang === "de" ? "Leer — Slots über das Zeilenmenü hierher verschieben."
+                                              : lang === "fr" ? "Vide — déplacez des slots ici via le menu d'une ligne."
+                                              : "Empty — move slots here from a row's menu."}
+                                          </p>
+                                    )}
+                                  </div>
+                                );
+                              })}
+
+                              {/* Add a new (empty) category */}
+                              <button type="button"
+                                onClick={() => createCategory(slotPhase)}
+                                className="bv-row-hover mt-2 w-full flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-[11px] font-semibold"
+                                style={{ color: "var(--gold)", border: "1px dashed var(--border-gold)" }}>
+                                <Plus size={13} strokeWidth={2} /> {lang === "de" ? "Kategorie hinzufügen" : lang === "fr" ? "Ajouter une catégorie" : "Add category"}
+                              </button>
+                            </>
                           )}
                           </div>{/* end px-2 py-2 */}
                         </div>
