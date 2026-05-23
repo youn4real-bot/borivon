@@ -20,7 +20,7 @@ import {
   CheckCircle2, XCircle, AlertTriangle, PartyPopper,
 } from "@/components/PortalIcons";
 import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen } from "lucide-react";
-import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { DndContext, closestCorners, useDroppable, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragOverEvent } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Spinner, PageLoader, EmptyState } from "@/components/ui/states";
@@ -257,6 +257,25 @@ function SortableSlotItem({ id, children }: { id: string; children: React.ReactN
         borderRadius: isDragging ? 12 : undefined,
         touchAction: "none",
         cursor: isDragging ? "grabbing" : "grab",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+// A drop zone for a slot CATEGORY (or the uncategorized bucket). Lets a box be
+// dragged from any group and dropped INTO this one. `highlighted` lights the
+// whole group while a drag hovers it so the admin sees where it will land.
+function DroppableGroup({ id, highlighted, children }: { id: string; highlighted?: boolean; children: React.ReactNode }) {
+  const { setNodeRef } = useDroppable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        borderRadius: 10,
+        transition: "background var(--dur-2) var(--ease), box-shadow var(--dur-2) var(--ease)",
+        ...(highlighted ? { background: "var(--gdim)", boxShadow: "inset 0 0 0 1.5px var(--border-gold)" } : {}),
       }}
     >
       {children}
@@ -532,6 +551,11 @@ export default function AdminPage() {
   const [foldedCats, setFoldedCats]   = useState<Set<string>>(new Set());
   const [editingCatId, setEditingCatId]   = useState<string | null>(null);
   const [editingCatLabel, setEditingCatLabel] = useState("");
+  // Cross-category drag tracking: which container the pointer is over, and
+  // whether a slot drag is in flight (reveals the empty "uncategorized" drop
+  // strip only while dragging so the resting UI stays clean).
+  const [dragOverCat, setDragOverCat] = useState<string | null>(null);
+  const [draggingSlot, setDraggingSlot] = useState<string | null>(null);
   // Add-slot modal
   const [addSlotPhase, setAddSlotPhase]               = useState<string | null>(null);
   const [addSlotLabel, setAddSlotLabel]               = useState("");
@@ -4379,33 +4403,84 @@ export default function AdminPage() {
                                 );
                               }; // end renderSlotRow
 
-                      // One group = one DnD zone. Drag reorders WITHIN the group;
-                      // cross-category moves go through each row's "Move to" menu.
-                      // After any reorder we renumber GLOBAL positions in display
-                      // order (uncategorized first, then categories in order) so a
-                      // slot's category fully determines where it shows.
-                      const renderGroup = (groupSlots: PhaseSlot[]) => (
-                        <DndContext
-                          sensors={slotSensors}
-                          collisionDetection={closestCenter}
-                          onDragEnd={(event: DragEndEvent) => {
-                            const { active, over } = event;
-                            if (!over || active.id === over.id) return;
-                            const oldIdx = groupSlots.findIndex(s => s.id === active.id);
-                            const newIdx = groupSlots.findIndex(s => s.id === over.id);
-                            if (oldIdx === -1 || newIdx === -1) return;
-                            const reordered = arrayMove(groupSlots, oldIdx, newIdx);
-                            const posInGroup = new Map(reordered.map((s, i) => [s.id, i] as const));
-                            const next = (phaseSlots[slotPhase] ?? []).map(s =>
-                              posInGroup.has(s.id) ? { ...s, position: posInGroup.get(s.id)! } : s);
-                            reflowAndSave(slotPhase, next, cats);
-                          }}
-                        >
+                      // ── Cross-category drag-and-drop ───────────────────────
+                      // A box can be dragged from ANY group and dropped INTO ANY
+                      // other (or back to uncategorized). ONE DndContext spans
+                      // every group; each group is its own droppable bucket. On
+                      // drop we set the box's category_id + position, then reflow
+                      // renumbers GLOBAL positions in display order (uncategorized
+                      // first, then categories in order) so the category a box
+                      // lives in fully drives where it renders.
+                      const UNCAT = "__uncat__";
+                      const containerIds = new Set<string>([UNCAT, ...cats.map(c => c.id)]);
+                      const findContainer = (id: string): string | null => {
+                        if (containerIds.has(id)) return id;          // dropped on a bucket itself
+                        const s = slots.find(x => x.id === id);
+                        if (!s) return null;
+                        return s.category_id ?? UNCAT;                // else the box's current bucket
+                      };
+                      // One group's rows in a droppable + sortable zone. Empty
+                      // buckets still render a slim hint so they can catch a drop.
+                      const renderGroup = (groupSlots: PhaseSlot[], containerId: string) => (
+                        <DroppableGroup id={containerId} highlighted={draggingSlot != null && dragOverCat === containerId}>
                           <SortableContext items={groupSlots.map(s => s.id)} strategy={verticalListSortingStrategy}>
-                            <div>{groupSlots.map((slot, si) => renderSlotRow(slot, si))}</div>
+                            <div>
+                              {groupSlots.length === 0
+                                ? <p className="px-3 py-2.5 text-[10px]" style={{ color: "var(--w3)" }}>
+                                    {containerId === UNCAT
+                                      ? (lang === "de" ? "Ohne Kategorie — Box hierher ziehen." : lang === "fr" ? "Sans catégorie — glissez une box ici." : "Uncategorized — drag a box here.")
+                                      : (lang === "de" ? "Leer — Box hierher ziehen." : lang === "fr" ? "Vide — glissez une box ici." : "Empty — drag a box here.")}
+                                  </p>
+                                : groupSlots.map((slot, si) => renderSlotRow(slot, si))}
+                            </div>
                           </SortableContext>
-                        </DndContext>
+                        </DroppableGroup>
                       );
+
+                      // Persist a drag. Same-bucket reorder = arrayMove. Cross-
+                      // bucket drop also flips the box's category_id. Works whether
+                      // dropped on a bucket's empty area or onto a specific box.
+                      const onSlotDragEnd = (event: DragEndEvent) => {
+                        setDraggingSlot(null); setDragOverCat(null);
+                        const { active, over } = event;
+                        if (!over) return;
+                        const activeId = String(active.id);
+                        const overId = String(over.id);
+                        if (activeId === overId) return;
+                        const from = findContainer(activeId);
+                        const to = findContainer(overId);
+                        if (!from || !to) return;
+
+                        if (from === to) {
+                          const cid = to === UNCAT ? null : to;
+                          const arr = slotsInCat(cid);
+                          const oldIdx = arr.findIndex(s => s.id === activeId);
+                          const newIdx = arr.findIndex(s => s.id === overId);
+                          if (oldIdx === -1 || newIdx === -1) return;
+                          const reordered = arrayMove(arr, oldIdx, newIdx);
+                          const posMap = new Map(reordered.map((s, i) => [s.id, i] as const));
+                          const next = (phaseSlots[slotPhase] ?? []).map(s =>
+                            posMap.has(s.id) ? { ...s, position: posMap.get(s.id)! } : s);
+                          reflowAndSave(slotPhase, next, cats);
+                          return;
+                        }
+
+                        // Cross-bucket: splice the box into the target bucket.
+                        const targetCatId = to === UNCAT ? null : to;
+                        const activeSlot = slots.find(s => s.id === activeId);
+                        if (!activeSlot) return;
+                        const targetItems = slotsInCat(targetCatId).filter(s => s.id !== activeId);
+                        const overIdx = targetItems.findIndex(s => s.id === overId);
+                        const insertIdx = overIdx === -1 ? targetItems.length : overIdx;
+                        targetItems.splice(insertIdx, 0, activeSlot);
+                        const posMap = new Map(targetItems.map((s, i) => [s.id, i] as const));
+                        const next = (phaseSlots[slotPhase] ?? []).map(s => {
+                          if (s.id === activeId) return { ...s, category_id: targetCatId, position: posMap.get(s.id)! };
+                          if (posMap.has(s.id)) return { ...s, position: posMap.get(s.id)! };
+                          return s;
+                        });
+                        reflowAndSave(slotPhase, next, cats);
+                      };
 
                       return (
                         <div className="mt-4" style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
@@ -4415,10 +4490,19 @@ export default function AdminPage() {
                               <p className="text-[11px]" style={{ color: "var(--w3)" }}>No document slots — click <span style={{ color: "var(--gold)", fontWeight: 600 }}>+</span> to add one.</p>
                             </div>
                           ) : (
-                            <>
-                              {/* Uncategorized slots render flat at the top — identical
-                                  to the pre-categories layout (fully backward compatible). */}
-                              {uncategorized.length > 0 && renderGroup(uncategorized)}
+                            <DndContext
+                              sensors={slotSensors}
+                              collisionDetection={closestCorners}
+                              measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
+                              onDragStart={e => setDraggingSlot(String(e.active.id))}
+                              onDragOver={(e: DragOverEvent) => setDragOverCat(e.over ? findContainer(String(e.over.id)) : null)}
+                              onDragCancel={() => { setDraggingSlot(null); setDragOverCat(null); }}
+                              onDragEnd={onSlotDragEnd}
+                            >
+                              {/* Uncategorized bucket — flat at the top. Always a drop
+                                  target while dragging so a box can return here; hidden
+                                  at rest when empty to keep the panel clean. */}
+                              {(uncategorized.length > 0 || draggingSlot != null) && renderGroup(uncategorized, UNCAT)}
 
                               {/* Foldable, reorderable categories. Deleting one un-groups
                                   its slots (never deletes them — see deleteSlotCategory). */}
@@ -4489,16 +4573,9 @@ export default function AdminPage() {
                                         <Trash2 size={12} strokeWidth={1.8} />
                                       </button>
                                     </div>
-                                    {/* Category body — folds away like the CV accordion */}
-                                    {!folded && (
-                                      catSlots.length > 0
-                                        ? renderGroup(catSlots)
-                                        : <p className="px-3 pb-3 text-[10px]" style={{ color: "var(--w3)" }}>
-                                            {lang === "de" ? "Leer — Slots über das Zeilenmenü hierher verschieben."
-                                              : lang === "fr" ? "Vide — déplacez des slots ici via le menu d'une ligne."
-                                              : "Empty — move slots here from a row's menu."}
-                                          </p>
-                                    )}
+                                    {/* Category body — folds away like the CV accordion.
+                                        renderGroup handles the empty case (drop target). */}
+                                    {!folded && renderGroup(catSlots, cat.id)}
                                   </div>
                                 );
                               })}
@@ -4510,7 +4587,7 @@ export default function AdminPage() {
                                 style={{ color: "var(--gold)", border: "1px dashed var(--border-gold)" }}>
                                 <Plus size={13} strokeWidth={2} /> {lang === "de" ? "Kategorie hinzufügen" : lang === "fr" ? "Ajouter une catégorie" : "Add category"}
                               </button>
-                            </>
+                            </DndContext>
                           )}
                           </div>{/* end px-2 py-2 */}
                         </div>
