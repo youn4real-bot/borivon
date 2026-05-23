@@ -19,7 +19,7 @@ import {
   Lock, Unlock, IdCard, FileText, Folder, FilePen, Save, Eye,
   CheckCircle2, XCircle, AlertTriangle, PartyPopper,
 } from "@/components/PortalIcons";
-import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, GripVertical } from "lucide-react";
+import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen } from "lucide-react";
 import { DndContext, closestCorners, useDroppable, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragOverEvent, type CollisionDetection } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -4461,14 +4461,10 @@ export default function AdminPage() {
                       const renderGroup = (groupSlots: PhaseSlot[], containerId: string) => (
                         <DroppableGroup id={containerId} highlighted={draggingSlot != null && dragOverCat === containerId}>
                           <SortableContext items={groupSlots.map(s => s.id)} strategy={verticalListSortingStrategy}>
-                            <div>
-                              {groupSlots.length === 0
-                                ? <p className="px-3 py-2.5 text-[10px]" style={{ color: "var(--w3)" }}>
-                                    {containerId === UNCAT
-                                      ? (lang === "de" ? "Ohne Kategorie — Box hierher ziehen." : lang === "fr" ? "Sans catégorie — glissez une box ici." : "Uncategorized — drag a box here.")
-                                      : (lang === "de" ? "Leer — Box hierher ziehen." : lang === "fr" ? "Vide — glissez une box ici." : "Empty — drag a box here.")}
-                                  </p>
-                                : groupSlots.map((slot, si) => renderSlotRow(slot, si))}
+                            {/* Empty bucket = a clean drop zone (no text). It still
+                                catches a dropped box and highlights while hovered. */}
+                            <div style={groupSlots.length === 0 ? { minHeight: 30 } : undefined}>
+                              {groupSlots.map((slot, si) => renderSlotRow(slot, si))}
                             </div>
                           </SortableContext>
                         </DroppableGroup>
@@ -4559,13 +4555,9 @@ export default function AdminPage() {
                               onDragCancel={() => { setDraggingSlot(null); setDragOverCat(null); }}
                               onDragEnd={onSlotDragEnd}
                             >
-                              {/* Uncategorized bucket — flat at the top. Always a drop
-                                  target while dragging so a box can return here; hidden
-                                  at rest when empty to keep the panel clean. */}
-                              {(uncategorized.length > 0 || draggingSlot != null) && renderGroup(uncategorized, UNCAT)}
-
-                              {/* Foldable, reorderable categories. Deleting one un-groups
-                                  its slots (never deletes them — see deleteSlotCategory). */}
+                              {/* Categories at the TOP so any category can be placed above
+                                  the loose boxes ("on top"). Drag a header to reorder them.
+                                  Deleting one un-groups its slots (never deletes them). */}
                               <SortableContext items={cats.map(c => `cat:${c.id}`)} strategy={verticalListSortingStrategy}>
                               {cats.map((cat, ci) => {
                                 const catSlots = slotsInCat(cat.id);
@@ -4575,15 +4567,14 @@ export default function AdminPage() {
                                   <SortableCategory key={cat.id} id={`cat:${cat.id}`}>
                                   {({ attributes, listeners, isDragging }) => (
                                   <div className="mt-1.5" style={{ borderTop: ci === 0 && uncategorized.length === 0 ? "none" : "1px solid var(--border)", ...(isDragging ? { background: "var(--card)", borderRadius: 12, boxShadow: "0 14px 36px rgba(0,0,0,0.20)" } : {}) }}>
-                                    {/* Category header — grip to reorder; chevron/label to fold/rename */}
-                                    <div className="flex items-center gap-1 px-2 py-2">
-                                      <button type="button" {...attributes} {...listeners}
-                                        className="bv-icon-btn w-6 h-7 flex items-center justify-center rounded-md flex-shrink-0"
-                                        style={{ color: "var(--w3)", cursor: "grab", touchAction: "none" }}
-                                        aria-label={lang === "de" ? "Kategorie verschieben" : lang === "fr" ? "Déplacer la catégorie" : "Reorder category"}>
-                                        <GripVertical size={13} strokeWidth={2} />
-                                      </button>
+                                    {/* Category header — drag ANYWHERE on the bar to reorder
+                                        (whole frame is the handle, like a box row). Interactive
+                                        controls stopPropagation on pointer-down so they click,
+                                        not drag. */}
+                                    <div className="flex items-center gap-1 px-2 py-2" {...attributes} {...listeners}
+                                      style={{ cursor: "grab", touchAction: "none" }}>
                                       <button type="button"
+                                        onPointerDown={e => e.stopPropagation()}
                                         onClick={() => toggleFoldCat(cat.id)}
                                         className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0"
                                         style={{ color: "var(--w3)" }}
@@ -4594,6 +4585,7 @@ export default function AdminPage() {
                                       {editing ? (
                                         <input
                                           autoFocus
+                                          onPointerDown={e => e.stopPropagation()}
                                           value={editingCatLabel}
                                           onChange={e => setEditingCatLabel(e.target.value)}
                                           onBlur={() => { renameCategory(slotPhase, cat.id, editingCatLabel.trim()); setEditingCatId(null); }}
@@ -4607,6 +4599,7 @@ export default function AdminPage() {
                                         />
                                       ) : (
                                         <button type="button"
+                                          onPointerDown={e => e.stopPropagation()}
                                           onClick={() => { setEditingCatId(cat.id); setEditingCatLabel(cat.label ?? ""); }}
                                           className="flex-1 min-w-0 text-left"
                                           title={lang === "de" ? "Umbenennen" : lang === "fr" ? "Renommer" : "Rename"}>
@@ -4616,8 +4609,9 @@ export default function AdminPage() {
                                           <span className="text-[10px] ml-1.5" style={{ color: "var(--w3)" }}>· {catSlots.length}</span>
                                         </button>
                                       )}
-                                      {/* Reorder ↑ / ↓ (slide the category up or down) */}
+                                      {/* Reorder ↑ / ↓ (precise nudge; drag the bar for big moves) */}
                                       <button type="button"
+                                        onPointerDown={e => e.stopPropagation()}
                                         onClick={() => moveCategory(slotPhase, cat.id, -1)}
                                         disabled={ci === 0}
                                         className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0 disabled:opacity-25"
@@ -4626,6 +4620,7 @@ export default function AdminPage() {
                                         <ChevronDown size={13} strokeWidth={2} style={{ transform: "rotate(180deg)" }} />
                                       </button>
                                       <button type="button"
+                                        onPointerDown={e => e.stopPropagation()}
                                         onClick={() => moveCategory(slotPhase, cat.id, 1)}
                                         disabled={ci === cats.length - 1}
                                         className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0 disabled:opacity-25"
@@ -4635,6 +4630,7 @@ export default function AdminPage() {
                                       </button>
                                       {/* Delete category (its slots become uncategorized) */}
                                       <button type="button"
+                                        onPointerDown={e => e.stopPropagation()}
                                         onClick={() => deleteSlotCategory(slotPhase, cat.id)}
                                         className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0"
                                         style={{ color: "var(--danger)" }}
@@ -4651,6 +4647,16 @@ export default function AdminPage() {
                                 );
                               })}
                               </SortableContext>
+
+                              {/* Loose (uncategorized) boxes — at the BOTTOM, beneath the
+                                  categories so a category can sit on top. Shown while a box
+                                  is dragging even if empty, so a box can be pulled back out
+                                  of a category. */}
+                              {(uncategorized.length > 0 || draggingSlot != null) && (
+                                <div style={cats.length > 0 ? { borderTop: "1px solid var(--border)", marginTop: 6, paddingTop: 2 } : undefined}>
+                                  {renderGroup(uncategorized, UNCAT)}
+                                </div>
+                              )}
 
                               {/* Add a new (empty) category */}
                               <button type="button"

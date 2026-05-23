@@ -3156,10 +3156,8 @@ export default function DashboardPage() {
             const uncategorized = currentPhase.items.filter(it => catOf(it) === null);
             return (
               <>
-                {/* Uncategorized slots stay flat at the top. */}
-                {uncategorized.map((item, i) => renderItem(item, i))}
-                {/* Each non-empty category as a foldable section — candidates
-                    fold/unfold locally; admins own the names + order. */}
+                {/* Categories first (on top), matching the admin arrangement. Each
+                    is a foldable section — candidates fold/unfold locally. */}
                 {phCats.map(cat => {
                   const catItems = currentPhase.items.filter(it => catOf(it) === cat.id);
                   if (catItems.length === 0) return null; // empty categories stay hidden from candidates
@@ -3186,6 +3184,8 @@ export default function DashboardPage() {
                     </div>
                   );
                 })}
+                {/* Loose (uncategorized) boxes at the bottom, beneath the categories. */}
+                {uncategorized.map((item, i) => renderItem(item, i))}
               </>
             );
           })()}
