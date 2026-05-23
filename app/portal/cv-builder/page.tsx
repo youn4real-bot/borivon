@@ -4035,6 +4035,33 @@ function CVBuilderInner() {
           })}
 
           <AddButton onClick={addWork} label={t.cvb_addJob} />
+
+          {/* Soft length warning — the generated CV is capped at 2 pages
+              and the font won't shrink further, so a very long history
+              risks spilling. We don't block (German CVs are complete),
+              just nudge the candidate/admin to condense older/minor roles.
+              Trigger uses the SAME density score the PDF renderer uses
+              (work + edu + ½·bullets) so it fires exactly when the layout
+              enters its tightest band. */}
+          {(() => {
+            const bullets = cvData.workEntries.reduce(
+              (n, e) => n + (e.taetigkeiten ?? []).filter(b => (b ?? "").trim()).length, 0,
+            );
+            const score = cvData.workEntries.length + cvData.eduEntries.length + bullets * 0.5;
+            if (score < 22) return null;
+            const msg = lang === "de"
+              ? "Dein Lebenslauf wird lang. Er wird auf 2 Seiten begrenzt — fasse ältere oder kürzere Stationen zusammen, damit alles Wichtige Platz findet."
+              : lang === "fr"
+              ? "Ton CV devient long. Il est limité à 2 pages — résume les postes plus anciens ou courts pour que l'essentiel tienne."
+              : "Your CV is getting long. It's capped at 2 pages — condense older or shorter roles so the important ones fit.";
+            return (
+              <div className="mt-3 flex items-start gap-2 rounded-xl px-3.5 py-2.5"
+                style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
+                <AlertTriangle size={14} strokeWidth={1.9} style={{ color: "var(--gold)", flexShrink: 0, marginTop: 1 }} />
+                <p className="text-[11.5px] leading-relaxed" style={{ color: "var(--w2)" }}>{msg}</p>
+              </div>
+            );
+          })()}
         </SectionCard>
 
         {/* ── 5. Languages ── */}
