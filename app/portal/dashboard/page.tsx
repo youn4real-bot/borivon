@@ -160,9 +160,17 @@ export default function DashboardPage() {
   const pendingKeyRef = useRef<string | null>(null);
 
   // Dynamic phase slots — loaded from API (replaces static bea_*/vis_* placeholders)
-  type PhaseSlot = { id: string; phase: string; type: "simple" | "dual"; label: string; label_trans: string | null; position: number; action_type: string | null; instructions: string | null; template_pdf_path: string | null; form_fields: import("@/lib/pdfFieldEmbed").FormField[] | null; candidate_signature_zone: import("@/components/PdfZonePicker").SigZone | null; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean; pdf_has_native_fields: boolean };
+  type PhaseSlot = { id: string; phase: string; type: "simple" | "dual"; label: string; label_trans: string | null; position: number; action_type: string | null; instructions: string | null; template_pdf_path: string | null; form_fields: import("@/lib/pdfFieldEmbed").FormField[] | null; candidate_signature_zone: import("@/components/PdfZonePicker").SigZone | null; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean; pdf_has_native_fields: boolean; category_id: string | null };
   const [dynamicSlots, setDynamicSlots] = useState<{ bea: PhaseSlot[]; vis: PhaseSlot[] }>({ bea: [], vis: [] });
   const [dynamicSlotsLoaded, setDynamicSlotsLoaded] = useState(false);
+  // Admin-defined slot CATEGORIES (LAW #34). Candidates only READ them — fold
+  // / unfold is a local view toggle (not persisted); admins own create/order.
+  // Empty → every slot renders flat (identical to the pre-categories layout).
+  type SlotCategory = { id: string; phase: string; label: string; position: number };
+  const [slotCats, setSlotCats] = useState<{ bea: SlotCategory[]; vis: SlotCategory[] }>({ bea: [], vis: [] });
+  const [foldedCats, setFoldedCats] = useState<Set<string>>(new Set());
+  const toggleFoldCat = (id: string) =>
+    setFoldedCats(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   type PhItem = { key: string; label: string; hint: string; optional?: boolean; transKey?: string; transHint?: string; };
   const PHASES: { title: string; shortTitle: string; desc: string; kind: PhaseKind; isTranslations: boolean; items: PhItem[] }[] = [
@@ -207,7 +215,7 @@ export default function DashboardPage() {
       kind: "recognition" as PhaseKind,
       isTranslations: false,
       items: dynamicSlots.bea.map(s => ({
-        key: s.id, label: s.label, hint: "",
+        key: s.id, label: s.label, hint: "", category_id: s.category_id ?? null,
         ...(s.instructions ? { instructions: s.instructions } : {}),
         ...(s.form_fields?.length ? { form_fields: s.form_fields } : {}),
         ...(s.template_pdf_path ? { template_pdf_path: s.template_pdf_path } : {}),
@@ -223,7 +231,7 @@ export default function DashboardPage() {
       kind: "embassy" as PhaseKind,
       isTranslations: false,
       items: dynamicSlots.vis.map(s => ({
-        key: s.id, label: s.label, hint: "",
+        key: s.id, label: s.label, hint: "", category_id: s.category_id ?? null,
         ...(s.instructions ? { instructions: s.instructions } : {}),
         ...(s.form_fields?.length ? { form_fields: s.form_fields } : {}),
         ...(s.template_pdf_path ? { template_pdf_path: s.template_pdf_path } : {}),
@@ -392,6 +400,9 @@ export default function DashboardPage() {
     if (!(dynamicSlots.bea.length || dynamicSlots.vis.length)) return;
     const slot = [...dynamicSlots.bea, ...dynamicSlots.vis].find(s => s.id === autoOpenSlotId);
     if (!slot || !slot.template_pdf_path) return;
+    // Make sure the row is reachable after the modal closes — never leave a
+    // deep-linked slot trapped inside a category the candidate folded.
+    if (slot.category_id) setFoldedCats(prev => { const n = new Set(prev); n.delete(slot.category_id!); return n; });
     fetch(`/api/portal/slot-template?slotId=${slot.id}`, {
       headers: { Authorization: `Bearer ${authToken}` },
     }).then(r => r.ok ? r.blob() : null).then(blob => {
@@ -1114,13 +1125,20 @@ export default function DashboardPage() {
   async function loadDynamicSlots(token: string) {
     if (dynamicSlotsLoaded) return;
     try {
-      const [beaRes, visRes] = await Promise.all([
+      const [beaRes, visRes, beaCatRes, visCatRes] = await Promise.all([
         fetch("/api/portal/phase-slots?phase=bearbeitung", { headers: { Authorization: `Bearer ${token}` } }),
         fetch("/api/portal/phase-slots?phase=visum",        { headers: { Authorization: `Bearer ${token}` } }),
+        // Categories are READ-only here; failures (e.g. migration pending) just
+        // leave the list flat. Resolved server-side to the SAME scope as slots.
+        fetch("/api/portal/phase-slot-categories?phase=bearbeitung", { headers: { Authorization: `Bearer ${token}` } }).catch(() => null),
+        fetch("/api/portal/phase-slot-categories?phase=visum",        { headers: { Authorization: `Bearer ${token}` } }).catch(() => null),
       ]);
       const beaJ = beaRes.ok ? await beaRes.json() : { slots: [] };
       const visJ = visRes.ok ? await visRes.json() : { slots: [] };
       setDynamicSlots({ bea: beaJ.slots ?? [], vis: visJ.slots ?? [] });
+      const beaCatJ = beaCatRes?.ok ? await beaCatRes.json() : { categories: [] };
+      const visCatJ = visCatRes?.ok ? await visCatRes.json() : { categories: [] };
+      setSlotCats({ bea: beaCatJ.categories ?? [], vis: visCatJ.categories ?? [] });
       setDynamicSlotsLoaded(true); // set only on success — allows retry on failure
     } catch { /* ignore — slots stay empty; guard stays false so next load retries */ }
   }
@@ -2515,7 +2533,12 @@ export default function DashboardPage() {
 
               {/* Doc rows — borderless minimalist list */}
               <div className="px-3 pb-2">
-          {currentPhase.items.map((item, idx) => {
+          {(() => {
+            // Per-item renderer, extracted so the list can render FLAT (no
+            // categories) or GROUPED under admin-defined category headers.
+            // `idx` only drives the inter-row hairline → we pass a GROUP-LOCAL
+            // index so the first row of each group gets no leading divider.
+            const renderItem = (item: (typeof currentPhase.items)[number], idx: number) => {
             // ── Paired master box (nursing items with original + translation) ──
             if (item.transKey) {
               const origDoc    = getDoc(item.key);
@@ -3118,7 +3141,54 @@ export default function DashboardPage() {
                 )}
               </div>
             );
-          })}
+            }; // end renderItem
+
+            // Group the rows under admin-defined categories for THIS phase
+            // (Bearbeitung = index 2, Visum = index 3). Read-only on this side.
+            const phCats = (phase === 2 ? slotCats.bea : phase === 3 ? slotCats.vis : [])
+              .slice().sort((a, b) => a.position - b.position);
+            const catOf = (it: (typeof currentPhase.items)[number]) =>
+              (it as { category_id?: string | null }).category_id ?? null;
+
+            // No categories → flat list, byte-for-byte the pre-feature layout.
+            if (phCats.length === 0) return currentPhase.items.map((item, idx) => renderItem(item, idx));
+
+            const uncategorized = currentPhase.items.filter(it => catOf(it) === null);
+            return (
+              <>
+                {/* Uncategorized slots stay flat at the top. */}
+                {uncategorized.map((item, i) => renderItem(item, i))}
+                {/* Each non-empty category as a foldable section — candidates
+                    fold/unfold locally; admins own the names + order. */}
+                {phCats.map(cat => {
+                  const catItems = currentPhase.items.filter(it => catOf(it) === cat.id);
+                  if (catItems.length === 0) return null; // empty categories stay hidden from candidates
+                  const folded = foldedCats.has(cat.id);
+                  return (
+                    <div key={cat.id} className="mt-1">
+                      <button type="button"
+                        onClick={() => toggleFoldCat(cat.id)}
+                        aria-expanded={!folded}
+                        className="bv-row-hover w-full flex items-center gap-2 px-3 py-2.5 text-left"
+                        style={{ borderTop: "1px solid var(--border)" }}>
+                        <ChevronDown size={14} strokeWidth={2}
+                          style={{ color: "var(--w3)", transition: "transform var(--dur-2) var(--ease)", transform: folded ? "rotate(-90deg)" : "rotate(0deg)" }} />
+                        <span className="flex-1 min-w-0 text-[11.5px] font-semibold tracking-tight truncate" style={{ color: "var(--w)" }}>
+                          {cat.label || (lang === "de" ? "Dokumente" : lang === "fr" ? "Documents" : "Documents")}
+                        </span>
+                        <span className="text-[10px] flex-shrink-0" style={{ color: "var(--w3)" }}>{catItems.length}</span>
+                      </button>
+                      {!folded && (
+                        <div style={{ animation: "bvFadeRise .2s var(--ease-out)" }}>
+                          {catItems.map((item, i) => renderItem(item, i))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </>
+            );
+          })()}
               </div>
             </div>
 

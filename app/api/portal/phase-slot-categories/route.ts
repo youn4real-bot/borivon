@@ -26,20 +26,50 @@ export async function GET(req: NextRequest) {
   if (!m) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { data: authData, error: authErr } = await getAnonVerifyClient().auth.getUser(m[1].trim());
   if (authErr || !authData?.user) return NextResponse.json({ error: "Invalid token" }, { status: 401 });
+  const userId = authData.user.id;
 
   const phase = req.nextUrl.searchParams.get("phase");
   if (!phase || !VALID_PHASES.includes(phase as Phase)) {
     return NextResponse.json({ error: "Invalid phase" }, { status: 400 });
   }
-  const orgIdParam = req.nextUrl.searchParams.get("orgId");
   const db = getServiceSupabase();
+
+  // Categories MUST resolve to the same scope as the slots GET, or a candidate
+  // could receive global slots tagged with org category_ids (or vice-versa) and
+  // those slots would silently vanish from the grouped UI. So: resolve the
+  // org exactly like phase-slots, then use org scope ONLY IF that org actually
+  // has slots for this phase (mirrors the slots route's org→global fallback).
+  const orgIdParam = req.nextUrl.searchParams.get("orgId");
+  let orgId: string | null = null;
+  if (orgIdParam && UUID_RE.test(orgIdParam)) {
+    orgId = orgIdParam;
+  } else {
+    const { data: mem } = await db
+      .from("candidate_organizations")
+      .select("org_id")
+      .eq("candidate_user_id", userId)
+      .eq("status", "approved")
+      .neq("added_by", "admin")
+      .maybeSingle();
+    orgId = (mem as { org_id: string } | null)?.org_id ?? null;
+  }
+
+  let scopeOrgId: string | null = null;
+  if (orgId) {
+    const { count } = await db
+      .from("phase_slots")
+      .select("id", { count: "exact", head: true })
+      .eq("org_id", orgId)
+      .eq("phase", phase);
+    if ((count ?? 0) > 0) scopeOrgId = orgId;
+  }
 
   let q = db
     .from("phase_slot_categories")
     .select("id, org_id, phase, label, position")
     .eq("phase", phase)
     .order("position", { ascending: true });
-  q = (orgIdParam && UUID_RE.test(orgIdParam)) ? q.eq("org_id", orgIdParam) : q.is("org_id", null);
+  q = scopeOrgId ? q.eq("org_id", scopeOrgId) : q.is("org_id", null);
 
   const { data, error } = await q;
   if (error) {
