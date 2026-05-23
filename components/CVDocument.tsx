@@ -421,19 +421,19 @@ const s = StyleSheet.create({
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function SectionHead({ title }: { title: string }) {
+function SectionHead({ title, mb }: { title: string; mb?: number }) {
   return (
-    <View style={s.sectionHeader}>
+    <View style={[s.sectionHeader, mb != null ? { marginBottom: mb } : {}]}>
       <View style={s.accentBar} />
       <Text style={s.sectionTitle}>{title}</Text>
     </View>
   );
 }
 
-function PDRow({ label, value }: { label: string; value: string }) {
+function PDRow({ label, value, mb }: { label: string; value: string; mb?: number }) {
   if (!value) return null;
   return (
-    <View style={s.pdRow}>
+    <View style={[s.pdRow, mb != null ? { marginBottom: mb } : {}]}>
       <Text style={s.pdLabel}>{label}</Text>
       <Text style={s.pdValue}>{value}</Text>
     </View>
@@ -542,11 +542,22 @@ function formatDeutschDetail(b: B2Detail | undefined, level: "B1" | "B2"): strin
   return "";
 }
 
-function WorkRow({ entry }: { entry: WorkEntry }) {
+// Vertical-rhythm spacing, scaled by content density (see CVDocument).
+// Font sizes are NEVER touched — only the gaps between lines/blocks shrink
+// as the CV grows, so a long CV stays ≤ 2 pages without becoming
+// unreadable. Between-entry gap keeps a floor so separate jobs stay
+// visually distinct; within-entry gaps (title→dept→bullets) compress more.
+type Spacing = {
+  entryMb: number; titleMb: number; subtitleMb: number; deptMt: number;
+  bulletMt: number; sectionMb: number; sectionHeadMb: number;
+  pdRowMb: number; sigMt: number; dividerMt: number; dividerMb: number;
+};
+
+function WorkRow({ entry, sp }: { entry: WorkEntry; sp: Spacing }) {
   const dr = dateRange(entry.start, entry.end);
   if (entry.isGap) {
     return (
-      <View style={s.entry}>
+      <View style={[s.entry, { marginBottom: sp.entryMb }]}>
         <Text style={s.entryDate}>{dr}</Text>
         <View style={s.entryRight}>
           <Text style={s.entryGap}>Nicht berufstätig</Text>
@@ -556,21 +567,21 @@ function WorkRow({ entry }: { entry: WorkEntry }) {
     );
   }
   return (
-    <View style={s.entry}>
+    <View style={[s.entry, { marginBottom: sp.entryMb }]}>
       <Text style={s.entryDate}>{dr}</Text>
       <View style={s.entryRight}>
-        {entry.title ? <Text style={s.entryTitle}>{entry.title}</Text> : null}
+        {entry.title ? <Text style={[s.entryTitle, { marginBottom: sp.titleMb }]}>{entry.title}</Text> : null}
         {(entry.employer || entry.location || entry.country) ? (
-          <Text style={s.entrySubtitle}>
+          <Text style={[s.entrySubtitle, { marginBottom: sp.subtitleMb }]}>
             {[entry.employer, entry.location, entry.country].filter(Boolean).join(" · ")}
           </Text>
         ) : null}
         {(entry.additionalSites ?? []).map((site, i) => {
           const line = [site.employer, site.location, site.country].filter(Boolean).join(" · ");
-          return line ? <Text key={i} style={s.entrySubtitle}>{line}</Text> : null;
+          return line ? <Text key={i} style={[s.entrySubtitle, { marginBottom: sp.subtitleMb }]}>{line}</Text> : null;
         })}
         {entry.departments.length > 0 ? (
-          <Text style={s.entryDept}>{entry.departments.join("  ·  ")}</Text>
+          <Text style={[s.entryDept, { marginTop: sp.deptMt }]}>{entry.departments.join("  ·  ")}</Text>
         ) : null}
         {/* Tätigkeiten bullets — only non-empty trimmed lines. Each is
             its own row so wrap behavior + page break stay clean. */}
@@ -582,7 +593,7 @@ function WorkRow({ entry }: { entry: WorkEntry }) {
             // overly-long bullet across pages, which forces a giant
             // whitespace gap before a page break or pushes the bullet
             // into the fixed-footer area.
-            <View key={i} style={s.bulletRow}>
+            <View key={i} style={[s.bulletRow, { marginTop: sp.bulletMt }]}>
               <Text style={s.bulletDot}>•</Text>
               <Text style={s.bulletText}>{bullet}</Text>
             </View>
@@ -592,27 +603,27 @@ function WorkRow({ entry }: { entry: WorkEntry }) {
   );
 }
 
-function EduRow({ entry }: { entry: EduEntry }) {
+function EduRow({ entry, sp }: { entry: EduEntry; sp: Spacing }) {
   const label = entry.type === "nursing"
     ? nursingLabel(entry.nursingStatus, entry.degree || "Krankenpflegediplom")
     : (entry.degree || "");
   const dr = dateRange(entry.start, entry.end);
   return (
-    <View style={s.entry}>
+    <View style={[s.entry, { marginBottom: sp.entryMb }]}>
       <Text style={s.entryDate}>{dr}</Text>
       <View style={s.entryRight}>
-        {label ? <Text style={s.entryTitle}>{label}</Text> : null}
+        {label ? <Text style={[s.entryTitle, { marginBottom: sp.titleMb }]}>{label}</Text> : null}
         {entry.type === "abitur" && entry.abiturFocus?.trim() ? (
-          <Text style={s.entrySubtitle}>Schwerpunkt: {entry.abiturFocus.trim()}</Text>
+          <Text style={[s.entrySubtitle, { marginBottom: sp.subtitleMb }]}>Schwerpunkt: {entry.abiturFocus.trim()}</Text>
         ) : null}
         {(entry.institution || entry.location || entry.country) ? (
-          <Text style={s.entrySubtitle}>
+          <Text style={[s.entrySubtitle, { marginBottom: sp.subtitleMb }]}>
             {[entry.institution, entry.location, entry.country].filter(Boolean).join(" · ")}
           </Text>
         ) : null}
         {entry.type === "nursing" && entry.nursingStatus === "complete"
           && entry.diplomaIssued?.month && entry.diplomaIssued?.year ? (
-          <Text style={s.entrySubtitle}>Diplom ausgestellt: {fmtMY(entry.diplomaIssued)}</Text>
+          <Text style={[s.entrySubtitle, { marginBottom: sp.subtitleMb }]}>Diplom ausgestellt: {fmtMY(entry.diplomaIssued)}</Text>
         ) : null}
       </View>
     </View>
@@ -681,6 +692,43 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
     return [...others, ...deutsch];
   })();
 
+  // ── Content-density scaler — keep the CV ≤ 2 pages WITHOUT shrinking
+  //    the (already small) font. As the content grows we tighten the
+  //    vertical rhythm: most aggressively the within-entry gaps
+  //    (title → employer → departments → bullets), and more gently the
+  //    gap BETWEEN entries (kept above a floor so separate jobs stay
+  //    visually distinct, per the design brief).
+  //
+  // Score weights the things that actually consume vertical space: each
+  // work / edu entry is a multi-line block; each bullet is one line.
+  const bulletCount = data.workEntries.reduce(
+    (n, e) => n + (e.taetigkeiten ?? []).filter(b => (b ?? "").trim()).length, 0,
+  );
+  const densityScore = allWork.length + allEdu.length + bulletCount * 0.5;
+  // d = 1.0 (roomy) → 0.45 (very tight). The example 8-job CV scores ~24
+  // → ~0.55, which pulls its near-empty 3rd page back onto page 2.
+  const d =
+    densityScore <= 12 ? 1.0  :
+    densityScore <= 18 ? 0.78 :
+    densityScore <= 26 ? 0.55 :
+                         0.45;
+  const sp: Spacing = {
+    // Between work/edu entries — scaled, but floored so jobs stay distinct.
+    entryMb:       Math.max(3.5, 6 * d),
+    // Within an entry — compress harder; these are the same "paragraph".
+    titleMb:       Math.max(0.5, 1.5 * d),
+    subtitleMb:    Math.max(0.5, 1 * d),
+    deptMt:        Math.max(0.5, 1.5 * d),
+    bulletMt:      Math.max(1,   2.5 * d),
+    // Section + chrome rhythm.
+    sectionMb:     Math.max(7,   14 * d),
+    sectionHeadMb: Math.max(3,   6 * d),
+    pdRowMb:       Math.max(2,   3.5 * d),
+    sigMt:         Math.max(10,  24 * d),
+    dividerMt:     Math.max(2.5, 5 * d),
+    dividerMb:     Math.max(4,   8 * d),
+  };
+
   // When the admin picked "Keine" CV branding, the fixed header + footer
   // are skipped — but s.page reserves their height as padding. Collapse
   // it back down so the page doesn't have ~136pt of dead whitespace.
@@ -723,19 +771,19 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
         <Text style={s.docTitle}>Lebenslauf</Text>
 
         {/* ── PERSÖNLICHE DATEN ── */}
-        <View style={s.section}>
-          <SectionHead title="Persönliche Daten" />
+        <View style={[s.section, { marginBottom: sp.sectionMb }]}>
+          <SectionHead title="Persönliche Daten" mb={sp.sectionHeadMb} />
           <View style={s.pdWithPhoto}>
             <View style={s.pdRows}>
-              <PDRow label="Vorname"           value={data.firstName} />
-              <PDRow label="Nachname"          value={data.lastName} />
-              <PDRow label="Geburtsdatum"      value={data.birthDate} />
-              <PDRow label="Geburtsort"        value={[data.birthPlace, data.countryOfBirth].filter(Boolean).join(", ")} />
-              {allNationalities.length ? <PDRow label="Staatsangehörigkeit" value={allNationalities.join(", ")} /> : null}
-              {data.maritalStatus      ? <PDRow label="Familienstand"     value={data.maritalStatus} /> : null}
-              {fullAddress             ? <PDRow label="Adresse"           value={fullAddress} /> : null}
-              {data.phone              ? <PDRow label="Telefon"           value={data.phone} /> : null}
-              {data.email              ? <PDRow label="E-Mail"            value={data.email} /> : null}
+              <PDRow label="Vorname"           value={data.firstName} mb={sp.pdRowMb} />
+              <PDRow label="Nachname"          value={data.lastName} mb={sp.pdRowMb} />
+              <PDRow label="Geburtsdatum"      value={data.birthDate} mb={sp.pdRowMb} />
+              <PDRow label="Geburtsort"        value={[data.birthPlace, data.countryOfBirth].filter(Boolean).join(", ")} mb={sp.pdRowMb} />
+              {allNationalities.length ? <PDRow label="Staatsangehörigkeit" value={allNationalities.join(", ")} mb={sp.pdRowMb} /> : null}
+              {data.maritalStatus      ? <PDRow label="Familienstand"     value={data.maritalStatus} mb={sp.pdRowMb} /> : null}
+              {fullAddress             ? <PDRow label="Adresse"           value={fullAddress} mb={sp.pdRowMb} /> : null}
+              {data.phone              ? <PDRow label="Telefon"           value={data.phone} mb={sp.pdRowMb} /> : null}
+              {data.email              ? <PDRow label="E-Mail"            value={data.email} mb={sp.pdRowMb} /> : null}
             </View>
             {data.photo ? <Image src={data.photo} style={s.photo} /> : null}
           </View>
@@ -743,24 +791,24 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
 
         {/* ── BERUFSERFAHRUNG ── */}
         {allWork.length > 0 && (
-          <View style={s.section}>
-            <SectionHead title="Berufserfahrung" />
-            {allWork.map(e => <WorkRow key={e.id} entry={e} />)}
+          <View style={[s.section, { marginBottom: sp.sectionMb }]}>
+            <SectionHead title="Berufserfahrung" mb={sp.sectionHeadMb} />
+            {allWork.map(e => <WorkRow key={e.id} entry={e} sp={sp} />)}
           </View>
         )}
 
         {/* ── BILDUNGSWEG ── */}
         {allEdu.length > 0 && (
-          <View style={s.section}>
-            <SectionHead title="Bildungsweg" />
-            {allEdu.map(e => <EduRow key={e.id} entry={e} />)}
+          <View style={[s.section, { marginBottom: sp.sectionMb }]}>
+            <SectionHead title="Bildungsweg" mb={sp.sectionHeadMb} />
+            {allEdu.map(e => <EduRow key={e.id} entry={e} sp={sp} />)}
           </View>
         )}
 
         {/* ── SPRACHKENNTNISSE ── */}
         {activeLangs.length > 0 && (
-          <View style={s.section}>
-            <SectionHead title="Sprachkenntnisse" />
+          <View style={[s.section, { marginBottom: sp.sectionMb }]}>
+            <SectionHead title="Sprachkenntnisse" mb={sp.sectionHeadMb} />
             <View style={s.langRow}>
               {activeLangs.map((l, i) => {
                 // Deutsch on the printed CV is collapsed to B1 or B2 ONLY
@@ -801,8 +849,8 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
 
         {/* ── EDV-KENNTNISSE ── */}
         {allEdv.length > 0 && (
-          <View style={s.section}>
-            <SectionHead title="EDV-Kenntnisse" />
+          <View style={[s.section, { marginBottom: sp.sectionMb }]}>
+            <SectionHead title="EDV-Kenntnisse" mb={sp.sectionHeadMb} />
             <View style={s.edvRow}>
               {allEdv.map((skill, i) => (
                 <Text key={i} style={s.edvChip}>{skill}</Text>
@@ -818,16 +866,16 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
             "Sonstiges" section header. ── */}
         <View wrap={false}>
           {(data.driverLicense === "B" || data.hobbies) && (
-            <View style={s.section}>
-              <SectionHead title="Sonstiges" />
+            <View style={[s.section, { marginBottom: sp.sectionMb }]}>
+              <SectionHead title="Sonstiges" mb={sp.sectionHeadMb} />
               {data.driverLicense === "B" ? (
-                <View style={s.miscRow}>
+                <View style={[s.miscRow, { marginBottom: sp.pdRowMb }]}>
                   <Text style={s.miscLabel}>Führerschein</Text>
                   <Text style={s.miscValue}>Klasse B</Text>
                 </View>
               ) : null}
               {data.hobbies ? (
-                <View style={s.miscRow}>
+                <View style={[s.miscRow, { marginBottom: sp.pdRowMb }]}>
                   <Text style={s.miscLabel}>Interessen</Text>
                   <Text style={s.miscValue}>{data.hobbies}</Text>
                 </View>
@@ -835,15 +883,18 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
             </View>
           )}
 
-          {/* ── UNTERSCHRIFT / DATUM ── */}
-          <View style={s.sigArea}>
+          {/* ── UNTERSCHRIFT / DATUM ──
+              sigSpace (the blank room to sign) also scales with density so
+              a long CV doesn't reserve a full 40pt void per slot. Floored
+              so there's always room to actually sign. */}
+          <View style={[s.sigArea, { marginTop: sp.sigMt }]}>
             <View style={s.sigSlot}>
-              <View style={s.sigSpace} />
+              <View style={[s.sigSpace, { height: Math.max(20, 40 * d) }]} />
               <View style={s.sigLine} />
               <Text style={s.sigLabel}>Ort, Datum</Text>
             </View>
             <View style={s.sigSlot}>
-              <View style={s.sigSpace} />
+              <View style={[s.sigSpace, { height: Math.max(20, 40 * d) }]} />
               <View style={s.sigLine} />
               <Text style={s.sigLabel}>Unterschrift</Text>
             </View>
