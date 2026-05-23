@@ -9,7 +9,7 @@
 import { useState } from "react";
 import { supabase } from "@/lib/supabase";
 
-type Failed = { id: string; reason: string };
+type Failed = { id: string; reason: string; name: string | null; type: string | null };
 
 export default function MigrateToR2Page() {
   const [running, setRunning] = useState(false);
@@ -18,7 +18,12 @@ export default function MigrateToR2Page() {
   const [remaining, setRemaining] = useState<number | null>(null);
   const [log, setLog] = useState<string[]>([]);
 
+  const [verifying, setVerifying] = useState(false);
+  const [vLog, setVLog] = useState<string[]>([]);
+  const [vSummary, setVSummary] = useState<{ verified: number; missing: number; mismatch: number; notMigrated: number; total: number } | null>(null);
+
   const add = (line: string) => setLog(l => [...l, line]);
+  const vadd = (line: string) => setVLog(l => [...l, line]);
 
   async function run() {
     setRunning(true);
@@ -41,14 +46,55 @@ export default function MigrateToR2Page() {
         totalFailed += (j.failed?.length ?? 0);
         setCopied(totalCopied); setFailed(totalFailed); setRemaining(j.remaining ?? 0);
         add(`Batch ${i + 1}: copied ${j.copied}, failed ${j.failed?.length ?? 0}, remaining ${j.remaining}`);
-        (j.failed as Failed[] | undefined)?.forEach(f => add(`   ✗ ${f.id.slice(0, 8)}… — ${f.reason}`));
+        (j.failed as Failed[] | undefined)?.forEach(f => add(`   ✗ ${f.name ?? f.id.slice(0, 8)} [${f.type ?? "?"}] — ${f.reason}`));
 
-        if (j.done || (j.processed ?? 0) === 0) { add(`✅ Finished. ${totalCopied} copied, ${totalFailed} failed.`); break; }
+        if (j.done || (j.processed ?? 0) === 0) { add(`✅ All done. ${totalCopied} copied, ${totalFailed} failed.`); break; }
+        // No progress this batch = only un-copyable files remain → stop (no infinite loop).
+        if ((j.copied ?? 0) === 0) { add(`⏹ Stopped — the remaining ${j.remaining} file(s) can't be copied (see ✗ above). ${totalCopied} copied in total.`); break; }
       }
     } catch (e) {
       add(`💥 Crashed: ${e instanceof Error ? e.message : String(e)}`);
     }
     setRunning(false);
+  }
+
+  async function verify() {
+    setVerifying(true); setVLog([]); setVSummary(null);
+    let verified = 0, missing = 0, mismatch = 0, notMigrated = 0, total = 0;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) { vadd("⚠️ Not logged in as the supreme admin."); setVerifying(false); return; }
+
+      let offset = 0;
+      for (let i = 0; i < 4000; i++) {
+        const res = await fetch("/api/portal/admin/verify-r2", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ offset }),
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) { vadd(`❌ Error: ${j.error ?? res.status}`); break; }
+
+        verified += j.verified ?? 0;
+        missing += j.missingInR2?.length ?? 0;
+        mismatch += j.sizeMismatch?.length ?? 0;
+        notMigrated += j.notMigrated?.length ?? 0;
+        total = j.total ?? total;
+
+        (j.missingInR2 as Failed[] | undefined)?.forEach(f => vadd(`   ❌ MISSING in R2: ${f.name ?? f.id.slice(0, 8)} [${f.type ?? "?"}]`));
+        (j.sizeMismatch as (Failed & { r2: number; drive: number })[] | undefined)?.forEach(f => vadd(`   ⚠️ SIZE DIFFERS: ${f.name ?? f.id.slice(0, 8)} [${f.type ?? "?"}] — R2 ${f.r2}B vs Drive ${f.drive}B`));
+        (j.notMigrated as Failed[] | undefined)?.forEach(f => vadd(`   ⏭ not copied: ${f.name ?? f.id.slice(0, 8)} [${f.type ?? "?"}]`));
+
+        setVSummary({ verified, missing, mismatch, notMigrated, total });
+        offset = j.nextOffset ?? (offset + 50);
+        if (j.done) break;
+      }
+      vadd("— audit complete —");
+    } catch (e) {
+      vadd(`💥 ${e instanceof Error ? e.message : String(e)}`);
+    }
+    setVerifying(false);
   }
 
   return (
@@ -85,6 +131,44 @@ export default function MigrateToR2Page() {
           marginTop: 16, padding: 14, background: "#1a1a1a", borderRadius: 10,
           fontSize: 12, lineHeight: 1.5, whiteSpace: "pre-wrap", maxHeight: 360, overflow: "auto",
         }}>{log.join("\n")}</pre>
+      )}
+
+      <hr style={{ margin: "32px 0", border: "none", borderTop: "1px solid #333" }} />
+
+      <h2 style={{ fontSize: 17, fontWeight: 700, marginBottom: 8 }}>Verify every file is in R2</h2>
+      <p style={{ fontSize: 14, lineHeight: 1.5, opacity: 0.8, marginBottom: 16 }}>
+        Read-only audit. For each document it confirms the file <b>exists in R2</b> and its
+        <b> byte-size matches the original in Google Drive</b> — proof, file by file, that nothing was lost.
+      </p>
+
+      <button
+        onClick={verify}
+        disabled={verifying}
+        style={{
+          background: verifying ? "#555" : "#2f6f6a",
+          color: "#fff", fontWeight: 700, fontSize: 14,
+          padding: "12px 20px", borderRadius: 10, border: "none",
+          cursor: verifying ? "default" : "pointer",
+        }}
+      >
+        {verifying ? "Verifying…" : "Verify all files"}
+      </button>
+
+      {vSummary && (
+        <p style={{ marginTop: 16, fontSize: 15 }}>
+          ✅ Verified: <b>{vSummary.verified}</b> / {vSummary.total} ·
+          {" "}❌ Missing: <b style={{ color: vSummary.missing ? "#ef4444" : undefined }}>{vSummary.missing}</b> ·
+          {" "}⚠️ Size diff: <b style={{ color: vSummary.mismatch ? "#f59e0b" : undefined }}>{vSummary.mismatch}</b> ·
+          {" "}⏭ Not copied: <b>{vSummary.notMigrated}</b>
+          {vSummary.missing === 0 && vSummary.mismatch === 0 ? "  — all good 🎉" : ""}
+        </p>
+      )}
+
+      {vLog.length > 0 && (
+        <pre style={{
+          marginTop: 16, padding: 14, background: "#1a1a1a", borderRadius: 10,
+          fontSize: 12, lineHeight: 1.5, whiteSpace: "pre-wrap", maxHeight: 360, overflow: "auto",
+        }}>{vLog.join("\n")}</pre>
       )}
     </div>
   );

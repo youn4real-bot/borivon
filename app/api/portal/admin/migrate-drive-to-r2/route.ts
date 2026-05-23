@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
   // Only files that have a Drive copy but no R2 copy yet.
   const { data: rows, error } = await db
     .from("documents")
-    .select("id, user_id, drive_file_id, file_name")
+    .select("id, user_id, drive_file_id, file_name, file_type")
     .not("drive_file_id", "is", null)
     .is("r2_key", null)
     .limit(BATCH);
@@ -45,10 +45,12 @@ export async function POST(req: NextRequest) {
 
   const drive = getDriveClient();
   let copied = 0;
-  const failed: { id: string; reason: string }[] = [];
+  const failed: { id: string; reason: string; name: string | null; type: string | null }[] = [];
 
   for (const row of rows ?? []) {
     const driveId = row.drive_file_id as string;
+    const fail = (reason: string) =>
+      failed.push({ id: row.id, reason, name: (row.file_name as string) ?? null, type: (row.file_type as string) ?? null });
     try {
       // 1) Read the bytes from Drive (read-only; the Drive file is untouched).
       const meta = await drive.files.get({ fileId: driveId, fields: "mimeType", supportsAllDrives: true });
@@ -64,22 +66,22 @@ export async function POST(req: NextRequest) {
         stream.on("error", reject);
       });
       const buf = Buffer.concat(chunks);
-      if (buf.length === 0) { failed.push({ id: row.id, reason: "Drive returned 0 bytes" }); continue; }
+      if (buf.length === 0) { fail("Drive file is empty (0 bytes) — broken before migration"); continue; }
 
       // 2) Write into R2 under a stable, collision-proof key.
       const key = candidateKey(row.user_id as string, `${driveId}_${(row.file_name as string) ?? "document"}`);
       await r2Put(key, buf, meta.data.mimeType ?? "application/octet-stream");
 
       // 3) VERIFY it actually landed before recording anything.
-      if (!(await r2Exists(key))) { failed.push({ id: row.id, reason: "post-upload verify failed" }); continue; }
+      if (!(await r2Exists(key))) { fail("post-upload verify failed"); continue; }
 
       // 4) Only now point the row at R2. Drive copy stays as backup.
       const { error: updErr } = await db.from("documents").update({ r2_key: key }).eq("id", row.id);
-      if (updErr) { failed.push({ id: row.id, reason: `DB update: ${updErr.message}` }); continue; }
+      if (updErr) { fail(`DB update: ${updErr.message}`); continue; }
 
       copied++;
     } catch (e) {
-      failed.push({ id: row.id, reason: e instanceof Error ? e.message : String(e) });
+      fail(e instanceof Error ? e.message : String(e));
     }
   }
 

@@ -104,6 +104,18 @@ export async function r2Exists(key: string): Promise<boolean> {
   }
 }
 
+/** HEAD an object — returns its byte size, or null if it doesn't exist.
+ *  Used by the verification audit to size-match each file against Drive. */
+export async function r2Head(key: string): Promise<{ size: number } | null> {
+  try {
+    const res = await client().send(new HeadObjectCommand({ Bucket: R2_BUCKET, Key: key }));
+    return { size: res.ContentLength ?? 0 };
+  } catch (e) {
+    if (isNotFound(e)) return null;
+    throw e;
+  }
+}
+
 /**
  * Temporary download URL ("gate pass") — the browser fetches the file
  * STRAIGHT from R2, so the bytes never pass through the app server (no
