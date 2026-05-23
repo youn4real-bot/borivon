@@ -3176,12 +3176,13 @@ export default function DashboardPage() {
               if (catItems.length === 0) return null; // empty categories stay hidden from candidates
               const folded = foldedCats.has(cat.id);
               return (
-                <div key={cat.id} className="mt-1">
+                // Thin rounded outline "circles" the category so its docs read as
+                // grouped vs the flat loose boxes outside — minimal hairline only.
+                <div key={cat.id} style={{ border: "1px solid var(--border)", borderRadius: 14, overflow: "hidden", marginTop: 8 }}>
                   <button type="button"
                     onClick={() => toggleFoldCat(cat.id)}
                     aria-expanded={!folded}
-                    className="bv-row-hover w-full flex items-center gap-2 px-3 py-2.5 text-left"
-                    style={{ borderTop: "1px solid var(--border)" }}>
+                    className="bv-row-hover w-full flex items-center gap-2 px-3 py-2.5 text-left">
                     <ChevronDown size={14} strokeWidth={2}
                       style={{ color: "var(--w3)", transition: "transform var(--dur-2) var(--ease)", transform: folded ? "rotate(-90deg)" : "rotate(0deg)" }} />
                     <span className="flex-1 min-w-0 text-[11.5px] font-semibold tracking-tight truncate" style={{ color: "var(--w)" }}>
@@ -3190,9 +3191,12 @@ export default function DashboardPage() {
                     <span className="text-[10px] flex-shrink-0" style={{ color: "var(--w3)" }}>{catItems.length}</span>
                   </button>
                   {!folded && (
-                    <div style={{ animation: "bvFadeRise .2s var(--ease-out)" }}>
-                      {catItems.map((item, i) => renderItem(item, i))}
-                    </div>
+                    <>
+                      <div style={{ height: 1, background: "var(--border)" }} />
+                      <div style={{ animation: "bvFadeRise .2s var(--ease-out)" }}>
+                        {catItems.map((item, i) => renderItem(item, i))}
+                      </div>
+                    </>
                   )}
                 </div>
               );

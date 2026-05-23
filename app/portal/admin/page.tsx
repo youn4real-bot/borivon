@@ -4595,16 +4595,17 @@ export default function AdminPage() {
 
                       // One category section: a sortable unit in the top-level list.
                       // The WHOLE header bar is the drag handle (controls inside
-                      // stopPropagation so they click, not drag). `oi` = its index in
-                      // the unified order (drives the top divider + arrow disabling).
-                      const renderCategorySection = (cat: SlotCategory, oi: number) => {
+                      // stopPropagation so they click, not drag). A thin rounded outline
+                      // "circles" the category so its contents read as grouped vs the
+                      // flat loose boxes outside — minimal, just a hairline border.
+                      const renderCategorySection = (cat: SlotCategory) => {
                         const catSlots = slotsInCat(cat.id);
                         const folded = foldedCats.has(cat.id);
                         const editing = editingCatId === cat.id;
                         return (
                           <SortableCategory key={cat.id} id={`cat:${cat.id}`}>
                           {({ attributes, listeners, isDragging }) => (
-                          <div style={{ borderTop: oi === 0 ? "none" : "1px solid var(--border)", marginTop: oi === 0 ? 0 : 6, ...(isDragging ? { background: "var(--card)", borderRadius: 12, boxShadow: "0 14px 36px rgba(0,0,0,0.20)" } : {}) }}>
+                          <div style={{ border: "1px solid var(--border)", borderRadius: 14, overflow: "hidden", marginTop: 8, ...(isDragging ? { background: "var(--card)", boxShadow: "0 14px 36px rgba(0,0,0,0.20)", borderColor: "var(--border-gold)" } : {}) }}>
                             <div className="flex items-center gap-1 px-2 py-2" {...attributes} {...listeners} style={{ cursor: "grab", touchAction: "none" }}>
                               <button type="button" onPointerDown={e => e.stopPropagation()} onClick={() => toggleFoldCat(cat.id)}
                                 className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0" style={{ color: "var(--w3)" }}
@@ -4647,7 +4648,12 @@ export default function AdminPage() {
                                 </DropdownMenu>
                               </div>
                             </div>
-                            {!folded && renderGroup(catSlots, cat.id)}
+                            {!folded && (
+                              <>
+                                <div style={{ height: 1, background: "var(--border)" }} />
+                                {renderGroup(catSlots, cat.id)}
+                              </>
+                            )}
                           </div>
                           )}
                           </SortableCategory>
@@ -4677,7 +4683,7 @@ export default function AdminPage() {
                               <SortableContext items={topOrder.map(u => u.kind === "box" ? u.id : `cat:${u.id}`)} strategy={verticalListSortingStrategy}>
                                 {topOrder.map((u, oi) => {
                                   if (u.kind === "box") { const s = slotById.get(u.id); return s ? renderSlotRow(s, oi) : null; }
-                                  const c = catById.get(u.id); return c ? renderCategorySection(c, oi) : null;
+                                  const c = catById.get(u.id); return c ? renderCategorySection(c) : null;
                                 })}
                               </SortableContext>
 
