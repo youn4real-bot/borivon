@@ -6,8 +6,6 @@ import type { LetterData, LetterBrand } from "@/components/LetterDocument";
 import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { registerPdfFonts } from "@/lib/pdf-fonts";
-import path from "path";
-import fs from "fs";
 
 registerPdfFonts();
 

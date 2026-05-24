@@ -99,19 +99,30 @@ async function resolveBrand(userId: string, byAdmin: boolean): Promise<CVBrand> 
       // Uploaded via admin panel — use the data URL directly
       brand.logoSrc = org.logo_filename;
     } else {
-      // Legacy: filename in public/logos/
-      const logoPath = path.join(process.cwd(), "public", "logos", org.logo_filename);
-      if (fs.existsSync(logoPath)) {
-        const ext = path.extname(org.logo_filename).toLowerCase();
-        const mime =
-          ext === ".png"  ? "image/png"  :
-          ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" :
-          ext === ".webp" ? "image/webp"  :
-          ext === ".svg"  ? "image/svg+xml" :
-          "image/png";
-        const b64 = fs.readFileSync(logoPath).toString("base64");
-        brand.logoSrc = `data:${mime};base64,${b64}`;
+      // Legacy: filename in public/logos/. Read from disk on Node/Vercel; on
+      // Cloudflare Workers (no filesystem) fs throws/returns false → fetch the
+      // bundled /logos/ asset over HTTP. Mirrors lib/pdf-fonts.ts. Never throws
+      // — a missing logo just leaves brand.logoSrc unset.
+      const ext = path.extname(org.logo_filename).toLowerCase();
+      const mime =
+        ext === ".png"  ? "image/png"  :
+        ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" :
+        ext === ".webp" ? "image/webp"  :
+        ext === ".svg"  ? "image/svg+xml" :
+        "image/png";
+      let b64: string | null = null;
+      try {
+        const logoPath = path.join(process.cwd(), "public", "logos", org.logo_filename);
+        if (fs.existsSync(logoPath)) b64 = fs.readFileSync(logoPath).toString("base64");
+      } catch { /* no disk → fetch below */ }
+      if (!b64) {
+        try {
+          const base = (process.env.NEXT_PUBLIC_BASE_URL || "").replace(/\/$/, "");
+          const res = await fetch(`${base}/logos/${org.logo_filename}`);
+          if (res.ok) b64 = Buffer.from(await res.arrayBuffer()).toString("base64");
+        } catch { /* leave logo unset */ }
       }
+      if (b64) brand.logoSrc = `data:${mime};base64,${b64}`;
     }
   }
 

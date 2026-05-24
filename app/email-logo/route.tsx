@@ -26,9 +26,18 @@ async function getFont(): Promise<ArrayBuffer> {
       return cachedFont!;
     }
   } catch { /* fall through to the bundled serif-italic */ }
-  const buf = fs.readFileSync(path.join(process.cwd(), "public/fonts/DMSerifDisplay-Italic.ttf"));
-  cachedFont = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
-  return cachedFont;
+  // Bundled fallback. Disk read works on Node/Vercel; on Cloudflare Workers
+  // (no filesystem) readFileSync throws → fetch the bundled /fonts/ asset over
+  // HTTP. Mirrors lib/pdf-fonts.ts.
+  try {
+    const buf = fs.readFileSync(path.join(process.cwd(), "public/fonts/DMSerifDisplay-Italic.ttf"));
+    cachedFont = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+    return cachedFont;
+  } catch {
+    const base = (process.env.NEXT_PUBLIC_BASE_URL || "").replace(/\/$/, "");
+    cachedFont = await fetch(`${base}/fonts/DMSerifDisplay-Italic.ttf`).then(r => r.arrayBuffer());
+    return cachedFont!;
+  }
 }
 
 export async function GET() {
