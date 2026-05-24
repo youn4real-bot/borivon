@@ -13,25 +13,28 @@
  */
 export const PDF_PAGE_LIMITS: Record<string, number> = {
   // ── Essentials ──
-  id: 5,                // Reisepass (passport — usually 1-2, allow multi-page scans)
-  langcert: 8,          // B2 Sprachzertifikat
-  letter: 5,            // Anschreiben (cover letter)
-  cv_de: 8,             // Lebenslauf (CV)
-  // ── Qualifications ──
-  diploma: 8,
-  studyprog: 25,        // Ausbildungsprogramm — can be long
-  transcript: 20,       // Notenübersicht
-  abitur: 12,
-  abitur_transcript: 20,
-  praktikum: 20,
-  workcert: 12,         // Berufserlaubnis
-  work_experience: 20,
-  impfung: 20,          // Impfnachweis (vaccination records can be multi-page)
-  // ── Other ──
-  other: 40,            // Sonstiges catch-all
+  id: 2,                  // Passport (Reisepass)
+  langcert: 2,            // B2 certificate
+  letter: 1,              // Cover letter (Anschreiben)
+  cv_de: 2,               // CV (Lebenslauf)
+  // ── Qualifications — ORIGINAL and TRANSLATION (_de) are SEPARATE boxes, each
+  //    independently allowed the SAME number (study program = 10 for the
+  //    original PDF AND 10 for the translated copy). ──
+  diploma: 2,             diploma_de: 2,
+  studyprog: 10,          studyprog_de: 10,
+  transcript: 10,         transcript_de: 10,
+  abitur: 2,              abitur_de: 2,
+  abitur_transcript: 2,   abitur_transcript_de: 2,
+  praktikum: 10,          praktikum_de: 10,
+  workcert: 2,            workcert_de: 2,           // Berufserlaubnis
+  work_experience: 10,    work_experience_de: 10,
+  impfung: 2,             impfung_de: 2,            // Vaccination (Impfnachweis)
+  // ── Other (Sonstiges) — original + translated copy, 10 each ──
+  other: 10,              other_trans: 10,
 };
 
-/** Cap for any box not explicitly listed (e.g. admin wizard slots / UUID keys). */
+/** Cap for any box not explicitly listed — e.g. admin Bearbeitung/Visum wizard
+ *  slots (UUID fileKeys), which can be longer signed forms/contracts. */
 export const DEFAULT_PDF_PAGE_LIMIT = 40;
 
 /**

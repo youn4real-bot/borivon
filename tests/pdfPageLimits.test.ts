@@ -3,18 +3,22 @@ import { pdfPageLimit, PDF_PAGE_LIMITS, DEFAULT_PDF_PAGE_LIMIT } from "../lib/pd
 
 describe("pdfPageLimit (per-box PDF page caps)", () => {
   it("returns the exact cap for a known box", () => {
-    expect(pdfPageLimit("id")).toBe(PDF_PAGE_LIMITS.id);
-    expect(pdfPageLimit("studyprog")).toBe(25);
-    expect(pdfPageLimit("cv_de")).toBe(8);
+    expect(pdfPageLimit("id")).toBe(2);
+    expect(pdfPageLimit("letter")).toBe(1);
+    expect(pdfPageLimit("studyprog")).toBe(10);
+    expect(pdfPageLimit("cv_de")).toBe(2);
+    expect(pdfPageLimit("transcript")).toBe(PDF_PAGE_LIMITS.transcript);
   });
 
-  it("shares the base cap with translated variants", () => {
-    expect(pdfPageLimit("diploma_de")).toBe(pdfPageLimit("diploma"));
-    expect(pdfPageLimit("abitur_transcript_de")).toBe(pdfPageLimit("abitur_transcript"));
-    expect(pdfPageLimit("other_trans")).toBe(pdfPageLimit("other"));
-    // "work_experience" must NOT be mis-stripped to "work"
-    expect(pdfPageLimit("work_experience")).toBe(20);
-    expect(pdfPageLimit("work_experience_de")).toBe(20);
+  it("caps original and translation SEPARATELY (same number, independent boxes)", () => {
+    expect(pdfPageLimit("diploma")).toBe(2);
+    expect(pdfPageLimit("diploma_de")).toBe(2);
+    expect(pdfPageLimit("studyprog")).toBe(10);
+    expect(pdfPageLimit("studyprog_de")).toBe(10);
+    expect(pdfPageLimit("work_experience")).toBe(10);
+    expect(pdfPageLimit("work_experience_de")).toBe(10);
+    expect(pdfPageLimit("other")).toBe(10);
+    expect(pdfPageLimit("other_trans")).toBe(10);
   });
 
   it("falls back to the default for unknown / wizard-slot (UUID) keys", () => {
