@@ -11,6 +11,8 @@ import { LABEL_TO_FILE_KEY } from "@/lib/fileKeys";
 import { PassThrough } from "stream";
 import { createHash } from "crypto";
 import { r2Configured, r2Put, candidateKey } from "@/lib/r2";
+import { pdfPageLimit } from "@/lib/pdfPageLimits";
+import { PDFDocument } from "pdf-lib";
 
 /**
  * Normalize any country value (ISO 3166-1 alpha-3 like "MAR", or a name in
@@ -989,6 +991,27 @@ export async function POST(req: NextRequest) {
     const norm = (t: string) => t.replace("image/jpg", "image/jpeg");
     if (norm(file.type) !== norm(sniffedType)) {
       return NextResponse.json({ error: "Le contenu du fichier ne correspond pas à son type." }, { status: 415 });
+    }
+  }
+
+  // ── Per-box PDF page cap ─────────────────────────────────────────────────────
+  // Count pages READ-ONLY (load + getPageCount, never re-save) so passport bytes
+  // are never touched (LAW #39). A parse failure does NOT block the upload — the
+  // 10 MB size cap above is the backstop.
+  if ((sniffedType ?? file.type) === "application/pdf") {
+    let pageCount = 0;
+    try {
+      const probe = await PDFDocument.load(buffer, { ignoreEncryption: true, updateMetadata: false });
+      pageCount = probe.getPageCount();
+    } catch {
+      pageCount = 0; // unreadable structure → don't reject on a parse quirk
+    }
+    const limit = pdfPageLimit(fileKey);
+    if (pageCount > limit) {
+      return NextResponse.json(
+        { error: `PDF trop long : ${pageCount} pages (maximum ${limit} pour ce document).`, code: "PDF_TOO_MANY_PAGES", pages: pageCount, limit },
+        { status: 413 },
+      );
     }
   }
 
