@@ -5,6 +5,7 @@ import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 import { dlTokenUserId } from "@/lib/dlToken";
+import { r2GetObject } from "@/lib/r2";
 
 function getDriveClient() {
   const auth = new google.auth.GoogleAuth({
@@ -37,16 +38,16 @@ async function resolveFileMeta(
   db: ReturnType<typeof getServiceSupabase>,
   driveId: string | null,
   docId: string | null,
-): Promise<{ fileId: string | null; rotation: number }> {
+): Promise<{ fileId: string | null; rotation: number; r2Key: string | null }> {
   const { data } = await db
     .from("documents")
-    .select("drive_file_id, rotation")
+    .select("drive_file_id, rotation, r2_key")
     .eq(driveId ? "drive_file_id" : "id", driveId ?? docId!)
     .maybeSingle();
-  if (!data) return { fileId: driveId, rotation: 0 };
-  const row = data as { drive_file_id: string | null; rotation: number | null };
+  if (!data) return { fileId: driveId, rotation: 0, r2Key: null };
+  const row = data as { drive_file_id: string | null; rotation: number | null; r2_key: string | null };
   const rot = ((row.rotation ?? 0) % 360 + 360) % 360;
-  return { fileId: driveId ?? row.drive_file_id ?? null, rotation: rot };
+  return { fileId: driveId ?? row.drive_file_id ?? null, rotation: rot, r2Key: row.r2_key ?? null };
 }
 
 async function isAuthorised(
@@ -118,14 +119,24 @@ export async function GET(req: NextRequest) {
     resolveFileMeta(db, origId, origDocId),
     resolveFileMeta(db, transId, transDocId),
   ]);
-  if (!origMeta.fileId || !transMeta.fileId)
+  if ((!origMeta.fileId && !origMeta.r2Key) || (!transMeta.fileId && !transMeta.r2Key))
     return new NextResponse("File not found", { status: 404 });
+
+  // R2 first (free egress, no Drive throttle); fall back to Drive.
+  const loadBytes = async (m: { fileId: string | null; r2Key: string | null }): Promise<Buffer> => {
+    if (m.r2Key) {
+      const o = await r2GetObject(m.r2Key);
+      if (o) return o.body;
+    }
+    if (!m.fileId) throw new Error("file not found");
+    return fetchPdfBuffer(m.fileId);
+  };
 
   try {
     // Fetch both PDFs in parallel (übersetzt first, then original)
     const [transBytes, origBytes] = await Promise.all([
-      fetchPdfBuffer(transMeta.fileId),
-      fetchPdfBuffer(origMeta.fileId),
+      loadBytes(transMeta),
+      loadBytes(origMeta),
     ]);
 
     // Merge: translated pages first, then original pages

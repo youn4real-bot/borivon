@@ -4,6 +4,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate, roleByUserId } from "@/lib/admin-auth";
 import { dlTokenUserId } from "@/lib/dlToken";
 import { PDFDocument } from "pdf-lib";
+import { r2GetObject } from "@/lib/r2";
 
 function getDriveClient() {
   const auth = new google.auth.GoogleAuth({
@@ -228,13 +229,18 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // If we don't have the bytes yet, fetch from Drive
+  // If we don't have the bytes yet, fetch them — R2 first (by the doc's
+  // r2_key), falling back to Drive for anything not yet migrated.
   if (!pdfBuffer && driveFileId) {
     try {
-      pdfBuffer = await fetchPdfBuffer(driveFileId);
+      const dbk = getServiceSupabase();
+      const { data: keyRow } = await dbk.from("documents").select("r2_key").eq("drive_file_id", driveFileId).maybeSingle();
+      const r2k = (keyRow as { r2_key?: string | null } | null)?.r2_key ?? null;
+      if (r2k) { const o = await r2GetObject(r2k); if (o) pdfBuffer = o.body; }
+      if (!pdfBuffer) pdfBuffer = await fetchPdfBuffer(driveFileId);
     } catch (err) {
-      console.error("[sign-request POST] drive fetch error:", err);
-      return NextResponse.json({ error: "Could not fetch file from Drive" }, { status: 502 });
+      console.error("[sign-request POST] fetch error:", err);
+      return NextResponse.json({ error: "Could not fetch the file" }, { status: 502 });
     }
   }
   if (!pdfBuffer) {

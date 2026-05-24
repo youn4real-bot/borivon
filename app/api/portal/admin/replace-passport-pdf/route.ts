@@ -8,6 +8,7 @@ import {
   ROOT_FOLDER_ID,
   makeDrivePublic,
 } from "@/lib/passport-pdf";
+import { r2Configured, r2Put, candidateKey } from "@/lib/r2";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -134,12 +135,24 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Upload failed: ${msg}` }, { status: 500 });
   }
 
+  // ── R2 dual-write (best-effort). On a REPLACE we set r2_key to the NEW key
+  //    (or null if R2 fails) — never leave the old, now-stale R2 copy linked,
+  //    or the serve route would show the previous scan. ──
+  let r2Key: string | null = null;
+  if (r2Configured()) {
+    try {
+      const key = candidateKey(userId, `${Date.now()}_${d.file_name || "reisepass.pdf"}`);
+      await r2Put(key, buffer, "application/pdf");
+      r2Key = key;
+    } catch { r2Key = null; }
+  }
+
   // ── Swap the file IN PLACE — keep status/feedback/passport data intact ────
   // rotation reset to 0: the new scan starts un-rotated; a stale rotation
   // from the old file must not be baked into the fresh one.
   const { error: updErr } = await db
     .from("documents")
-    .update({ drive_file_id: newDriveId, rotation: 0, uploaded_at: new Date().toISOString() })
+    .update({ drive_file_id: newDriveId, r2_key: r2Key, rotation: 0, uploaded_at: new Date().toISOString() })
     .eq("id", docId);
   if (updErr) {
     console.error("[replace-passport-pdf] DB update failed:", updErr);

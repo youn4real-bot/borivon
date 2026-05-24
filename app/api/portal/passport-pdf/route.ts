@@ -11,6 +11,7 @@ import {
   makeDrivePublic,
 } from "@/lib/passport-pdf";
 import { PassThrough } from "stream";
+import { r2Configured, r2Put, candidateKey } from "@/lib/r2";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -106,5 +107,15 @@ export async function POST(req: NextRequest) {
 
   if (driveRes.data.id) await makeDrivePublic(drive, driveRes.data.id);
 
-  return NextResponse.json({ success: true, driveFileId: driveRes.data.id, filename });
+  // Dual-write to R2 so this PDF exists off-Drive too (best-effort).
+  let r2Key: string | null = null;
+  if (r2Configured()) {
+    try {
+      const key = candidateKey(userId, `${Date.now()}_${filename}`);
+      await r2Put(key, buffer, "application/pdf");
+      r2Key = key;
+    } catch { r2Key = null; }
+  }
+
+  return NextResponse.json({ success: true, driveFileId: driveRes.data.id, r2Key, filename });
 }
