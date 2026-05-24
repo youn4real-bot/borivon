@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "borivon",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2025-03-25",
+  // nodejs_compat lets Node-style libs (googleapis, streams, crypto, pdf-lib)
+  // run on the Workers runtime. Required for this app.
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": ".open-next/assets"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
