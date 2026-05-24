@@ -24,11 +24,12 @@ npm run dev            # Next dev server on :3000
 npm run build          # production build (passes through `next build`)
 npm run start          # serve a built app
 npm run lint           # next lint (deprecated upstream; use sparingly)
+npm test               # run Vitest unit tests (tests/**)
 npx tsc --noEmit       # type-check the whole tree without emitting
 npx vercel --prod      # ship to prod (aliased to www.borivon.com)
 ```
 
-No test runner is configured. Verification = `npx tsc --noEmit` + manual smoke through the dev server.
+**Vitest** is configured (`tests/**`, run `npm test`). It covers the security-critical invariants — passport gate (LAW #39), download-token auth, soft-delete gate, R2 path-safety, legacy-alias resolution, and the `lib/admin-auth` access-control core (LAW #25). Verification = `npx tsc --noEmit` + `npm test` + manual smoke through the dev server. When you touch any of those invariants, add/extend the matching test.
 
 SQL migrations live in `supabase/*.sql`. The user runs them by hand in the Supabase SQL editor — never ship a feature that depends on a new column without also writing the migration file and telling the user to run it before deploy.
 
