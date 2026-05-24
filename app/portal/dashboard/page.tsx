@@ -2139,7 +2139,7 @@ export default function DashboardPage() {
                     <IosPdfFrame
                       src={withDlt(`/api/portal/file?docId=${encodeURIComponent(previewDoc.id)}`, dlt)}
                       title={previewDoc.file_name}
-                      initialRotation={_isPassport ? _docRotation : 0}
+                      initialRotation={_docRotation}
                       onRotate={() => {
                         fetch(`/api/portal/documents/${previewDoc.id}`, {
                           method: "PATCH",
@@ -2168,7 +2168,7 @@ export default function DashboardPage() {
                 <div style={{ position: "relative", height: "100%" }}>
                   <PdfViewer
                     src={previewBlobUrl}
-                    initialRotation={_isPassport ? _docRotation : undefined}
+                    initialRotation={_docRotation}
                     onRotate={() => {
                       fetch(`/api/portal/documents/${previewDoc.id}`, {
                         method: "PATCH",

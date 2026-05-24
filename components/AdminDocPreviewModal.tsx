@@ -410,7 +410,7 @@ export function AdminDocPreviewModal({
               title={doc.file_name}
               // Passports persist rotation in documents.rotation (LAW #39
               // bypass means server can't bake it in) — seed the frame.
-              initialRotation={isPassportDoc ? (doc.rotation ?? 0) : 0}
+              initialRotation={doc.rotation ?? 0}
               onRotate={() => {
                 if (overrideFetchUrl || !doc.id) return;
                 fetch(`/api/portal/documents/${doc.id}`, {
@@ -449,13 +449,13 @@ export function AdminDocPreviewModal({
                     ? <IosPdfFrame
                         src={iosPreviewUrl}
                         title={doc.file_name}
-                        initialRotation={isPassportDoc ? (doc.rotation ?? 0) : 0}
+                        initialRotation={doc.rotation ?? 0}
                         onRotate={persistRotate} />
                     : <div className="w-full h-full flex items-center justify-center"><Spinner /></div>)
                 : <PdfViewer
                     src={blobUrl}
                     onRotate={persistRotate}
-                    initialRotation={isPassportDoc ? (doc.rotation ?? 0) : undefined}
+                    initialRotation={doc.rotation ?? 0}
                   />;
             }
             if (ext === "docx") return <DocxViewer src={blobUrl} fileName={doc.file_name} />;

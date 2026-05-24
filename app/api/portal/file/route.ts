@@ -261,7 +261,15 @@ export async function GET(req: NextRequest) {
   // when every text stream is dropped. Rotation for passports is purely
   // client-side (IosPdfFrame toolbar applies a CSS transform); the bytes
   // we serve are ALWAYS exactly what came out of Drive / Storage.
-  const effectiveRotation = isPassportFileType(fileType) ? 0 : rotation;
+  // Rotation is applied CLIENT-SIDE only (the viewer CSS-transforms, seeded
+  // from documents.rotation). We NEVER re-save a PDF server-side: pdf-lib's
+  // load+save silently drops text/content streams on scanner-produced PDFs —
+  // the exact LAW #39 failure that blanks a passport's MRZ also blanks a
+  // scanned Impfung/diploma letter, and the 50% size guard can't catch it
+  // (the scan image dominates the byte size). Always serve ORIGINAL bytes for
+  // EVERY doc type. (safeRotatePdf below is a no-op at 0 — kept for clarity.)
+  void rotation;
+  const effectiveRotation = 0;
 
   // If a signed version exists in Supabase Storage, serve it directly — skip Drive entirely.
   if (signedStoragePath) {
