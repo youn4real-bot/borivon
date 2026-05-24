@@ -53,6 +53,13 @@ const SECURITY_HEADERS = [
 ];
 
 const nextConfig: NextConfig = {
+  // Cloudflare Workers Builds OOM'd (~2 GB heap) during Next's "Linting and
+  // checking validity of types" pass — the compile itself succeeded. Types are
+  // already gated separately via `npx tsc --noEmit` and lint via `next lint`,
+  // so skipping the redundant in-build pass removes the memory hog with no loss
+  // of safety. (Vercel builds are unaffected — they pass either way.)
+  eslint: { ignoreDuringBuilds: true },
+  typescript: { ignoreBuildErrors: true },
   experimental: {
     // Tree-shake big barrel-file libraries aggressively. Without this, each
     // `import { X } from "lib"` pulls in metadata for every export. With it,
