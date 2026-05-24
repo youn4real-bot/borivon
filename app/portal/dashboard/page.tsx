@@ -279,8 +279,8 @@ export default function DashboardPage() {
   const [phase, setPhase]         = useState(0);
   const [isReturn, setIsReturn]   = useState(false);
 
-  type MsgType = "success" | "errPdfOnly" | "errAllTypes" | "errSize" | "errUpload" | "errNetwork" | "errDownload";
-  type SlotMsg = { key: string; ok: boolean; type: MsgType; label?: string };
+  type MsgType = "success" | "errPdfOnly" | "errAllTypes" | "errSize" | "errUpload" | "errPages" | "errNetwork" | "errDownload";
+  type SlotMsg = { key: string; ok: boolean; type: MsgType; label?: string; n?: number };
 
   // Paired master-box expand state (nursing phase: which doc pairs are open)
   const [expandedPairs, setExpandedPairs] = useState<Set<string>>(new Set());
@@ -1421,6 +1421,20 @@ export default function DashboardPage() {
           // verify it didn't actually land — fast uploads often persist
           // server-side while the response is lost.
           const st = xhr.status;
+          // Per-box page-cap rejection → show the specific limit (translated).
+          if (st === 413) {
+            try {
+              const j = JSON.parse(xhr.responseText);
+              if (j?.code === "PDF_TOO_MANY_PAGES" && typeof j.limit === "number") {
+                xhrRef.current = null;
+                stopProgressCreep();
+                replaceDocIdRef.current = null; replaceForKeyRef.current = null;
+                setSlotMsgTimed({ key, ok: false, type: "errPages", n: j.limit });
+                setUploadingKey(null);
+                return;
+              }
+            } catch { /* not our structured error → fall through to generic */ }
+          }
           void failSettle("errUpload", st === 0 || st === 429 || st >= 500);
           return;
         }
@@ -2639,7 +2653,7 @@ export default function DashboardPage() {
                                   <p className="text-[10px] mt-0.5 truncate" style={{ color: "var(--danger)" }}>{sub.subDoc.feedback}</p>
                                 )}
                                 {isSubUp && <div className="mt-1"><div className="w-full rounded-full h-1" style={{ background: "var(--border)" }}><div className="h-1 rounded-full" style={{ width: `${slotProgress}%`, background: "var(--gold)", transition: "width .12s linear" }} /></div><p className="text-[9px] mt-0.5" style={{ color: "var(--w3)" }}>{Math.round(slotProgress)}%</p></div>}
-                                {subMsg && <p className="mt-1 text-[9.5px]" style={{ color: subMsg.ok ? "var(--success)" : "var(--danger)" }}>{subMsg.ok ? t.pUploadSuccess.replace("{label}", sub.subLabel) : subMsg.type === "errPdfOnly" ? t.pErrPdfOnly : subMsg.type === "errAllTypes" ? t.pErrAllTypes : subMsg.type === "errSize" ? t.pErrSize : t.pErrUpload}</p>}
+                                {subMsg && <p className="mt-1 text-[9.5px]" style={{ color: subMsg.ok ? "var(--success)" : "var(--danger)" }}>{subMsg.ok ? t.pUploadSuccess.replace("{label}", sub.subLabel) : subMsg.type === "errPdfOnly" ? t.pErrPdfOnly : subMsg.type === "errAllTypes" ? t.pErrAllTypes : subMsg.type === "errSize" ? t.pErrSize : subMsg.type === "errPages" ? (lang === "fr" ? `Trop de pages — limite : ${subMsg.n}.` : lang === "de" ? `Zu viele Seiten — Limit: ${subMsg.n}.` : `Too many pages — limit: ${subMsg.n}.`) : t.pErrUpload}</p>}
                               </div>
                               {!isSubUp && !sub.subDoc && (
                                 <span
@@ -2943,6 +2957,7 @@ export default function DashboardPage() {
                            msg.type === "errSize" ? t.pErrSize.replace("{size}", String(MAX_MB)) :
                            msg.type === "errNetwork" ? t.pErrNetwork :
                            msg.type === "errDownload" ? (lang === "fr" ? "Échec du téléchargement — réessayez." : lang === "de" ? "Herunterladen fehlgeschlagen — erneut versuchen." : "Download failed — please try again.") :
+                           msg.type === "errPages" ? (lang === "fr" ? `Trop de pages — limite pour ce type : ${msg.n}.` : lang === "de" ? `Zu viele Seiten — Limit für diesen Typ: ${msg.n}.` : `Too many pages — limit for this type: ${msg.n}.`) :
                            t.pErrUpload}
                         </p>
                       )}
