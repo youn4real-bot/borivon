@@ -1,19 +1,20 @@
 import { NextRequest } from "next/server";
 import { requireAdminRole } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
-import { google } from "googleapis";
+import { drive as makeDrive } from "@googleapis/drive";
+import { GoogleAuth } from "google-auth-library";
 
 const ROOT_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID ?? "";
 
 function getDriveClient() {
-  const auth = new google.auth.GoogleAuth({
+  const auth = new GoogleAuth({
     credentials: {
       client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
       private_key: (process.env.GOOGLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n"),
     },
     scopes: ["https://www.googleapis.com/auth/drive"],
   });
-  return google.drive({ version: "v3", auth });
+  return makeDrive({ version: "v3", auth });
 }
 
 async function getOrCreateDeletedDataFolder(

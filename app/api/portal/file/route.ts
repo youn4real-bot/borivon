@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { google } from "googleapis";
+import { drive as makeDrive } from "@googleapis/drive";
+import { GoogleAuth } from "google-auth-library";
 import { PDFDocument, degrees } from "pdf-lib";
 import { createHash } from "crypto";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
@@ -99,14 +100,14 @@ async function safeRotatePdf(original: Buffer, rotation: number): Promise<Buffer
 }
 
 function getDriveClient() {
-  const auth = new google.auth.GoogleAuth({
+  const auth = new GoogleAuth({
     credentials: {
       client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
       private_key: (process.env.GOOGLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n"),
     },
     scopes: ["https://www.googleapis.com/auth/drive"],
   });
-  return google.drive({ version: "v3", auth });
+  return makeDrive({ version: "v3", auth });
 }
 
 async function isAuthorised(

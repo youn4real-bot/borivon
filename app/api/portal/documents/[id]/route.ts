@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { google } from "googleapis";
+import { drive as makeDrive } from "@googleapis/drive";
+import { GoogleAuth } from "google-auth-library";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 
@@ -10,21 +11,21 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const ROOT_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID ?? "";
 
 function getDriveClient() {
-  const auth = new google.auth.GoogleAuth({
+  const auth = new GoogleAuth({
     credentials: {
       client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
       private_key: (process.env.GOOGLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n"),
     },
     scopes: ["https://www.googleapis.com/auth/drive"],
   });
-  return google.drive({ version: "v3", auth });
+  return makeDrive({ version: "v3", auth });
 }
 
 function escapeDriveQ(s: string) {
   return s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
-async function getOrCreateFolder(drive: ReturnType<typeof google.drive>, name: string, parentId: string): Promise<string> {
+async function getOrCreateFolder(drive: ReturnType<typeof makeDrive>, name: string, parentId: string): Promise<string> {
   const safeName = escapeDriveQ(name);
   const safeParent = escapeDriveQ(parentId);
   const res = await drive.files.list({

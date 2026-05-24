@@ -3,8 +3,8 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { canActOnCandidate } from "@/lib/admin-auth";
 import { createClient } from "@supabase/supabase-js";
 import { enforceRateLimit } from "@/lib/rateLimit";
-import { google } from "googleapis";
-import { JWT } from "google-auth-library";
+import { drive as makeDrive } from "@googleapis/drive";
+import { JWT, GoogleAuth } from "google-auth-library";
 import { makeDrivePublic } from "@/lib/passport-pdf";
 import { natToLang } from "@/lib/countries";
 import { LABEL_TO_FILE_KEY } from "@/lib/fileKeys";
@@ -148,14 +148,14 @@ function slugifyGerman(s: string): string {
 const UPLOAD_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function getDriveClient() {
-  const auth = new google.auth.GoogleAuth({
+  const auth = new GoogleAuth({
     credentials: {
       client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
       private_key: (process.env.GOOGLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n"),
     },
     scopes: ["https://www.googleapis.com/auth/drive"],
   });
-  return google.drive({ version: "v3", auth });
+  return makeDrive({ version: "v3", auth });
 }
 
 async function getVisionToken(): Promise<string> {
@@ -174,7 +174,7 @@ function escapeDriveQ(s: string): string {
   return s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
-async function getOrCreateFolder(drive: ReturnType<typeof google.drive>, name: string, parentId: string): Promise<string> {
+async function getOrCreateFolder(drive: ReturnType<typeof makeDrive>, name: string, parentId: string): Promise<string> {
   const safeName = escapeDriveQ(name);
   const safeParent = escapeDriveQ(parentId);
   const res = await drive.files.list({

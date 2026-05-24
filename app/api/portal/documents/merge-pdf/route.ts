@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { google } from "googleapis";
+import { drive as makeDrive } from "@googleapis/drive";
+import { GoogleAuth } from "google-auth-library";
 import { PDFDocument, degrees } from "pdf-lib";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
@@ -8,14 +9,14 @@ import { dlTokenUserId } from "@/lib/dlToken";
 import { r2GetObject } from "@/lib/r2";
 
 function getDriveClient() {
-  const auth = new google.auth.GoogleAuth({
+  const auth = new GoogleAuth({
     credentials: {
       client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
       private_key: (process.env.GOOGLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n"),
     },
     scopes: ["https://www.googleapis.com/auth/drive"],
   });
-  return google.drive({ version: "v3", auth });
+  return makeDrive({ version: "v3", auth });
 }
 
 async function fetchPdfBuffer(fileId: string): Promise<Buffer> {

@@ -1,6 +1,7 @@
 import React from "react";
 import { renderToBuffer, Document, Page, View, Text, StyleSheet } from "@react-pdf/renderer";
-import { google } from "googleapis";
+import { drive as makeDrive } from "@googleapis/drive";
+import { GoogleAuth } from "google-auth-library";
 import { PassThrough } from "stream";
 
 // ── Country / nationality helpers ─────────────────────────────────────────────
@@ -184,14 +185,14 @@ export async function generatePassportPdf(profile: any): Promise<Buffer> {
 
 // ── Google Drive helpers ──────────────────────────────────────────────────────
 export function getDriveClient() {
-  const auth = new google.auth.GoogleAuth({
+  const auth = new GoogleAuth({
     credentials: {
       client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
       private_key:  (process.env.GOOGLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n"),
     },
     scopes: ["https://www.googleapis.com/auth/drive"],
   });
-  return google.drive({ version: "v3", auth });
+  return makeDrive({ version: "v3", auth });
 }
 
 export const ROOT_FOLDER_ID = () => process.env.GOOGLE_DRIVE_FOLDER_ID ?? "";
@@ -203,7 +204,7 @@ export const ROOT_FOLDER_ID = () => process.env.GOOGLE_DRIVE_FOLDER_ID ?? "";
  * permission failure doesn't fail the surrounding upload.
  */
 export async function makeDrivePublic(
-  drive: ReturnType<typeof google.drive>,
+  drive: ReturnType<typeof makeDrive>,
   fileId: string
 ): Promise<void> {
   try {
@@ -226,7 +227,7 @@ function escapeDriveQ(s: string): string {
 }
 
 export async function getOrCreateFolder(
-  drive: ReturnType<typeof google.drive>,
+  drive: ReturnType<typeof makeDrive>,
   name: string,
   parentId: string
 ): Promise<string> {
