@@ -4,10 +4,20 @@ import { Font } from "@react-pdf/renderer";
 
 let registered = false;
 
-function fontDataUri(filename: string): string {
-  const filePath = path.join(process.cwd(), "public", "fonts", filename);
-  const buffer = fs.readFileSync(filePath);
-  return `data:font/truetype;base64,${buffer.toString("base64")}`;
+// Cross-platform font source:
+//  • Node/Vercel (has a filesystem) → read the bundled .ttf → data URI.
+//    This is the original, proven path — Vercel behaviour is unchanged.
+//  • Cloudflare Workers (no disk) → readFileSync throws → fall back to
+//    fetching the font over HTTP from the deployed app's /fonts/ assets.
+function fontSrc(filename: string): string {
+  try {
+    const filePath = path.join(process.cwd(), "public", "fonts", filename);
+    const buffer = fs.readFileSync(filePath);
+    return `data:font/truetype;base64,${buffer.toString("base64")}`;
+  } catch {
+    const base = (process.env.NEXT_PUBLIC_BASE_URL || "").replace(/\/$/, "");
+    return `${base}/fonts/${filename}`;
+  }
 }
 
 export function registerPdfFonts() {
@@ -17,20 +27,20 @@ export function registerPdfFonts() {
   Font.register({
     family: "Lexend",
     fonts: [
-      { src: fontDataUri("Lexend-Regular.ttf"),  fontWeight: 400 },
-      { src: fontDataUri("Lexend-SemiBold.ttf"), fontWeight: 600 },
-      { src: fontDataUri("Lexend-Bold.ttf"),     fontWeight: 700 },
+      { src: fontSrc("Lexend-Regular.ttf"),  fontWeight: 400 },
+      { src: fontSrc("Lexend-SemiBold.ttf"), fontWeight: 600 },
+      { src: fontSrc("Lexend-Bold.ttf"),     fontWeight: 700 },
     ],
   });
   Font.register({
     family: "Lato",
     fonts: [
-      { src: fontDataUri("Lato-Regular.ttf"), fontWeight: 400 },
-      { src: fontDataUri("Lato-Bold.ttf"),    fontWeight: 700 },
+      { src: fontSrc("Lato-Regular.ttf"), fontWeight: 400 },
+      { src: fontSrc("Lato-Bold.ttf"),    fontWeight: 700 },
     ],
   });
   Font.register({
     family: "DMSerifItalic",
-    src: fontDataUri("DMSerifDisplay-Italic.ttf"),
+    src: fontSrc("DMSerifDisplay-Italic.ttf"),
   });
 }
