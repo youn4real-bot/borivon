@@ -16,6 +16,7 @@ const t = {
   en: {
     organizations: "Agencies",
     manageAdmins: "Manage admins",
+    candidateProgress: "Candidate progress",
     myProfile: "My profile",
     joinOrganization: "Join agency",
     signOut: "Sign out",
@@ -41,6 +42,7 @@ const t = {
   fr: {
     organizations: "Agences",
     manageAdmins: "Gérer les admins",
+    candidateProgress: "Progression candidats",
     myProfile: "Mon profil",
     joinOrganization: "Rejoindre une agence",
     signOut: "Se déconnecter",
@@ -66,6 +68,7 @@ const t = {
   de: {
     organizations: "Agenturen",
     manageAdmins: "Admins verwalten",
+    candidateProgress: "Kandidaten-Fortschritt",
     myProfile: "Mein Profil",
     joinOrganization: "Agentur beitreten",
     signOut: "Abmelden",
@@ -477,6 +480,20 @@ export function ProfileIcon() {
                     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
                   </svg>
                   {T.myProfile}
+                </button>
+              )}
+              {user.isAdmin && (
+                <button
+                  onClick={() => { setOpen(false); router.push("/portal/admin/progress"); }}
+                  className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
+                  style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "var(--bg2)"; e.currentTarget.style.color = "var(--w)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--w2)"; }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+                  </svg>
+                  {T.candidateProgress}
                 </button>
               )}
               {/* Supreme-admin only — sub-admins must NOT see org CRUD /
