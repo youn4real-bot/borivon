@@ -11,6 +11,15 @@ import { ProfilePopup } from "@/components/ProfilePopup";
 import { AdminUsersPanel } from "@/components/AdminUsersPanel";
 import { PhotoCropModal } from "@/components/PhotoCropModal";
 import { useLang } from "@/components/LangContext";
+import { useTheme } from "@/components/ThemeContext";
+import { Sun, Moon } from "lucide-react";
+import type { Lang } from "@/lib/translations";
+
+const LANGS: { code: Lang; flagSrc: string; label: string }[] = [
+  { code: "fr", flagSrc: "https://flagcdn.com/fr.svg", label: "Français" },
+  { code: "en", flagSrc: "https://flagcdn.com/gb.svg", label: "English" },
+  { code: "de", flagSrc: "https://flagcdn.com/de.svg", label: "Deutsch" },
+];
 
 const t = {
   en: {
@@ -116,7 +125,8 @@ type UserInfo = {
 };
 
 export function ProfileIcon() {
-  const { lang, t: gT } = useLang();
+  const { lang, setLang, t: gT } = useLang();
+  const { theme, toggleTheme } = useTheme();
   const T = t[lang] ?? t.en;
   const [user, setUser] = useState<UserInfo | null>(null);
   const [open, setOpen] = useState(false);
@@ -572,6 +582,36 @@ export function ProfileIcon() {
               )}
               {/* "Join organization" button removed — candidates are now linked
                   to organizations only by the supreme admin from the admin panel. */}
+              {/* Theme + language — relocated here from the top bar for signed-in
+                  users (the top bar keeps them only when logged out). */}
+              <div style={{ borderTop: "1px solid var(--border)", marginTop: 4, paddingTop: 4 }}>
+                <button
+                  onClick={toggleTheme}
+                  className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
+                  style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "var(--bg2)"; e.currentTarget.style.color = "var(--w)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--w2)"; }}
+                >
+                  {theme === "dark" ? <Sun size={14} strokeWidth={1.8} /> : <Moon size={14} strokeWidth={1.8} />}
+                  {theme === "dark"
+                    ? (lang === "de" ? "Heller Modus" : lang === "fr" ? "Mode clair" : "Light mode")
+                    : (lang === "de" ? "Dunkler Modus" : lang === "fr" ? "Mode sombre" : "Dark mode")}
+                </button>
+                <div className="px-3 py-2 flex items-center" style={{ justifyContent: "space-between" }}>
+                  <span style={{ fontSize: "12.5px", fontWeight: 500, color: "var(--w2)" }}>
+                    {lang === "de" ? "Sprache" : lang === "fr" ? "Langue" : "Language"}
+                  </span>
+                  <span style={{ display: "inline-flex", gap: 8 }}>
+                    {LANGS.map(l => (
+                      <button key={l.code} onClick={() => setLang(l.code)} aria-label={l.label} title={l.label}
+                        style={{ background: "transparent", border: l.code === lang ? "2px solid var(--gold)" : "2px solid transparent", borderRadius: 7, padding: 1, cursor: "pointer", lineHeight: 0, opacity: l.code === lang ? 1 : 0.6 }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={l.flagSrc} alt={l.label} width={26} height={18} style={{ display: "block", borderRadius: 3, objectFit: "cover" }} />
+                      </button>
+                    ))}
+                  </span>
+                </div>
+              </div>
               <button
                 onClick={signOut}
                 className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"

@@ -102,6 +102,7 @@ export function GlobalChrome({ children }: { children: React.ReactNode }) {
               the main content with one Tab keypress instead of 8+. */}
           <SkipToMain />
           <Navbar
+            hideThemeLang={isPortal}
             rightExtra={isPortal ? (
               <>
                 <MessageIcon />

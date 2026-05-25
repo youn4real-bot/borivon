@@ -23,7 +23,7 @@ const LANGS: { code: Lang; flagSrc: string; label: string }[] = [
   { code: "de", flagSrc: "https://flagcdn.com/de.svg", label: "Deutsch" },
 ];
 
-export function Navbar({ rightExtra, leftExtra }: { rightExtra?: ReactNode; leftExtra?: ReactNode }) {
+export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: ReactNode; leftExtra?: ReactNode; hideThemeLang?: boolean }) {
   const { lang, setLang } = useLang();
   const { theme, toggleTheme } = useTheme();
   const [langOpen, setLangOpen] = useState(false);
@@ -160,6 +160,10 @@ export function Navbar({ rightExtra, leftExtra }: { rightExtra?: ReactNode; left
   // and a small scale animation. Same look on every screen size.
   const actions = (
     <>
+      {/* Theme + language show in the top bar ONLY when logged out / on public
+          pages. Once signed in (portal) they move into the profile-avatar menu,
+          so hideThemeLang suppresses them here. */}
+      {!hideThemeLang && (<>
       {/* Theme Toggle */}
       <button
         onClick={toggleTheme}
@@ -267,6 +271,7 @@ export function Navbar({ rightExtra, leftExtra }: { rightExtra?: ReactNode; left
           document.body
         )}
       </div>
+      </>)}
 
       {/* Portal-injected actions: message, bell, profile */}
       {rightExtra}
