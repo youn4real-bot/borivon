@@ -597,19 +597,17 @@ export function ProfileIcon() {
                     ? (lang === "de" ? "Heller Modus" : lang === "fr" ? "Mode clair" : "Light mode")
                     : (lang === "de" ? "Dunkler Modus" : lang === "fr" ? "Mode sombre" : "Dark mode")}
                 </button>
-                <div className="px-3 py-2 flex items-center" style={{ justifyContent: "space-between" }}>
-                  <span style={{ fontSize: "12.5px", fontWeight: 500, color: "var(--w2)" }}>
-                    {lang === "de" ? "Sprache" : lang === "fr" ? "Langue" : "Language"}
-                  </span>
-                  <span style={{ display: "inline-flex", gap: 8 }}>
-                    {LANGS.map(l => (
-                      <button key={l.code} onClick={() => setLang(l.code)} aria-label={l.label} title={l.label}
-                        style={{ background: "transparent", border: l.code === lang ? "2px solid var(--gold)" : "2px solid transparent", borderRadius: 7, padding: 1, cursor: "pointer", lineHeight: 0, opacity: l.code === lang ? 1 : 0.6 }}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={l.flagSrc} alt={l.label} width={26} height={18} style={{ display: "block", borderRadius: 3, objectFit: "cover" }} />
-                      </button>
-                    ))}
-                  </span>
+                <div className="px-3 py-2 flex items-center" style={{ gap: 8 }}>
+                  {LANGS.map(l => (
+                    <button key={l.code} onClick={() => setLang(l.code)} aria-label={l.label} title={l.label}
+                      className="cursor-pointer"
+                      style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", border: l.code === lang ? "2px solid var(--gold)" : "2px solid var(--border)", borderRadius: 9, padding: "6px 0", lineHeight: 0, opacity: l.code === lang ? 1 : 0.6, transition: "opacity .15s var(--ease), border-color .15s var(--ease)" }}
+                      onMouseEnter={e => { if (l.code !== lang) e.currentTarget.style.opacity = "1"; }}
+                      onMouseLeave={e => { if (l.code !== lang) e.currentTarget.style.opacity = "0.6"; }}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={l.flagSrc} alt={l.label} width={30} height={21} style={{ display: "block", borderRadius: 4, objectFit: "cover" }} />
+                    </button>
+                  ))}
                 </div>
               </div>
               <button
