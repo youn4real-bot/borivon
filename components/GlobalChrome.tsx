@@ -8,6 +8,7 @@ import { Navbar } from "@/components/Navbar";
 import { NotificationBell } from "@/components/NotificationBell";
 import { MessageIcon } from "@/components/MessageIcon";
 import { ProfileIcon } from "@/components/ProfileIcon";
+import { ChecklistDrawer } from "@/components/ChecklistDrawer";
 import { BugReportButton } from "@/components/BugReportButton";
 import { useLang } from "@/components/LangContext";
 
@@ -105,6 +106,7 @@ export function GlobalChrome({ children }: { children: React.ReactNode }) {
             hideThemeLang={isPortal}
             rightExtra={isPortal ? (
               <>
+                <ChecklistDrawer />
                 <MessageIcon />
                 <NotificationBell />
                 <ProfileIcon />
