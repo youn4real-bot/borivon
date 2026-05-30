@@ -6,11 +6,13 @@ import { CheckCircle2, XCircle } from "@/components/PortalIcons";
 import { X as XIcon, Download, PenLine } from "lucide-react";
 import { AdminRejectModal } from "@/components/AdminRejectModal";
 import { IosPdfFrame } from "@/components/IosPdfFrame";
+import { PdfViewer } from "@/components/PdfViewer";
 import { DocxViewer } from "@/components/DocxViewer";
 import { ZoomPanRotateViewer } from "@/components/ZoomPanRotateViewer";
 import { Spinner } from "@/components/ui/states";
 import { useLang } from "@/components/LangContext";
 import { downloadAuthedFile, triggerDownload } from "@/lib/download";
+import { isIOSDevice } from "@/lib/platform";
 
 const dm = {
   en: {
@@ -420,12 +422,14 @@ export function AdminDocPreviewModal({
         <div className="flex-1" style={{ minHeight: 0, position: "relative" }}>
           {blobUrl ? (() => {
             const ext = (doc.file_name.split(".").pop() ?? "").toLowerCase();
-            if (ext === "pdf") return (
+            if (ext === "pdf") return isIOSDevice() ? (
               <IosPdfFrame
                 src={blobUrl}
                 title={doc.file_name}
                 onRotate={persistRotate}
               />
+            ) : (
+              <PdfViewer src={blobUrl} onRotate={persistRotate} />
             );
             if (ext === "docx") return <DocxViewer src={blobUrl} fileName={doc.file_name} />;
             if (["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext)) {
