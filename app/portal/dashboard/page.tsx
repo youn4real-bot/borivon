@@ -2089,7 +2089,9 @@ export default function DashboardPage() {
               // the browser-native PDF engine for ALL passports, every
               // platform — not just iOS. Permanent fix for the recurring
               // "passport data erased" report.
-              const _nativePdf = ext === "pdf" && (_isIOS || /pass/i.test(previewDoc.file_type));
+              // ONE engine for every PDF preview — OS-native (PDFium / PDFKit).
+              // Removes the runtime switch between pdf.js and the native frame.
+              const _nativePdf = ext === "pdf";
               if (_nativePdf) {
                 // NEVER fall back to pdf.js for a passport (it blanks
                 // JPEG2000). If the signed token isn't minted yet, WAIT

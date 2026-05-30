@@ -208,7 +208,13 @@ export function AdminDocPreviewModal({
   // fix for the recurring "passport data erased" report.
   const isPdfDoc      = (doc.file_name.split(".").pop() ?? "").toLowerCase() === "pdf";
   const isPassportDoc = /pass/i.test(doc.file_type);
-  const nativePdf     = isPdfDoc && (iosMode || isPassportDoc);
+  // ONE engine for every PDF preview, every platform — the OS-native PDF
+  // engine (PDFium on Chromium/Android/Edge, PDFKit on Safari/iOS). pdf.js
+  // is retained only for the sign-zone picker / field-fill flows that need
+  // coordinate mapping; previewing never auto-switches between engines.
+  const nativePdf     = isPdfDoc;
+  void isPassportDoc; // kept readable for downstream logic + future LAW #39 use
+  void iosMode;       // download branch still uses it; PDF-engine selection no longer
   // iOS file URLs carry a short-lived signed token (?dlt=), never the raw JWT.
   // The native frame is a top-level <iframe> request that can't send an
   // Authorization header, so it needs the same signed token on desktop too.
