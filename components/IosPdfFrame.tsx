@@ -30,7 +30,7 @@ import { useRef, type CSSProperties } from "react";
  *           contiguously (no gaps) so the cluster is one uniform block; drop an
  *           entry to bring that single button back.
  */
-const TOOLBAR = "#3c4043";
+const TOOLBAR = "#323639";
 const BAR_H = 50;
 const RIGHT_MASKS: { key: string; right: number; width: number }[] = [
   { key: "more", right: 6, width: 44 }, // ⋮ overflow menu
