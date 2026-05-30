@@ -10,6 +10,7 @@ import { DocxViewer } from "@/components/DocxViewer";
 import { ZoomPanRotateViewer } from "@/components/ZoomPanRotateViewer";
 import { Spinner } from "@/components/ui/states";
 import { useLang } from "@/components/LangContext";
+import { downloadAuthedFile, triggerDownload } from "@/lib/download";
 
 const dm = {
   en: {
@@ -95,12 +96,26 @@ export function AdminDocPreviewModal({
   const [savedAs, setSavedAs]       = useState<"approved" | "rejected" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [blobUrl, setBlobUrl]       = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
+  // Serializes rotation PATCHes (avoids server-side lost updates) and gives the
+  // download a tail promise to await so it fetches AFTER the rotation commits.
+  const rotationChainRef = React.useRef<Promise<unknown>>(Promise.resolve());
+  // True once the user rotated this session — only then must download refetch
+  // (the open-time blob is otherwise already the correct, baked orientation).
+  const rotatedRef = React.useRef(false);
   // Track the auto-close timeout so we can clear it on unmount — prevents
   // setState-on-unmounted-component if the user navigates within 700ms.
   const closeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   React.useEffect(() => () => {
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
   }, []);
+
+  // Reset per-session rotation tracking whenever the previewed doc changes —
+  // the open-time blob for the new doc is already in its saved orientation.
+  useEffect(() => {
+    rotatedRef.current = false;
+    rotationChainRef.current = Promise.resolve();
+  }, [doc.id]);
 
   // Authenticated fetch via our API → blob URL. Used for both the PdfViewer
   // and the download button (no need to refetch).
@@ -121,6 +136,48 @@ export function AdminDocPreviewModal({
       .catch(err => { if (err.name !== "AbortError") console.error("Preview fetch error:", err); });
     return () => { mounted = false; ctrl.abort(); if (url) URL.revokeObjectURL(url); };
   }, [overrideFetchUrl, doc.drive_file_id, accessToken]);
+
+  // Persist a +90° rotation, serialized so rapid clicks can't race the server's
+  // read-modify-write on documents.rotation. Skipped for synthetic previews
+  // (merged PDF) which have no persistent row.
+  const persistRotate = React.useCallback(() => {
+    if (overrideFetchUrl || !doc.id) return;
+    rotatedRef.current = true;
+    rotationChainRef.current = rotationChainRef.current
+      .catch(() => {})
+      .then(() => fetch(`/api/portal/documents/${doc.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
+        body: JSON.stringify({ deltaRotation: 90 }),
+      }))
+      .catch(e => console.error("[rotation] persist failed:", e));
+  }, [overrideFetchUrl, doc.id, accessToken]);
+
+  // Download the file as currently oriented. If the user rotated this session,
+  // wait for the PATCH chain then pull FRESH baked bytes so the saved file
+  // matches the screen; otherwise the open-time blob is already correct.
+  const handleDownload = React.useCallback(async () => {
+    if (downloading) return;
+    if (!rotatedRef.current || overrideFetchUrl || !doc.id) {
+      if (blobUrl) triggerDownload(blobUrl, doc.file_name);
+      return;
+    }
+    setDownloading(true);
+    try {
+      const url = doc.drive_file_id
+        ? `/api/portal/file?id=${doc.drive_file_id}`
+        : `/api/portal/file?docId=${doc.id}`;
+      await downloadAuthedFile({ url, fileName: doc.file_name, token: accessToken, waitFor: rotationChainRef.current });
+    } catch (e) {
+      console.error("[download] fresh fetch failed, using cached blob:", e);
+      if (blobUrl) triggerDownload(blobUrl, doc.file_name);
+    } finally {
+      setDownloading(false);
+    }
+  }, [downloading, overrideFetchUrl, doc.id, doc.drive_file_id, doc.file_name, accessToken, blobUrl]);
 
   async function approve() {
     if (submitting) return;
@@ -318,9 +375,10 @@ export function AdminDocPreviewModal({
               <a
                 href={blobUrl}
                 download={doc.file_name}
-                title={dt.download} aria-label={dt.download}
+                onClick={e => { e.preventDefault(); handleDownload(); }}
+                title={dt.download} aria-label={dt.download} aria-busy={downloading}
                 className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center"
-                style={{ color: "var(--w2)" }}>
+                style={{ color: "var(--w2)", opacity: downloading ? 0.5 : 1, pointerEvents: downloading ? "none" : undefined }}>
                 <Download size={14} strokeWidth={1.8} />
               </a>
             )}
@@ -365,18 +423,7 @@ export function AdminDocPreviewModal({
             if (ext === "pdf") return (
               <PdfViewer
                 src={blobUrl}
-                onRotate={() => {
-                  // Don't persist when previewing a synthetic doc (e.g. merged PDF).
-                  if (overrideFetchUrl || !doc.id) return;
-                  fetch(`/api/portal/documents/${doc.id}`, {
-                    method: "PATCH",
-                    headers: {
-                      "Content-Type": "application/json",
-                      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-                    },
-                    body: JSON.stringify({ deltaRotation: 90 }),
-                  }).catch(e => console.error("[rotation] persist failed:", e));
-                }}
+                onRotate={persistRotate}
               />
             );
             if (ext === "docx") return <DocxViewer src={blobUrl} fileName={doc.file_name} />;

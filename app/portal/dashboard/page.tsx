@@ -10,6 +10,7 @@ import { useLang } from "@/components/LangContext";
 import { DOC_EXAMPLES } from "@/lib/docExamples";
 import { MAPS_URL, DEMANDE_EXAMPLE_URL } from "@/lib/workLicenseGuide";
 import { COUNTRY_MAP, natToLang as natToLangShared } from "@/lib/countries";
+import { downloadAuthedFile, triggerDownload } from "@/lib/download";
 import {
   PhaseIcon, type PhaseKind,
   Lock, Mail, Calendar, ExternalLink, AlertTriangle, PartyPopper,
@@ -579,6 +580,11 @@ export default function DashboardPage() {
   const [previewDoc, setPreviewDoc]         = useState<Doc | null>(null);
   const [previewBlobUrl, setPreviewBlobUrl] = useState<string | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewDownloading, setPreviewDownloading] = useState(false);
+  // Serializes rotation PATCHes for the open preview + lets download await them
+  // so the saved file matches the on-screen orientation (not the open-time blob).
+  const rotationChainRef = useRef<Promise<unknown>>(Promise.resolve());
+  const rotatedRef       = useRef(false);
   // Set when a notification click carries a doc_id — resolved to a preview
   // once docs have loaded (handles both same-page and fresh-navigation cases).
   const [pendingOpenDocId, setPendingOpenDocId] = useState<string | null>(null);
@@ -627,6 +633,13 @@ export default function DashboardPage() {
     window.addEventListener("bv-nav-doc", onNavDocEvent);
     return () => window.removeEventListener("bv-nav-doc", onNavDocEvent);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Reset per-session rotation tracking when the previewed doc changes — the
+  // open-time blob is already in its saved orientation for the new doc.
+  useEffect(() => {
+    rotatedRef.current = false;
+    rotationChainRef.current = Promise.resolve();
+  }, [previewDoc?.id]);
 
   useEffect(() => {
     if (!previewDoc?.drive_file_id) { setPreviewBlobUrl(null); return; }
@@ -1467,6 +1480,48 @@ export default function DashboardPage() {
       }
       const pendingSignReq = signRequests.find(r => r.status === "pending" && matchesDoc(r)) ?? null;
       const signedSignReq  = signRequests.find(r => r.status === "signed"  && matchesDoc(r)) ?? null;
+
+      // Persist a +90° rotation, serialized so rapid clicks don't race the
+      // server's read-modify-write on documents.rotation.
+      const persistRotate = () => {
+        rotatedRef.current = true;
+        rotationChainRef.current = rotationChainRef.current
+          .catch(() => {})
+          .then(() => fetch(`/api/portal/documents/${previewDoc.id}`, {
+            method: "PATCH",
+            headers: {
+              "Content-Type": "application/json",
+              ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+            },
+            body: JSON.stringify({ deltaRotation: 90 }),
+          }))
+          .catch(e => console.error("[rotation] persist failed:", e));
+      };
+
+      // Download as currently oriented: if rotated this session, wait for the
+      // PATCH chain then pull FRESH baked bytes so the file matches the screen;
+      // otherwise the open-time blob is already correct.
+      const doDownload = async () => {
+        if (previewDownloading) return;
+        if (!rotatedRef.current || !previewDoc.drive_file_id) {
+          if (previewBlobUrl) triggerDownload(previewBlobUrl, previewDoc.file_name);
+          return;
+        }
+        setPreviewDownloading(true);
+        try {
+          await downloadAuthedFile({
+            url: `/api/portal/file?id=${previewDoc.drive_file_id}`,
+            fileName: previewDoc.file_name,
+            token: authToken,
+            waitFor: rotationChainRef.current,
+          });
+        } catch (e) {
+          console.error("[download] fresh fetch failed, using cached blob:", e);
+          if (previewBlobUrl) triggerDownload(previewBlobUrl, previewDoc.file_name);
+        } finally {
+          setPreviewDownloading(false);
+        }
+      };
       return (
       <div className={`fixed inset-x-0 z-[700] flex justify-center px-2 bv-cand-preview-outer ${verificationPhase && passportModal ? "bv-side-preview-cand" : "items-center"}`}
         style={{
@@ -1574,8 +1629,10 @@ export default function DashboardPage() {
                 download={previewDoc.file_name}
                 target={signedSignReq ? "_blank" : undefined}
                 rel={signedSignReq ? "noopener noreferrer" : undefined}
+                onClick={signedSignReq ? undefined : (e => { e.preventDefault(); doDownload(); })}
+                aria-busy={previewDownloading}
                 className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center"
-                style={{ color: "var(--w2)" }}
+                style={{ color: "var(--w2)", opacity: previewDownloading ? 0.5 : 1, pointerEvents: previewDownloading ? "none" : undefined }}
                 aria-label={lang === "de" ? "Herunterladen" : lang === "fr" ? "Télécharger" : "Download"}
                 title={lang === "de" ? "Herunterladen" : lang === "fr" ? "Télécharger" : "Download"}>
                 <Download size={14} strokeWidth={1.8} />
@@ -1608,16 +1665,7 @@ export default function DashboardPage() {
                 <div style={{ position: "relative", height: "100%" }}>
                   <PdfViewer
                     src={previewBlobUrl}
-                    onRotate={() => {
-                      fetch(`/api/portal/documents/${previewDoc.id}`, {
-                        method: "PATCH",
-                        headers: {
-                          "Content-Type": "application/json",
-                          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-                        },
-                        body: JSON.stringify({ deltaRotation: 90 }),
-                      }).catch(e => console.error("[rotation] persist failed:", e));
-                    }}
+                    onRotate={persistRotate}
                   />
                   {/* Click overlay — opens sign modal when doc has a pending sign request */}
                   {pendingSignReq && (
