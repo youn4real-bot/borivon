@@ -30,8 +30,8 @@ import { useRef, type CSSProperties } from "react";
  *            clearly DARKER than the patch even at #474b4e and #323639, so the
  *            old "#3c4043 too dark" read was unreliable (stale deploy). Pinned
  *            by bisection: #323639 (rgb 50) too DARK, #474b4e/#525659 (71/82)
- *            too light -> real grey ~#3c4043 (rgb 60), set here. If a hair off,
- *            eyedropper the real bar and paste the exact hex — ends it for good.
+ *            too light -> ~#3c4043 (rgb 60), then nudged to #3a3d40 (rgb 58) as
+ *            it still read faintly light. If a hair off, eyedropper the bar.
  * BAR_H    — toolbar height in px; each patch spans this so the whole button
  *            (top to bottom) is covered.
  * RIGHT_MASKS — buttons to kill, measured from the toolbar's RIGHT edge. They
@@ -39,9 +39,9 @@ import { useRef, type CSSProperties } from "react";
  *            but each is its own node: drop an entry and that single button
  *            comes back, untouched.
  */
-const TOOLBAR = "#3c4043";
+const TOOLBAR = "#3a3d40";
 const BAR_H = 50;
-const FEATHER = 28; // px soft fade on the cluster's left edge, so a small grey miss never shows as a hard line
+const FEATHER = 40; // px soft fade on the cluster's left edge, so a small grey miss never shows as a hard line
 const RIGHT_MASKS: { key: string; right: number; width: number }[] = [
   { key: "more", right: 6, width: 44 }, // ⋮ overflow menu
   { key: "print", right: 50, width: 44 }, // print
@@ -78,11 +78,11 @@ export function IosPdfFrame({
   };
 
   return (
-    <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#3c4043" }}>
+    <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#3a3d40" }}>
       <iframe
         title={title ?? "PDF"}
         src={bustedSrc}
-        style={{ width: "100%", height: "100%", border: "none", background: "#3c4043" }}
+        style={{ width: "100%", height: "100%", border: "none", background: "#3a3d40" }}
       />
       {RIGHT_MASKS.map((m) => (
         <div key={m.key} aria-hidden style={{ ...patch, right: m.right, width: m.width }} />
