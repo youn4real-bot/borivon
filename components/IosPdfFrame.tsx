@@ -41,6 +41,7 @@ import { useRef, type CSSProperties } from "react";
  */
 const TOOLBAR = "#3c4043";
 const BAR_H = 50;
+const FEATHER = 28; // px soft fade on the cluster's left edge, so a small grey miss never shows as a hard line
 const RIGHT_MASKS: { key: string; right: number; width: number }[] = [
   { key: "more", right: 6, width: 44 }, // ⋮ overflow menu
   { key: "print", right: 50, width: 44 }, // print
@@ -86,6 +87,22 @@ export function IosPdfFrame({
       {RIGHT_MASKS.map((m) => (
         <div key={m.key} aria-hidden style={{ ...patch, right: m.right, width: m.width }} />
       ))}
+      {/* Feather the cluster's LEFT edge — its only hard seam against the real
+          bar — so a few-shade colour miss fades out instead of drawing a line.
+          Sits over the empty bar gap; purely cosmetic (no click-blocking). */}
+      <div
+        aria-hidden
+        style={{
+          position: "absolute",
+          top: 0,
+          height: BAR_H,
+          right: Math.max(...RIGHT_MASKS.map((m) => m.right + m.width)),
+          width: FEATHER,
+          background: `linear-gradient(to left, ${TOOLBAR}, ${TOOLBAR}00)`,
+          zIndex: 2,
+          pointerEvents: "none",
+        }}
+      />
     </div>
   );
 }
