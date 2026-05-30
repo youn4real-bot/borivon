@@ -12,9 +12,9 @@ import { Sun, Moon, Menu, Home } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 const PORTAL_NAV_T = {
-  en: { dashboard: "Dashboard",     community: "Community"  },
-  fr: { dashboard: "Tableau de bord", community: "Communauté" },
-  de: { dashboard: "Dashboard",     community: "Community"  },
+  en: { dashboard: "Dashboard",     academy: "Academy",  community: "Community"  },
+  fr: { dashboard: "Tableau de bord", academy: "Académie", community: "Communauté" },
+  de: { dashboard: "Dashboard",     academy: "Akademie", community: "Community"  },
 } as const;
 
 const LANGS: { code: Lang; flagSrc: string; label: string }[] = [
@@ -31,6 +31,10 @@ export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: 
   const langTriggerRef = useRef<HTMLButtonElement>(null);
   const [communityUnread, setCommunityUnread] = useState(0);
   const [authTk, setAuthTk] = useState("");
+  // Academy tab is WIP — hidden by default; the server (/me/role) says who may
+  // see it (supreme always; others per the mask-all flag + per-person override).
+  // Default false so it never flashes for masked users.
+  const [academyVisible, setAcademyVisible] = useState(false);
   // Position of the dropdown when portaled to <body> — recomputed each open.
   const [dropdownPos, setDropdownPos] = useState<{ top?: number; bottom?: number; left: number } | null>(null);
   // Per-page mobile menu toggle (e.g. dashboard's slide-in phase rail).
@@ -70,9 +74,10 @@ export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: 
   const PNT = PORTAL_NAV_T[lang as keyof typeof PORTAL_NAV_T] ?? PORTAL_NAV_T.en;
 
   // Portal tab logic — mirrors PortalTopNav routing
-  const isAdmin = pathname.startsWith("/portal/admin");
-  const isOrg   = pathname.startsWith("/portal/org");
-  const isFeed  = pathname.startsWith("/portal/feed");
+  const isAdmin   = pathname.startsWith("/portal/admin");
+  const isOrg     = pathname.startsWith("/portal/org");
+  const isFeed    = pathname.startsWith("/portal/feed");
+  const isAcademy = pathname.startsWith("/portal/academy");
   // LAW #1: `/portal` exact match is the login screen — Dashboard / Community
   // tabs MUST NOT render there even if `authTk` is set from a stale session.
   // Route check is authoritative — no async auth state can leak chrome onto
@@ -82,8 +87,10 @@ export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: 
                  : isOrg   ? "/portal/org/dashboard"
                  :            "/portal/dashboard";
   const portalTabs = useBottomBar && authTk && !isLoginPage ? [
-    { label: PNT.dashboard, href: dashHref,        active: !isFeed },
-    { label: PNT.community, href: "/portal/feed",  active: isFeed  },
+    { label: PNT.dashboard, href: dashHref,           active: !isFeed && !isAcademy },
+    // Academy tab only when the server says this user may see it (supreme / allowed).
+    ...(academyVisible ? [{ label: PNT.academy, href: "/portal/academy", active: isAcademy }] : []),
+    { label: PNT.community, href: "/portal/feed",     active: isFeed  },
   ] : null;
 
   // Community unread badge ────────────────────────────────────────────────────
@@ -104,6 +111,18 @@ export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: 
     });
     return () => { mounted = false; subscription.unsubscribe(); };
   }, [useBottomBar]);
+
+  // Resolve Academy-tab visibility from the server (supreme always; others per
+  // the supreme admin's mask-all flag + per-person override). Hidden by default.
+  useEffect(() => {
+    if (!authTk) { setAcademyVisible(false); return; }
+    let mounted = true;
+    fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${authTk}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(j => { if (mounted) setAcademyVisible(j?.academyVisible === true); })
+      .catch(() => { /* keep hidden on error */ });
+    return () => { mounted = false; };
+  }, [authTk]);
 
   useEffect(() => {
     if (!isFeed) return;

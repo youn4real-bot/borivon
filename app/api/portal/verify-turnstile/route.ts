@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { enforceRateLimit } from "@/lib/rateLimit";
 
 export async function POST(req: NextRequest) {
+  // Public endpoint that proxies to Cloudflare on every call — throttle per IP.
+  const rl = enforceRateLimit(req, "turnstile", { limit: 20, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ success: false, error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+
   const body = await req.json().catch(() => ({}));
   const token = typeof body?.token === "string" ? body.token : "";
   if (!token) return NextResponse.json({ success: false, error: "No token" }, { status: 400 });

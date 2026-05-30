@@ -141,7 +141,7 @@ export default function AdminEmployersPage() {
         errSave: "Speichern fehlgeschlagen", errAutoSave: "Auto-Speichern fehlgeschlagen",
         errToggle: "Statuswechsel fehlgeschlagen", errNet: "(Netzwerkfehler)",
         tabEmployers: "Arbeitgeber", tabAgencies: "Agenturen",
-        agencyHint: "Eine Agentur vermittelt Kandidaten an einen finalen Arbeitgeber. Ihr Logo und ihre Adresse erscheinen auf CV und Anschreiben der zugewiesenen Kandidaten.",
+        agencyHint: "Eine Agentur vermittelt Kandidaten an einen finalen Arbeitgeber. Ihr Logo und ihre Adresse erscheinen auf CV und Motivationsschreiben der zugewiesenen Kandidaten.",
         newAgency: "Neue Agentur", emptyAgencies: "Noch keine Agenturen.",
         modalNewAgency: "Neue Agentur", modalEditAgency: "Agentur bearbeiten",
         agencyName: "Name *",

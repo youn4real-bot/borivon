@@ -1,20 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminRole, requireUser, ciEmail } from "@/lib/admin-auth";
+import { requireAdminRole, requireUser } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
+import { resolveAcademyVisible } from "@/lib/academyVisibility";
 
 /**
  * Returns the caller's role for client-side routing.
  *
  *   { role: "admin",      isSuperAdmin: true  }
- *   { role: "sub_admin",  isSuperAdmin: false }
- *   { role: "org_member", isSuperAdmin: false, orgId: "...", orgName: "..." }
+ *   { role: "sub_admin",  isSuperAdmin: false }  // incl. org-scoped admins
  *   { role: null,         isSuperAdmin: false }
  */
 export async function GET(req: NextRequest) {
   // 1. Check admin first (full admin only — not sub_admin)
   const auth = await requireAdminRole(req);
   if (auth.ok && auth.role === "admin") {
-    return NextResponse.json({ role: "admin", isSuperAdmin: true });
+    // Supreme always sees the Academy tab (they own its visibility).
+    return NextResponse.json({ role: "admin", isSuperAdmin: true, academyVisible: true });
   }
 
   // 2. Verify user identity (needed for org_member and sub_admin checks)
@@ -22,42 +23,15 @@ export async function GET(req: NextRequest) {
   if (!user.ok) return NextResponse.json({ error: user.error }, { status: user.status });
 
   const db = getServiceSupabase();
+  const academyVisible = await resolveAcademyVisible(user.userId, user.email);
 
-  // 3. Check org membership BEFORE sub_admin — org members are also added to
-  //    sub_admins (so the admin panel can show their name), but they should be
-  //    routed to the org dashboard, not the admin panel.
-  // organization_members has NO unique constraint on sub_admin_email — a
-  // member of 2 orgs has 2 rows, and `.maybeSingle()` THROWS on >1 row →
-  // the org-member is misrouted to /portal/admin / broken inbox (the
-  // "STILL CANDIDATE" class, relocated here). Duplicate-tolerant: take row[0].
-  const { data: memberRows } = await db
-    .from("organization_members")
-    .select("org_id, role")
-    .ilike("sub_admin_email", ciEmail(user.email))
-    .limit(1);
-  const membership = (memberRows ?? [])[0] as { org_id: string; role: string } | undefined;
-
-  if (membership) {
-    const { data: org } = await db
-      .from("organizations")
-      .select("name")
-      .eq("id", (membership as { org_id: string; role: string }).org_id)
-      .maybeSingle();
-
-    // Ensure org members are always verified — awaited so the write completes
-    // before the response returns (void would be killed by the serverless runtime).
-    await db.from("candidate_profiles").upsert(
-      { user_id: user.userId, manually_verified: true },
-      { onConflict: "user_id" },
-    );
-
-    return NextResponse.json({
-      role:        "org_member",
-      isSuperAdmin: false,
-      orgId:       (membership as { org_id: string }).org_id,
-      orgName:     (org as { name: string } | null)?.name ?? "",
-    });
-  }
+  // 3. Org people are now ORG-SCOPED sub-admins: they get the full Borivon
+  //    admin dashboard (/portal/admin) restricted to their organization's
+  //    candidates, and resolve through the sub_admin branch below — NOT a
+  //    separate org_member role. The old org_member role + the limited
+  //    /portal/org/dashboard were retired. Scope is enforced server-side by
+  //    organization_members membership (canActOnCandidate / getVisibleCandidateIds),
+  //    so an org admin can never see a candidate outside their org.
 
   // 4. Sub-admin (agent who manages candidates)
   if (auth.ok && auth.role === "sub_admin") {
@@ -66,6 +40,7 @@ export async function GET(req: NextRequest) {
       isSuperAdmin: false,
       agencyId: auth.agencyId ?? null,
       isAgencyAdmin: auth.isAgencyAdmin ?? false,
+      academyVisible,
     });
   }
 
@@ -77,5 +52,5 @@ export async function GET(req: NextRequest) {
     .eq("user_id", user.userId)
     .maybeSingle();
   const paymentTier = (profile as { payment_tier?: string | null } | null)?.payment_tier ?? null;
-  return NextResponse.json({ role: "candidate", isSuperAdmin: false, paymentTier });
+  return NextResponse.json({ role: "candidate", isSuperAdmin: false, paymentTier, academyVisible });
 }

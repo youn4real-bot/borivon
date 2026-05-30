@@ -87,7 +87,11 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
     // throws and 500s (same disease grantSubAdmin cured elsewhere). Collapse
     // any existing rows for this email then insert exactly one.
     await db.from("sub_admins").delete().ilike("email", ciEmail(email));
-    let { error: subErr } = await db.from("sub_admins").insert({ email, name, label, is_agency_admin: false });
+    // is_agency_admin=true → org-scoped admin (sees ONLY their org's candidates
+    // via canActOnCandidate / getVisibleCandidateIds). Membership in
+    // organization_members ALSO enforces the same scope, so this is belt-and-
+    // suspenders, but keep it accurate.
+    let { error: subErr } = await db.from("sub_admins").insert({ email, name, label, is_agency_admin: true });
     if (subErr && /is_agency_admin|column .* does not exist|schema cache/i.test(subErr.message)) {
       ({ error: subErr } = await db.from("sub_admins").insert({ email, name, label }));
     }

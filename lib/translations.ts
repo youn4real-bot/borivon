@@ -69,6 +69,11 @@ export interface Translation {
   pTypeAbiturDE: string; pTypeAbiturTranscriptDE: string; pTypePraktikumDE: string; pTypeOtherTrans: string;
   pTypeWorkExp: string; pTypeWorkcertDE: string; pTypeWorkExpDE: string;
   pTypeImpfung: string; pTypeImpfungDE: string;
+  pTypeCVvisa: string; pHintCVvisa: string;
+  pTypeLetterVisa: string; pHintLetterVisa: string;
+  pTypeEZB: string; pTypeZusatzblattA: string; pTypeDefizitbescheid: string; pTypeVidex: string;
+  pTypeBildungsplan: string; pTypeVorabzustimmung: string; pTypeArbeitsvertrag: string; pTypeMawista: string;
+  pTypeVersicherung: string; pTypeTlsRechnung: string; pTypeTlsBestaetigung: string; pTypeBerufserfahrungVisum: string;
   pOriginalDocs: string; pTranslatedDocs: string;
   pHintCV: string; pHintDiploma: string; pHintID: string; pHintLetter: string;
   pHintLangCert: string; pHintWorkCert: string;
@@ -319,11 +324,11 @@ export const translations: Record<Lang, Translation> = {
     pDocsTitle: "Documents déposés", pNoDoc: "Aucun document déposé pour le moment.",
     pPending: "En attente", pLogout: "Déconnexion", pContact: "Une question ?",
     pTypeDiploma: "Diplôme Infirmier", pTypeID: "Passeport",
-    pTypeLetter: "Lettre de motivation", pTypeOther: "Autre",
+    pTypeLetter: "Motivationsschreiben", pTypeOther: "Autre",
     pTypeLangCert: "Certificat de langue B2", pTypeWorkCert: "Certificat d'exercice de la profession infirmière",
     pTypeStudyProg: "Programme d'études Infirmier", pTypeTranscript: "Bulletin de notes Infirmier",
     pTypeAbitur: "Baccalauréat", pTypeAbiturTranscript: "Relevé de notes du Baccalauréat", pTypePraktikum: "Attestation de stage Infirmier",
-    pTypeCVde: "CV", pTypeDiplomaDE: "Diplôme Infirmier (Allemand)",
+    pTypeCVde: "CV", pTypeCVvisa: "Lebenslauf Visum", pHintCVvisa: "Même CV, sans logo — pour ton dossier de visa", pTypeLetterVisa: "Motivationsschreiben Visum", pHintLetterVisa: "Lettre de motivation pour le dossier de visa (ambassade)", pTypeEZB: "EZB", pTypeZusatzblattA: "Zusatzblatt A", pTypeDefizitbescheid: "Defizitbescheid", pTypeVidex: "Videx", pTypeBildungsplan: "Bildungsplan", pTypeVorabzustimmung: "Vorabzustimmung", pTypeArbeitsvertrag: "Arbeitsvertrag", pTypeMawista: "Mawista", pTypeVersicherung: "Versicherung", pTypeTlsRechnung: "TLS Rechnung", pTypeTlsBestaetigung: "TLS Bestätigungstermin", pTypeBerufserfahrungVisum: "Berufserfahrung (Visum)", pTypeDiplomaDE: "Diplôme Infirmier (Allemand)",
     pTypeStudyProgDE: "Programme d'études Infirmier (Allemand)", pTypeTranscriptDE: "Bulletin de notes Infirmier (Allemand)",
     pTypeAbiturDE: "Baccalauréat (Allemand)", pTypeAbiturTranscriptDE: "Relevé de notes Baccalauréat (Allemand)", pTypePraktikumDE: "Attestation de stage Infirmier (Allemand)",
     pTypeOtherTrans: "Autre traduction",
@@ -621,11 +626,11 @@ export const translations: Record<Lang, Translation> = {
     pDocsTitle: "Uploaded documents", pNoDoc: "No documents uploaded yet.",
     pPending: "Pending", pLogout: "Sign out", pContact: "Any questions?",
     pTypeDiploma: "Nursing Diploma", pTypeID: "Passport",
-    pTypeLetter: "Cover letter", pTypeOther: "Other",
+    pTypeLetter: "Motivationsschreiben", pTypeOther: "Other",
     pTypeLangCert: "B2 Language Certificate", pTypeWorkCert: "Certificate of Nursing Practice",
     pTypeStudyProg: "Nursing Study Programme", pTypeTranscript: "Nursing Transcript",
     pTypeAbitur: "Baccalaureate", pTypeAbiturTranscript: "Baccalaureate Transcript", pTypePraktikum: "Nursing Internship Certificate",
-    pTypeCVde: "CV", pTypeDiplomaDE: "Nursing Diploma (German)",
+    pTypeCVde: "CV", pTypeCVvisa: "Lebenslauf Visum", pHintCVvisa: "Same CV, no logo — for your visa file", pTypeLetterVisa: "Motivationsschreiben Visum", pHintLetterVisa: "Motivation letter for your visa file (embassy)", pTypeEZB: "EZB", pTypeZusatzblattA: "Zusatzblatt A", pTypeDefizitbescheid: "Defizitbescheid", pTypeVidex: "Videx", pTypeBildungsplan: "Bildungsplan", pTypeVorabzustimmung: "Vorabzustimmung", pTypeArbeitsvertrag: "Arbeitsvertrag", pTypeMawista: "Mawista", pTypeVersicherung: "Versicherung", pTypeTlsRechnung: "TLS Rechnung", pTypeTlsBestaetigung: "TLS Bestätigungstermin", pTypeBerufserfahrungVisum: "Berufserfahrung (Visum)", pTypeDiplomaDE: "Nursing Diploma (German)",
     pTypeStudyProgDE: "Nursing Study Programme (German)", pTypeTranscriptDE: "Nursing Transcript (German)",
     pTypeAbiturDE: "Abitur (German)", pTypeAbiturTranscriptDE: "Abitur Transcript (German)", pTypePraktikumDE: "Nursing Internship Certificate (German)",
     pTypeOtherTrans: "Other translation",
@@ -923,11 +928,11 @@ export const translations: Record<Lang, Translation> = {
     pDocsTitle: "Hochgeladene Dokumente", pNoDoc: "Noch keine Dokumente hochgeladen.",
     pPending: "Ausstehend", pLogout: "Abmelden", pContact: "Fragen?",
     pTypeDiploma: "Diplom", pTypeID: "Reisepass",
-    pTypeLetter: "Anschreiben", pTypeOther: "Sonstiges",
+    pTypeLetter: "Motivationsschreiben", pTypeOther: "Sonstiges",
     pTypeLangCert: "B2 Sprachzertifikat", pTypeWorkCert: "Berufserlaubnis",
     pTypeStudyProg: "Ausbildungsprogramm", pTypeTranscript: "Notenübersicht",
     pTypeAbitur: "Abitur", pTypeAbiturTranscript: "Abitur Notenübersicht", pTypePraktikum: "Ausbildungspraktikum",
-    pTypeCVde: "Lebenslauf", pTypeDiplomaDE: "Diplom (DE)",
+    pTypeCVde: "Lebenslauf", pTypeCVvisa: "Lebenslauf Visum", pHintCVvisa: "Gleicher Lebenslauf, ohne Logo — für deine Visum-Akte", pTypeLetterVisa: "Motivationsschreiben Visum", pHintLetterVisa: "Für deine Visum-Akte (Botschaft)", pTypeEZB: "EZB", pTypeZusatzblattA: "Zusatzblatt A", pTypeDefizitbescheid: "Defizitbescheid", pTypeVidex: "Videx", pTypeBildungsplan: "Bildungsplan", pTypeVorabzustimmung: "Vorabzustimmung", pTypeArbeitsvertrag: "Arbeitsvertrag", pTypeMawista: "Mawista", pTypeVersicherung: "Versicherung", pTypeTlsRechnung: "TLS Rechnung", pTypeTlsBestaetigung: "TLS Bestätigungstermin", pTypeBerufserfahrungVisum: "Berufserfahrung (Visum)", pTypeDiplomaDE: "Diplom (DE)",
     pTypeStudyProgDE: "Ausbildungsprogramm (DE)", pTypeTranscriptDE: "Notenübersicht (DE)",
     pTypeAbiturDE: "Abitur (DE)", pTypeAbiturTranscriptDE: "Abitur Notenübersicht (DE)", pTypePraktikumDE: "Ausbildungspraktikum (DE)",
     pTypeOtherTrans: "Weitere Übersetzung",
@@ -977,7 +982,7 @@ export const translations: Record<Lang, Translation> = {
     pWizardPhase1: "Essentielles", pWizardPhase1Desc: "Hauptdokumente zum Starten Ihrer Bewerbung.",
     pWizardPhase2: "Qualifikationen", pWizardPhase2Desc: "Ihre Diplome, Ausbildungsnachweise und Berufserfahrung.",
     pWizardPhase3: "Beglaubigte Übersetzungen", pWizardPhase3Desc: "Laden Sie Ihre Übersetzungen hoch, falls vorhanden — sonst kommen Sie einfach wieder.",
-    pWizardPhase4: "Weitere Unterlagen", pWizardPhase4Desc: "Ihr Anschreiben und Ihr B2 Sprachzertifikat.",
+    pWizardPhase4: "Weitere Unterlagen", pWizardPhase4Desc: "Ihr Motivationsschreiben und Ihr B2 Sprachzertifikat.",
     pWizardNext: "Weiter →", pWizardSkip: "Ich komme später wieder", pWizardDone: "Meine Akte ansehen →", pWizardViewAll: "Gesamte Akte ansehen",
     pSideID: "Essentielles", pSideNursing: "Qualifik.", pSideTrans: "Übersetz.", pSideOther: "Sonstiges",
     pWelcomeBack: "Willkommen zurück,", pWelcomeBackSub: "Machen Sie weiter, wo Sie aufgehört haben.",

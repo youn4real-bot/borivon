@@ -31,6 +31,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ZoomIn, ZoomOut, RotateCw } from "lucide-react";
 import { Spinner } from "@/components/ui/states";
 import { isIOSDevice } from "@/lib/platform";
+import { getCachedRotation, bumpCachedRotation } from "@/lib/rotationStore";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PdfDoc = any;
@@ -55,6 +56,7 @@ export type PageOverlayFn = (info: PageOverlayInfo) => React.ReactNode;
 
 export function PdfViewer({
   src,
+  docId,
   onRotate,
   pageOverlay,
   onPagesLoaded,
@@ -62,6 +64,8 @@ export function PdfViewer({
   initialRotation,
 }: {
   src: string;
+  /** documents row id — keys the in-session rotation cache (rotationStore). */
+  docId?: string;
   /** Fired once per rotate click (always +90°). Parent persists the delta. */
   onRotate?: () => void;
   /** Render absolute-positioned content on top of each page. */
@@ -114,10 +118,7 @@ export function PdfViewer({
   const [scale, setScale]         = useState(1.0);
   // Seed rotation from the optional initial value (passport docs, where
   // the server can't bake rotation into the PDF). Normalised to 0/90/180/270.
-  const [rotation, setRotation]   = useState(() => {
-    const r = initialRotation ?? 0;
-    return ((r % 360) + 360) % 360;
-  });
+  const [rotation, setRotation]   = useState(() => getCachedRotation(docId, initialRotation ?? 0));
   const [loading, setLoading]     = useState(true);
   const [error, setError]         = useState(false);
 
@@ -132,13 +133,10 @@ export function PdfViewer({
     setPageSizes([]);
     setIntrinsicRotations([]);
     setScale(1.0);
-    // Honor initialRotation when the src changes (e.g. switching docs in
-    // the same modal). For passports this restores the persisted rotation;
-    // for everything else initialRotation is undefined → resets to 0.
-    {
-      const r = initialRotation ?? 0;
-      setRotation(((r % 360) + 360) % 360);
-    }
+    // Re-seed rotation when the src changes (e.g. switching docs in the same
+    // modal): prefer the in-session cache (kept fresh on every rotate), else
+    // the persisted server value (documents.rotation).
+    setRotation(getCachedRotation(docId, initialRotation ?? 0));
 
     let destroy: (() => void) | null = null;
 
@@ -152,7 +150,20 @@ export function PdfViewer({
         ).toString();
       }
 
-      const task = pdfjsLib.getDocument({ url: src });
+      // Point pdf.js at its bundled standard-font + CMap data (copied to
+      // /public/pdfjs). WITHOUT these, any PDF whose text uses a NON-embedded
+      // standard/CID font renders with the text MISSING — vector graphics,
+      // borders and logos still draw, but glyphs vanish (e.g. scanned agency
+      // forms like Zusatzblatt A). These are FALLBACK sources only: a doc with
+      // embedded fonts never fetches them, so this can't change anything that
+      // already renders. Same-origin path → CSP-clean.
+      const origin = typeof window !== "undefined" ? window.location.origin : "";
+      const task = pdfjsLib.getDocument({
+        url: src,
+        cMapUrl: `${origin}/pdfjs/cmaps/`,
+        cMapPacked: true,
+        standardFontDataUrl: `${origin}/pdfjs/standard_fonts/`,
+      });
       destroy = () => task.destroy().catch(() => {});
 
       task.promise
@@ -410,6 +421,7 @@ export function PdfViewer({
   const zoomIn  = () => setScale(s => Math.min(MAX_SCALE, Math.round((s + STEP) * 10) / 10));
   const rotate  = () => {
     setRotation(r => (r + 90) % 360);
+    bumpCachedRotation(docId, initialRotation ?? 0); // keep in-session cache fresh
     onRotate?.();
   };
 

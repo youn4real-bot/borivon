@@ -88,9 +88,39 @@ async function renameSlotDocs(slotId: string, newLabel: string): Promise<void> {
   }
 }
 
+/**
+ * May `auth` manage slots for this employer?
+ *   • supreme admin → any employer.
+ *   • org admin (sub_admin) → only employers whose agency_id is one of the
+ *     orgs they belong to (organization_members).
+ * Returns true/false. Caller has already validated employerId is a UUID.
+ */
+async function canManageEmployer(
+  auth: Extract<Awaited<ReturnType<typeof requireAdminRole>>, { ok: true }>,
+  employerId: string,
+): Promise<boolean> {
+  const db = getServiceSupabase();
+  const { data: emp } = await db
+    .from("employers")
+    .select("agency_id")
+    .eq("id", employerId)
+    .maybeSingle();
+  const agencyId = (emp as { agency_id: string | null } | null)?.agency_id ?? null;
+  if (auth.role === "admin") return true;              // supreme → any
+  if (!agencyId) return false;                          // org admin needs an org-linked employer
+  const { data: mem } = await db
+    .from("organization_members")
+    .select("org_id")
+    .eq("sub_admin_email", auth.email)
+    .eq("org_id", agencyId)
+    .maybeSingle();
+  return !!mem;
+}
+
 type PhaseSlot = {
   id: string;
   org_id: string | null;
+  employer_id: string | null;
   phase: string;
   position: number;
   type: string;
@@ -124,12 +154,112 @@ export async function GET(req: NextRequest) {
   }
 
   const orgIdParam = req.nextUrl.searchParams.get("orgId");
+  const employerIdParam = req.nextUrl.searchParams.get("employerId");
+  const candidateIdParam = req.nextUrl.searchParams.get("candidateId");
   const db = getServiceSupabase();
 
-  let orgId: string | null = null;
-  if (orgIdParam && UUID_RE.test(orgIdParam)) {
-    orgId = orgIdParam;
+  // ── ADMIN viewing a specific candidate → resolve THAT candidate's scope ────
+  // (employer → their approved org → global) so EVERY admin — Borivon HQ or org
+  // admin — sees exactly the same set the candidate sees. Without this, each
+  // admin resolved their OWN org and org-admin-created slots vanished for HQ.
+  let adminCandEmployer: string | null = null;
+  let adminCandOrg: string | null = null;
+  let adminViewingCand = false;
+  if (candidateIdParam && UUID_RE.test(candidateIdParam)) {
+    const adminAuth = await requireAdminRole(req);
+    if (adminAuth.ok) {
+      adminViewingCand = true;
+      const { data: prof } = await db
+        .from("candidate_profiles").select("employer_id").eq("user_id", candidateIdParam).maybeSingle();
+      adminCandEmployer = (prof as { employer_id: string | null } | null)?.employer_id ?? null;
+      const { data: link } = await db
+        .from("candidate_organizations").select("org_id")
+        .eq("candidate_user_id", candidateIdParam).eq("status", "approved").maybeSingle();
+      adminCandOrg = (link as { org_id: string } | null)?.org_id ?? null;
+    }
+  }
+
+  // ── EMPLOYER-scoped set takes priority (most specific) ─────────────────────
+  // Admin/sub-admin managing a set passes ?employerId (authorized). A candidate
+  // gets THEIR employer set automatically from candidate_profiles.employer_id —
+  // no param, works even when an admin placed them (this is the "fixed docs per
+  // pathway, e.g. Calmaroi → UKSH Lübeck" behaviour).
+  let employerId: string | null = null;
+  if (adminViewingCand) {
+    employerId = adminCandEmployer;
+  } else if (employerIdParam && UUID_RE.test(employerIdParam)) {
+    const adminAuth = await requireAdminRole(req);
+    if (adminAuth.ok && (await canManageEmployer(adminAuth, employerIdParam))) {
+      employerId = employerIdParam;
+    }
   } else {
+    const adminAuth = await requireAdminRole(req);
+    if (!adminAuth.ok) {
+      // Candidate: their assigned employer drives the fixed set.
+      const { data: prof } = await db
+        .from("candidate_profiles")
+        .select("employer_id")
+        .eq("user_id", userId)
+        .maybeSingle();
+      employerId = (prof as { employer_id: string | null } | null)?.employer_id ?? null;
+    }
+  }
+
+  if (employerId) {
+    const { data } = await db
+      .from("phase_slots")
+      .select("*")
+      .eq("employer_id", employerId)
+      .eq("phase", phase)
+      .order("position");
+    const empSlots = (data ?? []) as PhaseSlot[];
+    // Only short-circuit when the employer actually has a set; otherwise fall
+    // through to org / global so an employer with no custom set still works.
+    if (empSlots.length > 0 || employerIdParam) {
+      return NextResponse.json({ slots: empSlots });
+    }
+  }
+
+  let orgId: string | null = null;
+  if (adminViewingCand) {
+    // Admin viewing a candidate → that candidate's approved org (or global).
+    orgId = adminCandOrg;
+  } else if (orgIdParam && UUID_RE.test(orgIdParam)) {
+    // SECURITY: a `?orgId=` param must NOT be honored blindly — that let any
+    // authenticated candidate read ANY org's private slot definitions
+    // (instructions, template paths) by guessing org UUIDs. Only an
+    // admin/sub-admin (org tooling) may pass an arbitrary org; a candidate is
+    // restricted to an org they're approved + self-joined to. An unlinked
+    // param is ignored → falls through to auto-detect/global below.
+    const adminAuth = await requireAdminRole(req);
+    if (adminAuth.ok) {
+      orgId = orgIdParam;
+    } else {
+      const { data: link } = await db
+        .from("candidate_organizations")
+        .select("org_id")
+        .eq("candidate_user_id", userId)
+        .eq("org_id", orgIdParam)
+        .eq("status", "approved")
+        .neq("added_by", "admin")
+        .maybeSingle();
+      if (link) orgId = orgIdParam;
+    }
+  }
+  if (!orgId && !adminViewingCand) {
+    // Org admin with no explicit scope → THEIR org's slot set (so the slot
+    // manager shows + edits their org's slots, not the global ones).
+    const adminAuth = await requireAdminRole(req);
+    if (adminAuth.ok && adminAuth.role === "sub_admin") {
+      const { data: m } = await db
+        .from("organization_members")
+        .select("org_id")
+        .eq("sub_admin_email", adminAuth.email)
+        .maybeSingle();
+      orgId = (m as { org_id: string } | null)?.org_id ?? null;
+    }
+  }
+  if (!orgId && !adminViewingCand) {
     // Auto-detect: candidate's approved org. Admin-initiated links are
     // excluded (user request 2026-05: candidate must not see content from
     // agencies an admin placed them with). Candidate-self-joined orgs
@@ -175,8 +305,8 @@ export async function POST(req: NextRequest) {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const body = await req.json().catch(() => ({})) as Record<string, unknown>;
-  const { phase, type, label, label_trans, orgId, action_type, instructions } = body as {
-    phase?: string; type?: string; label?: string; label_trans?: string; orgId?: string;
+  const { phase, type, label, label_trans, orgId, employerId, action_type, instructions } = body as {
+    phase?: string; type?: string; label?: string; label_trans?: string; orgId?: string; employerId?: string;
     action_type?: string; instructions?: string;
     admin_signs?: boolean; candidate_signs?: boolean; admin_fills?: boolean; candidate_fills?: boolean;
     pdf_has_native_fields?: boolean;
@@ -191,37 +321,57 @@ export async function POST(req: NextRequest) {
 
   const db = getServiceSupabase();
 
+  // EMPLOYER-scoped slot (most specific). org_id stays null on these rows.
+  let resolvedEmployerId: string | null = null;
   let resolvedOrgId: string | null = null;
-  if (auth.role === "admin") {
+  if (employerId && UUID_RE.test(employerId)) {
+    if (!(await canManageEmployer(auth, employerId)))
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    resolvedEmployerId = employerId;
+  } else if (auth.role === "admin") {
     resolvedOrgId = (orgId && UUID_RE.test(orgId)) ? orgId : null;
   } else {
-    if (!orgId || !UUID_RE.test(orgId))
-      return NextResponse.json({ error: "orgId required" }, { status: 400 });
-    const { data: mem } = await db
-      .from("organization_members")
-      .select("org_id")
-      .eq("sub_admin_email", auth.email)
-      .eq("org_id", orgId)
-      .maybeSingle();
-    if (!mem) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    resolvedOrgId = orgId;
+    // Org admin. If they passed an explicit orgId, it must be one of theirs.
+    // Otherwise default to their (single) org — so creating a slot from a
+    // candidate's view just works without the client knowing the org id.
+    if (orgId && UUID_RE.test(orgId)) {
+      const { data: mem } = await db
+        .from("organization_members")
+        .select("org_id")
+        .eq("sub_admin_email", auth.email)
+        .eq("org_id", orgId)
+        .maybeSingle();
+      if (!mem) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      resolvedOrgId = orgId;
+    } else {
+      const { data: mem } = await db
+        .from("organization_members")
+        .select("org_id")
+        .eq("sub_admin_email", auth.email)
+        .maybeSingle();
+      // Org admin → their org. Borivon HQ sub-admin (no org) → global (null).
+      resolvedOrgId = (mem as { org_id: string } | null)?.org_id ?? null;
+    }
   }
 
-  // Next position
+  // Next position — within the resolved scope (employer ▸ org ▸ global).
   const posQuery = db
     .from("phase_slots")
     .select("position")
     .eq("phase", phase)
     .order("position", { ascending: false })
     .limit(1);
-  const { data: maxRow } = resolvedOrgId
-    ? await posQuery.eq("org_id", resolvedOrgId)
-    : await posQuery.is("org_id", null);
+  const { data: maxRow } = resolvedEmployerId
+    ? await posQuery.eq("employer_id", resolvedEmployerId)
+    : resolvedOrgId
+      ? await posQuery.eq("org_id", resolvedOrgId)
+      : await posQuery.is("org_id", null).is("employer_id", null);
   const nextPos = ((maxRow as { position: number }[] | null)?.[0]?.position ?? -1) + 1;
 
   const insertData: Record<string, unknown> = {
     phase, position: nextPos, type, label: label.trim(),
   };
+  if (resolvedEmployerId) insertData.employer_id = resolvedEmployerId;
   if (resolvedOrgId) insertData.org_id = resolvedOrgId;
   if (type === "dual" && label_trans?.trim()) insertData.label_trans = label_trans.trim();
   if (action_type && ["upload","sign","fill","combo"].includes(action_type)) insertData.action_type = action_type;
@@ -293,22 +443,27 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: "Missing id" }, { status: 400 });
 
   const { data: slot } = await db
-    .from("phase_slots").select("org_id").eq("id", body.id).maybeSingle();
+    .from("phase_slots").select("org_id, employer_id").eq("id", body.id).maybeSingle();
   if (!slot) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  // Sub-admins cannot touch global slots (org_id = null) and must be members
-  // of the slot's org. Bug fix: old code only checked org_id !== null, allowing
-  // sub-admins to freely edit global (null org_id) slots.
+  // Sub-admins: may only touch slots they manage — their org's slots OR an
+  // employer (pathway) set under one of their orgs. Never global (both null).
   if (auth.role !== "admin") {
-    const slotOrgId = (slot as { org_id: string | null }).org_id;
-    if (!slotOrgId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    const { data: mem } = await db
-      .from("organization_members")
-      .select("org_id")
-      .eq("sub_admin_email", auth.email)
-      .eq("org_id", slotOrgId)
-      .maybeSingle();
-    if (!mem) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const s = slot as { org_id: string | null; employer_id: string | null };
+    if (s.employer_id) {
+      if (!(await canManageEmployer(auth, s.employer_id)))
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    } else if (s.org_id) {
+      const { data: mem } = await db
+        .from("organization_members")
+        .select("org_id")
+        .eq("sub_admin_email", auth.email)
+        .eq("org_id", s.org_id)
+        .maybeSingle();
+      if (!mem) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    } else {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
   }
 
   const updates: Record<string, unknown> = {};
@@ -362,19 +517,25 @@ export async function DELETE(req: NextRequest) {
 
   const db = getServiceSupabase();
   const { data: slot } = await db
-    .from("phase_slots").select("org_id").eq("id", body.id).maybeSingle();
+    .from("phase_slots").select("org_id, employer_id").eq("id", body.id).maybeSingle();
   if (!slot) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   if (auth.role !== "admin") {
-    const slotOrgId = (slot as { org_id: string | null }).org_id;
-    if (!slotOrgId) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    const { data: mem } = await db
-      .from("organization_members")
-      .select("org_id")
-      .eq("sub_admin_email", auth.email)
-      .eq("org_id", slotOrgId)
-      .maybeSingle();
-    if (!mem) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const s = slot as { org_id: string | null; employer_id: string | null };
+    if (s.employer_id) {
+      if (!(await canManageEmployer(auth, s.employer_id)))
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    } else if (s.org_id) {
+      const { data: mem } = await db
+        .from("organization_members")
+        .select("org_id")
+        .eq("sub_admin_email", auth.email)
+        .eq("org_id", s.org_id)
+        .maybeSingle();
+      if (!mem) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    } else {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
   }
 
   const { error: delErr } = await db.from("phase_slots").delete().eq("id", body.id);

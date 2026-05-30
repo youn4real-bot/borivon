@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
+import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 
 /**
  * Resolve the document a candidate notification points at.
@@ -19,7 +20,7 @@ export async function GET(
 
   const { data: { user }, error: authErr } = await getAnonVerifyClient().auth.getUser(token);
   const db = getServiceSupabase();
-  if (authErr || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (authErr || !user || isSoftDeletedAuthUser(user)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await ctx.params;
 

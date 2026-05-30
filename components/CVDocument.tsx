@@ -49,7 +49,7 @@ export interface EduEntry {
   start: MonthYear;
   end: MonthYear | null;
   degree: string;
-  nursingStatus: "complete" | "year1" | "year2" | "year3";
+  nursingStatus: "" | "complete" | "year1" | "year2" | "year3";
   diplomaIssued?: MonthYear;
   abiturFocus?: string;
   country?: string;
@@ -281,6 +281,9 @@ const s = StyleSheet.create({
     textAlign: "center",
     lineHeight: 1.55,
   },
+  // Page indicator ("1 / 2") — bottom-right, BLACK, shown only when the CV runs
+  // to more than one page so the embassy reader knows it continues.
+  pageNum: { position: "absolute", bottom: 18, left: 44, right: 44, textAlign: "right", fontSize: 8, fontWeight: 700, color: "#000000" },
 
   // ── Document title ─────────────────────────────────────────────────────────
   docTitle: {
@@ -423,7 +426,11 @@ const s = StyleSheet.create({
 
 function SectionHead({ title, mb }: { title: string; mb?: number }) {
   return (
-    <View style={[s.sectionHeader, mb != null ? { marginBottom: mb } : {}]}>
+    // minPresenceAhead: a section title must never sit alone at the bottom of a
+    // page with its content pushed to the next. If there isn't at least this much
+    // room after the heading, react-pdf breaks BEFORE it so the whole block
+    // (heading + first rows) starts together on the next page.
+    <View minPresenceAhead={64} style={[s.sectionHeader, mb != null ? { marginBottom: mb } : {}]}>
       <View style={s.accentBar} />
       <Text style={s.sectionTitle}>{title}</Text>
     </View>
@@ -777,6 +784,15 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
           </View>
         )}
 
+        {/* ── PAGE NUMBER — multi-page CVs only. Bottom-right, BLACK, so the
+            embassy reader sees at a glance that the CV runs to N pages. Shown
+            even with noBranding (footer hidden, but the page count still matters). */}
+        <Text
+          fixed
+          style={s.pageNum}
+          render={({ pageNumber, totalPages }) => (totalPages > 1 ? `${pageNumber} / ${totalPages}` : "")}
+        />
+
         {/* ── DOCUMENT TITLE ── */}
         <Text style={s.docTitle}>Lebenslauf</Text>
 
@@ -817,7 +833,7 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
 
         {/* ── SPRACHKENNTNISSE ── */}
         {activeLangs.length > 0 && (
-          <View style={[s.section, { marginBottom: sp.sectionMb }]}>
+          <View wrap={false} style={[s.section, { marginBottom: sp.sectionMb }]}>
             <SectionHead title="Sprachkenntnisse" mb={sp.sectionHeadMb} />
             <View style={s.langRow}>
               {activeLangs.map((l, i) => {
@@ -859,7 +875,7 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
 
         {/* ── EDV-KENNTNISSE ── */}
         {allEdv.length > 0 && (
-          <View style={[s.section, { marginBottom: sp.sectionMb }]}>
+          <View wrap={false} style={[s.section, { marginBottom: sp.sectionMb }]}>
             <SectionHead title="EDV-Kenntnisse" mb={sp.sectionHeadMb} />
             <View style={s.edvRow}>
               {allEdv.map((skill, i) => (

@@ -153,18 +153,23 @@ export async function canActOnCandidate(role: AdminRole, subAdminEmail: string, 
   if (subErr) return false;
   const isAgencyAdmin = ((subRows ?? [])[0] as { is_agency_admin: boolean } | undefined)?.is_agency_admin ?? false;
 
-  // Regular sub-admin sees all candidates (LAW #25).
-  if (!isAgencyAdmin) return true;
-
-  // Org admin: only candidates approved-linked to their org.
-  const { data: myOrgsData } = await db
+  // Org membership is the SCOPING TRIGGER. Anyone who belongs to an
+  // organization is restricted to that org's candidates — regardless of the
+  // is_agency_admin flag — so an org person can never act on a candidate
+  // outside their org, and there's no leak window before the flag is set.
+  const { data: myOrgsData, error: orgErr } = await db
     .from("organization_members")
     .select("org_id")
     .ilike("sub_admin_email", ciEmail(subAdminEmail));
+  if (orgErr) return false; // FAIL CLOSED — a blip must never widen scope.
   type OrgIdRow = { org_id: string };
   const myOrgs = ((myOrgsData ?? []) as OrgIdRow[]).map(r => r.org_id);
-  if (myOrgs.length === 0) return false;
 
+  // True Borivon HQ sub-admin (NOT agency-flagged AND not in any org) → all.
+  if (!isAgencyAdmin && myOrgs.length === 0) return true;
+
+  // Org-scoped: candidate must be approved-linked to one of their orgs.
+  if (myOrgs.length === 0) return false;
   const { data: candOrg } = await db
     .from("candidate_organizations")
     .select("org_id")
@@ -200,16 +205,18 @@ export async function getVisibleCandidateIds(subAdminEmail: string): Promise<str
   if (subErr) return [];
   const isAgencyAdmin = ((subRows ?? [])[0] as { is_agency_admin: boolean } | undefined)?.is_agency_admin ?? false;
 
-  // Regular sub-admin sees all candidates.
-  if (!isAgencyAdmin) return null;
-
-  // Org admin: only candidates approved-linked to their org.
-  const { data: myOrgsData } = await db
+  // Org membership is the SCOPING TRIGGER (see canActOnCandidate). Anyone in an
+  // organization is scoped to that org's candidates regardless of the flag.
+  const { data: myOrgsData, error: orgErr } = await db
     .from("organization_members")
     .select("org_id")
     .ilike("sub_admin_email", ciEmail(subAdminEmail));
+  if (orgErr) return []; // FAIL CLOSED
   type OrgIdRow = { org_id: string };
   const myOrgs = ((myOrgsData ?? []) as OrgIdRow[]).map(r => r.org_id);
+
+  // True Borivon HQ sub-admin (NOT agency-flagged AND not in any org) → all.
+  if (!isAgencyAdmin && myOrgs.length === 0) return null;
 
   if (myOrgs.length === 0) return [];
 

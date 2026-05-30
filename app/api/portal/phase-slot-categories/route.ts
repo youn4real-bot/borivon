@@ -40,10 +40,39 @@ export async function GET(req: NextRequest) {
   // org exactly like phase-slots, then use org scope ONLY IF that org actually
   // has slots for this phase (mirrors the slots route's org→global fallback).
   const orgIdParam = req.nextUrl.searchParams.get("orgId");
+  const candidateIdParam = req.nextUrl.searchParams.get("candidateId");
   let orgId: string | null = null;
-  if (orgIdParam && UUID_RE.test(orgIdParam)) {
-    orgId = orgIdParam;
-  } else {
+  // Admin viewing a candidate → that candidate's approved org, so the category
+  // grouping matches the slots an admin sees (HQ + org admin identical).
+  if (candidateIdParam && UUID_RE.test(candidateIdParam)) {
+    const adminAuth = await requireAdminRole(req);
+    if (adminAuth.ok) {
+      const { data: link } = await db
+        .from("candidate_organizations").select("org_id")
+        .eq("candidate_user_id", candidateIdParam).eq("status", "approved").maybeSingle();
+      orgId = (link as { org_id: string } | null)?.org_id ?? null;
+    }
+  }
+  if (!orgId && orgIdParam && UUID_RE.test(orgIdParam)) {
+    // SECURITY: don't honor an arbitrary `?orgId=` from a candidate (cross-org
+    // category leak). Only an admin/sub-admin may pass any org; a candidate is
+    // restricted to an org they're approved + self-joined to. Mirrors phase-slots.
+    const adminAuth = await requireAdminRole(req);
+    if (adminAuth.ok) {
+      orgId = orgIdParam;
+    } else {
+      const { data: link } = await db
+        .from("candidate_organizations")
+        .select("org_id")
+        .eq("candidate_user_id", userId)
+        .eq("org_id", orgIdParam)
+        .eq("status", "approved")
+        .neq("added_by", "admin")
+        .maybeSingle();
+      if (link) orgId = orgIdParam;
+    }
+  }
+  if (!orgId) {
     const { data: mem } = await db
       .from("candidate_organizations")
       .select("org_id")
@@ -88,13 +117,21 @@ async function resolveWritableOrg(
   if (role === "admin") {
     return { ok: true, orgId: orgId && UUID_RE.test(orgId) ? orgId : null };
   }
-  // sub-admin / org-admin → must be a member of the org they target.
-  if (!orgId || !UUID_RE.test(orgId)) return { ok: false, status: 400, error: "orgId required" };
+  // Org admin. Explicit orgId must be one of theirs; otherwise default to their
+  // (single) org so "Add category" from a candidate's view just works.
+  if (orgId && UUID_RE.test(orgId)) {
+    const { data: mem } = await db
+      .from("organization_members").select("org_id")
+      .eq("sub_admin_email", email).eq("org_id", orgId).maybeSingle();
+    if (!mem) return { ok: false, status: 403, error: "Forbidden" };
+    return { ok: true, orgId };
+  }
   const { data: mem } = await db
     .from("organization_members").select("org_id")
-    .eq("sub_admin_email", email).eq("org_id", orgId).maybeSingle();
-  if (!mem) return { ok: false, status: 403, error: "Forbidden" };
-  return { ok: true, orgId };
+    .eq("sub_admin_email", email).maybeSingle();
+  const resolved = (mem as { org_id: string } | null)?.org_id ?? null;
+  // Org admin → their org. Borivon HQ sub-admin (no org) → global (null).
+  return { ok: true, orgId: resolved };
 }
 
 // ── POST — create a category ───────────────────────────────────────────────

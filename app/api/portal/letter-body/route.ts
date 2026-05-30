@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { enforceRateLimit } from "@/lib/rateLimit";
+import { sanitizeLetterHtml } from "@/lib/sanitizeHtml";
 
 /**
  * Cover-letter body read + write.
@@ -26,7 +27,12 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // 6 KB caps the worst-case innerHTML for the editor (MAX_WORDS=320 +
 // minimal HTML wrapping). Guards against a buggy/abusive client.
 const MAX_BODY_BYTES = 6_000;
-const MIGRATION_RE = /cover_letter_body|column .* does not exist|schema cache/i;
+const MIGRATION_RE = /cover_letter(_visa)?_body|column .* does not exist|schema cache/i;
+
+/** Which body column this request targets: essentials vs the visa letter. */
+function bodyColumn(req: NextRequest): "cover_letter_body" | "cover_letter_visa_body" {
+  return req.nextUrl.searchParams.get("variant") === "visa" ? "cover_letter_visa_body" : "cover_letter_body";
+}
 
 /**
  * Resolve { ok, userId } — the user whose row this request reads or writes.
@@ -52,17 +58,18 @@ export async function GET(req: NextRequest) {
   const target = await resolveTarget(req, paramUid);
   if (!target.ok) return NextResponse.json({ error: target.error }, { status: target.status });
 
+  const col = bodyColumn(req);
   const db = getServiceSupabase();
   const res = await db
     .from("candidate_profiles")
-    .select("cover_letter_body")
+    .select(col)
     .eq("user_id", target.userId)
     .maybeSingle();
   if (res.error && MIGRATION_RE.test(res.error.message ?? "")) {
     return NextResponse.json({ body: null, migrated: false });
   }
-  const row = (res.data ?? null) as { cover_letter_body?: string | null } | null;
-  return NextResponse.json({ body: row?.cover_letter_body ?? null, migrated: true });
+  const row = (res.data ?? null) as Record<string, string | null> | null;
+  return NextResponse.json({ body: row?.[col] ?? null, migrated: true });
 }
 
 export async function PUT(req: NextRequest) {
@@ -89,19 +96,23 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
   // Body is the contentEditable's innerHTML — string or empty/null to clear.
+  // SANITIZE before persist: this body is later rendered via innerHTML in the
+  // admin's session (LAW #37 review) — unsanitized HTML = stored XSS. Cap
+  // length AFTER sanitizing so a padded payload can't smuggle past the cap.
   let html: string | null = null;
   if (body.body === null || body.body === "") html = null;
-  else if (typeof body.body === "string") html = body.body.slice(0, MAX_BODY_BYTES);
+  else if (typeof body.body === "string") html = sanitizeLetterHtml(body.body).slice(0, MAX_BODY_BYTES);
   else return NextResponse.json({ error: "body must be a string or null" }, { status: 400 });
 
+  const col = bodyColumn(req);
   const db = getServiceSupabase();
   const { error } = await db
     .from("candidate_profiles")
-    .upsert({ user_id: target.userId, cover_letter_body: html }, { onConflict: "user_id" });
+    .upsert({ user_id: target.userId, [col]: html }, { onConflict: "user_id" });
   if (error) {
     if (MIGRATION_RE.test(error.message ?? "")) {
       return NextResponse.json(
-        { error: "Migration pending — run supabase/add_cover_letter_body.sql" },
+        { error: `Migration pending — run supabase/add_${col === "cover_letter_visa_body" ? "cover_letter_visa_body" : "cover_letter_body"}.sql` },
         { status: 503 },
       );
     }

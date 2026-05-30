@@ -103,24 +103,28 @@ async function resolveBrand(userId: string, byAdmin: boolean): Promise<CVBrand> 
       // Cloudflare Workers (no filesystem) fs throws/returns false → fetch the
       // bundled /logos/ asset over HTTP. Mirrors lib/pdf-fonts.ts. Never throws
       // — a missing logo just leaves brand.logoSrc unset.
-      const ext = path.extname(org.logo_filename).toLowerCase();
+      // Guard: only safe raster filenames (no path traversal / no svg) may
+      // reach disk-read or the HTTP fetch below. Rejects legacy/garbage rows.
+      const safeName = /^[\w.\-]+\.(png|jpe?g|webp)$/i.test(org.logo_filename) ? org.logo_filename : null;
+      const ext = safeName ? path.extname(safeName).toLowerCase() : "";
       const mime =
         ext === ".png"  ? "image/png"  :
         ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" :
         ext === ".webp" ? "image/webp"  :
-        ext === ".svg"  ? "image/svg+xml" :
         "image/png";
       let b64: string | null = null;
-      try {
-        const logoPath = path.join(process.cwd(), "public", "logos", org.logo_filename);
-        if (fs.existsSync(logoPath)) b64 = fs.readFileSync(logoPath).toString("base64");
-      } catch { /* no disk → fetch below */ }
-      if (!b64) {
+      if (safeName) {
         try {
-          const base = (process.env.NEXT_PUBLIC_BASE_URL || "").replace(/\/$/, "");
-          const res = await fetch(`${base}/logos/${org.logo_filename}`);
-          if (res.ok) b64 = Buffer.from(await res.arrayBuffer()).toString("base64");
-        } catch { /* leave logo unset */ }
+          const logoPath = path.join(process.cwd(), "public", "logos", safeName);
+          if (fs.existsSync(logoPath)) b64 = fs.readFileSync(logoPath).toString("base64");
+        } catch { /* no disk → fetch below */ }
+        if (!b64) {
+          try {
+            const base = (process.env.NEXT_PUBLIC_BASE_URL || "").replace(/\/$/, "");
+            const res = await fetch(`${base}/logos/${safeName}`);
+            if (res.ok) b64 = Buffer.from(await res.arrayBuffer()).toString("base64");
+          } catch { /* leave logo unset */ }
+        }
       }
       if (b64) brand.logoSrc = `data:${mime};base64,${b64}`;
     }
@@ -168,7 +172,11 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: "Payload too large" }, { status: 413 });
     }
     const data: CVData = JSON.parse(rawBody);
-    const brand = await resolveBrand(targetUserId, byAdmin);
+    // ?variant=plain → the Visa CV: NO logo, NO footer, no org/Borivon branding,
+    // regardless of the candidate's branding flags. Used for the synced Visum
+    // copy. Otherwise resolve normal branding (Borivon default for self).
+    const plain = req.nextUrl.searchParams.get("variant") === "plain";
+    const brand = plain ? { noBranding: true } : await resolveBrand(targetUserId, byAdmin);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const element = React.createElement(CVDocument, { data, brand }) as any;

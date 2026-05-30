@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { ASSIGNMENTS_TOPIC } from "@/lib/serverBroadcast";
 import { Bell, CheckCircle2, XCircle, FilePen } from "@/components/PortalIcons";
 
 import { Spinner } from "@/components/ui/states";
@@ -600,7 +601,14 @@ function AdminBell({ accessToken }: { accessToken: string }) {
         () => { fetch_(); },
       )
       .subscribe();
-    return () => { clearInterval(timer); supabase.removeChannel(channel); };
+    // Assignment bus: a candidate (un)assigned to/from an org pings here so an
+    // org admin's SCOPED list drops/regains that candidate instantly. The
+    // refetch goes through the scoped endpoint, so this is safe for every role.
+    const assignCh = supabase
+      .channel(ASSIGNMENTS_TOPIC)
+      .on("broadcast", { event: "changed" }, () => { fetch_(); })
+      .subscribe();
+    return () => { clearInterval(timer); supabase.removeChannel(channel); supabase.removeChannel(assignCh); };
   }, [fetch_]);
 
   // Outside-press + Esc handled via shared hook (lib/useDismiss).

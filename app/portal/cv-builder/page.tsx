@@ -290,7 +290,7 @@ function makeCVData(email = ""): CVData {
     ],
     eduEntries: [
       { id: "edu-abitur",  type: "abitur",  institution: "", location: "", start: { month: "09", year: "" }, end: { month: "06", year: "" }, degree: "Abitur", nursingStatus: "complete", country: "Marokko" },
-      { id: "edu-nursing", type: "nursing", institution: "", location: "", start: { month: "09", year: "" }, end: { month: "06", year: "" }, degree: "Abschluss in der Krankenpflege", nursingStatus: "year2", country: "Marokko" },
+      { id: "edu-nursing", type: "nursing", institution: "", location: "", start: { month: "09", year: "" }, end: { month: "06", year: "" }, degree: "Abschluss in der Krankenpflege", nursingStatus: "", country: "Marokko" },
     ],
     langs: [
       { name: "Arabisch",    level: "Muttersprache" },
@@ -1355,60 +1355,87 @@ function NationalityPicker({ value, onChange, titleOverride }: {
    When status is "complete" (diploma obtained), an extra month/year picker
    appears for the official diploma issuance date — distinct from training
    end date (training usually ends in June, diploma issues Oct–Jan). */
-function NursingStatusField({ entry, updateEdu, diplomaHasError = false }: {
+function NursingStatusField({ entry, updateEdu, diplomaHasError = false, statusHasError = false }: {
   entry: EduEntry;
   updateEdu: (id: string, patch: Partial<EduEntry>) => void;
   diplomaHasError?: boolean;
+  statusHasError?: boolean;
 }) {
-  const { t, lang } = useLang();
-  const [open, setOpen] = useState(false);
+  const { lang } = useLang();
 
-  const options = [
-    { value: "complete", label: t.cvb_nursingComplete },
-    { value: "year3",    label: t.cvb_nursingYear3 },
-    { value: "year2",    label: t.cvb_nursingYear2 },
-    { value: "year1",    label: t.cvb_nursingYear1 },
-  ];
-  const currentLabel = options.find(o => o.value === entry.nursingStatus)?.label ?? "—";
+  // "complete" = diploma already obtained; year1/2/3 = still in training; "" = unanswered.
+  const hasDiploma = entry.nursingStatus === "complete";
+  const inTraining = entry.nursingStatus === "year1" || entry.nursingStatus === "year2" || entry.nursingStatus === "year3";
+
+  // Local: "clicked Noch nicht but no year picked yet". Keeps neither sub-option preselected.
+  const [notYet, setNotYet] = useState(inTraining);
+  const showYears = inTraining || notYet;
+
+  const q1 = lang === "de"
+    ? "Hast du dein Pflegediplom bereits erhalten?"
+    : lang === "en"
+      ? "Have you already received your nursing diploma?"
+      : "Avez-vous déjà obtenu votre diplôme d'infirmier ?";
+  const yesLabel    = lang === "de" ? "Ja"         : lang === "en" ? "Yes"     : "Oui";
+  const notYetLabel = lang === "de" ? "Noch nicht" : lang === "en" ? "Not yet" : "Pas encore";
 
   const diplomaQuestion = lang === "de"
-    ? "Wann wurde das Diplom offiziell ausgestellt?"
+    ? "Wann wurde das Diplom ausgestellt?"
     : lang === "en"
-      ? "When was the diploma officially issued?"
-      : "Quand le diplôme a-t-il été officiellement délivré ?";
+      ? "When was the diploma issued?"
+      : "Quand le diplôme a-t-il été délivré ?";
+
+  const yearQuestion = lang === "de"
+    ? "In welchem Ausbildungsjahr bist du gerade?"
+    : lang === "en"
+      ? "Which year of training are you currently in?"
+      : "En quelle année de formation êtes-vous actuellement ?";
+  const yearOptions: { value: EduEntry["nursingStatus"]; label: string }[] = [
+    { value: "year1", label: lang === "de" ? "1. Jahr" : lang === "en" ? "1st year" : "1re année" },
+    { value: "year2", label: lang === "de" ? "2. Jahr" : lang === "en" ? "2nd year" : "2e année" },
+    { value: "year3", label: lang === "de" ? "3. Jahr" : lang === "en" ? "3rd year" : "3e année" },
+  ];
+
+  const pickYes = () => {
+    setNotYet(false);
+    const next: Partial<EduEntry> = { nursingStatus: "complete" };
+    // "Currently" (null end) → restore a real picker so the training-end date can be filled.
+    if (entry.end === null) next.end = { month: "", year: "" };
+    updateEdu(entry.id, next);
+  };
+  const pickNotYet = () => {
+    setNotYet(true);
+    // Clear any prior "complete"; do NOT preselect a year — candidate must pick.
+    if (hasDiploma) updateEdu(entry.id, { nursingStatus: "" });
+  };
+
+  // Red borders only when truly unanswered: neither button picked, or "Noch nicht" with no year.
+  const q1Error = statusHasError && !hasDiploma && !showYears;
+  const yearError = statusHasError && showYears && !inTraining;
+
+  const segBtn = (active: boolean, error = false) => ({
+    background: active ? "var(--gdim)" : "var(--bg2)",
+    color: active ? "var(--gold)" : "var(--w)",
+    border: `1px solid ${active ? "var(--border-gold)" : error ? "#ef4444" : "transparent"}`,
+    borderRadius: "12px", cursor: "pointer",
+  });
 
   return (
     <div className="sm:col-span-2 space-y-5">
       <div>
-        <Label>{t.cvb_nursingStatusLabel}</Label>
-        <button type="button" onClick={() => setOpen(true)}
-          className="w-full flex items-center justify-between px-4 py-3.5 text-[15px] font-medium outline-none cursor-pointer transition-all"
-          style={{ background: "var(--bg2)", border: "1px solid transparent", color: "var(--w)", borderRadius: "12px" }}>
-          <span className="truncate">{currentLabel}</span>
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.5, flexShrink: 0, marginLeft: 8 }}>
-            <polyline points="6 9 12 15 18 9"/>
-          </svg>
-        </button>
-        <PickerPopup
-          open={open}
-          title={t.cvb_nursingStatusLabel}
-          options={options}
-          selectedValue={entry.nursingStatus}
-          onPick={v => {
-            const next: Partial<EduEntry> = { nursingStatus: v as EduEntry["nursingStatus"] };
-            // When switching to "complete", convert any null end ("Currently")
-            // back to a real picker value so the user can fill the actual
-            // training-end month/year.
-            if (v === "complete" && entry.end === null) next.end = { month: "", year: "" };
-            updateEdu(entry.id, next);
-            setOpen(false);
-          }}
-          onClose={() => setOpen(false)}
-        />
+        <p className="text-[13px] font-normal mb-2.5" style={{ color: "var(--w2)" }}>{q1}</p>
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" onClick={pickYes}
+            className="px-4 py-3.5 text-[15px] font-medium outline-none transition-all"
+            style={segBtn(hasDiploma, q1Error)}>{yesLabel}</button>
+          <button type="button" onClick={pickNotYet}
+            className="px-4 py-3.5 text-[15px] font-medium outline-none transition-all"
+            style={segBtn(showYears, q1Error)}>{notYetLabel}</button>
+        </div>
       </div>
 
-      {/* Diploma issued date — only appears when "complete" is selected */}
-      {entry.nursingStatus === "complete" && (
+      {hasDiploma && (
+        /* Diploma obtained → ask for the issuance date. */
         <div>
           <p className="text-[12px] font-normal mb-2.5" style={{ color: "var(--w3)" }}>
             {diplomaQuestion}
@@ -1420,6 +1447,21 @@ function NursingStatusField({ entry, updateEdu, diplomaHasError = false }: {
             lang={lang}
             hasError={diplomaHasError}
           />
+        </div>
+      )}
+
+      {showYears && (
+        /* Still in training → which year? Pick = done. */
+        <div>
+          <p className="text-[13px] font-normal mb-2.5" style={{ color: "var(--w2)" }}>{yearQuestion}</p>
+          <div className="grid grid-cols-3 gap-2">
+            {yearOptions.map(o => (
+              <button key={o.value} type="button"
+                onClick={() => { setNotYet(true); updateEdu(entry.id, { nursingStatus: o.value }); }}
+                className="px-3 py-3 text-[14px] font-medium outline-none transition-all"
+                style={segBtn(entry.nursingStatus === o.value, yearError)}>{o.label}</button>
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -1655,7 +1697,7 @@ function getValidationErrorLabels(errors: Set<string>, lang: string): string[] {
     city:"Ville de résidence", nationality:"Nationalité",
     countryOfBirth:"Pays de naissance", countryOfResidence:"Pays de résidence",
     eduInstitution:"Établissement (formation)", eduLocation:"Ville (formation)",
-    eduStart:"Début (formation)", eduEnd:"Fin (formation)", eduDiploma:"Date du diplôme",
+    eduStart:"Début (formation)", eduEnd:"Fin (formation)", eduDiploma:"Date du diplôme", eduStatus:"Statut du diplôme d'infirmier",
     workEmployer:"Employeur", workLocation:"Ville (expérience)",
     workStart:"Début (expérience)", workEnd:"Fin (expérience)",
     workDepts:"Département de soins (expérience)",
@@ -1670,7 +1712,7 @@ function getValidationErrorLabels(errors: Set<string>, lang: string): string[] {
     city:"Wohnort", nationality:"Staatsangehörigkeit",
     countryOfBirth:"Geburtsland", countryOfResidence:"Wohnland",
     eduInstitution:"Schule / Einrichtung", eduLocation:"Ort (Ausbildung)",
-    eduStart:"Beginn (Ausbildung)", eduEnd:"Ende (Ausbildung)", eduDiploma:"Diplomdatum",
+    eduStart:"Beginn (Ausbildung)", eduEnd:"Ende (Ausbildung)", eduDiploma:"Diplomdatum", eduStatus:"Pflegediplom-Status",
     workEmployer:"Arbeitgeber", workLocation:"Ort (Arbeit)",
     workStart:"Beginn (Arbeit)", workEnd:"Ende (Arbeit)",
     workDepts:"Fachbereiche (Arbeit)",
@@ -1685,7 +1727,7 @@ function getValidationErrorLabels(errors: Set<string>, lang: string): string[] {
     city:"City of residence", nationality:"Nationality",
     countryOfBirth:"Country of birth", countryOfResidence:"Country of residence",
     eduInstitution:"Educational institution", eduLocation:"Location (education)",
-    eduStart:"Start date (education)", eduEnd:"End date (education)", eduDiploma:"Diploma date",
+    eduStart:"Start date (education)", eduEnd:"End date (education)", eduDiploma:"Diploma date", eduStatus:"Nursing diploma status",
     workEmployer:"Employer", workLocation:"Location (work)",
     workStart:"Start date (work)", workEnd:"End date (work)",
     workDepts:"Departments (work)",
@@ -1716,6 +1758,7 @@ function getValidationErrorLabels(errors: Set<string>, lang: string): string[] {
     if (key.startsWith("edu_") && key.endsWith("_start"))       { add(L.eduStart); continue; }
     if (key.startsWith("edu_") && key.endsWith("_end"))         { add(L.eduEnd); continue; }
     if (key.startsWith("edu_") && key.endsWith("_diplomaIssued")) { add(L.eduDiploma); continue; }
+    if (key.startsWith("edu_") && key.endsWith("_nursingStatus")) { add(L.eduStatus); continue; }
     if (key.startsWith("work_") && key.endsWith("_employer"))   { add(L.workEmployer); continue; }
     if (key.startsWith("work_") && key.endsWith("_location"))   { add(L.workLocation); continue; }
     if (key.startsWith("work_") && key.endsWith("_start"))      { add(L.workStart); continue; }
@@ -1737,6 +1780,10 @@ function CVBuilderInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const adminCandidateId = searchParams.get("candidateId");
+  // ?variant=visa → opened from the "Lebenslauf Visum" box: PREVIEW the CV with
+  // NO logo/footer (the Visa look). The stored Essentials CV (cv_de) keeps its
+  // logo — handleUpload regenerates the branded version before uploading.
+  const visaMode = searchParams.get("variant") === "visa";
   const { t, lang } = useLang();
   const photoRef = useRef<HTMLInputElement>(null);
   const serverSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -2897,6 +2944,7 @@ function CVBuilderInner() {
       if (!e.start.month || !e.start.year) errors.add(`edu_${e.id}_start`);
       const isNursingInProgress = e.type === "nursing" && e.nursingStatus !== "complete";
       if (!isNursingInProgress && (!e.end || !e.end.month || !e.end.year)) errors.add(`edu_${e.id}_end`);
+      if (e.type === "nursing" && e.nursingStatus === "") errors.add(`edu_${e.id}_nursingStatus`);
       if (e.type === "nursing" && e.nursingStatus === "complete" && !(e.diplomaIssued?.month && e.diplomaIssued?.year)) errors.add(`edu_${e.id}_diplomaIssued`);
     }
 
@@ -3003,8 +3051,12 @@ function CVBuilderInner() {
       if (session?.access_token && session.access_token !== authToken) {
         setAuthToken(session.access_token);
       }
+      const genQp = [
+        adminCandidateId ? `candidateId=${encodeURIComponent(adminCandidateId)}` : "",
+        visaMode ? "variant=plain" : "",   // visa preview → no logo/footer
+      ].filter(Boolean).join("&");
       const res = await fetch(
-        `/api/portal/cv/generate${adminCandidateId ? `?candidateId=${encodeURIComponent(adminCandidateId)}` : ""}`,
+        `/api/portal/cv/generate${genQp ? `?${genQp}` : ""}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${tok}` },
@@ -3070,7 +3122,23 @@ function CVBuilderInner() {
     setUploading(true); setUploadErr("");
     try {
       const fn = [cvData.firstName, cvData.lastName].filter(Boolean).join("_").toLowerCase() || "cv";
-      const file = new File([pdfBlob], `lebenslauf_${fn}.pdf`, { type: "application/pdf" });
+      // In visa preview mode the on-screen pdfBlob has NO logo. The stored
+      // Essentials CV (cv_de) must keep its logo, so regenerate the branded
+      // version here before uploading. (The Visum view stays no-logo — it's
+      // rendered on demand from cv_draft, never from this stored file.)
+      let blob = pdfBlob;
+      if (visaMode) {
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          const tok = session?.access_token ?? authToken;
+          const lr = await fetch(
+            `/api/portal/cv/generate${adminCandidateId ? `?candidateId=${encodeURIComponent(adminCandidateId)}` : ""}`,
+            { method: "POST", headers: { "Content-Type": "application/json", ...(tok ? { Authorization: `Bearer ${tok}` } : {}) }, body: JSON.stringify(cvData) },
+          );
+          if (lr.ok) blob = await lr.blob();
+        } catch { /* fall back to the preview blob */ }
+      }
+      const file = new File([blob], `lebenslauf_${fn}.pdf`, { type: "application/pdf" });
       const form = new FormData();
       form.append("file", file); form.append("fileType", "Lebenslauf (DE)"); form.append("fileKey", "cv_de");
       // In admin mode the CV must belong to the CANDIDATE, not the admin
@@ -3083,6 +3151,10 @@ function CVBuilderInner() {
       const res = await fetch("/api/portal/upload", { method: "POST", headers, body: form });
       if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || t.cvbErrFallback); }
       setUploaded(true);
+      // NB: the "Lebenslauf Visum" (Visum) box is NOT a separate stored file —
+      // it's a CLONE of this CV rendered logo-free on demand from cv_draft
+      // (/api/portal/cv/visa). So nothing extra to upload here: saving the CV
+      // updates the Visum view automatically.
       // Candidate flow: once the CV is generated + sent, take them straight
       // back to the dashboard (brief pause so the success state is seen).
       // Admin-mode (generating for a candidate) stays put — the admin uses
@@ -3608,7 +3680,8 @@ function CVBuilderInner() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
                   {entry.type === "nursing" && (
                     <NursingStatusField entry={entry} updateEdu={updateEdu}
-                      diplomaHasError={validationErrors.has(`edu_${entry.id}_diplomaIssued`)} />
+                      diplomaHasError={validationErrors.has(`edu_${entry.id}_diplomaIssued`)}
+                      statusHasError={validationErrors.has(`edu_${entry.id}_nursingStatus`)} />
                   )}
                   <div className="sm:col-span-2">
                     <Label required>{t.cvb_degreeLabel}</Label>

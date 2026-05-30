@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole } from "@/lib/admin-auth";
+import { validateImageDataUrl } from "@/lib/validateDataUrl";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -35,10 +36,19 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   if (typeof body?.logoFilename === "string") {
     const v = body.logoFilename.trim();
     if (v.startsWith("data:")) {
-      // Data-URL uploaded via admin panel — allow up to 300 KB (base64-encoded)
-      updates.logo_filename = v.length <= 307_200 ? v : null;
+      // Inline logo upload. STRICT validate — rejects svg/script + MIME-spoof
+      // (this value is later rendered as the CV/PDF brand logo). Cap ~300 KB.
+      if (v.length > 307_200) return NextResponse.json({ error: "Logo too large" }, { status: 413 });
+      if (!validateImageDataUrl(v).ok) return NextResponse.json({ error: "Invalid image (PNG/JPEG/WebP/GIF only)" }, { status: 400 });
+      updates.logo_filename = v;
     } else {
-      updates.logo_filename = v.slice(0, 200) || null;
+      // Legacy: a bare filename pointing at public/logos/. Constrain to a safe
+      // filename (no path separators / traversal) before it can reach a fetch.
+      const safe = v.slice(0, 200);
+      if (safe && !/^[\w.\-]+\.(png|jpe?g|webp)$/i.test(safe)) {
+        return NextResponse.json({ error: "Invalid logo filename" }, { status: 400 });
+      }
+      updates.logo_filename = safe || null;
     }
   }
   if (typeof body?.footerText === "string") {

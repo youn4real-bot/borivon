@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { CheckCircle2, XCircle } from "@/components/PortalIcons";
 import { X as XIcon, Download } from "lucide-react";
 import { AdminRejectModal } from "@/components/AdminRejectModal";
-import { PdfViewer } from "@/components/PdfViewer";
+import { EmbedPdfViewer } from "@/components/EmbedPdfViewer";
 import { DocxViewer } from "@/components/DocxViewer";
 import { ZoomPanRotateViewer } from "@/components/ZoomPanRotateViewer";
 import { IosPdfFrame } from "@/components/IosPdfFrame";
@@ -112,12 +112,19 @@ export function AdminDocPreviewModal({
     if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
   }, []);
 
-  // Authenticated fetch via our API → blob URL. Used for both the PdfViewer
+  // When the preview is served from an overrideFetchUrl (e.g. the no-logo Visa
+  // CV render), the authoritative download filename comes from the response's
+  // Content-Disposition — NOT doc.file_name (which is the mirrored cv_de doc,
+  // e.g. "..._lebenslauf.pdf" without the "_visum" suffix).
+  const [renderedName, setRenderedName] = useState<string | null>(null);
+
+  // Authenticated fetch via our API → blob URL. Used for both the viewer
   // and the download button (no need to refetch).
   useEffect(() => {
     // iOS renders PDFs via the native iframe (server URL) — no blob needed.
     // Skip the blob fetch so a large PDF isn't downloaded twice on mobile.
     if (isIOSDevice() && (doc.file_name.split(".").pop() ?? "").toLowerCase() === "pdf") return;
+    setRenderedName(null);
     // Stable doc id → server resolves the CURRENT drive_file_id (never the
     // archived old one after a replace). Same rule as fileBase below.
     const fetchUrl = overrideFetchUrl
@@ -131,8 +138,19 @@ export function AdminDocPreviewModal({
       cache: "no-store",
       headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
     })
-      .then(r => r.blob())
-      .then(blob => { if (!mounted) return; url = URL.createObjectURL(blob); setBlobUrl(url); })
+      .then(r => {
+        if (overrideFetchUrl) {
+          const cd = r.headers.get("Content-Disposition") || "";
+          const m = /filename="?([^"]+)"?/i.exec(cd);
+          if (m?.[1] && mounted) setRenderedName(m[1]);
+        }
+        return r.blob();
+      })
+      .then(blob => {
+        if (!mounted) return;
+        url = URL.createObjectURL(blob);
+        setBlobUrl(url);
+      })
       .catch(err => { if (err.name !== "AbortError") console.error("Preview fetch error:", err); });
     return () => { mounted = false; ctrl.abort(); if (url) URL.revokeObjectURL(url); };
   }, [overrideFetchUrl, doc.id, doc.drive_file_id, accessToken]);
@@ -183,7 +201,7 @@ export function AdminDocPreviewModal({
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
             body: JSON.stringify({
               threadUserId: doc.user_id,
-              body: fb || `${dt.rejected}: ${doc.file_type}`,
+              body: fb || `${dt.rejected}: ${translateDocLabel(doc.file_type, lang as "fr" | "en" | "de")}`,
               attachment: shot,
             }),
           });
@@ -216,11 +234,17 @@ export function AdminDocPreviewModal({
   // CSS rotation from the same `doc.rotation`.
   const isPdfDoc      = (doc.file_name.split(".").pop() ?? "").toLowerCase() === "pdf";
   const isPassportDoc = /pass/i.test(doc.file_type);
-  const nativePdf     = isPdfDoc && iosMode;
+  // Desktop stored PDFs render in EmbedPdfViewer (PDFium-WASM canvas: correct
+  // render + our floating bottom zoom/rotate bar, no top bar; auto-falls back
+  // to the native PDFium iframe if the canvas can't draw). iOS stays on the
+  // native frame (no blob fetched there). The generated Visa-CV
+  // (overrideFetchUrl) stays on the in-app pdf.js viewer (clean PDF, renders
+  // fine, and its route needs a Bearer the iframe can't send).
+  const nativePdf     = isPdfDoc && !overrideFetchUrl && iosMode;
   // iOS file URLs carry a short-lived signed token (?dlt=), never the raw JWT.
   // The native frame is a top-level <iframe> request that can't send an
   // Authorization header, so it needs the same signed token on desktop too.
-  const dlt = useDlToken((iosMode || nativePdf) ? accessToken : null);
+  const dlt = useDlToken((iosMode || (isPdfDoc && !overrideFetchUrl)) ? accessToken : null);
   // Address by the STABLE doc id, NOT the volatile drive_file_id. After a
   // "PDF ersetzen" the drive_file_id changes; any device still holding the
   // old doc object (e.g. Android not yet refreshed) would keep fetching the
@@ -346,7 +370,7 @@ export function AdminDocPreviewModal({
             {iosMode ? (
               <button
                 type="button"
-                onClick={() => { if (iosDownloadUrl) triggerIosDownload(iosDownloadUrl, doc.file_name); }}
+                onClick={() => { if (iosDownloadUrl) triggerIosDownload(iosDownloadUrl, (overrideFetchUrl && renderedName) || doc.file_name); }}
                 title={dt.download} aria-label={dt.download}
                 className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center"
                 style={{ color: "var(--w2)", background: "transparent", border: "none" }}>
@@ -355,7 +379,7 @@ export function AdminDocPreviewModal({
             ) : blobUrl && (
               <a
                 href={blobUrl}
-                download={doc.file_name}
+                download={(overrideFetchUrl && renderedName) || doc.file_name}
                 title={dt.download} aria-label={dt.download}
                 className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center"
                 style={{ color: "var(--w2)" }}>
@@ -439,11 +463,11 @@ export function AdminDocPreviewModal({
                   body: JSON.stringify({ deltaRotation: 90 }),
                 }).catch(e => console.error("[rotation] persist failed:", e));
               };
-              // Native iframe for iOS (WebKit blanks pdf.js canvas). Otherwise
-              // the pdf.js viewer for every doc INCLUDING passports — LAW #39
-              // means we serve pristine passport bytes, and pdf.js can render
-              // them fine on desktop. Passport rotation is seeded from
-              // doc.rotation since the server doesn't bake it in.
+              // Native iframe for iOS (WebKit blanks the pdf.js canvas).
+              // Otherwise the pdf.js PdfViewer for every doc INCLUDING
+              // passports — LAW #39 means we serve pristine passport bytes and
+              // pdf.js only renders them (never mutates). Passport rotation is
+              // seeded from doc.rotation since the server doesn't bake it in.
               return nativePdf
                 ? (iosPreviewUrl
                     ? <IosPdfFrame
@@ -452,8 +476,13 @@ export function AdminDocPreviewModal({
                         initialRotation={doc.rotation ?? 0}
                         onRotate={persistRotate} />
                     : <div className="w-full h-full flex items-center justify-center"><Spinner /></div>)
-                : <PdfViewer
+                // UNIFIED: stored docs AND the generated CV/letter
+                // (overrideFetchUrl) both render through EmbedPdfViewer (PDFium)
+                // — one viewer, one zoom/rotate behavior. (persistRotate is a
+                // no-op for overrideFetchUrl docs, which have no stored row.)
+                : <EmbedPdfViewer
                     src={blobUrl}
+                    docId={doc.id}
                     onRotate={persistRotate}
                     initialRotation={doc.rotation ?? 0}
                   />;
@@ -475,7 +504,7 @@ export function AdminDocPreviewModal({
                 <p className="text-[12.5px] opacity-80 mb-4">{dt.downloadToOpen}</p>
                 {iosMode ? (
                   <button type="button"
-                    onClick={() => { if (iosDownloadUrl) triggerIosDownload(iosDownloadUrl, doc.file_name); }}
+                    onClick={() => { if (iosDownloadUrl) triggerIosDownload(iosDownloadUrl, (overrideFetchUrl && renderedName) || doc.file_name); }}
                     className="inline-flex items-center gap-2 px-4 py-2 text-[13px] font-semibold"
                     style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)", border: "none" }}>
                     <Download size={13} strokeWidth={1.8} /> {dt.download}

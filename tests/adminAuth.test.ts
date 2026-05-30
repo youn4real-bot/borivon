@@ -182,6 +182,17 @@ describe("canActOnCandidate (LAW #25 visibility)", () => {
     h.tables.organization_members = { data: [], error: null };
     expect(await canActOnCandidate("sub_admin", "a@x.com", "cand-1")).toBe(false);
   });
+  it("a sub-admin who BELONGS to an org is scoped even with is_agency_admin=false (no leak window)", async () => {
+    h.tables.sub_admins = { data: [{ is_agency_admin: false }], error: null };
+    h.tables.organization_members = { data: [{ org_id: "o1" }], error: null };
+    h.tables.candidate_organizations = { data: null, error: null }; // candidate NOT linked
+    expect(await canActOnCandidate("sub_admin", "a@x.com", "cand-1")).toBe(false);
+  });
+  it("FAILS CLOSED when the organization_members lookup errors", async () => {
+    h.tables.sub_admins = { data: [{ is_agency_admin: true }], error: null };
+    h.tables.organization_members = { data: null, error: { message: "blip" } };
+    expect(await canActOnCandidate("sub_admin", "a@x.com", "cand-1")).toBe(false);
+  });
 });
 
 describe("getVisibleCandidateIds (LAW #25)", () => {
@@ -208,6 +219,17 @@ describe("getVisibleCandidateIds (LAW #25)", () => {
     const ids = await getVisibleCandidateIds("a@x.com");
     expect(new Set(ids)).toEqual(new Set(["c1", "c2"]));
     expect(ids).toHaveLength(2);
+  });
+  it("a sub-admin who BELONGS to an org is scoped even with is_agency_admin=false", async () => {
+    h.tables.sub_admins = { data: [{ is_agency_admin: false }], error: null };
+    h.tables.organization_members = { data: [{ org_id: "o1" }], error: null };
+    h.tables.candidate_organizations = { data: [{ candidate_user_id: "c1" }], error: null };
+    expect(await getVisibleCandidateIds("a@x.com")).toEqual(["c1"]);
+  });
+  it("FAILS CLOSED to [] on an organization_members lookup error", async () => {
+    h.tables.sub_admins = { data: [{ is_agency_admin: false }], error: null };
+    h.tables.organization_members = { data: null, error: { message: "blip" } };
+    expect(await getVisibleCandidateIds("a@x.com")).toEqual([]);
   });
 });
 

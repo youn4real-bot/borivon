@@ -16,19 +16,30 @@ import type { NextConfig } from "next";
 //   - connect-src includes wss: for Supabase realtime + https: for Drive
 //     proxy / Supabase / external icons.
 // ─────────────────────────────────────────────────────────────────────────────
+// SINGLE SOURCE OF TRUTH for the CSP. The EXACT SAME string is mirrored in
+// vercel.json — keep them byte-identical. (Both files emit a CSP header on
+// Vercel; if they differ the browser enforces the intersection, which silently
+// broke embeds. Identical strings = predictable, tight policy.)
+//   - connect-src is pinned to Supabase (REST + realtime wss), Cloudflare
+//     Turnstile, and Stripe — NOT a blanket `https:` (which let injected JS
+//     exfiltrate anywhere). All other external calls (Vision, Turnstile verify)
+//     are server-side and not subject to browser connect-src.
+//   - frame-src is the UNION of every embed actually used: Drive (iOS PDF),
+//     YouTube + Loom (feed videos), Cloudflare, Stripe.
+//   - img-src drops `http:` (no mixed content).
 const CSP_DIRECTIVES = [
   "default-src 'self'",
   "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://challenges.cloudflare.com https://js.stripe.com",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "img-src 'self' data: blob: https: http:",
+  "img-src 'self' data: blob: https:",
   "font-src 'self' data: https://fonts.gstatic.com",
-  "connect-src 'self' https: wss: data: blob:",
-  "frame-src 'self' https://www.youtube.com https://www.loom.com https://challenges.cloudflare.com https://js.stripe.com",
+  "connect-src 'self' blob: data: https://*.supabase.co wss://*.supabase.co https://challenges.cloudflare.com https://api.stripe.com",
+  "frame-src 'self' blob: https://drive.google.com https://www.youtube.com https://www.loom.com https://challenges.cloudflare.com https://js.stripe.com https://checkout.stripe.com",
   "media-src 'self' data: blob: https:",
   "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",
-  "form-action 'self'",
+  "form-action 'self' https://checkout.stripe.com",
   "frame-ancestors 'self'",
   "upgrade-insecure-requests",
 ].join("; ");

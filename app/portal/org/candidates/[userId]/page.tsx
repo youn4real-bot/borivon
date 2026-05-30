@@ -10,8 +10,9 @@ import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { PageLoader } from "@/components/ui/states";
 import {
   ArrowLeft, CheckCircle2, Clock, FileText,
-  MessageCircle, Star, ShieldCheck, AlertCircle,
+  MessageCircle, Star, ShieldCheck, AlertCircle, Route,
 } from "lucide-react";
+import { JourneyChecklist } from "@/components/JourneyChecklist";
 
 // ── Translations ──────────────────────────────────────────────────────────────
 const T_MAP = {
@@ -358,6 +359,21 @@ export default function OrgCandidateDossierPage({
               </div>
             ))}
           </div>
+        </div>
+
+        {/* ── Journey card ── (cross-party milestones; org sees full list +
+             can tick Organization items + add custom — scoped server-side) */}
+        <div
+          className="rounded-2xl p-5"
+          style={{ background: "var(--card)", border: "1px solid var(--border)" }}
+        >
+          <div className="flex items-center gap-2 mb-4">
+            <Route size={14} strokeWidth={1.8} style={{ color: "var(--gold)" }} />
+            <h2 className="text-[13.5px] font-semibold" style={{ color: "var(--w)" }}>
+              {lang === "de" ? "Verlauf" : lang === "fr" ? "Parcours" : "Journey"}
+            </h2>
+          </div>
+          <JourneyChecklist candidateUserId={userId} />
         </div>
 
       </main>

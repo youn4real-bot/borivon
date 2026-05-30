@@ -315,7 +315,7 @@ export function AdminUsersPanel({ accessToken, onClose }: Props) {
                     {u.kind === "borivon"
                       ? <VerifiedBadge verified size="xs" color="black" isAdmin name={u.name || u.email} />
                       : u.kind === "org"
-                      ? <VerifiedBadge verified size="xs" color="red" />
+                      ? <VerifiedBadge verified size="xs" color="org" />
                       : u.verified && <VerifiedBadge verified size="xs" color="gold" />}
                   </p>
                   <p className="text-[11px] truncate mt-0.5" style={{ color: "var(--w3)" }}>{u.email}</p>

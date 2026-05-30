@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
+import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
 
@@ -25,7 +26,9 @@ export async function GET(req: NextRequest) {
   let userEmail = "";
   try {
     const { data, error } = await getAnonVerifyClient().auth.getUser(token);
-    if (error || !data?.user) {
+    if (error || !data?.user || isSoftDeletedAuthUser(data.user)) {
+      // Soft-deleted (banned/scrambled) accounts must not authenticate even
+      // with a still-valid token — same gate as requireUser.
       return NextResponse.json({ authenticated: false, verified: false, isAdmin: false });
     }
     userId = data.user.id;

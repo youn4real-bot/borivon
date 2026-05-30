@@ -9,16 +9,33 @@ export async function POST(req: NextRequest) {
   const auth = await requireUser(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-  // Pull display name from verified user metadata; never trust the body
+  // Pull display name + phone from verified user metadata; never trust the body
   let displayName = auth.email;
+  let phone = "";
   try {
     const { data } = await getAnonVerifyClient().auth.getUser(auth.jwt);
     const fullName = data?.user?.user_metadata?.full_name;
     if (typeof fullName === "string" && fullName.trim()) displayName = fullName.trim().slice(0, 200);
+    const rawPhone = data?.user?.user_metadata?.phone;
+    if (typeof rawPhone === "string" && rawPhone.trim()) phone = rawPhone.trim().slice(0, 40);
   } catch { /* fall back to email */ }
 
-  // Idempotency: don't insert duplicate signup notifications for the same user
   const db = getServiceSupabase();
+
+  // Persist the registration phone onto the candidate's profile row. This is the
+  // only safe path: candidate_profiles is service-role-only (RLS, no policy) and
+  // at signup there's no client session that could write it. Upsert by user_id
+  // sets ONLY phone — never clobbers names/photo the candidate fills in later.
+  if (phone) {
+    try {
+      await db.from("candidate_profiles").upsert(
+        { user_id: auth.userId, phone },
+        { onConflict: "user_id", ignoreDuplicates: false },
+      );
+    } catch { /* best-effort — phone also lives in user_metadata as a backup */ }
+  }
+
+  // Idempotency: don't insert duplicate signup notifications for the same user
   const { data: existing } = await db
     .from("admin_notifications")
     .select("id")

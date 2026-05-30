@@ -43,7 +43,7 @@ const t = {
     complete: "abgeschlossen", essentials: "Grundlagen", qualifications: "Qualifikationen",
     orig: "Original", trans: "Übersetzung", optional: "optional",
     legDone: "Genehmigt", legPending: "In Prüfung", legRej: "Neu hochladen", legMiss: "Nicht eingereicht",
-    labels: { id: "Reisepass", cv_de: "Lebenslauf", letter: "Anschreiben", langcert: "B2-Zertifikat", diploma: "Diplom", studyprog: "Ausbildungsprogramm", transcript: "Notenübersicht", abitur: "Abitur", abitur_transcript: "Abitur-Notenübersicht", praktikum: "Praktikum", workcert: "Berufserlaubnis", work_experience: "Berufserfahrung", impfung: "Impfnachweis" } as Record<string, string>,
+    labels: { id: "Reisepass", cv_de: "Lebenslauf", letter: "Motivationsschreiben", langcert: "B2-Zertifikat", diploma: "Diplom", studyprog: "Ausbildungsprogramm", transcript: "Notenübersicht", abitur: "Abitur", abitur_transcript: "Abitur-Notenübersicht", praktikum: "Praktikum", workcert: "Berufserlaubnis", work_experience: "Berufserfahrung", impfung: "Impfnachweis" } as Record<string, string>,
   },
 };
 
@@ -80,8 +80,11 @@ export default function AdminProgressPage() {
       const token = session.access_token ?? "";
       // Server confirms the role — never trust a client email check.
       const roleRes = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${token}` } });
-      const { role } = await roleRes.json().catch(() => ({ role: null }));
+      const j = await roleRes.json().catch(() => ({ role: null }));
+      const role = j?.role;
       if (role !== "admin" && role !== "sub_admin") { router.replace("/portal"); return; }
+      // Candidate-progress is a Borivon-HQ tool — org-scoped admins are bounced.
+      if (role === "sub_admin" && j?.isAgencyAdmin === true) { router.replace("/portal/admin"); return; }
       await load(token);
       setLoading(false);
     });

@@ -19,9 +19,9 @@ import {
   Lock, Unlock, IdCard, FileText, Folder, FilePen, Save, Eye,
   CheckCircle2, XCircle, AlertTriangle, PartyPopper,
 } from "@/components/PortalIcons";
-import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen } from "lucide-react";
-import { DndContext, closestCorners, useDroppable, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragOverEvent, type CollisionDetection } from "@dnd-kit/core";
-import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
+import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles } from "lucide-react";
+import { DndContext, closestCenter, DragOverlay, closestCorners, pointerWithin, useDroppable, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragOverEvent, type DragStartEvent, type CollisionDetection } from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove, defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Spinner, PageLoader, EmptyState } from "@/components/ui/states";
 import { DropdownMenu } from "@/components/ui/DropdownMenu";
@@ -29,10 +29,13 @@ import { CandidateStagePreview, type JourneyMode } from "@/components/JourneyVie
 import { PdfZonePicker, type SigZone } from "@/components/PdfZonePicker";
 import { detectAcroFormFields, type DetectedField } from "@/lib/pdfAcroFormFill";
 import { AutoFillReviewModal } from "@/components/AutoFillReviewModal";
+import { SIGN_FILL_ENABLED, applySignFillGate } from "@/lib/features";
 import { SignaturePad } from "@/components/SignaturePad";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { PortalTopNav } from "@/components/PortalTopNav";
-import { FILE_KEY_ALL_LABELS } from "@/lib/fileKeys";
+import { FILE_KEY_ALL_LABELS, translateDocLabel } from "@/lib/fileKeys";
+import { computeChecklist, type ItemStatus } from "@/lib/candidateChecklist";
+import { JourneyChecklist } from "@/components/JourneyChecklist";
 import { removeImageBg } from "@/lib/removeImageBg";
 import { stampSigOnPdf } from "@/lib/stampSigOnPdf";
 import { AdminSigSection } from "@/components/admin/AdminSigSection";
@@ -239,8 +242,23 @@ function mergedPdfName(srcFileName: string | null | undefined, label: string): s
 // AdminSigSection + SIG_PARTY_META extracted →
 // components/admin/AdminSigSection.tsx (2026-05).
 
+// dnd-kit only animates layout shifts for items that were part of a drag
+// (`wasDragging`); everything else snaps. So when a box re-parents between
+// containers mid-drag (out of a category → loose, into a category, top, bottom),
+// the boxes it leaves behind and the ones it pushes aside SNAP shut instead of
+// sliding — the root of the "inconsistent" feel. This helper is verbatim from the
+// official @dnd-kit "MultipleContainers" example: force `wasDragging: true` so the
+// default logic (line: `if (!transition || !wasDragging) return false`) lets EVERY
+// neighbour animate its make-room shift, giving an identical slide in every
+// direction regardless of box size or landing spot.
+const slotAnimateLayoutChanges: AnimateLayoutChanges = (args) =>
+  defaultAnimateLayoutChanges({ ...args, wasDragging: true });
+
 // ── Sortable slot wrapper (dnd-kit) ───────────────────────────────────────────
-function SortableSlotItem({ id, children }: { id: string; children: React.ReactNode }) {
+// Plain single-list sortable item (the textbook dnd-kit pattern). The dragged
+// row lifts and follows the pointer; neighbours slide to make room. `overlay`
+// kept in the prop type for call-site compatibility but unused (no DragOverlay).
+function SortableSlotItem({ id, children }: { id: string; children: React.ReactNode; overlay?: boolean }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   return (
     <div
@@ -321,7 +339,7 @@ function SortableCategory({
   id: string;
   children: (h: Pick<ReturnType<typeof useSortable>, "attributes" | "listeners"> & { isDragging: boolean }) => React.ReactNode;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id, animateLayoutChanges: slotAnimateLayoutChanges });
   return (
     <div
       ref={setNodeRef}
@@ -329,8 +347,9 @@ function SortableCategory({
         transform: CSS.Transform.toString(transform),
         transition: transition ?? "transform 200ms cubic-bezier(0.2,0,0,1)",
         position: "relative",
-        zIndex: isDragging ? 998 : undefined,
-        opacity: isDragging ? 0.6 : 1,
+        // Flat, dimmed placeholder — the floating clone (DragOverlay) is the
+        // lifted thing that follows the pointer.
+        opacity: isDragging ? 0.4 : 1,
       }}
     >
       {children({ attributes, listeners, isDragging })}
@@ -351,6 +370,11 @@ export default function AdminPage() {
   const [currentUserId, setCurrentUserId] = useState("");
   /** true only for the supreme admin (ADMIN_EMAIL) — org/sub-admins cannot grant/revoke the blue tick */
   const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  /** true for ORG-scoped admins (sub_admin belonging to an organization, i.e.
+   *  is_agency_admin=true). Borivon team (supreme admin + plain sub-admins) =
+   *  false. Used to hide Borivon-internal Status tabs (Documents / Journey /
+   *  Assignment) from org admins. */
+  const [isOrgAdmin, setIsOrgAdmin] = useState(false);
   /** false while /api/portal/me/role is still resolving on initial load.
    *  LAW #31: lock-toggle buttons must render as clickable while role is unknown
    *  to prevent the race where supreme admin clicks during the resolution window
@@ -549,6 +573,19 @@ export default function AdminPage() {
   const [dirtyFeedbacks, setDirtyFeedbacks] = useState<Set<string>>(new Set());
   const [saving, setSaving]           = useState<Record<string, boolean>>({});
   const [previewDoc, setPreviewDoc] = useState<Doc | null>(null);
+  // When previewing the no-logo Visa CV, the modal fetches from this render URL
+  // instead of the stored file. Cleared on close. (Visa CV = clone of cv_de.)
+  const [previewRenderUrl, setPreviewRenderUrl] = useState<string | null>(null);
+  // Drag-over highlight key — shared by every doc box (permanent + dynamic slot)
+  // so drag-and-drop upload looks identical everywhere (gold-dim bg + "Drop here").
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null);
+  // Admin's preferred order of the permanent Visa doc boxes (hold + drag to
+  // reorder, same as the dynamic slots). Persisted per-browser — these boxes
+  // have no DB row. Loaded client-side on mount (localStorage is unset on SSR).
+  const [visaPermOrder, setVisaPermOrder] = useState<string[]>([]);
+  useEffect(() => {
+    try { const s = localStorage.getItem("bv_visa_perm_order"); if (s) setVisaPermOrder(JSON.parse(s) as string[]); } catch { /* ignore */ }
+  }, []);
   // Phone single-scroll: blob URL of the previewed passport so it can be
   // rendered as a strip at the top of the passport-info card (one page:
   // passport on top, data below — scroll freely to compare).
@@ -595,7 +632,14 @@ export default function AdminPage() {
   // ── Dynamic phase slots (Bearbeitung / Visum) ──────────────────────────────
   type PhaseSlot = { id: string; org_id: string | null; phase: string; position: number; type: "simple" | "dual"; label: string; label_trans: string | null; action_type: string | null; instructions: string | null; template_pdf_path: string | null; form_fields: import("@/lib/pdfFieldEmbed").FormField[] | null; candidate_signature_zone: import("@/components/PdfZonePicker").SigZone | null; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean; pdf_has_native_fields: boolean; category_id: string | null };
   const [phaseSlots, setPhaseSlots] = useState<Record<string, PhaseSlot[]>>({ bearbeitung: [], visum: [] });
-  const [phaseSlotsLoaded, setPhaseSlotsLoaded] = useState<Record<string, boolean>>({ bearbeitung: false, visum: false });
+  // Stores the SCOPE KEY each phase's slots were last loaded for ("" = not yet,
+  // "global" = global set, else an employer_id). Lets the manager reload when
+  // the open candidate's employer (pathway) differs, so editing here edits that
+  // employer's SHARED fixed set.
+  const [phaseSlotsLoaded, setPhaseSlotsLoaded] = useState<Record<string, string>>({ bearbeitung: "", visum: "" });
+  // Scope currently being fetched per phase — dedupes concurrent loads so the
+  // loaded marker is only set on a successful, still-relevant response.
+  const slotFetchRef = useRef<Record<string, string>>({});
   // ── Slot CATEGORIES (admin-managed groups for Bearbeitung / Visum) ──────────
   // Global-scoped (org_id null) here, mirroring how the admin slot manager
   // loads global slots. Foldable + reorderable; deleting a category un-groups
@@ -611,10 +655,17 @@ export default function AdminPage() {
   // strip only while dragging so the resting UI stays clean).
   const [dragOverCat, setDragOverCat] = useState<string | null>(null);
   const [draggingSlot, setDraggingSlot] = useState<string | null>(null);
+  // Raw id of whatever is currently dragged (box id OR "cat:<id>") — drives the
+  // floating <DragOverlay> clone so the drag stays smooth across container
+  // remounts (in/out of a category). null when nothing is dragging.
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
   // Add-slot modal
   const [addSlotPhase, setAddSlotPhase]               = useState<string | null>(null);
   const [addSlotLabel, setAddSlotLabel]               = useState("");
   const [addSlotInstructions, setAddSlotInstructions] = useState("");
+  // When the add-box popup was opened from a category's ⋯ menu, the new slot
+  // drops into this category. null = loose box (bottom "+ add box").
+  const [addSlotCatId, setAddSlotCatId]               = useState<string | null>(null);
   const [addSlotSaving, setAddSlotSaving]             = useState(false);
   // Slot config popup — appears after admin uploads a PDF to a slot (LAW #34)
   type SlotConfigState = { slotId: string; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean; pdf_has_native_fields: boolean };
@@ -801,7 +852,7 @@ export default function AdminPage() {
   const [statusCvDraft, setStatusCvDraft] = useState<Record<string, unknown> | null>(null);
   // Left-rail category (like the candidate dashboard). Add a tab id here +
   // an entry in STATUS_TABS + a content block to introduce a new project.
-  const [statusTab, setStatusTab]         = useState<"b2" | "assign" | "vaccine" | "notes">("b2");
+  const [statusTab, setStatusTab]         = useState<"b2" | "assign" | "vaccine" | "notes" | "docs" | "journey">("b2");
   // Non-persisted view toggle for the assign tab. Defaults to whatever the
   // canonical assignment implies; admin can flip it manually to view the
   // other branch before picking. Cleared on modal close.
@@ -820,7 +871,9 @@ export default function AdminPage() {
   async function openStatusModal() {
     if (!selectedUser || !accessToken) return;
     setStatusOpen(true);
-    setStatusTab("b2");
+    // Org admins don't have the Documents tab — default them to B2 so the
+    // hidden docs content never shows with no matching tab selected.
+    setStatusTab(isOrgAdmin ? "b2" : "docs");
     setStatusLoading(true);
     setStatusForm(EMPTY_STATUS);
     setAssignTypeUI(null);
@@ -1146,7 +1199,13 @@ export default function AdminPage() {
         // a) Role check (supreme-admin flag)
         fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${token}` } })
           .then(r => r.ok ? r.json() : null)
-          .then(j => { if (!cancelled && j?.isSuperAdmin) setIsSuperAdmin(true); })
+          .then(j => {
+            if (cancelled || !j) return;
+            if (j.isSuperAdmin) setIsSuperAdmin(true);
+            // Org-scoped admin = sub_admin tied to an organization. Used to
+            // hide Borivon-internal Status tabs (Documents/Journey/Assignment).
+            if (j.role === "sub_admin" && j.isAgencyAdmin) setIsOrgAdmin(true);
+          })
           .catch(() => {})
           .finally(() => { if (!cancelled) setRoleResolved(true); }),
         // b) Org list (for org switcher + Status->Assign agency picker)
@@ -1167,8 +1226,8 @@ export default function AdminPage() {
           .then(j => {
             if (cancelled) return;
             if (j?.slots) {
-              setPhaseSlots(prev => ({ ...prev, bearbeitung: j.slots }));
-              setPhaseSlotsLoaded(prev => ({ ...prev, bearbeitung: true }));
+              setPhaseSlots(prev => ({ ...prev, bearbeitung: (j.slots ?? []).map(applySignFillGate) }));
+              setPhaseSlotsLoaded(prev => ({ ...prev, bearbeitung: "global" }));
             }
           })
           .catch(() => {}),
@@ -1183,8 +1242,8 @@ export default function AdminPage() {
           .then(j => {
             if (cancelled) return;
             if (j?.slots) {
-              setPhaseSlots(prev => ({ ...prev, visum: j.slots }));
-              setPhaseSlotsLoaded(prev => ({ ...prev, visum: true }));
+              setPhaseSlots(prev => ({ ...prev, visum: (j.slots ?? []).map(applySignFillGate) }));
+              setPhaseSlotsLoaded(prev => ({ ...prev, visum: "global" }));
             }
           })
           .catch(() => {}),
@@ -1757,6 +1816,17 @@ export default function AdminPage() {
     };
   }, [selectedUser, accessToken]);
 
+  // Prefetch BOTH Bearbeitung + Visum slot sets the moment a candidate dossier
+  // opens, scoped to that candidate. By the time the admin clicks the stage the
+  // correct boxes are already in state → they show instantly, no stale flash,
+  // no spinner. (loadPhaseSlots is a hoisted fn; it no-ops if already loaded.)
+  useEffect(() => {
+    if (!selectedUser || !accessToken) return;
+    void loadPhaseSlots("bearbeitung");
+    void loadPhaseSlots("visum");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedUser, accessToken]);
+
   async function review(docId: string, status: string, feedbackOverride?: string | null) {
     setSaving(s => ({ ...s, [docId]: true }));
     const fb = feedbackOverride !== undefined ? (feedbackOverride || null) : (feedbacks[docId] || null);
@@ -1780,45 +1850,72 @@ export default function AdminPage() {
   }
 
   // ── Phase slot CRUD ───────────────────────────────────────────────────────
+  // Scope = the open candidate's employer (pathway). When set, the manager
+  // loads/edits THAT employer's shared fixed set (e.g. UKSH Lübeck) — applies
+  // to every candidate placed there. No employer → the global set (legacy).
   async function loadPhaseSlots(phase: string) {
-    if (!accessToken || phaseSlotsLoaded[phase]) return;
-    // Mark in-flight immediately to prevent concurrent fetches; reset on failure so retry is possible.
-    setPhaseSlotsLoaded(prev => ({ ...prev, [phase]: true }));
-    // Categories load in parallel — independent of slot success.
+    // Resolve slots by the OPEN CANDIDATE so every admin (Borivon HQ + org)
+    // sees the exact same set as the candidate (employer → their org → global).
+    const scopeKey = selectedUser || "global";
+    if (!accessToken) return;
+    if (phaseSlotsLoaded[phase] === scopeKey) return;          // data already correct
+    if (slotFetchRef.current[phase] === scopeKey) return;      // this scope already fetching
+    slotFetchRef.current[phase] = scopeKey;
     void loadSlotCategories(phase);
     try {
-      const res = await fetch(`/api/portal/phase-slots?phase=${phase}`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
+      const url = selectedUser
+        ? `/api/portal/phase-slots?phase=${phase}&candidateId=${selectedUser}`
+        : `/api/portal/phase-slots?phase=${phase}`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+      // Ignore a stale response if the open candidate changed mid-flight.
+      if ((selectedUser || "global") !== scopeKey) return;
       if (res.ok) {
         const j = await res.json();
-        setPhaseSlots(prev => ({ ...prev, [phase]: j.slots ?? [] }));
-      } else {
-        setPhaseSlotsLoaded(prev => ({ ...prev, [phase]: false }));
+        // Sign/fill hidden for now → strip the action flags so every slot is a
+        // plain upload box across the whole admin UI. Mark the loaded scope ONLY
+        // now (on success) so the UI never shows another scope's stale slots —
+        // it shows a loader until the right data lands.
+        setPhaseSlots(prev => ({ ...prev, [phase]: (j.slots ?? []).map(applySignFillGate) }));
+        setPhaseSlotsLoaded(prev => ({ ...prev, [phase]: scopeKey }));
       }
-    } catch {
-      setPhaseSlotsLoaded(prev => ({ ...prev, [phase]: false }));
-    }
+    } catch { /* leave unloaded → loader stays, retry on next open */ }
+    finally { if (slotFetchRef.current[phase] === scopeKey) delete slotFetchRef.current[phase]; }
   }
 
-  async function addPhaseSlot(phase: string, label: string, instructions: string) {
+  async function addPhaseSlot(phase: string, label: string, instructions: string, categoryId?: string | null) {
     if (!accessToken || !label.trim()) return;
     setAddSlotSaving(true);
     try {
+      // Scope the new slot to the open candidate's employer (pathway) so it
+      // joins that employer's shared fixed set. No employer → global slot.
+      const empId = selectedUser ? (employerByUser[selectedUser] ?? null) : null;
       const res = await fetch("/api/portal/phase-slots", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({
           phase, type: "simple", label: label.trim(),
           instructions: instructions.trim() || undefined,
+          ...(empId ? { employerId: empId } : {}),
         }),
       });
       if (res.ok) {
         const j = await res.json();
-        setPhaseSlots(prev => ({ ...prev, [phase]: [...(prev[phase] ?? []), j.slot] }));
+        let slot = j.slot;
+        // Added from a category's ⋯ menu → drop it straight into that category.
+        if (categoryId && slot?.id) {
+          await fetch("/api/portal/phase-slots", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+            body: JSON.stringify({ id: slot.id, category_id: categoryId }),
+          }).catch(() => {});
+          slot = { ...slot, category_id: categoryId };
+          setFoldedCats(prev => { const n = new Set(prev); n.delete(categoryId); return n; });
+        }
+        setPhaseSlots(prev => ({ ...prev, [phase]: [...(prev[phase] ?? []), slot] }));
         setAddSlotPhase(null);
         setAddSlotLabel("");
         setAddSlotInstructions("");
+        setAddSlotCatId(null);
       }
     } catch { /* network error */ }
     setAddSlotSaving(false);
@@ -2047,7 +2144,9 @@ export default function AdminPage() {
       const hasManyNativeFields = nativeFields.length > 3;
 
       // 4) Auto-open the appropriate popup IMMEDIATELY on first upload.
-      if (isFirstUpload) {
+      // Sign/fill disabled → no config popup at all; the upload just saves as a
+      // plain document. Re-enable SIGN_FILL_ENABLED to bring the chooser back.
+      if (isFirstUpload && SIGN_FILL_ENABLED) {
         if (hasManyNativeFields && pdfBytesForReview) {
           setAutoFillReview({ slotId, file, pdfBytes: pdfBytesForReview, detected: nativeFields });
         } else {
@@ -2250,7 +2349,10 @@ export default function AdminPage() {
   async function loadSlotCategories(phase: string) {
     if (!accessToken) return;
     try {
-      const res = await fetch(`/api/portal/phase-slot-categories?phase=${phase}`, {
+      const url = selectedUser
+        ? `/api/portal/phase-slot-categories?phase=${phase}&candidateId=${selectedUser}`
+        : `/api/portal/phase-slot-categories?phase=${phase}`;
+      const res = await fetch(url, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (res.ok) {
@@ -2372,6 +2474,16 @@ export default function AdminPage() {
   }
   function toggleFoldCat(id: string) {
     setFoldedCats(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+
+  // Open the SAME add-box naming popup as the bottom "+ add box", but targeted
+  // at a category so the new slot lands inside it (after the admin names it).
+  function openAddBoxInCategory(phase: string, categoryId: string) {
+    setRevokeMenu(null);
+    setAddSlotCatId(categoryId);
+    setAddSlotLabel("");
+    setAddSlotInstructions("");
+    setAddSlotPhase(phase);
   }
 
   // ── Rejection modal ──────────────────────────────────────────────────────
@@ -2705,7 +2817,8 @@ export default function AdminPage() {
           <AdminDocPreviewModal
             doc={previewDoc}
             accessToken={accessToken}
-            onClose={() => { setPreviewDoc(null); setShowPassportInfo(false); }}
+            overrideFetchUrl={previewRenderUrl ?? undefined}
+            onClose={() => { setPreviewDoc(null); setPreviewRenderUrl(null); setShowPassportInfo(false); }}
             noPreviewText={t.aNoPreview}
             onUpdated={(d) => setDocs(prev => prev.map(x => x.id === d.id ? { ...x, status: d.status, feedback: d.feedback } : x))}
             onShowPassportData={() => setShowPassportInfo(true)}
@@ -2892,7 +3005,7 @@ export default function AdminPage() {
                     <div className="flex items-center justify-between px-5 py-3 flex-shrink-0"
                       style={{ borderBottom: "1px solid var(--border)", background: "var(--card)" }}>
                       <div className="min-w-0 flex-1 mr-3">
-                        <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-0.5" style={{ color: "var(--w3)" }}>{previewDoc!.file_type}</p>
+                        <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] mb-0.5" style={{ color: "var(--w3)" }}>{translateDocLabel(previewDoc!.file_type, lang as "fr" | "en" | "de")}</p>
                         <p className="text-[13.5px] font-semibold truncate tracking-tight" style={{ color: "var(--w)" }}>{previewDoc!.file_name}</p>
                       </div>
                       {/* Phone: the ONLY close button — dismisses BOTH the
@@ -2924,7 +3037,11 @@ export default function AdminPage() {
                             title={previewDoc?.file_name}
                           />
                         ) : (
-                          <PdfViewer src={ppStripUrl} />
+                          <PdfViewer
+                            src={ppStripUrl}
+                            docId={previewDoc?.id}
+                            initialRotation={(previewDoc as { rotation?: number | null })?.rotation ?? 0}
+                          />
                         )
                       ) : (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -3363,12 +3480,17 @@ export default function AdminPage() {
                 });
                 // Left-rail categories — add a project = one more entry here
                 // + one more `statusTab === "<id>"` content block below.
-                const STATUS_TABS: { id: "b2" | "assign" | "vaccine" | "notes"; label: string; Icon: typeof GraduationCap }[] = [
+                const STATUS_TABS = ([
+                  { id: "docs",    label: lang === "fr" ? "Documents" : lang === "de" ? "Dokumente" : "Documents",   Icon: ListChecks },
+                  { id: "journey", label: lang === "fr" ? "Parcours" : lang === "de" ? "Verlauf" : "Journey",        Icon: RouteIcon },
                   { id: "b2",      label: L.secB2,                                                                 Icon: GraduationCap },
                   { id: "assign",  label: lang === "fr" ? "Affectation" : lang === "de" ? "Zuweisung" : "Assignment", Icon: Building2 },
                   { id: "vaccine", label: L.secVax,                                                                Icon: Syringe },
                   { id: "notes",   label: lang === "de" ? "Notizen" : "Notes",                                     Icon: NotebookPen },
-                ];
+                ] as { id: "b2" | "assign" | "vaccine" | "notes" | "docs" | "journey"; label: string; Icon: typeof GraduationCap }[])
+                  // Org admins don't get the Borivon-internal tabs (Documents,
+                  // Journey, Assignment). Borivon team (supreme + sub-admin) does.
+                  .filter(tab => !(isOrgAdmin && (tab.id === "docs" || tab.id === "journey" || tab.id === "assign")));
                 const assignT = lang === "fr"
                   ? { sec:"Affectation", to:"Affecter à", agency:"Agence", employer:"Employeur direct", pickAg:"Agence", pickSite:"Site / employeur", pickEmp:"Employeur" }
                   : lang === "de"
@@ -3432,6 +3554,76 @@ export default function AdminPage() {
                         <p className="text-xs text-center py-6" style={{ color: "var(--w3)" }}>{L.loading}</p>
                       ) : (
                         <>
+                          {/* ── Documents: auto progress checklist (relocated
+                              from the slide-in drawer). Read-only mirror of the
+                              candidate's upload status — color only (LAW #4),
+                              computed live from `docs`. No sliding: stays in
+                              this popup. ── */}
+                          {statusTab === "docs" && !isOrgAdmin && (() => {
+                            const dl = lang === "fr"
+                              ? { title: "Documents", complete: "complété", essentials: "Essentiels", qualifications: "Qualifications", trans: "Traduction", optional: "optionnel",
+                                  labels: { id: "Passeport", cv_de: "CV", letter: "Lettre de motivation", langcert: "Certificat B2", diploma: "Diplôme", studyprog: "Programme d'études", transcript: "Relevé de notes", abitur: "Abitur", abitur_transcript: "Relevé Abitur", praktikum: "Stage", workcert: "Autorisation d'exercer", work_experience: "Expérience pro.", impfung: "Vaccination" } as Record<string, string> }
+                              : lang === "de"
+                              ? { title: "Dokumente", complete: "abgeschlossen", essentials: "Grundlagen", qualifications: "Qualifikationen", trans: "Übersetzung", optional: "optional",
+                                  labels: { id: "Reisepass", cv_de: "Lebenslauf", letter: "Motivationsschreiben", langcert: "B2-Zertifikat", diploma: "Diplom", studyprog: "Ausbildungsprogramm", transcript: "Notenübersicht", abitur: "Abitur", abitur_transcript: "Abitur-Notenübersicht", praktikum: "Praktikum", workcert: "Berufserlaubnis", work_experience: "Berufserfahrung", impfung: "Impfnachweis" } as Record<string, string> }
+                              : { title: "Documents", complete: "complete", essentials: "Essentials", qualifications: "Qualifications", trans: "Translation", optional: "optional",
+                                  labels: { id: "Passport", cv_de: "CV", letter: "Cover letter", langcert: "B2 certificate", diploma: "Diploma", studyprog: "Study program", transcript: "Transcript", abitur: "Abitur", abitur_transcript: "Abitur transcript", praktikum: "Internship", workcert: "Work permit", work_experience: "Work experience", impfung: "Vaccination" } as Record<string, string> };
+                            const cl = computeChecklist(
+                              docs.filter(d => d.user_id === selectedUser).map(d => ({ file_type: d.file_type, status: d.status }))
+                            );
+                            const COLOR: Record<ItemStatus, string> = { approved: "#16a34a", pending: "#f59e0b", rejected: "#ef4444", missing: "#9ca3af" };
+                            const Icn = ({ s, size = 15 }: { s: ItemStatus; size?: number }) => (
+                              s === "approved" ? <CheckCircle2 size={size} strokeWidth={1.9} style={{ color: COLOR.approved }} />
+                              : s === "pending" ? <ClockIcon size={size} strokeWidth={1.9} style={{ color: COLOR.pending }} />
+                              : s === "rejected" ? <XCircle size={size} strokeWidth={1.9} style={{ color: COLOR.rejected }} />
+                              : <MinusIcon size={size} strokeWidth={1.9} style={{ color: COLOR.missing }} />
+                            );
+                            return (
+                              <StatusSection title={dl.title} first>
+                                <div style={{ marginBottom: 14 }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--w3)", marginBottom: 5 }}>
+                                    <span>{cl.requiredComplete}/{cl.requiredTotal}</span>
+                                    <span><strong style={{ color: "var(--w)" }}>{cl.pct}%</strong> {dl.complete}</span>
+                                  </div>
+                                  <div style={{ height: 7, borderRadius: 4, background: "var(--bg2)", overflow: "hidden" }}>
+                                    <div style={{ width: `${cl.pct}%`, height: "100%", background: cl.pct === 100 ? "#16a34a" : cl.pct >= 50 ? "#f59e0b" : "#ef4444", transition: "width .3s" }} />
+                                  </div>
+                                </div>
+                                {(["essentials", "qualifications"] as const).map(group => (
+                                  <div key={group} style={{ marginBottom: 14 }}>
+                                    <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: "var(--w3)", marginBottom: 6 }}>
+                                      {group === "essentials" ? dl.essentials : dl.qualifications}
+                                    </div>
+                                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                      {cl.items.filter(i => i.group === group).map(i => (
+                                        <div key={i.key} style={{ display: "flex", alignItems: "center", gap: 9, fontSize: 12.5 }}>
+                                          <Icn s={i.original} />
+                                          <span style={{ flex: "1 1 auto", color: "var(--w2)" }}>
+                                            {dl.labels[i.key] ?? i.key}
+                                            {i.optional && <span style={{ color: "var(--w3)", fontSize: 10.5 }}> ({dl.optional})</span>}
+                                          </span>
+                                          {i.hasTranslation && i.translation && (
+                                            <span title={dl.trans} style={{ display: "inline-flex", alignItems: "center", gap: 3, color: "var(--w3)", fontSize: 10 }}>
+                                              {dl.trans.slice(0, 2).toUpperCase()} <Icn s={i.translation} size={13} />
+                                            </span>
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ))}
+                              </StatusSection>
+                            );
+                          })()}
+                          {/* ── Journey: cross-party milestone checklist
+                              (Borivon / Organization / Candidate). Shared
+                              component — same list the candidate + linked org
+                              see, scoped per party server-side. ── */}
+                          {statusTab === "journey" && !isOrgAdmin && selectedUser && (
+                            <StatusSection title={lang === "fr" ? "Parcours" : lang === "de" ? "Verlauf" : "Journey"} first>
+                              <JourneyChecklist candidateUserId={selectedUser} />
+                            </StatusSection>
+                          )}
                           {statusTab === "b2" && (
                           <StatusSection title={L.secB2} first>
                           {/* ── CV-builder Deutsch summary ─────────────────
@@ -3563,7 +3755,7 @@ export default function AdminPage() {
                           </StatusSection>
                           )}
 
-                          {statusTab === "assign" && (() => {
+                          {statusTab === "assign" && !isOrgAdmin && (() => {
                             // ── Derived assignment state (no DB echo) ────────
                             // Canonical sources only:
                             //   • candidateOrgs[uid]   → approved agency link(s)
@@ -3932,7 +4124,7 @@ export default function AdminPage() {
                   { key: "visum",       kind: "embassy"     as PhaseKind, label: "Visum",       active: pipeline.embassy_unlocked },
                   { key: "reise",       kind: "flight"      as PhaseKind, label: "Reise",       active: !!pipeline.flight_date },
                   { key: "integration", kind: "integration" as PhaseKind, label: "Integration", active: pipeline.integration_unlocked },
-                  { key: "start",       kind: "start"       as PhaseKind, label: "Start",       active: pipeline.start_unlocked },
+                  // "Start" stage removed from the rail (to be rebuilt later).
                 ]).map((js, ji, arr) => {
                   const isSel = activePipelineStage === js.key;
                   return (
@@ -4061,7 +4253,7 @@ export default function AdminPage() {
                       // Per-row renderer — reused across the uncategorized group AND
                       // every category group. `si` is the index WITHIN its group
                       // (drives the inter-row hairline divider).
-                      const renderSlotRow = (slot: PhaseSlot, si: number) => {
+                      const renderSlotRow = (slot: PhaseSlot, si: number, overlay = false) => {
                                 const origDocs = getAdminDocs(slot.id);
                                 const transDocs = slot.type === "dual" ? getAdminDocs(slot.id + "_de") : [];
                                 const allSlotDocs = [...origDocs, ...transDocs];
@@ -4089,22 +4281,23 @@ export default function AdminPage() {
                                   const rowClickable = submitted && !!doc?.drive_file_id;
                                   const menuId = doc?.id ?? slot.id;
                                   return (
-                                    <SortableSlotItem key={slot.id} id={slot.id}>
+                                    <SortableSlotItem key={slot.id} id={slot.id} overlay={overlay}>
                                       {si > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
                                       <div
                                         onClick={rowClickable ? () => setPreviewDoc(doc!) : undefined}
-                                        // Silent drag-and-drop — admin can drop a PDF onto the row
-                                        // (Bearbeitung / Visum) and it uploads as if they clicked
-                                        // the Upload button. No visual indicator on drag-over.
-                                        onDragOver={e => { if (Array.from(e.dataTransfer.types).includes("Files")) e.preventDefault(); }}
+                                        // Drag-and-drop upload with a drag-over highlight — identical
+                                        // to every other doc box (permanent + dynamic).
+                                        onDragOver={e => { if (Array.from(e.dataTransfer.types).includes("Files")) { e.preventDefault(); setDragOverKey(slot.id); } }}
+                                        onDragLeave={() => setDragOverKey(null)}
                                         onDrop={e => {
                                           if (!Array.from(e.dataTransfer.types).includes("Files")) return;
                                           e.preventDefault();
+                                          setDragOverKey(null);
                                           const file = e.dataTransfer.files?.[0];
                                           if (file && file.type === "application/pdf") adminUploadFile(file, slot.id);
                                         }}
                                         className={`px-3 py-3 transition-colors${rowClickable ? " bv-row-hover cursor-pointer" : ""}`}
-                                        style={{ minHeight: 60, ...(revokeMenu?.id === menuId ? { position: "relative", zIndex: 10 } : {}) }}>
+                                        style={{ minHeight: 60, ...(dragOverKey === slot.id ? { background: "var(--gdim)" } : revokeMenu?.id === menuId ? { position: "relative", zIndex: 10 } : {}) }}>
                                         <div className="flex items-center gap-3">
                                           <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-1.5 flex-wrap">
@@ -4120,6 +4313,7 @@ export default function AdminPage() {
                                               <p className="text-[10px] mt-0.5 leading-relaxed" style={{ color: "var(--w3)" }}>{slot.instructions}</p>
                                             )}
                                             {!submitted && <p className="text-[10px] mt-0.5" style={{ color: "var(--w3)" }}>Not submitted yet</p>}
+                                            {dragOverKey === slot.id && <p className="text-[10px] mt-0.5" style={{ color: "var(--gold)" }}>{lang === "fr" ? "Déposer ici" : lang === "de" ? "Hier ablegen" : "Drop here"}</p>}
                                             {doc && doc.status === "rejected" && doc.feedback && (
                                               <p className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{doc.feedback}</p>
                                             )}
@@ -4142,7 +4336,7 @@ export default function AdminPage() {
                                               <button type="button"
                                                 onClick={e => { e.stopPropagation(); openAdminUploadPicker(slot.id); }}
                                                 className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
-                                                style={{ color: "var(--w3)" }}>
+                                                style={{ color: "var(--gold)" }}>
                                                 <Upload size={13} strokeWidth={1.8} />
                                               </button>
                                             ))}
@@ -4251,7 +4445,7 @@ export default function AdminPage() {
                                   (origDocs[0] && revokeMenu?.id === origDocs[0].id) ||
                                   (transDocs[0] && revokeMenu?.id === transDocs[0].id);
                                 return (
-                                  <SortableSlotItem key={slot.id} id={slot.id}>
+                                  <SortableSlotItem key={slot.id} id={slot.id} overlay={overlay}>
                                     {si > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
                                     {/* Dual header — click to preview merged PDF when both docs ready.
                                         Silent drag-and-drop: drop a PDF here to upload to the primary slot. */}
@@ -4457,12 +4651,14 @@ export default function AdminPage() {
                                                         <MoreHorizontal size={12} strokeWidth={1.8} />
                                                       </button>
                                                       <DropdownMenu open={revokeMenu?.id === subDoc.id} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === subDoc.id ? revokeMenu.el : null} anchorRect={menuRect(subDoc.id)}>
+                                                            {SIGN_FILL_ENABLED && (
                                                             <button
                                                               onClick={e => { e.stopPropagation(); setRevokeMenu(null); setSigModal({ docId: subDoc?.id ?? null, driveFileId: subDoc?.drive_file_id ?? null, label: subLabel }); }}
                                                               className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
                                                               style={{ color: "var(--w)" }}>
                                                               <FilePen size={11} strokeWidth={1.8} /> Signature
                                                             </button>
+                                                            )}
                                                             {subSt === "approved" && (
                                                               <button
                                                                 onClick={e => { e.stopPropagation(); setRevokeMenu(null); openRejectModal({ kind: "doc", docId: subDoc!.id, label: subLabel, initialFeedback: subDoc!.feedback ?? "" }); }}
@@ -4492,12 +4688,29 @@ export default function AdminPage() {
                       // sit between categories). buildTopOrder gives the current
                       // arrangement; reflowAndSave renumbers the shared scale on drop.
                       const UNCAT = "__uncat__";
+                      const UNCAT_TOP = "__uncat_top__"; // drop zone ABOVE the first item
                       const slotById = new Map(slots.map(s => [s.id, s] as const));
                       const catById = new Map(cats.map(c => [c.id, c] as const));
                       const uncatIdSet = new Set(uncategorized.map(s => s.id));
                       const bucketIds = new Set<string>([UNCAT, ...cats.map(c => c.id)]);
                       const topOrder = buildTopOrder(uncategorized.map(s => ({ id: s.id, position: s.position })), cats);
                       const bucketOf = (id: string): string => slotById.get(id)?.category_id ?? UNCAT;
+
+                      // ── Flat sortable (categories removed) ──────────────────
+                      // Textbook dnd-kit: ONE SortableContext + arrayMove on drop.
+                      // No nested containers / live re-parenting — that interleaved
+                      // category machinery above is now unused.
+                      const flat = [...slots].sort((a, b) => a.position - b.position);
+                      const onFlatDragEnd = (event: DragEndEvent) => {
+                        const { active, over } = event;
+                        if (!over || active.id === over.id) return;
+                        const from = flat.findIndex(s => s.id === String(active.id));
+                        const to = flat.findIndex(s => s.id === String(over.id));
+                        if (from === -1 || to === -1) return;
+                        const reordered = arrayMove(flat, from, to).map((s, i) => ({ ...s, position: i, category_id: null }));
+                        setPhaseSlots(prev => ({ ...prev, [slotPhase]: reordered }));
+                        void saveSlotOrder(slotPhase, reordered.map(s => ({ id: s.id, position: s.position, category_id: null })));
+                      };
 
                       // A CATEGORY drag targets top-level units (loose boxes + other
                       // categories) → it can land between boxes. A BOX drag targets
@@ -4507,7 +4720,12 @@ export default function AdminPage() {
                         const scoped = a.startsWith("cat:")
                           ? args.droppableContainers.filter(c => { const id = String(c.id); return id.startsWith("cat:") || uncatIdSet.has(id); })
                           : args.droppableContainers.filter(c => !String(c.id).startsWith("cat:"));
-                        return closestCorners({ ...args, droppableContainers: scoped });
+                        // pointerWithin first → the container the pointer is literally INSIDE,
+                        // which stays stable while boxes re-parent (no boundary ping-pong /
+                        // React #185). closestCorners is the fallback when the pointer is in a
+                        // gap so a target is always found.
+                        const within = pointerWithin({ ...args, droppableContainers: scoped });
+                        return within.length ? within : closestCorners({ ...args, droppableContainers: scoped });
                       };
                       // One group's rows in a droppable + sortable zone. Empty
                       // buckets still render a slim hint so they can catch a drop.
@@ -4524,7 +4742,7 @@ export default function AdminPage() {
                       );
 
                       const onSlotDragEnd = (event: DragEndEvent) => {
-                        setDraggingSlot(null); setDragOverCat(null);
+                        setDraggingSlot(null); setDragOverCat(null); setActiveDragId(null);
                         const { active, over } = event;
                         if (!over) return;
                         const activeId = String(active.id);
@@ -4546,6 +4764,14 @@ export default function AdminPage() {
                         }
 
                         // ── Box drag ──
+                        // Dropped on the TOP zone → loose box at the very top (above the
+                        // first category), the one spot the normal targets can't reach.
+                        if (overId === UNCAT_TOP) {
+                          const without = topOrder.filter(u => !(u.kind === "box" && u.id === activeId));
+                          const nextSlots = slots.map(s => s.id === activeId ? { ...s, category_id: null } : s);
+                          reflowAndSave(slotPhase, nextSlots, cats, [{ kind: "box", id: activeId }, ...without]);
+                          return;
+                        }
                         const from = bucketOf(activeId);
                         let to: string;
                         if (overId.startsWith("cat:")) to = overId.slice(4);   // onto a category section → into it
@@ -4571,7 +4797,9 @@ export default function AdminPage() {
                           const arr = slotsInCat(to);
                           const oldIdx = arr.findIndex(s => s.id === activeId);
                           const newIdx = arr.findIndex(s => s.id === overId);
-                          if (oldIdx === -1 || newIdx === -1) return;
+                          // Dropped on the category header / empty zone (not a box):
+                          // onDragOver already placed the box here — just persist state.
+                          if (oldIdx === -1 || newIdx === -1) { reflowAndSave(slotPhase, slots, cats); return; }
                           const re = arrayMove(arr, oldIdx, newIdx);
                           const posMap = new Map(re.map((s, i) => [s.id, i] as const));
                           const next = slots.map(s => posMap.has(s.id) ? { ...s, position: posMap.get(s.id)! } : s);
@@ -4592,6 +4820,7 @@ export default function AdminPage() {
                         });
                         reflowAndSave(slotPhase, next, cats);
                       };
+
 
                       // One category section: a sortable unit in the top-level list.
                       // The WHOLE header bar is the drag handle (controls inside
@@ -4621,8 +4850,8 @@ export default function AdminPage() {
                                   className="flex-1 min-w-0 px-2 py-1 text-[12px] font-semibold outline-none"
                                   style={{ background: "var(--bg2)", border: "1px solid var(--border-gold)", borderRadius: "8px", color: "var(--w)" }} />
                               ) : (
-                                <button type="button" onPointerDown={e => e.stopPropagation()} onClick={() => { setEditingCatId(cat.id); setEditingCatLabel(cat.label ?? ""); }}
-                                  className="flex-1 min-w-0 text-left" title={lang === "de" ? "Umbenennen" : lang === "fr" ? "Renommer" : "Rename"}>
+                                <button type="button" onPointerDown={e => e.stopPropagation()} onClick={() => toggleFoldCat(cat.id)}
+                                  className="flex-1 min-w-0 text-left" title={folded ? (lang === "de" ? "Aufklappen" : lang === "fr" ? "Déplier" : "Expand") : (lang === "de" ? "Zuklappen" : lang === "fr" ? "Replier" : "Collapse")}>
                                   <span className="text-[12px] font-semibold tracking-tight" style={{ color: cat.label ? "var(--w)" : "var(--w3)" }}>
                                     {cat.label || (lang === "de" ? "Unbenannt" : lang === "fr" ? "Sans nom" : "Untitled")}
                                   </span>
@@ -4639,6 +4868,18 @@ export default function AdminPage() {
                                   <MoreHorizontal size={14} strokeWidth={1.8} />
                                 </button>
                                 <DropdownMenu open={revokeMenu?.id === `catmenu:${cat.id}`} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === `catmenu:${cat.id}` ? revokeMenu.el : null} anchorRect={menuRect(`catmenu:${cat.id}`)}>
+                                  <button
+                                    onClick={e => { e.stopPropagation(); setRevokeMenu(null); setEditingCatId(cat.id); setEditingCatLabel(cat.label ?? ""); }}
+                                    className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                    style={{ color: "var(--w)" }}>
+                                    <Pencil size={11} strokeWidth={1.8} /> {lang === "de" ? "Umbenennen" : lang === "fr" ? "Renommer" : "Rename"}
+                                  </button>
+                                  <button
+                                    onClick={e => { e.stopPropagation(); openAddBoxInCategory(slotPhase, cat.id); }}
+                                    className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
+                                    style={{ color: "var(--w)" }}>
+                                    <Plus size={11} strokeWidth={2} /> {lang === "de" ? "Feld hinzufügen" : lang === "fr" ? "Ajouter un champ" : "Add box"}
+                                  </button>
                                   <button
                                     onClick={e => { e.stopPropagation(); setRevokeMenu(null); deleteSlotCategory(slotPhase, cat.id); }}
                                     className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
@@ -4660,40 +4901,297 @@ export default function AdminPage() {
                         );
                       };
 
+                      const _empId = selectedUser ? (employerByUser[selectedUser] ?? null) : null;
+                      const _empName = _empId ? (allEmployers.find(e => e.id === _empId)?.name ?? null) : null;
                       return (
                         <div className="mt-4" style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
-                          <div className="px-2 py-2">
-                          {slots.length === 0 ? (
-                            <div className="px-3 py-5 text-center">
-                              <p className="text-[11px]" style={{ color: "var(--w3)" }}>No document slots — click <span style={{ color: "var(--gold)", fontWeight: 600 }}>+</span> to add one.</p>
+                          {_empName && (
+                            <div className="px-3 py-2 text-[11px] font-medium" style={{
+                              color: "var(--gold)", background: "var(--gdim)",
+                              borderBottom: "1px solid var(--border)", borderRadius: "20px 20px 0 0" }}>
+                              {lang === "de"
+                                ? `Bearbeite das feste Set für ${_empName} — gilt für alle dortigen Kandidaten.`
+                                : lang === "fr"
+                                ? `Édition du jeu fixe pour ${_empName} — s'applique à tous ses candidats.`
+                                : `Editing the fixed set for ${_empName} — applies to all its candidates.`}
                             </div>
+                          )}
+                          <div className="px-2 py-2">
+                          {/* ── PERMANENT Visum boxes (all candidates): the auto-generated
+                              Lebenslauf Visum + Anschreiben Visum twins. SAME admin
+                              functions as the Essentials CV/letter — edit in the builder
+                              (even before anything is started), preview, download, swap,
+                              approve/reject. "Edit" opens the same builder, which on save
+                              regenerates BOTH the Essentials original and this twin. ── */}
+                          {slotPhase === "visum" && [
+                            { key: "cv_visa",     label: t.pTypeCVvisa,     isCv: true  },
+                            { key: "letter_visa", label: t.pTypeLetterVisa, isCv: false },
+                          ].map((pb, pi) => {
+                            // CV = clone of cv_de (no-logo render). Letter = its OWN
+                            // doc (letter_visa) — separate content (Embassy-Rabat recipient).
+                            const mirrorKey = pb.isCv ? "cv_de" : "letter_visa";
+                            const visaUrl = `/api/portal/cv/visa?candidateId=${selectedUser}`;
+                            const pdoc = getAdminDocs(mirrorKey)[0] ?? null;
+                            // CV → preview/download the NO-LOGO render; letter → its own file.
+                            const openPreview = () => { if (!pdoc) return; setPreviewRenderUrl(pb.isCv ? visaUrl : null); setPreviewDoc(pdoc); };
+                            const doDownload = () => {
+                              if (pb.isCv) {
+                                fetch(`${visaUrl}&dl=1`, { headers: { Authorization: `Bearer ${accessToken}` } })
+                                  .then(async r => {
+                                    if (!r.ok) return;
+                                    // Use the route's Content-Disposition name
+                                    // (<vorname>_<nachname>_pflegekraft_lebenslauf_visum.pdf).
+                                    const cd = r.headers.get("Content-Disposition") || "";
+                                    const name = /filename="?([^"]+)"?/i.exec(cd)?.[1] || "lebenslauf_visum.pdf";
+                                    const b = await r.blob();
+                                    const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(u), 4000);
+                                  })
+                                  .catch(() => {});
+                              } else if (pdoc) { downloadDoc(pdoc); }
+                            };
+                            const submitted = !!pdoc;
+                            const rowSt = submitted ? (pdoc!.status === "approved" ? "approved" : pdoc!.status === "rejected" ? "rejected" : "pending") : null;
+                            const rowColor = rowSt === "approved" ? "#16a34a" : rowSt === "rejected" ? "#ef4444" : rowSt === "pending" ? "#f59e0b" : null;
+                            const clickable = submitted && !!pdoc?.drive_file_id;
+                            const href = pb.isCv ? `/portal/cv-builder?candidateId=${selectedUser}&variant=visa` : `/portal/motivationsschreiben?candidate=${selectedUser}&variant=visa`;
+                            const editLabel = pb.isCv
+                              ? (lang === "fr" ? "Modifier le CV" : lang === "de" ? "Lebenslauf bearbeiten" : "Edit CV")
+                              : (lang === "fr" ? "Modifier la lettre" : lang === "de" ? "Motivationsschreiben bearbeiten" : "Edit cover letter");
+                            const emptyMenuId = `${pb.key}-empty-${selectedUser}`;
+                            return (
+                              <div key={pb.key}>
+                                {pi > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
+                                <div
+                                  onClick={clickable ? openPreview : undefined}
+                                  className={`px-3 py-3 transition-colors${clickable ? " bv-row-hover cursor-pointer" : ""}`}
+                                  style={{ minHeight: 60, ...(revokeMenu?.id === (pdoc?.id ?? emptyMenuId) ? { position: "relative", zIndex: 10 } : {}) }}>
+                                  <div className="flex items-center gap-3">
+                                    <div className="flex-1 min-w-0">
+                                      <p className="text-[11.5px] font-medium tracking-tight" style={{ color: rowColor ?? "var(--w)" }}>{pb.label}</p>
+                                      {!submitted && <p className="text-[10px] mt-0.5" style={{ color: "var(--w3)" }}>Not submitted yet</p>}
+                                      {pdoc && pdoc.status === "rejected" && pdoc.feedback && (
+                                        <p className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>{pdoc.feedback}</p>
+                                      )}
+                                    </div>
+                                    {/* Empty → edit-in-builder menu (works before anything started) */}
+                                    {!submitted && selectedUser && (
+                                      <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}>
+                                        <div className="relative" onClick={e => e.stopPropagation()}>
+                                          <button onClick={e => { e.stopPropagation(); openRowMenu(e, emptyMenuId); }} title="More actions" aria-label="More actions"
+                                            className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full" style={{ color: "var(--w2)" }}>
+                                            <MoreHorizontal size={14} strokeWidth={1.8} />
+                                          </button>
+                                          <DropdownMenu open={revokeMenu?.id === emptyMenuId} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === emptyMenuId ? revokeMenu.el : null} anchorRect={menuRect(emptyMenuId)}>
+                                            <button onClick={e => { e.stopPropagation(); setRevokeMenu(null); window.open(href, "_blank"); }}
+                                              className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5" style={{ color: "var(--w)" }}>
+                                              <FilePen size={11} strokeWidth={1.8} /> {editLabel}
+                                            </button>
+                                          </DropdownMenu>
+                                        </div>
+                                      </div>
+                                    )}
+                                    {/* Present → download + approve/reject + ⋯ (swap / edit / revoke) */}
+                                    {submitted && (
+                                      <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}>
+                                        {pdoc!.drive_file_id && (
+                                          <button type="button" title={t.aDownload} aria-label={t.aDownload} onClick={e => { e.stopPropagation(); doDownload(); }}
+                                            className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full" style={{ color: "var(--w2)" }}>
+                                            <Download size={13} strokeWidth={1.8} />
+                                          </button>
+                                        )}
+                                        {pdoc!.status === "pending" && (
+                                          <>
+                                            <button type="button" onClick={e => { e.stopPropagation(); openRejectModal({ kind: "doc", docId: pdoc!.id, label: pb.label, initialFeedback: pdoc!.feedback ?? "" }); }}
+                                              disabled={saving[pdoc!.id]} title="Reject" aria-label="Reject"
+                                              className="bv-icon-btn bv-icon-btn--reject w-9 h-9 flex items-center justify-center rounded-full disabled:opacity-40">
+                                              <XCircle size={15} strokeWidth={1.8} />
+                                            </button>
+                                            <button type="button" onClick={e => { e.stopPropagation(); review(pdoc!.id, "approved"); }}
+                                              disabled={saving[pdoc!.id]} title="Approve" aria-label="Approve"
+                                              className="bv-icon-btn bv-icon-btn--approve w-9 h-9 flex items-center justify-center rounded-full disabled:opacity-40">
+                                              <CheckCircle2 size={15} strokeWidth={1.8} />
+                                            </button>
+                                          </>
+                                        )}
+                                        {pdoc!.drive_file_id && (
+                                          <div className="relative" onClick={e => e.stopPropagation()}>
+                                            <button onClick={e => { e.stopPropagation(); openRowMenu(e, pdoc!.id); }} title="More actions" aria-label="More actions"
+                                              className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full" style={{ color: "var(--w2)" }}>
+                                              <MoreHorizontal size={14} strokeWidth={1.8} />
+                                            </button>
+                                            <DropdownMenu open={revokeMenu?.id === pdoc!.id} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === pdoc!.id ? revokeMenu.el : null} anchorRect={menuRect(pdoc!.id)}>
+                                              <button onClick={e => { e.stopPropagation(); setRevokeMenu(null); triggerAdminDocUpload(mirrorKey, pb.label); }}
+                                                className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5" style={{ color: "var(--gold)" }}>
+                                                <Upload size={11} strokeWidth={1.8} /> {lang === "fr" ? "Remplacer" : lang === "de" ? "Ersetzen" : "Swap"}
+                                              </button>
+                                              <button onClick={e => { e.stopPropagation(); setRevokeMenu(null); window.open(href, "_blank"); }}
+                                                className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5" style={{ color: "var(--w)" }}>
+                                                <FilePen size={11} strokeWidth={1.8} /> {editLabel}
+                                              </button>
+                                              {pdoc!.status === "approved" && (
+                                                <button onClick={e => { e.stopPropagation(); setRevokeMenu(null); openRejectModal({ kind: "doc", docId: pdoc!.id, label: pb.label, initialFeedback: pdoc!.feedback ?? "" }); }}
+                                                  disabled={saving[pdoc!.id]} className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium disabled:opacity-40 inline-flex items-center gap-1.5" style={{ color: "var(--danger)" }}>
+                                                  <RotateCcw size={11} strokeWidth={1.8} /> Revoke
+                                                </button>
+                                              )}
+                                            </DropdownMenu>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {/* PERMANENT plain document boxes (Visum). Upload / preview /
+                              download / approve / reject — admin + candidate, any time. */}
+                          {slotPhase === "visum" && (() => {
+                            const PLAIN: { key: string; label: string; optional?: boolean }[] = [
+                              { key: "langcert",                label: t.pTypeLangCert },
+                              { key: "ezb",                     label: t.pTypeEZB },
+                              { key: "zusatzblatt_a",           label: t.pTypeZusatzblattA },
+                              { key: "defizitbescheid",         label: t.pTypeDefizitbescheid },
+                              { key: "videx",                   label: t.pTypeVidex },
+                              { key: "bildungsplan",            label: t.pTypeBildungsplan },
+                              { key: "vorabzustimmung",         label: t.pTypeVorabzustimmung },
+                              { key: "arbeitsvertrag",          label: t.pTypeArbeitsvertrag },
+                              { key: "mawista",                 label: t.pTypeMawista },
+                              { key: "versicherung",            label: t.pTypeVersicherung },
+                              { key: "tls_rechnung",            label: t.pTypeTlsRechnung },
+                              { key: "tls_bestaetigungstermin", label: t.pTypeTlsBestaetigung },
+                              { key: "berufserfahrung_visum",   label: t.pTypeBerufserfahrungVisum, optional: true },
+                            ];
+                            // Apply the admin's saved drag order; any box not in it keeps default position.
+                            const DK = PLAIN.map(b => b.key);
+                            const orderKeys = [...visaPermOrder.filter(k => DK.includes(k)), ...DK.filter(k => !visaPermOrder.includes(k))];
+                            const ordered = orderKeys.map(k => PLAIN.find(b => b.key === k)!);
+                            return (
+                            <DndContext sensors={slotSensors} collisionDetection={closestCenter} onDragEnd={(ev: DragEndEvent) => {
+                              const { active, over } = ev;
+                              if (!over || active.id === over.id) return;
+                              const from = orderKeys.indexOf(String(active.id));
+                              const to = orderKeys.indexOf(String(over.id));
+                              if (from === -1 || to === -1) return;
+                              const next = arrayMove(orderKeys, from, to);
+                              setVisaPermOrder(next);
+                              try { localStorage.setItem("bv_visa_perm_order", JSON.stringify(next)); } catch { /* ignore */ }
+                            }}>
+                            <SortableContext items={orderKeys} strategy={verticalListSortingStrategy}>
+                            {ordered.map((vb) => {
+                            const vdoc = getAdminDocs(vb.key)[0] ?? null;
+                            const vSt = !vdoc ? null : (vdoc.status === "approved" ? "approved" : vdoc.status === "rejected" ? "rejected" : "pending");
+                            const vColor = vSt === "approved" ? "#16a34a" : vSt === "rejected" ? "#ef4444" : vSt === "pending" ? "#f59e0b" : null;
+                            const vClickable = !!vdoc?.drive_file_id;
+                            return (
+                              <SortableSlotItem key={vb.key} id={vb.key}>
+                              <div>
+                                <div style={{ height: 1, background: "var(--border)" }} />
+                                <div
+                                  onClick={vClickable ? () => { setPreviewRenderUrl(null); setPreviewDoc(vdoc!); } : undefined}
+                                  onDragOver={(e) => { if (Array.from(e.dataTransfer.types).includes("Files")) { e.preventDefault(); setDragOverKey(vb.key); } }}
+                                  onDragLeave={() => setDragOverKey(null)}
+                                  onDrop={(e) => { if (!Array.from(e.dataTransfer.types).includes("Files")) return; e.preventDefault(); setDragOverKey(null); const f = e.dataTransfer.files?.[0]; if (f && selectedUser && (f.type === "application/pdf" || f.type.startsWith("image/"))) adminDocUpload(f, vb.key, vb.label); }}
+                                  className={`px-3 py-3 flex items-center gap-3 transition-colors${vClickable ? " bv-row-hover cursor-pointer" : ""}`}
+                                  style={{ minHeight: 56, ...(dragOverKey === vb.key ? { background: "var(--gdim)" } : null) }}>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-1.5">
+                                      <p className="text-[11.5px] font-medium tracking-tight" style={{ color: vColor ?? "var(--w)" }}>{vb.label}</p>
+                                      {vb.optional && <span className="text-[10px] italic" style={{ color: "var(--w3)" }}>optional</span>}
+                                    </div>
+                                    {!vdoc && <p className="text-[10px] mt-0.5" style={{ color: "var(--w3)" }}>Not submitted yet</p>}
+                                    {dragOverKey === vb.key && <p className="text-[10px] mt-0.5" style={{ color: "var(--gold)" }}>{lang === "fr" ? "Déposer ici" : lang === "de" ? "Hier ablegen" : "Drop here"}</p>}
+                                    {vdoc?.status === "rejected" && vdoc.feedback && <p className="text-[11px] mt-1" style={{ color: "var(--danger)" }}>&quot;{vdoc.feedback}&quot;</p>}
+                                  </div>
+                                  <div className="flex items-center gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+                                    {!vdoc ? (
+                                      <button type="button" title={lang === "fr" ? "Téléverser" : lang === "de" ? "Hochladen" : "Upload"} aria-label="Upload"
+                                        onClick={(e) => { e.stopPropagation(); triggerAdminDocUpload(vb.key, vb.label); }}
+                                        disabled={!selectedUser || adminDocBusy.has(vb.key)}
+                                        className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full disabled:opacity-40" style={{ color: "var(--gold)" }}>
+                                        <Upload size={14} strokeWidth={1.8} />
+                                      </button>
+                                    ) : (
+                                      <>
+                                        {vdoc.drive_file_id && (
+                                          <button type="button" title={t.aDownload} aria-label={t.aDownload}
+                                            onClick={(e) => { e.stopPropagation(); downloadDoc(vdoc); }}
+                                            className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full" style={{ color: "var(--w2)" }}>
+                                            <Download size={13} strokeWidth={1.8} />
+                                          </button>
+                                        )}
+                                        {vdoc.status === "pending" && (
+                                          <>
+                                            <button type="button" onClick={(e) => { e.stopPropagation(); openRejectModal({ kind: "doc", docId: vdoc.id, label: vb.label, initialFeedback: vdoc.feedback ?? "" }); }}
+                                              disabled={saving[vdoc.id]} title="Reject" aria-label="Reject"
+                                              className="bv-icon-btn bv-icon-btn--reject w-9 h-9 flex items-center justify-center rounded-full disabled:opacity-40">
+                                              <XCircle size={15} strokeWidth={1.8} />
+                                            </button>
+                                            <button type="button" onClick={(e) => { e.stopPropagation(); review(vdoc.id, "approved"); }}
+                                              disabled={saving[vdoc.id]} title="Approve" aria-label="Approve"
+                                              className="bv-icon-btn bv-icon-btn--approve w-9 h-9 flex items-center justify-center rounded-full disabled:opacity-40">
+                                              <CheckCircle2 size={15} strokeWidth={1.8} />
+                                            </button>
+                                          </>
+                                        )}
+                                        {vdoc.drive_file_id && (
+                                          <div className="relative" onClick={(e) => e.stopPropagation()}>
+                                            <button onClick={(e) => { e.stopPropagation(); openRowMenu(e, vdoc.id); }} title="More actions" aria-label="More actions"
+                                              className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full" style={{ color: "var(--w2)" }}>
+                                              <MoreHorizontal size={14} strokeWidth={1.8} />
+                                            </button>
+                                            <DropdownMenu open={revokeMenu?.id === vdoc.id} onClose={() => setRevokeMenu(null)} anchor={revokeMenu?.id === vdoc.id ? revokeMenu.el : null} anchorRect={menuRect(vdoc.id)}>
+                                              <button onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); triggerAdminDocUpload(vb.key, vb.label); }}
+                                                className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5" style={{ color: "var(--gold)" }}>
+                                                <Upload size={11} strokeWidth={1.8} /> {lang === "fr" ? "Remplacer" : lang === "de" ? "Ersetzen" : "Swap"}
+                                              </button>
+                                              {vdoc.status !== "approved" && (
+                                                <button onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); review(vdoc.id, "approved"); }}
+                                                  disabled={saving[vdoc.id]} className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium disabled:opacity-40 inline-flex items-center gap-1.5" style={{ color: "var(--success)" }}>
+                                                  <CheckCircle2 size={11} strokeWidth={1.8} /> {lang === "fr" ? "Approuver" : lang === "de" ? "Genehmigen" : "Approve"}
+                                                </button>
+                                              )}
+                                              {vdoc.status === "approved" && (
+                                                <button onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); openRejectModal({ kind: "doc", docId: vdoc.id, label: vb.label, initialFeedback: vdoc.feedback ?? "" }); }}
+                                                  disabled={saving[vdoc.id]} className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium disabled:opacity-40 inline-flex items-center gap-1.5" style={{ color: "var(--danger)" }}>
+                                                  <RotateCcw size={11} strokeWidth={1.8} /> Revoke
+                                                </button>
+                                              )}
+                                            </DropdownMenu>
+                                          </div>
+                                        )}
+                                      </>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                              </SortableSlotItem>
+                            );
+                            })}
+                            </SortableContext>
+                            </DndContext>
+                            );
+                          })()}
+                          {slotPhase === "visum" && <div style={{ height: 1, background: "var(--border)" }} />}
+                          {/* Never show another candidate's slots: until THIS candidate's
+                              set is loaded (prefetched on dossier open), render nothing.
+                              No spinner, no stale flash — by click time it's ready. */}
+                          {phaseSlotsLoaded[slotPhase] !== (selectedUser || "global") ? (
+                            <div style={{ minHeight: 8 }} />
+                          ) : slots.length === 0 ? (
+                            <div style={{ minHeight: 4 }} />
                           ) : (
                             <DndContext
                               sensors={slotSensors}
-                              collisionDetection={collision}
-                              measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
-                              onDragStart={e => { const id = String(e.active.id); if (!id.startsWith("cat:")) setDraggingSlot(id); }}
-                              onDragOver={(e: DragOverEvent) => { if (String(e.active.id).startsWith("cat:")) return; setDragOverCat(e.over ? bucketOf(String(e.over.id)) : null); }}
-                              onDragCancel={() => { setDraggingSlot(null); setDragOverCat(null); }}
-                              onDragEnd={onSlotDragEnd}
+                              collisionDetection={closestCenter}
+                              onDragEnd={onFlatDragEnd}
                             >
-                              {/* ONE unified list — loose boxes and categories interleaved.
-                                  Drag a box OR a category to ANY spot; a category can land
-                                  between two loose boxes, or on top. */}
-                              <SortableContext items={topOrder.map(u => u.kind === "box" ? u.id : `cat:${u.id}`)} strategy={verticalListSortingStrategy}>
-                                {topOrder.map((u, oi) => {
-                                  if (u.kind === "box") { const s = slotById.get(u.id); return s ? renderSlotRow(s, oi) : null; }
-                                  const c = catById.get(u.id); return c ? renderCategorySection(c) : null;
-                                })}
+                              {/* ONE flat list — textbook dnd-kit sortable. Drag a box,
+                                  neighbours slide, drop renumbers positions + persists.
+                                  No categories, no nested containers, no live re-parenting. */}
+                              <SortableContext items={flat.map(s => s.id)} strategy={verticalListSortingStrategy}>
+                                {flat.map((slot, si) => renderSlotRow(slot, si))}
                               </SortableContext>
-
-                              {/* Add a new (empty) category */}
-                              <button type="button"
-                                onClick={() => createCategory(slotPhase)}
-                                className="bv-row-hover mt-2 w-full flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-[11px] font-semibold"
-                                style={{ color: "var(--gold)", border: "1px dashed var(--border-gold)" }}>
-                                <Plus size={13} strokeWidth={2} /> {lang === "de" ? "Kategorie hinzufügen" : lang === "fr" ? "Ajouter une catégorie" : "Add category"}
-                              </button>
                             </DndContext>
                           )}
                           </div>{/* end px-2 py-2 */}
@@ -4709,7 +5207,7 @@ export default function AdminPage() {
                       // doesn't trap fixed positioning inside the column.
                       <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
                         style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
-                        onClick={() => !addSlotSaving && setAddSlotPhase(null)}>
+                        onClick={() => { if (!addSlotSaving) { setAddSlotPhase(null); setAddSlotCatId(null); } }}>
                         <div className="w-full max-w-sm rounded-[20px] p-5 space-y-4"
                           style={{ background: "var(--card)", border: "1px solid var(--border-gold)", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise .28s var(--ease-out)", maxHeight: "calc(100dvh - 58px - var(--bv-subnav-h, 0px) - 96px)", overflowY: "auto" }}
                           onClick={e => e.stopPropagation()}>
@@ -4728,13 +5226,13 @@ export default function AdminPage() {
                           />
 
                           <div className="flex gap-2">
-                            <button onClick={() => setAddSlotPhase(null)} disabled={addSlotSaving}
+                            <button onClick={() => { setAddSlotPhase(null); setAddSlotCatId(null); }} disabled={addSlotSaving}
                               className="flex-1 py-2.5 rounded-xl text-[13px] font-semibold transition-all"
                               style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
                               {lang === "de" ? "Abbrechen" : lang === "fr" ? "Annuler" : "Cancel"}
                             </button>
                             <button
-                              onClick={() => addPhaseSlot(addSlotPhase!, addSlotLabel, "")}
+                              onClick={() => addPhaseSlot(addSlotPhase!, addSlotLabel, "", addSlotCatId)}
                               disabled={addSlotSaving || !addSlotLabel.trim()}
                               className="bv-glow-gold bv-press flex-1 py-2.5 rounded-xl text-[13px] font-semibold disabled:opacity-40"
                               style={{ background: "var(--gold)", color: "#131312" }}>
@@ -4886,7 +5384,8 @@ export default function AdminPage() {
                             {/* Body — 3 tiles. min-h-0 + overscroll-contain so flex shrinks
                                 properly and tiles scroll inside the card when expanded on phone. */}
                             <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 py-3 flex flex-col gap-2">
-                              {/* SIGN tile — always-open, two-column admin/candidate picker. */}
+                              {/* SIGN tile — hidden while sign/fill is disabled. */}
+                              {SIGN_FILL_ENABLED && (
                               <div data-slot-tile="sign" style={tileStyle}>
                                 <div className="w-full flex items-center gap-3 px-3.5 py-3">
                                   <FilePen size={16} strokeWidth={1.6} style={{ color: signChecked ? "var(--gold)" : "var(--w3)", flexShrink: 0, transition: "color 0.18s var(--ease-out)" }} />
@@ -4904,6 +5403,7 @@ export default function AdminPage() {
                                   { key: "candidate_signs", label: lang === "de" ? "Kandidat" : lang === "fr" ? "Candidat" : "Candidate", sub: "" },
                                 ])}
                               </div>
+                              )}
                               {/* FILL tile removed: form-field drawing is gone, and
                                   native-AcroForm filling is handled on upload via
                                   AutoFillReviewModal. */}
@@ -5545,41 +6045,39 @@ export default function AdminPage() {
                                   this branch. */}
                               {!isMulti && !doc && (item.key === "letter" || item.key === "cv_de") && selectedUser && (() => {
                                 const isCv = item.key === "cv_de";
-                                const menuId = `${isCv ? "cv" : "letter"}-empty-${selectedUser}`;
                                 const href = isCv
                                   ? `/portal/cv-builder?candidateId=${selectedUser}`
                                   : `/portal/motivationsschreiben?candidate=${selectedUser}`;
-                                const label = isCv
-                                  ? (lang === "fr" ? "Modifier le CV" : lang === "de" ? "Lebenslauf bearbeiten" : "Edit CV")
-                                  : (lang === "fr" ? "Modifier la lettre" : lang === "de" ? "Anschreiben bearbeiten" : "Edit cover letter");
+                                const title = isCv
+                                  ? (lang === "fr" ? "Créer le CV" : lang === "de" ? "Lebenslauf erstellen" : "Build CV")
+                                  : (lang === "fr" ? "Créer la lettre" : lang === "de" ? "Motivationsschreiben erstellen" : "Build cover letter");
                                 return (
-                                <div className="flex items-center gap-1.5 flex-shrink-0"
-                                  onClick={(e) => e.stopPropagation()}
-                                  onMouseDown={(e) => e.stopPropagation()}>
-                                  <div className="relative" onClick={(e) => e.stopPropagation()}>
-                                    <button
-                                      onClick={(e) => { e.stopPropagation(); openRowMenu(e, menuId); }}
-                                      title="More actions" aria-label="More actions"
-                                      className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
-                                      style={{ color: "var(--w2)" }}>
-                                      <MoreHorizontal size={14} strokeWidth={1.8} />
+                                  <div className="flex items-center gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+                                    {/* Glowing star — start the CV / Motivationsschreiben in the builder
+                                        on behalf of the candidate when none exists yet (the SAME star the
+                                        candidate sees on their empty builder box). */}
+                                    <button type="button" title={title} aria-label={title}
+                                      onClick={(e) => { e.stopPropagation(); window.open(href, "_blank"); }}
+                                      className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full" style={{ color: "var(--gold)" }}>
+                                      <Sparkles size={15} strokeWidth={1.8} />
                                     </button>
-                                    <DropdownMenu
-                                      open={revokeMenu?.id === menuId}
-                                      onClose={() => setRevokeMenu(null)}
-                                      anchor={revokeMenu?.id === menuId ? revokeMenu.el : null}
-                                      anchorRect={menuRect(menuId)}>
-                                      <button
-                                        onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); window.open(href, "_blank"); }}
-                                        className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
-                                        style={{ color: "var(--w)" }}>
-                                        <FilePen size={11} strokeWidth={1.8} /> {label}
-                                      </button>
-                                    </DropdownMenu>
                                   </div>
-                                </div>
                                 );
                               })()}
+                              {/* Generic admin upload-on-behalf — every EMPTY single-doc box
+                                  (B2 certificate, and any future box) + the multi "Other" box.
+                                  The builder-driven CV/letter (their own edit menu above) and the
+                                  passport (special replace) are intentionally excluded. */}
+                              {selectedUser && ((!isMulti && !doc && item.key !== "letter" && item.key !== "cv_de" && item.key !== "id") || isMulti) && (
+                                <div className="flex items-center gap-1.5 flex-shrink-0" onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+                                  <button type="button" title={lang === "fr" ? "Téléverser" : lang === "de" ? "Hochladen" : "Upload"} aria-label="Upload"
+                                    onClick={(e) => { e.stopPropagation(); triggerAdminDocUpload(item.key, item.label); }}
+                                    disabled={adminDocBusy.has(item.key)}
+                                    className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full disabled:opacity-40" style={{ color: "var(--gold)" }}>
+                                    <Upload size={14} strokeWidth={1.8} />
+                                  </button>
+                                </div>
+                              )}
                               {!isMulti && doc && (
                                 <div className="flex items-center gap-1.5 flex-shrink-0"
                                   onClick={(e) => e.stopPropagation()}
@@ -5664,7 +6162,7 @@ export default function AdminPage() {
                                                 onClick={(e) => { e.stopPropagation(); setRevokeMenu(null); window.open(`/portal/motivationsschreiben?candidate=${selectedUser}`, "_blank"); }}
                                                 className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
                                                 style={{ color: "var(--w)" }}>
-                                                <FilePen size={11} strokeWidth={1.8} /> {lang === "fr" ? "Modifier la lettre" : lang === "de" ? "Anschreiben bearbeiten" : "Edit cover letter"}
+                                                <FilePen size={11} strokeWidth={1.8} /> {lang === "fr" ? "Modifier la lettre" : lang === "de" ? "Motivationsschreiben bearbeiten" : "Edit cover letter"}
                                               </button>
                                             )}
                                             {doc.status !== "approved" && (
@@ -5729,7 +6227,7 @@ export default function AdminPage() {
                                 </span>
                                 <div className="flex-1 min-w-0">
                                   <p className="text-xs truncate" style={{ color: "var(--w2)" }}>{d.file_name}</p>
-                                  <p className="text-[10px]" style={{ color: "var(--w3)" }}>{d.file_type} · {fmtDate(d.uploaded_at)}</p>
+                                  <p className="text-[10px]" style={{ color: "var(--w3)" }}>{translateDocLabel(d.file_type, lang as "fr" | "en" | "de")} · {fmtDate(d.uploaded_at)}</p>
                                 </div>
                                 {d.drive_file_id && (
                                   <button onClick={() => setPreviewDoc(d)} title="Preview"
@@ -6204,8 +6702,8 @@ export default function AdminPage() {
         );
       })()}
 
-      {/* ── Signature request modal ── */}
-      {sigModal && (
+      {/* ── Signature request modal (hidden while sign/fill disabled) ── */}
+      {SIGN_FILL_ENABLED && sigModal && (
         <div data-bv-sigmodal="1" className="fixed inset-0 z-[2147483600] flex items-center justify-center p-3 sm:p-6"
           style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", position: "fixed", top: 0, left: 0, right: 0, bottom: 0 }}
           onClick={() => { setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null); setSigAdminSig(null); setSigAdminWantSave(true); setSigOrgSig(null); setSigOrgWantSave(true); }}>
@@ -6499,7 +6997,8 @@ export default function AdminPage() {
           <AdminDocPreviewModal
             doc={previewDoc}
             accessToken={accessToken}
-            onClose={() => { setPreviewDoc(null); setShowPassportInfo(false); }}
+            overrideFetchUrl={previewRenderUrl ?? undefined}
+            onClose={() => { setPreviewDoc(null); setPreviewRenderUrl(null); setShowPassportInfo(false); }}
             noPreviewText={t.aNoPreview}
             onUpdated={(d) => setDocs(prev => prev.map(x => x.id === d.id ? { ...x, status: d.status, feedback: d.feedback } : x))}
             onShowPassportData={() => setShowPassportInfo(true)}
@@ -6614,7 +7113,11 @@ export default function AdminPage() {
             }
 
             return (
-            <div className="bv-enter-stagger" style={{ borderTop: "1px solid var(--border)" }}>
+            // Cap the candidate list to ~8 rows and scroll INSIDE the box so the
+            // page itself never grows. Applies to every admin (org + Borivon).
+            // Row ≈ 71px → 8 rows ≈ 568px; clamp to viewport on short screens.
+            <div className="bv-enter-stagger bv-cand-scroll"
+              style={{ borderTop: "1px solid var(--border)", maxHeight: "min(568px, 70vh)", overflowY: "auto", overflowX: "hidden" }}>
               {visibleIds.map(uid => {
                 const allDocs    = grouped[uid] ?? [];
                 const pendingDocs = allDocs.filter(d => d.status === "pending");
@@ -7210,8 +7713,8 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* ── Signature request modal — inline render, no portal ── */}
-      {sigModal && (
+      {/* ── Signature request modal — inline render (hidden while sign/fill off) ── */}
+      {SIGN_FILL_ENABLED && sigModal && (
         <div data-bv-sigmodal="1" className="fixed inset-0 z-[2147483600] flex items-center justify-center p-3 sm:p-6"
           style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", position: "fixed", top: 0, left: 0, right: 0, bottom: 0 }}
           onClick={() => { setSigModal(null); setSigNote(""); setSigZones([]); setSigManualPdf(null); setSigAdminSig(null); setSigAdminWantSave(true); setSigOrgSig(null); setSigOrgWantSave(true); }}>

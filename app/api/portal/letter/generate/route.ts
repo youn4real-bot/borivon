@@ -6,6 +6,7 @@ import type { LetterData, LetterBrand } from "@/components/LetterDocument";
 import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { registerPdfFonts } from "@/lib/pdf-fonts";
+import { VISA_RECIPIENT_LINES, VISA_SUBJECT } from "@/lib/visaLetter";
 
 registerPdfFonts();
 
@@ -69,35 +70,47 @@ export async function POST(req: NextRequest) {
       return Response.json({ error: "Payload too large" }, { status: 413 });
     }
     const data: LetterData = JSON.parse(rawBody);
+    const isVisa = req.nextUrl.searchParams.get("variant") === "visa";
 
-    // Resolve the recipient (employer) SERVER-SIDE from the candidate's own
-    // admin assignment — never trust client-sent recipient lines, and refuse
-    // to generate until an employer is assigned. Canonical: employer_id.
-    const db = getServiceSupabase();
-    const { data: prof } = await db
-      .from("candidate_profiles")
-      .select("employer_id")
-      .eq("user_id", targetUid)
-      .maybeSingle();
-    const employerId = (prof as { employer_id?: string } | null)?.employer_id ?? null;
+    if (isVisa) {
+      // Anschreiben Visum: recipient is ALWAYS the German Embassy in Rabat and
+      // the Betreff is the fixed visa title — both server-authoritative, never
+      // from the client, and no employer assignment required. The body / sender
+      // / closing come from the candidate's own visa letter.
+      data.recipientLines = VISA_RECIPIENT_LINES;
+      data.subject = VISA_SUBJECT;
+      data.subjectCenter = true;   // visa Betreff is centered (permanent)
+      data.signSpace = true;       // printed & hand-signed → leave a signature gap above the name
+    } else {
+      // Essentials letter: recipient (employer) resolved SERVER-SIDE from the
+      // candidate's admin assignment — never trust client recipient lines, and
+      // refuse to generate until an employer is assigned. Canonical: employer_id.
+      const db = getServiceSupabase();
+      const { data: prof } = await db
+        .from("candidate_profiles")
+        .select("employer_id")
+        .eq("user_id", targetUid)
+        .maybeSingle();
+      const employerId = (prof as { employer_id?: string } | null)?.employer_id ?? null;
 
-    if (!employerId) {
-      return Response.json({ error: "No employer assigned" }, { status: 400 });
+      if (!employerId) {
+        return Response.json({ error: "No employer assigned" }, { status: 400 });
+      }
+      const { data: emp } = await db
+        .from("employers")
+        .select("name, address_lines")
+        .eq("id", employerId)
+        .maybeSingle();
+      const lines = (emp as { address_lines?: string[] } | null)?.address_lines;
+      const employerName = (emp as { name?: string } | null)?.name ?? "";
+      if (!lines || lines.length === 0) {
+        return Response.json({ error: "Employer not found" }, { status: 400 });
+      }
+      data.recipientLines = lines;
+      // Server-authoritative Betreff: prefix + real employer name (can't be
+      // spoofed by the client, and works for any future non-UKSH employer).
+      data.subject = `Betreff: Motivationsschreiben für eine Tätigkeit als Pflegekraft am ${employerName}`.trim();
     }
-    const { data: emp } = await db
-      .from("employers")
-      .select("name, address_lines")
-      .eq("id", employerId)
-      .maybeSingle();
-    const lines = (emp as { address_lines?: string[] } | null)?.address_lines;
-    const employerName = (emp as { name?: string } | null)?.name ?? "";
-    if (!lines || lines.length === 0) {
-      return Response.json({ error: "Employer not found" }, { status: 400 });
-    }
-    data.recipientLines = lines;
-    // Server-authoritative Betreff: prefix + real employer name (can't be
-    // spoofed by the client, and works for any future non-UKSH employer).
-    data.subject = `Betreff: Motivationsschreiben für eine Tätigkeit als Pflegekraft am ${employerName}`.trim();
 
     const brand = await resolveBrand(targetUid);
 

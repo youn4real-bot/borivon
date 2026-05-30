@@ -3,6 +3,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser, ciEmail } from "@/lib/admin-auth";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 import { enforceRateLimit, enforceRateLimitDistributed } from "@/lib/rateLimit";
+import { serverBroadcast, ASSIGNMENTS_TOPIC } from "@/lib/serverBroadcast";
 
 type OrgRow = { id: string; name: string };
 
@@ -260,14 +261,47 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ code: stri
   // with the atomic claim and revive the double-redeem bug).
 
   if (type === "candidate") {
-    // Candidate invites grant platform access only — no org linking.
-    // Admin manually assigns candidates to orgs later from the admin panel.
     // Tag candidate with agency_id from the invite token (if any)
     if (inviteAgencyId) {
       await db.from("candidate_profiles").upsert(
         { user_id: auth.userId, agency_id: inviteAgencyId },
         { onConflict: "user_id" }
       );
+    }
+    // Org-scoped candidate invite (org admin's permanent link, or a supreme-
+    // generated org candidate token) → AUTO-ASSIGN to that org. Standalone HQ
+    // invites carry no org (org.id === "") and skip this entirely.
+    if (org.id) {
+      const { data: existingLink } = await db.from("candidate_organizations")
+        .select("status").eq("candidate_user_id", auth.userId).eq("org_id", org.id).maybeSingle();
+      if (!existingLink) {
+        // First org = auto-approved (their primary org); a later org = pending,
+        // so a shared link can't silently re-home an already-placed candidate.
+        const { count } = await db.from("candidate_organizations")
+          .select("org_id", { count: "exact", head: true })
+          .eq("candidate_user_id", auth.userId).eq("status", "approved");
+        const isFirst = (count ?? 0) === 0;
+        const status  = isFirst ? "approved" : "pending";
+        await db.from("candidate_organizations").insert({
+          candidate_user_id: auth.userId,
+          org_id: org.id,
+          status,
+          added_by: "self_signup",
+          approved_at: isFirst ? new Date().toISOString() : null,
+          approved_by: isFirst ? "auto" : null,
+        });
+        // Borivon HQ + the org admin both get the bell (admin_notifications is
+        // global; org admins are scoped to their candidates, now incl. this one).
+        try {
+          await db.from("admin_notifications").insert({
+            type: isFirst ? "org-join" : "org-request",
+            user_email: auth.email, user_name: auth.email,
+            doc_name: org.name, doc_type: status,
+          });
+        } catch { /* best-effort */ }
+        // Instant scoped refresh of any open admin bell.
+        await serverBroadcast(ASSIGNMENTS_TOPIC, "changed");
+      }
     }
     return NextResponse.json({ org, type, status: "joined" });
   }

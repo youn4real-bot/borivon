@@ -160,11 +160,11 @@ function derivePostAccent(isBorivonTeam: boolean, isOrgMember: boolean, verified
 
 function Avatar({ photo, name, size = 36, isBorivonTeam = false, tickColor = "default" }: {
   photo: string | null; name: string; size?: number; isBorivonTeam?: boolean;
-  tickColor?: "gold" | "black" | "red" | "default";
+  tickColor?: "gold" | "black" | "org" | "default";
 }) {
   const initials = name.split(" ").map(w => w[0]?.toUpperCase() ?? "").slice(0, 2).join("");
-  const borderColor = tickColor === "red" ? "var(--danger)" : tickColor === "gold" ? "var(--gold)" : "var(--border)";
-  if (tickColor === "black") return (
+  const borderColor = tickColor === "gold" ? "var(--gold)" : "var(--border)";
+  if (tickColor === "black" || tickColor === "org") return (
     <div className="flex-shrink-0 rounded-full"
       style={{ padding: 2, background: "linear-gradient(135deg,#4a4a4a 0%,#1c1c1e 40%,#000000 100%)", boxSizing: "content-box", alignSelf: "flex-start" }}>
       <div className="rounded-full overflow-hidden" style={{ width: size, height: size }}>

@@ -26,6 +26,7 @@ const t = {
     organizations: "Agencies",
     manageAdmins: "Manage admins",
     candidateProgress: "Candidate progress",
+    academyTeaching: "Academy — Teaching",
     myProfile: "My profile",
     joinOrganization: "Join agency",
     signOut: "Sign out",
@@ -52,6 +53,7 @@ const t = {
     organizations: "Agences",
     manageAdmins: "Gérer les admins",
     candidateProgress: "Progression candidats",
+    academyTeaching: "Académie — Enseignement",
     myProfile: "Mon profil",
     joinOrganization: "Rejoindre une agence",
     signOut: "Se déconnecter",
@@ -78,6 +80,7 @@ const t = {
     organizations: "Agenturen",
     manageAdmins: "Admins verwalten",
     candidateProgress: "Kandidaten-Fortschritt",
+    academyTeaching: "Akademie — Unterricht",
     myProfile: "Mein Profil",
     joinOrganization: "Agentur beitreten",
     signOut: "Abmelden",
@@ -107,6 +110,9 @@ type UserInfo = {
   email: string;
   initials: string;
   isAdmin: boolean;
+  /** True for an ORG-scoped admin (sub_admin tied to an organization). Used to
+   *  hide Borivon-HQ-only menu items (e.g. Candidate progress). */
+  isOrgAdmin: boolean;
   /** True when the user is an org member (invited via org invite URL). Hides "Join organization". */
   isOrgMember: boolean;
   /** Slug for the candidate's public profile page (only set for non-admins). */
@@ -192,6 +198,7 @@ export function ProfileIcon() {
       // Ask the server for our role; never rely on a NEXT_PUBLIC_ admin email
       // (that would leak the admin's identity into the public bundle).
       let isAdmin = false;
+      let isOrgAdmin = false;
       let isOrgMember = false;
       let isSuperAdmin = false;
       let orgName: string | null = null;
@@ -203,6 +210,7 @@ export function ProfileIcon() {
           });
           const json = await res.json().catch(() => ({ role: null }));
           isAdmin      = json.role === "admin" || json.role === "sub_admin";
+          isOrgAdmin   = json.role === "sub_admin" && json.isAgencyAdmin === true;
           isOrgMember  = json.role === "org_member";
           isSuperAdmin = json.isSuperAdmin === true;
           if (isOrgMember) orgName = json.orgName ?? null;
@@ -247,7 +255,7 @@ export function ProfileIcon() {
           if (j?.verified === true) verified = true;
         }
       }
-      if (!cancelled) setUser({ name, email: u.email ?? "", initials, isAdmin, isOrgMember, isSuperAdmin, profileSlug, photo, verified, orgName, paymentTier });
+      if (!cancelled) setUser({ name, email: u.email ?? "", initials, isAdmin, isOrgAdmin, isOrgMember, isSuperAdmin, profileSlug, photo, verified, orgName, paymentTier });
     };
     supabase.auth.getSession().then(({ data: { session } }) => apply(session));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => apply(session));
@@ -471,7 +479,7 @@ export function ProfileIcon() {
                 {user.name}
                 {user.verified && (
                   <VerifiedBadge verified size="xs" isAdmin={user.isAdmin} name={user.name}
-                    color={user.isAdmin ? "black" : user.isOrgMember ? "red" : "gold"} />
+                    color={user.isOrgAdmin ? "org" : user.isAdmin ? "black" : user.isOrgMember ? "org" : "gold"} />
                 )}
               </p>
               <p className="text-[11px] text-center truncate mt-0.5" style={{ color: "var(--w3)" }}>{user.email}</p>
@@ -492,7 +500,7 @@ export function ProfileIcon() {
                   {T.myProfile}
                 </button>
               )}
-              {user.isAdmin && (
+              {user.isAdmin && !user.isOrgAdmin && (
                 <button
                   onClick={() => { setOpen(false); router.push("/portal/admin/progress"); }}
                   className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
@@ -504,6 +512,22 @@ export function ProfileIcon() {
                     <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
                   </svg>
                   {T.candidateProgress}
+                </button>
+              )}
+              {/* Academy — Teaching. Visible to ALL admin roles (teacher == admin:
+                  supreme runs every cohort, org admin is scoped to their org). */}
+              {user.isAdmin && (
+                <button
+                  onClick={() => { setOpen(false); router.push("/portal/admin/academy"); }}
+                  className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
+                  style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "var(--bg2)"; e.currentTarget.style.color = "var(--w)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--w2)"; }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/>
+                  </svg>
+                  {T.academyTeaching}
                 </button>
               )}
               {/* Supreme-admin only — sub-admins must NOT see org CRUD /
@@ -842,7 +866,7 @@ export function ProfileIcon() {
                 {/* Name + verified + email */}
                 <p className="text-[15.5px] font-semibold tracking-tight inline-flex items-center gap-1.5" style={{ color: "var(--w)" }}>
                   {user.name}
-                  <VerifiedBadge verified size="xs" isAdmin={user.isAdmin} name={user.name} color={user.isAdmin ? "black" : user.isOrgMember ? "red" : "gold"} />
+                  <VerifiedBadge verified size="xs" isAdmin={user.isAdmin} name={user.name} color={user.isOrgAdmin ? "org" : user.isAdmin ? "black" : user.isOrgMember ? "org" : "gold"} />
                 </p>
                 <p className="text-[12px] mt-1" style={{ color: "var(--w3)" }}>{user.email}</p>
 

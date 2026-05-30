@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole } from "@/lib/admin-auth";
+import { serverBroadcast, ASSIGNMENTS_TOPIC } from "@/lib/serverBroadcast";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -76,6 +77,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   // via the /api/portal/me/organizations poll, and that surface is the
   // only signal. (Removed at user request 2026-05.)
 
+  // Ping open admin bells so the org admin's SCOPED notification list picks
+  // up this candidate instantly (instead of waiting for the 15s poll).
+  await serverBroadcast(ASSIGNMENTS_TOPIC, "changed");
+
   return NextResponse.json({ success: true });
 }
 
@@ -102,5 +107,10 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
     .delete()
     .eq("org_id", id)
     .eq("candidate_user_id", candidateUserId);
+
+  // Ping open admin bells — the org admin's scoped list drops this candidate
+  // (and everything tied to them) immediately, not on the next 15s poll.
+  await serverBroadcast(ASSIGNMENTS_TOPIC, "changed");
+
   return NextResponse.json({ success: true });
 }

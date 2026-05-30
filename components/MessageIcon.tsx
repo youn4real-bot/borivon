@@ -529,8 +529,8 @@ function ThreadModal({
   isAdminOther?: boolean;
   /** Actual photo URL for the other party (candidate photo or admin logo) */
   otherAvatarUrl?: string | null;
-  /** Override badge color for the other party (e.g. "red" for org admins) */
-  otherBadgeColor?: "gold" | "red" | "black";
+  /** Override badge color for the other party (e.g. "org" for org admins) */
+  otherBadgeColor?: "gold" | "org" | "black";
   /** Actual photo URL for the current user (candidate photo or admin logo) */
   ownAvatarUrl?: string | null;
 }) {
@@ -1126,7 +1126,7 @@ function AdminInbox({ accessToken }: { accessToken: string }) {
           otherAvatarUrl={activeThread.photoUrl ?? null}
           ownAvatarUrl={ownPhoto}
           verifiedOther={!!activeThread.verified}
-          otherBadgeColor={activeThread.isOrgMember ? "red" : "gold"}
+          otherBadgeColor={activeThread.isOrgMember ? "org" : "gold"}
         />
       )}
     </>
@@ -1173,7 +1173,7 @@ function ConversationList({
             <div className="flex items-center justify-between gap-2">
               <p className="text-[13px] font-semibold truncate inline-flex items-center gap-0.5" style={{ color: "var(--w)" }}>
                 {c.name}
-                <VerifiedBadge verified={!!c.verified} size="xs" color={c.isOrgMember ? "red" : "gold"} />
+                <VerifiedBadge verified={!!c.verified} size="xs" color={c.isOrgMember ? "org" : "gold"} />
               </p>
               <span className="text-[9.5px] flex-shrink-0" style={{ color: "var(--w3)" }}>{relativeTime(c.lastAt, lang)}</span>
             </div>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole } from "@/lib/admin-auth";
+import { serverBroadcast, ASSIGNMENTS_TOPIC } from "@/lib/serverBroadcast";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -71,6 +72,8 @@ export async function POST(req: NextRequest) {
     console.error("[org-requests POST] failed:", error);
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
+  // Approved link → org admin gains this candidate instantly.
+  await serverBroadcast(ASSIGNMENTS_TOPIC, "changed");
   return NextResponse.json({ success: true });
 }
 
@@ -100,5 +103,7 @@ export async function DELETE(req: NextRequest) {
     .eq("candidate_user_id", candidateUserId)
     .eq("org_id", orgId)
     .eq("status", "pending");
+  // Rejected → never approved, but ping anyway so any stale scoped view clears.
+  await serverBroadcast(ASSIGNMENTS_TOPIC, "changed");
   return NextResponse.json({ success: true });
 }

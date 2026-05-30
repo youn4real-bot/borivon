@@ -1,9 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/admin-auth";
+import { enforceRateLimit } from "@/lib/rateLimit";
 
 export async function GET(req: NextRequest) {
   const auth = await requireUser(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  // Throttle: each call burns the shared GIPHY API quota.
+  const rl = enforceRateLimit(req, "feed-gifs", { limit: 30, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ gifs: [] }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const { searchParams } = new URL(req.url);
   const q = (searchParams.get("q") ?? "").trim();

@@ -24,8 +24,8 @@ const VB_T = {
     tooltip: "Vérifié",
     title: "Compte vérifié",
     body: "Ce candidat a souscrit au plan Borivon Premium.",
-    memberTitle: "Membre vérifié",
-    memberBody: "Ce compte est un membre vérifié d'une agence partenaire de Borivon.",
+    orgTitle: "Compte Officiel d'Organisation",
+    orgBody: "",
     adminTitle: "Youness Taoufiq",
     adminBody: "Compte officiel Borivon.",
     close: "Fermer",
@@ -34,8 +34,8 @@ const VB_T = {
     tooltip: "Verified",
     title: "Verified account",
     body: "This candidate is on the Borivon Premium plan.",
-    memberTitle: "Verified agency member",
-    memberBody: "This account is a verified member of a Borivon partner agency.",
+    orgTitle: "Official Organization Account",
+    orgBody: "",
     adminTitle: "Youness Taoufiq",
     adminBody: "Official Borivon account.",
     close: "Close",
@@ -44,8 +44,8 @@ const VB_T = {
     tooltip: "Verifiziert",
     title: "Verifiziertes Konto",
     body: "Dieser Kandidat hat den Borivon-Premium-Plan.",
-    memberTitle: "Verifiziertes Agenturmitglied",
-    memberBody: "Dieses Konto ist ein verifiziertes Mitglied einer Borivon-Partneragentur.",
+    orgTitle: "Offizielles Organisationskonto",
+    orgBody: "",
     adminTitle: "Youness Taoufiq",
     adminBody: "Offizielles Borivon-Konto.",
     close: "Schließen",
@@ -65,10 +65,13 @@ export function VerifiedBadge({
   name?: string;
   /** Badge colour:
    *  "gold"  — verified candidate (default)
-   *  "red"   — org admin
-   *  "black" — supreme admin (Youness / Borivon)
+   *  "org"   — org admin (renders the BLACK tick; popup says "official
+   *            organization account" — never names the org). "red" is an
+   *            accepted alias kept only so old call-sites don't break; it now
+   *            behaves exactly like "org". The red tick is retired.
+   *  "black" — supreme admin / Borivon team (Youness / sub-admins)
    */
-  color?: "gold" | "red" | "black";
+  color?: "gold" | "red" | "org" | "black";
 }) {
   const { lang } = useLang();
   const t = VB_T[(lang as "fr" | "en" | "de") in VB_T ? (lang as "fr" | "en" | "de") : "en"];
@@ -76,8 +79,11 @@ export function VerifiedBadge({
 
   if (!verified) return null;
   const px = size === "xs" ? 14 : size === "md" ? 24 : 16;
-  const isBlack = color === "black";
-  const fillColor = isBlack ? "url(#bvBlackShine)" : color === "red" ? "#e03030" : "#c9a240";
+  // Org admins render the SAME black tick as the Borivon team — only the popup
+  // text differs ("official organization account"). "red" is a retired alias.
+  const isOrg = color === "org" || color === "red";
+  const isBlack = color === "black" || isOrg;
+  const fillColor = isBlack ? "url(#bvBlackShine)" : "#c9a240";
   const gradId = `bvBlackShine_${size}`;
 
   return (
@@ -150,11 +156,11 @@ export function VerifiedBadge({
             </div>
 
             <p className="text-[15px] font-semibold tracking-tight mb-2" style={{ color: "var(--w)" }}>
-              {isAdmin ? (name?.trim() || t.adminTitle) : color === "red" ? t.memberTitle : t.title}
+              {isOrg ? t.orgTitle : isAdmin ? (name?.trim() || t.adminTitle) : t.title}
             </p>
-            <p className="text-[12.5px] leading-relaxed mb-5" style={{ color: "var(--w3)" }}>
-              {isAdmin ? t.adminBody : color === "red" ? t.memberBody : t.body}
-            </p>
+            {(() => { const body = isOrg ? t.orgBody : isAdmin ? t.adminBody : t.body; return body ? (
+            <p className="text-[12.5px] leading-relaxed mb-5" style={{ color: "var(--w3)" }}>{body}</p>
+            ) : <div style={{ height: 8 }} />; })()}
             <button onClick={() => setOpen(false)}
               className="inline-flex items-center px-5 py-1.5 text-[12px] font-semibold rounded-full"
               style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }}>

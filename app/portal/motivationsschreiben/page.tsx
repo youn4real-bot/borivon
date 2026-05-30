@@ -24,13 +24,16 @@ import { PageLoader, AutosaveIndicator, Spinner } from "@/components/ui/states";
 import { PdfViewer } from "@/components/PdfViewer";
 import {
   ArrowLeft, Lock, FileText, Upload, X as XIcon, Download,
-  CheckCircle2, AlertTriangle, FilePen, Hourglass,
+  CheckCircle2, AlertTriangle, FilePen, Hourglass, Copy, Check,
 } from "lucide-react";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { CvCollabPresence, type CollabPeer } from "@/components/CvCollabPresence";
 import { LetterCollabCaret } from "@/components/LetterCollabCaret";
+import { sanitizeLetterHtml } from "@/lib/sanitizeHtml";
 import { scrubPresencePayload, fullPresencePayload, isAdminRole } from "@/lib/collabPresence";
 
+
+import { VISA_RECIPIENT_LINES, VISA_SUBJECT, VISA_PROMPT } from "@/lib/visaLetter";
 
 const BETREFF_PREFIX = "Betreff: Motivationsschreiben für eine Tätigkeit als Pflegekraft am";
 
@@ -82,7 +85,7 @@ const affBtnStyle: React.CSSProperties = {
 };
 
 function Locked({ lines, align = "left", bold = false, lockable = false, onLock, lockLead = false, waitable = false, onWait, wide = false }: {
-  lines: string[]; align?: "left" | "right"; bold?: boolean;
+  lines: string[]; align?: "left" | "right" | "center"; bold?: boolean;
   lockable?: boolean; onLock?: () => void; lockLead?: boolean;
   waitable?: boolean; onWait?: () => void;
   /** Full-width line (no 50% column cap). Use for the Betreff / salutation
@@ -115,7 +118,7 @@ function Locked({ lines, align = "left", bold = false, lockable = false, onLock,
         return (
           <div key={i} style={{
             display: "flex", alignItems: "flex-start", gap: 8,
-            justifyContent: align === "right" ? "flex-end" : "flex-start",
+            justifyContent: align === "right" ? "flex-end" : align === "center" ? "center" : "flex-start",
           }}>
             {showLock && lockLead && lockBtn}
             <span style={{
@@ -128,7 +131,7 @@ function Locked({ lines, align = "left", bold = false, lockable = false, onLock,
               // then a near-empty second line) once a long employer name
               // like "UKSH Kiel" was appended.
               maxWidth: wide ? "100%" : "50%",
-              textAlign: align === "right" ? "right" : "left",
+              textAlign: align === "right" ? "right" : align === "center" ? "center" : "left",
               // Wrap whole words to the next line — no hyphenation, no
               // mid-word splits ("samst-ag" style). A space-separated
               // address just wraps naturally; an unusually long single
@@ -371,6 +374,20 @@ function MotivationsschreibenPageInner() {
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(c) ? c : null;
   })();
 
+  // ?variant=visa → the Anschreiben Visum: SAME builder + functions, but its
+  // own separate body, a fixed Embassy-Rabat recipient and a fixed Betreff.
+  const visa = (params?.get("variant") === "visa");
+  // Query string for the body + generate routes — carries the candidate id
+  // (admin mode) AND the variant so the visa letter reads/writes/generates its
+  // own content, never the Essentials one.
+  const letterApiQs = (() => {
+    const p: string[] = [];
+    if (adminCandidateId) p.push(`userId=${encodeURIComponent(adminCandidateId)}`);
+    if (visa) p.push("variant=visa");
+    return p.length ? `?${p.join("&")}` : "";
+  })();
+  const roomSuffix = visa ? ":visa" : "";
+
   const [loading, setLoading] = useState(true);
   const [userId,  setUserId]  = useState<string | null>(null);
   const [person,  setPerson]  = useState<Person | null>(null);
@@ -394,6 +411,15 @@ function MotivationsschreibenPageInner() {
   const [uploadErr, setUploadErr] = useState("");
   const [showPreview, setShowPreview] = useState(false);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
+  // Borivon-internal "Copy prompt" tool (visa Motivationsschreiben only):
+  // visible to the supreme admin + Borivon HQ sub-admins, never candidates or
+  // org-scoped admins (isAgencyAdmin).
+  const [isBorivonAdmin, setIsBorivonAdmin] = useState(false);
+  const [promptCopied, setPromptCopied] = useState(false);
+  // CV text (from cv_draft) injected into the copied prompt so the AI gets the
+  // CV in ONE copy — no PDF download. Prefetched so the click-to-copy stays a
+  // synchronous clipboard write (Safari blocks writes after an awaited fetch).
+  const [cvText, setCvText] = useState<string | null>(null);
 
   const setPdfUrl = useCallback((next: string | null) => {
     setPdfUrlRaw(prev => {
@@ -401,6 +427,26 @@ function MotivationsschreibenPageInner() {
       return next;
     });
   }, []);
+
+  // Prefetch the candidate's CV text (from cv_draft, any doc state) for the
+  // "Copy prompt" button. Borivon admins + visa only — gated like the button.
+  useEffect(() => {
+    if (!visa || !isBorivonAdmin || !authToken) return;
+    const cid = adminCandidateId ?? userId;
+    if (!cid) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const qs = adminCandidateId ? `?candidateId=${encodeURIComponent(adminCandidateId)}` : "";
+        const r = await fetch(`/api/portal/cv/text${qs}`, { headers: { Authorization: `Bearer ${authToken}` } });
+        if (r.ok) {
+          const j = await r.json() as { text?: string };
+          if (!cancelled) setCvText(j.text ?? "");
+        }
+      } catch { /* leave cvText null → button copies the prompt with the placeholder */ }
+    })();
+    return () => { cancelled = true; };
+  }, [visa, isBorivonAdmin, authToken, adminCandidateId, userId]);
 
   const editorRef = useRef<HTMLDivElement>(null);
   const lastGoodHTML = useRef<string>("");
@@ -414,7 +460,7 @@ function MotivationsschreibenPageInner() {
   // this ref into the editor once it's in the DOM.
   const pendingBodyRef = useRef<string | null>(null);
 
-  const draftKey = useCallback((uid: string) => `bv_letter_body_${uid}`, []);
+  const draftKey = useCallback((uid: string) => `bv_letter_body_${uid}${visa ? "_visa" : ""}`, [visa]);
 
   // Effective candidate whose letter we're editing. For the candidate
   // viewing their own page, this equals their session user id. For an
@@ -510,7 +556,7 @@ function MotivationsschreibenPageInner() {
     // session restore from localStorage (same bug we fixed for cv-collab).
     if (authToken) { try { supabase.realtime.setAuth(authToken); } catch { /* offline */ } }
     const ch = supabase
-      .channel(`letter-profile-${room}`)
+      .channel(`letter-profile-${room}${roomSuffix}`)
       .on("postgres_changes",
         { event: "UPDATE", schema: "public", table: "candidate_profiles", filter: `user_id=eq.${room}` },
         () => { void pull(); },
@@ -607,8 +653,7 @@ function MotivationsschreibenPageInner() {
         const lsSaved = localStorage.getItem(lsKey) ?? "";
         let serverBody: string | null = null;
         try {
-          const qs = adminCandidateId ? `?userId=${encodeURIComponent(adminCandidateId)}` : "";
-          const r = await fetch(`/api/portal/letter-body${qs}`, {
+          const r = await fetch(`/api/portal/letter-body${letterApiQs}`, {
             headers: { Authorization: `Bearer ${session.access_token}` },
             cache: "no-store",
           });
@@ -662,7 +707,7 @@ function MotivationsschreibenPageInner() {
     if (loading) return;
     const el = editorRef.current;
     if (!el || pendingBodyRef.current === null) return;
-    el.innerHTML = pendingBodyRef.current;
+    el.innerHTML = sanitizeLetterHtml(pendingBodyRef.current); // XSS: body may be admin-rendered (LAW #37)
     lastGoodHTML.current = el.innerHTML;
     lastBroadcastSig.current = el.innerHTML;
     setWordCount(countWords(el.textContent ?? ""));
@@ -680,15 +725,20 @@ function MotivationsschreibenPageInner() {
     (async () => {
       // 1. Resolve role.
       let role: "admin" | "sub_admin" | "candidate" = "candidate";
+      // Copy-prompt gate: supreme admin + Borivon HQ sub-admins only. Org-scoped
+      // admins (isAgencyAdmin) and candidates are excluded.
+      let borivonAdmin = false;
       try {
         const r = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${authToken}` } });
         if (r.ok) {
-          const j = await r.json() as { role?: string };
+          const j = await r.json() as { role?: string; isAgencyAdmin?: boolean };
           if (j.role === "admin" || j.role === "sub_admin") role = j.role;
+          borivonAdmin = j.role === "admin" || (j.role === "sub_admin" && !j.isAgencyAdmin);
         }
       } catch { /* default to candidate */ }
       if (cancelled) return;
       setViewerRole(role);
+      setIsBorivonAdmin(borivonAdmin);
 
       // 2. Resolve photo + displayName.
       let photo: string | null = null;
@@ -747,7 +797,7 @@ function MotivationsschreibenPageInner() {
     // Keep the websocket auth fresh after session restores.
     try { supabase.realtime.setAuth(authToken); } catch { /* offline */ }
 
-    const ch = supabase.channel(`letter-collab-${target}`, {
+    const ch = supabase.channel(`letter-collab-${target}${roomSuffix}`, {
       config: {
         presence:  { key: selfPeer.id },
         broadcast: { self: false, ack: false },
@@ -820,8 +870,8 @@ function MotivationsschreibenPageInner() {
         savedOffset = range.toString().length;
       }
       applyingRemoteRef.current = true;
-      el.innerHTML = p.html;
-      lastGoodHTML.current = p.html;
+      el.innerHTML = sanitizeLetterHtml(p.html); // XSS: peer HTML never hit the server — sanitize at the render sink
+      lastGoodHTML.current = el.innerHTML;
       setWordCount(countWords(el.textContent ?? ""));
       // CRITICAL: innerHTML assignment does NOT fire an `input` event,
       // so the lazy clear in handleBodyInput never runs → next local
@@ -861,7 +911,7 @@ function MotivationsschreibenPageInner() {
     // Admin side-channel — full-identity presence among admins.
     const isAdminSelf = isAdminRole(selfPeer.role);
     const adminCh = isAdminSelf
-      ? supabase.channel(`letter-collab-admins-${target}`, {
+      ? supabase.channel(`letter-collab-admins-${target}${roomSuffix}`, {
           config: { presence: { key: selfPeer.id }, broadcast: { self: false, ack: false } },
         })
       : null;
@@ -925,9 +975,8 @@ function MotivationsschreibenPageInner() {
   // even as the tab is being closed/refreshed.
   const putLetterBody = React.useCallback(async (html: string, keepalive = false) => {
     if (!authToken) return;
-    const qs = adminCandidateId ? `?userId=${encodeURIComponent(adminCandidateId)}` : "";
     try {
-      const r = await fetch(`/api/portal/letter-body${qs}`, {
+      const r = await fetch(`/api/portal/letter-body${letterApiQs}`, {
         method:  "PUT",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
         body:    JSON.stringify({ body: html }),
@@ -949,7 +998,7 @@ function MotivationsschreibenPageInner() {
       setSaveError(true);
       console.error("[letter-body PUT] error:", e);
     }
-  }, [authToken, adminCandidateId]);
+  }, [authToken, letterApiQs]);
 
   function scheduleSave() {
     const t = adminCandidateId ?? userId;
@@ -1081,7 +1130,8 @@ function MotivationsschreibenPageInner() {
     const personalMissing =
       !person.firstName || !person.lastName || !person.street ||
       !person.postal || !person.city || !person.phone;
-    const employerMissing = !campusAssigned;
+    // Visa letter goes to the Embassy (fixed recipient) → no employer needed.
+    const employerMissing = visa ? false : !campusAssigned;
     const L = (de: string, fr: string, en: string) =>
       lang === "de" ? de : lang === "fr" ? fr : en;
     if (personalMissing || employerMissing) {
@@ -1126,9 +1176,9 @@ function MotivationsschreibenPageInner() {
         senderPlace:  [person.postal, person.city, person.country].filter(Boolean).join(", "),
         senderPhone:  person.phone,
         senderEmail:  person.email,
-        recipientLines: employerLines, // server re-resolves authoritatively
+        recipientLines: visa ? VISA_RECIPIENT_LINES : employerLines, // server re-resolves authoritatively
         dateLine: `${person.city || ""}, den ${todayDot()}`.replace(/^, /, ""),
-        subject: `${BETREFF_PREFIX} ${employerName}`.trim(), // server re-resolves authoritatively
+        subject: visa ? VISA_SUBJECT : `${BETREFF_PREFIX} ${employerName}`.trim(), // server re-resolves authoritatively
         salutation: "Sehr geehrte Damen und Herren,",
         bodyParagraphs,
         closingName: [person.firstName, person.lastName].filter(Boolean).join(" "),
@@ -1139,8 +1189,7 @@ function MotivationsschreibenPageInner() {
       const { data: { session: freshSess } } = await supabase.auth.getSession();
       const tok = freshSess?.access_token ?? authToken;
       if (freshSess?.access_token && freshSess.access_token !== authToken) setAuthToken(freshSess.access_token);
-      const genQs = adminCandidateId ? `?userId=${encodeURIComponent(adminCandidateId)}` : "";
-      const res = await fetch(`/api/portal/letter/generate${genQs}`, {
+      const res = await fetch(`/api/portal/letter/generate${letterApiQs}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${tok}` },
         body: JSON.stringify(payload),
@@ -1165,12 +1214,17 @@ function MotivationsschreibenPageInner() {
     setUploading(true); setUploadErr("");
     try {
       const fn = [person.firstName, person.lastName].filter(Boolean).join("_").toLowerCase() || "kandidat";
-      const file = new File([pdfBlob], `motivationsschreiben_${fn}.pdf`, { type: "application/pdf" });
+      const file = new File([pdfBlob], `motivationsschreiben${visa ? "_visum" : ""}_${fn}.pdf`, { type: "application/pdf" });
       const form = new FormData();
       form.append("file", file);
-      form.append("fileType", "Anschreiben");
-      form.append("fileKey", "letter");
+      // Visa → its OWN doc (letter_visa); else the Essentials letter. The internal
+      // file_type tags stay DISTINCT ("Motivationsschreiben Visum" vs "Anschreiben")
+      // so the label→fileKey reverse lookup can tell the two apart — BOTH still
+      // DISPLAY as "Motivationsschreiben" via pTypeLetter / pTypeLetterVisa.
+      form.append("fileType", visa ? "Motivationsschreiben Visum" : "Anschreiben");
+      form.append("fileKey", visa ? "letter_visa" : "letter");
       form.append("userId", userId);
+      if (visa && adminCandidateId) form.append("forUserId", adminCandidateId);
       form.append("firstName", person.firstName);
       form.append("lastName", person.lastName);
       const { data: { session: freshSess } } = await supabase.auth.getSession();
@@ -1201,7 +1255,8 @@ function MotivationsschreibenPageInner() {
                       .filter(Boolean).join(", ") || "—";
   const placeLn   = [person.postal, person.city, person.country].filter(Boolean).join(", ") || "—";
   const dateLn    = `${person.city || "—"}, den ${todayDot()}`;
-  const recipient = employerLines;
+  // Visa letter → fixed Embassy-Rabat recipient (no employer); else the assigned employer.
+  const recipient = visa ? VISA_RECIPIENT_LINES : employerLines;
 
   return (
     <>
@@ -1238,6 +1293,36 @@ function MotivationsschreibenPageInner() {
                 <ArrowLeft size={13} strokeWidth={1.8} /> {t.back}
               </button>
               <div className="flex items-center gap-2">
+                {visa && isBorivonAdmin && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      // Inject the candidate's CV text into the prompt's placeholder
+                      // so it's all one copy. Falls back to the placeholder if the CV
+                      // isn't built yet (cvText empty).
+                      const cv = (cvText ?? "").trim();
+                      const full = cv
+                        ? VISA_PROMPT.replace("[CANDIDATE PASTES CV HERE]", cv)
+                        : VISA_PROMPT;
+                      try {
+                        await navigator.clipboard.writeText(full);
+                        setPromptCopied(true);
+                        setTimeout(() => setPromptCopied(false), 2000);
+                      } catch { /* clipboard unavailable */ }
+                    }}
+                    title={cvText && cvText.trim()
+                      ? "Copy the AI prompt WITH the candidate's CV (Borivon only)"
+                      : "Copy the AI prompt — CV not built yet, paste it manually (Borivon only)"}
+                    className="bv-row-hover inline-flex items-center gap-1.5 text-[12px] font-semibold px-2.5 py-1 rounded-full transition-colors"
+                    style={{
+                      color: promptCopied ? "var(--success)" : "var(--gold)",
+                      border: `1px solid ${promptCopied ? "var(--success-border, rgba(48,209,88,0.35))" : "var(--border-gold, rgba(212,175,55,0.4))"}`,
+                    }}>
+                    {promptCopied
+                      ? <><Check size={13} strokeWidth={2} /> {lang === "de" ? "Kopiert!" : lang === "fr" ? "Copié !" : "Copied!"}</>
+                      : <><Copy size={13} strokeWidth={1.8} /> {lang === "de" ? "Prompt kopieren" : lang === "fr" ? "Copier le prompt" : "Copy prompt"}</>}
+                  </button>
+                )}
                 {(() => {
                   const atMax  = wordCount >= MAX_WORDS;
                   const tooShort = wordCount < MIN_RECOMMENDED;
@@ -1296,8 +1381,8 @@ function MotivationsschreibenPageInner() {
               person.email || "—",
             ]} />
 
-            <div style={{ marginTop: 28 }}>
-              {campusAssigned ? (
+            <div style={{ marginTop: 26 }}>
+              {visa || campusAssigned ? (
                 <Locked align="left" lines={[...recipient]} />
               ) : (
                 <Locked align="left" waitable onWait={() => setEmployerPopupOpen(true)}
@@ -1305,12 +1390,14 @@ function MotivationsschreibenPageInner() {
               )}
             </div>
 
-            <div style={{ marginTop: 24 }}>
+            <div style={{ marginTop: 26 }}>
               <Locked align="right" lockable lockLead onLock={() => setLockedPopupOpen(true)} lines={[dateLn]} />
             </div>
 
-            <div style={{ marginTop: 28 }}>
-              {campusAssigned ? (
+            <div style={{ marginTop: 26 }}>
+              {visa ? (
+                <Locked align="center" wide lines={[VISA_SUBJECT]} bold />
+              ) : campusAssigned ? (
                 <Locked align="left" wide lines={[`${BETREFF_PREFIX} ${employerName}`]} bold />
               ) : (
                 <Locked align="left" wide bold waitable onWait={() => setEmployerPopupOpen(true)}
@@ -1318,7 +1405,7 @@ function MotivationsschreibenPageInner() {
               )}
             </div>
 
-            <div style={{ marginTop: 20 }}>
+            <div style={{ marginTop: 18 }}>
               <Locked align="left" wide lines={["Sehr geehrte Damen und Herren,"]} />
             </div>
 
@@ -1327,9 +1414,11 @@ function MotivationsschreibenPageInner() {
               onInput={handleBodyInput} onPaste={handlePaste} spellCheck
               style={{ marginTop: 18, minHeight: "200px" }} />
 
-            <div style={{ marginTop: 24 }}>
-              <Locked align="left" wide lockable onLock={() => setLockedPopupOpen(true)}
-                lines={["Mit freundlichen Grüßen", fullName]} />
+            <div style={{ marginTop: 26 }}>
+              <Locked align="left" wide lines={["Mit freundlichen Grüßen"]} />
+              {/* Signature room — the visa letter is printed and hand-signed by the candidate. */}
+              <div aria-hidden style={{ height: visa ? 52 : 6 }} />
+              <Locked align="left" wide lockable onLock={() => setLockedPopupOpen(true)} lines={[fullName]} />
             </div>
 
           </div>

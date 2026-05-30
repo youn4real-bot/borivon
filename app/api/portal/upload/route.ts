@@ -92,10 +92,29 @@ const FILE_KEY_MAP: Record<string, { name: string; suffix: string }> = {
   // ── Essentials (no suffix) ────────────────────────────────────────────────
   id:                    { name: "reisepass",          suffix: ""         },
   langcert:              { name: "b2_sprachzertifikat",suffix: ""         },
-  letter:                { name: "anschreiben",        suffix: ""         },
+  letter:                { name: "motivationsschreiben", suffix: ""       },
+  // Motivation letter for the Visum/Botschaft file (its own content).
+  letter_visa:           { name: "motivationsschreiben", suffix: "visum"  },
   // The single Lebenslauf box. fileKey is "cv_de" for historical reasons;
   // there is no separate non-German CV slot in the portal.
   cv_de:                 { name: "lebenslauf",         suffix: ""         },
+  // Visa CV — the SAME CV with no logo/footer (Visum category). Auto-generated
+  // alongside cv_de so the two always match.
+  cv_visa:               { name: "lebenslauf",         suffix: "visum"    },
+
+  // ── Visum permanent document boxes (plain upload/download) ────────────────
+  ezb:                     { name: "ezb",                     suffix: "" },
+  zusatzblatt_a:           { name: "zusatzblatt_a",           suffix: "" },
+  defizitbescheid:         { name: "defizitbescheid",         suffix: "" },
+  videx:                   { name: "videx",                   suffix: "" },
+  bildungsplan:            { name: "bildungsplan",            suffix: "" },
+  vorabzustimmung:         { name: "vorabzustimmung",         suffix: "" },
+  arbeitsvertrag:          { name: "arbeitsvertrag",          suffix: "" },
+  mawista:                 { name: "mawista",                 suffix: "" },
+  versicherung:            { name: "versicherung",            suffix: "" },
+  tls_rechnung:            { name: "tls_rechnung",            suffix: "" },
+  tls_bestaetigungstermin: { name: "tls_bestaetigungstermin", suffix: "" },
+  berufserfahrung_visum:   { name: "berufserfahrung",         suffix: "" },
 
   // ── Qualifications (original / uebersetzt pairs) ──────────────────────────
   diploma:               { name: "diplom",                 suffix: "original"   },
@@ -1290,7 +1309,9 @@ export async function POST(req: NextRequest) {
   // FILE alone is not a "submission" — the admin should only be pinged once
   // the candidate also submits the extracted passport DATA. That admin
   // notification is fired from /api/portal/passport on the explicit submit.
-  if (!requesterIsAdmin && fileKey !== "id") {
+  // cv_visa / letter_visa are auto-generated twins uploaded in the same save as
+  // their Essentials original — they must NOT fire their own admin notification.
+  if (!requesterIsAdmin && fileKey !== "id" && fileKey !== "cv_visa" && fileKey !== "letter_visa") {
     const { error: notifErr } = await db.from("admin_notifications").insert({
       type: "upload", user_name: fullName, user_email: userEmail,
       doc_type: notifDocType, doc_name: structuredName,

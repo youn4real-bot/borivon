@@ -6,6 +6,7 @@ import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 import { dlTokenUserId } from "@/lib/dlToken";
 import { r2GetObject } from "@/lib/r2";
+import { isPassportFileType } from "@/lib/passportFile";
 
 function getDriveClient() {
   const auth = new google.auth.GoogleAuth({
@@ -38,16 +39,16 @@ async function resolveFileMeta(
   db: ReturnType<typeof getServiceSupabase>,
   driveId: string | null,
   docId: string | null,
-): Promise<{ fileId: string | null; rotation: number; r2Key: string | null }> {
+): Promise<{ fileId: string | null; rotation: number; r2Key: string | null; fileType: string | null }> {
   const { data } = await db
     .from("documents")
-    .select("drive_file_id, rotation, r2_key")
+    .select("drive_file_id, rotation, r2_key, file_type")
     .eq(driveId ? "drive_file_id" : "id", driveId ?? docId!)
     .maybeSingle();
-  if (!data) return { fileId: driveId, rotation: 0, r2Key: null };
-  const row = data as { drive_file_id: string | null; rotation: number | null; r2_key: string | null };
+  if (!data) return { fileId: driveId, rotation: 0, r2Key: null, fileType: null };
+  const row = data as { drive_file_id: string | null; rotation: number | null; r2_key: string | null; file_type: string | null };
   const rot = ((row.rotation ?? 0) % 360 + 360) % 360;
-  return { fileId: driveId ?? row.drive_file_id ?? null, rotation: rot, r2Key: row.r2_key ?? null };
+  return { fileId: driveId ?? row.drive_file_id ?? null, rotation: rot, r2Key: row.r2_key ?? null, fileType: row.file_type ?? null };
 }
 
 async function isAuthorised(
@@ -121,6 +122,13 @@ export async function GET(req: NextRequest) {
   ]);
   if ((!origMeta.fileId && !origMeta.r2Key) || (!transMeta.fileId && !transMeta.r2Key))
     return new NextResponse("File not found", { status: 404 });
+
+  // LAW #39: passport scans must NEVER go through pdf-lib load()+save() — it
+  // silently drops MRZ/VIZ content streams. Merge is only ever for a
+  // qualification original/translation pair; passports have no translation
+  // counterpart, so refuse outright rather than corrupt the most sensitive doc.
+  if (isPassportFileType(origMeta.fileType) || isPassportFileType(transMeta.fileType))
+    return new NextResponse("Passport documents cannot be merged", { status: 400 });
 
   // R2 first (free egress, no Drive throttle); fall back to Drive.
   const loadBytes = async (m: { fileId: string | null; r2Key: string | null }): Promise<Buffer> => {

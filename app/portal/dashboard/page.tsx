@@ -19,11 +19,11 @@ import {
 } from "@/components/PortalIcons";
 import { X as XIcon, Download, Upload, RefreshCw, Info, ChevronDown } from "lucide-react";
 import { IosPdfFrame } from "@/components/IosPdfFrame";
+import { EmbedPdfViewer } from "@/components/EmbedPdfViewer";
 import { isIOSDevice } from "@/lib/platform";
 import { triggerIosDownload } from "@/lib/iosDownload";
 import { useDlToken, withDlt } from "@/lib/dlClient";
 import { flushSync } from "react-dom";
-import { PdfViewer } from "@/components/PdfViewer";
 import { PdfFieldFill } from "@/components/PdfFieldFill";
 import { embedFields } from "@/lib/pdfFieldEmbed";
 import { fillAcroFormFields, type BindingId } from "@/lib/pdfAcroFormFill";
@@ -42,6 +42,7 @@ import { PaymentCelebration } from "@/components/PaymentCelebration";
 import { PortalTopNav } from "@/components/PortalTopNav";
 import { PendingSignatures } from "@/components/PendingSignatures";
 import { PdfSignModal, type SignRequestFull } from "@/components/PdfSignModal";
+import { SIGN_FILL_ENABLED } from "@/lib/features";
 
 // Onboarding tour is shown at most once per user (gated by a localStorage
 // flag). Lazy-load so returning users don't pay for it.
@@ -89,7 +90,7 @@ const JOURNEY_STAGES = [
   { key: "visum"       as const, kind: "embassy"      as PhaseKind },
   { key: "reise"       as const, kind: "flight"      as PhaseKind },
   { key: "integration" as const, kind: "integration" as PhaseKind },
-  { key: "start"       as const, kind: "start"       as PhaseKind },
+  // "Start" stage removed from the rail (to be rebuilt later).
 ];
 
 function isJourneyUnlocked(stage: Exclude<ViewMode,"docs">, p: Pipeline | null): boolean {
@@ -128,6 +129,9 @@ type Doc = {
   status: string;
   feedback: string | null;
   drive_file_id: string | null;
+  // Synthetic docs (e.g. the no-logo Visa CV) carry a render URL instead of a
+  // stored file — the preview fetch + download use it instead of /api/portal/file.
+  __renderUrl?: string;
 };
 
 const ALLOWED_PDF_ONLY = ["application/pdf"];
@@ -217,12 +221,14 @@ export default function DashboardPage() {
       items: dynamicSlots.bea.map(s => ({
         key: s.id, label: s.label, hint: "", category_id: s.category_id ?? null, position: s.position,
         ...(s.instructions ? { instructions: s.instructions } : {}),
-        ...(s.form_fields?.length ? { form_fields: s.form_fields } : {}),
+        // Sign/fill hidden for now (SIGN_FILL_ENABLED) → drop form fields + sig
+        // zone so the slot is a plain upload box.
+        ...(SIGN_FILL_ENABLED && s.form_fields?.length ? { form_fields: s.form_fields } : {}),
         ...(s.template_pdf_path ? { template_pdf_path: s.template_pdf_path } : {}),
-        ...(s.candidate_signature_zone ? { candidate_signature_zone: s.candidate_signature_zone } : {}),
+        ...(SIGN_FILL_ENABLED && s.candidate_signature_zone ? { candidate_signature_zone: s.candidate_signature_zone } : {}),
         ...(s.type === "dual" ? { transKey: s.id + "_de", transHint: "" } : {}),
-        candidate_signs: s.candidate_signs ?? false,
-        candidate_fills: s.candidate_fills ?? false,
+        candidate_signs: SIGN_FILL_ENABLED ? (s.candidate_signs ?? false) : false,
+        candidate_fills: SIGN_FILL_ENABLED ? (s.candidate_fills ?? false) : false,
       })),
     },
     {
@@ -230,16 +236,46 @@ export default function DashboardPage() {
       desc: "",
       kind: "embassy" as PhaseKind,
       isTranslations: false,
-      items: dynamicSlots.vis.map(s => ({
+      items: [
+      // PERMANENT box #1 — Visa CV: the SAME CV as Essentials, auto-generated
+      // with no logo/footer (fileKey cv_visa). Builder-backed (made in the CV
+      // builder alongside the Essentials CV), so the two always match.
+      { key: "cv_visa", label: t.pTypeCVvisa, hint: t.pHintCVvisa },
+      // PERMANENT box #2 — Anschreiben Visum: an EXACT copy of the Essentials
+      // cover letter (fileKey letter_visa), for the Botschaft file. Made in the
+      // letter builder alongside the original, so the two always match.
+      { key: "letter_visa", label: t.pTypeLetterVisa, hint: t.pHintLetterVisa },
+      // B2 certificate — an EXACT CLONE of the Essentials "Sprachzertifikat" box.
+      // Same fileKey "langcert" → the SAME document, managed from either category
+      // (upload once, shows in both). Nothing added, nothing removed.
+      { key: "langcert", label: t.pTypeLangCert, hint: t.pHintLangCert },
+      // PERMANENT plain document boxes for the Visum/Botschaft file. Standard
+      // upload / download / preview / approve — both admin and candidate, any time.
+      { key: "ezb",                     label: t.pTypeEZB,                  hint: "" },
+      { key: "zusatzblatt_a",           label: t.pTypeZusatzblattA,         hint: "" },
+      { key: "defizitbescheid",         label: t.pTypeDefizitbescheid,      hint: "" },
+      { key: "videx",                   label: t.pTypeVidex,                hint: "" },
+      { key: "bildungsplan",            label: t.pTypeBildungsplan,         hint: "" },
+      { key: "vorabzustimmung",         label: t.pTypeVorabzustimmung,      hint: "" },
+      { key: "arbeitsvertrag",          label: t.pTypeArbeitsvertrag,       hint: "" },
+      { key: "mawista",                 label: t.pTypeMawista,              hint: "" },
+      { key: "versicherung",            label: t.pTypeVersicherung,         hint: "" },
+      { key: "tls_rechnung",            label: t.pTypeTlsRechnung,          hint: "" },
+      { key: "tls_bestaetigungstermin", label: t.pTypeTlsBestaetigung,      hint: "" },
+      { key: "berufserfahrung_visum",   label: t.pTypeBerufserfahrungVisum, hint: "", optional: true as const },
+      ...dynamicSlots.vis.map(s => ({
         key: s.id, label: s.label, hint: "", category_id: s.category_id ?? null, position: s.position,
         ...(s.instructions ? { instructions: s.instructions } : {}),
-        ...(s.form_fields?.length ? { form_fields: s.form_fields } : {}),
+        // Sign/fill hidden for now (SIGN_FILL_ENABLED) → drop form fields + sig
+        // zone so the slot is a plain upload box.
+        ...(SIGN_FILL_ENABLED && s.form_fields?.length ? { form_fields: s.form_fields } : {}),
         ...(s.template_pdf_path ? { template_pdf_path: s.template_pdf_path } : {}),
-        ...(s.candidate_signature_zone ? { candidate_signature_zone: s.candidate_signature_zone } : {}),
+        ...(SIGN_FILL_ENABLED && s.candidate_signature_zone ? { candidate_signature_zone: s.candidate_signature_zone } : {}),
         ...(s.type === "dual" ? { transKey: s.id + "_de", transHint: "" } : {}),
-        candidate_signs: s.candidate_signs ?? false,
-        candidate_fills: s.candidate_fills ?? false,
+        candidate_signs: SIGN_FILL_ENABLED ? (s.candidate_signs ?? false) : false,
+        candidate_fills: SIGN_FILL_ENABLED ? (s.candidate_fills ?? false) : false,
       })),
+      ],
     },
   ];
   // Only the first two phases (Essentielles + Qualifikation) show in the top sidebar rail.
@@ -259,7 +295,12 @@ export default function DashboardPage() {
     { key: "work_experience_de",   label: t.pTypeWorkExpDE,          hint: t.pHintWorkExpDE, optional: true as const },
     { key: "impfung_de",           label: t.pTypeImpfungDE,          hint: t.pHintImpfungDE },
   ];
-  const ALL_ITEMS = [...PHASES.flatMap(p => p.items), ...TRANS_ITEMS_EXTRA];
+  const _ALL_ITEMS_RAW = [...PHASES.flatMap(p => p.items), ...TRANS_ITEMS_EXTRA];
+  // Dedupe by key: a doc box can appear in more than one phase (e.g. the B2
+  // certificate is CLONED into the Visum category — same fileKey "langcert" →
+  // same document), but the upload handler / progress counter / slot-message
+  // renderer must see each key exactly ONCE (no double-count).
+  const ALL_ITEMS = _ALL_ITEMS_RAW.filter((it, i) => _ALL_ITEMS_RAW.findIndex(x => x.key === it.key) === i);
 
   const [userId, setUserId]         = useState("");
   const [authToken, setAuthToken]   = useState("");
@@ -868,7 +909,9 @@ export default function DashboardPage() {
     const killT = setTimeout(() => controller.abort(), 20000);
     // ?docId= → server resolves the CURRENT drive_file_id, so a replaced
     // passport always previews the NEW PDF (never the archived old one).
-    fetch(previewDoc.id ? `/api/portal/file?docId=${previewDoc.id}` : `/api/portal/file?id=${previewDoc.drive_file_id}`, {
+    fetch(previewDoc.__renderUrl
+        ? previewDoc.__renderUrl
+        : previewDoc.id ? `/api/portal/file?docId=${previewDoc.id}` : `/api/portal/file?id=${previewDoc.drive_file_id}`, {
         signal: controller.signal,
         cache: "no-store",
         headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
@@ -927,6 +970,36 @@ export default function DashboardPage() {
       });
     }
     setPreviewDoc(doc);
+  }
+
+  // Preview the no-logo Visa CV — a synthetic doc whose source is the live
+  // render route (not a stored file). Same modal, logo-free PDF.
+  function openVisaCvPreview() {
+    setPreviewDoc({
+      id: "__visacv__",
+      file_name: "lebenslauf_visum.pdf",
+      file_type: "Lebenslauf Visum",
+      uploaded_at: new Date().toISOString(),
+      status: "",
+      feedback: null,
+      drive_file_id: null,
+      __renderUrl: "/api/portal/cv/visa",
+    });
+  }
+  // Download the no-logo Visa CV (auth'd fetch → blob → save).
+  async function downloadVisaCv() {
+    try {
+      const r = await fetch("/api/portal/cv/visa?dl=1", { headers: authToken ? { Authorization: `Bearer ${authToken}` } : {} });
+      if (!r.ok) return;
+      // The route names the file <vorname>_<nachname>_pflegekraft_lebenslauf_visum.pdf
+      // in Content-Disposition — use that, not a generic hardcoded name.
+      const cd = r.headers.get("Content-Disposition") || "";
+      const name = /filename="?([^"]+)"?/i.exec(cd)?.[1] || "lebenslauf_visum.pdf";
+      const b = await r.blob();
+      const u = URL.createObjectURL(b);
+      const a = document.createElement("a"); a.href = u; a.download = name; a.click();
+      setTimeout(() => URL.revokeObjectURL(u), 4000);
+    } catch { /* ignore */ }
   }
 
   // When a notification carried a doc_id, open its preview as soon as docs are loaded.
@@ -2079,7 +2152,31 @@ export default function DashboardPage() {
                 version when one exists, so signed sign-requests download
                 exactly like everything else. The remote pdf_preview_url link
                 is only a last resort when there's no drive file at all. */}
-            {previewDoc.drive_file_id ? (
+            {previewDoc.__renderUrl ? (
+              /* No-logo Visa CV — download the live render (attachment). */
+              <a
+                href={`${previewDoc.__renderUrl}?dl=1`}
+                onClick={async (e) => {
+                  // Auth'd fetch → blob → save, so the Bearer token is sent.
+                  e.preventDefault();
+                  try {
+                    const r = await fetch(`${previewDoc.__renderUrl}?dl=1`, { headers: authToken ? { Authorization: `Bearer ${authToken}` } : {} });
+                    if (!r.ok) return;
+                    const cd = r.headers.get("Content-Disposition") || "";
+                    const name = /filename="?([^"]+)"?/i.exec(cd)?.[1] || previewDoc.file_name;
+                    const b = await r.blob();
+                    const u = URL.createObjectURL(b);
+                    const a = document.createElement("a"); a.href = u; a.download = name; a.click();
+                    setTimeout(() => URL.revokeObjectURL(u), 4000);
+                  } catch { /* ignore */ }
+                }}
+                className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center"
+                style={{ color: "var(--w2)" }}
+                aria-label={lang === "de" ? "Herunterladen" : lang === "fr" ? "Télécharger" : "Download"}
+                title={lang === "de" ? "Herunterladen" : lang === "fr" ? "Télécharger" : "Download"}>
+                <Download size={14} strokeWidth={1.8} />
+              </a>
+            ) : previewDoc.drive_file_id ? (
               <button
                 onClick={() => handleDownload(previewDoc.drive_file_id!, previewDoc.file_name, previewDoc.file_type, previewDoc.id)}
                 disabled={downloadingIds.has(previewDoc.drive_file_id)}
@@ -2121,11 +2218,13 @@ export default function DashboardPage() {
               // the persisted documents.rotation column still exists. Seed
               // the viewer's client-side rotation from that column for
               // passports so the orientation persists exactly like every
-              // other doc. iOS keeps IosPdfFrame (WebKit blanks pdf.js
-              // canvas regardless of mime); desktop now uses PdfViewer for
-              // EVERY pdf including passport.
+              // other doc.
               const _docRotation = ((previewDoc as { rotation?: number | null }).rotation ?? 0);
-              const _nativePdf = ext === "pdf" && _isIOS;
+              // Stored PDFs render via the browser's native PDFium viewer
+              // (IosPdfFrame, #toolbar=0 → no browser bar): it draws scanned
+              // agency forms correctly where pdf.js paints them faint. Desktop
+              // + iOS. The generated Visa-CV (__renderUrl) stays on pdf.js.
+              const _nativePdf = ext === "pdf" && !previewDoc.__renderUrl && _isIOS;
               if (_nativePdf) {
                 if (!(previewDoc.id && authToken && dlt)) {
                   return (
@@ -2164,10 +2263,18 @@ export default function DashboardPage() {
                   <Spinner size="md" />
                 </div>
               );
-              if (ext === "pdf") return (
+              if (ext === "pdf") {
+                // UNIFIED: every desktop preview — stored docs AND the generated
+                // Visa-CV (__renderUrl) — renders through EmbedPdfViewer (PDFium
+                // canvas + our bottom bar, auto-fallback to native). One viewer,
+                // one zoom/rotate behavior, one place to tune. pdf.js is kept
+                // only for the form-fill / signature editors (coordinate overlays).
+                const PdfComp = EmbedPdfViewer;
+                return (
                 <div style={{ position: "relative", height: "100%" }}>
-                  <PdfViewer
+                  <PdfComp
                     src={previewBlobUrl}
+                    docId={previewDoc.id}
                     initialRotation={_docRotation}
                     onRotate={() => {
                       fetch(`/api/portal/documents/${previewDoc.id}`, {
@@ -2189,6 +2296,7 @@ export default function DashboardPage() {
                   )}
                 </div>
               );
+              }
               if (ext === "docx") return <DocxViewer src={previewBlobUrl} fileName={previewDoc.file_name} />;
               if (["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext)) {
                 return (
@@ -2266,8 +2374,8 @@ export default function DashboardPage() {
         {/* Pending signature requests are surfaced via the notification bell only —
             the inline list section was removed per user request. */}
 
-        {/* Sign modal triggered from doc viewer */}
-        {docViewerSignReq && (
+        {/* Sign modal triggered from doc viewer (hidden while sign/fill off) */}
+        {SIGN_FILL_ENABLED && docViewerSignReq && (
           <PdfSignModal
             request={docViewerSignReq as unknown as SignRequestFull}
             lang={(lang as "en" | "fr" | "de") in { en: 1, fr: 1, de: 1 } ? lang as "en" | "fr" | "de" : "en"}
@@ -2709,7 +2817,12 @@ export default function DashboardPage() {
             // ── Regular item (ID phase — no transKey) ─────────────────────────
             const isOther     = OTHER_KEYS.includes(item.key);
             const allOtherDocs = isOther ? getDocAll(item.key) : [];
-            const doc        = isOther ? undefined : getDoc(item.key);
+            // Lebenslauf Visum is a CLONE of cv_de (same state, no-logo render).
+            // Anschreiben Visum is its OWN document (letter_visa) — separate
+            // content (fixed Embassy-Rabat recipient + fixed Betreff), so it does
+            // NOT mirror the Essentials letter.
+            const docKey = item.key === "cv_visa" ? "cv_de" : item.key;
+            const doc        = isOther ? undefined : getDoc(docKey);
             const uploaded   = isOther ? allOtherDocs.length > 0 : !!doc;
 
             // For "other": derive aggregate status
@@ -2752,11 +2865,22 @@ export default function DashboardPage() {
             // when empty (incl. multi-doc 'other' under the 5-file cap), or
             // routes to the CV builder for the CV row.
             const isCv = item.key === "cv_de";
+            // Visa CV (Visum) — the no-logo twin of cv_de, also made in the CV
+            // builder. Empty → open the builder (which creates both); present →
+            // preview the stored copy. Never a manual file upload.
+            const isVisaCv = item.key === "cv_visa";
+            // Anschreiben Visum — the exact copy of the cover letter, made in the
+            // letter builder. Empty → open the builder (creates both); present →
+            // preview the stored copy.
+            const isVisaLetter = item.key === "letter_visa";
             const isLetter = item.key === "letter";
-            // Builder-backed docs (CV + Motivationsschreiben) are created in a
-            // dedicated editor page, never uploaded as an arbitrary file.
-            const isBuilder = isCv || isLetter;
-            const builderPath = isCv ? "/portal/cv-builder" : "/portal/motivationsschreiben";
+            // Builder-backed docs (CV + Visa CV + cover letter + Visa letter) are
+            // created in a dedicated editor page, never uploaded as a file.
+            const isBuilder = isCv || isVisaCv || isLetter || isVisaLetter;
+            const builderPath = isVisaCv ? "/portal/cv-builder?variant=visa"
+              : isCv ? "/portal/cv-builder"
+              : isVisaLetter ? "/portal/motivationsschreiben?variant=visa"
+              : "/portal/motivationsschreiben";
             const isFillSlot = "form_fields" in item && Array.isArray((item as {form_fields?: unknown}).form_fields) && ((item as {form_fields?: unknown[]}).form_fields?.length ?? 0) > 0;
             // LAW #13 / LAW #34: candidate task flags on dynamic B/V slots
             const needsCandidateSign = (item as {candidate_signs?: boolean}).candidate_signs === true;
@@ -2797,6 +2921,9 @@ export default function DashboardPage() {
                   });
                 }
               : (!uploaded || isOther) ? () => openPicker(item.key)
+              // Visa CV → preview the NO-LOGO render (clone of cv_de, logo stripped).
+              // Visa letter → its doc IS the cover-letter doc, so it previews identically.
+              : isVisaCv ? () => openVisaCvPreview()
               : () => handlePreview(doc!);
 
             return (
@@ -3049,9 +3176,12 @@ export default function DashboardPage() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
+                              // Visa CV → no-logo render; everything else (incl. the
+                              // Visa letter, whose doc IS the cover letter) → the file.
+                              if (isVisaCv) { downloadVisaCv(); return; }
                               handleDownload(doc!.drive_file_id!, doc!.file_name, item.key);
                             }}
-                            disabled={downloadingIds.has(doc!.drive_file_id!)}
+                            disabled={!isVisaCv && downloadingIds.has(doc!.drive_file_id!)}
                             aria-label={lang === "fr" ? "Télécharger" : lang === "de" ? "Herunterladen" : "Download"}
                             title={lang === "fr" ? "Télécharger" : lang === "de" ? "Herunterladen" : "Download"}
                             className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
@@ -3158,70 +3288,9 @@ export default function DashboardPage() {
             );
             }; // end renderItem
 
-            // Group the rows under admin-defined categories for THIS phase
-            // (Bearbeitung = index 2, Visum = index 3). Read-only on this side.
-            const phCats = (phase === 2 ? slotCats.bea : phase === 3 ? slotCats.vis : [])
-              .slice().sort((a, b) => a.position - b.position);
-            const catOf = (it: (typeof currentPhase.items)[number]) =>
-              (it as { category_id?: string | null }).category_id ?? null;
-
-            // No categories → flat list, byte-for-byte the pre-feature layout.
-            if (phCats.length === 0) return currentPhase.items.map((item, idx) => renderItem(item, idx));
-
-            // Interleave loose boxes + categories by the SAME shared position scale
-            // the admin arranges, so a category can sit between two loose boxes.
-            // "Disjoint" position sets = already unified; otherwise (legacy data)
-            // fall back to categories-first.
-            const uncatItems = currentPhase.items.filter(it => catOf(it) === null);
-            const posOf = (it: (typeof currentPhase.items)[number]) => (it as { position?: number }).position ?? 0;
-            const boxPosSet = new Set(uncatItems.map(posOf));
-            const disjoint = phCats.every(c => !boxPosSet.has(c.position));
-            const merged = disjoint
-              ? [
-                  ...uncatItems.map(it => ({ k: "box" as const, it, pos: posOf(it) })),
-                  ...phCats.map(c => ({ k: "cat" as const, c, pos: c.position })),
-                ].sort((a, b) => a.pos - b.pos)
-              : [
-                  ...phCats.map(c => ({ k: "cat" as const, c, pos: c.position })),
-                  ...uncatItems.map(it => ({ k: "box" as const, it, pos: posOf(it) })),
-                ];
-
-            const renderCatSection = (cat: (typeof phCats)[number]) => {
-              const catItems = currentPhase.items.filter(it => catOf(it) === cat.id);
-              if (catItems.length === 0) return null; // empty categories stay hidden from candidates
-              const folded = foldedCats.has(cat.id);
-              return (
-                // Thin rounded outline "circles" the category so its docs read as
-                // grouped vs the flat loose boxes outside — minimal hairline only.
-                <div key={cat.id} style={{ border: "1px solid var(--border)", borderRadius: 14, overflow: "hidden", marginTop: 8 }}>
-                  <button type="button"
-                    onClick={() => toggleFoldCat(cat.id)}
-                    aria-expanded={!folded}
-                    className="bv-row-hover w-full flex items-center gap-2 px-3 py-2.5 text-left">
-                    <ChevronDown size={14} strokeWidth={2}
-                      style={{ color: "var(--w3)", transition: "transform var(--dur-2) var(--ease)", transform: folded ? "rotate(-90deg)" : "rotate(0deg)" }} />
-                    <span className="flex-1 min-w-0 text-[11.5px] font-semibold tracking-tight truncate" style={{ color: "var(--w)" }}>
-                      {cat.label || (lang === "de" ? "Dokumente" : lang === "fr" ? "Documents" : "Documents")}
-                    </span>
-                    <span className="text-[10px] flex-shrink-0" style={{ color: "var(--w3)" }}>{catItems.length}</span>
-                  </button>
-                  {!folded && (
-                    <>
-                      <div style={{ height: 1, background: "var(--border)" }} />
-                      <div style={{ animation: "bvFadeRise .2s var(--ease-out)" }}>
-                        {catItems.map((item, i) => renderItem(item, i))}
-                      </div>
-                    </>
-                  )}
-                </div>
-              );
-            };
-
-            return (
-              <>
-                {merged.map((u, oi) => u.k === "box" ? renderItem(u.it, oi) : renderCatSection(u.c))}
-              </>
-            );
+            // Categories removed — always render ONE flat list (byte-for-byte
+            // the pre-feature layout). category_id on slots is ignored here.
+            return currentPhase.items.map((item, idx) => renderItem(item, idx));
           })()}
               </div>
             </div>
@@ -3532,12 +3601,10 @@ export default function DashboardPage() {
                 <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
                   {(() => {
                     const _isPdf = /\.pdf$/i.test(previewDoc?.file_name ?? "");
-                    // Passport scans are JPEG2000 → pdf.js blanks them on
-                    // EVERY platform (not just iOS). Native frame for ALL
-                    // passports + everything on iOS. Doesn't need the blob,
-                    // so it isn't gated behind the blob spinner.
+                    // iOS → native PDFium frame. Desktop → EmbedPdfViewer below
+                    // (PDFium canvas + bottom bar, native fallback).
                     const _nativePP = _isPdf
-                      && (isIOSDevice() || /pass/i.test(previewDoc?.file_type ?? ""))
+                      && isIOSDevice()
                       && !!previewDoc?.drive_file_id && !!authToken && !!dlt;
                     if (_nativePP) {
                       return (
@@ -3562,7 +3629,21 @@ export default function DashboardPage() {
                       <Spinner size="md" />
                     </div>
                   ) : _isPdf ? (
-                    <PdfViewer src={previewBlobUrl} />
+                    <EmbedPdfViewer
+                      src={previewBlobUrl}
+                      docId={previewDoc!.id}
+                      initialRotation={(previewDoc as { rotation?: number | null }).rotation ?? 0}
+                      onRotate={() => {
+                        fetch(`/api/portal/documents/${previewDoc!.id}`, {
+                          method: "PATCH",
+                          headers: {
+                            "Content-Type": "application/json",
+                            ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+                          },
+                          body: JSON.stringify({ deltaRotation: 90 }),
+                        }).catch(e => console.error("[rotation] persist failed:", e));
+                      }}
+                    />
                   ) : (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={previewBlobUrl} alt="passport"

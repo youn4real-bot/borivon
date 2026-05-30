@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import Stripe from "stripe";
-import { getServiceSupabase } from "@/lib/supabase";
+import { getServiceSupabase, getAuthSchemaClient } from "@/lib/supabase";
+import { ciEmail } from "@/lib/admin-auth";
 
 function getStripe() {
   const key = process.env.STRIPE_SECRET_KEY;
@@ -14,9 +15,13 @@ function getStripe() {
  * Stripe sends events here after payment.
  *
  * Events handled:
- *   - checkout.session.completed → set candidate_profiles.payment_tier = 'premium'
+ *   - checkout.session.completed    → set candidate_profiles.payment_tier = 'premium'
+ *   - customer.subscription.deleted → revoke premium (monthly cancel / dunning end)
+ *   - invoice.paid                  → log-only (recurring cycle visibility)
  *
- * Register this URL in Stripe Dashboard → Developers → Webhooks:
+ * Register this URL in Stripe Dashboard → Developers → Webhooks AND enable the
+ * `customer.subscription.deleted` event there (otherwise cancellations won't
+ * reach us and premium would never be revoked):
  *   https://www.borivon.com/api/portal/stripe/webhook
  *
  * NOTE: After regenerating the webhook secret in Stripe, update
@@ -74,6 +79,48 @@ export async function POST(req: NextRequest) {
     }
 
     console.log(`[stripe webhook] premium (${planRaw}) recorded for ${userId}`);
+    return Response.json({ received: true });
+  }
+
+  // ── customer.subscription.deleted → revoke premium ───────────────────────
+  // Monthly subs only — one-time payments create NO subscription, so their
+  // premium stays permanent (intended). Fires on candidate cancel AND when
+  // Stripe ends the sub after dunning (repeated failed payments) gives up.
+  if (event.type === "customer.subscription.deleted") {
+    const sub = event.data.object as Stripe.Subscription;
+    let userId = (sub.metadata?.userId ?? "").trim();
+
+    // Fallback for any legacy sub created without userId metadata: map the
+    // Stripe customer's email → auth.users → candidate_profiles.
+    if (!userId && sub.customer) {
+      try {
+        const custId = typeof sub.customer === "string" ? sub.customer : sub.customer.id;
+        const cust = await stripe.customers.retrieve(custId);
+        const email = "deleted" in cust ? "" : (cust.email ?? "").trim().toLowerCase();
+        if (email) {
+          const { data: u } = await getAuthSchemaClient()
+            .from("users").select("id").ilike("email", ciEmail(email)).limit(1).maybeSingle();
+          userId = (u as { id: string } | null)?.id ?? "";
+        }
+      } catch (e) {
+        console.warn("[stripe webhook] subscription.deleted email fallback failed:", e);
+      }
+    }
+
+    if (!userId) {
+      console.warn(`[stripe webhook] subscription.deleted with no resolvable user (sub=${sub.id})`);
+      return Response.json({ received: true });
+    }
+
+    const { error } = await db
+      .from("candidate_profiles")
+      .update({ payment_tier: "free" })
+      .eq("user_id", userId);
+    if (error) {
+      console.error("[stripe webhook] failed to revoke payment_tier:", error);
+      return Response.json({ error: "DB update failed" }, { status: 500 });
+    }
+    console.log(`[stripe webhook] premium revoked (subscription canceled) for ${userId}`);
     return Response.json({ received: true });
   }
 

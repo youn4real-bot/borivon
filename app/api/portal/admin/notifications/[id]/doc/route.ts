@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase, getAuthSchemaClient } from "@/lib/supabase";
-import { requireAdminRole } from "@/lib/admin-auth";
+import { requireAdminRole, ciEmail } from "@/lib/admin-auth";
 
 /**
  * Resolve the document a notification points at.
@@ -71,7 +71,7 @@ export async function GET(
     const { data, error } = await authDb
       .from("users")
       .select("id, email")
-      .ilike("email", targetEmail)
+      .ilike("email", ciEmail(targetEmail)) // escape %/_ so a stored email can't wildcard-match
       .limit(1)
       .maybeSingle();
     if (error) console.warn("[notif/doc] auth.users query error:", error);

@@ -87,6 +87,8 @@ export interface LetterData {
   recipientLines: string[];
   dateLine: string;       // "Oujda, den 26.03.2026"
   subject: string;        // Betreff line
+  subjectCenter?: boolean; // center the subject (visa Motivationsschreiben)
+  signSpace?: boolean;     // leave a hand-signature gap above the name (visa, printed & signed)
   salutation: string;     // "Sehr geehrte Damen und Herren,"
   bodyParagraphs: string[];
   closingName: string;
@@ -110,7 +112,7 @@ const s = StyleSheet.create({
     color: INK,
     // DIN-5008-ish margins (top a touch tighter so it always fits one page)
     paddingTop: 48,
-    paddingBottom: 40,
+    paddingBottom: 34,
     paddingLeft: 64,
     paddingRight: 56,
     backgroundColor: "#FFFFFF",
@@ -130,17 +132,19 @@ const s = StyleSheet.create({
   senderLine: { textAlign: "right" },
   // Recipient mirrors the sender: stays in the LEFT half so even a long
   // employer address never crosses the vertical midline.
-  recipientBlock: { marginBottom: 22, maxWidth: "50%" },
-  dateRow: { flexDirection: "row", justifyContent: "flex-end", marginBottom: 24 },
+  recipientBlock: { marginBottom: 26, maxWidth: "50%" },
+  dateRow: { flexDirection: "row", justifyContent: "flex-end", marginBottom: 26 },
   // Bold but NOT a different size — it scales with the page like
   // everything else (the user wants one uniform text size per page).
-  subject: { fontWeight: 700, marginBottom: 16 },
-  salutation: { marginBottom: 12 },
+  subject: { fontWeight: 700, marginBottom: 18 },
+  subjectCenter: { textAlign: "center" },
+  salutation: { marginBottom: 18 },
   paragraph: { textAlign: "left" },
-  closing: { marginTop: 18 },
-  // "Mit freundlichen Grüßen" and the name sit on consecutive lines —
-  // small gap, not a signature-sized void. (Was 22pt → felt detached.)
-  closingName: { marginTop: 3 },
+  closing: { marginTop: 26 },
+  // Gap between "Mit freundlichen Grüßen" and the typed name. Small for the
+  // employer letter; large for the visa letter (signSpace) so there is room
+  // for a handwritten signature — see the inline marginTop override below.
+  closingName: { marginTop: 6 },
 });
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -148,7 +152,10 @@ const s = StyleSheet.create({
 export function LetterDocument({ data }: { data: LetterData; brand?: LetterBrand }) {
   // Force-fit: always one physical A4 page regardless of word/letter count.
   // Scale body type down as content grows so it can never spill to page 2.
-  const bodyChars = data.bodyParagraphs.join(" ").length;
+  // Reserve vertical room so the page stays one sheet: a little for the block
+  // gaps, plus extra for the visa hand-signature gap. Modeled as "virtual
+  // characters" that nudge the fit tiers to shrink the body a touch sooner.
+  const bodyChars = data.bodyParagraphs.join(" ").length + (data.signSpace ? 220 : 40);
   const fit =
     bodyChars < 1100 ? { fs: 10.5, lh: 1.45, pmb: 10 } :
     bodyChars < 1500 ? { fs: 10,   lh: 1.4,  pmb: 9  } :
@@ -193,7 +200,7 @@ export function LetterDocument({ data }: { data: LetterData; brand?: LetterBrand
         </View>
 
         {/* Betreff */}
-        {!!data.subject && <Text style={s.subject}>{data.subject}</Text>}
+        {!!data.subject && <Text style={data.subjectCenter ? [s.subject, s.subjectCenter] : s.subject}>{data.subject}</Text>}
 
         {/* Salutation */}
         <Text style={s.salutation}>{data.salutation}</Text>
@@ -206,7 +213,7 @@ export function LetterDocument({ data }: { data: LetterData; brand?: LetterBrand
         {/* Closing */}
         <View style={s.closing}>
           <Text style={s.line}>Mit freundlichen Grüßen</Text>
-          <Text style={s.closingName}>{data.closingName}</Text>
+          <Text style={[s.closingName, { marginTop: data.signSpace ? 52 : 6 }]}>{data.closingName}</Text>
         </View>
 
       </Page>

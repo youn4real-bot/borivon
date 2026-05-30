@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { isValidEmail } from "@/lib/utils";
+import { PhoneInput } from "@/components/PhoneInput";
 import { Suspense } from "react";
 
 type Mode = "login" | "register";
@@ -35,6 +36,10 @@ function PortalPageInner() {
   const [firstName, setFirstName]     = useState("");
   const [lastName, setLastName]       = useState("");
   const [email, setEmail]             = useState("");
+  // Phone (required on register). Full country list via <PhoneInput/>; default
+  // Morocco. Value is "<dialCode> <number>". NO SMS verification — collected
+  // only, stored on candidate_profiles.phone.
+  const [phone, setPhone]             = useState("+212 ");
   const [password, setPassword]       = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -96,14 +101,13 @@ function PortalPageInner() {
       try { localStorage.removeItem("bv_invite_code"); } catch { /* ignore */ }
     }
     let dest = "/portal/dashboard";
-    if (inviteType === "member") dest = "/portal/org/dashboard";
-    else if (inviteType === "sub-admin") dest = "/portal/admin";
+    // Org people are now org-scoped sub-admins → the full admin dashboard.
+    if (inviteType === "member" || inviteType === "sub-admin") dest = "/portal/admin";
     else {
       try {
         const rr = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${access_token}` } });
         const { role } = await rr.json().catch(() => ({}));
-        if (role === "org_member") dest = "/portal/org/dashboard";
-        else if (role === "admin" || role === "sub_admin") dest = "/portal/admin";
+        if (role === "admin" || role === "sub_admin" || role === "org_member") dest = "/portal/admin";
       } catch { /* default candidate dashboard */ }
     }
     router.replace(dest);
@@ -171,6 +175,13 @@ function PortalPageInner() {
     if (mode === "register") {
       if (!firstName.trim()) { setError(t.pErrFirstName); return; }
       if (!lastName.trim())  { setError(t.pErrLastName); return; }
+      // Validate the NUMBER portion (strip the +dialCode prefix first).
+      if (phone.replace(/^\+\d+\s*/, "").replace(/\D/g, "").length < 6) {
+        setError(lang === "de" ? "Bitte eine gültige Telefonnummer eingeben."
+          : lang === "fr" ? "Veuillez entrer un numéro de téléphone valide."
+          : "Please enter a valid phone number.");
+        return;
+      }
       if (password !== confirmPassword) { setError(t.pErrPasswordMatch); return; }
       if (!consent)      { setError(t.pConsentRequired); return; }
       if (!dataConsent)  { setError(t.pDataConsentRequired); return; }
@@ -228,7 +239,10 @@ function PortalPageInner() {
         const { error: err } = await supabase.auth.signUp({
           email: email.trim().toLowerCase(), password,
           options: {
-            data: { first_name: firstName.trim(), last_name: lastName.trim(), full_name: `${firstName.trim()} ${lastName.trim()}` },
+            data: {
+              first_name: firstName.trim(), last_name: lastName.trim(), full_name: `${firstName.trim()} ${lastName.trim()}`,
+              phone: phone.trim(),
+            },
             emailRedirectTo: `${window.location.origin}/portal/auth/callback?invite=${encodeURIComponent(code)}`,
           },
         });
@@ -312,15 +326,15 @@ function PortalPageInner() {
         if (session?.access_token) {
           const roleRes = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${session.access_token}` } });
           const { role } = await roleRes.json().catch(() => ({}));
-          if (role === "org_member") inviteType = "member";
-          else if (role === "admin" || role === "sub_admin") roleDest = "/portal/admin";
+          // org_member retired — org people resolve as sub_admin now; all map to admin.
+          if (role === "admin" || role === "sub_admin" || role === "org_member") roleDest = "/portal/admin";
         }
       } catch { /* ignore */ }
     }
 
     router.replace(
       roleDest ??
-      (inviteType === "member"    ? "/portal/org/dashboard" :
+      (inviteType === "member"    ? "/portal/admin" :
        inviteType === "sub-admin" ? "/portal/admin" :
                                     "/portal/dashboard"),
     );
@@ -453,6 +467,12 @@ function PortalPageInner() {
               placeholder={t.phEmail} autoComplete="email" style={fieldStyle}
               onFocus={e => (e.currentTarget.style.borderColor = "var(--gold)")}
               onBlur={e  => (e.currentTarget.style.borderColor = "var(--border2)")} />
+
+            {/* Phone — register only. Full country list (default Morocco),
+                shared with the CV builder. No SMS verification. */}
+            {mode === "register" && (
+              <PhoneInput value={phone} onChange={setPhone} />
+            )}
 
             {/* Password */}
             <div className="relative">

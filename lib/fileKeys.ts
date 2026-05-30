@@ -11,10 +11,25 @@ const KEY_TO_TKEY: Record<string, keyof typeof translations.fr> = {
   praktikum:            "pTypePraktikum",
   workcert:             "pTypeWorkCert",
   letter:               "pTypeLetter",
+  letter_visa:          "pTypeLetterVisa",
   other:                "pTypeOther",
   work_experience:      "pTypeWorkExp",
   impfung:              "pTypeImpfung",
   cv_de:                "pTypeCVde",
+  cv_visa:              "pTypeCVvisa",
+  // Visum permanent document boxes (plain upload/download, both sides).
+  ezb:                     "pTypeEZB",
+  zusatzblatt_a:           "pTypeZusatzblattA",
+  defizitbescheid:         "pTypeDefizitbescheid",
+  videx:                   "pTypeVidex",
+  bildungsplan:            "pTypeBildungsplan",
+  vorabzustimmung:         "pTypeVorabzustimmung",
+  arbeitsvertrag:          "pTypeArbeitsvertrag",
+  mawista:                 "pTypeMawista",
+  versicherung:            "pTypeVersicherung",
+  tls_rechnung:            "pTypeTlsRechnung",
+  tls_bestaetigungstermin: "pTypeTlsBestaetigung",
+  berufserfahrung_visum:   "pTypeBerufserfahrungVisum",
   diploma_de:           "pTypeDiplomaDE",
   studyprog_de:         "pTypeStudyProgDE",
   transcript_de:        "pTypeTranscriptDE",
@@ -52,6 +67,19 @@ for (const [key, tKey] of Object.entries(KEY_TO_TKEY)) {
   // display label. We dropped it because there's only one Lebenslauf box.
   // Keep the old labels as aliases so already-uploaded CVs stay findable.
   if (key === "cv_de")             { labels.add("Lebenslauf (DE)"); labels.add("CV (German)"); labels.add("CV (Allemand)"); }
+  // cv_visa canonical label is now "Lebenslauf Visum" — keep the first-day
+  // labels as aliases so any Visa CV already generated stays findable.
+  if (key === "cv_visa")           { labels.add("Visa CV"); labels.add("CV Visa"); labels.add("Lebenslauf (Visum)"); }
+  // Essentials letter DISPLAYS as "Motivationsschreiben", the Visum letter as
+  // "Motivationsschreiben Visum" (pTypeLetter / pTypeLetterVisa). Keep every
+  // pre-rename label as an alias so old rows still resolve, and keep the two
+  // internal file_type tags DISTINCT so the reverse lookup tells Essentials
+  // (letter → "Anschreiben") from Visum (letter_visa → "Motivationsschreiben
+  // Visum") apart. The bare "Motivationsschreiben" alias on letter_visa rescues
+  // a brief earlier build that stored the visa tag without the "Visum" suffix;
+  // KEY_TO_TKEY lists letter before letter_visa, so it resolves to letter_visa.
+  if (key === "letter")            { labels.add("Anschreiben"); labels.add("Lettre de motivation"); labels.add("Cover letter"); }
+  if (key === "letter_visa")       { labels.add("Anschreiben Visum"); labels.add("Motivationsschreiben Visum"); labels.add("Motivationsschreiben"); }
   FILE_KEY_LABELS[key] = [...labels];
 }
 

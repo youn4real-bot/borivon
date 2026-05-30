@@ -252,24 +252,23 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // LAW #39: passport PDFs are NEVER server-side mutated. pdf-lib's
-  // load → save round-trip silently drops content streams on
-  // scanner-produced PDFs (Moroccan passport scans hit this hard — the
-  // photo + holograms survive but the MRZ + printed VIZ text come back
-  // blank). The 50% size guard doesn't catch this case because the photo
-  // is by far the largest stream → size stays close to original even
-  // when every text stream is dropped. Rotation for passports is purely
-  // client-side (IosPdfFrame toolbar applies a CSS transform); the bytes
-  // we serve are ALWAYS exactly what came out of Drive / Storage.
-  // Rotation is applied CLIENT-SIDE only (the viewer CSS-transforms, seeded
-  // from documents.rotation). We NEVER re-save a PDF server-side: pdf-lib's
-  // load+save silently drops text/content streams on scanner-produced PDFs —
-  // the exact LAW #39 failure that blanks a passport's MRZ also blanks a
-  // scanned Impfung/diploma letter, and the 50% size guard can't catch it
-  // (the scan image dominates the byte size). Always serve ORIGINAL bytes for
-  // EVERY doc type. (safeRotatePdf below is a no-op at 0 — kept for clarity.)
-  void rotation;
-  const effectiveRotation = 0;
+  // ── Rotation policy ────────────────────────────────────────────────────────
+  //  • PASSPORT PDFs → NEVER rotated server-side (LAW #39). pdf-lib's load→save
+  //    silently drops content streams on scanner-produced passport PDFs (the
+  //    photo survives but the MRZ + VIZ text blank, and the size guard can't
+  //    catch it because the photo dominates the byte size). Passports rotate
+  //    CLIENT-SIDE only (viewer CSS transform, seeded from documents.rotation).
+  //  • Inline PREVIEW (no ?dl=1) → served RAW; the viewer applies the rotation
+  //    as a client-side CSS transform. No byte mutation → renders every PDF.
+  //  • DOWNLOAD (?dl=1), non-passport → bake the persisted rotation into the
+  //    SERVED COPY so the saved file opens already-rotated. This reads the
+  //    ORIGINAL stored bytes and rotates a TRANSIENT copy — the stored file in
+  //    R2/Drive/Storage is NEVER mutated, so unlike the old LAW #39 bug this can
+  //    never destroy the source (worst case: re-download the original).
+  //    safeRotatePdf returns the original untouched if the re-save is degenerate
+  //    (throws / pages dropped / size collapsed), so the download is never
+  //    corrupt — at worst it comes out in the original orientation.
+  const effectiveRotation = (isPassportFileType(fileType) || !wantsDl(req)) ? 0 : rotation;
 
   // If a signed version exists in Supabase Storage, serve it directly — skip Drive entirely.
   if (signedStoragePath) {
