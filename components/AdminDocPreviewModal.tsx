@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { CheckCircle2, XCircle } from "@/components/PortalIcons";
 import { X as XIcon, Download, PenLine } from "lucide-react";
 import { AdminRejectModal } from "@/components/AdminRejectModal";
-import { PdfViewer } from "@/components/PdfViewer";
+import { IosPdfFrame } from "@/components/IosPdfFrame";
 import { DocxViewer } from "@/components/DocxViewer";
 import { ZoomPanRotateViewer } from "@/components/ZoomPanRotateViewer";
 import { Spinner } from "@/components/ui/states";
@@ -421,8 +421,9 @@ export function AdminDocPreviewModal({
           {blobUrl ? (() => {
             const ext = (doc.file_name.split(".").pop() ?? "").toLowerCase();
             if (ext === "pdf") return (
-              <PdfViewer
+              <IosPdfFrame
                 src={blobUrl}
+                title={doc.file_name}
                 onRotate={persistRotate}
               />
             );
