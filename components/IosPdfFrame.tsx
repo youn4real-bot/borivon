@@ -26,9 +26,10 @@ import { useRef, type CSSProperties } from "react";
  * If a patch doesn't blend or doesn't sit dead-centre on its button, every
  * number you need is right here — no other code changes.
  *
- * TOOLBAR  — the toolbar grey. #3c4043 read TOO DARK in testing, so this is a
- *            touch lighter. If the patches look too light, lower it
- *            (→ #4a4d50); too dark, raise it (→ #5c6063).
+ * TOOLBAR  — the toolbar grey. Triangulated: #3c4043 (rgb 60) read TOO DARK,
+ *            #525659 (rgb 82) read TOO LIGHT — so this is the midpoint. If the
+ *            patches still look too light, lower it toward #3c4043; too dark,
+ *            raise it toward #525659. (Exact: Inspect the bar, read its bg hex.)
  * BAR_H    — toolbar height in px; each patch spans this so the whole button
  *            (top to bottom) is covered.
  * RIGHT_MASKS — buttons to kill, measured from the toolbar's RIGHT edge. They
@@ -36,7 +37,7 @@ import { useRef, type CSSProperties } from "react";
  *            but each is its own node: drop an entry and that single button
  *            comes back, untouched.
  */
-const TOOLBAR = "#525659";
+const TOOLBAR = "#474b4e";
 const BAR_H = 50;
 const RIGHT_MASKS: { key: string; right: number; width: number }[] = [
   { key: "more", right: 6, width: 44 }, // ⋮ overflow menu
