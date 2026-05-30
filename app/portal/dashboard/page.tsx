@@ -20,9 +20,7 @@ import {
 import { X as XIcon, Download, Upload, RefreshCw, Info, ChevronDown, MoreHorizontal } from "lucide-react";
 import { DropdownMenu } from "@/components/ui/DropdownMenu";
 import { IosPdfFrame } from "@/components/IosPdfFrame";
-import { PdfViewer } from "@/components/PdfViewer";
 import { DocxViewer } from "@/components/DocxViewer";
-import { isIOSDevice } from "@/lib/platform";
 import { ZoomPanRotateViewer } from "@/components/ZoomPanRotateViewer";
 import { Spinner, PageLoader, AutosaveIndicator } from "@/components/ui/states";
 import { JourneyView } from "@/components/JourneyView";
@@ -1665,15 +1663,11 @@ export default function DashboardPage() {
               const ext = (previewDoc.file_name.split(".").pop() ?? "").toLowerCase();
               if (ext === "pdf") return (
                 <div style={{ position: "relative", height: "100%" }}>
-                  {isIOSDevice() ? (
-                    <IosPdfFrame
-                      src={previewBlobUrl}
-                      title={previewDoc.file_name}
-                      onRotate={persistRotate}
-                    />
-                  ) : (
-                    <PdfViewer src={previewBlobUrl} onRotate={persistRotate} />
-                  )}
+                  <IosPdfFrame
+                    src={previewBlobUrl}
+                    title={previewDoc.file_name}
+                    onRotate={persistRotate}
+                  />
                   {/* Click overlay — opens sign modal when doc has a pending sign request */}
                   {pendingSignReq && (
                     <div
