@@ -9,18 +9,26 @@ import { dlTokenUserId } from "@/lib/dlToken";
 const BUCKET = "sign-documents";
 
 /**
- * Apply a view rotation to a PDF — but NEVER at the cost of the file's
- * content. pdf-lib's load()→save() round-trip silently drops page content
- * for some scanner-produced PDFs (object-stream/incremental-update layouts
- * common in phone passport scans) → the candidate's passport rendered blank
- * ("the data got erased"). This bug is intermittent because it only triggers
- * on those specific PDFs once a rotation is set.
+ * Apply a view rotation to a PDF — conservatively, so the file's content
+ * survives the round-trip. pdf-lib's default save() rewrites object streams
+ * and can drop content for some scanner-produced PDFs. The fix is twofold:
  *
- * Rule: the uploaded PDF must come back EXACTLY as uploaded. If the rotate
- * re-save throws, OR yields an empty/degenerate result (no pages, or the
- * byte size collapsed — the tell-tale of dropped image/content streams),
- * we return the ORIGINAL bytes untouched. Worst case: that one view isn't
- * rotated; the passport is never erased.
+ *  1. **Conservative save**: `useObjectStreams: false` keeps each object as
+ *     its own stream — preserves image / content streams that the compacted
+ *     default save sometimes loses. Output is slightly larger than the
+ *     original but content is intact.
+ *  2. **Sanity guard only on degenerate output**: if pdf-lib produced an
+ *     empty/parse-failure result we return the original. We do NOT compare
+ *     against `original.length * 0.5` anymore — that guard tripped on
+ *     normal PDFs whose conservative re-save legitimately shrinks the file
+ *     (object-stream PDFs are bigger than their flat re-save), which meant
+ *     the server stored the new rotation in the DB but returned UNROTATED
+ *     bytes → user clicked rotate, file looked rotated until reopen, then
+ *     came back sideways. The user could never persist a rotation.
+ *
+ * For passport docs (LAW #39), this function is NEVER called — the call
+ * sites bypass safeRotatePdf entirely for passports and let IosPdfFrame
+ * handle rotation as a client-side CSS transform.
  */
 async function safeRotatePdf(original: Buffer, rotation: number): Promise<Buffer> {
   if (rotation === 0) return original;
@@ -32,15 +40,17 @@ async function safeRotatePdf(original: Buffer, rotation: number): Promise<Buffer
       const cur = page.getRotation().angle;
       page.setRotation(degrees((cur + rotation) % 360));
     }
-    const out = Buffer.from(await pdfDoc.save());
-    // Degenerate-output guard: a correct rotate-only re-save is ~the same
-    // size (images are kept by reference). A large size collapse means
-    // pdf-lib dropped content → serve the untouched original instead.
-    if (out.length < 1024 || out.length < original.length * 0.5) return original;
+    const out = Buffer.from(await pdfDoc.save({ useObjectStreams: false }));
+    if (out.length < 1024) return original; // degenerate / empty result only
     return out;
   } catch {
     return original; // encrypted / unsupported / parse failure → never erase
   }
+}
+
+/** LAW #39: passport docs are NEVER server-mutated. Match on stored file_type. */
+function isPassportDoc(fileType: string | null | undefined): boolean {
+  return !!fileType && /pass/i.test(fileType);
 }
 
 function getDriveClient() {
@@ -150,23 +160,29 @@ export async function GET(req: NextRequest) {
   const allowed = await isAuthorised(req, fileId, docId);
   if (!allowed) return new NextResponse("Forbidden", { status: 403 });
 
-  // Resolve drive_file_id + rotation + signed_storage_path in one shot.
+  // Resolve drive_file_id + rotation + signed_storage_path + file_type in one shot.
+  // file_type is needed for the LAW #39 passport bypass on safeRotatePdf.
   const db = getServiceSupabase();
   let rotation = 0;
   let signedStoragePath: string | null = null;
+  let fileType: string | null = null;
   {
     const { data } = await db
       .from("documents")
-      .select("drive_file_id, rotation, signed_storage_path")
+      .select("drive_file_id, rotation, signed_storage_path, file_type")
       .eq(fileId ? "drive_file_id" : "id", fileId ?? docId!)
       .maybeSingle();
     if (data) {
-      const row = data as { drive_file_id: string | null; rotation: number | null; signed_storage_path: string | null };
+      const row = data as { drive_file_id: string | null; rotation: number | null; signed_storage_path: string | null; file_type: string | null };
       if (!fileId) fileId = row.drive_file_id ?? null;
       rotation = ((row.rotation ?? 0) % 360 + 360) % 360;
       signedStoragePath = row.signed_storage_path ?? null;
+      fileType = row.file_type ?? null;
     }
   }
+  // LAW #39: passports are pristine — server-side rotation is forbidden.
+  // The viewer (IosPdfFrame) rotates passport previews via CSS only.
+  const effectiveRotation = isPassportDoc(fileType) ? 0 : rotation;
 
   // If a signed version exists in Supabase Storage, serve it directly — skip Drive entirely.
   if (signedStoragePath) {
@@ -175,7 +191,7 @@ export async function GET(req: NextRequest) {
       .download(signedStoragePath);
     if (!dlErr && blob) {
       const srcBuf = Buffer.from(await blob.arrayBuffer());
-      const outBuf = await safeRotatePdf(srcBuf, rotation);
+      const outBuf = await safeRotatePdf(srcBuf, effectiveRotation);
       return new NextResponse(new Uint8Array(outBuf), {
         headers: {
           "Content-Type": ctype(req, "application/pdf"),
@@ -217,7 +233,7 @@ export async function GET(req: NextRequest) {
     // guarantees the original is returned untouched if the re-save would
     // corrupt/blank it (the scanned-passport "data erased" bug).
     const outBuf = mimeType === "application/pdf"
-      ? await safeRotatePdf(srcBuf, rotation)
+      ? await safeRotatePdf(srcBuf, effectiveRotation)
       : srcBuf;
 
     return new NextResponse(new Uint8Array(outBuf), {
@@ -243,7 +259,7 @@ export async function GET(req: NextRequest) {
         return new NextResponse("File not found", { status: 404 });
       }
       const srcBuf = Buffer.from(await blob.arrayBuffer());
-      const outBuf = await safeRotatePdf(srcBuf, rotation);
+      const outBuf = await safeRotatePdf(srcBuf, effectiveRotation);
       return new NextResponse(new Uint8Array(outBuf), {
         headers: {
           "Content-Type": ctype(req, "application/pdf"),
