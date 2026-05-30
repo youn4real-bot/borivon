@@ -26,10 +26,12 @@ import { useRef, type CSSProperties } from "react";
  * If a patch doesn't blend or doesn't sit dead-centre on its button, every
  * number you need is right here — no other code changes.
  *
- * TOOLBAR  — the toolbar grey. Triangulated: #3c4043 (rgb 60) read TOO DARK,
- *            #525659 (rgb 82) read TOO LIGHT — so this is the midpoint. If the
- *            patches still look too light, lower it toward #3c4043; too dark,
- *            raise it toward #525659. (Exact: Inspect the bar, read its bg hex.)
+ * TOOLBAR  — the toolbar grey. Fresh side-by-side shots show the real bar is
+ *            clearly DARKER than the patch even at #474b4e and #323639, so the
+ *            old "#3c4043 too dark" read was unreliable (stale deploy). Set to
+ *            Chromium's documented PDF-toolbar grey #323639 (rgb 50,54,57).
+ *            Too dark -> raise toward #3c4043; too light -> lower. Exact match:
+ *            eyedropper the real bar and paste me the hex.
  * BAR_H    — toolbar height in px; each patch spans this so the whole button
  *            (top to bottom) is covered.
  * RIGHT_MASKS — buttons to kill, measured from the toolbar's RIGHT edge. They
@@ -37,7 +39,7 @@ import { useRef, type CSSProperties } from "react";
  *            but each is its own node: drop an entry and that single button
  *            comes back, untouched.
  */
-const TOOLBAR = "#474b4e";
+const TOOLBAR = "#323639";
 const BAR_H = 50;
 const RIGHT_MASKS: { key: string; right: number; width: number }[] = [
   { key: "more", right: 6, width: 44 }, // ⋮ overflow menu
@@ -75,11 +77,11 @@ export function IosPdfFrame({
   };
 
   return (
-    <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#525659" }}>
+    <div style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#323639" }}>
       <iframe
         title={title ?? "PDF"}
         src={bustedSrc}
-        style={{ width: "100%", height: "100%", border: "none", background: "#525659" }}
+        style={{ width: "100%", height: "100%", border: "none", background: "#323639" }}
       />
       {RIGHT_MASKS.map((m) => (
         <div key={m.key} aria-hidden style={{ ...patch, right: m.right, width: m.width }} />
