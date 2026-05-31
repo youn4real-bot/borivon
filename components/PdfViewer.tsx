@@ -167,6 +167,16 @@ export function PdfViewer({
         cMapUrl: `${origin}/pdfjs/cmaps/`,
         cMapPacked: true,
         standardFontDataUrl: `${origin}/pdfjs/standard_fonts/`,
+        // Render NON-EMBEDDED fonts (German agency forms like Zusatzblatt A)
+        // with the BUNDLED standard fonts above, instead of trying to match a
+        // locally-installed system font and drawing BLANK glyphs when it can't.
+        // This is what makes the form's text/data appear instead of vanishing
+        // (vector boxes/lines were drawing, glyphs were not).
+        useSystemFonts: false,
+        // Render on the MAIN-THREAD canvas, not a worker OffscreenCanvas — the
+        // latter silently drops some glyphs/images on certain browsers (faint
+        // logo / missing marks). A touch slower, but reliably complete.
+        isOffscreenCanvasSupported: false,
       });
       destroy = () => task.destroy().catch(() => {});
 
