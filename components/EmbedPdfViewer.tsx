@@ -1,34 +1,37 @@
 "use client";
 
 /**
- * PDF preview = the BROWSER'S NATIVE PDF viewer (via IosPdfFrame), with its
- * built-in toolbar shown.
+ * Desktop PDF preview = pdf.js (`PdfViewer`): zoom −/+, % readout, rotate,
+ * trackpad/touch pinch — the proven viewer. (iOS uses `IosPdfFrame` directly:
+ * the native iframe with our own floating CSS zoom/rotate toolbar, because
+ * WebKit won't paint the pdf.js canvas on iPhone/iPad.)
  *
- * History: this used to be a custom PDFium-WASM canvas viewer with our own
- * floating toolbar + gesture zoom + CSS rotation. That path produced an endless
- * stream of rotation/zoom/centering bugs (double-rotation "cross", squished
- * pages, zoom shooting to the left, intrinsically-landscape scans rendering
- * wrong). We replaced it with the browser's own PDF viewer, which renders,
- * zooms, rotates and scrolls EVERY PDF correctly — horizontal or vertical — for
- * free, because it is the same PDFium the browser ships.
- *
- * This component is now a thin wrapper kept only so the many call sites don't
- * need to change. The rotation-persistence props (docId / onRotate /
- * initialRotation) are accepted but unused — the native viewer's rotation is
- * view-only. Bytes are never mutated server-side (LAW #39).
+ * This is a thin wrapper so the many existing call sites keep importing
+ * `EmbedPdfViewer` unchanged — it forwards straight to `PdfViewer`.
  */
 
-import { IosPdfFrame } from "@/components/IosPdfFrame";
+import { PdfViewer } from "@/components/PdfViewer";
 
 type Props = {
   src: string;
-  /** Accepted for call-site compatibility; unused with the native viewer. */
+  /** documents row id — keys the in-session rotation cache. */
   docId?: string;
+  /** Fired once per +90° rotate; parent persists the delta. */
   onRotate?: () => void;
+  /** Client-side seed rotation (passport docs, LAW #39 — bytes never re-saved). */
   initialRotation?: number;
+  /** Hide the rotate button (e.g. coordinate-overlay tools). */
   hideRotate?: boolean;
 };
 
-export function EmbedPdfViewer({ src }: Props) {
-  return <IosPdfFrame src={src} title="document" />;
+export function EmbedPdfViewer({ src, docId, onRotate, initialRotation, hideRotate }: Props) {
+  return (
+    <PdfViewer
+      src={src}
+      docId={docId}
+      onRotate={onRotate}
+      initialRotation={initialRotation}
+      hideRotate={hideRotate}
+    />
+  );
 }

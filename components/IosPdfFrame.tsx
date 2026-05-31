@@ -1,123 +1,161 @@
 "use client";
 
 /**
- * Native PDF frame — renders a PDF through the BROWSER'S built-in PDF viewer in
- * an <iframe>, with the native toolbar shown. The browser's own viewer renders
- * / zooms / rotates / scrolls every PDF correctly (horizontal or vertical), so
- * we avoid the endless custom-viewer rotation / zoom bugs.
+ * iOS-only PDF viewer.
  *
- * The native toolbar is cross-origin, so we can't hide individual buttons from
- * inside it. Instead we lay flat blank patches over the unwanted parts. The
- * toolbar layout differs hugely by platform, so the masks are RESPONSIVE
- * (chosen from the measured container width, not the viewport):
+ * pdf.js renders to a <canvas>, which Apple's WebKit refuses to paint on
+ * iPhone/iPad (grey screen) — every iOS browser is WebKit, so this affects
+ * Safari AND Chrome AND Firefox on iOS. The only thing that reliably shows a
+ * PDF on iOS is the OS-native PDF engine, reached via an <iframe> to the
+ * file URL. Pinch-zoom + scroll are then built in by iOS itself.
  *
- *   • DESKTOP (Chrome PDFium, wide bar): hamburger ☰ + filename on the LEFT,
- *     Lens / download / print / ⋮ on the RIGHT, with page-nav + zoom + rotate +
- *     draw + undo/redo kept in the middle. → precise left patch + 4 right patches.
- *
- *   • PHONE (iOS Safari / WebKit, narrow bar): the native toolbar carries ONLY
- *     the action buttons (Lens / download / print) — there is NO hamburger,
- *     filename, zoom, rotate or page-nav. Nothing in the middle to preserve, so
- *     we cover the WHOLE bar with one patch (hides the actions, leaves a clean
- *     strip). iOS zoom is pinch-to-zoom — it has no zoom buttons to keep.
- *
- * Each patch is a DOM node stacked on top of the iframe, so it also swallows the
- * click — the button beneath is dead.
- *
- * Bytes are never mutated (LAW #39). `onRotate` / `initialRotation` accepted for
- * call-site compatibility but unused (native rotation is view-only).
+ * This component re-creates the desktop PdfViewer's toolbar feel on top of
+ * that native frame:
+ *   - Rotate: INSTANT CSS transform (no network, no reload) — smooth.
+ *   - Zoom −/+ : CSS scale on the frame (on top of native pinch).
+ *   - Reset.
+ * The floating toolbar matches PdfViewer 1:1 visually.
  */
 
-import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { useRef, useState, useLayoutEffect } from "react";
+import { ZoomIn, ZoomOut, RotateCw } from "lucide-react";
 
-/* ── TUNABLES ──
- * TOOLBAR   — flat grey painted over the masked parts (single value = one colour).
- * BAR_H     — desktop toolbar height in px.
- * BAR_H_M   — phone toolbar height in px (iOS bars run a little taller).
- * NARROW_BP — container width (px) below which the phone (whole-bar) mask is used.
- * RIGHT_MASKS / LEFT_W — desktop geometry, measured from the toolbar's edges.
- */
-const TOOLBAR = "#3c3c3c";
-const BAR_H = 50;
-const BAR_H_M = 60;
-const NARROW_BP = 640;
-
-// Desktop / wide toolbar
-const RIGHT_MASKS = [
-  { key: "more", right: 6, width: 44 }, // ⋮ overflow
-  { key: "print", right: 50, width: 44 }, // print
-  { key: "download", right: 94, width: 44 }, // download ↓
-  { key: "lens", right: 138, width: 44 }, // Google Lens
-];
-const LEFT_W = 230; // hamburger (☰) + filename, stops before the page number
+const MIN = 1;
+const MAX = 5;
+const STEP = 0.25;
 
 export function IosPdfFrame({
   src,
   title,
+  onRotate,
+  initialRotation,
 }: {
   src: string;
   title?: string;
+  /** Fired once per rotate (always +90°). Parent persists the delta
+   *  server-side (same API as the desktop viewer) so the orientation
+   *  survives close/reopen — instant CSS rotation gives the live feedback. */
   onRotate?: () => void;
+  /**
+   * Seed the CSS rotation from the persisted documents.rotation value.
+   * Used for passport docs where the server can't bake rotation into the
+   * PDF (LAW #39 — passport bytes are never re-saved). Other docs already
+   * have rotation baked in by safeRotatePdf, so leave this at 0.
+   */
   initialRotation?: number;
 }) {
-  // Per-open cache-bust so a freshly re-generated / replaced file is never
-  // served stale. blob: URLs are looked up by EXACT string — a `?_v=` query
-  // breaks them — so leave blobs untouched.
-  const bustRef = useRef(Date.now());
-  const bustedSrc = src.startsWith("blob:")
-    ? src
-    : src + (src.includes("?") ? "&" : "?") + "_v=" + bustRef.current;
-
-  // Choose the mask layout from the ACTUAL container width (the toolbar is
-  // exactly this wide), so a phone and a narrow desktop pane both get the
-  // whole-bar phone mask.
   const wrapRef = useRef<HTMLDivElement>(null);
-  const [narrow, setNarrow] = useState<boolean>(
-    () => (typeof window !== "undefined" ? window.innerWidth < NARROW_BP : false),
-  );
-  useEffect(() => {
+  const [box, setBox] = useState({ w: 0, h: 0 });
+  const [rot, setRot] = useState(() => {
+    const r = initialRotation ?? 0;
+    return ((r % 360) + 360) % 360;
+  });
+  const [scale, setScale] = useState(1);
+  // iOS Safari aggressively caches the PDF inside an iframe — on reopen it
+  // would reuse the OLD (pre-rotation) copy instead of the freshly-baked
+  // one. A per-open cache-bust forces a fresh fetch every time the popup
+  // mounts, so a persisted rotation is always reflected on reopen.
+  const bustRef = useRef(Date.now());
+  // `#toolbar=0&navpanes=0&scrollbar=0` hides the browser's BUILT-IN PDF
+  // toolbar (page nav / zoom / print / kebab) so this native frame looks
+  // exactly like the pdf.js PdfViewer used for every other doc (e.g. the B2
+  // Sprachzertifikat) — only our own floating toolbar shows. Honored by
+  // Chromium (Chrome/Edge/Android); Safari/iOS never render that bar anyway.
+  // The hash MUST be the very last URL segment (after the query string).
+  const bustedSrc =
+    src + (src.includes("?") ? "&" : "?") + "_v=" + bustRef.current +
+    "#toolbar=0&navpanes=0&scrollbar=0";
+
+  // Measure the available area so a 90°/270° rotation can swap W/H and still
+  // fill the popup (instead of overflowing).
+  useLayoutEffect(() => {
     const el = wrapRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const apply = (w: number) => {
-      if (w > 0) setNarrow(w < NARROW_BP);
-    };
-    apply(el.getBoundingClientRect().width);
-    const ro = new ResizeObserver((entries) => {
-      for (const e of entries) apply(e.contentRect.width);
-    });
+    if (!el) return;
+    const measure = () => setBox({ w: el.clientWidth, h: el.clientHeight });
+    measure();
+    const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
 
-  // Every patch is the SAME flat colour. Default pointer-events eats the click,
-  // disabling the button beneath.
-  const patch: CSSProperties = {
-    position: "absolute",
-    top: 0,
-    background: TOOLBAR,
-    zIndex: 2,
-  };
+  const sideways = rot === 90 || rot === 270;
+  // When sideways, the iframe is laid out at swapped dimensions then rotated
+  // around its centre so it lands exactly inside the box.
+  const fw = sideways ? box.h : box.w;
+  const fh = sideways ? box.w : box.h;
 
   return (
-    <div ref={wrapRef} style={{ position: "absolute", inset: 0, overflow: "hidden", background: TOOLBAR }}>
-      <iframe
-        title={title ?? "PDF"}
-        src={bustedSrc}
-        style={{ width: "100%", height: "100%", border: "none", background: TOOLBAR }}
-      />
-      {narrow ? (
-        // Phone: one patch across the whole native bar (only Lens/download/print
-        // live there; nothing else to keep).
-        <div aria-hidden style={{ ...patch, left: 0, right: 0, height: BAR_H_M }} />
-      ) : (
-        // Desktop: precise per-cluster patches, middle tools stay visible.
-        <>
-          {LEFT_W > 0 && <div aria-hidden style={{ ...patch, left: 0, width: LEFT_W, height: BAR_H }} />}
-          {RIGHT_MASKS.map((m) => (
-            <div key={m.key} aria-hidden style={{ ...patch, right: m.right, width: m.width, height: BAR_H }} />
-          ))}
-        </>
-      )}
+    <div ref={wrapRef} style={{ position: "absolute", inset: 0, overflow: "hidden", background: "#525659" }}>
+      <div
+        style={{
+          position: "absolute",
+          left: "50%",
+          top: "50%",
+          width: fw || "100%",
+          height: fh || "100%",
+          transform: `translate(-50%, -50%) rotate(${rot}deg) scale(${scale})`,
+          transformOrigin: "center center",
+          transition: "transform var(--dur-3) var(--ease)",
+        }}
+      >
+        <iframe
+          title={title ?? "PDF"}
+          src={bustedSrc}
+          style={{ width: "100%", height: "100%", border: "none", background: "#525659" }}
+        />
+      </div>
+
+      {/* Toolbar — visually identical to the desktop PdfViewer toolbar. */}
+      <div
+        style={{
+          position: "absolute",
+          bottom: 16,
+          left: "50%",
+          transform: "translateX(-50%)",
+          zIndex: 10,
+          display: "flex",
+          alignItems: "center",
+          gap: 2,
+          padding: "6px 8px",
+          background: "var(--card)",
+          border: "1px solid var(--border)",
+          borderRadius: 12,
+          boxShadow: "0 4px 20px rgba(0,0,0,0.35)",
+          whiteSpace: "nowrap",
+        }}
+      >
+        <Btn onClick={() => setScale(s => Math.max(MIN, Math.round((s - STEP) * 100) / 100))} label="Zoom out">
+          <ZoomOut size={15} strokeWidth={1.8} />
+        </Btn>
+        <span style={{ fontSize: 11, fontWeight: 600, minWidth: 38, textAlign: "center", color: "var(--w3)", userSelect: "none" }}>
+          {Math.round(scale * 100)}%
+        </span>
+        <Btn onClick={() => setScale(s => Math.min(MAX, Math.round((s + STEP) * 100) / 100))} label="Zoom in">
+          <ZoomIn size={15} strokeWidth={1.8} />
+        </Btn>
+        <div style={{ width: 1, height: 18, background: "var(--border)", margin: "0 4px" }} />
+        <Btn onClick={() => { setRot(r => (r + 90) % 360); onRotate?.(); }} label="Rotate">
+          <RotateCw size={15} strokeWidth={1.8} />
+        </Btn>
+      </div>
     </div>
+  );
+}
+
+function Btn({ onClick, label, children }: { onClick: () => void; label: string; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      style={{
+        width: 32, height: 32,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        border: "none", background: "transparent", borderRadius: 8,
+        color: "var(--w2)", cursor: "pointer",
+      }}
+    >
+      {children}
+    </button>
   );
 }
