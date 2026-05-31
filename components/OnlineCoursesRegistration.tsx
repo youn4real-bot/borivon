@@ -3,48 +3,43 @@
 /**
  * /online-courses — premium 3-step course-registration wizard.
  *
- * Step 1 Information → Step 2 Course → Step 3 Group. Submits a "person" lead to
+ * Step 1 Information → Step 2 Group (time slot) → Step 3 Level. Sold-out groups
+ * + levels are shown but not selectable (red badge). Submits a "person" lead to
  * /api/leads (rate-limited + dedup'd; lands in the admin inbox). Trilingual
- * inline (LAW #19). Uses the design-system primitives so it reads as one
- * premium surface, not an ad-hoc form.
+ * inline (LAW #19). Built on the design-system primitives — one premium surface.
  */
 import { Fragment, useState } from "react";
 import { useLang } from "@/components/LangContext";
 import { PhoneInput } from "@/components/PhoneInput";
-import { Check, ChevronDown, ArrowRight, ArrowLeft, GraduationCap, Loader2, PartyPopper } from "lucide-react";
+import { Check, ArrowRight, ArrowLeft, GraduationCap, Loader2, PartyPopper } from "lucide-react";
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const tr = (l: string, en: string, de: string, fr: string) => (l === "de" ? de : l === "fr" ? fr : en);
 
-type Opt = { v: string; en: string; de: string; fr: string };
-const COURSES: Opt[] = [
-  { v: "standard",  en: "Standard course · 2×/week", de: "Standardkurs · 2×/Woche", fr: "Cours standard · 2×/sem." },
-  { v: "intensive", en: "Intensive course · 5×/week", de: "Intensivkurs · 5×/Woche", fr: "Cours intensif · 5×/sem." },
-  { v: "evening",   en: "Evening course",             de: "Abendkurs",               fr: "Cours du soir" },
-  { v: "weekend",   en: "Weekend course",             de: "Wochenendkurs",           fr: "Cours du week-end" },
-  { v: "private",   en: "Private · 1-on-1",           de: "Einzelunterricht",        fr: "Cours particulier" },
-];
+type Opt = { v: string; en: string; de: string; fr: string; soldOut?: boolean };
+
+// Time groups — two open, two sold out (shown for scarcity, not selectable).
 const GROUPS: Opt[] = [
-  { v: "morning",   en: "Morning · 09:00–11:00",   de: "Vormittag · 09:00–11:00",   fr: "Matin · 09:00–11:00" },
-  { v: "afternoon", en: "Afternoon · 14:00–16:00", de: "Nachmittag · 14:00–16:00",  fr: "Après-midi · 14:00–16:00" },
-  { v: "evening",   en: "Evening · 18:00–20:00",   de: "Abend · 18:00–20:00",       fr: "Soir · 18:00–20:00" },
-  { v: "night",     en: "Night · 20:00–22:00",     de: "Spätgruppe · 20:00–22:00",  fr: "Nuit · 20:00–22:00" },
+  { v: "1800", en: "18:00 – 20:00", de: "18:00 – 20:00", fr: "18:00 – 20:00" },
+  { v: "2000", en: "20:00 – 22:00", de: "20:00 – 22:00", fr: "20:00 – 22:00" },
+  { v: "1600", en: "16:00 – 18:00", de: "16:00 – 18:00", fr: "16:00 – 18:00", soldOut: true },
+  { v: "1000", en: "10:00 – 12:00", de: "10:00 – 12:00", fr: "10:00 – 12:00", soldOut: true },
 ];
+// Levels — A1 + B2 open, A2 + B1 sold out.
 const LEVELS: Opt[] = [
-  { v: "A0", en: "A0 – No prior knowledge", de: "A0 – Keine Vorkenntnisse", fr: "A0 – Aucune connaissance" },
-  { v: "A1", en: "A1 – Beginner",           de: "A1 – Anfänger",            fr: "A1 – Débutant" },
-  { v: "A2", en: "A2 – Elementary",         de: "A2 – Grundkenntnisse",     fr: "A2 – Élémentaire" },
-  { v: "B1", en: "B1 – Intermediate",       de: "B1 – Mittelstufe",         fr: "B1 – Intermédiaire" },
-  { v: "B2", en: "B2 – Upper intermediate", de: "B2 – Gute Mittelstufe",    fr: "B2 – Avancé intermédiaire" },
-  { v: "C1", en: "C1 – Advanced",           de: "C1 – Fortgeschritten",     fr: "C1 – Avancé" },
+  { v: "A1", en: "A1 – Beginner",           de: "A1 – Anfänger",         fr: "A1 – Débutant" },
+  { v: "A2", en: "A2 – Elementary",         de: "A2 – Grundkenntnisse",  fr: "A2 – Élémentaire", soldOut: true },
+  { v: "B1", en: "B1 – Intermediate",       de: "B1 – Mittelstufe",      fr: "B1 – Intermédiaire", soldOut: true },
+  { v: "B2", en: "B2 – Upper intermediate", de: "B2 – Gute Mittelstufe", fr: "B2 – Avancé intermédiaire" },
 ];
 
 export function OnlineCoursesRegistration() {
   const { lang } = useLang();
   const T = (en: string, de: string, fr: string) => tr(lang, en, de, fr);
   const label = (o: Opt) => tr(lang, o.en, o.de, o.fr);
+  const soldOutLabel = T("Sold out", "Ausgebucht", "Complet");
 
-  const [step, setStep] = useState(0); // 0,1,2
+  const [step, setStep] = useState(0); // 0 Info · 1 Group · 2 Level
   const [touched, setTouched] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
@@ -55,9 +50,8 @@ export function OnlineCoursesRegistration() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("+212 ");
   const [address, setAddress] = useState("");
-  const [course, setCourse] = useState("standard");
-  const [group, setGroup] = useState("morning");
-  const [level, setLevel] = useState("A0");
+  const [group, setGroup] = useState("1800");  // first open slot
+  const [level, setLevel] = useState("A1");     // first open level
 
   const phoneDigits = phone.replace(/^\+\d+/, "").replace(/\D/g, "");
   const e = {
@@ -69,7 +63,7 @@ export function OnlineCoursesRegistration() {
   };
   const step1Valid = !e.firstName && !e.lastName && !e.email && !e.phone && !e.address;
 
-  const STEPS = [T("Information", "Angaben", "Informations"), T("Course", "Kurs", "Cours"), T("Group", "Gruppe", "Groupe")];
+  const STEPS = [T("Information", "Angaben", "Informations"), T("Group", "Gruppe", "Groupe"), T("Level", "Niveau", "Niveau")];
 
   function next() {
     if (step === 0 && !step1Valid) { setTouched(true); return; }
@@ -83,8 +77,8 @@ export function OnlineCoursesRegistration() {
     setSubmitting(true);
     setErr(null);
     try {
-      const courseLabel = label(COURSES.find((o) => o.v === course)!);
       const groupLabel = label(GROUPS.find((o) => o.v === group)!);
+      const levelLabel = label(LEVELS.find((o) => o.v === level)!);
       const res = await fetch("/api/leads", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -93,7 +87,7 @@ export function OnlineCoursesRegistration() {
           email: email.trim(),
           phone: phone.trim(),
           level,
-          message: `Online-Kurs Anmeldung — ${firstName.trim()} ${lastName.trim()} | Adresse: ${address.trim()} | Kurs: ${courseLabel} | Gruppe: ${groupLabel} | Niveau: ${level}`,
+          message: `Online-Kurs Anmeldung — ${firstName.trim()} ${lastName.trim()} | Adresse: ${address.trim()} | Gruppe: ${groupLabel} | Niveau: ${levelLabel}`,
         }),
       });
       if (res.ok) { setDone(true); return; }
@@ -109,7 +103,6 @@ export function OnlineCoursesRegistration() {
 
   return (
     <main className="relative min-h-[100dvh] overflow-hidden bv-page-bottom" style={{ background: "var(--bg)" }}>
-      {/* Ambient brand glow */}
       <div aria-hidden className="pointer-events-none absolute inset-0" style={{
         background: "radial-gradient(ellipse 70% 50% at 50% -10%, var(--gdim) 0%, transparent 60%)",
       }} />
@@ -118,12 +111,12 @@ export function OnlineCoursesRegistration() {
         {/* Header */}
         <div className="text-center bv-enter">
           <span className="bv-eyebrow">{T("Online German courses", "Deutschkurse online", "Cours d'allemand en ligne")}</span>
-          <h1 className="bv-h1 mt-3">{T("Learn German, live online", "Deutsch lernen, live online", "Apprenez l'allemand, en direct")}</h1>
-          <p className="bv-body mx-auto mt-3" style={{ maxWidth: 460 }}>
+          <h1 className="bv-h1 mt-3">{T("Learn German Online", "Online Deutsch lernen", "Apprendre l'allemand en ligne")}</h1>
+          <p className="bv-body mx-auto mt-3" style={{ maxWidth: 440 }}>
             {T(
-              "Reserve your seat in a live small-group course — A0 to C1, qualified instructors. Three quick steps.",
-              "Sichern Sie sich Ihren Platz im Live-Kleingruppenkurs — A0 bis C1, qualifizierte Lehrkräfte. Drei kurze Schritte.",
-              "Réservez votre place en petit groupe en direct — A0 à C1, formateurs qualifiés. Trois étapes rapides.",
+              "Reserve your seat by submitting your info.",
+              "Sichern Sie sich Ihren Platz — senden Sie einfach Ihre Daten.",
+              "Réservez votre place en envoyant vos informations.",
             )}
           </p>
         </div>
@@ -206,10 +199,9 @@ export function OnlineCoursesRegistration() {
               )}
 
               {step === 1 && (
-                <div className="space-y-2">
-                  <Field label={T("Course type", "Kursart", "Type de cours")} req>
-                    <Select value={course} onChange={setCourse} options={COURSES} label={label} />
-                  </Field>
+                <div>
+                  <span className="bv-label">{T("Choose your group", "Gruppe wählen", "Choisissez votre groupe")}<span className="req">*</span></span>
+                  <Cards value={group} onChange={setGroup} options={GROUPS} label={label} soldOutLabel={soldOutLabel} />
                   <div className="flex items-start gap-2.5 mt-5 rounded-xl px-3.5 py-3" style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
                     <GraduationCap size={16} strokeWidth={1.9} style={{ color: "var(--gold)", flexShrink: 0, marginTop: 1 }} />
                     <p className="text-[12.5px] leading-relaxed" style={{ color: "var(--w2)" }}>
@@ -224,13 +216,9 @@ export function OnlineCoursesRegistration() {
               )}
 
               {step === 2 && (
-                <div className="space-y-5">
-                  <Field label={T("Group / schedule", "Gruppe / Zeit", "Groupe / horaire")} req>
-                    <Select value={group} onChange={setGroup} options={GROUPS} label={label} />
-                  </Field>
-                  <Field label={T("German level", "Deutschniveau", "Niveau d'allemand")} req>
-                    <Select value={level} onChange={setLevel} options={LEVELS} label={label} />
-                  </Field>
+                <div>
+                  <span className="bv-label">{T("Choose your German level", "Deutschniveau wählen", "Choisissez votre niveau")}<span className="req">*</span></span>
+                  <Cards value={level} onChange={setLevel} options={LEVELS} label={label} soldOutLabel={soldOutLabel} />
                 </div>
               )}
 
@@ -271,20 +259,42 @@ function Field({ label, req, children }: { label: string; req?: boolean; childre
   );
 }
 
-function Select({ value, onChange, options, label }: { value: string; onChange: (v: string) => void; options: Opt[]; label: (o: Opt) => string }) {
+/** Premium option cards — selected = gold ring + check; sold-out = greyed + red badge, not clickable. */
+function Cards({ value, onChange, options, label, soldOutLabel }: {
+  value: string; onChange: (v: string) => void; options: Opt[]; label: (o: Opt) => string; soldOutLabel: string;
+}) {
   return (
-    <div className="relative">
-      <select
-        value={value}
-        onChange={(ev) => onChange(ev.target.value)}
-        className="w-full appearance-none rounded-[10px] px-4 py-3.5 pr-11 text-[15px] font-medium outline-none cursor-pointer"
-        style={{ background: "var(--bg2)", border: "1px solid var(--border2)", color: "var(--w)" }}
-      >
-        {options.map((o) => (
-          <option key={o.v} value={o.v} style={{ background: "var(--card)", color: "var(--w)" }}>{label(o)}</option>
-        ))}
-      </select>
-      <ChevronDown size={18} className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2" style={{ color: "var(--w3)" }} />
+    <div className="space-y-2.5 mt-2">
+      {options.map((o) => {
+        const selected = value === o.v;
+        const so = !!o.soldOut;
+        return (
+          <button
+            key={o.v}
+            type="button"
+            disabled={so}
+            aria-pressed={selected}
+            onClick={() => { if (!so) onChange(o.v); }}
+            className="w-full flex items-center justify-between gap-3 rounded-[14px] px-4 py-3.5 text-left transition-all"
+            style={{
+              background: selected ? "var(--gdim)" : "var(--bg2)",
+              border: `1px solid ${selected ? "var(--border-gold)" : "var(--border)"}`,
+              opacity: so ? 0.6 : 1,
+              cursor: so ? "not-allowed" : "pointer",
+            }}
+          >
+            <span className="text-[15px] font-medium" style={{ color: so ? "var(--w3)" : "var(--w)" }}>{label(o)}</span>
+            {so ? (
+              <span className="text-[10px] font-semibold uppercase tracking-[0.06em] px-2 py-0.5 rounded-full flex-shrink-0"
+                style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
+                {soldOutLabel}
+              </span>
+            ) : selected ? (
+              <Check size={18} strokeWidth={2.4} style={{ color: "var(--gold)", flexShrink: 0 }} />
+            ) : null}
+          </button>
+        );
+      })}
     </div>
   );
 }
