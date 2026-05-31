@@ -1,0 +1,165 @@
+import { NextRequest, NextResponse } from "next/server";
+import { getServiceSupabase } from "@/lib/supabase";
+import { requireUser, requireAdminRole } from "@/lib/admin-auth";
+import { enforceRateLimit } from "@/lib/rateLimit";
+import { UUID_RE } from "@/lib/uuid";
+
+/**
+ * Community calendar (the "Calendar" tab).
+ *
+ * GET    — any logged-in portal user. Returns every event newest-first.
+ *          VIP-only events come back as { locked:true } for non-premium
+ *          candidates with their join link + description withheld server-side,
+ *          so the lock can't be bypassed by reading the network response.
+ * POST   — supreme admin only (role==="admin"): create an event.
+ * DELETE — supreme admin only: ?id=<uuid>.
+ *
+ * Run supabase/calendar_events.sql once before this works.
+ */
+
+type EventRow = {
+  id: string; title: string; description: string;
+  starts_at: string; ends_at: string | null;
+  image_url: string; link_url: string; location: string;
+  vip_only: boolean; created_at: string;
+};
+
+const MAX = (s: unknown, n: number) => (typeof s === "string" ? s : "").trim().slice(0, n);
+
+/** Accept only renderable, non-script image sources (https or inline image data). */
+function safeImageUrl(s: unknown): string {
+  const v = MAX(s, 200_000); // data URLs can be large; cap generously
+  if (/^https:\/\/[^\s]+$/i.test(v)) return v.slice(0, 2000);
+  if (/^data:image\/(png|jpe?g|webp|gif);base64,[a-z0-9+/=]+$/i.test(v)) return v;
+  return "";
+}
+
+/** Accept only http(s) links (no javascript:, data:, etc.). */
+function safeLinkUrl(s: unknown): string {
+  const v = MAX(s, 500);
+  return /^https?:\/\/[^\s]+$/i.test(v) ? v : "";
+}
+
+function isAdminEmail(email: string): boolean {
+  return !!email && email === (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
+}
+
+// ── GET: list events (everyone logged-in) ────────────────────────────────────
+export async function GET(req: NextRequest) {
+  const auth = await requireUser(req);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  const db = getServiceSupabase();
+
+  // Supreme admin never has anything locked (they manage events). Everyone else
+  // is "premium" only via a paid tier or a manual verification flag.
+  const canManage = isAdminEmail(auth.email);
+  let premium = canManage;
+  if (!premium) {
+    const { data: prof } = await db
+      .from("candidate_profiles")
+      .select("payment_tier, manually_verified")
+      .eq("user_id", auth.userId)
+      .maybeSingle();
+    const p = prof as { payment_tier?: string | null; manually_verified?: boolean } | null;
+    premium = !!p && (p.payment_tier === "premium" || !!p.manually_verified);
+  }
+
+  const { data, error } = await db
+    .from("calendar_events")
+    .select("id, title, description, starts_at, ends_at, image_url, link_url, location, vip_only, created_at")
+    .order("starts_at", { ascending: true })
+    .limit(1000);
+
+  if (error) {
+    console.error("[portal/calendar] list error:", error.message);
+    return NextResponse.json({ error: "Internal error", events: [] }, { status: 500 });
+  }
+
+  const events = ((data ?? []) as EventRow[]).map((e) => {
+    const locked = e.vip_only && !premium;
+    return {
+      id: e.id,
+      title: e.title,
+      // Withhold the payoff fields from non-premium viewers of a VIP event.
+      description: locked ? "" : e.description,
+      starts_at: e.starts_at,
+      ends_at: e.ends_at,
+      image_url: e.image_url,
+      link_url: locked ? "" : e.link_url,
+      location: locked ? "" : e.location,
+      vip_only: e.vip_only,
+      locked,
+    };
+  });
+
+  return NextResponse.json({ events, premium, canManage });
+}
+
+// ── POST: create event (supreme admin) ───────────────────────────────────────
+export async function POST(req: NextRequest) {
+  const auth = await requireAdminRole(req);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  if (auth.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const rl = enforceRateLimit(req, "calendar-write", { limit: 30, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "too_many" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+
+  let body: {
+    title?: string; description?: string; starts_at?: string; ends_at?: string;
+    image_url?: string; link_url?: string; location?: string; vip_only?: boolean;
+  };
+  try { body = await req.json(); } catch { return NextResponse.json({ error: "invalid_body" }, { status: 400 }); }
+
+  const title = MAX(body.title, 200);
+  if (!title) return NextResponse.json({ error: "title_required" }, { status: 400 });
+
+  const startMs = Date.parse(MAX(body.starts_at, 40));
+  if (!Number.isFinite(startMs)) return NextResponse.json({ error: "invalid_start" }, { status: 400 });
+  const starts_at = new Date(startMs).toISOString();
+
+  let ends_at: string | null = null;
+  const endRaw = MAX(body.ends_at, 40);
+  if (endRaw) {
+    const endMs = Date.parse(endRaw);
+    if (Number.isFinite(endMs) && endMs >= startMs) ends_at = new Date(endMs).toISOString();
+  }
+
+  const row = {
+    title,
+    description: MAX(body.description, 4000),
+    starts_at,
+    ends_at,
+    image_url: safeImageUrl(body.image_url),
+    link_url: safeLinkUrl(body.link_url),
+    location: MAX(body.location, 200),
+    vip_only: body.vip_only === true,
+    created_by: auth.userId,
+  };
+
+  const db = getServiceSupabase();
+  const { data, error } = await db.from("calendar_events").insert(row).select("id").single();
+  if (error) {
+    console.error("[portal/calendar] insert error:", error.message);
+    return NextResponse.json({ error: "insert_failed" }, { status: 500 });
+  }
+  return NextResponse.json({ ok: true, id: (data as { id: string }).id });
+}
+
+// ── DELETE: remove event (supreme admin) ─────────────────────────────────────
+export async function DELETE(req: NextRequest) {
+  const auth = await requireAdminRole(req);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  if (auth.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const id = (new URL(req.url).searchParams.get("id") ?? "").trim();
+  if (!UUID_RE.test(id)) return NextResponse.json({ error: "invalid_id" }, { status: 400 });
+
+  const db = getServiceSupabase();
+  const { error } = await db.from("calendar_events").delete().eq("id", id);
+  if (error) {
+    console.error("[portal/calendar] delete error:", error.message);
+    return NextResponse.json({ error: "delete_failed" }, { status: 500 });
+  }
+  return NextResponse.json({ ok: true });
+}

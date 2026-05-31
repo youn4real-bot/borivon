@@ -12,9 +12,9 @@ import { Sun, Moon, Menu, Home } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 const PORTAL_NAV_T = {
-  en: { dashboard: "Dashboard",     academy: "Academy",  community: "Community"  },
-  fr: { dashboard: "Tableau de bord", academy: "Académie", community: "Communauté" },
-  de: { dashboard: "Dashboard",     academy: "Akademie", community: "Community"  },
+  en: { dashboard: "Dashboard",     academy: "Academy",  calendar: "Calendar",   community: "Community"  },
+  fr: { dashboard: "Tableau de bord", academy: "Académie", calendar: "Calendrier", community: "Communauté" },
+  de: { dashboard: "Dashboard",     academy: "Akademie", calendar: "Kalender",   community: "Community"  },
 } as const;
 
 const LANGS: { code: Lang; flagSrc: string; label: string }[] = [
@@ -76,8 +76,9 @@ export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: 
   // Portal tab logic — mirrors PortalTopNav routing
   const isAdmin   = pathname.startsWith("/portal/admin");
   const isOrg     = pathname.startsWith("/portal/org");
-  const isFeed    = pathname.startsWith("/portal/feed");
-  const isAcademy = pathname.startsWith("/portal/academy");
+  const isFeed     = pathname.startsWith("/portal/feed");
+  const isAcademy  = pathname.startsWith("/portal/academy");
+  const isCalendar = pathname.startsWith("/portal/calendar");
   // LAW #1: `/portal` exact match is the login screen — Dashboard / Community
   // tabs MUST NOT render there even if `authTk` is set from a stale session.
   // Route check is authoritative — no async auth state can leak chrome onto
@@ -87,9 +88,10 @@ export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: 
                  : isOrg   ? "/portal/org/dashboard"
                  :            "/portal/dashboard";
   const portalTabs = useBottomBar && authTk && !isLoginPage ? [
-    { label: PNT.dashboard, href: dashHref,           active: !isFeed && !isAcademy },
+    { label: PNT.dashboard, href: dashHref,           active: !isFeed && !isAcademy && !isCalendar },
     // Academy tab only when the server says this user may see it (supreme / allowed).
     ...(academyVisible ? [{ label: PNT.academy, href: "/portal/academy", active: isAcademy }] : []),
+    { label: PNT.calendar,  href: "/portal/calendar", active: isCalendar },
     { label: PNT.community, href: "/portal/feed",     active: isFeed  },
   ] : null;
 
