@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "cross-env NODE_OPTIONS=--max-old-space-size=8192 next build",
+    "postinstall": "node scripts/copy-pdfjs-assets.mjs",
+    "pdfjs:assets": "node scripts/copy-pdfjs-assets.mjs",
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",

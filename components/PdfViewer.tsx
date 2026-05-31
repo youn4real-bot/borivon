@@ -32,6 +32,7 @@ import { ZoomIn, ZoomOut, RotateCw } from "lucide-react";
 import { Spinner } from "@/components/ui/states";
 import { isIOSDevice } from "@/lib/platform";
 import { getCachedRotation, bumpCachedRotation } from "@/lib/rotationStore";
+import { pdfLoadOptions } from "@/lib/pdfjs";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PdfDoc = any;
@@ -154,34 +155,12 @@ export function PdfViewer({
         ).toString();
       }
 
-      // Point pdf.js at its bundled standard-font + CMap data (copied to
-      // /public/pdfjs). WITHOUT these, any PDF whose text uses a NON-embedded
-      // standard/CID font renders with the text MISSING — vector graphics,
-      // borders and logos still draw, but glyphs vanish (e.g. scanned agency
-      // forms like Zusatzblatt A). These are FALLBACK sources only: a doc with
-      // embedded fonts never fetches them, so this can't change anything that
-      // already renders. Same-origin path → CSP-clean.
-      const origin = typeof window !== "undefined" ? window.location.origin : "";
-      const task = pdfjsLib.getDocument({
-        url: src,
-        cMapUrl: `${origin}/pdfjs/cmaps/`,
-        cMapPacked: true,
-        standardFontDataUrl: `${origin}/pdfjs/standard_fonts/`,
-        // ROOT CAUSE FIX: pdf.js v5 decodes CCITTFax / JBIG2 / JPEG2000 images
-        // with a WASM module. German agency forms (EZB, Zusatzblatt A) are built
-        // ENTIRELY from CCITTFax 1-bit image masks — and with NO wasmUrl pdf.js
-        // silently DROPS those images, so the form looks blank/faint. Pointing at
-        // the bundled wasm (copied to /public/pdfjs/wasm) loads the decoder → the
-        // form renders solid. Normal PDFs never invoke this decoder, so they're
-        // unaffected.
-        wasmUrl: `${origin}/pdfjs/wasm/`,
-        // For non-embedded fonts, use the bundled standard fonts (consistent
-        // across machines) instead of guessing a local system font.
-        useSystemFonts: false,
-        // Render images on the main-thread canvas, not a worker OffscreenCanvas
-        // (the latter drops glyphs/images on some browsers).
-        isOffscreenCanvasSupported: false,
-      });
+      // pdfLoadOptions (lib/pdfjs.ts) is the SINGLE source of truth for the
+      // critical render options — wasmUrl (CCITTFax/JBIG2/JPEG2000 image
+      // decoders, without which image-built forms render blank), cMap +
+      // standard fonts, useSystemFonts, OffscreenCanvas. EVERY pdf.js load MUST
+      // go through it so this can never silently regress for a future viewer.
+      const task = pdfjsLib.getDocument(pdfLoadOptions(src));
       destroy = () => task.destroy().catch(() => {});
 
       task.promise
