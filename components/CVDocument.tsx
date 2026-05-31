@@ -815,20 +815,42 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
           </View>
         </View>
 
-        {/* ── BERUFSERFAHRUNG ── */}
+        {/* ── BERUFSERFAHRUNG ──
+            NOTE — why a Fragment, NOT a single wrapping <View>:
+            react-pdf moves a wrapping section <View> WHOLESALE to the next
+            page whenever it doesn't FULLY fit the remaining space (even by a
+            few points), instead of splitting it. That left the bottom half of
+            page 1 blank and pushed the whole section over. Rendered as a flat
+            flow, each entry is its own keep-together block (WorkRow/EduRow has
+            wrap={false}), so entries fill the page and break only BETWEEN
+            blocks. The section header + its FIRST entry are grouped in a
+            wrap={false} View so a heading can never sit alone at a page foot.
+            The trailing zero-height View carries the inter-section gap. */}
         {allWork.length > 0 && (
-          <View style={[s.section, { marginBottom: sp.sectionMb }]}>
-            <SectionHead title="Berufserfahrung" mb={sp.sectionHeadMb} />
-            {allWork.map(e => <WorkRow key={e.id} entry={e} sp={sp} />)}
-          </View>
+          <>
+            <View wrap={false}>
+              <SectionHead title="Berufserfahrung" mb={sp.sectionHeadMb} />
+              <WorkRow entry={allWork[0]} sp={sp} />
+            </View>
+            {allWork.slice(1).map(e => <WorkRow key={e.id} entry={e} sp={sp} />)}
+            <View style={{ marginBottom: sp.sectionMb }} />
+          </>
         )}
 
-        {/* ── BILDUNGSWEG ── */}
+        {/* ── BILDUNGSWEG ──
+            Same flat-flow treatment as Berufserfahrung (see note above): each
+            education entry is an atomic block (date + degree + institution)
+            that fills the page; the section never jumps wholesale. Header +
+            first entry kept together so the heading is never orphaned. */}
         {allEdu.length > 0 && (
-          <View style={[s.section, { marginBottom: sp.sectionMb }]}>
-            <SectionHead title="Bildungsweg" mb={sp.sectionHeadMb} />
-            {allEdu.map(e => <EduRow key={e.id} entry={e} sp={sp} />)}
-          </View>
+          <>
+            <View wrap={false}>
+              <SectionHead title="Bildungsweg" mb={sp.sectionHeadMb} />
+              <EduRow entry={allEdu[0]} sp={sp} />
+            </View>
+            {allEdu.slice(1).map(e => <EduRow key={e.id} entry={e} sp={sp} />)}
+            <View style={{ marginBottom: sp.sectionMb }} />
+          </>
         )}
 
         {/* ── SPRACHKENNTNISSE ── */}
