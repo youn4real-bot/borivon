@@ -40,6 +40,19 @@ const LEVELS: Opt[] = [
 //   moment a student or competitor checks. Use a number you can stand behind.
 const LEARNER_COUNT: number | null = null;
 
+// Member-avatar photos for the social-proof cluster. Drop REAL images at
+// public/avatars/face1.jpg … face5.jpg  (face1 = the front-most one shown on
+// top). Each falls back to a warm gradient circle until its file exists, so a
+// missing photo never shows a broken-image icon. You can also point these at
+// https URLs instead. Use only photos you have the right to use.
+const FACES = [
+  "/avatars/face1.jpg",
+  "/avatars/face2.jpg",
+  "/avatars/face3.jpg",
+  "/avatars/face4.jpg",
+  "/avatars/face5.jpg",
+];
+
 // Warm, intentionally abstract avatar tiles — blurred gradients so NO
 // identifiable face is ever shown (also satisfies "faces not visible even when
 // zoomed"). They read as "a group of people" for social proof without
@@ -144,14 +157,6 @@ export function OnlineCoursesRegistration() {
           <span className="bv-wordmark inline-block" style={{ fontSize: "clamp(2.8rem, 9vw, 4.2rem)", lineHeight: 1 }}>
             Borivon<span className="bv-wordmark-dot">.</span>
           </span>
-          {/* Live "enrolling now" — sits right under the logo, centered. */}
-          <div className="flex justify-center mt-4">
-            <span className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[12px] font-semibold"
-              style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
-              <span className="bv-live-dot inline-block rounded-full" style={{ width: 8, height: 8, background: "var(--success)" }} />
-              {T("Enrolling now", "Anmeldung läuft", "Inscriptions ouvertes")}
-            </span>
-          </div>
           {/* Headline — big, but a notch smaller than the logo. */}
           <h1 className="bv-h1 mt-3" style={{ fontSize: "clamp(1.9rem, 5vw, 2.8rem)" }}>{T("Learn German Online", "Online Deutsch lernen", "Apprendre l'allemand en ligne")}</h1>
           <p className="bv-body mx-auto mt-3" style={{ maxWidth: 440 }}>
@@ -271,15 +276,23 @@ export function OnlineCoursesRegistration() {
                   </button>
                 ) : <span />}
 
-                {step < 2 ? (
-                  <button onClick={next} className="bv-btn bv-btn-primary-lg bv-glow-gold" type="button">
-                    {T("Continue", "Weiter", "Continuer")} <ArrowRight size={16} strokeWidth={2} />
-                  </button>
-                ) : (
-                  <button onClick={submit} disabled={submitting} className="bv-btn bv-btn-primary-lg bv-glow-gold" type="button">
-                    {submitting ? <><Loader2 size={16} className="animate-spin" /> {T("Submitting…", "Wird gesendet…", "Envoi…")}</> : T("Submit request", "Anfrage senden", "Envoyer la demande")}
-                  </button>
-                )}
+                <div className="flex items-center gap-2.5">
+                  {/* Live "enrolling now" — sits right next to the action button. */}
+                  <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[11.5px] font-semibold whitespace-nowrap"
+                    style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
+                    <span className="bv-live-dot inline-block rounded-full" style={{ width: 7, height: 7, background: "var(--success)" }} />
+                    {T("Enrolling now", "Anmeldung läuft", "Inscriptions ouvertes")}
+                  </span>
+                  {step < 2 ? (
+                    <button onClick={next} className="bv-btn bv-btn-primary-lg bv-glow-gold" type="button">
+                      {T("Continue", "Weiter", "Continuer")} <ArrowRight size={16} strokeWidth={2} />
+                    </button>
+                  ) : (
+                    <button onClick={submit} disabled={submitting} className="bv-btn bv-btn-primary-lg bv-glow-gold" type="button">
+                      {submitting ? <><Loader2 size={16} className="animate-spin" /> {T("Submitting…", "Wird gesendet…", "Envoi…")}</> : T("Submit request", "Anfrage senden", "Envoyer la demande")}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -288,15 +301,22 @@ export function OnlineCoursesRegistration() {
         {/* ── Social proof — centered avatars with the text below them ──────────── */}
         {!done && (
           <div className="mt-12 flex flex-col items-center text-center bv-enter gap-3.5">
-            {/* Non-identifiable avatar tiles (no real photos / no AI faces). */}
+            {/* Member avatars — real photos from public/avatars/face1..5.jpg
+                (face1 = front, on top). Each falls back to a warm gradient
+                circle until its file exists, so a missing photo is never a
+                broken image. */}
             <div className="flex justify-center" aria-hidden>
-              {[0, 1, 2, 3, 4].map((i) => (
+              {FACES.map((src, i) => (
                 <span key={i} className="block" style={{
-                  width: 40, height: 40, borderRadius: 999, overflow: "hidden",
-                  border: "2px solid var(--bg)", marginLeft: i === 0 ? 0 : -12,
-                  boxShadow: "var(--shadow-sm)", flexShrink: 0, position: "relative", zIndex: 5 - i,
+                  width: 46, height: 46, borderRadius: 999, overflow: "hidden",
+                  border: "2px solid var(--bg)", marginLeft: i === 0 ? 0 : -14,
+                  boxShadow: "var(--shadow-sm)", flexShrink: 0, position: "relative", zIndex: FACES.length - i,
+                  background: avatarBg(i),
                 }}>
-                  <span style={{ display: "block", width: "100%", height: "100%", filter: "blur(1.3px)", background: avatarBg(i) }} />
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={src} alt="" loading="lazy"
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                    style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
                 </span>
               ))}
             </div>
