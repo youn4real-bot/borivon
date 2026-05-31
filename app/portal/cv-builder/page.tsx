@@ -486,7 +486,7 @@ function PickerPopup({ open, title, options, selectedValue, onPick, onClose }: {
         onClick={onClose} />
       <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4 pointer-events-none">
         <div className="w-full max-w-[320px] max-h-[70dvh] overflow-hidden flex flex-col pointer-events-auto"
-          style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
+          style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
           <div className="flex items-center justify-between px-5 py-4">
             <h3 className="text-[15px] font-semibold" style={{ color: "var(--w)" }}>{title}</h3>
             <button type="button" onClick={onClose}
@@ -716,7 +716,7 @@ function PhoneInput({ value, onChange, hasError = false }: { value: string; onCh
           {/* Centered popup */}
           <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4 pointer-events-none">
             <div className="w-full max-w-[360px] max-h-[70dvh] overflow-hidden flex flex-col pointer-events-auto"
-              style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
+              style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
               <div className="flex items-center justify-between px-5 py-4">
                 <h3 className="text-[15px] font-semibold" style={{ color: "var(--w)" }}>
                   {lang === "de" ? "Land auswählen" : lang === "en" ? "Select country" : "Choisir un pays"}
@@ -829,7 +829,7 @@ function ExtraNationalityPickerHost({ existing, onPick, onClose }: {
         onClick={onClose} />
       <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4 pointer-events-none">
         <div className="w-full max-w-[360px] max-h-[70dvh] overflow-hidden flex flex-col pointer-events-auto"
-          style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
+          style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
           <div className="flex items-center justify-between px-5 py-4">
             <h3 className="text-[15px] font-semibold" style={{ color: "var(--w)" }}>{title}</h3>
             <button type="button" onClick={onClose}
@@ -921,7 +921,7 @@ function InternshipInfoPopup({ open, onClose }: { open: boolean; onClose: () => 
         onClick={onClose} />
       <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4 pointer-events-none">
         <div className="w-full max-w-[400px] max-h-[85dvh] overflow-y-auto flex flex-col pointer-events-auto"
-          style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
+          style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
           <div className="px-6 pt-6 pb-2 text-center">
             <span className="mx-auto mb-3 flex items-center justify-center w-12 h-12 rounded-full"
               style={{ background: "var(--info-bg)", color: "var(--info)" }}>
@@ -1106,7 +1106,7 @@ function AbiturInfoPopup({ open, onClose }: { open: boolean; onClose: () => void
         onClick={onClose} />
       <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4 pointer-events-none">
         <div className="w-full max-w-[400px] max-h-[85dvh] overflow-y-auto flex flex-col pointer-events-auto"
-          style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
+          style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
           <div className="px-6 pt-6 pb-2 text-center">
             <span className="mx-auto mb-3 flex items-center justify-center w-12 h-12 rounded-full"
               style={{ background: "var(--info-bg)", color: "var(--info)" }}>
@@ -1427,7 +1427,7 @@ function NationalityPicker({ value, onChange, titleOverride }: {
             onClick={() => setOpen(false)} />
           <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4 pointer-events-none">
             <div className="w-full max-w-[360px] max-h-[70dvh] overflow-hidden flex flex-col pointer-events-auto"
-              style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
+              style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
               <div className="flex items-center justify-between px-5 py-4">
                 <h3 className="text-[15px] font-semibold" style={{ color: "var(--w)" }}>
                   {titleOverride
@@ -1714,7 +1714,7 @@ function PassportLockPopup({ open, onClose, passportStatus }: {
         onClick={onClose} />
       <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4 pointer-events-none">
         <div className="w-full max-w-[360px] overflow-hidden flex flex-col pointer-events-auto"
-          style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
+          style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
           <div className="px-6 pt-6 pb-2 text-center">
             <span className="mx-auto mb-3 flex items-center justify-center w-12 h-12 rounded-full"
               style={{ background: "var(--gdim)", color: "var(--gold)" }}>

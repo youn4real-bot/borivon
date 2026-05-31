@@ -229,7 +229,7 @@ export function AutoFillReviewModal({
         <div className="w-full max-w-5xl flex flex-col overflow-hidden"
           style={{
             background: "var(--card)", border: "1px solid var(--border)", borderRadius: 20,
-            boxShadow: "0 20px 60px rgba(0,0,0,0.35)", height: "100%", maxHeight: "100%",
+            boxShadow: "var(--shadow-lg)", height: "100%", maxHeight: "100%",
           }}
           onClick={e => e.stopPropagation()}>
 

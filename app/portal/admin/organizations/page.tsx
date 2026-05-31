@@ -1084,7 +1084,7 @@ export default function OrganizationsPage() {
           <p className="text-[13px] font-semibold text-center" style={{ color: "var(--w)" }}>{qrModal.label}</p>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&bgcolor=1a1a18&color=d4af37&data=${encodeURIComponent(qrModal.url)}`}
+            src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&bgcolor=1a1a18&color=c9a240&data=${encodeURIComponent(qrModal.url)}`}
             alt="QR code"
             width={200}
             height={200}

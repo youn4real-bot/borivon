@@ -1896,7 +1896,7 @@ export default function DashboardPage() {
           onClick={() => setDocHintOpen(null)} />
         <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4 pointer-events-none">
           <div className="w-full max-w-[400px] max-h-[85vh] overflow-y-auto flex flex-col pointer-events-auto"
-            style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
+            style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
             <div className="px-6 pt-6 pb-2 text-center">
               <span className="mx-auto mb-3 flex items-center justify-center w-12 h-12 rounded-full"
                 style={{ background: "var(--info-bg)", color: "var(--info)" }}>

@@ -128,7 +128,7 @@ export default function MigrateToR2Page() {
         onClick={run}
         disabled={running}
         style={{
-          background: running ? "#555" : "#c9a23a",
+          background: running ? "#555" : "var(--gold)",
           color: "#131312", fontWeight: 700, fontSize: 14,
           padding: "12px 20px", borderRadius: 10, border: "none",
           cursor: running ? "default" : "pointer",

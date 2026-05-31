@@ -5364,7 +5364,7 @@ export default function AdminPage() {
                           onClick={() => !slotConfigSaving && setSlotConfigPopup(null)}>
                           <div className="w-full sm:max-w-md flex flex-col overflow-hidden"
                             onClick={e => e.stopPropagation()}
-                            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", borderRadius: 20, boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)", maxHeight: "calc(100dvh - 72px - 16px)" }}>
+                            style={{ background: "var(--card)", border: "1px solid var(--border-gold)", borderRadius: 20, boxShadow: "var(--shadow-lg)", animation: "bvFadeRise 0.24s var(--ease-out)", maxHeight: "calc(100dvh - 72px - 16px)" }}>
                             {/* Header — tighter scale to match the rest of the portal modals. */}
                             <div className="px-5 pt-4 pb-3 flex items-start justify-between gap-3 flex-shrink-0" style={{ borderBottom: "1px solid var(--border)" }}>
                               <div className="min-w-0">
@@ -6611,7 +6611,7 @@ export default function AdminPage() {
                 background: "var(--card)",
                 border: "1px solid var(--border)",
                 borderRadius: 20,
-                boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
+                boxShadow: "var(--shadow-lg)",
                 // height: 100% locks the card to the wizard outer's available
                 // size — without it, the card auto-grows when the PdfViewer
                 // canvases re-render at higher zoom, which pushes the frame

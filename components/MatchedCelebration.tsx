@@ -20,7 +20,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 const PIECES = Array.from({ length: 40 }, (_, i) => {
-  const colours = ["#c9a240", "#d4af37", "#fff", "#e8cc6e", "#a07830", "#f0dfa0", "#fffbe6", "#c9a240"];
+  const colours = ["#c9a240", "#dcb84e", "#fff", "#e8cc6e", "#a07830", "#f0dfa0", "#fffbe6", "#c9a240"];
   const shapes  = ["circle", "rect", "rect"];
   return {
     id: i,

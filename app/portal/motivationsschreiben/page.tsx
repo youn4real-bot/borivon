@@ -79,7 +79,7 @@ const affBtnStyle: React.CSSProperties = {
   width: 20, height: 20, borderRadius: 999, flexShrink: 0,
   display: "flex", alignItems: "center", justifyContent: "center",
   background: "var(--gdim, rgba(201,168,76,0.14))",
-  color: "var(--gold, #C9A84C)",
+  color: "var(--gold, #c9a240)",
   border: "1px solid var(--border-gold, rgba(201,168,76,0.35))",
   cursor: "pointer",
 };
@@ -204,7 +204,7 @@ function PassportLockPopup({ open, onClose, passportStatus }: {
         onClick={onClose} />
       <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pointer-events-none">
         <div className="w-full max-w-[360px] overflow-hidden flex flex-col pointer-events-auto"
-          style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
+          style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
           <div className="px-6 pt-6 pb-2 text-center">
             <span className="mx-auto mb-3 flex items-center justify-center w-12 h-12 rounded-full"
               style={{ background: "var(--gdim)", color: "var(--gold)" }}>
@@ -260,7 +260,7 @@ function EmployerPendingPopup({ open, onClose }: { open: boolean; onClose: () =>
         onClick={onClose} />
       <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pointer-events-none">
         <div className="w-full max-w-[360px] overflow-hidden flex flex-col pointer-events-auto"
-          style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
+          style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
           <div className="px-6 pt-6 pb-2 text-center">
             <span className="mx-auto mb-3 flex items-center justify-center w-12 h-12 rounded-full"
               style={{ background: "var(--gdim)", color: "var(--gold)" }}>
@@ -1316,7 +1316,7 @@ function MotivationsschreibenPageInner() {
                     className="bv-row-hover inline-flex items-center gap-1.5 text-[12px] font-semibold px-2.5 py-1 rounded-full transition-colors"
                     style={{
                       color: promptCopied ? "var(--success)" : "var(--gold)",
-                      border: `1px solid ${promptCopied ? "var(--success-border, rgba(48,209,88,0.35))" : "var(--border-gold, rgba(212,175,55,0.4))"}`,
+                      border: `1px solid ${promptCopied ? "var(--success-border, rgba(48,209,88,0.35))" : "var(--border-gold, rgba(201,162,64,0.4))"}`,
                     }}>
                     {promptCopied
                       ? <><Check size={13} strokeWidth={2} /> {lang === "de" ? "Kopiert!" : lang === "fr" ? "Copié !" : "Copied!"}</>

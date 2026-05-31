@@ -16,7 +16,7 @@ import { createPortal } from "react-dom";
 import { CheckCircle2, RefreshCcw } from "lucide-react";
 
 const PIECES = Array.from({ length: 40 }, (_, i) => {
-  const colours = ["#c9a240", "#d4af37", "#fff", "#e8cc6e", "#a07830", "#f0dfa0", "#fffbe6"];
+  const colours = ["#c9a240", "#dcb84e", "#fff", "#e8cc6e", "#a07830", "#f0dfa0", "#fffbe6"];
   const shapes  = ["circle", "rect", "rect"];
   return {
     id: i,

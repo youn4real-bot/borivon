@@ -118,7 +118,7 @@ export function PhoneInput({ value, onChange, hasError = false }: { value: strin
             onClick={() => setOpen(false)} />
           <div className="fixed inset-0 z-[1101] flex items-center justify-center p-4 pb-[88px] sm:pb-4 pointer-events-none">
             <div className="w-full max-w-[360px] max-h-[70dvh] overflow-hidden flex flex-col pointer-events-auto"
-              style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 20px 60px rgba(0,0,0,0.35)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
+              style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "var(--shadow-lg)", animation: "bvFadeRise 0.24s var(--ease-out)" }}>
               <div className="flex items-center justify-between px-5 py-4">
                 <h3 className="text-[15px] font-semibold" style={{ color: "var(--w)" }}>
                   {lang === "de" ? "Land auswählen" : lang === "en" ? "Select country" : "Choisir un pays"}
