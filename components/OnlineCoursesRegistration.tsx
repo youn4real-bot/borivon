@@ -276,23 +276,15 @@ export function OnlineCoursesRegistration() {
                   </button>
                 ) : <span />}
 
-                <div className="flex items-center gap-2.5">
-                  {/* Live "enrolling now" — sits right next to the action button. */}
-                  <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[11.5px] font-semibold whitespace-nowrap"
-                    style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
-                    <span className="bv-live-dot inline-block rounded-full" style={{ width: 7, height: 7, background: "var(--success)" }} />
-                    {T("Enrolling now", "Anmeldung läuft", "Inscriptions ouvertes")}
-                  </span>
-                  {step < 2 ? (
-                    <button onClick={next} className="bv-btn bv-btn-primary-lg bv-glow-gold" type="button">
-                      {T("Continue", "Weiter", "Continuer")} <ArrowRight size={16} strokeWidth={2} />
-                    </button>
-                  ) : (
-                    <button onClick={submit} disabled={submitting} className="bv-btn bv-btn-primary-lg bv-glow-gold" type="button">
-                      {submitting ? <><Loader2 size={16} className="animate-spin" /> {T("Submitting…", "Wird gesendet…", "Envoi…")}</> : T("Submit request", "Anfrage senden", "Envoyer la demande")}
-                    </button>
-                  )}
-                </div>
+                {step < 2 ? (
+                  <button onClick={next} className="bv-btn bv-btn-primary-lg bv-glow-gold" type="button">
+                    {T("Continue", "Weiter", "Continuer")} <ArrowRight size={16} strokeWidth={2} />
+                  </button>
+                ) : (
+                  <button onClick={submit} disabled={submitting} className="bv-btn bv-btn-primary-lg bv-glow-gold" type="button">
+                    {submitting ? <><Loader2 size={16} className="animate-spin" /> {T("Submitting…", "Wird gesendet…", "Envoi…")}</> : T("Submit request", "Anfrage senden", "Envoyer la demande")}
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -323,6 +315,12 @@ export function OnlineCoursesRegistration() {
             <p className="text-[14.5px] sm:text-[15px] font-semibold" style={{ color: "var(--w)", maxWidth: 320 }}>
               {joinText}
             </p>
+            {/* Live "enrolling now" — centered, below the faces + text. */}
+            <span className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[12px] font-semibold"
+              style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
+              <span className="bv-live-dot inline-block rounded-full" style={{ width: 8, height: 8, background: "var(--success)" }} />
+              {T("Enrolling now", "Anmeldung läuft", "Inscriptions ouvertes")}
+            </span>
           </div>
         )}
       </div>
