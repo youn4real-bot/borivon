@@ -24,7 +24,7 @@ import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
 import { DropdownMenu } from "@/components/ui/DropdownMenu";
 import {
   ChevronLeft, ChevronRight, CalendarDays, List, Lock, Plus,
-  Trash2, MapPin, Video, Clock, CalendarPlus, Crown, Repeat, Users,
+  Trash2, MapPin, Video, Clock, CalendarPlus, Crown, Repeat, Users, Pencil,
 } from "lucide-react";
 
 const TZ = "Africa/Casablanca";
@@ -80,6 +80,36 @@ function personInitials(n: string): string {
   return ((parts[0]?.[0] ?? "") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase() || "?";
 }
 
+// German date format TT.MM.JJJJ (DD.MM.YYYY), always — independent of browser
+// locale. Internally the value is still ISO "YYYY-MM-DD" (for casaWallToISO).
+function germanFromIso(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || "");
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : "";
+}
+function isoFromGerman(de: string): string {
+  const m = /^(\d{1,2})\.(\d{1,2})\.(\d{4})$/.exec(de.trim());
+  if (!m) return "";
+  const d = +m[1], mo = +m[2];
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return "";
+  return `${m[3]}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+/** Text date field locked to German TT.MM.JJJJ, auto-inserting the dots. */
+function GermanDateInput({ value, onChange, className }: { value: string; onChange: (iso: string) => void; className?: string }) {
+  const [text, setText] = useState(germanFromIso(value));
+  useEffect(() => { setText(germanFromIso(value)); }, [value]);
+  return (
+    <input className={className} inputMode="numeric" placeholder="TT.MM.JJJJ" maxLength={10} value={text}
+      onChange={(e) => {
+        const digits = e.target.value.replace(/\D/g, "").slice(0, 8);
+        const out = digits.length > 4 ? `${digits.slice(0, 2)}.${digits.slice(2, 4)}.${digits.slice(4)}`
+          : digits.length > 2 ? `${digits.slice(0, 2)}.${digits.slice(2)}`
+          : digits;
+        setText(out);
+        onChange(isoFromGerman(out));
+      }} />
+  );
+}
+
 export default function CalendarPage() {
   const router = useRouter();
   const { lang } = useLang();
@@ -109,6 +139,7 @@ export default function CalendarPage() {
   const [dayPanel, setDayPanel] = useState<string | null>(null); // ymd
   const [addOpen, setAddOpen] = useState(false);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
+  const [editingId, setEditingId] = useState<string | null>(null); // null = creating, else editing this event
   const [saving, setSaving] = useState(false);
   // People taggable as attendees (candidates + sub-admins + org admins).
   const [people, setPeople] = useState<{ id: string; name: string; email: string; kind: string; photo: string | null }[]>([]);
@@ -232,11 +263,40 @@ export default function CalendarPage() {
 
   // ── Admin actions ─────────────────────────────────────────────────────────────
   const openAdd = (ymd?: string) => {
+    setEditingId(null);
     setDraft({ ...EMPTY_DRAFT, date: ymd ?? casaYMD(now) });
     setTagQuery("");
     void fetchPeople();
     setAddOpen(true);
   };
+
+  // Open the same modal pre-filled to EDIT an existing event.
+  const openEdit = (ev: Ev) => {
+    const start = new Date(ev.starts_at);
+    const sp = casaParts(start);
+    const rawDur = ev.ends_at ? Math.round((Date.parse(ev.ends_at) - Date.parse(ev.starts_at)) / 60_000) : 120;
+    const durationMin = [30, 60, 90, 120, 180].includes(rawDur) ? rawDur : 120;
+    setEditingId(ev.id);
+    setDraft({
+      title: ev.title,
+      description: ev.description ?? "",
+      date: casaYMD(start),
+      time: `${pad(sp.hh)}:${pad(sp.mm)}`,
+      durationMin,
+      locationType: ev.link_url ? "online" : "inperson",
+      link: ev.link_url ?? "",
+      place: ev.location ?? "",
+      image: ev.image_url ?? "",
+      attendees: (ev.attendee_ids ?? []).map((id) => ({ id, name: people.find((p) => p.id === id)?.name || "—" })),
+      recurring: false, weeks: 4,
+    });
+    setTagQuery("");
+    void fetchPeople();
+    setDetail(null);
+    setAddOpen(true);
+  };
+
+  const closeAdd = () => { setAddOpen(false); setEditingId(null); };
 
   const saveEvent = async () => {
     const startsISO = draft.date && draft.time ? casaWallToISO(draft.date, draft.time) : null;
@@ -245,19 +305,22 @@ export default function CalendarPage() {
     const repeatWeekly = draft.recurring ? Math.max(1, Math.min(52, draft.weeks || 1)) : 1;
     setSaving(true);
     try {
-      const res = await authedFetch("/api/portal/calendar", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title: draft.title, description: draft.description,
-          starts_at: startsISO, ends_at: endsISO,
-          location: draft.locationType === "inperson" ? draft.place : "",
-          link_url: draft.locationType === "online" ? draft.link : "",
-          image_url: draft.image, vip_only: false, attendee_ids: draft.attendees.map((a) => a.id),
-          repeat_weekly: repeatWeekly,
-        }),
-      });
-      if (res.ok) { await load(); setAddOpen(false); setDraft(EMPTY_DRAFT); }
+      const payload = {
+        title: draft.title, description: draft.description,
+        starts_at: startsISO, ends_at: endsISO,
+        location: draft.locationType === "inperson" ? draft.place : "",
+        link_url: draft.locationType === "online" ? draft.link : "",
+        image_url: draft.image, vip_only: false, attendee_ids: draft.attendees.map((a) => a.id),
+        repeat_weekly: repeatWeekly,
+      };
+      const res = editingId
+        ? await authedFetch(`/api/portal/calendar?id=${encodeURIComponent(editingId)}`, {
+            method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+          })
+        : await authedFetch("/api/portal/calendar", {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+          });
+      if (res.ok) { await load(); setAddOpen(false); setEditingId(null); setDraft(EMPTY_DRAFT); }
     } finally { setSaving(false); }
   };
 
@@ -505,6 +568,11 @@ export default function CalendarPage() {
                     </span>
                   )}
                   <h2 className="text-[19px] font-bold leading-tight" style={{ color: "var(--w)" }}>{detail.title}</h2>
+                  {/* Host is ALWAYS shown as the organisation "Borivon" — never the
+                      individual admin who created it (identity-masking rule). */}
+                  <p className="text-[12px] mt-1" style={{ color: "var(--w3)" }}>
+                    {T("by", "von", "par")} <span style={{ color: "var(--gold)", fontWeight: 600 }}>Borivon</span>
+                  </p>
                 </div>
                 <button onClick={() => setDetail(null)} aria-label="Close" className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ color: "var(--w3)" }}>✕</button>
               </div>
@@ -547,11 +615,18 @@ export default function CalendarPage() {
               )}
 
               {canManage && (
-                <button onClick={() => deleteEvent(detail.id)} disabled={saving}
-                  className="bv-press inline-flex items-center gap-1.5 text-[12.5px] font-medium self-start mt-1 disabled:opacity-50"
-                  style={{ color: "var(--red, #ef4444)" }}>
-                  <Trash2 size={14} /> {T("Delete event", "Termin löschen", "Supprimer l'événement")}
-                </button>
+                <div className="flex items-center gap-4 mt-1 pt-3" style={{ borderTop: "1px solid var(--border)" }}>
+                  <button onClick={() => openEdit(detail)} disabled={saving}
+                    className="bv-press inline-flex items-center gap-1.5 text-[12.5px] font-semibold disabled:opacity-50"
+                    style={{ color: "var(--gold)" }}>
+                    <Pencil size={14} /> {T("Edit", "Bearbeiten", "Modifier")}
+                  </button>
+                  <button onClick={() => deleteEvent(detail.id)} disabled={saving}
+                    className="bv-press inline-flex items-center gap-1.5 text-[12.5px] font-medium disabled:opacity-50"
+                    style={{ color: "var(--red, #ef4444)" }}>
+                    <Trash2 size={14} /> {T("Delete event", "Termin löschen", "Supprimer l'événement")}
+                  </button>
+                </div>
               )}
             </div>
           </div>
@@ -559,12 +634,16 @@ export default function CalendarPage() {
       </Modal>
 
       {/* ── Add event modal (admin) — Skool-style ─────────────────────────────── */}
-      <Modal open={addOpen} onClose={() => setAddOpen(false)} size="lg" busy={saving}
-        title={T("Add event", "Termin hinzufügen", "Ajouter un événement")}
+      <Modal open={addOpen} onClose={closeAdd} size="lg" busy={saving}
+        title={editingId
+          ? T("Edit event", "Termin bearbeiten", "Modifier l'événement")
+          : T("Add event", "Termin hinzufügen", "Ajouter un événement")}
         footer={<>
-          <GhostButton onClick={() => setAddOpen(false)} disabled={saving}>{T("Cancel", "Abbrechen", "Annuler")}</GhostButton>
+          <GhostButton onClick={closeAdd} disabled={saving}>{T("Cancel", "Abbrechen", "Annuler")}</GhostButton>
           <GoldButton onClick={saveEvent} disabled={saving || !draft.title.trim() || !draft.date || !draft.time}>
-            {saving ? T("Saving…", "Speichern…", "Enregistrement…") : T("Add event", "Hinzufügen", "Ajouter")}
+            {saving
+              ? T("Saving…", "Speichern…", "Enregistrement…")
+              : editingId ? T("Save changes", "Speichern", "Enregistrer") : T("Add event", "Hinzufügen", "Ajouter")}
           </GoldButton>
         </>}>
         <div className="p-5 flex flex-col gap-4">
@@ -579,7 +658,7 @@ export default function CalendarPage() {
           {/* Date · Time · Duration · Timezone */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <Field label={T("Date", "Datum", "Date")} req>
-              <input type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} className="bv-input" />
+              <GermanDateInput value={draft.date} onChange={(iso) => setDraft({ ...draft, date: iso })} className="bv-input" />
             </Field>
             <Field label={T("Time", "Uhrzeit", "Heure")} req>
               <input type="time" value={draft.time} onChange={(e) => setDraft({ ...draft, time: e.target.value })} className="bv-input" />
@@ -594,7 +673,8 @@ export default function CalendarPage() {
             </Field>
           </div>
 
-          {/* Recurring */}
+          {/* Recurring — new events only (editing can't re-expand into copies) */}
+          {!editingId && (
           <div>
             <label className="flex items-center gap-2.5 cursor-pointer">
               <input type="checkbox" checked={draft.recurring} onChange={(e) => setDraft({ ...draft, recurring: e.target.checked })}
@@ -613,6 +693,7 @@ export default function CalendarPage() {
               </div>
             )}
           </div>
+          )}
 
           {/* Location + link/place */}
           <div className="grid grid-cols-1 sm:grid-cols-[160px_1fr] gap-3">

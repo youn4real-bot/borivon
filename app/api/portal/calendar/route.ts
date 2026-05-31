@@ -44,6 +44,38 @@ function isAdminEmail(email: string): boolean {
   return !!email && email === (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
 }
 
+/**
+ * Notify each tagged attendee that they've been invited to an event.
+ *
+ * IDENTITY MASKING (privacy requirement): the row stores only the event title —
+ * never the creating admin's name. The candidate bell renders these invites as
+ * coming from "Borivon" (the organisation), so a candidate / org member never
+ * sees the individual admin or sub-admin behind the invite. Admins still see
+ * each other elsewhere; candidates only ever see the org. doc_id = event id so
+ * the bell can deep-link to the Calendar tab.
+ *
+ * Best-effort: a notify failure is logged but never fails the event write.
+ */
+async function notifyAttendees(
+  db: ReturnType<typeof getServiceSupabase>,
+  eventId: string,
+  title: string,
+  userIds: string[],
+) {
+  if (!eventId || userIds.length === 0) return;
+  const rows = userIds.map((uid) => ({
+    user_id: uid,
+    doc_id: eventId,
+    doc_name: title.slice(0, 200) || "Event",
+    doc_type: "event_invite",
+    action: "event_invite",
+    feedback: null,
+    read: false,
+  }));
+  const { error } = await db.from("notifications").insert(rows);
+  if (error) console.error("[portal/calendar] attendee notify error:", error.message);
+}
+
 // ── GET: list events (everyone logged-in) ────────────────────────────────────
 export async function GET(req: NextRequest) {
   const auth = await requireUser(req);
@@ -167,12 +199,66 @@ export async function POST(req: NextRequest) {
   }));
 
   const db = getServiceSupabase();
-  const { error } = await db.from("calendar_events").insert(rows);
+  const { data: inserted, error } = await db.from("calendar_events").insert(rows).select("id");
   if (error) {
     console.error("[portal/calendar] insert error:", error.message);
     return NextResponse.json({ error: "insert_failed" }, { status: 500 });
   }
+  // Notify tagged attendees ONCE (not once per recurrence) — masked as "Borivon".
+  const anchorId = (inserted as { id: string }[] | null)?.[0]?.id ?? "";
+  await notifyAttendees(db, anchorId, title, attendee_ids);
   return NextResponse.json({ ok: true, count: rows.length });
+}
+
+// ── PATCH: edit an existing event (supreme admin) ────────────────────────────
+export async function PATCH(req: NextRequest) {
+  const auth = await requireAdminRole(req);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  if (auth.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const id = (new URL(req.url).searchParams.get("id") ?? "").trim();
+  if (!UUID_RE.test(id)) return NextResponse.json({ error: "invalid_id" }, { status: 400 });
+
+  let body: {
+    title?: string; description?: string; starts_at?: string; ends_at?: string;
+    image_url?: string; link_url?: string; location?: string; attendee_ids?: unknown;
+  };
+  try { body = await req.json(); } catch { return NextResponse.json({ error: "invalid_body" }, { status: 400 }); }
+
+  const title = MAX(body.title, 200);
+  if (!title) return NextResponse.json({ error: "title_required" }, { status: 400 });
+  const startMs = Date.parse(MAX(body.starts_at, 40));
+  if (!Number.isFinite(startMs)) return NextResponse.json({ error: "invalid_start" }, { status: 400 });
+  let ends_at: string | null = null;
+  const endRaw = MAX(body.ends_at, 40);
+  if (endRaw) { const p = Date.parse(endRaw); if (Number.isFinite(p) && p >= startMs) ends_at = new Date(p).toISOString(); }
+  const attendee_ids = Array.isArray(body.attendee_ids)
+    ? Array.from(new Set((body.attendee_ids as unknown[]).filter((x): x is string => typeof x === "string" && UUID_RE.test(x)))).slice(0, 500)
+    : [];
+
+  const db = getServiceSupabase();
+  // Snapshot the existing attendees first so we can notify ONLY the newly-added
+  // people on edit (re-notifying everyone on every save would be spam).
+  const { data: existing } = await db.from("calendar_events").select("attendee_ids").eq("id", id).maybeSingle();
+  const oldIds = new Set(((existing as { attendee_ids?: string[] } | null)?.attendee_ids) ?? []);
+
+  const { error } = await db.from("calendar_events").update({
+    title,
+    description: MAX(body.description, 4000),
+    starts_at: new Date(startMs).toISOString(),
+    ends_at,
+    image_url: safeImageUrl(body.image_url),
+    link_url: safeLinkUrl(body.link_url),
+    location: MAX(body.location, 200),
+    attendee_ids,
+  }).eq("id", id);
+  if (error) {
+    console.error("[portal/calendar] update error:", error.message);
+    return NextResponse.json({ error: "update_failed" }, { status: 500 });
+  }
+  // Notify only people added in THIS edit — masked as "Borivon".
+  await notifyAttendees(db, id, title, attendee_ids.filter((uid) => !oldIds.has(uid)));
+  return NextResponse.json({ ok: true });
 }
 
 // ── DELETE: remove event (supreme admin) ─────────────────────────────────────
