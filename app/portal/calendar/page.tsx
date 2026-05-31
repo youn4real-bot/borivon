@@ -23,7 +23,7 @@ import { PageLoader } from "@/components/ui/states";
 import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
 import {
   ChevronLeft, ChevronRight, CalendarDays, List, Lock, Plus,
-  Trash2, MapPin, Video, Clock, CalendarPlus, Crown, Repeat, Sparkles,
+  Trash2, MapPin, Video, Clock, CalendarPlus, Crown, Repeat, Sparkles, Users,
 } from "lucide-react";
 
 const TZ = "Africa/Casablanca";
@@ -59,18 +59,19 @@ type Ev = {
   id: string; title: string; description: string;
   starts_at: string; ends_at: string | null;
   image_url: string; link_url: string; location: string;
-  vip_only: boolean; locked: boolean;
+  vip_only: boolean; locked: boolean; attendee_ids?: string[];
 };
 
+type TaggedPerson = { id: string; name: string };
 type Draft = {
   title: string; description: string; date: string; time: string; durationMin: number;
   locationType: "online" | "inperson"; link: string; place: string; image: string;
-  audience: "all" | "vip"; recurring: boolean; weeks: number;
+  attendees: TaggedPerson[]; recurring: boolean; weeks: number;
 };
 const EMPTY_DRAFT: Draft = {
   title: "", description: "", date: "", time: "18:00", durationMin: 120,
   locationType: "online", link: "", place: "", image: "",
-  audience: "all", recurring: false, weeks: 4,
+  attendees: [], recurring: false, weeks: 4,
 };
 
 // "Need ideas?" quick formats (Skool-style) — clicking one prefills the form.
@@ -129,6 +130,10 @@ export default function CalendarPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [saving, setSaving] = useState(false);
+  // People taggable as attendees (candidates + sub-admins + org admins).
+  const [people, setPeople] = useState<{ id: string; name: string; email: string; kind: string }[]>([]);
+  const [peopleLoaded, setPeopleLoaded] = useState(false);
+  const [tagQuery, setTagQuery] = useState("");
 
   // ── Auth'd fetch (fresh token, same stale-token guard as other pages) ───────
   const authedFetch = useCallback(async (url: string, init?: RequestInit) => {
@@ -149,6 +154,21 @@ export default function CalendarPage() {
     // Never let a server hiccup turn OFF the admin "+" — OR it with the cache-seeded value.
     setCanManage((prev) => prev || !!j.canManage);
   }, [authedFetch, router]);
+
+  // Taggable people (admins only). Powers the attendee tagger in the Add-event
+  // modal + resolves tagged names in the detail view.
+  const fetchPeople = useCallback(async () => {
+    try {
+      const res = await authedFetch("/api/portal/admin/users");
+      if (!res.ok) return;
+      const j = await res.json().catch(() => ({ users: [] }));
+      setPeople((Array.isArray(j.users) ? j.users : []).map((u: { id: string; name?: string; email?: string; kind?: string }) => ({
+        id: u.id, name: u.name || u.email || "—", email: u.email || "", kind: u.kind || "candidate",
+      })));
+      setPeopleLoaded(true);
+    } catch { /* ignore */ }
+  }, [authedFetch]);
+  useEffect(() => { if (canManage && !peopleLoaded) void fetchPeople(); }, [canManage, peopleLoaded, fetchPeople]);
 
   // Bootstrap
   useEffect(() => {
@@ -232,6 +252,8 @@ export default function CalendarPage() {
   // ── Admin actions ─────────────────────────────────────────────────────────────
   const openAdd = (ymd?: string) => {
     setDraft({ ...EMPTY_DRAFT, date: ymd ?? casaYMD(now) });
+    setTagQuery("");
+    void fetchPeople();
     setAddOpen(true);
   };
 
@@ -250,7 +272,7 @@ export default function CalendarPage() {
           starts_at: startsISO, ends_at: endsISO,
           location: draft.locationType === "inperson" ? draft.place : "",
           link_url: draft.locationType === "online" ? draft.link : "",
-          image_url: draft.image, vip_only: draft.audience === "vip",
+          image_url: draft.image, vip_only: false, attendee_ids: draft.attendees.map((a) => a.id),
           repeat_weekly: repeatWeekly,
         }),
       });
@@ -510,6 +532,12 @@ export default function CalendarPage() {
                 <span className="inline-flex items-center gap-2"><CalendarDays size={14} style={{ color: "var(--gold)" }} /> {fmtFullDate(detail.starts_at)}</span>
                 <span className="inline-flex items-center gap-2"><Clock size={14} style={{ color: "var(--gold)" }} /> {fmtRange(detail)} · {T("Casablanca time", "Casablanca-Zeit", "Heure de Casablanca")}</span>
                 {detail.location && <span className="inline-flex items-center gap-2"><MapPin size={14} style={{ color: "var(--gold)" }} /> {detail.location}</span>}
+                {canManage && detail.attendee_ids && detail.attendee_ids.length > 0 && (
+                  <span className="inline-flex items-start gap-2">
+                    <Users size={14} style={{ color: "var(--gold)", marginTop: 1 }} />
+                    <span>{T("Tagged", "Markiert", "Tagués")}: {detail.attendee_ids.map((id) => people.find((p) => p.id === id)?.name || "—").join(", ")}</span>
+                  </span>
+                )}
               </div>
 
               {detail.locked ? (
@@ -646,18 +674,61 @@ export default function CalendarPage() {
             <span className="block text-right text-[10.5px] mt-1" style={{ color: "var(--w3)" }}>{draft.description.length}/600</span>
           </Field>
 
-          {/* Cover image + who can attend */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label={T("Cover image URL (optional)", "Titelbild-URL (optional)", "Image (optionnel)")}>
-              <input value={draft.image} onChange={(e) => setDraft({ ...draft, image: e.target.value })} className="bv-input" placeholder="https://…" />
-            </Field>
-            <Field label={T("Who can attend", "Wer darf teilnehmen", "Qui peut participer")}>
-              <select value={draft.audience} onChange={(e) => setDraft({ ...draft, audience: e.target.value as "all" | "vip" })} className="bv-input">
-                <option value="all">{T("Everyone", "Alle", "Tout le monde")}</option>
-                <option value="vip">{T("Premium (VIP) only", "Nur Premium (VIP)", "Premium (VIP) uniquement")}</option>
-              </select>
-            </Field>
-          </div>
+          {/* Cover image */}
+          <Field label={T("Cover image URL (optional)", "Titelbild-URL (optional)", "Image (optionnel)")}>
+            <input value={draft.image} onChange={(e) => setDraft({ ...draft, image: e.target.value })} className="bv-input" placeholder="https://…" />
+          </Field>
+
+          {/* Who can attend — tag specific people (candidate / sub-admin / org admin). */}
+          <Field label={T("Who can attend", "Wer darf teilnehmen", "Qui peut participer")}>
+            {draft.attendees.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {draft.attendees.map((a) => (
+                  <span key={a.id} className="inline-flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-full text-[11.5px] font-medium"
+                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                    {a.name}
+                    <button type="button" aria-label="Remove"
+                      onClick={() => setDraft((d) => ({ ...d, attendees: d.attendees.filter((x) => x.id !== a.id) }))}
+                      className="inline-flex items-center justify-center w-4 h-4 rounded-full text-[10px]" style={{ background: "rgba(0,0,0,0.15)" }}>✕</button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <input value={tagQuery} onChange={(e) => setTagQuery(e.target.value)} className="bv-input"
+              placeholder={T("Type a name to tag…", "Name eingeben zum Markieren…", "Tapez un nom à taguer…")} />
+            {tagQuery.trim() && (() => {
+              const q = tagQuery.trim().toLowerCase();
+              const matches = people
+                .filter((p) => !draft.attendees.some((a) => a.id === p.id))
+                .filter((p) => `${p.name} ${p.email}`.toLowerCase().includes(q))
+                .slice(0, 8);
+              return (
+                <div className="mt-1 rounded-[10px] overflow-y-auto" style={{ border: "1px solid var(--border)", maxHeight: 220 }}>
+                  {matches.map((p) => (
+                    <button key={p.id} type="button"
+                      onClick={() => { setDraft((d) => ({ ...d, attendees: [...d.attendees, { id: p.id, name: p.name }] })); setTagQuery(""); }}
+                      className="bv-press w-full text-left px-3 py-2 text-[12.5px] flex items-center justify-between gap-2"
+                      style={{ background: "var(--bg2)", color: "var(--w)", borderBottom: "1px solid var(--border)" }}>
+                      <span className="truncate">{p.name}<span className="ml-1.5" style={{ color: "var(--w3)" }}>{p.email}</span></span>
+                      <span className="text-[10px] flex-shrink-0 px-1.5 py-0.5 rounded-full" style={{ background: "var(--card)", color: "var(--w3)" }}>
+                        {p.kind === "borivon" ? T("Admin", "Admin", "Admin") : p.kind === "org" ? T("Org", "Org", "Org") : T("Candidate", "Kandidat", "Candidat")}
+                      </span>
+                    </button>
+                  ))}
+                  {matches.length === 0 && (
+                    <div className="px-3 py-2 text-[11.5px]" style={{ color: "var(--w3)" }}>
+                      {peopleLoaded ? T("No match", "Kein Treffer", "Aucun résultat") : T("Loading people…", "Lädt…", "Chargement…")}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+            <p className="text-[10.5px] mt-1.5" style={{ color: "var(--w3)" }}>
+              {draft.attendees.length === 0
+                ? T("Leave empty = everyone sees this event.", "Leer = alle sehen diesen Termin.", "Vide = tout le monde voit l'événement.")
+                : T("Only the tagged people (+ admins) will see this event.", "Nur markierte Personen (+ Admins) sehen diesen Termin.", "Seules les personnes taguées (+ admins) verront l'événement.")}
+            </p>
+          </Field>
 
           {/* Cover preview */}
           {draft.image && (

@@ -21,7 +21,7 @@ type EventRow = {
   id: string; title: string; description: string;
   starts_at: string; ends_at: string | null;
   image_url: string; link_url: string; location: string;
-  vip_only: boolean; created_at: string;
+  vip_only: boolean; created_at: string; attendee_ids: string[] | null;
 };
 
 const MAX = (s: unknown, n: number) => (typeof s === "string" ? s : "").trim().slice(0, n);
@@ -67,7 +67,7 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await db
     .from("calendar_events")
-    .select("id, title, description, starts_at, ends_at, image_url, link_url, location, vip_only, created_at")
+    .select("id, title, description, starts_at, ends_at, image_url, link_url, location, vip_only, created_at, attendee_ids")
     .order("starts_at", { ascending: true })
     .limit(1000);
 
@@ -79,22 +79,32 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ events: [], premium, canManage }, { status: 200 });
   }
 
-  const events = ((data ?? []) as EventRow[]).map((e) => {
-    const locked = e.vip_only && !premium;
-    return {
-      id: e.id,
-      title: e.title,
-      // Withhold the payoff fields from non-premium viewers of a VIP event.
-      description: locked ? "" : e.description,
-      starts_at: e.starts_at,
-      ends_at: e.ends_at,
-      image_url: e.image_url,
-      link_url: locked ? "" : e.link_url,
-      location: locked ? "" : e.location,
-      vip_only: e.vip_only,
-      locked,
-    };
-  });
+  const events = ((data ?? []) as EventRow[])
+    // Tagged-attendee events are PRIVATE: only the tagged people (+ admins) see
+    // them. An empty attendee list means the event is public to everyone.
+    .filter((e) => {
+      if (canManage) return true;
+      const att = e.attendee_ids ?? [];
+      return att.length === 0 || att.includes(auth.userId);
+    })
+    .map((e) => {
+      const locked = e.vip_only && !premium;
+      return {
+        id: e.id,
+        title: e.title,
+        // Withhold the payoff fields from non-premium viewers of a legacy VIP event.
+        description: locked ? "" : e.description,
+        starts_at: e.starts_at,
+        ends_at: e.ends_at,
+        image_url: e.image_url,
+        link_url: locked ? "" : e.link_url,
+        location: locked ? "" : e.location,
+        vip_only: e.vip_only,
+        locked,
+        // Tagged attendee ids — only exposed to admins (for the manage view).
+        attendee_ids: canManage ? (e.attendee_ids ?? []) : undefined,
+      };
+    });
 
   return NextResponse.json({ events, premium, canManage });
 }
@@ -111,6 +121,7 @@ export async function POST(req: NextRequest) {
   let body: {
     title?: string; description?: string; starts_at?: string; ends_at?: string;
     image_url?: string; link_url?: string; location?: string; vip_only?: boolean;
+    attendee_ids?: unknown;
   };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "invalid_body" }, { status: 400 }); }
 
@@ -127,6 +138,12 @@ export async function POST(req: NextRequest) {
     if (Number.isFinite(parsed) && parsed >= startMs) endMs = parsed;
   }
 
+  // Tagged attendees (uuid[]). Empty → public event; otherwise only these
+  // people (any candidate / sub-admin / org admin) + admins see it.
+  const attendee_ids = Array.isArray(body.attendee_ids)
+    ? Array.from(new Set((body.attendee_ids as unknown[]).filter((x): x is string => typeof x === "string" && UUID_RE.test(x)))).slice(0, 500)
+    : [];
+
   const baseRow = {
     title,
     description: MAX(body.description, 4000),
@@ -134,6 +151,7 @@ export async function POST(req: NextRequest) {
     link_url: safeLinkUrl(body.link_url),
     location: MAX(body.location, 200),
     vip_only: body.vip_only === true,
+    attendee_ids,
     created_by: auth.userId,
   };
 
