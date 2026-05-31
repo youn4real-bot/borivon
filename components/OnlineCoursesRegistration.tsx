@@ -184,14 +184,18 @@ export function OnlineCoursesRegistration() {
                 // Placeholder-as-label (matches the portal register): field name
                 // lives in-box as a grey placeholder — saves the label row, fits
                 // phones. aria-label keeps each input screen-reader accessible.
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                  <input className={`bv-input ${touched && e.firstName ? "error" : ""}`} value={firstName} onChange={(ev) => setFirstName(ev.target.value)} autoComplete="given-name" placeholder={T("First name", "Vorname", "Prénom")} aria-label={T("First name", "Vorname", "Prénom")} />
-                  <input className={`bv-input ${touched && e.lastName ? "error" : ""}`} value={lastName} onChange={(ev) => setLastName(ev.target.value)} autoComplete="family-name" placeholder={T("Last name", "Nachname", "Nom")} aria-label={T("Last name", "Nachname", "Nom")} />
-                  <input type="email" inputMode="email" className={`bv-input ${touched && e.email ? "error" : ""}`} value={email} onChange={(ev) => setEmail(ev.target.value)} autoComplete="email" placeholder={T("Email", "E-Mail", "E-mail")} aria-label={T("Email", "E-Mail", "E-mail")} />
-                  <PhoneInput value={phone} onChange={setPhone} hasError={touched && e.phone} />
-                  <div className="sm:col-span-2">
-                    <input className={`bv-input ${touched && e.address ? "error" : ""}`} value={address} onChange={(ev) => setAddress(ev.target.value)} autoComplete="street-address" placeholder={T("Address — street, city, country", "Adresse — Straße, Stadt, Land", "Adresse — rue, ville, pays")} aria-label={T("Address", "Adresse", "Adresse")} />
+                <div className="space-y-3.5">
+                  {/* First + last name share a row on EVERY size (incl. phones). */}
+                  <div className="grid grid-cols-2 gap-3.5">
+                    <input className={`bv-input ${touched && e.firstName ? "error" : ""}`} value={firstName} onChange={(ev) => setFirstName(ev.target.value)} autoComplete="given-name" placeholder={T("First name", "Vorname", "Prénom")} aria-label={T("First name", "Vorname", "Prénom")} />
+                    <input className={`bv-input ${touched && e.lastName ? "error" : ""}`} value={lastName} onChange={(ev) => setLastName(ev.target.value)} autoComplete="family-name" placeholder={T("Last name", "Nachname", "Nom")} aria-label={T("Last name", "Nachname", "Nom")} />
                   </div>
+                  {/* Email + phone: stacked on phones, side-by-side on desktop. */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <input type="email" inputMode="email" className={`bv-input ${touched && e.email ? "error" : ""}`} value={email} onChange={(ev) => setEmail(ev.target.value)} autoComplete="email" placeholder={T("Email", "E-Mail", "E-mail")} aria-label={T("Email", "E-Mail", "E-mail")} />
+                    <PhoneInput value={phone} onChange={setPhone} hasError={touched && e.phone} />
+                  </div>
+                  <input className={`bv-input ${touched && e.address ? "error" : ""}`} value={address} onChange={(ev) => setAddress(ev.target.value)} autoComplete="street-address" placeholder={T("Address — street, city, country", "Adresse — Straße, Stadt, Land", "Adresse — rue, ville, pays")} aria-label={T("Address", "Adresse", "Adresse")} />
                 </div>
               )}
 
