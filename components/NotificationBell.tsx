@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { fetchMyRole, cachedRole } from "@/lib/myRole";
 import { ASSIGNMENTS_TOPIC } from "@/lib/serverBroadcast";
 import { Bell, CheckCircle2, XCircle, FilePen } from "@/components/PortalIcons";
 
@@ -825,26 +826,23 @@ export function NotificationBell() {
     const apply = async (session: { user?: { id: string } | null; access_token?: string } | null) => {
       const user = session?.user ?? null;
       if (!user) { if (!cancelled) setState({ kind: "none" }); return; }
-      // Ask the server for our role; never compare against a NEXT_PUBLIC_ admin email.
-      let role: "admin" | "sub_admin" | "org_member" | "candidate" | null = null;
-      try {
-        if (session?.access_token) {
-          const res = await fetch("/api/portal/me/role", {
-            headers: { Authorization: `Bearer ${session.access_token}` },
-          });
-          ({ role } = await res.json().catch(() => ({ role: null })));
-        }
-      } catch { /* offline */ }
+      const token = session?.access_token ?? "";
+      // Sub-admins share the supreme admin's candidate notification queue, so
+      // both admin + sub_admin → AdminBell; everyone else → CandidateBell.
+      const toState = (role: string | null) =>
+        (role === "admin" || role === "sub_admin")
+          ? { kind: "admin" as const, accessToken: token }
+          : { kind: "candidate" as const, userId: user.id, accessToken: token };
+      // Render the correct bell INSTANTLY from the cached role (no network wait)
+      // so the icon never staggers in behind the others on a reload.
+      const cr = cachedRole(user.id);
+      if (cr && !cancelled) setState(toState(cr));
+      // Refresh from the shared (deduped) role request. On failure keep the
+      // cached variant rather than blanking the bell.
+      const info = await fetchMyRole(token, user.id);
       if (cancelled) return;
-      // Sub-admins share the supreme admin's candidate notification queue
-      // (uploads / signups / doc-signed). They were wrongly getting the
-      // CANDIDATE bell (their own empty personal feed) → "No notifications
-      // yet". The /api/portal/admin/notifications endpoint already scopes
-      // correctly per LAW #25, so both admin + sub_admin use AdminBell.
-      if (role === "admin" || role === "sub_admin")
-        setState({ kind: "admin", accessToken: session?.access_token ?? "" });
-      else
-        setState({ kind: "candidate", userId: user.id, accessToken: session?.access_token ?? "" });
+      if (info.role) setState(toState(info.role));
+      else if (!cr) setState(toState(null));
     };
     supabase.auth.getSession().then(({ data: { session } }) => apply(session));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => apply(session));

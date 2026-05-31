@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { fetchMyRole, cachedRole } from "@/lib/myRole";
 import { buildProfileSlug, ADMIN_PROFILE_SLUG } from "@/lib/profile-slug";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { OrgCodeModal } from "@/components/OrgCodeModal";
@@ -203,12 +204,25 @@ export function ProfileIcon() {
       let isSuperAdmin = false;
       let orgName: string | null = null;
       let paymentTier: string | null = null;
+      // Instant avatar from session + cached role so the profile button appears
+      // together with the other chrome icons (no network stagger on reload).
+      // The full object (photo / verified / slug) is set at the end of apply.
+      if (u.id) {
+        const cr = cachedRole(u.id);
+        if (cr && !cancelled) {
+          const a = cr === "admin" || cr === "sub_admin";
+          const om = cr === "org_member";
+          setUser(prev => prev ?? {
+            name, email: u.email ?? "", initials,
+            isAdmin: a, isOrgAdmin: false, isOrgMember: om, isSuperAdmin: false,
+            profileSlug: a ? ADMIN_PROFILE_SLUG : null,
+            photo: null, verified: a || om, orgName: null, paymentTier: null,
+          });
+        }
+      }
       try {
         if (session?.access_token) {
-          const res = await fetch("/api/portal/me/role", {
-            headers: { Authorization: `Bearer ${session.access_token}` },
-          });
-          const json = await res.json().catch(() => ({ role: null }));
+          const json = await fetchMyRole(session.access_token, u.id);
           isAdmin      = json.role === "admin" || json.role === "sub_admin";
           isOrgAdmin   = json.role === "sub_admin" && json.isAgencyAdmin === true;
           isOrgMember  = json.role === "org_member";

@@ -144,6 +144,14 @@ export function OnlineCoursesRegistration() {
           <span className="bv-wordmark inline-block" style={{ fontSize: "clamp(2.8rem, 9vw, 4.2rem)", lineHeight: 1 }}>
             Borivon<span className="bv-wordmark-dot">.</span>
           </span>
+          {/* Live "enrolling now" — sits right under the logo, centered. */}
+          <div className="flex justify-center mt-4">
+            <span className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[12px] font-semibold"
+              style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
+              <span className="bv-live-dot inline-block rounded-full" style={{ width: 8, height: 8, background: "var(--success)" }} />
+              {T("Enrolling now", "Anmeldung läuft", "Inscriptions ouvertes")}
+            </span>
+          </div>
           {/* Headline — big, but a notch smaller than the logo. */}
           <h1 className="bv-h1 mt-3" style={{ fontSize: "clamp(1.9rem, 5vw, 2.8rem)" }}>{T("Learn German Online", "Online Deutsch lernen", "Apprendre l'allemand en ligne")}</h1>
           <p className="bv-body mx-auto mt-3" style={{ maxWidth: 440 }}>
@@ -277,40 +285,24 @@ export function OnlineCoursesRegistration() {
           )}
         </div>
 
-        {/* ── Social proof ──────────────────────────────────────────────────── */}
+        {/* ── Social proof — centered avatars with the text below them ──────────── */}
         {!done && (
-          <div className="mt-12 flex flex-col items-center text-center bv-enter">
-            <div className="flex items-center gap-3.5">
-              {/* Non-identifiable avatar tiles (no real photos / no AI faces). */}
-              <div className="flex" aria-hidden>
-                {[0, 1, 2, 3, 4].map((i) => (
-                  <span key={i} className="block" style={{
-                    width: 38, height: 38, borderRadius: 999, overflow: "hidden",
-                    border: "2px solid var(--bg)", marginLeft: i === 0 ? 0 : -12,
-                    boxShadow: "var(--shadow-sm)", flexShrink: 0, position: "relative", zIndex: 5 - i,
-                  }}>
-                    <span style={{ display: "block", width: "100%", height: "100%", filter: "blur(1.3px)", background: avatarBg(i) }} />
-                  </span>
-                ))}
-              </div>
-              <p className="text-[14.5px] sm:text-[15px] font-semibold text-left" style={{ color: "var(--w)", maxWidth: 290 }}>
-                {joinText}
-              </p>
+          <div className="mt-12 flex flex-col items-center text-center bv-enter gap-3.5">
+            {/* Non-identifiable avatar tiles (no real photos / no AI faces). */}
+            <div className="flex justify-center" aria-hidden>
+              {[0, 1, 2, 3, 4].map((i) => (
+                <span key={i} className="block" style={{
+                  width: 40, height: 40, borderRadius: 999, overflow: "hidden",
+                  border: "2px solid var(--bg)", marginLeft: i === 0 ? 0 : -12,
+                  boxShadow: "var(--shadow-sm)", flexShrink: 0, position: "relative", zIndex: 5 - i,
+                }}>
+                  <span style={{ display: "block", width: "100%", height: "100%", filter: "blur(1.3px)", background: avatarBg(i) }} />
+                </span>
+              ))}
             </div>
-
-            {/* Live "enrolling now" — truthful status: enrollment is open. */}
-            <span className="mt-4 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[12px] font-semibold"
-              style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
-              <span className="bv-live-dot inline-block rounded-full" style={{ width: 8, height: 8, background: "var(--success)" }} />
-              {T("Enrolling now", "Anmeldung läuft", "Inscriptions ouvertes")}
-            </span>
-
-            {/* CTA — scrolls back up to the form. */}
-            <button type="button"
-              onClick={() => { setStep(0); setTouched(false); if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" }); }}
-              className="bv-btn bv-btn-primary-lg bv-glow-gold mt-6">
-              {T("Reserve your seat", "Platz sichern", "Réserver ma place")} <ArrowRight size={16} strokeWidth={2} />
-            </button>
+            <p className="text-[14.5px] sm:text-[15px] font-semibold" style={{ color: "var(--w)", maxWidth: 320 }}>
+              {joinText}
+            </p>
           </div>
         )}
       </div>

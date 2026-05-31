@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "@/lib/supabase";
+import { fetchMyRole, cachedRole } from "@/lib/myRole";
 import { useLang } from "@/components/LangContext";
 import { ListChecks, X, Check, Plus, Trash2, ChevronDown } from "lucide-react";
 import { JourneyChecklist } from "@/components/JourneyChecklist";
@@ -114,12 +115,22 @@ export function ChecklistDrawer() {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (cancelled || !session?.user) return;
       const tk = session.access_token ?? "";
-      const res = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${tk}` } }).catch(() => null);
-      const role = res ? ((await res.json().catch(() => ({}))) as { role?: string }).role : null;
+      const u = session.user.id;
+      const applyRole = (role: string | null | undefined) => {
+        if (role === "admin" || role === "sub_admin") { setToken(tk); setUid(u); setMode("admin"); setTab("shared"); }
+        else if (role === "org_member") { /* org members use their dossier views */ }
+        else { setUid(u); setToken(tk); setMode("candidate"); setTab("assigned"); }
+      };
+      // Instant mode from the cached role so this icon renders together with
+      // the others (no per-icon network stagger on reload).
+      const cr = cachedRole(u);
+      if (cr) applyRole(cr);
+      // Refresh from the shared (deduped) role request.
+      const info = await fetchMyRole(tk, u);
       if (cancelled) return;
-      if (role === "admin" || role === "sub_admin") { setToken(tk); setUid(session.user.id); setMode("admin"); setTab("shared"); }
-      else if (role === "org_member") { /* org members use their dossier views */ }
-      else { setUid(session.user.id); setToken(tk); setMode("candidate"); setTab("assigned"); void refreshBadge(tk, session.user.id); }
+      const role = info.role ?? cr ?? "candidate";
+      applyRole(role);
+      if (role !== "admin" && role !== "sub_admin" && role !== "org_member") void refreshBadge(tk, u);
     });
     return () => { cancelled = true; };
   }, [refreshBadge]);

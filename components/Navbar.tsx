@@ -10,6 +10,7 @@ import { useMobileMenu } from "./MobileMenuContext";
 import type { Lang } from "@/lib/translations";
 import { Sun, Moon, Menu, Home } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { fetchMyRole, cachedRole, homeForRole } from "@/lib/myRole";
 
 const PORTAL_NAV_T = {
   en: { dashboard: "Dashboard",     academy: "Academy",  calendar: "Calendar",   community: "Community"  },
@@ -35,6 +36,13 @@ export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: 
   // see it (supreme always; others per the mask-all flag + per-person override).
   // Default false so it never flashes for masked users.
   const [academyVisible, setAcademyVisible] = useState(false);
+  // Signed-in user id + role-derived portal home. `navHome` is what the
+  // "Dashboard" tab points to — resolved from the user's ROLE (cached for an
+  // instant, correct value), NOT the current pathname. This kills the flash
+  // where an admin on Calendar/Community clicked "Dashboard" and got bounced
+  // through the candidate dashboard for a split second.
+  const [uid, setUid] = useState("");
+  const [navHome, setNavHome] = useState<string | null>(null);
   // Position of the dropdown when portaled to <body> — recomputed each open.
   const [dropdownPos, setDropdownPos] = useState<{ top?: number; bottom?: number; left: number } | null>(null);
   // Per-page mobile menu toggle (e.g. dashboard's slide-in phase rail).
@@ -84,9 +92,12 @@ export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: 
   // Route check is authoritative — no async auth state can leak chrome onto
   // the login page (recurring bug, fixed for good).
   const isLoginPage = pathname === "/portal";
-  const dashHref = isAdmin ? "/portal/admin"
+  // Role-based home (from navHome) — falls back to a pathname guess only for
+  // the very first paint before the role resolves. This is THE flash fix: the
+  // Dashboard tab no longer sends an admin through the candidate dashboard.
+  const dashHref = navHome ?? (isAdmin ? "/portal/admin"
                  : isOrg   ? "/portal/org/dashboard"
-                 :            "/portal/dashboard";
+                 :            "/portal/dashboard");
   const portalTabs = useBottomBar && authTk && !isLoginPage ? [
     { label: PNT.dashboard, href: dashHref,           active: !isFeed && !isAcademy && !isCalendar },
     // Academy tab only when the server says this user may see it (supreme / allowed).
@@ -104,12 +115,12 @@ export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: 
     if (!useBottomBar) { setAuthTk(""); return; }
     let mounted = true;
     supabase.auth.getSession().then(({ data: { session } }) => {
-      if (mounted) setAuthTk(session?.access_token ?? "");
+      if (mounted) { setAuthTk(session?.access_token ?? ""); setUid(session?.user?.id ?? ""); }
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((evt, session) => {
       if (!mounted) return;
-      if (evt === "SIGNED_OUT" || !session) setAuthTk("");
-      else setAuthTk(session.access_token ?? "");
+      if (evt === "SIGNED_OUT" || !session) { setAuthTk(""); setUid(""); setNavHome(null); }
+      else { setAuthTk(session.access_token ?? ""); setUid(session.user?.id ?? ""); }
     });
     return () => { mounted = false; subscription.unsubscribe(); };
   }, [useBottomBar]);
@@ -119,12 +130,15 @@ export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: 
   useEffect(() => {
     if (!authTk) { setAcademyVisible(false); return; }
     let mounted = true;
-    fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${authTk}` } })
-      .then(r => r.ok ? r.json() : null)
-      .then(j => { if (mounted) setAcademyVisible(j?.academyVisible === true); })
+    // Instant, correct Dashboard home from the cached role (no network wait) —
+    // then refine from the shared (deduped) role request.
+    const cr = cachedRole(uid);
+    if (cr) setNavHome(homeForRole(cr));
+    fetchMyRole(authTk, uid)
+      .then(j => { if (!mounted) return; setAcademyVisible(j?.academyVisible === true); if (j?.role) setNavHome(homeForRole(j.role)); })
       .catch(() => { /* keep hidden on error */ });
     return () => { mounted = false; };
-  }, [authTk]);
+  }, [authTk, uid]);
 
   useEffect(() => {
     if (!isFeed) return;

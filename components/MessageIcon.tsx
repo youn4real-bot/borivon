@@ -20,6 +20,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { supabase } from "@/lib/supabase";
+import { fetchMyRole, cachedRole } from "@/lib/myRole";
 import { useLang } from "@/components/LangContext";
 import { Send, X as XIcon, Image as ImageIcon, Bug, Maximize2, Minimize2, Download } from "lucide-react";
 import { Spinner } from "@/components/ui/states";
@@ -74,40 +75,26 @@ export function MessageIcon() {
     const evaluate = async (session: { user: { id: string; email?: string | null }; access_token?: string } | null) => {
       if (!session?.user) { if (mounted) setState({ kind: "anon" }); return; }
       const accessToken = session.access_token ?? "";
-
-      const fetchRole = async (attempt: number): Promise<void> => {
-        try {
-          const res = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${accessToken}` } });
-          if (!res.ok) throw new Error(`role ${res.status}`);
-          const json = await res.json();
-          if (!mounted) return;
-          if (json?.role === "admin" || json?.role === "sub_admin") {
-            // SHARED "Borivon Support" inbox: supreme admin + every Borivon
-            // sub-admin all see the same candidate conversations and any of
-            // them can reply (one identity to the candidate). me/role only
-            // returns "sub_admin" for PURE Borivon sub-admins — org admins /
-            // org members resolve as "org_member" and are excluded here.
-            setState({ kind: "admin", userId: session.user.id, accessToken });
-          } else if (json?.role === "candidate") {
-            setState({ kind: "candidate", userId: session.user.id, accessToken });
-          } else {
-            // org_member / unknown → no Borivon Support inbox.
-            setState({ kind: "anon" });
-          }
-        } catch {
-          if (!mounted) return;
-          if (attempt < 3) {
-            // Backoff retry — keep current state (don't flash candidate UI).
-            setTimeout(() => fetchRole(attempt + 1), 400 * attempt);
-          } else {
-            // Persistent failure — hide the chat icon entirely instead of
-            // showing the wrong UI to an admin or sub-admin.
-            console.error("[MessageIcon] role fetch failed after retries");
-            setState({ kind: "anon" });
-          }
-        }
-      };
-      fetchRole(1);
+      const uid = session.user.id;
+      // SHARED "Borivon Support" inbox: supreme admin + every Borivon sub-admin
+      // see the same candidate conversations. me/role returns "sub_admin" only
+      // for PURE Borivon sub-admins — org admins / org members resolve as
+      // "org_member" and get no Borivon Support inbox (anon → icon hidden).
+      const toState = (role: string | null): ViewState =>
+        role === "admin" || role === "sub_admin" ? { kind: "admin", userId: uid, accessToken }
+        : role === "candidate" ? { kind: "candidate", userId: uid, accessToken }
+        : { kind: "anon" };
+      // Instant correct inbox from the cached role (no network wait) so the
+      // chat icon appears together with the other chrome icons on reload.
+      const cr = cachedRole(uid);
+      if (cr && mounted) setState(toState(cr));
+      // Refresh from the shared (deduped) role request. Only downgrade to the
+      // hidden state when there is NO cached role to fall back on — a transient
+      // failure must never flash the candidate UI to an admin.
+      const info = await fetchMyRole(accessToken, uid);
+      if (!mounted) return;
+      if (info.role) setState(toState(info.role));
+      else if (!cr) setState({ kind: "anon" });
     };
 
     supabase.auth.getSession().then(({ data: { session } }) => evaluate(session));
