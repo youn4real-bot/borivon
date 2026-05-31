@@ -530,6 +530,22 @@ export function ProfileIcon() {
                   {T.academyTeaching}
                 </button>
               )}
+              {/* Online-course registrations (public /online-courses leads).
+                  Supreme admin + sub-admins. */}
+              {user.isAdmin && (
+                <button
+                  onClick={() => { setOpen(false); router.push("/portal/admin/online-courses"); }}
+                  className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
+                  style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "var(--bg2)"; e.currentTarget.style.color = "var(--w)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--w2)"; }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>
+                  </svg>
+                  {lang === "fr" ? "Cours en ligne" : lang === "de" ? "Online-Kurse" : "Online Courses"}
+                </button>
+              )}
               {/* Supreme-admin only — sub-admins must NOT see org CRUD /
                   manage-admins (those routes are supreme-only anyway). */}
               {user.isSuperAdmin && (

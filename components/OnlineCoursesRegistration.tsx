@@ -78,16 +78,17 @@ export function OnlineCoursesRegistration() {
     setErr(null);
     try {
       const groupLabel = label(GROUPS.find((o) => o.v === group)!);
-      const levelLabel = label(LEVELS.find((o) => o.v === level)!);
-      const res = await fetch("/api/leads", {
+      const res = await fetch("/api/online-courses/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          kind: "person",
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
           email: email.trim(),
           phone: phone.trim(),
+          address: address.trim(),
+          group: groupLabel,
           level,
-          message: `Online-Kurs Anmeldung — ${firstName.trim()} ${lastName.trim()} | Adresse: ${address.trim()} | Gruppe: ${groupLabel} | Niveau: ${levelLabel}`,
         }),
       });
       if (res.ok) { setDone(true); return; }
