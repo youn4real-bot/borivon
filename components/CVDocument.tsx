@@ -741,7 +741,7 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
     sectionMb:     Math.max(7,   14 * d),
     sectionHeadMb: Math.max(3,   6 * d),
     pdRowMb:       Math.max(2,   3.5 * d),
-    sigMt:         Math.max(10,  24 * d),
+    sigMt:         Math.max(8,   16 * d),
     dividerMt:     Math.max(2.5, 5 * d),
     dividerMb:     Math.max(4,   8 * d),
   };
@@ -937,12 +937,12 @@ export function CVDocument({ data, brand }: { data: CVData; brand?: CVBrand }) {
               so there's always room to actually sign. */}
           <View style={[s.sigArea, { marginTop: sp.sigMt }]}>
             <View style={s.sigSlot}>
-              <View style={[s.sigSpace, { height: Math.max(20, 40 * d) }]} />
+              <View style={[s.sigSpace, { height: Math.max(18, 28 * d) }]} />
               <View style={s.sigLine} />
               <Text style={s.sigLabel}>Ort, Datum</Text>
             </View>
             <View style={s.sigSlot}>
-              <View style={[s.sigSpace, { height: Math.max(20, 40 * d) }]} />
+              <View style={[s.sigSpace, { height: Math.max(18, 28 * d) }]} />
               <View style={s.sigLine} />
               <Text style={s.sigLabel}>Unterschrift</Text>
             </View>
