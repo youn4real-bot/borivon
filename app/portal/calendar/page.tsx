@@ -14,13 +14,14 @@
  * viewer's device timezone. Run supabase/calendar_events.sql first.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { cachedRole } from "@/lib/myRole";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
 import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
+import { DropdownMenu } from "@/components/ui/DropdownMenu";
 import {
   ChevronLeft, ChevronRight, CalendarDays, List, Lock, Plus,
   Trash2, MapPin, Video, Clock, CalendarPlus, Crown, Repeat, Sparkles, Users,
@@ -99,6 +100,11 @@ const FORMATS: { key: string; durationMin: number; title: Record<L3, string>; de
             fr: "Détendez-vous et échangez avec la communauté Borivon." } },
 ];
 
+function personInitials(n: string): string {
+  const parts = n.trim().split(/\s+/).filter(Boolean);
+  return ((parts[0]?.[0] ?? "") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase() || "?";
+}
+
 export default function CalendarPage() {
   const router = useRouter();
   const { lang } = useLang();
@@ -131,9 +137,10 @@ export default function CalendarPage() {
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [saving, setSaving] = useState(false);
   // People taggable as attendees (candidates + sub-admins + org admins).
-  const [people, setPeople] = useState<{ id: string; name: string; email: string; kind: string }[]>([]);
+  const [people, setPeople] = useState<{ id: string; name: string; email: string; kind: string; photo: string | null }[]>([]);
   const [peopleLoaded, setPeopleLoaded] = useState(false);
   const [tagQuery, setTagQuery] = useState("");
+  const tagInputRef = useRef<HTMLInputElement>(null);
 
   // ── Auth'd fetch (fresh token, same stale-token guard as other pages) ───────
   const authedFetch = useCallback(async (url: string, init?: RequestInit) => {
@@ -162,8 +169,8 @@ export default function CalendarPage() {
       const res = await authedFetch("/api/portal/admin/users");
       if (!res.ok) return;
       const j = await res.json().catch(() => ({ users: [] }));
-      setPeople((Array.isArray(j.users) ? j.users : []).map((u: { id: string; name?: string; email?: string; kind?: string }) => ({
-        id: u.id, name: u.name || u.email || "—", email: u.email || "", kind: u.kind || "candidate",
+      setPeople((Array.isArray(j.users) ? j.users : []).map((u: { id: string; name?: string; email?: string; kind?: string; photo?: string | null }) => ({
+        id: u.id, name: u.name || u.email || "—", email: u.email || "", kind: u.kind || "candidate", photo: u.photo ?? null,
       })));
       setPeopleLoaded(true);
     } catch { /* ignore */ }
@@ -694,35 +701,50 @@ export default function CalendarPage() {
                 ))}
               </div>
             )}
-            <input value={tagQuery} onChange={(e) => setTagQuery(e.target.value)} className="bv-input"
+            <input ref={tagInputRef} value={tagQuery} onChange={(e) => setTagQuery(e.target.value)} className="bv-input"
               placeholder={T("Type a name to tag…", "Name eingeben zum Markieren…", "Tapez un nom à taguer…")} />
-            {tagQuery.trim() && (() => {
-              const q = tagQuery.trim().toLowerCase();
-              const matches = people
-                .filter((p) => !draft.attendees.some((a) => a.id === p.id))
-                .filter((p) => `${p.name} ${p.email}`.toLowerCase().includes(q))
-                .slice(0, 8);
-              return (
-                <div className="mt-1 rounded-[10px] overflow-y-auto" style={{ border: "1px solid var(--border)", maxHeight: 220 }}>
-                  {matches.map((p) => (
-                    <button key={p.id} type="button"
-                      onClick={() => { setDraft((d) => ({ ...d, attendees: [...d.attendees, { id: p.id, name: p.name }] })); setTagQuery(""); }}
-                      className="bv-press w-full text-left px-3 py-2 text-[12.5px] flex items-center justify-between gap-2"
-                      style={{ background: "var(--bg2)", color: "var(--w)", borderBottom: "1px solid var(--border)" }}>
-                      <span className="truncate">{p.name}<span className="ml-1.5" style={{ color: "var(--w3)" }}>{p.email}</span></span>
-                      <span className="text-[10px] flex-shrink-0 px-1.5 py-0.5 rounded-full" style={{ background: "var(--card)", color: "var(--w3)" }}>
-                        {p.kind === "borivon" ? T("Admin", "Admin", "Admin") : p.kind === "org" ? T("Org", "Org", "Org") : T("Candidate", "Kandidat", "Candidat")}
-                      </span>
-                    </button>
-                  ))}
-                  {matches.length === 0 && (
-                    <div className="px-3 py-2 text-[11.5px]" style={{ color: "var(--w3)" }}>
-                      {peopleLoaded ? T("No match", "Kein Treffer", "Aucun résultat") : T("Loading people…", "Lädt…", "Chargement…")}
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
+            {/* Floating result menu (battle-tested DropdownMenu, portaled above
+                the modal) — pops ABOVE the input so it never covers the buttons. */}
+            <DropdownMenu
+              open={!!tagQuery.trim()}
+              onClose={() => setTagQuery("")}
+              anchor={tagInputRef.current}
+              above
+              align="left"
+              minWidth={tagInputRef.current?.offsetWidth ?? 320}
+            >
+              {(() => {
+                const q = tagQuery.trim().toLowerCase();
+                const matches = people
+                  .filter((p) => !draft.attendees.some((a) => a.id === p.id))
+                  .filter((p) => `${p.name} ${p.email}`.toLowerCase().includes(q))
+                  .slice(0, 6);
+                if (matches.length === 0) {
+                  return <div className="px-3 py-3 text-[12px]" style={{ color: "var(--w3)" }}>{peopleLoaded ? T("No match", "Kein Treffer", "Aucun résultat") : T("Loading people…", "Lädt…", "Chargement…")}</div>;
+                }
+                return (
+                  <div style={{ maxHeight: 300, overflowY: "auto" }}>
+                    {matches.map((p, i) => (
+                      <button key={p.id} type="button"
+                        onClick={() => { setDraft((d) => ({ ...d, attendees: [...d.attendees, { id: p.id, name: p.name }] })); setTagQuery(""); tagInputRef.current?.focus(); }}
+                        className="bv-row-hover w-full text-left px-3 py-2.5 flex items-center gap-3"
+                        style={{ background: "transparent", borderTop: i === 0 ? "none" : "1px solid var(--border)" }}>
+                        {p.photo ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={p.photo} alt="" className="rounded-full object-cover flex-shrink-0" style={{ width: 34, height: 34 }} />
+                        ) : (
+                          <span className="rounded-full flex items-center justify-center flex-shrink-0 text-[12px] font-semibold" style={{ width: 34, height: 34, background: "var(--gdim)", color: "var(--gold)" }}>{personInitials(p.name)}</span>
+                        )}
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[13px] font-medium truncate" style={{ color: "var(--w)" }}>{p.name}</span>
+                          <span className="block text-[11.5px] truncate" style={{ color: "var(--w3)" }}>{p.email}</span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
+            </DropdownMenu>
             <p className="text-[10.5px] mt-1.5" style={{ color: "var(--w3)" }}>
               {draft.attendees.length === 0
                 ? T("Leave empty = everyone sees this event.", "Leer = alle sehen diesen Termin.", "Vide = tout le monde voit l'événement.")

@@ -16,6 +16,8 @@ interface Props {
   children: ReactNode;
   align?: "left" | "right";
   minWidth?: number;
+  /** Open ABOVE the anchor (anchored to its top edge) instead of below it. */
+  above?: boolean;
   /**
    * Pre-measured position captured by the caller AT CLICK TIME (when the
    * trigger is guaranteed laid-out & valid). When provided, the menu renders
@@ -39,12 +41,12 @@ interface Props {
  * (and on scroll/resize) and keep showing it regardless of later anchor
  * churn. The menu only closes on explicit outside-click / Escape / onClose.
  */
-export function DropdownMenu({ open, onClose, anchor, children, align = "right", minWidth = 160, anchorRect }: Props) {
+export function DropdownMenu({ open, onClose, anchor, children, align = "right", minWidth = 160, anchorRect, above = false }: Props) {
   const menuRef = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState<{ top: number; left?: number; right?: number } | null>(null);
+  const [pos, setPos] = useState<{ top?: number; bottom?: number; left?: number; right?: number } | null>(null);
   // Last good position — so a later transient zero-rect (re-render churn) can
   // never make an already-open menu vanish, and a fresh open can fall back.
-  const lastPosRef = useRef<{ top: number; left?: number; right?: number } | null>(null);
+  const lastPosRef = useRef<{ top?: number; bottom?: number; left?: number; right?: number } | null>(null);
 
   // Snapshot / refresh position while open.
   //
@@ -69,9 +71,13 @@ export function DropdownMenu({ open, onClose, anchor, children, align = "right",
     let raf = 0;
     let tries = 0;
     const apply = (r: DOMRect) => {
-      const p = align === "right"
-        ? { top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) }
-        : { top: r.bottom + 4, left: Math.max(8, r.left) };
+      const vert = above
+        ? { bottom: Math.max(8, window.innerHeight - r.top + 4) }   // grow UPWARD from the anchor's top
+        : { top: r.bottom + 4 };                                    // grow downward from the anchor's bottom
+      const horiz = align === "right"
+        ? { right: Math.max(8, window.innerWidth - r.right) }
+        : { left: Math.max(8, r.left) };
+      const p = { ...vert, ...horiz };
       lastPosRef.current = p;
       setPos(p);
     };
@@ -99,7 +105,7 @@ export function DropdownMenu({ open, onClose, anchor, children, align = "right",
       window.removeEventListener("scroll", onWin, true);
       window.removeEventListener("resize", onWin);
     };
-  }, [open, anchor, align, anchorRect]);
+  }, [open, anchor, align, anchorRect, above]);
 
   // Outside-click + Escape close.
   useEffect(() => {
@@ -125,7 +131,7 @@ export function DropdownMenu({ open, onClose, anchor, children, align = "right",
       ref={menuRef}
       style={{
         position: "fixed",
-        top: pos.top,
+        ...(pos.bottom !== undefined ? { bottom: pos.bottom } : { top: pos.top }),
         ...(pos.right !== undefined ? { right: pos.right } : { left: pos.left }),
         zIndex: 9999,
         minWidth,
