@@ -588,6 +588,19 @@ export default function AdminPage() {
   useEffect(() => {
     try { const s = localStorage.getItem("bv_visa_perm_order"); if (s) setVisaPermOrder(JSON.parse(s) as string[]); } catch { /* ignore */ }
   }, []);
+  // Shared Visum doc order (permanent boxes + dynamic slots in ONE drag list),
+  // persisted in phase_doc_order so CANDIDATES see the same order. Loaded in the
+  // bootstrap fetch below; written on every drag via saveVisumDocOrder.
+  const [visumDocOrder, setVisumDocOrder] = useState<string[]>([]);
+  async function saveVisumDocOrder(orderKeys: string[]) {
+    try {
+      await fetch("/api/portal/phase-doc-order", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ phase: "visum", order_keys: orderKeys }),
+      });
+    } catch { /* best-effort — local state already updated */ }
+  }
   // Phone single-scroll: blob URL of the previewed passport so it can be
   // rendered as a strip at the top of the passport-info card (one page:
   // passport on top, data below — scroll freely to compare).
@@ -1232,6 +1245,11 @@ export default function AdminPage() {
           })
           .catch(() => {})
           .finally(() => { if (!cancelled) setRoleResolved(true); }),
+        // Shared Visum doc order (permanent boxes + slots interleaved).
+        fetch("/api/portal/phase-doc-order", { headers: { Authorization: `Bearer ${token}` } })
+          .then(r => r.ok ? r.json() : null)
+          .then(j => { if (!cancelled && j?.orders && Array.isArray(j.orders.visum)) setVisumDocOrder(j.orders.visum as string[]); })
+          .catch(() => {}),
         // b) Org list (for org switcher + Status->Assign agency picker)
         fetch("/api/portal/admin/organizations", { headers: { Authorization: `Bearer ${token}` } })
           .then(r => r.ok ? r.json() : null)
@@ -5086,23 +5104,34 @@ export default function AdminPage() {
                               { key: "tls_bestaetigungstermin", label: t.pTypeTlsBestaetigung },
                               { key: "berufserfahrung_visum",   label: t.pTypeBerufserfahrungVisum, optional: true },
                             ];
-                            // Apply the admin's saved drag order; any box not in it keeps default position.
-                            const DK = PLAIN.map(b => b.key);
-                            const orderKeys = [...visaPermOrder.filter(k => DK.includes(k)), ...DK.filter(k => !visaPermOrder.includes(k))];
-                            const ordered = orderKeys.map(k => PLAIN.find(b => b.key === k)!);
+                            // UNIFIED Visum order: permanent boxes + dynamic slots in ONE
+                            // sortable, ordered by the shared phase_doc_order (candidates see
+                            // the SAME order). Items not in the saved order keep their default
+                            // position (perm boxes first, then slots by position).
+                            const slotsReady = phaseSlotsLoaded[slotPhase] === (selectedUser || "global");
+                            type VItem = { kind: "perm"; id: string; perm: { key: string; label: string; optional?: boolean } } | { kind: "slot"; id: string; slot: PhaseSlot };
+                            const vAll: VItem[] = [
+                              ...PLAIN.map((p): VItem => ({ kind: "perm", id: p.key, perm: p })),
+                              ...(slotsReady ? flat.map((s): VItem => ({ kind: "slot", id: s.id, slot: s })) : []),
+                            ];
+                            const vRank = (id: string) => { const i = visumDocOrder.indexOf(id); return i === -1 ? 10000 + vAll.findIndex(x => x.id === id) : i; };
+                            const combined = [...vAll].sort((a, b) => vRank(a.id) - vRank(b.id));
+                            const vIds = combined.map(c => c.id);
                             return (
                             <DndContext sensors={slotSensors} collisionDetection={closestCenter} onDragEnd={(ev: DragEndEvent) => {
                               const { active, over } = ev;
                               if (!over || active.id === over.id) return;
-                              const from = orderKeys.indexOf(String(active.id));
-                              const to = orderKeys.indexOf(String(over.id));
+                              const from = vIds.indexOf(String(active.id));
+                              const to = vIds.indexOf(String(over.id));
                               if (from === -1 || to === -1) return;
-                              const next = arrayMove(orderKeys, from, to);
-                              setVisaPermOrder(next);
-                              try { localStorage.setItem("bv_visa_perm_order", JSON.stringify(next)); } catch { /* ignore */ }
+                              const next = arrayMove(vIds, from, to);
+                              setVisumDocOrder(next);
+                              void saveVisumDocOrder(next);
                             }}>
-                            <SortableContext items={orderKeys} strategy={verticalListSortingStrategy}>
-                            {ordered.map((vb) => {
+                            <SortableContext items={vIds} strategy={verticalListSortingStrategy}>
+                            {combined.map((it, ci) => {
+                            if (it.kind === "slot") return renderSlotRow(it.slot, ci);
+                            const vb = it.perm;
                             const vdoc = getAdminDocs(vb.key)[0] ?? null;
                             const vSt = !vdoc ? null : (vdoc.status === "approved" ? "approved" : vdoc.status === "rejected" ? "rejected" : "pending");
                             const vColor = vSt === "approved" ? "#16a34a" : vSt === "rejected" ? "#ef4444" : vSt === "pending" ? "#f59e0b" : null;
@@ -5196,27 +5225,24 @@ export default function AdminPage() {
                             </DndContext>
                             );
                           })()}
-                          {slotPhase === "visum" && <div style={{ height: 1, background: "var(--border)" }} />}
-                          {/* Never show another candidate's slots: until THIS candidate's
-                              set is loaded (prefetched on dossier open), render nothing.
-                              No spinner, no stale flash — by click time it's ready. */}
-                          {phaseSlotsLoaded[slotPhase] !== (selectedUser || "global") ? (
-                            <div style={{ minHeight: 8 }} />
-                          ) : slots.length === 0 ? (
-                            <div style={{ minHeight: 4 }} />
-                          ) : (
-                            <DndContext
-                              sensors={slotSensors}
-                              collisionDetection={closestCenter}
-                              onDragEnd={onFlatDragEnd}
-                            >
-                              {/* ONE flat list — textbook dnd-kit sortable. Drag a box,
-                                  neighbours slide, drop renumbers positions + persists.
-                                  No categories, no nested containers, no live re-parenting. */}
-                              <SortableContext items={flat.map(s => s.id)} strategy={verticalListSortingStrategy}>
-                                {flat.map((slot, si) => renderSlotRow(slot, si))}
-                              </SortableContext>
-                            </DndContext>
+                          {/* Non-visum phases (Bearbeitung): dynamic slots only, ordered by
+                              position. Visum slots are rendered in the unified block above. */}
+                          {slotPhase !== "visum" && (
+                            phaseSlotsLoaded[slotPhase] !== (selectedUser || "global") ? (
+                              <div style={{ minHeight: 8 }} />
+                            ) : slots.length === 0 ? (
+                              <div style={{ minHeight: 4 }} />
+                            ) : (
+                              <DndContext
+                                sensors={slotSensors}
+                                collisionDetection={closestCenter}
+                                onDragEnd={onFlatDragEnd}
+                              >
+                                <SortableContext items={flat.map(s => s.id)} strategy={verticalListSortingStrategy}>
+                                  {flat.map((slot, si) => renderSlotRow(slot, si))}
+                                </SortableContext>
+                              </DndContext>
+                            )
                           )}
                           </div>{/* end px-2 py-2 */}
                         </div>
