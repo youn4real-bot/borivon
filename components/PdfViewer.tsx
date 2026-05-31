@@ -167,22 +167,20 @@ export function PdfViewer({
         cMapUrl: `${origin}/pdfjs/cmaps/`,
         cMapPacked: true,
         standardFontDataUrl: `${origin}/pdfjs/standard_fonts/`,
-        // Render NON-EMBEDDED fonts (German agency forms like Zusatzblatt A)
-        // with the BUNDLED standard fonts above, instead of trying to match a
-        // locally-installed system font and drawing BLANK glyphs when it can't.
-        // This is what makes the form's text/data appear instead of vanishing
-        // (vector boxes/lines were drawing, glyphs were not).
+        // ROOT CAUSE FIX: pdf.js v5 decodes CCITTFax / JBIG2 / JPEG2000 images
+        // with a WASM module. German agency forms (EZB, Zusatzblatt A) are built
+        // ENTIRELY from CCITTFax 1-bit image masks — and with NO wasmUrl pdf.js
+        // silently DROPS those images, so the form looks blank/faint. Pointing at
+        // the bundled wasm (copied to /public/pdfjs/wasm) loads the decoder → the
+        // form renders solid. Normal PDFs never invoke this decoder, so they're
+        // unaffected.
+        wasmUrl: `${origin}/pdfjs/wasm/`,
+        // For non-embedded fonts, use the bundled standard fonts (consistent
+        // across machines) instead of guessing a local system font.
         useSystemFonts: false,
-        // Render on the MAIN-THREAD canvas, not a worker OffscreenCanvas — the
-        // latter silently drops some glyphs/images on certain browsers (faint
-        // logo / missing marks). A touch slower, but reliably complete.
+        // Render images on the main-thread canvas, not a worker OffscreenCanvas
+        // (the latter drops glyphs/images on some browsers).
         isOffscreenCanvasSupported: false,
-        // ROOT CAUSE of the faint text: by default pdf.js draws glyphs via the
-        // browser's FontFace text rendering, which renders these substituted
-        // fonts thin/washed-out. disableFontFace makes pdf.js rasterize each
-        // glyph as a FILLED VECTOR PATH in the text's real colour — exactly how
-        // native viewers (PDFium) draw it → solid, crisp black text.
-        disableFontFace: true,
       });
       destroy = () => task.destroy().catch(() => {});
 
@@ -604,15 +602,12 @@ function PdfPage({
   const textTaskRef   = useRef<{ promise: Promise<void>; cancel: () => void } | null>(null);
 
   const [dpr] = useState(() => {
-    // OVERSAMPLE the canvas backing store. Agency forms (Zusatzblatt A, EZB…)
-    // are full of fine print; at 1x the thin glyph strokes anti-alias to faint
-    // grey — which is exactly why pdf.js looked washed-out where the native
-    // PDFium viewer (higher internal raster resolution) drew them solid.
-    // Rendering at ~3x and downscaling to the display gives those strokes
-    // enough pixels to come out solid/dark. The MAX_SIDE / MAX_AREA clamps
-    // below still cap oversized pages so iOS/WebKit never blanks the canvas.
+    // Render at >= 2x so image-mask forms (whose masks are ~1240px wide) aren't
+    // downsampled below their own resolution on standard 1x monitors. The
+    // MAX_SIDE / MAX_AREA clamps below still cap oversized pages so iOS/WebKit
+    // never blanks the canvas.
     const d = typeof window !== "undefined" ? (window.devicePixelRatio || 1) : 1;
-    return Math.min(Math.max(d, 3), 4);
+    return Math.min(Math.max(d, 2), 3);
   });
 
   const isLandscape = ((rotation / 90) | 0) % 2 === 1;
