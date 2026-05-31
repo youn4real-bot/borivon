@@ -177,23 +177,16 @@ export function OnlineCoursesRegistration() {
           ) : (
             <div key={step} className="bv-enter">
               {step === 0 && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-5 gap-y-5">
-                  <Field label={T("First name", "Vorname", "Prénom")} req>
-                    <input className={`bv-input ${touched && e.firstName ? "error" : ""}`} value={firstName} onChange={(ev) => setFirstName(ev.target.value)} autoComplete="given-name" />
-                  </Field>
-                  <Field label={T("Last name", "Nachname", "Nom")} req>
-                    <input className={`bv-input ${touched && e.lastName ? "error" : ""}`} value={lastName} onChange={(ev) => setLastName(ev.target.value)} autoComplete="family-name" />
-                  </Field>
-                  <Field label={T("Email", "E-Mail", "E-mail")} req>
-                    <input type="email" inputMode="email" className={`bv-input ${touched && e.email ? "error" : ""}`} value={email} onChange={(ev) => setEmail(ev.target.value)} autoComplete="email" />
-                  </Field>
-                  <Field label={T("Phone", "Telefon", "Téléphone")} req>
-                    <PhoneInput value={phone} onChange={setPhone} hasError={touched && e.phone} />
-                  </Field>
+                // Placeholder-as-label (matches the portal register): field name
+                // lives in-box as a grey placeholder — saves the label row, fits
+                // phones. aria-label keeps each input screen-reader accessible.
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <input className={`bv-input ${touched && e.firstName ? "error" : ""}`} value={firstName} onChange={(ev) => setFirstName(ev.target.value)} autoComplete="given-name" placeholder={T("First name", "Vorname", "Prénom")} aria-label={T("First name", "Vorname", "Prénom")} />
+                  <input className={`bv-input ${touched && e.lastName ? "error" : ""}`} value={lastName} onChange={(ev) => setLastName(ev.target.value)} autoComplete="family-name" placeholder={T("Last name", "Nachname", "Nom")} aria-label={T("Last name", "Nachname", "Nom")} />
+                  <input type="email" inputMode="email" className={`bv-input ${touched && e.email ? "error" : ""}`} value={email} onChange={(ev) => setEmail(ev.target.value)} autoComplete="email" placeholder={T("Email", "E-Mail", "E-mail")} aria-label={T("Email", "E-Mail", "E-mail")} />
+                  <PhoneInput value={phone} onChange={setPhone} hasError={touched && e.phone} />
                   <div className="sm:col-span-2">
-                    <Field label={T("Address", "Adresse", "Adresse")} req>
-                      <input className={`bv-input ${touched && e.address ? "error" : ""}`} value={address} onChange={(ev) => setAddress(ev.target.value)} autoComplete="street-address" placeholder={T("Street, city, country", "Straße, Stadt, Land", "Rue, ville, pays")} />
-                    </Field>
+                    <input className={`bv-input ${touched && e.address ? "error" : ""}`} value={address} onChange={(ev) => setAddress(ev.target.value)} autoComplete="street-address" placeholder={T("Address — street, city, country", "Adresse — Straße, Stadt, Land", "Adresse — rue, ville, pays")} aria-label={T("Address", "Adresse", "Adresse")} />
                   </div>
                 </div>
               )}
@@ -247,15 +240,6 @@ export function OnlineCoursesRegistration() {
         </div>
       </div>
     </main>
-  );
-}
-
-function Field({ label, req, children }: { label: string; req?: boolean; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="bv-label">{label}{req && <span className="req">*</span>}</span>
-      {children}
-    </label>
   );
 }
 
