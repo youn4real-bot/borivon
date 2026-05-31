@@ -33,6 +33,25 @@ const LEVELS: Opt[] = [
   { v: "B2", en: "B2 – Upper intermediate", de: "B2 – Gute Mittelstufe", fr: "B2 – Avancé intermédiaire" },
 ];
 
+// ▶ SOCIAL PROOF — set this to your REAL number of students to show a count
+//   (e.g. 1200 → "Join 1,200+ learners…"). Leave null for count-free momentum
+//   copy. Do NOT inflate it: a fabricated popularity figure is deceptive
+//   advertising under EU/German consumer law (UWG/UCPD) and a trust risk the
+//   moment a student or competitor checks. Use a number you can stand behind.
+const LEARNER_COUNT: number | null = null;
+
+// Warm, intentionally abstract avatar tiles — blurred gradients so NO
+// identifiable face is ever shown (also satisfies "faces not visible even when
+// zoomed"). They read as "a group of people" for social proof without
+// fabricating anyone's identity / using AI faces as fake testimonials.
+function avatarBg(i: number): string {
+  const h = [25, 18, 32, 20, 30][i % 5]; // warm skin-ish hues
+  return [
+    `radial-gradient(circle at 50% 72%, hsl(${h} 44% 72%) 0 36%, transparent 38%)`,
+    `linear-gradient(180deg, hsl(${h + 6} 26% 27%) 0 38%, hsl(${h} 40% 58%) 40% 100%)`,
+  ].join(", ");
+}
+
 export function OnlineCoursesRegistration() {
   const { lang } = useLang();
   const T = (en: string, de: string, fr: string) => tr(lang, en, de, fr);
@@ -64,6 +83,16 @@ export function OnlineCoursesRegistration() {
   const step1Valid = !e.firstName && !e.lastName && !e.email && !e.phone && !e.address;
 
   const STEPS = [T("Information", "Angaben", "Informations"), T("Group", "Gruppe", "Groupe"), T("Level", "Niveau", "Niveau")];
+
+  // Social-proof line — shows a real count only if LEARNER_COUNT is set above.
+  const nStr = LEARNER_COUNT?.toLocaleString(lang === "de" ? "de-DE" : lang === "fr" ? "fr-FR" : "en-US");
+  const joinText = LEARNER_COUNT
+    ? T(`Join ${nStr}+ learners getting fluent in German`,
+        `${nStr}+ Lernende werden mit Borivon fließend in Deutsch`,
+        `Rejoignez ${nStr}+ apprenants vers la maîtrise de l'allemand`)
+    : T("Join a growing community learning German with Borivon",
+        "Teil einer wachsenden Deutsch-Lerngemeinschaft bei Borivon",
+        "Rejoignez une communauté grandissante qui apprend l'allemand");
 
   function next() {
     if (step === 0 && !step1Valid) { setTouched(true); return; }
@@ -247,6 +276,43 @@ export function OnlineCoursesRegistration() {
             </div>
           )}
         </div>
+
+        {/* ── Social proof ──────────────────────────────────────────────────── */}
+        {!done && (
+          <div className="mt-12 flex flex-col items-center text-center bv-enter">
+            <div className="flex items-center gap-3.5">
+              {/* Non-identifiable avatar tiles (no real photos / no AI faces). */}
+              <div className="flex" aria-hidden>
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <span key={i} className="block" style={{
+                    width: 38, height: 38, borderRadius: 999, overflow: "hidden",
+                    border: "2px solid var(--bg)", marginLeft: i === 0 ? 0 : -12,
+                    boxShadow: "var(--shadow-sm)", flexShrink: 0, position: "relative", zIndex: 5 - i,
+                  }}>
+                    <span style={{ display: "block", width: "100%", height: "100%", filter: "blur(1.3px)", background: avatarBg(i) }} />
+                  </span>
+                ))}
+              </div>
+              <p className="text-[14.5px] sm:text-[15px] font-semibold text-left" style={{ color: "var(--w)", maxWidth: 290 }}>
+                {joinText}
+              </p>
+            </div>
+
+            {/* Live "enrolling now" — truthful status: enrollment is open. */}
+            <span className="mt-4 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[12px] font-semibold"
+              style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
+              <span className="bv-live-dot inline-block rounded-full" style={{ width: 8, height: 8, background: "var(--success)" }} />
+              {T("Enrolling now", "Anmeldung läuft", "Inscriptions ouvertes")}
+            </span>
+
+            {/* CTA — scrolls back up to the form. */}
+            <button type="button"
+              onClick={() => { setStep(0); setTouched(false); if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" }); }}
+              className="bv-btn bv-btn-primary-lg bv-glow-gold mt-6">
+              {T("Reserve your seat", "Platz sichern", "Réserver ma place")} <ArrowRight size={16} strokeWidth={2} />
+            </button>
+          </div>
+        )}
       </div>
     </main>
   );

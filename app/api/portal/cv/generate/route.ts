@@ -180,6 +180,22 @@ export async function POST(req: NextRequest) {
     // a non-data: `photo` (SSRF via @react-pdf remote fetch) and hard-caps array
     // dimensions (DoS via O(n²) merge + multi-thousand-page render).
     const data: CVData = sanitizeCvData(JSON.parse(rawBody) as CVData);
+
+    // PHOTO re-injection (fixes "photo missing from generated CV"):
+    // candidate_profiles.profile_photo is a Supabase Storage URL, NOT a data:
+    // URL. sanitizeCvData drops any client-sent non-data: photo as an SSRF
+    // guard (@react-pdf fetches <Image src> server-side), so a freshly-cropped
+    // data: URL survives but a returning candidate's STORED remote URL is
+    // stripped → blank photo. Re-inject the photo from the TRUSTED DB row for
+    // the target candidate — the only image URL we ever let the renderer fetch.
+    // A malicious client URL was already dropped above and is never restored.
+    if (!data.photo) {
+      const { data: prof } = await getServiceSupabase()
+        .from("candidate_profiles").select("profile_photo").eq("user_id", targetUserId).maybeSingle();
+      const dbPhoto = (prof as { profile_photo?: string | null } | null)?.profile_photo ?? null;
+      if (dbPhoto) data.photo = dbPhoto;
+    }
+
     // ?variant=plain → the Visa CV: NO logo, NO footer, no org/Borivon branding,
     // regardless of the candidate's branding flags. Used for the synced Visum
     // copy. Otherwise resolve normal branding (Borivon default for self).

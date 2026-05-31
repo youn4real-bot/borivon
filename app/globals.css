@@ -603,6 +603,16 @@ textarea::placeholder { color: var(--w3) !important; opacity: 0.4 !important; }
   50%      { opacity: 0.45; }
 }
 
+/* Live "enrolling now" dot — green glow that breathes back and forth. Pairs an
+   expanding ring with a soft opacity dip so it reads as a live indicator.
+   Auto-tamed by the reduced-motion block above. Used on /online-courses. */
+@keyframes bvLiveDot {
+  0%   { box-shadow: 0 0 0 0 rgba(52, 199, 89, 0.55); opacity: 1; }
+  70%  { box-shadow: 0 0 0 6px rgba(52, 199, 89, 0);   opacity: 0.7; }
+  100% { box-shadow: 0 0 0 0 rgba(52, 199, 89, 0);     opacity: 1; }
+}
+.bv-live-dot { animation: bvLiveDot 1.8s ease-in-out infinite; }
+
 /* Generic slide-down — used by Navbar mobile menu and portal ProfileIcon
    dropdown. Defined globally so it works regardless of which component
    mounted first. */

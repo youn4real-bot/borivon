@@ -62,17 +62,19 @@ export async function GET(req: NextRequest) {
     return Response.json({ error: "Bad CV data" }, { status: 500 });
   }
 
-  // The photo is stored separately (candidate_profiles.profile_photo) and
-  // STRIPPED from cv_draft to keep the row small — so re-inject it here, exactly
-  // like the CV builder does on load. Without this the no-logo CV has no photo.
+  // SECURITY (2026-05 review): cv_draft is candidate-controlled. sanitizeCvData
+  // drops a non-data: `photo` (SSRF — @react-pdf fetches <Image src> server-side,
+  // and this renders under the admin's session via ?candidateId=) and caps array
+  // dimensions (render DoS). Run it FIRST, then re-inject the trusted photo.
+  sanitizeCvData(data);
+
+  // The photo is stored separately (candidate_profiles.profile_photo — a
+  // Supabase Storage URL, NOT a data: URL) and STRIPPED from cv_draft to keep
+  // the row small. Re-inject it AFTER sanitize so the trusted remote URL
+  // survives (sanitize drops every non-data: URL). Without this the CV is
+  // photo-less; with the old before-sanitize order the stored URL was dropped.
   const photo = (prof as { profile_photo?: string | null } | null)?.profile_photo ?? null;
   if (photo) data.photo = photo;
-
-  // SECURITY (2026-05 review): cv_draft is candidate-controlled. sanitizeCvData
-  // drops a non-data: `photo` (SSRF — would be re-rendered under the admin's
-  // session via ?candidateId=) and caps array dimensions (render DoS). Runs
-  // AFTER the trusted profile_photo re-injection so a real photo survives.
-  sanitizeCvData(data);
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
