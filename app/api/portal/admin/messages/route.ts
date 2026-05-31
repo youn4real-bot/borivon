@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
+import { isVerified } from "@/lib/verified";
 import { requireAdminRole, canActOnCandidate, getVisibleCandidateIds, ciEmail } from "@/lib/admin-auth";
 import { validateImageDataUrl } from "@/lib/validateDataUrl";
 import { enforceRateLimit } from "@/lib/rateLimit";
@@ -167,7 +168,7 @@ export async function GET(req: NextRequest) {
       .in("user_id", userIds);
     for (const p of (profiles ?? [])) {
       profileMap[p.user_id] = {
-        verified:    !!p.manually_verified,
+        verified:    isVerified(p),
         photoUrl:    (p as { profile_photo?: string | null }).profile_photo ?? null,
         paymentTier: (p as { payment_tier?: string | null }).payment_tier ?? null,
       };

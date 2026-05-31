@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
+import { isVerified } from "@/lib/verified";
 import { requireUser } from "@/lib/admin-auth";
 import { getAccessibleOrgIds } from "@/lib/feedAccess";
 import { enforceRateLimit, enforceRateLimitDistributed } from "@/lib/rateLimit";
@@ -43,7 +44,7 @@ async function resolveUserMeta(db: ReturnType<typeof getServiceSupabase>, userId
     .in("user_id", userIds);
   const profileMap: Record<string, { photo: string | null; verified: boolean; tier: string | null }> = {};
   for (const p of (profiles ?? []) as { user_id: string; profile_photo: string | null; manually_verified: boolean; payment_tier: string | null }[]) {
-    profileMap[p.user_id] = { photo: p.profile_photo, verified: p.manually_verified, tier: p.payment_tier };
+    profileMap[p.user_id] = { photo: p.profile_photo, verified: isVerified(p), tier: p.payment_tier };
   }
 
   // Role-derived ticks (automatic, no manual verify):

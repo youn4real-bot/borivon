@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
+import { isVerified } from "@/lib/verified";
 import { requireUser, ciEmail } from "@/lib/admin-auth";
 import { canAccessPost } from "@/lib/feedAccess";
 import { enforceRateLimit } from "@/lib/rateLimit";
@@ -62,10 +63,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 
   const { data: profiles } = await db
     .from("candidate_profiles")
-    .select("user_id, profile_photo, manually_verified")
+    .select("user_id, profile_photo, manually_verified, payment_tier")
     .in("user_id", userIds);
-  for (const p of (profiles ?? []) as { user_id: string; profile_photo: string | null; manually_verified: boolean }[]) {
-    photoInfo[p.user_id] = { photo: p.profile_photo, verified: p.manually_verified };
+  for (const p of (profiles ?? []) as { user_id: string; profile_photo: string | null; manually_verified: boolean; payment_tier: string | null }[]) {
+    photoInfo[p.user_id] = { photo: p.profile_photo, verified: isVerified(p) };
   }
 
   const emails = Object.values(authInfo).map(a => a.email).filter(Boolean);
@@ -157,7 +158,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
 
   const { data: profile } = await db
     .from("candidate_profiles")
-    .select("profile_photo, manually_verified")
+    .select("profile_photo, manually_verified, payment_tier")
     .eq("user_id", auth.userId)
     .maybeSingle();
 
@@ -177,7 +178,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
       authorId:       auth.userId,
       authorName,
       authorPhoto:    (profile as { profile_photo?: string | null } | null)?.profile_photo ?? null,
-      authorVerified: isBorivonTeam || ((profile as { manually_verified?: boolean } | null)?.manually_verified ?? false),
+      authorVerified: isBorivonTeam || isVerified(profile as { manually_verified?: boolean | null; payment_tier?: string | null } | null),
       isBorivonTeam,
       isSuperAdmin,
       isOrgMember:    false,

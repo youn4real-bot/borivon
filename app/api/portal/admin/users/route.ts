@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { requireAdminRole } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
+import { isVerified } from "@/lib/verified";
 
 export async function GET(req: NextRequest) {
   const auth = await requireAdminRole(req);
@@ -32,7 +33,7 @@ export async function GET(req: NextRequest) {
   }
 
   const [{ data: profiles }, { data: subAdmins }, { data: orgMembers }] = await Promise.all([
-    db.from("candidate_profiles").select("user_id, first_name, last_name, profile_photo, manually_verified"),
+    db.from("candidate_profiles").select("user_id, first_name, last_name, profile_photo, manually_verified, payment_tier"),
     db.from("sub_admins").select("email, is_agency_admin"),
     db.from("organization_members").select("sub_admin_email"),
   ]);
@@ -88,7 +89,7 @@ export async function GET(req: NextRequest) {
       kind,
       createdAt: u.created_at,
       photo: (p as { profile_photo?: string | null } | undefined)?.profile_photo ?? null,
-      verified: !!(p as { manually_verified?: boolean | null } | undefined)?.manually_verified,
+      verified: isVerified(p as { manually_verified?: boolean | null; payment_tier?: string | null } | undefined),
     };
   });
 

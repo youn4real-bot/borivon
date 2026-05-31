@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser, ciEmail } from "@/lib/admin-auth";
+import { isVerified } from "@/lib/verified";
 
 /**
  * GET /api/portal/org/me
@@ -72,16 +73,16 @@ export async function GET(req: NextRequest) {
     // Get verification + photo
     const { data: profiles } = await db
       .from("candidate_profiles")
-      .select("user_id, manually_verified, profile_photo")
+      .select("user_id, manually_verified, payment_tier, profile_photo")
       .in("user_id", candidateIds);
 
     for (const uid of candidateIds) {
-      const p = (profiles ?? []).find((x: { user_id: string }) => x.user_id === uid) as { user_id: string; manually_verified: boolean | null; profile_photo: string | null } | undefined;
+      const p = (profiles ?? []).find((x: { user_id: string }) => x.user_id === uid) as { user_id: string; manually_verified: boolean | null; payment_tier: string | null; profile_photo: string | null } | undefined;
       candidates.push({
         userId:       uid,
         name:         nameMap[uid] ?? "—",
         email:        emailMap[uid] ?? "",
-        verified:     !!p?.manually_verified,
+        verified:     isVerified(p),
         profilePhoto: p?.profile_photo ?? null,
       });
     }

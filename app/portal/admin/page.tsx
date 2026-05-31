@@ -5,6 +5,7 @@ import { createPortal, flushSync } from "react-dom";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { cachedRole } from "@/lib/myRole";
+import { isVerified } from "@/lib/verified";
 import { translations } from "@/lib/translations";
 import { useLang } from "@/components/LangContext";
 import { AdminDocPreviewModal } from "@/components/AdminDocPreviewModal";
@@ -3464,7 +3465,7 @@ export default function AdminPage() {
               <div className="flex-1 min-w-0">
                 <h1 className="text-[20px] font-semibold tracking-[-0.015em] inline-flex items-center gap-1.5 flex-wrap max-w-full" style={{ color: "var(--w)" }}>
                   <span className="truncate">{user.name}</span>
-                  <VerifiedBadge verified={!!profiles[selectedUser]?.manually_verified} size="sm" color="gold" />
+                  <VerifiedBadge verified={isVerified(profiles[selectedUser])} size="sm" color="gold" />
                   {/* Org tags inline next to the gold tick — minimalist, no × */}
                   {(candidateOrgs[selectedUser] ?? []).map(org => (
                     <span key={org.id}
@@ -7177,7 +7178,7 @@ export default function AdminPage() {
                       <div className="flex-1 min-w-0">
                         <p className="text-[13.5px] font-semibold truncate inline-flex items-center gap-0.5 flex-wrap" style={{ color: "var(--w)" }}>
                           {user.name}
-                          <VerifiedBadge verified={!!profiles[uid]?.manually_verified} size="xs" color="gold" />
+                          <VerifiedBadge verified={isVerified(profiles[uid])} size="xs" color="gold" />
                         </p>
                         <p className="text-[11.5px] truncate mt-0.5" style={{ color: "var(--w3)" }}>
                           {user.email}
@@ -7517,7 +7518,7 @@ export default function AdminPage() {
                         <div className="flex-1 min-w-0">
                           <p className="text-[12.5px] font-medium truncate tracking-tight inline-flex items-center gap-0.5 flex-wrap" style={{ color: "var(--w)" }}>
                             {user.name}
-                            <VerifiedBadge verified={!!profiles[uid]?.manually_verified} size="xs" color="gold" />
+                            <VerifiedBadge verified={isVerified(profiles[uid])} size="xs" color="gold" />
                             </p>
                           <p className="text-[11px] truncate mt-0.5" style={{ color: "var(--w3)" }}>{user.email}</p>
                         </div>
