@@ -10,6 +10,7 @@
  * (e.g. "+212 600 000 000"). Morocco is the default + gets digit grouping.
  */
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useLang } from "@/components/LangContext";
 import { COUNTRY_MAP, ISO3_TO_ISO2, ISO3_TO_PHONE } from "@/lib/countries";
 import { X as XIcon } from "lucide-react";
@@ -111,7 +112,7 @@ export function PhoneInput({ value, onChange, hasError = false }: { value: strin
         onFocus={e => (e.currentTarget.style.borderColor = "var(--gold)")}
         onBlur={e => (e.currentTarget.style.borderColor = hasError ? "var(--danger)" : "transparent")}
       />
-      {open && (
+      {open && typeof document !== "undefined" && createPortal(
         <>
           <div className="fixed inset-0 z-[1100]"
             style={{ background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", animation: "bvFadeRise 0.2s var(--ease-out)" }}
@@ -145,7 +146,8 @@ export function PhoneInput({ value, onChange, hasError = false }: { value: strin
               </div>
             </div>
           </div>
-        </>
+        </>,
+        document.body,
       )}
     </div>
   );
