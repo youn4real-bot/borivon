@@ -354,7 +354,6 @@ export default function CalendarPage() {
       {/* Header */}
       <div className="mb-5">
         <p className="bv-eyebrow">{T("Community", "Community", "Communauté")}</p>
-        <h1 className="bv-h1">{T("Calendar", "Kalender", "Calendrier")}</h1>
       </div>
 
       {/* Toolbar */}
