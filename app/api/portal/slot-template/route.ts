@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
+import { UUID_RE } from "@/lib/uuid";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Bucket name MUST match the admin's slot-template POST route. The admin route
 // stores the template in the `slot-templates` bucket at object key
 // `slot-templates/<slotId>.pdf`; the candidate side fetches the same path.

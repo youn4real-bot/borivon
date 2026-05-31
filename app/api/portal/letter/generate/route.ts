@@ -7,10 +7,10 @@ import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-au
 import { getServiceSupabase } from "@/lib/supabase";
 import { registerPdfFonts } from "@/lib/pdf-fonts";
 import { VISA_RECIPIENT_LINES, VISA_SUBJECT } from "@/lib/visaLetter";
+import { UUID_RE } from "@/lib/uuid";
 
 registerPdfFonts();
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const RL_MAX = 20;
 const RL_WINDOW_MS = 60_000;

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, ciEmail, type AdminAuthResult } from "@/lib/admin-auth";
+import { UUID_RE } from "@/lib/uuid";
 
 /**
  * Manual admin checklists (NOT the auto document-progress checklist).
@@ -21,7 +22,6 @@ import { requireAdminRole, ciEmail, type AdminAuthResult } from "@/lib/admin-aut
  * write goes through this authenticated route.
  */
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_TEXT = 500;
 
 type Scope = "personal" | "shared" | "shared_hq";

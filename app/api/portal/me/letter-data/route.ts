@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { natToLang } from "@/lib/countries";
+import { UUID_RE } from "@/lib/uuid";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * GET — return the resolved sender block for the cover letter.

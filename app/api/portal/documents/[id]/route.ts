@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
+import { UUID_RE } from "@/lib/uuid";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Must match the rest of the app (upload/route.ts, delete-user/route.ts).
 // The old `GOOGLE_DRIVE_ROOT_FOLDER_ID` is never set → archiving was always
 // skipped while the DB row was still deleted (LAW #33 silent-loss bug).

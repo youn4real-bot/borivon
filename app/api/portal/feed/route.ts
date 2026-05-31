@@ -4,10 +4,10 @@ import { requireUser } from "@/lib/admin-auth";
 import { getAccessibleOrgIds } from "@/lib/feedAccess";
 import { enforceRateLimit } from "@/lib/rateLimit";
 import { validateImageDataUrl } from "@/lib/validateDataUrl";
+import { UUID_RE } from "@/lib/uuid";
 
 const BUCKET = "feed-photos";
 const PAGE_SIZE = 20;
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 async function ensureBucket() {
   const db = getServiceSupabase();

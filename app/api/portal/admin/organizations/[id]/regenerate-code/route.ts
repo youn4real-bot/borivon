@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole } from "@/lib/admin-auth";
+import { UUID_RE } from "@/lib/uuid";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Generates a random 8-char code using unambiguous characters (no 0/O/1/I). */
 function generateCode(len = 8): string {

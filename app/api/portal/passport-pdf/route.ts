@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate, roleByUserId } from "@/lib/admin-auth";
 import { dlTokenUserId } from "@/lib/dlToken";
+import { UUID_RE } from "@/lib/uuid";
 import {
   generatePassportPdf,
   getDriveClient,
@@ -13,7 +14,6 @@ import {
 import { PassThrough } from "stream";
 import { r2Configured, r2Put, candidateKey } from "@/lib/r2";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // ── GET — download passport PDF ───────────────────────────────────────────────
 export async function GET(req: NextRequest) {

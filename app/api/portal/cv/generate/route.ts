@@ -9,6 +9,7 @@ import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-au
 import { getServiceSupabase } from "@/lib/supabase";
 import { registerPdfFonts } from "@/lib/pdf-fonts";
 import { sanitizeCvData } from "@/lib/cvSanitize";
+import { UUID_RE } from "@/lib/uuid";
 
 registerPdfFonts();
 
@@ -150,7 +151,6 @@ export async function POST(req: NextRequest) {
   // When an admin edits a candidate's CV (?candidateId=…), the rendered CV
   // must be the CANDIDATE's — including their org branding — not the admin's.
   // Gate it: only an admin/sub-admin allowed to act on that candidate.
-  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const qCand = req.nextUrl.searchParams.get("candidateId");
   let targetUserId = auth.userId;
   let byAdmin = false; // true only when an admin/sub-admin renders on behalf of a candidate

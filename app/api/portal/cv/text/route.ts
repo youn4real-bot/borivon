@@ -17,8 +17,8 @@ import { enforceRateLimit } from "@/lib/rateLimit";
 import { cvDraftToText } from "@/lib/cvText";
 import { sanitizeCvData } from "@/lib/cvSanitize";
 import type { CVData } from "@/components/CVDocument";
+import { UUID_RE } from "@/lib/uuid";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function GET(req: NextRequest) {
   const auth = await requireUser(req);

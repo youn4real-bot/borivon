@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { requireAdminRole } from "@/lib/admin-auth";
+import { UUID_RE } from "@/lib/uuid";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VALID_PHASES = ["bearbeitung", "visum"] as const;
 const VALID_TYPES  = ["simple", "dual"] as const;
 

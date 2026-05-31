@@ -3,8 +3,8 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
 import { canAccessPost } from "@/lib/feedAccess";
 import { enforceRateLimit } from "@/lib/rateLimit";
+import { UUID_RE } from "@/lib/uuid";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * POST /api/portal/feed/[id]/like

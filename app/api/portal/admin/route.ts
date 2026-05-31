@@ -6,6 +6,7 @@ import { DOC_STATUSES, ALLOWED_PROFILE_FIELDS } from "@/lib/constants";
 import { sendDocApprovedEmail, sendDocRejectedEmail } from "@/lib/email";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 import { cvFieldsFromProfile, PASSPORT_DERIVED_COLUMNS, type ProfileLike } from "@/lib/personalData";
+import { UUID_RE } from "@/lib/uuid";
 
 // GET — fetch candidates + their docs (filtered for sub-admins)
 // Optional ?userId=X — return only docs for that candidate (used by targeted
@@ -16,9 +17,8 @@ export async function GET(req: NextRequest) {
   const { role, email: token } = auth;
 
   const targetUserId = req.nextUrl.searchParams.get("userId") ?? null;
-  const UUID_RE_ADMIN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   // Validate to prevent injection via the query param.
-  const filteredUserId = targetUserId && UUID_RE_ADMIN.test(targetUserId) ? targetUserId : null;
+  const filteredUserId = targetUserId && UUID_RE.test(targetUserId) ? targetUserId : null;
 
   const db = getServiceSupabase();
 

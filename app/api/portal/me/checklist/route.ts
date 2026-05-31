@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
+import { UUID_RE } from "@/lib/uuid";
 
 /**
  * Personal manual checklist for the LOGGED-IN user (a candidate's own private
@@ -17,7 +18,6 @@ import { requireUser } from "@/lib/admin-auth";
  * journey, /api/portal/journey) — this route is only the candidate's own list.
  */
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_TEXT = 500;
 const SELECT = "id, scope, text, done, position, created_by, created_at";
 

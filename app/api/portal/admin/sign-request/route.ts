@@ -5,6 +5,7 @@ import { requireAdminRole, canActOnCandidate, roleByUserId } from "@/lib/admin-a
 import { dlTokenUserId } from "@/lib/dlToken";
 import { PDFDocument } from "pdf-lib";
 import { r2GetObject } from "@/lib/r2";
+import { UUID_RE } from "@/lib/uuid";
 
 function getDriveClient() {
   const auth = new google.auth.GoogleAuth({
@@ -85,7 +86,6 @@ export async function GET(req: NextRequest) {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const candidateId = req.nextUrl.searchParams.get("candidateId");
-  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (!candidateId || !UUID_RE.test(candidateId)) return NextResponse.json({ error: "Invalid candidateId" }, { status: 400 });
 
   if (!(await canActOnCandidate(auth.role, auth.email, candidateId))) {

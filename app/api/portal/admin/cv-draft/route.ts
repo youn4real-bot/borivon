@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { backfillPassportFromCvDraft } from "@/lib/cvDraftBackfill";
+import { UUID_RE } from "@/lib/uuid";
 
 const MAX_DRAFT_BYTES = 500_000;
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function GET(req: NextRequest) {
   const auth = await requireAdminRole(req);

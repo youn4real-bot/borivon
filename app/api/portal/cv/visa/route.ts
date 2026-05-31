@@ -23,10 +23,10 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { registerPdfFonts } from "@/lib/pdf-fonts";
 import { enforceRateLimit } from "@/lib/rateLimit";
 import { sanitizeCvData } from "@/lib/cvSanitize";
+import { UUID_RE } from "@/lib/uuid";
 
 registerPdfFonts();
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function GET(req: NextRequest) {
   const auth = await requireUser(req);

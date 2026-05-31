@@ -3,6 +3,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { enforceRateLimit } from "@/lib/rateLimit";
 import { sanitizeLetterHtml } from "@/lib/sanitizeHtml";
+import { UUID_RE } from "@/lib/uuid";
 
 /**
  * Cover-letter body read + write.
@@ -23,7 +24,6 @@ import { sanitizeLetterHtml } from "@/lib/sanitizeHtml";
  * 503s with a clear message — won't 500 the whole letter page.
  */
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // 6 KB caps the worst-case innerHTML for the editor (MAX_WORDS=320 +
 // minimal HTML wrapping). Guards against a buggy/abusive client.
 const MAX_BODY_BYTES = 6_000;

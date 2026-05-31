@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { PassThrough } from "stream";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole } from "@/lib/admin-auth";
+import { UUID_RE } from "@/lib/uuid";
 import {
   getDriveClient,
   getOrCreateFolder,
@@ -10,7 +11,6 @@ import {
 } from "@/lib/passport-pdf";
 import { r2Configured, r2Put, candidateKey } from "@/lib/r2";
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_BYTES = 10 * 1024 * 1024;
 
 /**

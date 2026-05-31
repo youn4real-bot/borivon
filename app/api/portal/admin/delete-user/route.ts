@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { requireAdminRole } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { google } from "googleapis";
+import { UUID_RE } from "@/lib/uuid";
 
 const ROOT_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID ?? "";
 
@@ -37,7 +38,6 @@ async function getOrCreateDeletedDataFolder(
 }
 
 // RFC-4122 UUID v4 pattern — Supabase auth IDs are always this format.
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function POST(req: NextRequest) {
   const auth = await requireAdminRole(req);

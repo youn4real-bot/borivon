@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/admin-auth";
 import { enforceRateLimit } from "@/lib/rateLimit";
 import { validateImageDataUrl } from "@/lib/validateDataUrl";
 import { PDFDocument } from "pdf-lib";
+import { UUID_RE } from "@/lib/uuid";
 
 const BUCKET = "sign-documents";
 
@@ -17,7 +18,6 @@ const BUCKET = "sign-documents";
  * 4. Uploads the signed PDF back to Supabase Storage
  * 5. Updates sign_requests: status=signed, signed_pdf_path, signed_at
  */
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function POST(
   req: NextRequest,
