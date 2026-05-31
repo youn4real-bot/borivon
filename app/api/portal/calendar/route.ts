@@ -72,8 +72,11 @@ export async function GET(req: NextRequest) {
     .limit(1000);
 
   if (error) {
+    // Degrade gracefully (200, empty list) but STILL return canManage — so the
+    // admin's "+ Add event" button never disappears just because the events
+    // query hiccuped. A hard 500 here used to hide the admin controls entirely.
     console.error("[portal/calendar] list error:", error.message);
-    return NextResponse.json({ error: "Internal error", events: [] }, { status: 500 });
+    return NextResponse.json({ events: [], premium, canManage }, { status: 200 });
   }
 
   const events = ((data ?? []) as EventRow[]).map((e) => {

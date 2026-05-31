@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { cachedRole } from "@/lib/myRole";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
 import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
@@ -145,7 +146,8 @@ export default function CalendarPage() {
     if (res.status === 401) { router.replace("/portal"); return; }
     const j = await res.json().catch(() => ({ events: [] }));
     setEvents((j.events ?? []) as Ev[]);
-    setCanManage(!!j.canManage);
+    // Never let a server hiccup turn OFF the admin "+" — OR it with the cache-seeded value.
+    setCanManage((prev) => prev || !!j.canManage);
   }, [authedFetch, router]);
 
   // Bootstrap
@@ -154,6 +156,9 @@ export default function CalendarPage() {
     (async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) { router.replace("/portal"); return; }
+      // Show the admin "+ Add event" button INSTANTLY from the cached role —
+      // independent of the calendar fetch — so the supreme admin always gets it.
+      if (cachedRole(session.user.id) === "admin") setCanManage(true);
       await load();
       if (!cancelled) setLoading(false);
     })();
