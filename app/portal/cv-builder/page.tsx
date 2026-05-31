@@ -150,26 +150,6 @@ const NURSING_DUTIES: { fr: string; en: string; de: string }[] = [
   { fr: "Gestion du matériel de soins",          en: "Managing care supplies",             de: "Verwaltung von Pflege- und Verbrauchsmaterial" },
 ];
 
-// Nursing/care JOB TITLES — fr/en shown in the UI, de = printed on the CV.
-const NURSING_TITLES: { fr: string; en: string; de: string }[] = [
-  { fr: "Infirmier(ère) diplômé(e) d'État",      en: "Registered nurse",                   de: "Gesundheits- und Krankenpfleger/in" },
-  { fr: "Personnel soignant qualifié",           en: "Qualified nursing professional",     de: "Pflegefachkraft" },
-  { fr: "Infirmier(ère)",                        en: "Nurse",                              de: "Krankenschwester / Krankenpfleger" },
-  { fr: "Aide-soignant(e) en gériatrie",         en: "Geriatric nurse",                    de: "Altenpfleger/in" },
-  { fr: "Aide-soignant(e)",                      en: "Nursing assistant",                  de: "Pflegehelfer/in" },
-  { fr: "Assistant(e) en soins",                 en: "Care assistant",                     de: "Pflegeassistent/in" },
-  { fr: "Assistant(e) de bloc opératoire",       en: "Surgical technician (OTA)",          de: "Operationstechnische/r Assistent/in (OTA)" },
-  { fr: "Assistant(e) en anesthésie",            en: "Anesthesia technician (ATA)",        de: "Anästhesietechnische/r Assistent/in (ATA)" },
-  { fr: "Sage-femme",                            en: "Midwife",                            de: "Hebamme / Entbindungspfleger" },
-  { fr: "Assistant(e) médical(e)",               en: "Medical assistant (MFA)",            de: "Medizinische/r Fachangestellte/r (MFA)" },
-  { fr: "Stagiaire en soins infirmiers",         en: "Nursing intern",                     de: "Pflegepraktikant/in" },
-  { fr: "Infirmier(ère) en soins intensifs",     en: "ICU nurse",                          de: "Intensivpfleger/in" },
-  { fr: "Infirmier(ère) pédiatrique",            en: "Pediatric nurse",                    de: "Kinderkrankenpfleger/in" },
-  { fr: "Infirmier(ère) de bloc opératoire",     en: "Operating-room nurse",               de: "OP-Pfleger/in" },
-  { fr: "Ambulancier(ère) / secouriste",         en: "Paramedic",                          de: "Notfallsanitäter/in" },
-  { fr: "Tuteur(trice) de stage",                en: "Practice instructor",                de: "Praxisanleiter/in" },
-];
-
 /** Realistic EDV-Kenntnisse for a German nursing CV. The DE term is what
    gets saved + printed on the CV; FR/EN are display-only equivalents. */
 const EDV_DEFAULTS: { de: string; fr: string; en: string }[] = [
@@ -1303,46 +1283,6 @@ function TaetigkeitenField({ value, onChange }: { value: string[]; onChange: (v:
         label={otherLabel}
         placeholder={lang === "de" ? "Tätigkeit…" : lang === "en" ? "Activity…" : "Tâche…"}
         onAdd={addCustom}
-      />
-    </div>
-  );
-}
-
-/** Berufsbezeichnung (job title) — SINGLE-select German pick-list. Stores the
- *  German term (de) into the work entry's title; fr/en display-only. "+ eigene"
- *  lets the candidate type a title not in the list (stays as typed). */
-function TitleField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const { lang } = useLang();
-  const isPreset = NURSING_TITLES.some(t => t.de === value);
-  const otherLabel = lang === "de" ? "Andere…" : lang === "en" ? "Other…" : "Autre…";
-  return (
-    <div className="flex flex-wrap gap-2">
-      {NURSING_TITLES.map(t => {
-        const selected = value === t.de;
-        const label = t[lang as "fr" | "en" | "de"] ?? t.de;
-        return (
-          <button key={t.de} type="button" onClick={() => onChange(selected ? "" : t.de)}
-            className="text-[13px] px-4 py-2 rounded-full transition-all"
-            style={{ background: selected ? "var(--gdim)" : "var(--bg2)", color: selected ? "var(--gold)" : "var(--w2)", border: "none", fontWeight: selected ? 600 : 400 }}>
-            {label}
-          </button>
-        );
-      })}
-      {value && !isPreset && (
-        <span className="inline-flex items-center gap-1.5 text-[13px] px-4 py-2 rounded-full font-semibold"
-          style={{ background: "var(--gdim)", color: "var(--gold)" }}>
-          {value}
-          <button onClick={() => onChange("")} aria-label="Remove"
-            className="inline-flex items-center justify-center w-4 h-4 rounded-full transition-opacity hover:opacity-70"
-            style={{ background: "transparent", border: "none", color: "var(--gold)", cursor: "pointer" }}>
-            <XIcon size={10} strokeWidth={2} />
-          </button>
-        </span>
-      )}
-      <OtherChipInput
-        label={otherLabel}
-        placeholder={lang === "de" ? "Berufsbezeichnung…" : lang === "en" ? "Job title…" : "Intitulé du poste…"}
-        onAdd={v => onChange(v)}
       />
     </div>
   );
@@ -4042,7 +3982,11 @@ function CVBuilderInner() {
                           <Lock size={13} strokeWidth={1.8} style={{ color: "var(--w3)", flexShrink: 0 }} />
                         </div>
                       ) : (
-                        <TitleField value={entry.title} onChange={v => updateWork(entry.id, { title: v })} />
+                        // Stelle 2+ : a candidate's PRIOR jobs are often OUTSIDE nursing, so
+                        // the nursing-title pick-list doesn't fit. An empty free-text box lets
+                        // them type any job title. (The pick-list stays only on Position 1 —
+                        // the mandatory nursing internship, idx === 0.)
+                        <Input value={entry.title} onChange={v => updateWork(entry.id, { title: v })} />
                       )}
                     </div>
                     {/* Establishment full width */}
@@ -4139,6 +4083,7 @@ function CVBuilderInner() {
                       onPresentToggle={() => updateWork(entry.id, { end: entry.end ? null : { month: "", year: "" } })} lang={lang} required hasError={validationErrors.has(`work_${entry.id}_end`)} />
                     <div className="sm:col-span-2">
                       <Label required={jobNum === 1}>{t.cvb_deptLabel}</Label>
+                      {idx === 0 ? (
                       <div className="flex flex-wrap gap-2 mt-2 rounded-xl p-1" style={validationErrors.has(`work_${entry.id}_departments`) ? { outline: "1px solid var(--danger)", outlineOffset: "2px" } : {}}>
                         {NURSING_DEPTS.map(dept => {
                           const selected = entry.departments.includes(dept.de);
@@ -4181,6 +4126,16 @@ function CVBuilderInner() {
                           }}
                         />
                       </div>
+                      ) : (
+                        /* Stelle 2+ — prior jobs are often non-nursing, so the nursing
+                           department pick-list doesn't fit. A free-text box lets the
+                           candidate type any department/team (optional — Abteilung is
+                           only mandatory on Position 1). */
+                        <Input
+                          value={entry.departments.join(", ")}
+                          onChange={v => updateWork(entry.id, { departments: v.trim() ? [v] : [] })}
+                        />
+                      )}
                     </div>
 
                     {/* Tätigkeiten — bullet list with visible "•" prefix
@@ -4189,27 +4144,115 @@ function CVBuilderInner() {
                         agreement 2026-05). Default 3 rows always
                         visible; a "+" button adds extras, the "✕" lets
                         you remove any beyond the 3rd. */}
-                    {(() => {
-                      const stored = entry.taetigkeiten ?? [];
-                      const hasErr = validationErrors.has(`work_${entry.id}_taetigkeiten`);
-                      return (
-                        <div className="sm:col-span-2"
-                          style={hasErr ? { outline: "1px solid var(--danger)", outlineOffset: "2px", borderRadius: "14px", padding: "4px" } : {}}>
-                          <Label required>
-                            {lang === "de" ? "Tätigkeiten" : lang === "en" ? "Activities" : "Tâches"}
-                            <span className="ml-1 text-[11px] font-normal" style={{ color: "var(--w3)" }}>
-                              {lang === "de" ? "(mindestens 3 auswählen)"
-                                : lang === "en" ? "(select at least 3)"
-                                : "(en sélectionner au moins 3)"}
-                            </span>
-                          </Label>
-                          <TaetigkeitenField
-                            value={stored}
-                            onChange={v => updateWork(entry.id, { taetigkeiten: v })}
-                          />
-                        </div>
-                      );
-                    })()}
+                    {idx === 0 ? (
+                      /* Position 1 (nursing internship) — curated German Tätigkeiten pick-list. */
+                      (() => {
+                        const stored = entry.taetigkeiten ?? [];
+                        const hasErr = validationErrors.has(`work_${entry.id}_taetigkeiten`);
+                        return (
+                          <div className="sm:col-span-2"
+                            style={hasErr ? { outline: "1px solid var(--danger)", outlineOffset: "2px", borderRadius: "14px", padding: "4px" } : {}}>
+                            <Label required>
+                              {lang === "de" ? "Tätigkeiten" : lang === "en" ? "Activities" : "Tâches"}
+                              <span className="ml-1 text-[11px] font-normal" style={{ color: "var(--w3)" }}>
+                                {lang === "de" ? "(mindestens 3 auswählen)"
+                                  : lang === "en" ? "(select at least 3)"
+                                  : "(en sélectionner au moins 3)"}
+                              </span>
+                            </Label>
+                            <TaetigkeitenField
+                              value={stored}
+                              onChange={v => updateWork(entry.id, { taetigkeiten: v })}
+                            />
+                          </div>
+                        );
+                      })()
+                    ) : (
+                      /* Stelle 2+ — prior jobs are often non-nursing, so free-text bullets
+                         (not the nursing pick-list). Same rule: at least 3 non-empty bullets.
+                         Generic placeholders so any field fits. */
+                      (() => {
+                        const stored = entry.taetigkeiten ?? [];
+                        // Pad to a minimum of 3 visible rows.
+                        const rows = stored.length >= 3
+                          ? stored
+                          : [...stored, ...Array(3 - stored.length).fill("")];
+                        const updateBullet = (i: number, val: string) => {
+                          const next = [...rows];
+                          next[i] = val;
+                          updateWork(entry.id, { taetigkeiten: next });
+                        };
+                        const addBullet = () => updateWork(entry.id, { taetigkeiten: [...rows, ""] });
+                        const removeBullet = (i: number) => {
+                          updateWork(entry.id, { taetigkeiten: rows.filter((_, j) => j !== i) });
+                        };
+                        const hasErr = validationErrors.has(`work_${entry.id}_taetigkeiten`);
+                        const phs = lang === "de" ? [
+                          "z. B. Wichtigste Aufgabe in dieser Position",
+                          "z. B. Eine Verantwortung, die du hattest",
+                          "z. B. Zusammenarbeit im Team",
+                          "z. B. Weitere Tätigkeit",
+                        ] : lang === "en" ? [
+                          "e.g. Main task in this role",
+                          "e.g. A responsibility you had",
+                          "e.g. Teamwork / collaboration",
+                          "e.g. Another activity",
+                        ] : [
+                          "ex. Tâche principale dans ce poste",
+                          "ex. Une responsabilité que tu avais",
+                          "ex. Travail en équipe",
+                          "ex. Autre tâche",
+                        ];
+                        const addAnother = lang === "de" ? "+ Weitere Tätigkeit"
+                          : lang === "en" ? "+ Add another"
+                          : "+ Ajouter une autre";
+                        return (
+                          <div className="sm:col-span-2"
+                            style={hasErr ? { outline: "1px solid var(--danger)", outlineOffset: "2px", borderRadius: "14px", padding: "4px" } : {}}>
+                            <Label required>
+                              {lang === "de" ? "Tätigkeiten" : lang === "en" ? "Activities" : "Tâches"}
+                              <span className="ml-1 text-[11px] font-normal" style={{ color: "var(--w3)" }}>
+                                {lang === "de" ? "(mindestens 3 Stichpunkte)"
+                                  : lang === "en" ? "(at least 3 bullets)"
+                                  : "(au moins 3 puces)"}
+                              </span>
+                            </Label>
+                            <div className="space-y-2">
+                              {rows.map((b, i) => (
+                                <div key={i} className="flex items-center gap-2">
+                                  <span aria-hidden="true"
+                                    style={{ color: "var(--gold)", fontSize: 22, lineHeight: 1, width: 14, textAlign: "center", flexShrink: 0, userSelect: "none" }}>
+                                    •
+                                  </span>
+                                  <input
+                                    type="text"
+                                    value={b}
+                                    onChange={e => updateBullet(i, e.target.value)}
+                                    placeholder={phs[i] ?? phs[phs.length - 1]}
+                                    className="flex-1 min-w-0 px-3.5 py-3 text-[14px] outline-none"
+                                    style={{ background: "var(--bg2)", border: "none", color: "var(--w)", borderRadius: "10px" }}
+                                  />
+                                  {rows.length > 3 && (
+                                    <button type="button"
+                                      onClick={() => removeBullet(i)}
+                                      aria-label={t.cvb_remove}
+                                      className="inline-flex items-center justify-center w-7 h-7 rounded-full transition-opacity hover:opacity-70 flex-shrink-0"
+                                      style={{ background: "var(--bg2)", color: "var(--w3)", border: "none", cursor: "pointer" }}>
+                                      <XIcon size={12} strokeWidth={2} />
+                                    </button>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                            <button type="button" onClick={addBullet}
+                              className="mt-2 inline-flex items-center gap-1 text-[12px] font-semibold transition-opacity hover:opacity-80"
+                              style={{ background: "transparent", border: "none", color: "var(--gold)", cursor: "pointer" }}>
+                              {addAnother}
+                            </button>
+                          </div>
+                        );
+                      })()
+                    )}
                   </div>
                 )}
               </div>
