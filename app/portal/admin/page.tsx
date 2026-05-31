@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { cachedRole } from "@/lib/myRole";
 import { translations } from "@/lib/translations";
 import { useLang } from "@/components/LangContext";
 import { AdminDocPreviewModal } from "@/components/AdminDocPreviewModal";
@@ -1181,6 +1182,15 @@ export default function AdminPage() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) { router.replace("/portal"); return; }
       if (cancelled) return;
+
+      // FLASH FIX (reverse direction): if the cached role says this user is
+      // definitively NOT a Borivon admin, leave /portal/admin INSTANTLY —
+      // before the /me/role round-trip — so a candidate / org user can never
+      // see the admin shell flash. The admin-endpoint 401/403 guard below is
+      // still authoritative for the no-cache first load.
+      const cr = cachedRole(session.user.id);
+      if (cr === "candidate")   { router.replace("/portal/dashboard"); return; }
+      if (cr === "org_member")  { router.replace("/portal/org/dashboard"); return; }
 
       // Guarantee a FRESH access token before any auth-gated fetch. On a cold
       // refresh, getSession() can return an EXPIRED token (auto-refresh hasn't

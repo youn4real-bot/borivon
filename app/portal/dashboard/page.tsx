@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 
 import { LABEL_TO_FILE_KEY, FILE_KEY_ALL_LABELS, translateDocLabel } from "@/lib/fileKeys";
 import { supabase } from "@/lib/supabase";
+import { cachedRole } from "@/lib/myRole";
 import { useLang } from "@/components/LangContext";
 import { DOC_EXAMPLES } from "@/lib/docExamples";
 import { MAPS_URL, DEMANDE_EXAMPLE_URL } from "@/lib/workLicenseGuide";
@@ -1029,6 +1030,16 @@ export default function DashboardPage() {
       const { data: { session } } = result as Awaited<ReturnType<typeof supabase.auth.getSession>>;
       const user = session?.user;
       if (!user) { setLoading(false); router.replace("/portal"); return; }
+
+      // FLASH FIX: redirect off the candidate dashboard INSTANTLY using the
+      // cached role (written on every prior load), before the refreshSession +
+      // /me/role round-trips below. An admin / org user therefore never sees
+      // (or waits through) the candidate dashboard on a refresh. `loading`
+      // stays true → only the PageLoader shows until we navigate. The network
+      // role check below remains authoritative for the first-ever load.
+      const cachedR = cachedRole(user.id);
+      if (cachedR === "admin" || cachedR === "sub_admin") { router.replace("/portal/admin"); return; }
+      if (cachedR === "org_member") { router.replace("/portal/org/dashboard"); return; }
 
       // ── 2. Role check + invite self-heal + redirect ─────────────────────
       // This is the FINAL safety net for sub-admin / org onboarding. No

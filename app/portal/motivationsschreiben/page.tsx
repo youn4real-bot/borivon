@@ -459,6 +459,12 @@ function MotivationsschreibenPageInner() {
   // dropped → "I typed, refreshed, gone". A post-mount effect drains
   // this ref into the editor once it's in the DOM.
   const pendingBodyRef = useRef<string | null>(null);
+  // Signature of the body last CONFIRMED-saved to the server. The unmount /
+  // tab-hide flush compares against THIS — not the collab-broadcast sig — so
+  // edits that were broadcast but not yet server-saved still get flushed when
+  // you navigate away (e.g. to fix passport data). That gap was the
+  // "letter vanished after I edited the passport and came back" bug.
+  const lastSavedSig = useRef("");
 
   const draftKey = useCallback((uid: string) => `bv_letter_body_${uid}${visa ? "_visa" : ""}`, [visa]);
 
@@ -710,6 +716,7 @@ function MotivationsschreibenPageInner() {
     el.innerHTML = sanitizeLetterHtml(pendingBodyRef.current); // XSS: body may be admin-rendered (LAW #37)
     lastGoodHTML.current = el.innerHTML;
     lastBroadcastSig.current = el.innerHTML;
+    lastSavedSig.current = el.innerHTML; // loaded body == what the server already has
     setWordCount(countWords(el.textContent ?? ""));
     pendingBodyRef.current = null;
   }, [loading]);
@@ -985,6 +992,7 @@ function MotivationsschreibenPageInner() {
       if (r.ok) {
         setSavedAt(new Date());
         setSaveError(false);
+        lastSavedSig.current = html; // remember what's now safely on the server
       } else {
         // SURFACE the failure — a silent swallow here is exactly why
         // "I typed and it was gone" happened: a 503 (cover_letter_body
@@ -1031,7 +1039,11 @@ function MotivationsschreibenPageInner() {
       const html = el.innerHTML;
       const t = adminCandidateId ?? userId;
       if (t) { try { localStorage.setItem(draftKey(t), html); } catch { /* quota */ } }
-      if (html !== lastBroadcastSig.current || saveError) {
+      // Flush whenever the editor differs from what's CONFIRMED on the server
+      // (or a prior save errored). Comparing against the saved sig — not the
+      // broadcast sig — guarantees the server gets the final text before the
+      // page unmounts (navigate to passport / refresh / close).
+      if (html !== lastSavedSig.current || saveError) {
         if (saveTimer.current) clearTimeout(saveTimer.current);
         void putLetterBody(html, true);
       }
