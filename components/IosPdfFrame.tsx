@@ -32,7 +32,7 @@ import { useRef, type CSSProperties } from "react";
  */
 const TOOLBAR = "#3c3c3c";
 const BAR_H = 50;
-const LEFT_W = 440; // px width of the left mask over the hamburger (☰) + filename, anchored at the left edge. Tuned to stop before the "1 / 10" page number so it never reaches the page-nav / zoom controls. Set 0 to disable.
+const LEFT_W = 230; // px width of the left mask over the hamburger (☰) + filename ONLY, anchored at the left edge. Kept narrow so the "1 / 10" page number AND the zoom (− 100% +) stay visible. Set 0 to disable.
 const RIGHT_MASKS: { key: string; right: number; width: number }[] = [
   { key: "more", right: 6, width: 44 }, // ⋮ overflow menu
   { key: "print", right: 50, width: 44 }, // print
