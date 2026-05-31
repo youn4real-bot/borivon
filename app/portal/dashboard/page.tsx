@@ -168,6 +168,9 @@ export default function DashboardPage() {
   type PhaseSlot = { id: string; phase: string; type: "simple" | "dual"; label: string; label_trans: string | null; position: number; action_type: string | null; instructions: string | null; template_pdf_path: string | null; form_fields: import("@/lib/pdfFieldEmbed").FormField[] | null; candidate_signature_zone: import("@/components/PdfZonePicker").SigZone | null; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean; pdf_has_native_fields: boolean; category_id: string | null };
   const [dynamicSlots, setDynamicSlots] = useState<{ bea: PhaseSlot[]; vis: PhaseSlot[] }>({ bea: [], vis: [] });
   const [dynamicSlotsLoaded, setDynamicSlotsLoaded] = useState(false);
+  // Shared Visum doc order (set by the admin's drag → phase_doc_order) so the
+  // candidate sees the SAME arrangement. Empty → default layout.
+  const [visumDocOrder, setVisumDocOrder] = useState<string[]>([]);
   // Admin-defined slot CATEGORIES (LAW #34). Candidates only READ them — fold
   // / unfold is a local view toggle (not persisted); admins own create/order.
   // Empty → every slot renders flat (identical to the pre-categories layout).
@@ -176,6 +179,25 @@ export default function DashboardPage() {
   const [foldedCats, setFoldedCats] = useState<Set<string>>(new Set());
   const toggleFoldCat = (id: string) =>
     setFoldedCats(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
+  // Apply the admin's saved Visum doc order so the candidate sees the SAME
+  // order. cv_visa + letter_visa stay pinned at the top (generated CV + cover
+  // letter); everything else follows phase_doc_order, with any doc not in it
+  // keeping its default position. Empty order → untouched default layout.
+  const orderVisumItems = <T extends { key: string }>(arr: T[]): T[] => {
+    if (!visumDocOrder.length) return arr;
+    const PIN = ["cv_visa", "letter_visa"];
+    const rank = (key: string) => {
+      const p = PIN.indexOf(key);
+      if (p !== -1) return -1000 + p;
+      const i = visumDocOrder.indexOf(key);
+      return i === -1 ? 100000 : i;
+    };
+    return arr
+      .map((it, i) => ({ it, i }))
+      .sort((a, b) => (rank(a.it.key) - rank(b.it.key)) || (a.i - b.i))
+      .map(x => x.it);
+  };
 
   type PhItem = { key: string; label: string; hint: string; optional?: boolean; transKey?: string; transHint?: string; };
   const PHASES: { title: string; shortTitle: string; desc: string; kind: PhaseKind; isTranslations: boolean; items: PhItem[] }[] = [
@@ -237,7 +259,7 @@ export default function DashboardPage() {
       desc: "",
       kind: "embassy" as PhaseKind,
       isTranslations: false,
-      items: [
+      items: orderVisumItems([
       // PERMANENT box #1 — Visa CV: the SAME CV as Essentials, auto-generated
       // with no logo/footer (fileKey cv_visa). Builder-backed (made in the CV
       // builder alongside the Essentials CV), so the two always match.
@@ -276,7 +298,7 @@ export default function DashboardPage() {
         candidate_signs: SIGN_FILL_ENABLED ? (s.candidate_signs ?? false) : false,
         candidate_fills: SIGN_FILL_ENABLED ? (s.candidate_fills ?? false) : false,
       })),
-      ],
+      ]),
     },
   ];
   // Only the first two phases (Essentielles + Qualifikation) show in the top sidebar rail.
@@ -1233,6 +1255,11 @@ export default function DashboardPage() {
       const beaJ = beaRes.ok ? await beaRes.json() : { slots: [] };
       const visJ = visRes.ok ? await visRes.json() : { slots: [] };
       setDynamicSlots({ bea: beaJ.slots ?? [], vis: visJ.slots ?? [] });
+      // Shared Visum doc order set by the admin's drag (phase_doc_order).
+      try {
+        const ordRes = await fetch("/api/portal/phase-doc-order", { headers: { Authorization: `Bearer ${token}` } });
+        if (ordRes.ok) { const oj = await ordRes.json(); if (oj?.orders && Array.isArray(oj.orders.visum)) setVisumDocOrder(oj.orders.visum as string[]); }
+      } catch { /* default order */ }
       const beaCatJ = beaCatRes?.ok ? await beaCatRes.json() : { categories: [] };
       const visCatJ = visCatRes?.ok ? await visCatRes.json() : { categories: [] };
       setSlotCats({ bea: beaCatJ.categories ?? [], vis: visCatJ.categories ?? [] });
