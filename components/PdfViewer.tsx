@@ -62,6 +62,7 @@ export function PdfViewer({
   onPagesLoaded,
   hideRotate,
   initialRotation,
+  onError,
 }: {
   src: string;
   /** documents row id — keys the in-session rotation cache (rotationStore). */
@@ -83,6 +84,9 @@ export function PdfViewer({
    * intrinsic rotation → leave this undefined.
    */
   initialRotation?: number;
+  /** Fired if the PDF fails to LOAD (fetch/parse). Lets a mobile wrapper fall
+   *  back to the native frame so the document is still viewable. */
+  onError?: () => void;
 }) {
   const containerRef  = useRef<HTMLDivElement>(null);
   const pagesWrapRef  = useRef<HTMLDivElement>(null);
@@ -194,7 +198,7 @@ export function PdfViewer({
           onPagesLoaded?.(doc.numPages);
         })
         .catch(() => {
-          if (!cancelled) { setError(true); setLoading(false); }
+          if (!cancelled) { setError(true); setLoading(false); onError?.(); }
         });
     });
 

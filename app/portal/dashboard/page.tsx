@@ -18,7 +18,7 @@ import {
   Stethoscope, Languages, FileText,
 } from "@/components/PortalIcons";
 import { X as XIcon, Download, Upload, RefreshCw, Info, ChevronDown } from "lucide-react";
-import { IosPdfFrame } from "@/components/IosPdfFrame";
+import { MobilePdfViewer } from "@/components/MobilePdfViewer";
 import { EmbedPdfViewer } from "@/components/EmbedPdfViewer";
 import { isIOSDevice } from "@/lib/platform";
 import { triggerIosDownload } from "@/lib/iosDownload";
@@ -2235,8 +2235,9 @@ export default function DashboardPage() {
                 }
                 return (
                   <div style={{ position: "absolute", inset: 0 }}>
-                    <IosPdfFrame
+                    <MobilePdfViewer
                       src={withDlt(`/api/portal/file?docId=${encodeURIComponent(previewDoc.id)}`, dlt)}
+                      docId={previewDoc.id}
                       title={previewDoc.file_name}
                       initialRotation={_docRotation}
                       onRotate={() => {
@@ -3608,9 +3609,11 @@ export default function DashboardPage() {
                       && !!previewDoc?.drive_file_id && !!authToken && !!dlt;
                     if (_nativePP) {
                       return (
-                        <IosPdfFrame
+                        <MobilePdfViewer
                           src={withDlt(`/api/portal/file?docId=${encodeURIComponent(previewDoc!.id)}`, dlt!)}
+                          docId={previewDoc!.id}
                           title={previewDoc!.file_name}
+                          initialRotation={(previewDoc as { rotation?: number | null }).rotation ?? 0}
                           onRotate={() => {
                             fetch(`/api/portal/documents/${previewDoc!.id}`, {
                               method: "PATCH",
