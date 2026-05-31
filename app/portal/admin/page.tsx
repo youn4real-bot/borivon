@@ -1182,7 +1182,20 @@ export default function AdminPage() {
       if (!session?.user) { router.replace("/portal"); return; }
       if (cancelled) return;
 
-      const token = session.access_token ?? "";
+      // Guarantee a FRESH access token before any auth-gated fetch. On a cold
+      // refresh, getSession() can return an EXPIRED token (auto-refresh hasn't
+      // run yet) — /api/portal/admin then 401/403s and we'd wrongly bounce a
+      // REAL admin to /portal/dashboard: the "flash of the candidate portal,
+      // then back to my account" bug. Refresh proactively if expired / <60s left.
+      let token = session.access_token ?? "";
+      const expMs = (session.expires_at ?? 0) * 1000;
+      if (!expMs || expMs - Date.now() < 60_000) {
+        try {
+          const { data: refreshed } = await supabase.auth.refreshSession();
+          if (refreshed?.session?.access_token) token = refreshed.session.access_token;
+        } catch { /* keep token; a genuine 401 below routes to /portal login */ }
+        if (cancelled) return;
+      }
       setAccessToken(token);
       setCurrentUserId(session.user.id);
 

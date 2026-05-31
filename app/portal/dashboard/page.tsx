@@ -1037,7 +1037,20 @@ export default function DashboardPage() {
       // holding an invite code, we redeem it RIGHT HERE and route them to
       // the correct portal. A sub-admin can never get stuck on the
       // candidate dashboard again.
-      const jwt = session?.access_token ?? "";
+      // Guarantee a FRESH access token before the role check. On a cold refresh
+      // getSession() can return an EXPIRED token (auto-refresh hasn't run yet);
+      // /api/portal/me/role then 401s, role reads as null, and an ADMIN wrongly
+      // STAYS on the candidate dashboard instead of bouncing to /portal/admin.
+      // Refresh proactively if expired / <60s left.
+      let jwt = session?.access_token ?? "";
+      const expMs = (session?.expires_at ?? 0) * 1000;
+      if (!expMs || expMs - Date.now() < 60_000) {
+        try {
+          const { data: refreshed } = await supabase.auth.refreshSession();
+          if (refreshed?.session?.access_token) jwt = refreshed.session.access_token;
+        } catch { /* keep token; the no-session guards below handle a dead session */ }
+        if (cancelled) return;
+      }
       const getRole = async (): Promise<string | null> => {
         try {
           const res = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${jwt}` } });
@@ -1070,7 +1083,7 @@ export default function DashboardPage() {
       if (cancelled) return;
 
       // ── 3. User identity (synchronous setters) ──────────────────────────
-      const token = session?.access_token ?? "";
+      const token = jwt; // reuse the freshened token from the role check above
       setUserId(user.id);
       setAuthToken(token);
       setFirstName(user.user_metadata?.first_name ?? "");
