@@ -27,7 +27,7 @@ import {
   SectionIcon, type SectionKind,
   IdCard, Sparkles, FileText, CheckCircle2, AlertTriangle, User,
 } from "@/components/PortalIcons";
-import { Upload, FilePen, Ban, Check, Plus, X as XIcon, ArrowLeft, Info, Download, Lock, Briefcase, Smartphone, Car, BookOpen, Dumbbell, Plane, Music } from "lucide-react";
+import { Upload, FilePen, Ban, Check, Plus, X as XIcon, ArrowLeft, Info, Download, Lock, Briefcase, Smartphone, Car, BookOpen, Dumbbell, Plane, Music, Utensils, Waves, Mountain, Camera, Bike, Sprout, Palette, Film, Gamepad2, Globe, HeartHandshake, PawPrint } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { PageLoader, Spinner, AutosaveIndicator } from "@/components/ui/states";
 import { CvCollabPresence } from "@/components/CvCollabPresence";
@@ -102,6 +102,15 @@ const NURSING_DEPTS: { fr: string; en: string; de: string }[] = [
   { fr: "Hématologie",                   en: "Hematology",               de: "Hämatologie" },
   { fr: "ORL",                           en: "ENT (Ear, Nose & Throat)", de: "HNO (Hals-Nasen-Ohren)" },
   { fr: "Ophtalmologie",                 en: "Ophthalmology",            de: "Augenheilkunde" },
+  { fr: "Anesthésie",                    en: "Anesthesia",               de: "Anästhesie" },
+  { fr: "Salle de réveil",               en: "Recovery Room",            de: "Aufwachraum" },
+  { fr: "Unité neuro-vasculaire (AVC)",  en: "Stroke Unit",              de: "Stroke Unit (Schlaganfalleinheit)" },
+  { fr: "Néonatologie",                  en: "Neonatology",              de: "Neonatologie" },
+  { fr: "Endoscopie",                    en: "Endoscopy",                de: "Endoskopie" },
+  { fr: "Néphrologie",                   en: "Nephrology",               de: "Nephrologie" },
+  { fr: "Rééducation / Réadaptation",    en: "Rehabilitation",           de: "Rehabilitation (Reha)" },
+  { fr: "Ambulatoire / Polyclinique",    en: "Outpatient Clinic",        de: "Ambulanz / Poliklinik" },
+  { fr: "Endocrinologie",                en: "Endocrinology",            de: "Endokrinologie" },
 ];
 
 // Common nursing/care DUTIES — fr/en shown in the UI chips, de = value stored
@@ -130,6 +139,15 @@ const NURSING_DUTIES: { fr: string; en: string; de: string }[] = [
   { fr: "Travail en rotation (3x8)",             en: "Shift work",                         de: "Arbeit im Schichtdienst" },
   { fr: "Encadrement des stagiaires",            en: "Mentoring trainees",                 de: "Anleitung von Auszubildenden" },
   { fr: "Préparation et assistance opératoire",  en: "Surgery preparation & assistance",   de: "Vorbereitung von Operationen (OP-Assistenz)" },
+  { fr: "Utilisation d'appareils médicaux",      en: "Operating medical equipment",        de: "Bedienung medizinischer Geräte" },
+  { fr: "Surveillance postopératoire",           en: "Post-operative monitoring",          de: "Postoperative Überwachung" },
+  { fr: "Gestion de la douleur",                 en: "Pain management",                    de: "Schmerzmanagement" },
+  { fr: "Prévention des escarres et des chutes", en: "Pressure-ulcer & fall prevention",   de: "Dekubitus- und Sturzprophylaxe" },
+  { fr: "Mesure de la glycémie",                 en: "Blood glucose measurement",          de: "Blutzuckermessung" },
+  { fr: "ECG / surveillance cardiaque",          en: "ECG / cardiac monitoring",           de: "EKG- und Herzüberwachung" },
+  { fr: "Admission et sortie des patients",      en: "Patient admission & discharge",      de: "Aufnahme und Entlassung von Patienten" },
+  { fr: "Accompagnement palliatif",              en: "Palliative support",                 de: "Palliative Begleitung" },
+  { fr: "Gestion du matériel de soins",          en: "Managing care supplies",             de: "Verwaltung von Pflege- und Verbrauchsmaterial" },
 ];
 
 // Nursing/care JOB TITLES — fr/en shown in the UI, de = printed on the CV.
@@ -145,6 +163,11 @@ const NURSING_TITLES: { fr: string; en: string; de: string }[] = [
   { fr: "Sage-femme",                            en: "Midwife",                            de: "Hebamme / Entbindungspfleger" },
   { fr: "Assistant(e) médical(e)",               en: "Medical assistant (MFA)",            de: "Medizinische/r Fachangestellte/r (MFA)" },
   { fr: "Stagiaire en soins infirmiers",         en: "Nursing intern",                     de: "Pflegepraktikant/in" },
+  { fr: "Infirmier(ère) en soins intensifs",     en: "ICU nurse",                          de: "Intensivpfleger/in" },
+  { fr: "Infirmier(ère) pédiatrique",            en: "Pediatric nurse",                    de: "Kinderkrankenpfleger/in" },
+  { fr: "Infirmier(ère) de bloc opératoire",     en: "Operating-room nurse",               de: "OP-Pfleger/in" },
+  { fr: "Ambulancier(ère) / secouriste",         en: "Paramedic",                          de: "Notfallsanitäter/in" },
+  { fr: "Tuteur(trice) de stage",                en: "Practice instructor",                de: "Praxisanleiter/in" },
 ];
 
 /** Realistic EDV-Kenntnisse for a German nursing CV. The DE term is what
@@ -157,6 +180,10 @@ const EDV_DEFAULTS: { de: string; fr: string; en: string }[] = [
   { de: "Krankenhausinformationssystem (KIS)",  fr: "Dossier Patient Informatisé (DPI)",    en: "Hospital Information System (HIS)" },
   { de: "ORBIS",                                fr: "ORBIS",                                en: "ORBIS" },
   { de: "SAP IS-H",                             fr: "SAP IS-H",                             en: "SAP IS-H" },
+  { de: "medico (KIS)",                         fr: "medico (SIH)",                         en: "medico (HIS)" },
+  { de: "NEXUS / KIS",                          fr: "NEXUS / SIH",                          en: "NEXUS / HIS" },
+  { de: "iMedOne",                              fr: "iMedOne",                              en: "iMedOne" },
+  { de: "Microsoft Teams",                      fr: "Microsoft Teams",                      en: "Microsoft Teams" },
 ];
 
 const LANG_LEVELS = ["Muttersprache", "C2", "C1", "B2", "B1", "A2", "A1", "Grundkenntnisse"];
@@ -1157,11 +1184,26 @@ function AbiturInfoPopup({ open, onClose }: { open: boolean; onClose: () => void
 /* Hobbies — 4 default selectable chips with minimalist line icons + a free
    text field for custom additions. Saved as a comma-separated string in
    cvData.hobbies (CV stays in German). */
-const HOBBY_DEFAULTS: { de: string; fr: string; en: string; Icon: LucideIcon }[] = [
-  { de: "Lesen",   fr: "Lecture",  en: "Reading", Icon: BookOpen },
-  { de: "Sport",   fr: "Sport",    en: "Sport",   Icon: Dumbbell },
-  { de: "Reisen",  fr: "Voyage",   en: "Travel",  Icon: Plane    },
-  { de: "Musik",   fr: "Musique",  en: "Music",   Icon: Music    },
+const HOBBY_DEFAULTS: { de: string; fr: string; en: string; Icon?: LucideIcon }[] = [
+  { de: "Lesen",                fr: "Lecture",            en: "Reading",        Icon: BookOpen },
+  { de: "Sport",                fr: "Sport",              en: "Sport",          Icon: Dumbbell },
+  { de: "Reisen",               fr: "Voyage",             en: "Travel",         Icon: Plane },
+  { de: "Musik",                fr: "Musique",            en: "Music",          Icon: Music },
+  { de: "Kochen",               fr: "Cuisine",            en: "Cooking",        Icon: Utensils },
+  { de: "Schwimmen",            fr: "Natation",           en: "Swimming",       Icon: Waves },
+  { de: "Wandern",              fr: "Randonnée",          en: "Hiking",         Icon: Mountain },
+  { de: "Fotografie",           fr: "Photographie",       en: "Photography",    Icon: Camera },
+  { de: "Radfahren",            fr: "Vélo",               en: "Cycling",        Icon: Bike },
+  { de: "Gartenarbeit",         fr: "Jardinage",          en: "Gardening",      Icon: Sprout },
+  { de: "Malen und Zeichnen",   fr: "Dessin et peinture", en: "Drawing & painting", Icon: Palette },
+  { de: "Filme und Serien",     fr: "Films et séries",    en: "Films & series", Icon: Film },
+  { de: "Videospiele",          fr: "Jeux vidéo",         en: "Video games",    Icon: Gamepad2 },
+  { de: "Sprachen lernen",      fr: "Apprendre des langues", en: "Learning languages", Icon: Globe },
+  { de: "Freiwilligenarbeit",   fr: "Bénévolat",          en: "Volunteering",   Icon: HeartHandshake },
+  { de: "Haustiere",            fr: "Animaux de compagnie", en: "Pets",         Icon: PawPrint },
+  { de: "Yoga und Meditation",  fr: "Yoga et méditation", en: "Yoga & meditation" },
+  { de: "Tanzen",               fr: "Danse",              en: "Dancing" },
+  { de: "Fußball",              fr: "Football",           en: "Football" },
 ];
 
 function HobbiesField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
@@ -1197,7 +1239,7 @@ function HobbiesField({ value, onChange }: { value: string; onChange: (v: string
               border: "none",
               fontWeight: selected ? 600 : 400,
             }}>
-            <h.Icon size={13} strokeWidth={1.7} />{label}
+            {h.Icon && <h.Icon size={13} strokeWidth={1.7} />}{label}
           </button>
         );
       })}
