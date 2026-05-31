@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
-import { enforceRateLimit } from "@/lib/rateLimit";
+import { enforceRateLimit, enforceRateLimitDistributed } from "@/lib/rateLimit";
 import { validateImageDataUrl } from "@/lib/validateDataUrl";
 import { PDFDocument } from "pdf-lib";
 import { UUID_RE } from "@/lib/uuid";
@@ -30,7 +30,7 @@ export async function POST(
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   // Rate-limit: this stamps a PDF via pdf-lib (CPU + a storage round-trip).
-  const rl = enforceRateLimit(req, "sign-request", { limit: 20, windowMs: 60_000 });
+  const rl = await enforceRateLimitDistributed(req, "sign-request", { limit: 20, windowMs: 60_000 });
   if (!rl.ok) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
   }

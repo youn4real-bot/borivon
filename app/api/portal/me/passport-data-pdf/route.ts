@@ -8,9 +8,13 @@ import { getAnonVerifyClient } from "@/lib/supabase";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 import { dlTokenUserId } from "@/lib/dlToken";
 import { registerPdfFonts } from "@/lib/pdf-fonts";
-import { enforceRateLimit } from "@/lib/rateLimit";
+import { enforceRateLimit, enforceRateLimitDistributed } from "@/lib/rateLimit";
 
 registerPdfFonts();
+
+// Heavy server-side PDF render — give it headroom so a slow render under load
+// never hits the function timeout. Vercel clamps to the plan's max.
+export const maxDuration = 60;
 
 async function renderPdf(
   groups: PassportDataPdfGroup[],
@@ -82,7 +86,7 @@ export async function POST(req: NextRequest) {
   // Without a cap an authenticated client could spray this and pin the
   // lambda. 10/min is roomy for the legitimate "download my passport
   // data sheet" flow which fires at most once per click.
-  const rl = enforceRateLimit(req, "me-passport-pdf", { limit: 10, windowMs: 60_000 });
+  const rl = await enforceRateLimitDistributed(req, "me-passport-pdf", { limit: 10, windowMs: 60_000 });
   if (!rl.ok) {
     return Response.json(
       { error: "Too many requests — wait a moment" },

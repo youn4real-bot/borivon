@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
 import { getAccessibleOrgIds } from "@/lib/feedAccess";
-import { enforceRateLimit } from "@/lib/rateLimit";
+import { enforceRateLimit, enforceRateLimitDistributed } from "@/lib/rateLimit";
 import { validateImageDataUrl } from "@/lib/validateDataUrl";
 import { UUID_RE } from "@/lib/uuid";
 
@@ -256,7 +256,7 @@ export async function POST(req: NextRequest) {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   // Anti-spam: cap post creation per trusted IP.
-  const rl = enforceRateLimit(req, "feed-post", { limit: 10, windowMs: 60_000 });
+  const rl = await enforceRateLimitDistributed(req, "feed-post", { limit: 10, windowMs: 60_000 });
   if (!rl.ok) {
     return NextResponse.json(
       { error: "You're posting too fast — slow down a bit" },

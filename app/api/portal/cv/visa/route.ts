@@ -21,17 +21,21 @@ import type { CVData } from "@/components/CVDocument";
 import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { registerPdfFonts } from "@/lib/pdf-fonts";
-import { enforceRateLimit } from "@/lib/rateLimit";
+import { enforceRateLimit, enforceRateLimitDistributed } from "@/lib/rateLimit";
 import { sanitizeCvData } from "@/lib/cvSanitize";
 import { UUID_RE } from "@/lib/uuid";
 
 registerPdfFonts();
 
+// Heavy server-side PDF render — give it headroom so a slow render under load
+// never hits the function timeout. Vercel clamps to the plan's max.
+export const maxDuration = 60;
+
 
 export async function GET(req: NextRequest) {
   const auth = await requireUser(req);
   if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status });
-  const rl = enforceRateLimit(req, "cv-visa", { limit: 30, windowMs: 60_000 });
+  const rl = await enforceRateLimitDistributed(req, "cv-visa", { limit: 30, windowMs: 60_000 });
   if (!rl.ok) return Response.json({ error: "Too many requests" }, { status: 429 });
 
   // Resolve target: self, or a candidate an admin is allowed to act on.

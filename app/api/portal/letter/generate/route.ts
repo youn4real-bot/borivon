@@ -11,6 +11,10 @@ import { UUID_RE } from "@/lib/uuid";
 
 registerPdfFonts();
 
+// Heavy server-side PDF render — give it headroom so a slow render under load
+// never hits the function timeout. Vercel clamps to the plan's max.
+export const maxDuration = 60;
+
 
 const RL_MAX = 20;
 const RL_WINDOW_MS = 60_000;

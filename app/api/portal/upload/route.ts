@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { canActOnCandidate } from "@/lib/admin-auth";
 import { createClient } from "@supabase/supabase-js";
-import { enforceRateLimit } from "@/lib/rateLimit";
+import { enforceRateLimit, enforceRateLimitDistributed } from "@/lib/rateLimit";
 import { google } from "googleapis";
 import { JWT } from "google-auth-library";
 import { makeDrivePublic } from "@/lib/passport-pdf";
@@ -865,7 +865,7 @@ export async function POST(req: NextRequest) {
   // back-to-back legitimately fires many uploads in a short burst, and the
   // client now retries transients once — 30/min throttled that into a false
   // "Fehler beim Hochladen.". 90/min per IP still stops bots/runaway clients.
-  const rl = enforceRateLimit(req, "upload", { limit: 90, windowMs: 60_000 });
+  const rl = await enforceRateLimitDistributed(req, "upload", { limit: 90, windowMs: 60_000 });
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Too many uploads. Please wait." },
