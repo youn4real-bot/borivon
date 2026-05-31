@@ -110,7 +110,9 @@ export function OnlineCoursesRegistration() {
       <div className="relative mx-auto px-5 pt-20 pb-16 sm:pt-28" style={{ maxWidth: 660 }}>
         {/* Header */}
         <div className="text-center bv-enter">
-          <span className="bv-eyebrow">{T("Online German courses", "Deutschkurse online", "Cours d'allemand en ligne")}</span>
+          <a href="/" aria-label="Borivon" className="bv-wordmark inline-block" style={{ fontSize: "clamp(1.5rem, 5vw, 2rem)" }}>
+            Borivon<span className="bv-wordmark-dot">.</span>
+          </a>
           <h1 className="bv-h1 mt-3">{T("Learn German Online", "Online Deutsch lernen", "Apprendre l'allemand en ligne")}</h1>
           <p className="bv-body mx-auto mt-3" style={{ maxWidth: 440 }}>
             {T(
