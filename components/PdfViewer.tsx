@@ -177,6 +177,12 @@ export function PdfViewer({
         // latter silently drops some glyphs/images on certain browsers (faint
         // logo / missing marks). A touch slower, but reliably complete.
         isOffscreenCanvasSupported: false,
+        // ROOT CAUSE of the faint text: by default pdf.js draws glyphs via the
+        // browser's FontFace text rendering, which renders these substituted
+        // fonts thin/washed-out. disableFontFace makes pdf.js rasterize each
+        // glyph as a FILLED VECTOR PATH in the text's real colour — exactly how
+        // native viewers (PDFium) draw it → solid, crisp black text.
+        disableFontFace: true,
       });
       destroy = () => task.destroy().catch(() => {});
 
