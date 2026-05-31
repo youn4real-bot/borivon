@@ -110,10 +110,12 @@ export function OnlineCoursesRegistration() {
       <div className="relative mx-auto px-5 pt-20 pb-16 sm:pt-28" style={{ maxWidth: 660 }}>
         {/* Header */}
         <div className="text-center bv-enter">
-          <a href="/" aria-label="Borivon" className="bv-wordmark inline-block" style={{ fontSize: "clamp(1.5rem, 5vw, 2rem)" }}>
+          {/* Brand wordmark — plain text (not a link), the largest element. */}
+          <span className="bv-wordmark inline-block" style={{ fontSize: "clamp(2.8rem, 9vw, 4.2rem)", lineHeight: 1 }}>
             Borivon<span className="bv-wordmark-dot">.</span>
-          </a>
-          <h1 className="bv-h1 mt-3">{T("Learn German Online", "Online Deutsch lernen", "Apprendre l'allemand en ligne")}</h1>
+          </span>
+          {/* Headline — big, but a notch smaller than the logo. */}
+          <h1 className="bv-h1 mt-3" style={{ fontSize: "clamp(1.9rem, 5vw, 2.8rem)" }}>{T("Learn German Online", "Online Deutsch lernen", "Apprendre l'allemand en ligne")}</h1>
           <p className="bv-body mx-auto mt-3" style={{ maxWidth: 440 }}>
             {T(
               "Reserve your seat by submitting your info.",
