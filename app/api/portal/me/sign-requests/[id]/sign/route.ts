@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
+import { enforceRateLimit } from "@/lib/rateLimit";
+import { validateImageDataUrl } from "@/lib/validateDataUrl";
 import { PDFDocument } from "pdf-lib";
 
 const BUCKET = "sign-documents";
@@ -27,13 +29,39 @@ export async function POST(
   const auth = await requireUser(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
+  // Rate-limit: this stamps a PDF via pdf-lib (CPU + a storage round-trip).
+  const rl = enforceRateLimit(req, "sign-request", { limit: 20, windowMs: 60_000 });
+  if (!rl.ok) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+  }
+
+  // Body-size guard (other PDF/image routes cap; this one previously didn't).
+  const raw = await req.text();
+  if (raw.length > 3_000_000) {
+    return NextResponse.json({ error: "Payload too large" }, { status: 413 });
+  }
   let body: { signatureBase64?: string; signatureZone?: unknown };
-  try { body = await req.json(); } catch {
+  try { body = JSON.parse(raw); } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
   const { signatureBase64, signatureZone: clientZoneRaw } = body;
-  if (!signatureBase64) return NextResponse.json({ error: "Missing signature" }, { status: 400 });
+  if (!signatureBase64 || typeof signatureBase64 !== "string") {
+    return NextResponse.json({ error: "Missing signature" }, { status: 400 });
+  }
+
+  // SECURITY (2026-05 review): the signature is candidate-supplied and embedded
+  // into the PDF via pdf-lib embedPng/embedJpg. Verify it's a real PNG/JPEG
+  // (magic-byte checked, SVG/junk/MIME-spoof rejected) and bounded in size
+  // BEFORE it reaches the embedder — pdf-lib only handles PNG/JPEG, and an
+  // oversized/garbage blob would otherwise throw unhandled or burn memory.
+  const sigUri = signatureBase64.startsWith("data:")
+    ? signatureBase64
+    : `data:image/png;base64,${signatureBase64}`;
+  const sigCheck = validateImageDataUrl(sigUri);
+  if (!sigCheck.ok || (sigCheck.mime !== "image/png" && sigCheck.mime !== "image/jpeg") || sigCheck.byteLength > 2_000_000) {
+    return NextResponse.json({ error: "Invalid signature image" }, { status: 400 });
+  }
 
   const db = getServiceSupabase();
 

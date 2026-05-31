@@ -22,6 +22,7 @@ import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-au
 import { getServiceSupabase } from "@/lib/supabase";
 import { registerPdfFonts } from "@/lib/pdf-fonts";
 import { enforceRateLimit } from "@/lib/rateLimit";
+import { sanitizeCvData } from "@/lib/cvSanitize";
 
 registerPdfFonts();
 
@@ -63,6 +64,12 @@ export async function GET(req: NextRequest) {
   const photo = (prof as { profile_photo?: string | null } | null)?.profile_photo ?? null;
   if (photo) data.photo = photo;
 
+  // SECURITY (2026-05 review): cv_draft is candidate-controlled. sanitizeCvData
+  // drops a non-data: `photo` (SSRF — would be re-rendered under the admin's
+  // session via ?candidateId=) and caps array dimensions (render DoS). Runs
+  // AFTER the trusted profile_photo re-injection so a real photo survives.
+  sanitizeCvData(data);
+
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const element = React.createElement(CVDocument, { data, brand: { noBranding: true } }) as any;
@@ -81,6 +88,6 @@ export async function GET(req: NextRequest) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("Visa CV render error:", msg);
-    return Response.json({ error: msg }, { status: 500 });
+    return Response.json({ error: "Could not render CV" }, { status: 500 });
   }
 }

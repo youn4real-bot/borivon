@@ -15,6 +15,7 @@ import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-au
 import { getServiceSupabase } from "@/lib/supabase";
 import { enforceRateLimit } from "@/lib/rateLimit";
 import { cvDraftToText } from "@/lib/cvText";
+import { sanitizeCvData } from "@/lib/cvSanitize";
 import type { CVData } from "@/components/CVDocument";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -48,5 +49,6 @@ export async function GET(req: NextRequest) {
   } catch {
     return Response.json({ text: "" });
   }
-  return Response.json({ text: cvDraftToText(cv) });
+  // Cap array dimensions before serialization (same DoS guard as the renderers).
+  return Response.json({ text: cvDraftToText(sanitizeCvData(cv)) });
 }

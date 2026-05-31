@@ -8,6 +8,7 @@ import type { CVData, CVBrand } from "@/components/CVDocument";
 import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { registerPdfFonts } from "@/lib/pdf-fonts";
+import { sanitizeCvData } from "@/lib/cvSanitize";
 
 registerPdfFonts();
 
@@ -171,7 +172,10 @@ export async function POST(req: NextRequest) {
     if (rawBody.length > MAX_BODY_BYTES) {
       return Response.json({ error: "Payload too large" }, { status: 413 });
     }
-    const data: CVData = JSON.parse(rawBody);
+    // SECURITY (2026-05 review): candidate-controlled body. sanitizeCvData drops
+    // a non-data: `photo` (SSRF via @react-pdf remote fetch) and hard-caps array
+    // dimensions (DoS via O(n²) merge + multi-thousand-page render).
+    const data: CVData = sanitizeCvData(JSON.parse(rawBody) as CVData);
     // ?variant=plain → the Visa CV: NO logo, NO footer, no org/Borivon branding,
     // regardless of the candidate's branding flags. Used for the synced Visum
     // copy. Otherwise resolve normal branding (Borivon default for self).
@@ -203,6 +207,7 @@ export async function POST(req: NextRequest) {
     const msg = err instanceof Error ? err.message : String(err);
     const stack = err instanceof Error ? err.stack : undefined;
     console.error("CV generation error:", msg, stack);
-    return Response.json({ error: msg }, { status: 500 });
+    // Generic message to the client — don't leak library/render internals.
+    return Response.json({ error: "Could not generate CV" }, { status: 500 });
   }
 }

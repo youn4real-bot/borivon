@@ -39,7 +39,8 @@ export async function GET(req: NextRequest) {
     .from("documents")
     .select("id, file_name, file_type, uploaded_at")
     .eq("candidate_id", candidateId)
-    .order("uploaded_at", { ascending: false });
+    .order("uploaded_at", { ascending: false })
+    .limit(500);
 
   if (error) {
     console.error("[documents GET] failed:", error);

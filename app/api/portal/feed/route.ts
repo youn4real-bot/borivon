@@ -67,8 +67,13 @@ async function resolveUserMeta(db: ReturnType<typeof getServiceSupabase>, userId
     ((orgMemberRows ?? []) as { sub_admin_email: string }[]).map(r => (r.sub_admin_email ?? "").trim().toLowerCase()).filter(Boolean)
   );
 
+  // NOTE: `email` is deliberately NOT exposed here. The feed response is
+  // readable by every authenticated candidate; the role/tick booleans below
+  // convey everything the UI needs. (Security review 2026-05 — was leaking
+  // every author's email to all viewers.) The per-user email is used only
+  // locally above (`userEmail`) to compute the ticks.
   const result: Record<string, {
-    name: string; email: string; photo: string | null;
+    name: string; photo: string | null;
     verified: boolean; tier: string | null; isBorivonTeam: boolean;
     isSuperAdmin: boolean; isOrgMember: boolean;
   }> = {};
@@ -83,7 +88,6 @@ async function resolveUserMeta(db: ReturnType<typeof getServiceSupabase>, userId
     const isBorivonTeam = (!!userEmail && borivonEmails.has(userEmail)) && !isOrgMember;
     result[uid] = {
       name:          auth?.name ?? "Unknown",
-      email:         auth?.email ?? "",
       photo:         prof?.photo ?? null,
       // Verified (shows a tick) automatically for Borivon team + org admins;
       // candidates only via manual grant OR premium.
@@ -225,7 +229,7 @@ export async function GET(req: NextRequest) {
     pinned:           r.pinned ?? false,
     category:         r.category ?? "general",
     createdAt:        r.created_at,
-    author:           userMeta[r.user_id] ?? { name: "Unknown", email: "", photo: null, verified: false, tier: null, isBorivonTeam: false, isSuperAdmin: false, isOrgMember: false },
+    author:           userMeta[r.user_id] ?? { name: "Unknown", photo: null, verified: false, tier: null, isBorivonTeam: false, isSuperAdmin: false, isOrgMember: false },
     authorId:         r.user_id,
     isOwn:            r.user_id === auth.userId,
     likeCount:        likesByPost[r.id] ?? 0,
@@ -355,7 +359,7 @@ export async function POST(req: NextRequest) {
       pinned:           false,
       category:         safeCategory,
       createdAt:        p.created_at,
-      author:           userMeta[auth.userId] ?? { name: "Unknown", email: "", photo: null, verified: false, tier: null, isBorivonTeam: false, isSuperAdmin: false, isOrgMember: false },
+      author:           userMeta[auth.userId] ?? { name: "Unknown", photo: null, verified: false, tier: null, isBorivonTeam: false, isSuperAdmin: false, isOrgMember: false },
       authorId:         auth.userId,
       isOwn:            true,
       likeCount:        0,
