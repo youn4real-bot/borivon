@@ -116,20 +116,17 @@ export async function POST(req: NextRequest) {
 
   const startMs = Date.parse(MAX(body.starts_at, 40));
   if (!Number.isFinite(startMs)) return NextResponse.json({ error: "invalid_start" }, { status: 400 });
-  const starts_at = new Date(startMs).toISOString();
 
-  let ends_at: string | null = null;
+  let endMs: number | null = null;
   const endRaw = MAX(body.ends_at, 40);
   if (endRaw) {
-    const endMs = Date.parse(endRaw);
-    if (Number.isFinite(endMs) && endMs >= startMs) ends_at = new Date(endMs).toISOString();
+    const parsed = Date.parse(endRaw);
+    if (Number.isFinite(parsed) && parsed >= startMs) endMs = parsed;
   }
 
-  const row = {
+  const baseRow = {
     title,
     description: MAX(body.description, 4000),
-    starts_at,
-    ends_at,
     image_url: safeImageUrl(body.image_url),
     link_url: safeLinkUrl(body.link_url),
     location: MAX(body.location, 200),
@@ -137,13 +134,24 @@ export async function POST(req: NextRequest) {
     created_by: auth.userId,
   };
 
+  // Optional weekly recurrence — expand into N independent rows (each can be
+  // edited / deleted on its own). Clamped 1..52 so a bad value can't flood the
+  // table. repeat_weekly absent or 1 → a single event (the common case).
+  const repeat = Math.max(1, Math.min(52, Math.floor(Number((body as { repeat_weekly?: unknown }).repeat_weekly) || 1)));
+  const WEEK = 7 * 24 * 60 * 60 * 1000;
+  const rows = Array.from({ length: repeat }, (_, i) => ({
+    ...baseRow,
+    starts_at: new Date(startMs + i * WEEK).toISOString(),
+    ends_at: endMs != null ? new Date(endMs + i * WEEK).toISOString() : null,
+  }));
+
   const db = getServiceSupabase();
-  const { data, error } = await db.from("calendar_events").insert(row).select("id").single();
+  const { error } = await db.from("calendar_events").insert(rows);
   if (error) {
     console.error("[portal/calendar] insert error:", error.message);
     return NextResponse.json({ error: "insert_failed" }, { status: 500 });
   }
-  return NextResponse.json({ ok: true, id: (data as { id: string }).id });
+  return NextResponse.json({ ok: true, count: rows.length });
 }
 
 // ── DELETE: remove event (supreme admin) ─────────────────────────────────────

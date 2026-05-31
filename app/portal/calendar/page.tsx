@@ -22,7 +22,7 @@ import { PageLoader } from "@/components/ui/states";
 import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
 import {
   ChevronLeft, ChevronRight, CalendarDays, List, Lock, Plus,
-  Trash2, MapPin, Video, Clock, CalendarPlus, Crown,
+  Trash2, MapPin, Video, Clock, CalendarPlus, Crown, Repeat, Sparkles,
 } from "lucide-react";
 
 const TZ = "Africa/Casablanca";
@@ -62,16 +62,54 @@ type Ev = {
 };
 
 type Draft = {
-  title: string; description: string; date: string; start: string; end: string;
-  location: string; link: string; image: string; vip: boolean;
+  title: string; description: string; date: string; time: string; durationMin: number;
+  locationType: "online" | "inperson"; link: string; place: string; image: string;
+  audience: "all" | "vip"; recurring: boolean; weeks: number;
 };
-const EMPTY_DRAFT: Draft = { title: "", description: "", date: "", start: "18:00", end: "20:00", location: "", link: "", image: "", vip: false };
+const EMPTY_DRAFT: Draft = {
+  title: "", description: "", date: "", time: "18:00", durationMin: 120,
+  locationType: "online", link: "", place: "", image: "",
+  audience: "all", recurring: false, weeks: 4,
+};
+
+// "Need ideas?" quick formats (Skool-style) — clicking one prefills the form.
+type L3 = "en" | "de" | "fr";
+const FORMATS: { key: string; durationMin: number; title: Record<L3, string>; desc: Record<L3, string> }[] = [
+  { key: "coffee", durationMin: 60,
+    title: { en: "Coffee hour", de: "Kaffeestunde", fr: "Pause café" },
+    desc: { en: "Come hang out and practice your German with fellow learners — no agenda, just conversation.",
+            de: "Komm vorbei und übe dein Deutsch mit anderen Lernenden — keine Agenda, einfach reden.",
+            fr: "Venez papoter et pratiquer votre allemand avec d'autres apprenants — sans programme, juste discuter." } },
+  { key: "qa", durationMin: 60,
+    title: { en: "Q&A session", de: "Fragerunde", fr: "Séance questions-réponses" },
+    desc: { en: "Bring your questions about German, the visa process, or working in Germany.",
+            de: "Stell deine Fragen zu Deutsch, zum Visum oder zum Arbeiten in Deutschland.",
+            fr: "Posez vos questions sur l'allemand, le visa ou le travail en Allemagne." } },
+  { key: "coworking", durationMin: 120,
+    title: { en: "Co-working session", de: "Co-Working-Session", fr: "Session de co-working" },
+    desc: { en: "Study together, stay accountable, and get things done.",
+            de: "Gemeinsam lernen, motiviert bleiben und Dinge erledigen.",
+            fr: "Étudier ensemble, rester motivé et avancer." } },
+  { key: "happy", durationMin: 60,
+    title: { en: "Happy hour", de: "Happy Hour", fr: "Happy hour" },
+    desc: { en: "Relax and connect with the Borivon community.",
+            de: "Entspann dich und vernetze dich mit der Borivon-Community.",
+            fr: "Détendez-vous et échangez avec la communauté Borivon." } },
+];
 
 export default function CalendarPage() {
   const router = useRouter();
   const { lang } = useLang();
   const T = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
   const locale = lang === "de" ? "de-DE" : lang === "fr" ? "fr-FR" : "en-GB";
+  const L: L3 = lang === "de" ? "de" : lang === "fr" ? "fr" : "en";
+  const DURATIONS: { v: number; label: string }[] = [
+    { v: 30, label: T("30 min", "30 Min.", "30 min") },
+    { v: 60, label: T("1 hour", "1 Stunde", "1 heure") },
+    { v: 90, label: T("1.5 hours", "1,5 Stunden", "1 h 30") },
+    { v: 120, label: T("2 hours", "2 Stunden", "2 heures") },
+    { v: 180, label: T("3 hours", "3 Stunden", "3 heures") },
+  ];
 
   const [loading, setLoading] = useState(true);
   const [events, setEvents] = useState<Ev[]>([]);
@@ -193,17 +231,22 @@ export default function CalendarPage() {
   };
 
   const saveEvent = async () => {
-    const startsISO = draft.date && draft.start ? casaWallToISO(draft.date, draft.start) : null;
+    const startsISO = draft.date && draft.time ? casaWallToISO(draft.date, draft.time) : null;
     if (!draft.title.trim() || !startsISO) return;
-    const endsISO = draft.end ? casaWallToISO(draft.date, draft.end) : null;
+    const endsISO = new Date(Date.parse(startsISO) + draft.durationMin * 60_000).toISOString();
+    const repeatWeekly = draft.recurring ? Math.max(1, Math.min(52, draft.weeks || 1)) : 1;
     setSaving(true);
     try {
       const res = await authedFetch("/api/portal/calendar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          title: draft.title, description: draft.description, starts_at: startsISO, ends_at: endsISO,
-          location: draft.location, link_url: draft.link, image_url: draft.image, vip_only: draft.vip,
+          title: draft.title, description: draft.description,
+          starts_at: startsISO, ends_at: endsISO,
+          location: draft.locationType === "inperson" ? draft.place : "",
+          link_url: draft.locationType === "online" ? draft.link : "",
+          image_url: draft.image, vip_only: draft.audience === "vip",
+          repeat_weekly: repeatWeekly,
         }),
       });
       if (res.ok) { await load(); setAddOpen(false); setDraft(EMPTY_DRAFT); }
@@ -501,53 +544,123 @@ export default function CalendarPage() {
         )}
       </Modal>
 
-      {/* ── Add event modal (admin) ───────────────────────────────────────────── */}
-      <Modal open={addOpen} onClose={() => setAddOpen(false)} size="md" busy={saving}
-        title={T("New event", "Neuer Termin", "Nouvel événement")}
-        subtitle={T("Times are in Casablanca time", "Zeiten in Casablanca-Zeit", "Heures en heure de Casablanca")}
+      {/* ── Add event modal (admin) — Skool-style ─────────────────────────────── */}
+      <Modal open={addOpen} onClose={() => setAddOpen(false)} size="lg" busy={saving}
+        title={T("Add event", "Termin hinzufügen", "Ajouter un événement")}
         footer={<>
           <GhostButton onClick={() => setAddOpen(false)} disabled={saving}>{T("Cancel", "Abbrechen", "Annuler")}</GhostButton>
-          <GoldButton onClick={saveEvent} disabled={saving || !draft.title.trim() || !draft.date || !draft.start}>
-            {saving ? T("Saving…", "Speichern…", "Enregistrement…") : T("Create", "Erstellen", "Créer")}
+          <GoldButton onClick={saveEvent} disabled={saving || !draft.title.trim() || !draft.date || !draft.time}>
+            {saving ? T("Saving…", "Speichern…", "Enregistrement…") : T("Add event", "Hinzufügen", "Ajouter")}
           </GoldButton>
         </>}>
-        <div className="p-5 flex flex-col gap-3.5">
+        <div className="p-5 flex flex-col gap-4">
+          {/* Need ideas? quick formats */}
+          <div className="text-[12px] leading-relaxed" style={{ color: "var(--w3)" }}>
+            <span className="inline-flex items-center gap-1.5 mr-1.5">
+              <Sparkles size={13} style={{ color: "var(--gold)" }} /> {T("Need ideas? Try:", "Ideen? Probiere:", "Des idées ? Essayez :")}
+            </span>
+            {FORMATS.map((f) => (
+              <button key={f.key} type="button"
+                onClick={() => setDraft((d) => ({ ...d, title: f.title[L], description: f.desc[L], durationMin: f.durationMin, locationType: "online" }))}
+                className="bv-press mr-1.5 mb-1.5 px-2.5 py-1 rounded-full text-[11.5px] font-medium"
+                style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--gold)" }}>
+                {f.title[L]}
+              </button>
+            ))}
+          </div>
+
+          {/* Title + counter */}
           <Field label={T("Title", "Titel", "Titre")} req>
-            <input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })}
-              className="bv-input" placeholder={T("e.g. German conversation workshop", "z. B. Deutsch-Konversationsworkshop", "ex. Atelier de conversation")} maxLength={200} />
+            <input value={draft.title} maxLength={80} onChange={(e) => setDraft({ ...draft, title: e.target.value })}
+              className="bv-input" placeholder={T("e.g. German conversation hour", "z. B. Deutsch-Konversationsstunde", "ex. Heure de conversation")} />
+            <span className="block text-right text-[10.5px] mt-1" style={{ color: "var(--w3)" }}>{draft.title.length}/80</span>
           </Field>
-          <Field label={T("Description (optional)", "Beschreibung (optional)", "Description (optionnel)")}>
-            <textarea value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-              className="bv-input" rows={3} maxLength={4000} style={{ resize: "vertical" }}
-              placeholder={T("What's this event about?", "Worum geht es bei diesem Termin?", "De quoi parle cet événement ?")} />
-          </Field>
-          <Field label={T("Date", "Datum", "Date")} req>
-            <input type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} className="bv-input" />
-          </Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label={T("Start", "Beginn", "Début")} req>
-              <input type="time" value={draft.start} onChange={(e) => setDraft({ ...draft, start: e.target.value })} className="bv-input" />
+
+          {/* Date · Time · Duration · Timezone */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <Field label={T("Date", "Datum", "Date")} req>
+              <input type="date" value={draft.date} onChange={(e) => setDraft({ ...draft, date: e.target.value })} className="bv-input" />
             </Field>
-            <Field label={T("End", "Ende", "Fin")}>
-              <input type="time" value={draft.end} onChange={(e) => setDraft({ ...draft, end: e.target.value })} className="bv-input" />
+            <Field label={T("Time", "Uhrzeit", "Heure")} req>
+              <input type="time" value={draft.time} onChange={(e) => setDraft({ ...draft, time: e.target.value })} className="bv-input" />
+            </Field>
+            <Field label={T("Duration", "Dauer", "Durée")}>
+              <select value={draft.durationMin} onChange={(e) => setDraft({ ...draft, durationMin: Number(e.target.value) })} className="bv-input">
+                {DURATIONS.map((d) => <option key={d.v} value={d.v}>{d.label}</option>)}
+              </select>
+            </Field>
+            <Field label={T("Time zone", "Zeitzone", "Fuseau")}>
+              <input value="Casablanca" readOnly disabled className="bv-input" style={{ opacity: 0.7, cursor: "not-allowed" }} />
             </Field>
           </div>
-          <Field label={T("Location (optional)", "Ort (optional)", "Lieu (optionnel)")}>
-            <input value={draft.location} onChange={(e) => setDraft({ ...draft, location: e.target.value })} className="bv-input" placeholder={T("Meknès / Online", "Meknès / Online", "Meknès / En ligne")} maxLength={200} />
+
+          {/* Recurring */}
+          <div>
+            <label className="flex items-center gap-2.5 cursor-pointer">
+              <input type="checkbox" checked={draft.recurring} onChange={(e) => setDraft({ ...draft, recurring: e.target.checked })}
+                style={{ width: 16, height: 16, accentColor: "var(--gold)" }} />
+              <span className="text-[13px] inline-flex items-center gap-1.5" style={{ color: "var(--w2)" }}>
+                <Repeat size={13} style={{ color: "var(--gold)" }} /> {T("Recurring event", "Wiederkehrender Termin", "Événement récurrent")}
+              </span>
+            </label>
+            {draft.recurring && (
+              <div className="mt-2.5 flex items-center flex-wrap gap-2 text-[13px]" style={{ color: "var(--w2)" }}>
+                {T("Repeat weekly for", "Wöchentlich wiederholen für", "Répéter chaque semaine pendant")}
+                <input type="number" min={2} max={52} value={draft.weeks}
+                  onChange={(e) => setDraft({ ...draft, weeks: Math.max(1, Math.min(52, Number(e.target.value) || 1)) })}
+                  className="bv-input" style={{ width: 72, textAlign: "center" }} />
+                {T("weeks", "Wochen", "semaines")}
+              </div>
+            )}
+          </div>
+
+          {/* Location + link/place */}
+          <div className="grid grid-cols-1 sm:grid-cols-[160px_1fr] gap-3">
+            <Field label={T("Location", "Ort", "Lieu")}>
+              <select value={draft.locationType} onChange={(e) => setDraft({ ...draft, locationType: e.target.value as "online" | "inperson" })} className="bv-input">
+                <option value="online">{T("Online", "Online", "En ligne")}</option>
+                <option value="inperson">{T("In person", "Vor Ort", "En présentiel")}</option>
+              </select>
+            </Field>
+            {draft.locationType === "online" ? (
+              <Field label={T("Join link", "Teilnahme-Link", "Lien de participation")}>
+                <input value={draft.link} onChange={(e) => setDraft({ ...draft, link: e.target.value })} className="bv-input" placeholder="https://…  (Zoom, Meet…)" maxLength={500} />
+              </Field>
+            ) : (
+              <Field label={T("Address / place", "Adresse / Ort", "Adresse / lieu")}>
+                <input value={draft.place} onChange={(e) => setDraft({ ...draft, place: e.target.value })} className="bv-input" placeholder={T("e.g. Borivon, Meknès", "z. B. Borivon, Meknès", "ex. Borivon, Meknès")} maxLength={200} />
+              </Field>
+            )}
+          </div>
+
+          {/* Description + counter */}
+          <Field label={T("Description", "Beschreibung", "Description")}>
+            <textarea value={draft.description} maxLength={600} rows={3} onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+              className="bv-input" style={{ resize: "vertical" }}
+              placeholder={T("What's this event about?", "Worum geht es bei diesem Termin?", "De quoi parle cet événement ?")} />
+            <span className="block text-right text-[10.5px] mt-1" style={{ color: "var(--w3)" }}>{draft.description.length}/600</span>
           </Field>
-          <Field label={T("Join link (optional)", "Teilnahme-Link (optional)", "Lien (optionnel)")}>
-            <input value={draft.link} onChange={(e) => setDraft({ ...draft, link: e.target.value })} className="bv-input" placeholder="https://…" maxLength={500} />
-          </Field>
-          <Field label={T("Cover image URL (optional)", "Titelbild-URL (optional)", "URL de l'image (optionnel)")}>
-            <input value={draft.image} onChange={(e) => setDraft({ ...draft, image: e.target.value })} className="bv-input" placeholder="https://…" />
-          </Field>
-          <label className="flex items-center gap-2.5 cursor-pointer mt-0.5">
-            <input type="checkbox" checked={draft.vip} onChange={(e) => setDraft({ ...draft, vip: e.target.checked })}
-              style={{ width: 16, height: 16, accentColor: "var(--gold)" }} />
-            <span className="text-[13px] inline-flex items-center gap-1.5" style={{ color: "var(--w2)" }}>
-              <Crown size={13} style={{ color: "var(--gold)" }} /> {T("Premium (VIP) only", "Nur Premium (VIP)", "Premium (VIP) uniquement")}
-            </span>
-          </label>
+
+          {/* Cover image + who can attend */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label={T("Cover image URL (optional)", "Titelbild-URL (optional)", "Image (optionnel)")}>
+              <input value={draft.image} onChange={(e) => setDraft({ ...draft, image: e.target.value })} className="bv-input" placeholder="https://…" />
+            </Field>
+            <Field label={T("Who can attend", "Wer darf teilnehmen", "Qui peut participer")}>
+              <select value={draft.audience} onChange={(e) => setDraft({ ...draft, audience: e.target.value as "all" | "vip" })} className="bv-input">
+                <option value="all">{T("Everyone", "Alle", "Tout le monde")}</option>
+                <option value="vip">{T("Premium (VIP) only", "Nur Premium (VIP)", "Premium (VIP) uniquement")}</option>
+              </select>
+            </Field>
+          </div>
+
+          {/* Cover preview */}
+          {draft.image && (
+            <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)", maxHeight: 150 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={draft.image} alt="" className="w-full object-cover" style={{ maxHeight: 150 }} />
+            </div>
+          )}
         </div>
       </Modal>
     </main>
