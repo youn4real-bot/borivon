@@ -292,7 +292,7 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
       role="dialog"
       aria-modal="true"
       aria-label="Borivon"
-      className="fixed inset-x-0 bottom-0 top-[58px] z-[700] flex items-end sm:items-center justify-center sm:p-4 bv-auth-modal-outer"
+      className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-end sm:items-center justify-center sm:p-4 bv-auth-modal-outer"
       style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
       onClick={() => { if (!loading) onClose(); }}
     >

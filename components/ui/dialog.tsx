@@ -34,10 +34,10 @@ export function Dialog({ open, onClose, title, eyebrow, children, className }: D
     <div
       // Always sits BELOW the navbar (top: 58px) and above the mobile bottom
       // action bar — so the bug button / language switcher / profile icons
-      // remain reachable while a dialog is open. Z-700 keeps it under the
-      // floating bug button (z-1201). Lighter dim than before to match the
-      // rest of the site's popup language.
-      className="fixed inset-x-0 bottom-0 top-[58px] z-[700] flex items-end sm:items-center justify-center px-3 pb-[96px] sm:p-4"
+      // remain reachable while a dialog is open. z-1100 (LAW #36 minimum) keeps
+      // it under the floating bug button (z-1201) + navbar (z-1200) while sitting
+      // above all page content. Lighter dim matches the rest of the popup language.
+      className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-end sm:items-center justify-center px-3 pb-[96px] sm:p-4"
       style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >

@@ -105,7 +105,7 @@ export function OrgCodeModal({
   if (typeof document === "undefined") return null;
 
   return createPortal(
-    <div className="fixed inset-x-0 bottom-0 top-[58px] z-[700] flex items-center justify-center p-4 bv-org-modal-outer"
+    <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 bv-org-modal-outer"
       style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)",
                animation: "bvFadeRise 0.22s var(--ease-out)" }}>
       {/* Reserve space for the mobile bottom action bar so the modal never
