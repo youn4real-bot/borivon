@@ -603,9 +603,17 @@ function PdfPage({
   const renderTaskRef = useRef<{ cancel: () => void } | null>(null);
   const textTaskRef   = useRef<{ promise: Promise<void>; cancel: () => void } | null>(null);
 
-  const [dpr] = useState(() =>
-    typeof window !== "undefined" ? Math.min(window.devicePixelRatio || 1, 2) : 1,
-  );
+  const [dpr] = useState(() => {
+    // OVERSAMPLE the canvas backing store. Agency forms (Zusatzblatt A, EZB…)
+    // are full of fine print; at 1x the thin glyph strokes anti-alias to faint
+    // grey — which is exactly why pdf.js looked washed-out where the native
+    // PDFium viewer (higher internal raster resolution) drew them solid.
+    // Rendering at ~3x and downscaling to the display gives those strokes
+    // enough pixels to come out solid/dark. The MAX_SIDE / MAX_AREA clamps
+    // below still cap oversized pages so iOS/WebKit never blanks the canvas.
+    const d = typeof window !== "undefined" ? (window.devicePixelRatio || 1) : 1;
+    return Math.min(Math.max(d, 3), 4);
+  });
 
   const isLandscape = ((rotation / 90) | 0) % 2 === 1;
   const baseW = isLandscape ? naturalSize.h : naturalSize.w;
