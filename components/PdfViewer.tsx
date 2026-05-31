@@ -579,6 +579,7 @@ function PdfPage({
   const textLayerRef  = useRef<HTMLDivElement>(null);
   const renderTaskRef = useRef<{ cancel: () => void } | null>(null);
   const textTaskRef   = useRef<{ promise: Promise<void>; cancel: () => void } | null>(null);
+  const prevRotRef    = useRef(rotation);
 
   const [dpr] = useState(() => {
     // Render at >= 2x so image-mask forms (whose masks are ~1240px wide) aren't
@@ -616,6 +617,9 @@ function PdfPage({
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+    // Did this resize come from a ROTATION (dims swapped) vs a ZOOM?
+    const rotationChanged = prevRotRef.current !== rotation;
+    prevRotRef.current = rotation;
     if (canvas.width === canvW && canvas.height === canvH) return;
 
     const ctx = canvas.getContext("2d");
@@ -635,10 +639,19 @@ function PdfPage({
     canvas.width  = canvW;
     canvas.height = canvH;
 
-    // Draw scaled snapshot as placeholder — better than blank white while the
-    // new pdfjs render completes asynchronously.
-    ctx.drawImage(snap, 0, 0, canvW, canvH);
-  }, [canvW, canvH]);
+    if (rotationChanged) {
+      // ROTATION: the dims swap, so stretching the old snapshot to the new size
+      // would DISTORT it — that's the "widen then rotate" flash. Fill the page
+      // background (white) instead; the brief gap until the rotated re-render
+      // lands is invisible, so the rotation reads as instant.
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvW, canvH);
+    } else {
+      // ZOOM: stretch the old content as a smooth zoom preview while the new
+      // pdfjs render completes asynchronously (better than a blank frame).
+      ctx.drawImage(snap, 0, 0, canvW, canvH);
+    }
+  }, [canvW, canvH, rotation]);
 
   // ── Off-screen render → atomic swap + text layer ───────────────────────
   // Render to a hidden canvas, then copy in one drawImage call so the

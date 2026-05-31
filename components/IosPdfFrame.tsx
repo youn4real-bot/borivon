@@ -95,7 +95,9 @@ export function IosPdfFrame({
           height: fh || "100%",
           transform: `translate(-50%, -50%) rotate(${rot}deg) scale(${scale})`,
           transformOrigin: "center center",
-          transition: "transform var(--dur-3) var(--ease)",
+          // No transform transition: rotate must be INSTANT. With a transition,
+          // the width/height swap applied immediately while the rotate animated
+          // — so the frame appeared to "widen" first, then rotate. Snap = clean.
         }}
       >
         <iframe
