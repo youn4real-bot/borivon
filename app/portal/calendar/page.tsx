@@ -721,11 +721,6 @@ export default function CalendarPage() {
             <span className="block text-right text-[10.5px] mt-1" style={{ color: "var(--w3)" }}>{draft.description.length}/600</span>
           </Field>
 
-          {/* Cover image */}
-          <Field label={T("Cover image URL (optional)", "Titelbild-URL (optional)", "Image (optionnel)")}>
-            <input value={draft.image} onChange={(e) => setDraft({ ...draft, image: e.target.value })} className="bv-input" placeholder="https://…" />
-          </Field>
-
           {/* Who can attend — tag specific people (candidate / sub-admin / org admin). */}
           <Field label={T("Who can attend", "Wer darf teilnehmen", "Qui peut participer")}>
             {draft.attendees.length > 0 && (
@@ -792,13 +787,6 @@ export default function CalendarPage() {
             </p>
           </Field>
 
-          {/* Cover preview */}
-          {draft.image && (
-            <div style={{ borderRadius: 12, overflow: "hidden", border: "1px solid var(--border)", maxHeight: 150 }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={draft.image} alt="" className="w-full object-cover" style={{ maxHeight: 150 }} />
-            </div>
-          )}
         </div>
       </Modal>
     </main>

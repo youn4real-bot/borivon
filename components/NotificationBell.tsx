@@ -164,6 +164,16 @@ type AdminNotif = {
   user_verified: boolean;
 };
 
+// Per-recipient calendar invite. Admins / sub-admins receive these in their bell
+// too (not only candidates) — keyed by their own user_id in the `notifications`
+// table, so a tagged sub-admin gets the same instant ping + chime.
+type InviteNotif = {
+  id: string;
+  doc_name: string;   // the event title
+  read: boolean;
+  created_at: string;
+};
+
 // ── New-arrival tracker ───────────────────────────────────────────────────────
 // Robust chime + entry-animation, independent of HOW the refresh arrived
 // (realtime push, poll, or open). The realtime channel is flaky for
@@ -588,8 +598,9 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
 
 // ── Admin bell ────────────────────────────────────────────────────────────────
 
-function AdminBell({ accessToken }: { accessToken: string }) {
+function AdminBell({ userId, accessToken }: { userId: string; accessToken: string }) {
   const [notifs, setNotifs]   = useState<AdminNotif[]>([]);
+  const [invites, setInvites] = useState<InviteNotif[]>([]);
   const [open, setOpen]       = useState(false);
   const [tab, setTab]         = useState<"all" | "unread">("all");
   const ref    = useRef<HTMLDivElement>(null);
@@ -599,18 +610,33 @@ function AdminBell({ accessToken }: { accessToken: string }) {
   const { newIds, track } = useNewArrivals();
 
   const fetch_ = useCallback(async () => {
-    try {
-      const res = await fetch("/api/portal/admin/notifications", { headers: { Authorization: `Bearer ${accessToken}` } });
-      if (!res.ok) return;
-      const json = await res.json();
-      const list = (json.notifications ?? []) as AdminNotif[];
-      setNotifs(list);
-      // Chime + slide-in are driven HERE, not in the realtime callback —
-      // admin_notifications realtime is RLS-gated and often doesn't deliver,
-      // so the sound never fired. id-diffing fires it regardless of source.
-      track(list.map(n => n.id), id => !list.find(x => x.id === id)?.read);
-    } catch { /* offline / hot-reload */ }
-  }, [accessToken, track]);
+    // Two sources feed the admin bell:
+    //   1. admin_notifications — the global candidate-activity feed (signup /
+    //      upload / doc-signed), via the scoped API.
+    //   2. notifications (action='event_invite') — THIS admin's own calendar
+    //      invites, keyed by user_id. This is how a tagged sub-admin gets the
+    //      same instant ping + chime as a candidate would.
+    const [adminRes, inviteRes] = await Promise.allSettled([
+      fetch("/api/portal/admin/notifications", { headers: { Authorization: `Bearer ${accessToken}` } }).then(r => (r.ok ? r.json() : null)),
+      supabase
+        .from("notifications")
+        .select("id, doc_name, read, created_at")
+        .eq("user_id", userId)
+        .eq("action", "event_invite")
+        .order("created_at", { ascending: false })
+        .limit(20),
+    ]);
+    const adminList  = (adminRes.status === "fulfilled" && adminRes.value?.notifications ? adminRes.value.notifications : []) as AdminNotif[];
+    const inviteList = (inviteRes.status === "fulfilled" && !inviteRes.value.error ? (inviteRes.value.data ?? []) : []) as InviteNotif[];
+    setNotifs(adminList);
+    setInvites(inviteList);
+    // Chime + slide-in are driven HERE, not in the realtime callback (realtime
+    // is RLS-gated and often doesn't deliver). id-diffing across BOTH sources
+    // fires the same sound for a new candidate-activity row OR a new invite.
+    const ids   = [...adminList.map(n => n.id), ...inviteList.map(n => n.id)];
+    const byId  = new Map<string, boolean>([...adminList.map(n => [n.id, n.read] as const), ...inviteList.map(n => [n.id, n.read] as const)]);
+    track(ids, id => !byId.get(id));
+  }, [accessToken, userId, track]);
 
   useEffect(() => {
     fetch_();
@@ -631,15 +657,25 @@ function AdminBell({ accessToken }: { accessToken: string }) {
       .channel(ASSIGNMENTS_TOPIC)
       .on("broadcast", { event: "changed" }, () => { fetch_(); })
       .subscribe();
-    return () => { clearInterval(timer); supabase.removeChannel(channel); supabase.removeChannel(assignCh); };
-  }, [fetch_]);
+    // This admin's OWN calendar invites land in `notifications` (per-user) —
+    // subscribe so a tagged sub-admin gets the ping the instant it's created.
+    const inviteCh = supabase
+      .channel(`admin-invites-${userId}`)
+      .on("postgres_changes",
+        { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${userId}` },
+        () => { fetch_(); },
+      )
+      .subscribe();
+    return () => { clearInterval(timer); supabase.removeChannel(channel); supabase.removeChannel(assignCh); supabase.removeChannel(inviteCh); };
+  }, [fetch_, userId]);
 
   // Outside-press + Esc handled via shared hook (lib/useDismiss).
   useDismiss(ref, open, () => setOpen(false), { skipMobile: true });
 
   async function markAllRead() {
-    const prev = notifs;
+    const prev = notifs, prevInv = invites;
     setNotifs(p => p.map(n => ({ ...n, read: true })));
+    setInvites(p => p.map(n => ({ ...n, read: true })));
     try {
       const res = await fetch("/api/portal/admin/notifications", {
         method: "PATCH",
@@ -647,20 +683,30 @@ function AdminBell({ accessToken }: { accessToken: string }) {
       });
       if (!res.ok) setNotifs(prev);
     } catch { setNotifs(prev); }
+    // Calendar invites live in a separate table — mark those read too.
+    if (prevInv.some(n => !n.read)) {
+      const { error } = await supabase.from("notifications")
+        .update({ read: true }).eq("user_id", userId).eq("action", "event_invite").eq("read", false);
+      if (error) setInvites(prevInv);
+    }
   }
 
-  const unread = notifs.filter(n => !n.read).length;
+  const unread = notifs.filter(n => !n.read).length + invites.filter(n => !n.read).length;
 
   // ── Recency sort + overdue counter ───────────────────────────────────────
-  // Newest event at the top, oldest at the bottom. Tier bucketing was removed;
-  // we keep `ageHours` only to count overdue items for the red banner.
+  // Newest first. ageHours only feeds the overdue banner (candidate activity).
   const HOUR = 60 * 60 * 1000;
-  const ageHours = (n: AdminNotif) => (Date.now() - new Date(n.created_at).getTime()) / HOUR;
-  const sorted = [...notifs].sort((a, b) =>
-    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-  );
-  const overdueCount = sorted.filter(n => !n.read && ageHours(n) >= 48).length;
-  const displayed = tab === "unread" ? sorted.filter(n => !n.read) : sorted;
+  const ageHours = (iso: string) => (Date.now() - new Date(iso).getTime()) / HOUR;
+  const overdueCount = notifs.filter(n => !n.read && ageHours(n.created_at) >= 48).length;
+
+  // Merge the candidate-activity feed + this admin's own calendar invites,
+  // newest first, so an invite slots in by time like any other row.
+  type Row = { t: "admin"; n: AdminNotif } | { t: "invite"; n: InviteNotif };
+  const merged: Row[] = [
+    ...notifs.map((n): Row => ({ t: "admin", n })),
+    ...invites.map((n): Row => ({ t: "invite", n })),
+  ].sort((a, b) => new Date(b.n.created_at).getTime() - new Date(a.n.created_at).getTime());
+  const displayed = tab === "unread" ? merged.filter(r => !r.n.read) : merged;
 
   function toggle() { if (!open) fetch_(); setOpen(o => !o); }
 
@@ -672,6 +718,16 @@ function AdminBell({ accessToken }: { accessToken: string }) {
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ ids: [n.id] }),
     }).catch(() => {});
+  }
+
+  // Calendar invite row: mark read (own notifications row) + jump to the event.
+  function handleInviteClick(inv: InviteNotif) {
+    if (!inv.read) {
+      setInvites(prev => prev.map(x => x.id === inv.id ? { ...x, read: true } : x));
+      supabase.from("notifications").update({ read: true }).eq("id", inv.id).then(() => {});
+    }
+    setOpen(false);
+    router.push("/portal/calendar");
   }
 
   async function handleClick(n: AdminNotif) {
@@ -751,7 +807,47 @@ function AdminBell({ accessToken }: { accessToken: string }) {
             )}
             {displayed.length === 0 ? (
               <EmptyState msg={tab === "unread" ? t.noUnreadActivity : t.noActivityYet} />
-            ) : displayed.map((n, i) => {
+            ) : displayed.map((row, i) => {
+              // Calendar invite row (this admin / sub-admin was tagged on an event).
+              if (row.t === "invite") {
+                const inv = row.n;
+                return (
+                  <div key={inv.id} style={newIds.has(inv.id) ? { animation: "bvNotifIn .34s var(--ease-out) both" } : undefined}>
+                    {i > 0 && <div style={{ height: 1, background: "var(--border)" }} />}
+                    <button
+                      className="w-full text-left px-4 py-3 flex items-start gap-3 transition-colors hover:bg-[rgba(255,255,255,0.03)]"
+                      style={{
+                        background: inv.read ? "transparent" : "var(--gdim)",
+                        borderLeft: inv.read ? "2px solid transparent" : "2px solid var(--border-gold)",
+                        borderTop: "none", borderRight: "none", borderBottom: "none",
+                        cursor: "pointer",
+                      }}
+                      onClick={() => handleInviteClick(inv)}>
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
+                        style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                        <Calendar size={15} strokeWidth={1.8} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold flex items-center gap-1 truncate" style={{ color: "var(--w)" }}>
+                          <span className="truncate">{cleanLabel(inv.doc_name, lang === "de" ? "Termin" : lang === "fr" ? "Événement" : "Event")}</span>
+                        </p>
+                        <p className="text-[11px] leading-snug mt-0.5" style={{ color: "var(--gold)", wordBreak: "break-word" }}>
+                          {t.eventInvite}
+                        </p>
+                        <p className="text-[10px] mt-1.5 flex items-center gap-1" style={{ color: "var(--w3)" }}>
+                          {relativeTimeShort(inv.created_at, lang)}
+                          <span style={{ color: "var(--border)" }}>·</span>
+                          <span style={{ color: "var(--gold)" }}>{t.viewCalendar}</span>
+                        </p>
+                      </div>
+                      {!inv.read && (
+                        <div className="w-2 h-2 rounded-full flex-shrink-0 mt-2" style={{ background: "var(--gold)" }} />
+                      )}
+                    </button>
+                  </div>
+                );
+              }
+              const n = row.n;
               const isSignup   = n.type === "signup";
               const isDocSigned = n.type === "doc-signed";
               const iconSt = isSignup
@@ -838,7 +934,7 @@ function AdminBell({ accessToken }: { accessToken: string }) {
 export function NotificationBell() {
   const [state, setState] = useState<
     | { kind: "loading" }
-    | { kind: "admin";     accessToken: string }
+    | { kind: "admin";     userId: string; accessToken: string }
     | { kind: "candidate"; userId: string; accessToken: string }
     | { kind: "none" }
   >({ kind: "loading" });
@@ -853,7 +949,7 @@ export function NotificationBell() {
       // both admin + sub_admin → AdminBell; everyone else → CandidateBell.
       const toState = (role: string | null) =>
         (role === "admin" || role === "sub_admin")
-          ? { kind: "admin" as const, accessToken: token }
+          ? { kind: "admin" as const, userId: user.id, accessToken: token }
           : { kind: "candidate" as const, userId: user.id, accessToken: token };
       // Render the correct bell INSTANTLY from the cached role (no network wait)
       // so the icon never staggers in behind the others on a reload.
@@ -872,6 +968,6 @@ export function NotificationBell() {
   }, []);
 
   if (state.kind === "loading" || state.kind === "none") return null;
-  if (state.kind === "admin")     return <AdminBell accessToken={state.accessToken} />;
+  if (state.kind === "admin")     return <AdminBell userId={state.userId} accessToken={state.accessToken} />;
   return <CandidateBell userId={state.userId} accessToken={state.accessToken} />;
 }

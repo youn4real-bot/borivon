@@ -205,8 +205,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "insert_failed" }, { status: 500 });
   }
   // Notify tagged attendees ONCE (not once per recurrence) — masked as "Borivon".
+  // Skip the creator themselves (they obviously know about their own event).
   const anchorId = (inserted as { id: string }[] | null)?.[0]?.id ?? "";
-  await notifyAttendees(db, anchorId, title, attendee_ids);
+  await notifyAttendees(db, anchorId, title, attendee_ids.filter((uid) => uid !== auth.userId));
   return NextResponse.json({ ok: true, count: rows.length });
 }
 
@@ -256,8 +257,8 @@ export async function PATCH(req: NextRequest) {
     console.error("[portal/calendar] update error:", error.message);
     return NextResponse.json({ error: "update_failed" }, { status: 500 });
   }
-  // Notify only people added in THIS edit — masked as "Borivon".
-  await notifyAttendees(db, id, title, attendee_ids.filter((uid) => !oldIds.has(uid)));
+  // Notify only people added in THIS edit (never the editor themselves) — masked as "Borivon".
+  await notifyAttendees(db, id, title, attendee_ids.filter((uid) => !oldIds.has(uid) && uid !== auth.userId));
   return NextResponse.json({ ok: true });
 }
 
