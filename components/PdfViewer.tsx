@@ -618,7 +618,8 @@ function PdfPage({
     const canvas = canvasRef.current;
     if (!canvas) return;
     // Did this resize come from a ROTATION (dims swapped) vs a ZOOM?
-    const rotationChanged = prevRotRef.current !== rotation;
+    const prevRot = prevRotRef.current;
+    const rotationChanged = prevRot !== rotation;
     prevRotRef.current = rotation;
     if (canvas.width === canvW && canvas.height === canvH) return;
 
@@ -640,12 +641,17 @@ function PdfPage({
     canvas.height = canvH;
 
     if (rotationChanged) {
-      // ROTATION: the dims swap, so stretching the old snapshot to the new size
-      // would DISTORT it — that's the "widen then rotate" flash. Fill the page
-      // background (white) instead; the brief gap until the rotated re-render
-      // lands is invisible, so the rotation reads as instant.
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, canvW, canvH);
+      // ROTATION: draw the OLD frame ALREADY ROTATED by the same delta as the
+      // placeholder. The dims swapped, so the rotated snapshot fills the new
+      // canvas exactly — the page looks rotated INSTANTLY (no white flash, no
+      // stretch), and the crisp pdf.js re-render swaps in an identical-looking
+      // image a beat later. rotate() only ever steps +90°, so this matches.
+      const deltaRad = ((((rotation - prevRot) % 360) + 360) % 360) * (Math.PI / 180);
+      ctx.save();
+      ctx.translate(canvW / 2, canvH / 2);
+      ctx.rotate(deltaRad);
+      ctx.drawImage(snap, -snap.width / 2, -snap.height / 2);
+      ctx.restore();
     } else {
       // ZOOM: stretch the old content as a smooth zoom preview while the new
       // pdfjs render completes asynchronously (better than a blank frame).
