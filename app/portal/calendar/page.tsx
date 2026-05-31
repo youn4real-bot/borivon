@@ -24,7 +24,7 @@ import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
 import { DropdownMenu } from "@/components/ui/DropdownMenu";
 import {
   ChevronLeft, ChevronRight, CalendarDays, List, Lock, Plus,
-  Trash2, MapPin, Video, Clock, CalendarPlus, Crown, Repeat, Sparkles, Users,
+  Trash2, MapPin, Video, Clock, CalendarPlus, Crown, Repeat, Users,
 } from "lucide-react";
 
 const TZ = "Africa/Casablanca";
@@ -75,31 +75,6 @@ const EMPTY_DRAFT: Draft = {
   attendees: [], recurring: false, weeks: 4,
 };
 
-// "Need ideas?" quick formats (Skool-style) — clicking one prefills the form.
-type L3 = "en" | "de" | "fr";
-const FORMATS: { key: string; durationMin: number; title: Record<L3, string>; desc: Record<L3, string> }[] = [
-  { key: "coffee", durationMin: 60,
-    title: { en: "Coffee hour", de: "Kaffeestunde", fr: "Pause café" },
-    desc: { en: "Come hang out and practice your German with fellow learners — no agenda, just conversation.",
-            de: "Komm vorbei und übe dein Deutsch mit anderen Lernenden — keine Agenda, einfach reden.",
-            fr: "Venez papoter et pratiquer votre allemand avec d'autres apprenants — sans programme, juste discuter." } },
-  { key: "qa", durationMin: 60,
-    title: { en: "Q&A session", de: "Fragerunde", fr: "Séance questions-réponses" },
-    desc: { en: "Bring your questions about German, the visa process, or working in Germany.",
-            de: "Stell deine Fragen zu Deutsch, zum Visum oder zum Arbeiten in Deutschland.",
-            fr: "Posez vos questions sur l'allemand, le visa ou le travail en Allemagne." } },
-  { key: "coworking", durationMin: 120,
-    title: { en: "Co-working session", de: "Co-Working-Session", fr: "Session de co-working" },
-    desc: { en: "Study together, stay accountable, and get things done.",
-            de: "Gemeinsam lernen, motiviert bleiben und Dinge erledigen.",
-            fr: "Étudier ensemble, rester motivé et avancer." } },
-  { key: "happy", durationMin: 60,
-    title: { en: "Happy hour", de: "Happy Hour", fr: "Happy hour" },
-    desc: { en: "Relax and connect with the Borivon community.",
-            de: "Entspann dich und vernetze dich mit der Borivon-Community.",
-            fr: "Détendez-vous et échangez avec la communauté Borivon." } },
-];
-
 function personInitials(n: string): string {
   const parts = n.trim().split(/\s+/).filter(Boolean);
   return ((parts[0]?.[0] ?? "") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase() || "?";
@@ -110,7 +85,6 @@ export default function CalendarPage() {
   const { lang } = useLang();
   const T = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
   const locale = lang === "de" ? "de-DE" : lang === "fr" ? "fr-FR" : "en-GB";
-  const L: L3 = lang === "de" ? "de" : lang === "fr" ? "fr" : "en";
   const DURATIONS: { v: number; label: string }[] = [
     { v: 30, label: T("30 min", "30 Min.", "30 min") },
     { v: 60, label: T("1 hour", "1 Stunde", "1 heure") },
@@ -594,20 +568,6 @@ export default function CalendarPage() {
           </GoldButton>
         </>}>
         <div className="p-5 flex flex-col gap-4">
-          {/* Need ideas? quick formats */}
-          <div className="text-[12px] leading-relaxed" style={{ color: "var(--w3)" }}>
-            <span className="inline-flex items-center gap-1.5 mr-1.5">
-              <Sparkles size={13} style={{ color: "var(--gold)" }} /> {T("Need ideas? Try:", "Ideen? Probiere:", "Des idées ? Essayez :")}
-            </span>
-            {FORMATS.map((f) => (
-              <button key={f.key} type="button"
-                onClick={() => setDraft((d) => ({ ...d, title: f.title[L], description: f.desc[L], durationMin: f.durationMin, locationType: "online" }))}
-                className="bv-press mr-1.5 mb-1.5 px-2.5 py-1 rounded-full text-[11.5px] font-medium"
-                style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--gold)" }}>
-                {f.title[L]}
-              </button>
-            ))}
-          </div>
 
           {/* Title + counter */}
           <Field label={T("Title", "Titel", "Titre")} req>
