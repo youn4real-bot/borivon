@@ -16,7 +16,6 @@ import {
   StyleSheet,
   Image,
 } from "@react-pdf/renderer";
-import { germanizeMedical } from "@/lib/germanizeMedical";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -586,11 +585,11 @@ function WorkRow({ entry, sp }: { entry: WorkEntry; sp: Spacing }) {
         {entry.title ? <Text style={[s.entryTitle, { marginBottom: sp.titleMb }]}>{entry.title}</Text> : null}
         {(entry.employer || entry.location || entry.country) ? (
           <Text style={[s.entrySubtitle, { marginBottom: sp.subtitleMb }]}>
-            {[germanizeMedical(entry.employer), entry.location, entry.country].filter(Boolean).join(" · ")}
+            {[entry.employer, entry.location, entry.country].filter(Boolean).join(" · ")}
           </Text>
         ) : null}
         {(entry.additionalSites ?? []).map((site, i) => {
-          const line = [germanizeMedical(site.employer), site.location, site.country].filter(Boolean).join(" · ");
+          const line = [site.employer, site.location, site.country].filter(Boolean).join(" · ");
           return line ? <Text key={i} style={[s.entrySubtitle, { marginBottom: sp.subtitleMb }]}>{line}</Text> : null;
         })}
         {entry.departments.length > 0 ? (
@@ -632,7 +631,7 @@ function EduRow({ entry, sp }: { entry: EduEntry; sp: Spacing }) {
         ) : null}
         {(entry.institution || entry.location || entry.country) ? (
           <Text style={[s.entrySubtitle, { marginBottom: sp.subtitleMb }]}>
-            {[germanizeMedical(entry.institution), entry.location, entry.country].filter(Boolean).join(" · ")}
+            {[entry.institution, entry.location, entry.country].filter(Boolean).join(" · ")}
           </Text>
         ) : null}
         {entry.type === "nursing" && entry.nursingStatus === "complete"

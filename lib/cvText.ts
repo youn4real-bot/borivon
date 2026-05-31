@@ -8,7 +8,6 @@
  * Type-only import of CVData (erased at compile) → no @react-pdf runtime pulled in.
  */
 import type { CVData, MonthYear } from "@/components/CVDocument";
-import { germanizeMedical } from "@/lib/germanizeMedical";
 
 function fmtMY(m?: MonthYear | null): string {
   if (!m || !m.month || !m.year) return "";
@@ -55,7 +54,7 @@ export function cvDraftToText(data: CVData): string {
   if (work.length) {
     push(); push("Berufserfahrung:");
     for (const w of work) {
-      const head = [w.title, germanizeMedical(w.employer)].filter(Boolean).join(", ");
+      const head = [w.title, w.employer].filter(Boolean).join(", ");
       const loc = [w.location, w.country].filter(Boolean).join(", ");
       const r = range(w.start, w.end);
       push(`- ${head}${loc ? ` (${loc})` : ""}${r ? ` | ${r}` : ""}`);
@@ -71,7 +70,7 @@ export function cvDraftToText(data: CVData): string {
     push(); push("Ausbildung:");
     for (const e of edu) {
       const deg = e.type === "nursing" ? nursingLabel(e.nursingStatus, e.degree) : e.degree;
-      const head = [deg, germanizeMedical(e.institution)].filter(Boolean).join(", ");
+      const head = [deg, e.institution].filter(Boolean).join(", ");
       const loc = [e.location, e.country].filter(Boolean).join(", ");
       const r = range(e.start, e.end);
       push(`- ${head}${loc ? ` (${loc})` : ""}${r ? ` | ${r}` : ""}`);
