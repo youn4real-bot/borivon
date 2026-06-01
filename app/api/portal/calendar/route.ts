@@ -3,6 +3,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser, requireAdminRole } from "@/lib/admin-auth";
 import { enforceRateLimit } from "@/lib/rateLimit";
 import { UUID_RE } from "@/lib/uuid";
+import { signFeedToken } from "@/lib/calendarFeed";
 
 /**
  * Community calendar (the "Calendar" tab).
@@ -108,7 +109,7 @@ export async function GET(req: NextRequest) {
     // admin's "+ Add event" button never disappears just because the events
     // query hiccuped. A hard 500 here used to hide the admin controls entirely.
     console.error("[portal/calendar] list error:", error.message);
-    return NextResponse.json({ events: [], premium, canManage }, { status: 200 });
+    return NextResponse.json({ events: [], premium, canManage, feedToken: signFeedToken(auth.userId) }, { status: 200 });
   }
 
   const events = ((data ?? []) as EventRow[])
@@ -138,7 +139,7 @@ export async function GET(req: NextRequest) {
       };
     });
 
-  return NextResponse.json({ events, premium, canManage });
+  return NextResponse.json({ events, premium, canManage, feedToken: signFeedToken(auth.userId) });
 }
 
 // ── POST: create event (supreme admin) ───────────────────────────────────────

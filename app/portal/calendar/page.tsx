@@ -24,7 +24,7 @@ import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
 import { DropdownMenu } from "@/components/ui/DropdownMenu";
 import {
   ChevronLeft, ChevronRight, CalendarDays, List, Lock, Plus,
-  Trash2, MapPin, Video, Clock, CalendarPlus, Crown, Repeat, Users, Pencil, ChevronDown,
+  Trash2, MapPin, Video, Clock, CalendarPlus, Crown, Repeat, Users, Pencil, ChevronDown, CalendarCheck, ExternalLink,
 } from "lucide-react";
 
 const TZ = "Africa/Casablanca";
@@ -227,6 +227,10 @@ export default function CalendarPage() {
   const [addCalOpen, setAddCalOpen] = useState(false);
   const [calDefault, setCalDefault] = useState<CalKey | null>(null);
   const addCalRef = useRef<HTMLDivElement>(null);
+  // Calendar subscription ("Sync") — one-time setup, then auto-updates.
+  const [feedToken, setFeedToken] = useState("");
+  const [syncOpen, setSyncOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // ── Auth'd fetch (fresh token, same stale-token guard as other pages) ───────
   const authedFetch = useCallback(async (url: string, init?: RequestInit) => {
@@ -246,6 +250,7 @@ export default function CalendarPage() {
     setEvents((j.events ?? []) as Ev[]);
     // Never let a server hiccup turn OFF the admin "+" — OR it with the cache-seeded value.
     setCanManage((prev) => prev || !!j.canManage);
+    if (j.feedToken) setFeedToken(j.feedToken as string);
   }, [authedFetch, router]);
 
   // Taggable people (admins only). Powers the attendee tagger in the Add-event
@@ -486,6 +491,11 @@ export default function CalendarPage() {
           <span className="hidden sm:inline-flex items-center gap-1.5 text-[12px]" style={{ color: "var(--w3)" }}>
             <Clock size={13} /> {clock} · {T("Casablanca time", "Casablanca-Zeit", "Heure de Casablanca")}
           </span>
+          <button onClick={() => setSyncOpen(true)}
+            className="bv-btn bv-btn-ghost text-[12.5px] px-3 py-1.5 inline-flex items-center gap-1.5"
+            title={T("Sync with your calendar", "Mit deinem Kalender synchronisieren", "Synchroniser avec votre calendrier")}>
+            <CalendarCheck size={14} /> <span className="hidden sm:inline">{T("Sync", "Sync", "Sync")}</span>
+          </button>
           {Toggle}
           {canManage && (
             <button onClick={() => openAdd()} className="bv-glow-gold bv-press inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-3.5 py-1.5"
@@ -941,6 +951,58 @@ export default function CalendarPage() {
           </Field>
 
         </div>
+      </Modal>
+
+      {/* ── Sync calendar modal (subscribe once → auto-updates everywhere) ─────── */}
+      <Modal open={syncOpen} onClose={() => setSyncOpen(false)} size="sm"
+        title={T("Sync with your calendar", "Mit deinem Kalender synchronisieren", "Synchroniser avec votre agenda")}>
+        {(() => {
+          const origin = typeof window !== "undefined" ? window.location.origin : "https://www.borivon.com";
+          const host = typeof window !== "undefined" ? window.location.host : "www.borivon.com";
+          const https = feedToken ? `${origin}/api/portal/calendar/feed/${feedToken}.ics` : "";
+          const webcal = feedToken ? `webcal://${host}/api/portal/calendar/feed/${feedToken}.ics` : "";
+          const rows = [
+            { key: "apple", label: "Apple Calendar", href: webcal, blank: false },
+            { key: "google", label: "Google Calendar", href: `https://calendar.google.com/calendar/u/0/r?cid=${encodeURIComponent(webcal)}`, blank: true },
+            { key: "outlook", label: "Outlook", href: `https://outlook.live.com/calendar/0/addfromweb?url=${encodeURIComponent(https)}&name=${encodeURIComponent("Borivon")}`, blank: true },
+            { key: "office365", label: "Microsoft 365", href: `https://outlook.office.com/calendar/0/addfromweb?url=${encodeURIComponent(https)}&name=${encodeURIComponent("Borivon")}`, blank: true },
+          ];
+          const copy = async () => { try { await navigator.clipboard.writeText(https); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* ignore */ } };
+          return (
+            <div className="p-5 flex flex-col gap-4">
+              <p className="text-[13px] leading-relaxed" style={{ color: "var(--w2)" }}>
+                {T("Subscribe once — every Borivon event you're invited to (and any change) then shows up in your own calendar automatically.",
+                   "Einmal abonnieren — jeder Borivon-Termin, zu dem du eingeladen bist (und jede Änderung), erscheint dann automatisch in deinem Kalender.",
+                   "Abonnez-vous une fois — chaque événement Borivon auquel vous êtes invité (et toute modification) apparaît ensuite automatiquement dans votre agenda.")}
+              </p>
+              <div className="flex flex-col gap-2">
+                {rows.map((r) => (
+                  <a key={r.key} href={r.href || undefined} {...(r.blank ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+                    className="bv-press flex items-center gap-3 px-3.5 py-3 rounded-[12px]"
+                    style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w)" }}>
+                    <CalendarCheck size={16} style={{ color: "var(--gold)" }} />
+                    <span className="text-[13.5px] font-semibold">{r.label}</span>
+                    <ExternalLink size={13} className="ml-auto" style={{ color: "var(--w3)" }} />
+                  </a>
+                ))}
+              </div>
+              <div>
+                <span className="bv-label">{T("Or paste this link into any calendar app", "Oder füge diesen Link in eine beliebige Kalender-App ein", "Ou collez ce lien dans n'importe quelle application d'agenda")}</span>
+                <div className="flex items-center gap-2 mt-1">
+                  <input readOnly value={https} onFocus={(e) => e.currentTarget.select()} className="bv-input" style={{ fontSize: 11 }} />
+                  <button onClick={copy} className="bv-btn bv-btn-ghost px-3 py-2 text-[12px] whitespace-nowrap">
+                    {copied ? T("Copied!", "Kopiert!", "Copié !") : T("Copy", "Kopieren", "Copier")}
+                  </button>
+                </div>
+              </div>
+              <p className="text-[11px] leading-snug" style={{ color: "var(--w3)" }}>
+                {T("New events may take a little while to appear — calendar apps refresh subscriptions on their own schedule (Apple usually within an hour, Google can take longer).",
+                   "Neue Termine können etwas dauern — Kalender-Apps aktualisieren Abos nach eigenem Zeitplan (Apple meist innerhalb einer Stunde, Google kann länger dauern).",
+                   "Les nouveaux événements peuvent prendre un peu de temps — les applications actualisent les abonnements à leur propre rythme (Apple en général sous une heure, Google peut être plus long).")}
+              </p>
+            </div>
+          );
+        })()}
       </Modal>
     </main>
   );
