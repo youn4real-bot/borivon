@@ -15,7 +15,8 @@ import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
 import { JOURNEY_PRESETS } from "@/lib/candidateJourney";
-import { ArrowLeft, AlertTriangle, Clock, CheckCircle2, Search } from "lucide-react";
+import { JourneyMap } from "@/components/JourneyMap";
+import { ArrowLeft, AlertTriangle, Clock, CheckCircle2, Search, Map as MapIcon, List } from "lucide-react";
 
 type Health = "on_track" | "due_soon" | "overdue" | "blocked" | "done";
 type Status = {
@@ -49,6 +50,7 @@ export default function AdminPipelinePage() {
   const [today, setToday] = useState("");
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<"all" | "attention">("all");
+  const [view, setView] = useState<"map" | "list">("map");
 
   useEffect(() => {
     let cancelled = false;
@@ -146,10 +148,22 @@ export default function AdminPipelinePage() {
             </button>
           ))}
         </div>
+        {/* Map ⇄ List view toggle */}
+        <div className="inline-flex p-0.5 rounded-full" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+          {([["map", MapIcon, T("Map", "Karte", "Carte")], ["list", List, T("List", "Liste", "Liste")]] as const).map(([v, Icon, label]) => (
+            <button key={v} onClick={() => setView(v)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-semibold transition-colors"
+              style={view === v ? { background: "var(--gold)", color: "#131312" } : { background: "transparent", color: "var(--w3)" }}>
+              <Icon size={14} /> <span className="hidden sm:inline">{label}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Board */}
-      {shown.length === 0 ? (
+      {/* Map view — the living Morocco→Germany rail */}
+      {view === "map" ? (
+        <JourneyMap rows={shown} lang={lang} onPick={(uid) => router.push(`/portal/admin?nav_user_id=${encodeURIComponent(uid)}`)} />
+      ) : shown.length === 0 ? (
         <div className="bv-card text-center py-16">
           <CheckCircle2 size={30} strokeWidth={1.5} className="mx-auto mb-3" style={{ color: "var(--w3)" }} />
           <p className="text-[14px] font-medium" style={{ color: "var(--w2)" }}>
