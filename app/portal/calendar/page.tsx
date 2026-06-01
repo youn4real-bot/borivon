@@ -129,7 +129,7 @@ function eventBody(ev: Ev): string {
   if (ev.link_url) parts.push(`Link: ${ev.link_url}`);
   return parts.join("\n\n");
 }
-function calendarUrls(ev: Ev): Record<"outlook" | "google" | "office365" | "yahoo", string> {
+function calendarUrls(ev: Ev): Record<"outlook" | "google" | "yahoo", string> {
   const { start, end } = eventWindow(ev);
   const e = encodeURIComponent;
   const title = ev.title || "Event";
@@ -140,7 +140,6 @@ function calendarUrls(ev: Ev): Record<"outlook" | "google" | "office365" | "yaho
   return {
     outlook:   `https://outlook.live.com/calendar/0/deeplink/compose?path=/calendar/action/compose&rru=addevent&subject=${e(title)}&startdt=${e(sIso)}&enddt=${e(eIso)}&body=${e(body)}&location=${e(loc)}`,
     google:    `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${e(title)}&dates=${sB}/${eB}&details=${e(body)}&location=${e(loc)}`,
-    office365: `https://outlook.office.com/calendar/0/deeplink/compose?path=/calendar/action/compose&rru=addevent&subject=${e(title)}&startdt=${e(sIso)}&enddt=${e(eIso)}&body=${e(body)}&location=${e(loc)}`,
     yahoo:     `https://calendar.yahoo.com/?v=60&title=${e(title)}&st=${sB}&et=${eB}&desc=${e(body)}&in_loc=${e(loc)}`,
   };
 }
@@ -174,13 +173,14 @@ function downloadICS(ev: Ev) {
 
 // Calendar providers, in the order shown. The viewer's last pick is remembered
 // (localStorage) and becomes the default button action.
-type CalKey = "outlook" | "google" | "apple" | "office365" | "yahoo";
+// Outlook covers all Microsoft calendars (Outlook.com / Microsoft 365 personal);
+// kept as one entry, first, since "Outlook" and "Microsoft 365" are the same product.
+type CalKey = "outlook" | "google" | "apple" | "yahoo";
 const CAL_OPTIONS: { key: CalKey; label: string }[] = [
-  { key: "outlook",   label: "Outlook" },
-  { key: "google",    label: "Google Calendar" },
-  { key: "apple",     label: "Apple Calendar" },
-  { key: "office365", label: "Microsoft 365" },
-  { key: "yahoo",     label: "Yahoo" },
+  { key: "outlook", label: "Outlook" },
+  { key: "google",  label: "Google Calendar" },
+  { key: "apple",   label: "Apple Calendar" },
+  { key: "yahoo",   label: "Yahoo" },
 ];
 const CAL_PROVIDER_LABEL = (k: CalKey): string => CAL_OPTIONS.find((o) => o.key === k)?.label ?? "";
 const CAL_STORAGE_KEY = "bv_cal_provider";
@@ -962,10 +962,9 @@ export default function CalendarPage() {
           const https = feedToken ? `${origin}/api/portal/calendar/feed/${feedToken}.ics` : "";
           const webcal = feedToken ? `webcal://${host}/api/portal/calendar/feed/${feedToken}.ics` : "";
           const rows = [
-            { key: "apple", label: "Apple Calendar", href: webcal, blank: false },
-            { key: "google", label: "Google Calendar", href: `https://calendar.google.com/calendar/u/0/r?cid=${encodeURIComponent(webcal)}`, blank: true },
             { key: "outlook", label: "Outlook", href: `https://outlook.live.com/calendar/0/addfromweb?url=${encodeURIComponent(https)}&name=${encodeURIComponent("Borivon")}`, blank: true },
-            { key: "office365", label: "Microsoft 365", href: `https://outlook.office.com/calendar/0/addfromweb?url=${encodeURIComponent(https)}&name=${encodeURIComponent("Borivon")}`, blank: true },
+            { key: "google", label: "Google Calendar", href: `https://calendar.google.com/calendar/u/0/r?cid=${encodeURIComponent(webcal)}`, blank: true },
+            { key: "apple", label: "Apple Calendar", href: webcal, blank: false },
           ];
           const copy = async () => { try { await navigator.clipboard.writeText(https); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* ignore */ } };
           return (
