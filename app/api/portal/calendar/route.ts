@@ -5,7 +5,6 @@ import { enforceRateLimit } from "@/lib/rateLimit";
 import { UUID_RE } from "@/lib/uuid";
 import { signFeedToken } from "@/lib/calendarFeed";
 import { googleStatus, fanOutUpsert, fanOutDelete, type PushEvent } from "@/lib/googleCalendar";
-import { sendEventInviteEmail, type EventInvite } from "@/lib/email";
 
 /**
  * Community calendar (the "Calendar" tab).
@@ -77,31 +76,6 @@ async function notifyAttendees(
   }));
   const { error } = await db.from("notifications").insert(rows);
   if (error) console.error("[portal/calendar] attendee notify error:", error.message);
-}
-
-/**
- * Email a real calendar invite (.ics REQUEST) to each tagged attendee, so the
- * event auto-lands in their calendar (Gmail / Apple / Outlook) with ZERO setup
- * on their side — no connect, no subscribe, no onboarding. Resolves each
- * user_id → email via the auth admin API. Best-effort, never blocks the write.
- *
- * `seq` must increase across edits of the SAME event so calendars REPLACE it in
- * place (we use the event row's updated count via Date — see callers). cancel
- * → sends a CANCEL that removes it from their calendar.
- */
-async function emailInvites(
-  db: ReturnType<typeof getServiceSupabase>,
-  ev: EventInvite,
-  userIds: string[],
-) {
-  if (userIds.length === 0) return;
-  const lookups = await Promise.allSettled(
-    userIds.slice(0, 200).map((uid) => db.auth.admin.getUserById(uid)),
-  );
-  const emails = lookups
-    .map((r) => (r.status === "fulfilled" ? r.value.data?.user?.email ?? "" : ""))
-    .filter((e): e is string => !!e && /.+@.+\..+/.test(e));
-  await Promise.allSettled(emails.map((to) => sendEventInviteEmail(to, ev)));
 }
 
 // ── GET: list events (everyone logged-in) ────────────────────────────────────
@@ -245,16 +219,6 @@ export async function POST(req: NextRequest) {
   await notifyAttendees(db, anchorId, title, recipients);
   // Instant push into connected Google calendars (no-op unless OAuth configured).
   try { await fanOutUpsert(created); } catch (e) { console.error("[portal/calendar] gcal push:", (e as Error)?.message); }
-  // Email a real calendar invite for EACH created event → auto-adds to every
-  // tagged person's calendar with zero setup. SEQUENCE = epoch seconds (rises on edits).
-  try {
-    const seq = Math.floor(Date.now() / 1000);
-    await Promise.allSettled(created.map((c) => emailInvites(db, {
-      id: c.id, title: c.title, description: c.description,
-      starts_at: c.starts_at, ends_at: c.ends_at,
-      location: c.location, link_url: c.link_url, sequence: seq,
-    }, recipients)));
-  } catch (e) { console.error("[portal/calendar] invite email:", (e as Error)?.message); }
   return NextResponse.json({ ok: true, count: rows.length });
 }
 
@@ -306,22 +270,13 @@ export async function PATCH(req: NextRequest) {
   }
   // Notify only people added in THIS edit (never the editor themselves) — masked as "Borivon".
   await notifyAttendees(db, id, title, attendee_ids.filter((uid) => !oldIds.has(uid) && uid !== auth.userId));
-  const edited: PushEvent & EventInvite = {
+  const edited: PushEvent = {
     id, title, description: MAX(body.description, 4000),
     starts_at: new Date(startMs).toISOString(), ends_at,
     location: MAX(body.location, 200), link_url: safeLinkUrl(body.link_url), attendee_ids,
   };
   // Push the edit into connected Google calendars (no-op unless OAuth configured).
   try { await fanOutUpsert([edited]); } catch (e) { console.error("[portal/calendar] gcal push:", (e as Error)?.message); }
-  // Email an updated invite (higher SEQUENCE → calendars UPDATE in place, no dupes)
-  // to everyone still tagged; people removed in this edit get a CANCEL.
-  try {
-    const seq = Math.floor(Date.now() / 1000);
-    const stillTagged = attendee_ids.filter((uid) => uid !== auth.userId);
-    const removed = [...oldIds].filter((uid) => !attendee_ids.includes(uid) && uid !== auth.userId);
-    await emailInvites(db, { ...edited, sequence: seq }, stillTagged);
-    if (removed.length) await emailInvites(db, { ...edited, sequence: seq, cancelled: true }, removed);
-  } catch (e) { console.error("[portal/calendar] invite email:", (e as Error)?.message); }
   return NextResponse.json({ ok: true });
 }
 
@@ -335,12 +290,6 @@ export async function DELETE(req: NextRequest) {
   if (!UUID_RE.test(id)) return NextResponse.json({ error: "invalid_id" }, { status: 400 });
 
   const db = getServiceSupabase();
-  // Snapshot the event BEFORE deleting so we can send a CANCEL to attendees.
-  const { data: snap } = await db.from("calendar_events")
-    .select("id, title, description, starts_at, ends_at, location, link_url, attendee_ids")
-    .eq("id", id).maybeSingle();
-  const ev = snap as (PushEvent & EventInvite & { attendee_ids: string[] | null }) | null;
-
   const { error } = await db.from("calendar_events").delete().eq("id", id);
   if (error) {
     console.error("[portal/calendar] delete error:", error.message);
@@ -348,15 +297,5 @@ export async function DELETE(req: NextRequest) {
   }
   // Remove it from connected Google calendars (no-op unless OAuth configured).
   try { await fanOutDelete(id); } catch (e) { console.error("[portal/calendar] gcal delete:", (e as Error)?.message); }
-  // Email a CANCEL so it disappears from every tagged person's calendar too.
-  if (ev) {
-    try {
-      await emailInvites(db, {
-        id: ev.id, title: ev.title, description: ev.description,
-        starts_at: ev.starts_at, ends_at: ev.ends_at, location: ev.location, link_url: ev.link_url,
-        sequence: Math.floor(Date.now() / 1000), cancelled: true,
-      }, (ev.attendee_ids ?? []).filter((uid) => uid !== auth.userId));
-    } catch (e) { console.error("[portal/calendar] cancel email:", (e as Error)?.message); }
-  }
   return NextResponse.json({ ok: true });
 }
