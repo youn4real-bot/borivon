@@ -24,7 +24,7 @@ import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
 import { DropdownMenu } from "@/components/ui/DropdownMenu";
 import {
   ChevronLeft, ChevronRight, CalendarDays, List, Lock, Plus,
-  Trash2, MapPin, Video, Clock, CalendarPlus, Crown, Repeat, Users, Pencil,
+  Trash2, MapPin, Video, Clock, CalendarPlus, Crown, Repeat, Users, Pencil, ChevronDown,
 } from "lucide-react";
 
 const TZ = "Africa/Casablanca";
@@ -110,6 +110,68 @@ function GermanDateInput({ value, onChange, className }: { value: string; onChan
   );
 }
 
+// ── "Add to calendar" (personal) — deep links + .ics download ────────────────
+// Lets ANY viewer drop the event into their own Outlook / Google / Apple / etc.
+// calendar. All timestamps are UTC; each provider renders them in the user's
+// own zone, so the wall-clock stays correct regardless of where they are.
+function icsStamp(d: Date): string {
+  // → "YYYYMMDDTHHMMSSZ"
+  return d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+}
+function eventWindow(ev: Ev): { start: Date; end: Date } {
+  const start = new Date(ev.starts_at);
+  const end = ev.ends_at ? new Date(ev.ends_at) : new Date(start.getTime() + 60 * 60 * 1000);
+  return { start, end };
+}
+function eventBody(ev: Ev): string {
+  const parts: string[] = [];
+  if (ev.description) parts.push(ev.description);
+  if (ev.link_url) parts.push(`Link: ${ev.link_url}`);
+  return parts.join("\n\n");
+}
+function calendarUrls(ev: Ev): Record<"outlook" | "google" | "office365" | "yahoo", string> {
+  const { start, end } = eventWindow(ev);
+  const e = encodeURIComponent;
+  const title = ev.title || "Event";
+  const loc = ev.location || ev.link_url || "";
+  const body = eventBody(ev);
+  const sB = icsStamp(start), eB = icsStamp(end);
+  const sIso = start.toISOString(), eIso = end.toISOString();
+  return {
+    outlook:   `https://outlook.live.com/calendar/0/deeplink/compose?path=/calendar/action/compose&rru=addevent&subject=${e(title)}&startdt=${e(sIso)}&enddt=${e(eIso)}&body=${e(body)}&location=${e(loc)}`,
+    google:    `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${e(title)}&dates=${sB}/${eB}&details=${e(body)}&location=${e(loc)}`,
+    office365: `https://outlook.office.com/calendar/0/deeplink/compose?path=/calendar/action/compose&rru=addevent&subject=${e(title)}&startdt=${e(sIso)}&enddt=${e(eIso)}&body=${e(body)}&location=${e(loc)}`,
+    yahoo:     `https://calendar.yahoo.com/?v=60&title=${e(title)}&st=${sB}&et=${eB}&desc=${e(body)}&in_loc=${e(loc)}`,
+  };
+}
+function escapeICS(s: string): string {
+  return (s || "").replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\r?\n/g, "\\n");
+}
+/** Apple Calendar (+ any desktop app): download a standards .ics file. */
+function downloadICS(ev: Ev) {
+  const { start, end } = eventWindow(ev);
+  const ics = [
+    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Borivon//Calendar//EN", "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+    "BEGIN:VEVENT",
+    `UID:${ev.id}@borivon.com`,
+    `DTSTAMP:${icsStamp(start)}`,
+    `DTSTART:${icsStamp(start)}`,
+    `DTEND:${icsStamp(end)}`,
+    `SUMMARY:${escapeICS(ev.title)}`,
+    `DESCRIPTION:${escapeICS(eventBody(ev))}`,
+    `LOCATION:${escapeICS(ev.location || ev.link_url || "")}`,
+    "END:VEVENT", "END:VCALENDAR",
+  ].join("\r\n");
+  const url = URL.createObjectURL(new Blob([ics], { type: "text/calendar;charset=utf-8" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${(ev.title || "event").replace(/[^\w-]+/g, "_").slice(0, 50)}.ics`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export default function CalendarPage() {
   const router = useRouter();
   const { lang } = useLang();
@@ -146,6 +208,9 @@ export default function CalendarPage() {
   const [peopleLoaded, setPeopleLoaded] = useState(false);
   const [tagQuery, setTagQuery] = useState("");
   const tagInputRef = useRef<HTMLInputElement>(null);
+  // "Add to calendar" dropdown on the event detail (every user gets this).
+  const [addCalOpen, setAddCalOpen] = useState(false);
+  const addCalRef = useRef<HTMLButtonElement>(null);
 
   // ── Auth'd fetch (fresh token, same stale-token guard as other pages) ───────
   const authedFetch = useCallback(async (url: string, init?: RequestInit) => {
@@ -202,6 +267,9 @@ export default function CalendarPage() {
     const id = setInterval(() => setNow(new Date()), 30_000);
     return () => clearInterval(id);
   }, []);
+
+  // Close the add-to-calendar dropdown whenever the open event changes/closes.
+  useEffect(() => { setAddCalOpen(false); }, [detail]);
 
   // ── Derived calendar data ───────────────────────────────────────────────────
   const todayYMD = casaYMD(now);
@@ -297,6 +365,13 @@ export default function CalendarPage() {
   };
 
   const closeAdd = () => { setAddOpen(false); setEditingId(null); };
+
+  // Drop the event into the viewer's own calendar (web deep link or .ics).
+  const addToCalendar = (ev: Ev, key: "outlook" | "google" | "apple" | "office365" | "yahoo") => {
+    if (key === "apple") { downloadICS(ev); return; }
+    const url = calendarUrls(ev)[key];
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
+  };
 
   const saveEvent = async () => {
     const startsISO = draft.date && draft.time ? casaWallToISO(draft.date, draft.time) : null;
@@ -610,6 +685,34 @@ export default function CalendarPage() {
                       <Video size={15} /> {T("Join event", "Teilnehmen", "Rejoindre")}
                     </a>
                   )}
+
+                  {/* Add to calendar — EVERY viewer can drop this into their own calendar. */}
+                  <div className="relative">
+                    <button ref={addCalRef} onClick={() => setAddCalOpen((o) => !o)}
+                      className="bv-press w-full inline-flex items-center justify-center gap-1.5 text-[13px] font-semibold px-4 py-2.5"
+                      style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)", borderRadius: "var(--r-md)" }}>
+                      <CalendarPlus size={15} style={{ color: "var(--gold)" }} />
+                      {T("Add to calendar", "Zum Kalender hinzufügen", "Ajouter au calendrier")}
+                      <ChevronDown size={14} style={{ opacity: 0.6 }} />
+                    </button>
+                    <DropdownMenu open={addCalOpen} onClose={() => setAddCalOpen(false)} anchor={addCalRef.current}
+                      above align="left" minWidth={addCalRef.current?.offsetWidth ?? 240}>
+                      {([
+                        { key: "outlook",   label: "Outlook" },
+                        { key: "google",    label: "Google Calendar" },
+                        { key: "apple",     label: "Apple Calendar" },
+                        { key: "office365", label: "Microsoft 365" },
+                        { key: "yahoo",     label: "Yahoo" },
+                      ] as const).map((opt, i) => (
+                        <button key={opt.key} type="button"
+                          onClick={() => { addToCalendar(detail, opt.key); setAddCalOpen(false); }}
+                          className="bv-row-hover w-full text-left px-3.5 py-2.5 flex items-center gap-2.5 text-[13px]"
+                          style={{ color: "var(--w)", borderTop: i === 0 ? "none" : "1px solid var(--border)" }}>
+                          <CalendarPlus size={14} style={{ color: "var(--gold)" }} /> {opt.label}
+                        </button>
+                      ))}
+                    </DropdownMenu>
+                  </div>
                 </>
               )}
 
