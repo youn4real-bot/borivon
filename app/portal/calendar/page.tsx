@@ -231,6 +231,9 @@ export default function CalendarPage() {
   const [feedToken, setFeedToken] = useState("");
   const [syncOpen, setSyncOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  // Google instant-sync (OAuth push) connection state.
+  const [googleSync, setGoogleSync] = useState<{ configured: boolean; connected: boolean; email: string | null }>({ configured: false, connected: false, email: null });
+  const [gBusy, setGBusy] = useState(false);
 
   // ── Auth'd fetch (fresh token, same stale-token guard as other pages) ───────
   const authedFetch = useCallback(async (url: string, init?: RequestInit) => {
@@ -251,6 +254,7 @@ export default function CalendarPage() {
     // Never let a server hiccup turn OFF the admin "+" — OR it with the cache-seeded value.
     setCanManage((prev) => prev || !!j.canManage);
     if (j.feedToken) setFeedToken(j.feedToken as string);
+    if (j.googleSync) setGoogleSync(j.googleSync);
   }, [authedFetch, router]);
 
   // Taggable people (admins only). Powers the attendee tagger in the Add-event
@@ -291,6 +295,18 @@ export default function CalendarPage() {
 
   // Close the add-to-calendar dropdown whenever the open event changes/closes.
   useEffect(() => { setAddCalOpen(false); }, [detail]);
+
+  // Returning from the Google OAuth consent screen → open the Sync panel and
+  // refresh the connection status; strip the ?google param so refresh is clean.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const p = new URLSearchParams(window.location.search).get("google");
+    if (!p) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("google");
+    window.history.replaceState({}, "", url.pathname + url.search);
+    if (p === "connected") { setSyncOpen(true); void load(); }
+  }, [load]);
 
   // Remember the viewer's preferred calendar provider across sessions.
   useEffect(() => {
@@ -409,6 +425,24 @@ export default function CalendarPage() {
   // Localised "Add to <Provider>" (German puts the verb last).
   const addToLabel = (provider: string) =>
     lang === "de" ? `Zu ${provider} hinzufügen` : lang === "fr" ? `Ajouter à ${provider}` : `Add to ${provider}`;
+
+  // Connect / disconnect Google instant-sync (OAuth push).
+  const connectGoogle = async () => {
+    setGBusy(true);
+    try {
+      const res = await authedFetch("/api/portal/calendar/google/connect");
+      const j = await res.json().catch(() => ({}));
+      if (j.url) { window.location.href = j.url as string; return; } // navigates away
+    } catch { /* ignore */ }
+    setGBusy(false);
+  };
+  const disconnectGoogle = async () => {
+    setGBusy(true);
+    try {
+      const res = await authedFetch("/api/portal/calendar/google/disconnect", { method: "POST" });
+      if (res.ok) setGoogleSync((s) => ({ ...s, connected: false, email: null }));
+    } finally { setGBusy(false); }
+  };
 
   const saveEvent = async () => {
     const startsISO = draft.date && draft.time ? casaWallToISO(draft.date, draft.time) : null;
@@ -969,6 +1003,47 @@ export default function CalendarPage() {
           const copy = async () => { try { await navigator.clipboard.writeText(https); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* ignore */ } };
           return (
             <div className="p-5 flex flex-col gap-4">
+              {/* Instant Google sync (OAuth push) — the "best" option when configured. */}
+              {googleSync.configured && (
+                <div className="rounded-[14px] p-4" style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
+                  <div className="flex items-center gap-2 mb-1.5">
+                    <CalendarCheck size={16} style={{ color: "var(--gold)" }} />
+                    <span className="text-[13.5px] font-bold" style={{ color: "var(--w)" }}>
+                      {T("Instant Google sync", "Sofort-Sync mit Google", "Sync Google instantané")}
+                    </span>
+                    <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: "var(--gold)", color: "#131312" }}>
+                      {T("Best", "Beste", "Mieux")}
+                    </span>
+                  </div>
+                  {googleSync.connected ? (
+                    <>
+                      <p className="text-[12px] leading-snug" style={{ color: "var(--w2)" }}>
+                        ✓ {T("Connected", "Verbunden", "Connecté")}{googleSync.email ? ` · ${googleSync.email}` : ""}. {T("New events appear in your Google Calendar instantly.", "Neue Termine erscheinen sofort in deinem Google Kalender.", "Les nouveaux événements apparaissent instantanément dans votre agenda Google.")}
+                      </p>
+                      <button onClick={disconnectGoogle} disabled={gBusy}
+                        className="bv-press mt-2 text-[12px] font-medium disabled:opacity-50" style={{ color: "var(--red, #ef4444)" }}>
+                        {T("Disconnect", "Trennen", "Déconnecter")}
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-[12px] leading-snug mb-2.5" style={{ color: "var(--w2)" }}>
+                        {T("Link your Google account once — every event lands in your calendar the instant it's created. No waiting.", "Verknüpfe dein Google-Konto einmal — jeder Termin landet sofort in deinem Kalender. Kein Warten.", "Liez votre compte Google une fois — chaque événement arrive instantanément. Sans attente.")}
+                      </p>
+                      <button onClick={connectGoogle} disabled={gBusy}
+                        className="bv-glow-gold bv-press inline-flex items-center gap-1.5 text-[13px] font-semibold px-4 py-2.5 disabled:opacity-50"
+                        style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-md)" }}>
+                        <CalendarCheck size={15} /> {gBusy ? T("Opening…", "Öffnet…", "Ouverture…") : T("Connect Google Calendar", "Google Kalender verbinden", "Connecter Google Agenda")}
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+              {googleSync.configured && (
+                <p className="text-[10.5px] font-semibold uppercase tracking-wide -mb-1" style={{ color: "var(--w3)" }}>
+                  {T("Or subscribe (works on any calendar)", "Oder abonnieren (jeder Kalender)", "Ou s'abonner (tout agenda)")}
+                </p>
+              )}
               <p className="text-[13px] leading-relaxed" style={{ color: "var(--w2)" }}>
                 {T("Subscribe once — every Borivon event you're invited to (and any change) then shows up in your own calendar automatically.",
                    "Einmal abonnieren — jeder Borivon-Termin, zu dem du eingeladen bist (und jede Änderung), erscheint dann automatisch in deinem Kalender.",

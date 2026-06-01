@@ -4,6 +4,7 @@ import { requireUser, requireAdminRole } from "@/lib/admin-auth";
 import { enforceRateLimit } from "@/lib/rateLimit";
 import { UUID_RE } from "@/lib/uuid";
 import { signFeedToken } from "@/lib/calendarFeed";
+import { googleStatus, fanOutUpsert, fanOutDelete, type PushEvent } from "@/lib/googleCalendar";
 
 /**
  * Community calendar (the "Calendar" tab).
@@ -98,6 +99,9 @@ export async function GET(req: NextRequest) {
     premium = !!p && (p.payment_tier === "premium" || !!p.manually_verified);
   }
 
+  // Google "instant sync" connection status for this user (drives the Sync UI).
+  const googleSync = await googleStatus(auth.userId);
+
   const { data, error } = await db
     .from("calendar_events")
     .select("id, title, description, starts_at, ends_at, image_url, link_url, location, vip_only, created_at, attendee_ids")
@@ -109,7 +113,7 @@ export async function GET(req: NextRequest) {
     // admin's "+ Add event" button never disappears just because the events
     // query hiccuped. A hard 500 here used to hide the admin controls entirely.
     console.error("[portal/calendar] list error:", error.message);
-    return NextResponse.json({ events: [], premium, canManage, feedToken: signFeedToken(auth.userId) }, { status: 200 });
+    return NextResponse.json({ events: [], premium, canManage, feedToken: signFeedToken(auth.userId), googleSync }, { status: 200 });
   }
 
   const events = ((data ?? []) as EventRow[])
@@ -139,7 +143,7 @@ export async function GET(req: NextRequest) {
       };
     });
 
-  return NextResponse.json({ events, premium, canManage, feedToken: signFeedToken(auth.userId) });
+  return NextResponse.json({ events, premium, canManage, feedToken: signFeedToken(auth.userId), googleSync });
 }
 
 // ── POST: create event (supreme admin) ───────────────────────────────────────
@@ -200,15 +204,20 @@ export async function POST(req: NextRequest) {
   }));
 
   const db = getServiceSupabase();
-  const { data: inserted, error } = await db.from("calendar_events").insert(rows).select("id");
+  const { data: inserted, error } = await db.from("calendar_events")
+    .insert(rows)
+    .select("id, title, description, starts_at, ends_at, location, link_url, attendee_ids");
   if (error) {
     console.error("[portal/calendar] insert error:", error.message);
     return NextResponse.json({ error: "insert_failed" }, { status: 500 });
   }
+  const created = (inserted ?? []) as PushEvent[];
   // Notify tagged attendees ONCE (not once per recurrence) — masked as "Borivon".
   // Skip the creator themselves (they obviously know about their own event).
-  const anchorId = (inserted as { id: string }[] | null)?.[0]?.id ?? "";
+  const anchorId = created[0]?.id ?? "";
   await notifyAttendees(db, anchorId, title, attendee_ids.filter((uid) => uid !== auth.userId));
+  // Instant push into connected Google calendars (no-op unless OAuth configured).
+  try { await fanOutUpsert(created); } catch (e) { console.error("[portal/calendar] gcal push:", (e as Error)?.message); }
   return NextResponse.json({ ok: true, count: rows.length });
 }
 
@@ -260,6 +269,14 @@ export async function PATCH(req: NextRequest) {
   }
   // Notify only people added in THIS edit (never the editor themselves) — masked as "Borivon".
   await notifyAttendees(db, id, title, attendee_ids.filter((uid) => !oldIds.has(uid) && uid !== auth.userId));
+  // Push the edit into connected Google calendars (no-op unless OAuth configured).
+  try {
+    await fanOutUpsert([{
+      id, title, description: MAX(body.description, 4000),
+      starts_at: new Date(startMs).toISOString(), ends_at,
+      location: MAX(body.location, 200), link_url: safeLinkUrl(body.link_url), attendee_ids,
+    }]);
+  } catch (e) { console.error("[portal/calendar] gcal push:", (e as Error)?.message); }
   return NextResponse.json({ ok: true });
 }
 
@@ -278,5 +295,7 @@ export async function DELETE(req: NextRequest) {
     console.error("[portal/calendar] delete error:", error.message);
     return NextResponse.json({ error: "delete_failed" }, { status: 500 });
   }
+  // Remove it from connected Google calendars (no-op unless OAuth configured).
+  try { await fanOutDelete(id); } catch (e) { console.error("[portal/calendar] gcal delete:", (e as Error)?.message); }
   return NextResponse.json({ ok: true });
 }
