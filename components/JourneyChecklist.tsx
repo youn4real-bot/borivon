@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
-import { Check, Crown, Building2, User, Trash2, Plus } from "lucide-react";
+import { Check, Crown, Building2, User, Trash2, Plus, CalendarClock, AlertTriangle } from "lucide-react";
 import { journeyItemLabel, canToggle, type JourneyOwner } from "@/lib/candidateJourney";
 import { onJourneyChange, emitJourneyChange } from "@/lib/journeyBus";
 
@@ -17,14 +17,32 @@ type Item = {
   preset_key: string | null;
   position: number;
   created_by: string | null;
+  due_date: string | null;       // "YYYY-MM-DD"
+  blocked: boolean;
+  blocked_reason: string | null;
 };
+
+// Whole days from today (Casablanca) to a YYYY-MM-DD (negative = overdue).
+function daysToDue(due: string | null): number | null {
+  if (!due) return null;
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Africa/Casablanca", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const a = Date.parse(`${today}T00:00:00Z`), b = Date.parse(`${due}T00:00:00Z`);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  return Math.round((b - a) / 86_400_000);
+}
 
 const T = {
   en: { complete: "complete", add: "Add a step…", empty: "No steps yet.", none: "Nothing assigned to you yet.", completed: "Completed", hide: "Hide completed",
+    block: "Block", blocked: "Blocked", blockReason: "Why is it blocked?", dueToday: "due today",
+    overdueBy: (n: number) => `${n}d overdue`, inDays: (n: number) => `in ${n}d`,
     owners: { borivon: "Borivon", organization: "Organization", candidate: "Candidate" } as Record<JourneyOwner, string> },
   fr: { complete: "complété", add: "Ajouter une étape…", empty: "Aucune étape.", none: "Rien ne vous est encore assigné.", completed: "Terminé", hide: "Masquer",
+    block: "Bloquer", blocked: "Bloqué", blockReason: "Pourquoi bloqué ?", dueToday: "dû aujourd'hui",
+    overdueBy: (n: number) => `${n}j de retard`, inDays: (n: number) => `dans ${n}j`,
     owners: { borivon: "Borivon", organization: "Organisation", candidate: "Candidat" } as Record<JourneyOwner, string> },
   de: { complete: "abgeschlossen", add: "Schritt hinzufügen…", empty: "Noch keine Schritte.", none: "Ihnen ist noch nichts zugewiesen.", completed: "Erledigt", hide: "Ausblenden",
+    block: "Blockieren", blocked: "Blockiert", blockReason: "Warum blockiert?", dueToday: "heute fällig",
+    overdueBy: (n: number) => `${n} T. überfällig`, inDays: (n: number) => `in ${n} T.`,
     owners: { borivon: "Borivon", organization: "Organisation", candidate: "Kandidat" } as Record<JourneyOwner, string> },
 };
 
@@ -119,6 +137,25 @@ export function JourneyChecklist({ candidateUserId }: { candidateUserId: string 
     } finally { setAdding(false); }
   }
 
+  // Managing parties (Borivon / org) set deadlines + block flags; candidate can't.
+  const canManage = party === "borivon" || party === "organization";
+
+  // Generic optimistic PATCH for the autopilot fields (due_date / blocked / reason).
+  async function patchItem(it: Item, fields: Partial<Pick<Item, "due_date" | "blocked" | "blocked_reason">>) {
+    if (!canManage) return;
+    const prev = items;
+    setItems(p => p.map(x => x.id === it.id ? { ...x, ...fields } : x));
+    const res = await fetch("/api/portal/journey", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ candidateId: candidateUserId, id: it.id, ...fields }),
+    }).catch(() => null);
+    if (!res || !res.ok) { setItems(prev); return; }
+    const j = await res.json().catch(() => ({}));
+    if (j.item) setItems(p => p.map(x => x.id === it.id ? (j.item as Item) : x));
+    emitJourneyChange(candidateUserId);
+  }
+
   // Text edit is only permitted by the server for Borivon on CUSTOM items
   // (presets are re-labelled by key; org/candidate can't rename).
   const canEditText = (it: Item) => party === "borivon" && !it.preset_key;
@@ -158,8 +195,14 @@ export function JourneyChecklist({ candidateUserId }: { candidateUserId: string 
   const renderItem = (it: Item) => {
     const togglable = !!party && canToggle(party, it.owner);
     const os = OWNER_STYLE[it.owner];
+    const dd = daysToDue(it.due_date);
+    const overdue = !it.done && dd !== null && dd < 0;
+    const dueColor = it.done ? "var(--w3)" : overdue ? "#f97316" : (dd !== null && dd <= 7) ? "#f59e0b" : "var(--w3)";
     return (
-      <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 10px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--card)" }}>
+      <div key={it.id} style={{ display: "flex", flexDirection: "column", gap: 7, padding: "9px 10px", borderRadius: 10,
+        border: it.blocked && !it.done ? "1px solid rgba(239,68,68,0.5)" : "1px solid var(--border)",
+        background: it.blocked && !it.done ? "rgba(239,68,68,0.06)" : "var(--card)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <button onClick={() => void toggleItem(it)} disabled={!togglable} aria-label="toggle"
           style={{ flexShrink: 0, width: 20, height: 20, borderRadius: 6, padding: 0, display: "flex", alignItems: "center", justifyContent: "center",
             cursor: togglable ? "pointer" : "default",
@@ -198,6 +241,43 @@ export function JourneyChecklist({ candidateUserId }: { candidateUserId: string 
             <Trash2 size={15} />
           </button>
         )}
+      </div>
+
+      {/* Autopilot controls — deadline + blocked. Managing parties only, open
+          items only (a finished step needs no deadline). */}
+      {canManage && !it.done && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", paddingLeft: 30 }}>
+          {/* Due date */}
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, color: dueColor, cursor: "pointer" }}>
+            <CalendarClock size={13} />
+            <input type="date" value={it.due_date ?? ""}
+              onChange={e => void patchItem(it, { due_date: e.target.value || null })}
+              style={{ fontSize: 11.5, padding: "2px 6px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg2)", color: dueColor, colorScheme: "dark" }} />
+            {dd !== null && (
+              <span style={{ fontWeight: 600 }}>
+                {overdue ? L.overdueBy(-dd) : dd === 0 ? L.dueToday : L.inDays(dd)}
+              </span>
+            )}
+          </label>
+          {/* Blocked toggle */}
+          <button onClick={() => void patchItem(it, { blocked: !it.blocked })}
+            style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11.5, fontWeight: 600, cursor: "pointer",
+              padding: "3px 9px", borderRadius: 999,
+              border: it.blocked ? "1px solid rgba(239,68,68,0.5)" : "1px solid var(--border)",
+              background: it.blocked ? "rgba(239,68,68,0.13)" : "transparent",
+              color: it.blocked ? "#ef4444" : "var(--w3)" }}>
+            <AlertTriangle size={12} /> {it.blocked ? L.blocked : L.block}
+          </button>
+          {/* Blocked reason (only when blocked) */}
+          {it.blocked && (
+            <input defaultValue={it.blocked_reason ?? ""}
+              onBlur={e => { const v = e.target.value.trim(); if (v !== (it.blocked_reason ?? "")) void patchItem(it, { blocked_reason: v }); }}
+              onKeyDown={e => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+              placeholder={L.blockReason}
+              style={{ flex: "1 1 140px", minWidth: 120, fontSize: 11.5, padding: "3px 8px", borderRadius: 6, border: "1px solid rgba(239,68,68,0.4)", background: "var(--bg2)", color: "var(--w)" }} />
+          )}
+        </div>
+      )}
       </div>
     );
   };

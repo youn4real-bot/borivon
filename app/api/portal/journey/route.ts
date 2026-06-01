@@ -103,7 +103,16 @@ async function resolveAccess(
   }
 }
 
-const SELECT = "id, text, owner, done, done_by, done_at, preset_key, position, created_by";
+const SELECT = "id, text, owner, done, done_by, done_at, preset_key, position, created_by, due_date, blocked, blocked_reason";
+
+/** Validate a due-date input → {ok,value} where value is "YYYY-MM-DD" or null (clear). */
+function parseDueDate(v: unknown): { ok: boolean; value: string | null } {
+  if (v === null || v === "") return { ok: true, value: null };
+  if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && Number.isFinite(Date.parse(`${v}T00:00:00Z`))) {
+    return { ok: true, value: v };
+  }
+  return { ok: false, value: null };
+}
 
 /** Idempotently seed the preset milestones onto a candidate (no-op if present). */
 async function seedPresets(candidateId: string) {
@@ -154,6 +163,11 @@ export async function GET(req: NextRequest) {
       void done_by; void created_by;
       return rest;
     });
+  }
+  // blocked_reason is an internal management note (e.g. "authority backlog").
+  // The candidate never sees it; Borivon + the partner org do.
+  if (g.access.party === "candidate") {
+    items = items.map(({ blocked_reason, ...rest }) => { void blocked_reason; return rest; });
   }
 
   return NextResponse.json({
@@ -245,6 +259,29 @@ export async function PATCH(req: NextRequest) {
     const txt = body.text.trim().slice(0, MAX_TEXT);
     if (!txt) return NextResponse.json({ error: "text empty" }, { status: 400 });
     patch.text = txt;
+  }
+
+  // ── Autopilot management fields: due date + blocked state ──────────────────
+  // These drive the pipeline board. Only the managing parties (Borivon / org)
+  // set them — the candidate never sets their own deadlines or block flags.
+  const managing = g.access.party === "borivon" || g.access.party === "organization";
+
+  if ("due_date" in body) {
+    if (!managing) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    const d = parseDueDate(body.due_date);
+    if (!d.ok) return NextResponse.json({ error: "invalid due_date" }, { status: 400 });
+    patch.due_date = d.value;
+  }
+
+  if (typeof body.blocked === "boolean") {
+    if (!managing) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    patch.blocked = body.blocked;
+    if (!body.blocked) patch.blocked_reason = null; // clearing a block clears its reason
+  }
+
+  if (typeof body.blocked_reason === "string") {
+    if (!managing) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    patch.blocked_reason = body.blocked_reason.trim().slice(0, MAX_TEXT) || null;
   }
 
   if (Object.keys(patch).length === 1) {

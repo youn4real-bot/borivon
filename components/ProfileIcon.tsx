@@ -544,6 +544,22 @@ export function ProfileIcon() {
                   {T.academyTeaching}
                 </button>
               )}
+              {/* Anerkennung / Visa Autopilot — pipeline board (who's stuck where).
+                  Supreme admin + sub-admins. */}
+              {user.isAdmin && (
+                <button
+                  onClick={() => { setOpen(false); router.push("/portal/admin/pipeline"); }}
+                  className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
+                  style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "var(--bg2)"; e.currentTarget.style.color = "var(--w)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--w2)"; }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/>
+                  </svg>
+                  {lang === "fr" ? "Pipeline" : lang === "de" ? "Pipeline" : "Pipeline"}
+                </button>
+              )}
               {/* Online-course registrations (public /online-courses leads).
                   Supreme admin + sub-admins. */}
               {user.isAdmin && (

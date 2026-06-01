@@ -1315,6 +1315,13 @@ export default function AdminPage() {
             const navEmail  = params.get("nav_email");
             const navDoc    = params.get("nav_doc");
             const navDocId  = params.get("nav_doc_id");
+            const navUserId = params.get("nav_user_id");
+            // Deep-link straight to a candidate by id (from the Pipeline board).
+            if (navUserId && (json.users ?? {})[navUserId]) {
+              setSelectedUser(navUserId);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+              window.history.replaceState({}, "", window.location.pathname);
+            }
             if (navEmail) {
               const uid = Object.keys(json.users ?? {}).find(
                 (id: string) => ((json.users[id]?.email as string) ?? "").toLowerCase() === navEmail.toLowerCase()
