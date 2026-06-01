@@ -172,6 +172,19 @@ function downloadICS(ev: Ev) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// Calendar providers, in the order shown. The viewer's last pick is remembered
+// (localStorage) and becomes the default button action.
+type CalKey = "outlook" | "google" | "apple" | "office365" | "yahoo";
+const CAL_OPTIONS: { key: CalKey; label: string }[] = [
+  { key: "outlook",   label: "Outlook" },
+  { key: "google",    label: "Google Calendar" },
+  { key: "apple",     label: "Apple Calendar" },
+  { key: "office365", label: "Microsoft 365" },
+  { key: "yahoo",     label: "Yahoo" },
+];
+const CAL_PROVIDER_LABEL = (k: CalKey): string => CAL_OPTIONS.find((o) => o.key === k)?.label ?? "";
+const CAL_STORAGE_KEY = "bv_cal_provider";
+
 export default function CalendarPage() {
   const router = useRouter();
   const { lang } = useLang();
@@ -208,9 +221,12 @@ export default function CalendarPage() {
   const [peopleLoaded, setPeopleLoaded] = useState(false);
   const [tagQuery, setTagQuery] = useState("");
   const tagInputRef = useRef<HTMLInputElement>(null);
-  // "Add to calendar" dropdown on the event detail (every user gets this).
+  // "Add to calendar" on the event detail (every user). The viewer's last-picked
+  // provider is remembered and becomes the default button action; the pencil
+  // reopens the provider list.
   const [addCalOpen, setAddCalOpen] = useState(false);
-  const addCalRef = useRef<HTMLButtonElement>(null);
+  const [calDefault, setCalDefault] = useState<CalKey | null>(null);
+  const addCalRef = useRef<HTMLDivElement>(null);
 
   // ── Auth'd fetch (fresh token, same stale-token guard as other pages) ───────
   const authedFetch = useCallback(async (url: string, init?: RequestInit) => {
@@ -270,6 +286,14 @@ export default function CalendarPage() {
 
   // Close the add-to-calendar dropdown whenever the open event changes/closes.
   useEffect(() => { setAddCalOpen(false); }, [detail]);
+
+  // Remember the viewer's preferred calendar provider across sessions.
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem(CAL_STORAGE_KEY);
+      if (v && CAL_OPTIONS.some((o) => o.key === v)) setCalDefault(v as CalKey);
+    } catch { /* ignore */ }
+  }, []);
 
   // ── Derived calendar data ───────────────────────────────────────────────────
   const todayYMD = casaYMD(now);
@@ -367,11 +391,19 @@ export default function CalendarPage() {
   const closeAdd = () => { setAddOpen(false); setEditingId(null); };
 
   // Drop the event into the viewer's own calendar (web deep link or .ics).
-  const addToCalendar = (ev: Ev, key: "outlook" | "google" | "apple" | "office365" | "yahoo") => {
+  const addToCalendar = (ev: Ev, key: CalKey) => {
     if (key === "apple") { downloadICS(ev); return; }
     const url = calendarUrls(ev)[key];
     if (url) window.open(url, "_blank", "noopener,noreferrer");
   };
+  // Persist the viewer's chosen provider so it becomes the default next time.
+  const chooseDefault = (key: CalKey) => {
+    setCalDefault(key);
+    try { localStorage.setItem(CAL_STORAGE_KEY, key); } catch { /* ignore */ }
+  };
+  // Localised "Add to <Provider>" (German puts the verb last).
+  const addToLabel = (provider: string) =>
+    lang === "de" ? `Zu ${provider} hinzufügen` : lang === "fr" ? `Ajouter à ${provider}` : `Add to ${provider}`;
 
   const saveEvent = async () => {
     const startsISO = draft.date && draft.time ? casaWallToISO(draft.date, draft.time) : null;
@@ -686,29 +718,47 @@ export default function CalendarPage() {
                     </a>
                   )}
 
-                  {/* Add to calendar — EVERY viewer can drop this into their own calendar. */}
-                  <div className="relative">
-                    <button ref={addCalRef} onClick={() => setAddCalOpen((o) => !o)}
-                      className="bv-press w-full inline-flex items-center justify-center gap-1.5 text-[13px] font-semibold px-4 py-2.5"
-                      style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)", borderRadius: "var(--r-md)" }}>
-                      <CalendarPlus size={15} style={{ color: "var(--gold)" }} />
-                      {T("Add to calendar", "Zum Kalender hinzufügen", "Ajouter au calendrier")}
-                      <ChevronDown size={14} style={{ opacity: 0.6 }} />
-                    </button>
+                  {/* Add to calendar — EVERY viewer. Remembers their last pick as
+                      the default action; the pencil reopens the provider list. */}
+                  <div ref={addCalRef} className="relative">
+                    {calDefault ? (
+                      <div className="flex items-stretch overflow-hidden" style={{ border: "1px solid var(--border)", borderRadius: "var(--r-md)", background: "var(--bg2)" }}>
+                        <button type="button" onClick={() => addToCalendar(detail, calDefault)}
+                          className="bv-press flex-1 inline-flex items-center justify-center gap-1.5 text-[13px] font-semibold px-4 py-2.5"
+                          style={{ color: "var(--w)" }}>
+                          <CalendarPlus size={15} style={{ color: "var(--gold)" }} />
+                          {addToLabel(CAL_PROVIDER_LABEL(calDefault))}
+                        </button>
+                        <button type="button" onClick={() => setAddCalOpen((o) => !o)}
+                          aria-label={T("Change calendar", "Kalender ändern", "Changer de calendrier")}
+                          className="bv-press inline-flex items-center justify-center px-3"
+                          style={{ color: "var(--w3)", borderLeft: "1px solid var(--border)" }}>
+                          <Pencil size={13} />
+                        </button>
+                      </div>
+                    ) : (
+                      <button type="button" onClick={() => setAddCalOpen((o) => !o)}
+                        className="bv-press w-full inline-flex items-center justify-center gap-1.5 text-[13px] font-semibold px-4 py-2.5"
+                        style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)", borderRadius: "var(--r-md)" }}>
+                        <CalendarPlus size={15} style={{ color: "var(--gold)" }} />
+                        {T("Add to calendar", "Zum Kalender hinzufügen", "Ajouter au calendrier")}
+                        <ChevronDown size={14} style={{ opacity: 0.6 }} />
+                      </button>
+                    )}
                     <DropdownMenu open={addCalOpen} onClose={() => setAddCalOpen(false)} anchor={addCalRef.current}
                       above align="left" minWidth={addCalRef.current?.offsetWidth ?? 240}>
-                      {([
-                        { key: "outlook",   label: "Outlook" },
-                        { key: "google",    label: "Google Calendar" },
-                        { key: "apple",     label: "Apple Calendar" },
-                        { key: "office365", label: "Microsoft 365" },
-                        { key: "yahoo",     label: "Yahoo" },
-                      ] as const).map((opt, i) => (
+                      {CAL_OPTIONS.map((opt, i) => (
                         <button key={opt.key} type="button"
-                          onClick={() => { addToCalendar(detail, opt.key); setAddCalOpen(false); }}
+                          onClick={() => { addToCalendar(detail, opt.key); chooseDefault(opt.key); setAddCalOpen(false); }}
                           className="bv-row-hover w-full text-left px-3.5 py-2.5 flex items-center gap-2.5 text-[13px]"
                           style={{ color: "var(--w)", borderTop: i === 0 ? "none" : "1px solid var(--border)" }}>
                           <CalendarPlus size={14} style={{ color: "var(--gold)" }} /> {opt.label}
+                          {calDefault === opt.key && (
+                            <span className="ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded-full"
+                              style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                              {T("Default", "Standard", "Défaut")}
+                            </span>
+                          )}
                         </button>
                       ))}
                     </DropdownMenu>
