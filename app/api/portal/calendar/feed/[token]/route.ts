@@ -43,15 +43,24 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ token: str
 
   const db = getServiceSupabase();
 
+  // The supreme admin sees EVERY event in their feed (mirrors the page's
+  // canManage). We only have the userId here, so resolve their email to check.
+  let canManage = false;
+  try {
+    const { data: u } = await db.auth.admin.getUserById(userId);
+    const email = (u?.user?.email ?? "").trim().toLowerCase();
+    canManage = !!email && email === (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
+  } catch { /* lookup failed → treat as a normal subscriber */ }
+
   // Premium gate mirrors the page: a non-premium subscriber still SEES a legacy
-  // VIP event's title/time but not its join link / description.
+  // VIP event's title/time but not its join link / description. Admin = premium.
   const { data: prof } = await db
     .from("candidate_profiles")
     .select("payment_tier, manually_verified")
     .eq("user_id", userId)
     .maybeSingle();
   const p = prof as { payment_tier?: string | null; manually_verified?: boolean } | null;
-  const premium = !!p && (p.payment_tier === "premium" || !!p.manually_verified);
+  const premium = canManage || (!!p && (p.payment_tier === "premium" || !!p.manually_verified));
 
   const { data } = await db
     .from("calendar_events")
@@ -60,6 +69,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ token: str
     .limit(1000);
 
   const rows = ((data ?? []) as Row[]).filter((e) => {
+    if (canManage) return true;                 // supreme admin sees everything
     const att = e.attendee_ids ?? [];
     return att.length === 0 || att.includes(userId);
   });
