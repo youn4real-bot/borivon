@@ -1247,44 +1247,75 @@ function HobbiesField({ value, onChange }: { value: string; onChange: (v: string
  *  term (de) into the work entry's taetigkeiten[] (printed on the CV); fr/en are
  *  display-only so a non-German candidate can recognise + pick the right duties.
  *  A "+ eigene" escape allows anything not in the catalog. */
+// CV-quality caps for the duties list (keeps the printed CV tight + scannable).
+const MAX_TAETIGKEITEN = 6;   // at most 6 bullets per job
+const MAX_DUTY_WORDS = 8;     // at most 8 words per bullet
+
+/** Trim a free-text duty to MAX_DUTY_WORDS words (collapses extra whitespace). */
+function clampDutyWords(s: string): string {
+  return s.trim().split(/\s+/).filter(Boolean).slice(0, MAX_DUTY_WORDS).join(" ");
+}
+
 function TaetigkeitenField({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
   const { lang } = useLang();
   const set = new Set(value);
   const customs = value.filter(it => !NURSING_DUTIES.some(d => d.de === it));
-  const toggle = (de: string) => onChange(set.has(de) ? value.filter(i => i !== de) : [...value, de]);
-  const addCustom = (v: string) => { if (!value.includes(v)) onChange([...value, v]); };
+  const atMax = value.length >= MAX_TAETIGKEITEN;
+  // Adding is blocked at the cap; removing/deselecting always allowed.
+  const toggle = (de: string) => {
+    if (set.has(de)) onChange(value.filter(i => i !== de));
+    else if (!atMax) onChange([...value, de]);
+  };
+  const addCustom = (v: string) => {
+    const t = clampDutyWords(v);
+    if (t && !value.includes(t) && !atMax) onChange([...value, t]);
+  };
   const removeItem = (c: string) => onChange(value.filter(i => i !== c));
   const otherLabel = lang === "de" ? "Andere…" : lang === "en" ? "Other…" : "Autre…";
   return (
-    <div className="flex flex-wrap gap-2 mt-2">
-      {NURSING_DUTIES.map(d => {
-        const selected = set.has(d.de);
-        const label = d[lang as "fr" | "en" | "de"] ?? d.de;
-        return (
-          <button key={d.de} type="button" onClick={() => toggle(d.de)}
-            className="text-[13px] px-4 py-2 rounded-full transition-all"
-            style={{ background: selected ? "var(--gdim)" : "var(--bg2)", color: selected ? "var(--gold)" : "var(--w2)", border: "none", fontWeight: selected ? 600 : 400 }}>
-            {label}
-          </button>
-        );
-      })}
-      {customs.map(c => (
-        <span key={c} className="inline-flex items-center gap-1.5 text-[13px] px-4 py-2 rounded-full font-semibold"
-          style={{ background: "var(--gdim)", color: "var(--gold)" }}>
-          {c}
-          <button onClick={() => removeItem(c)} aria-label="Remove"
-            className="inline-flex items-center justify-center w-4 h-4 rounded-full transition-opacity hover:opacity-70"
-            style={{ background: "transparent", border: "none", color: "var(--gold)", cursor: "pointer" }}>
-            <XIcon size={10} strokeWidth={2} />
-          </button>
-        </span>
-      ))}
-      <OtherChipInput
-        label={otherLabel}
-        placeholder={lang === "de" ? "Tätigkeit…" : lang === "en" ? "Activity…" : "Tâche…"}
-        onAdd={addCustom}
-      />
-    </div>
+    <>
+      <div className="flex flex-wrap gap-2 mt-2">
+        {NURSING_DUTIES.map(d => {
+          const selected = set.has(d.de);
+          const label = d[lang as "fr" | "en" | "de"] ?? d.de;
+          const blocked = !selected && atMax; // can't add more, but can still deselect
+          return (
+            <button key={d.de} type="button" onClick={() => toggle(d.de)} disabled={blocked}
+              className="text-[13px] px-4 py-2 rounded-full transition-all"
+              style={{ background: selected ? "var(--gdim)" : "var(--bg2)", color: selected ? "var(--gold)" : "var(--w2)", border: "none", fontWeight: selected ? 600 : 400, opacity: blocked ? 0.4 : 1, cursor: blocked ? "not-allowed" : "pointer" }}>
+              {label}
+            </button>
+          );
+        })}
+        {customs.map(c => (
+          <span key={c} className="inline-flex items-center gap-1.5 text-[13px] px-4 py-2 rounded-full font-semibold"
+            style={{ background: "var(--gdim)", color: "var(--gold)" }}>
+            {c}
+            <button onClick={() => removeItem(c)} aria-label="Remove"
+              className="inline-flex items-center justify-center w-4 h-4 rounded-full transition-opacity hover:opacity-70"
+              style={{ background: "transparent", border: "none", color: "var(--gold)", cursor: "pointer" }}>
+              <XIcon size={10} strokeWidth={2} />
+            </button>
+          </span>
+        ))}
+        {/* The "Other…" free-text chip disappears at the cap so no 7th can be typed. */}
+        {!atMax && (
+          <OtherChipInput
+            label={otherLabel}
+            placeholder={lang === "de" ? "Tätigkeit…" : lang === "en" ? "Activity…" : "Tâche…"}
+            onAdd={addCustom}
+          />
+        )}
+      </div>
+      {/* Live counter + cap hint (3–6 bullets; ≤8 words each). */}
+      <p className="text-[11px] mt-1.5" style={{ color: value.length < 3 ? "var(--gold)" : "var(--w3)" }}>
+        {lang === "de"
+          ? `${value.length}/6 Tätigkeiten · mind. 3, max. 6 (≤ 8 Wörter)`
+          : lang === "en"
+          ? `${value.length}/6 activities · min 3, max 6 (≤ 8 words each)`
+          : `${value.length}/6 tâches · min 3, max 6 (≤ 8 mots)`}
+      </p>
+    </>
   );
 }
 
@@ -4179,10 +4210,11 @@ function CVBuilderInner() {
                           : [...stored, ...Array(3 - stored.length).fill("")];
                         const updateBullet = (i: number, val: string) => {
                           const next = [...rows];
-                          next[i] = val;
+                          // Cap each bullet at 8 words for a tight, scannable CV line.
+                          next[i] = val.split(/\s+/).length > MAX_DUTY_WORDS ? clampDutyWords(val) : val;
                           updateWork(entry.id, { taetigkeiten: next });
                         };
-                        const addBullet = () => updateWork(entry.id, { taetigkeiten: [...rows, ""] });
+                        const addBullet = () => { if (rows.length < MAX_TAETIGKEITEN) updateWork(entry.id, { taetigkeiten: [...rows, ""] }); };
                         const removeBullet = (i: number) => {
                           updateWork(entry.id, { taetigkeiten: rows.filter((_, j) => j !== i) });
                         };
@@ -4244,11 +4276,14 @@ function CVBuilderInner() {
                                 </div>
                               ))}
                             </div>
-                            <button type="button" onClick={addBullet}
-                              className="mt-2 inline-flex items-center gap-1 text-[12px] font-semibold transition-opacity hover:opacity-80"
-                              style={{ background: "transparent", border: "none", color: "var(--gold)", cursor: "pointer" }}>
-                              {addAnother}
-                            </button>
+                            {/* "+ Add another" only until the 6-bullet cap. */}
+                            {rows.length < MAX_TAETIGKEITEN && (
+                              <button type="button" onClick={addBullet}
+                                className="mt-2 inline-flex items-center gap-1 text-[12px] font-semibold transition-opacity hover:opacity-80"
+                                style={{ background: "transparent", border: "none", color: "var(--gold)", cursor: "pointer" }}>
+                                {addAnother}
+                              </button>
+                            )}
                           </div>
                         );
                       })()
