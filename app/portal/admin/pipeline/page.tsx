@@ -16,7 +16,7 @@ import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
 import { JOURNEY_PRESETS } from "@/lib/candidateJourney";
 import { JourneyMap } from "@/components/JourneyMap";
-import { ArrowLeft, AlertTriangle, Clock, CheckCircle2, Search, Map as MapIcon, List, BadgeCheck, Sparkles } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Clock, CheckCircle2, Search, Map as MapIcon, List, BadgeCheck } from "lucide-react";
 
 type Health = "on_track" | "due_soon" | "overdue" | "blocked" | "done";
 type Status = {
@@ -78,12 +78,6 @@ export default function AdminPipelinePage() {
     return () => { cancelled = true; };
   }, [router]);
 
-  const counts = useMemo(() => {
-    const c = { blocked: 0, overdue: 0, due_soon: 0, on_track: 0, done: 0 };
-    for (const r of rows) c[r.status.health]++;
-    return c;
-  }, [rows]);
-
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return rows.filter((r) => {
@@ -112,71 +106,27 @@ export default function AdminPipelinePage() {
         <ArrowLeft size={15} strokeWidth={2} /> {T("Back to admin", "Zurück zum Admin", "Retour à l'admin")}
       </button>
 
-      <div className="mb-5">
-        <p className="bv-eyebrow">{T("Operations", "Betrieb", "Opérations")}</p>
+      <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
         <h1 className="bv-h1">{T("Pipeline", "Pipeline", "Pipeline")}</h1>
-        <p className="bv-body mt-1" style={{ color: "var(--w3)" }}>
-          {T("Every candidate's journey at a glance — who's stuck, what's overdue, what's next.",
-             "Jede Kandidaten-Reise auf einen Blick — wer feststeckt, was überfällig ist, was als Nächstes kommt.",
-             "Le parcours de chaque candidat en un coup d'œil — qui est bloqué, en retard, et la suite.")}
-        </p>
+        {/* Slim "ready to sell" pill — the dream-outcome number, minimalist. */}
+        {summary && (
+          <button onClick={() => setFilter(filter === "sellable" ? "all" : "sellable")}
+            className="bv-press inline-flex items-center gap-2 px-3.5 py-2"
+            style={{ borderRadius: 999, border: `1px solid ${filter === "sellable" ? "var(--gold)" : "var(--border-gold)"}`,
+              background: filter === "sellable" ? "var(--gold)" : "var(--gdim)" }}>
+            <BadgeCheck size={15} style={{ color: filter === "sellable" ? "#131312" : "var(--gold)" }} />
+            <span className="text-[13px] font-bold" style={{ color: filter === "sellable" ? "#131312" : "var(--w)" }}>{summary.sellable}</span>
+            <span className="text-[12.5px] font-medium" style={{ color: filter === "sellable" ? "#131312" : "var(--w2)" }}>
+              {T("ready to sell", "verkaufsbereit", "prêts à vendre")}
+            </span>
+            {summary.almost > 0 && (
+              <span className="text-[11px]" style={{ color: filter === "sellable" ? "rgba(0,0,0,0.6)" : "var(--w3)" }}>· +{summary.almost} {T("soon", "bald", "bientôt")}</span>
+            )}
+          </button>
+        )}
       </div>
 
-      {/* HERO — the dream outcome: candidates ready to sell to employers right now. */}
-      {summary && (
-        <button onClick={() => setFilter(filter === "sellable" ? "all" : "sellable")}
-          className="bv-press w-full text-left mb-4 overflow-hidden"
-          style={{ borderRadius: "var(--r-xl)", border: "1px solid var(--border-gold)",
-            background: "linear-gradient(135deg, color-mix(in srgb, var(--gold) 18%, transparent), color-mix(in srgb, var(--gold) 5%, transparent))",
-            padding: "20px 22px", outline: filter === "sellable" ? "2px solid var(--gold)" : "none" }}>
-          <div className="flex items-center gap-4">
-            <span className="flex-shrink-0 inline-flex items-center justify-center" style={{ width: 56, height: 56, borderRadius: 16, background: "var(--gold)", color: "#131312" }}>
-              <BadgeCheck size={30} strokeWidth={2} />
-            </span>
-            <div className="min-w-0">
-              <div className="flex items-baseline gap-2">
-                <span style={{ fontSize: 40, fontWeight: 800, lineHeight: 1, color: "var(--w)" }}>{summary.sellable}</span>
-                <span className="text-[15px] font-semibold" style={{ color: "var(--w2)" }}>
-                  {summary.sellable === 1
-                    ? T("candidate ready to sell", "Kandidat verkaufsbereit", "candidat prêt à vendre")
-                    : T("candidates ready to sell", "Kandidaten verkaufsbereit", "candidats prêts à vendre")}
-                </span>
-              </div>
-              <p className="text-[12.5px] mt-1.5 inline-flex items-center gap-1.5" style={{ color: "var(--gold)" }}>
-                <Sparkles size={13} />
-                {summary.almost > 0
-                  ? T(`${summary.almost} more almost there — close them this week.`,
-                      `${summary.almost} fast bereit — diese Woche abschließen.`,
-                      `${summary.almost} presque prêts — à finaliser cette semaine.`)
-                  : T("CV finalized + nursing diploma approved = ready for an employer.",
-                      "Lebenslauf fertig + Pflegediplom genehmigt = arbeitgeberbereit.",
-                      "CV finalisé + diplôme infirmier approuvé = prêt pour un employeur.")}
-              </p>
-            </div>
-            <span className="ml-auto hidden sm:block text-[11.5px] font-semibold px-3 py-1.5 rounded-full self-start"
-              style={{ background: filter === "sellable" ? "var(--gold)" : "var(--card)", color: filter === "sellable" ? "#131312" : "var(--w3)", border: "1px solid var(--border)" }}>
-              {filter === "sellable" ? T("Showing these ✓", "Diese werden gezeigt ✓", "Affichés ✓") : T("Show them →", "Anzeigen →", "Afficher →")}
-            </span>
-          </div>
-        </button>
-      )}
-
-      {/* Summary stat chips */}
-      <div className="flex flex-wrap gap-2 mb-4">
-        {([
-          ["blocked", counts.blocked], ["overdue", counts.overdue], ["due_soon", counts.due_soon],
-          ["on_track", counts.on_track], ["done", counts.done],
-        ] as const).map(([h, n]) => (
-          <span key={h} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12px] font-semibold"
-            style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w2)" }}>
-            <span style={{ width: 8, height: 8, borderRadius: 999, background: HEALTH_STYLE[h].dot }} />
-            {T(HEALTH_STYLE[h].label.en, HEALTH_STYLE[h].label.de, HEALTH_STYLE[h].label.fr)}
-            <span style={{ color: "var(--w)" }}>{n}</span>
-          </span>
-        ))}
-      </div>
-
-      {/* Search + attention filter */}
+      {/* Search + filters */}
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         <div className="relative flex-1" style={{ minWidth: 200 }}>
           <Search size={15} className="absolute" style={{ left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--w3)" }} />
