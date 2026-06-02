@@ -187,45 +187,59 @@ export function JourneyMap({
         </p>
       )}
 
-      {/* ── B2 sub-journey mini-rail — a second roadmap, parallel to the main one.
-            Candidates cluster at their current B2 micro-stage; the 'partial'
-            stage visibly loops back to 'booked'. ─────────────────────────────── */}
+      {/* ── B2 German certificate pathway — its OWN vertical rail, parallel to the
+            main journey. ALWAYS shown (even when empty) so the full B2 roadmap is
+            visible. The 'partial' stage visibly loops back to re-book (↩). ────── */}
       {(() => {
-        const b2Rows = rows.filter((r) => normalizeB2Stage(r.b2Stage) !== "not_started");
-        if (b2Rows.length === 0) return null;
         const byB2 = new Map<B2Stage, MapRow[]>();
-        for (const r of b2Rows) {
+        for (const r of rows) {
           const st = normalizeB2Stage(r.b2Stage);
+          if (st === "not_started") continue;
           const arr = byB2.get(st) ?? []; arr.push(r); byB2.set(st, arr);
         }
         const stages = B2_STAGES.filter((s) => s.key !== "not_started");
+        const placed = rows.length - (byB2.size === 0 ? rows.length : rows.filter(r => normalizeB2Stage(r.b2Stage) === "not_started").length);
         return (
-          <div style={{ marginTop: 22, paddingTop: 18, borderTop: "1px dashed var(--border)" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: "var(--w)" }}>🇩🇪 {T("B2 German — sub-journey", "B2 Deutsch — Teilreise", "B2 allemand — sous-parcours")}</span>
-              <span style={{ fontSize: 11, color: "var(--w3)" }}>{T("(runs in parallel)", "(läuft parallel)", "(en parallèle)")}</span>
+          <div style={{ marginTop: 24, paddingTop: 20, borderTop: "1px dashed var(--border)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+              <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--w)" }}>📜 {T("B2 German — certificate pathway", "B2 Deutsch — Zertifikatsweg", "B2 allemand — parcours de certification")}</span>
             </div>
-            <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 6 }}>
+            <p style={{ fontSize: 11, color: "var(--w3)", marginBottom: 16 }}>
+              {T("Runs in parallel to the main journey — flexible timing.", "Läuft parallel zur Hauptreise — flexibler Zeitpunkt.", "En parallèle du parcours principal — calendrier flexible.")}
+              {placed > 0 ? ` · ${placed}/${rows.length} ${T("on the pathway", "auf dem Weg", "sur le parcours")}` : ""}
+            </p>
+            {/* Vertical rail, same look as the main roadmap. */}
+            <div style={{ display: "flex", flexDirection: "column" }}>
               {stages.map((st, i) => {
                 const here = byB2.get(st.key) ?? [];
+                const last = i === stages.length - 1;
                 return (
-                  <div key={st.key} style={{ flex: "1 0 130px", minWidth: 130, display: "flex", flexDirection: "column", gap: 8 }}>
-                    {/* node + connector */}
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ width: 11, height: 11, borderRadius: 999, background: here.length ? st.color : "var(--bg2)", border: `2px solid ${here.length ? st.color : "var(--border)"}`, flexShrink: 0 }} />
-                      {i < stages.length - 1 && <span style={{ flex: 1, height: 2, background: "var(--border)" }} />}
-                      {/* the partial → booked loop hint */}
-                      {st.key === "partial" && <span title={T("loops back to re-book", "zurück zum Buchen", "retour à la réservation")} style={{ fontSize: 12, color: st.color }}>↩</span>}
+                  <div key={st.key} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                    {/* spine + node */}
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
+                      <span style={{ width: 13, height: 13, borderRadius: 999, marginTop: 4, background: here.length ? st.color : "var(--bg2)", border: `2px solid ${here.length ? st.color : "var(--border)"}` }} />
+                      {!last && <span style={{ flex: 1, width: 2, minHeight: 26, background: "var(--border)" }} />}
                     </div>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: here.length ? "var(--w)" : "var(--w3)", lineHeight: 1.2 }}>
-                      {st.label[(lang as "en" | "fr" | "de")] ?? st.label.en}
-                      {here.length > 0 && <span style={{ marginLeft: 5, color: st.color }}>{here.length}</span>}
-                    </div>
-                    {here.length > 0 && (
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                        {here.map((r) => <Dot key={r.userId} r={r} />)}
+                    {/* label + dots */}
+                    <div style={{ flex: 1, minWidth: 0, paddingBottom: 16 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: here.length ? 8 : 0 }}>
+                        <span style={{ fontSize: 12.5, fontWeight: 600, color: here.length ? "var(--w)" : "var(--w3)" }}>
+                          {st.label[(lang as "en" | "fr" | "de")] ?? st.label.en}
+                        </span>
+                        {st.key === "partial" && (
+                          <span title={T("loops back to re-book", "zurück zum erneuten Buchen", "retour à la réservation")}
+                            style={{ fontSize: 12, color: st.color, fontWeight: 700 }}>↩ {T("re-book", "neu buchen", "re-réserver")}</span>
+                        )}
+                        {here.length > 0 && (
+                          <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: `color-mix(in srgb, ${st.color} 18%, transparent)`, color: st.color }}>{here.length}</span>
+                        )}
                       </div>
-                    )}
+                      {here.length > 0 && (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+                          {here.map((r) => <Dot key={r.userId} r={r} />)}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
               })}
