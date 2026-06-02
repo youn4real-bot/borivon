@@ -170,12 +170,18 @@ export async function GET(req: NextRequest) {
     items = items.map(({ blocked_reason, ...rest }) => { void blocked_reason; return rest; });
   }
 
+  // The candidate's B2 sub-journey stage (parallel track on candidate_profiles).
+  const { data: prof } = await db
+    .from("candidate_profiles").select("b2_stage").eq("user_id", candidateId).maybeSingle();
+  const b2Stage = (prof as { b2_stage?: string } | null)?.b2_stage ?? "not_started";
+
   return NextResponse.json({
     items,
     party: g.access.party,
     canAdd: g.access.canAdd,
     canDelete: g.access.canDelete,
     allowedOwners: g.access.allowedOwners,
+    b2Stage,
   });
 }
 

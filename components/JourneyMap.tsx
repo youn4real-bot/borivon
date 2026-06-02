@@ -12,6 +12,7 @@
 
 import { useMemo, useState } from "react";
 import { JOURNEY_PRESETS } from "@/lib/candidateJourney";
+import { B2_STAGES, b2StageColor, b2StageLabel, normalizeB2Stage, type B2Stage } from "@/lib/b2Journey";
 
 type Health = "on_track" | "due_soon" | "overdue" | "blocked" | "done";
 type Status = {
@@ -20,7 +21,7 @@ type Status = {
   overdueCount: number; blockedCount: number; health: Health;
   parallel?: { key: string; done: boolean }[];
 };
-export type MapRow = { userId: string; name: string; photo: string | null; status: Status; sellable?: { sellable: boolean } };
+export type MapRow = { userId: string; name: string; photo: string | null; status: Status; sellable?: { sellable: boolean }; b2Stage?: string };
 
 const HEALTH_COLOR: Record<Health, string> = {
   blocked: "#ef4444", overdue: "#f97316", due_soon: "#f59e0b", on_track: "#16a34a", done: "#6b7280",
@@ -67,7 +68,7 @@ export function JourneyMap({
   const Dot = ({ r }: { r: MapRow }) => {
     const color = HEALTH_COLOR[r.status.health];
     const isHover = hover === r.userId;
-    const b2 = r.status.parallel?.find((p) => p.key === "b2_passed");
+    const b2Stage = normalizeB2Stage(r.b2Stage);
     return (
       <button
         onMouseEnter={() => setHover(r.userId)} onMouseLeave={() => setHover((h) => (h === r.userId ? null : h))}
@@ -96,14 +97,15 @@ export function JourneyMap({
         {r.sellable?.sellable && (
           <span style={{ position: "absolute", bottom: -3, right: -3, width: 11, height: 11, borderRadius: 999, background: "var(--gold)", border: "1.5px solid var(--card)" }} title="Ready to sell" />
         )}
-        {/* B2 badge (bottom-left) — green tick = passed, faint = still pending.
-            Parallel: independent of where they are on the rail. */}
-        {b2 && (
-          <span title={b2.done ? "B2 passed" : "B2 pending"}
-            style={{ position: "absolute", bottom: -4, left: -4, fontSize: 7, fontWeight: 800, lineHeight: 1,
-              padding: "2px 3px", borderRadius: 5, border: "1.5px solid var(--card)",
-              background: b2.done ? "#16a34a" : "var(--bg2)", color: b2.done ? "#fff" : "var(--w3)" }}>
-            B2
+        {/* B2 sub-stage badge (bottom-left) — colour = which B2 micro-phase the
+            candidate is in (searching / studying / booked / awaiting / partial /
+            passed). Independent of the main rail. Hidden when not started. */}
+        {b2Stage !== "not_started" && (
+          <span title={`B2: ${b2StageLabel(b2Stage, lang)}`}
+            style={{ position: "absolute", bottom: -3, left: -3, width: 12, height: 12, borderRadius: 999,
+              border: "1.5px solid var(--card)", background: b2StageColor(b2Stage),
+              display: "flex", alignItems: "center", justifyContent: "center", fontSize: 6, fontWeight: 800, color: "#fff" }}>
+            {b2Stage === "passed" ? "✓" : ""}
           </span>
         )}
         {isHover && (
@@ -199,6 +201,53 @@ export function JourneyMap({
           {T("No candidates yet.", "Noch keine Kandidaten.", "Aucun candidat.")}
         </p>
       )}
+
+      {/* ── B2 sub-journey mini-rail — a second roadmap, parallel to the main one.
+            Candidates cluster at their current B2 micro-stage; the 'partial'
+            stage visibly loops back to 'booked'. ─────────────────────────────── */}
+      {(() => {
+        const b2Rows = rows.filter((r) => normalizeB2Stage(r.b2Stage) !== "not_started");
+        if (b2Rows.length === 0) return null;
+        const byB2 = new Map<B2Stage, MapRow[]>();
+        for (const r of b2Rows) {
+          const st = normalizeB2Stage(r.b2Stage);
+          const arr = byB2.get(st) ?? []; arr.push(r); byB2.set(st, arr);
+        }
+        const stages = B2_STAGES.filter((s) => s.key !== "not_started");
+        return (
+          <div style={{ marginTop: 22, paddingTop: 18, borderTop: "1px dashed var(--border)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "var(--w)" }}>🇩🇪 {T("B2 German — sub-journey", "B2 Deutsch — Teilreise", "B2 allemand — sous-parcours")}</span>
+              <span style={{ fontSize: 11, color: "var(--w3)" }}>{T("(runs in parallel)", "(läuft parallel)", "(en parallèle)")}</span>
+            </div>
+            <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 6 }}>
+              {stages.map((st, i) => {
+                const here = byB2.get(st.key) ?? [];
+                return (
+                  <div key={st.key} style={{ flex: "1 0 130px", minWidth: 130, display: "flex", flexDirection: "column", gap: 8 }}>
+                    {/* node + connector */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ width: 11, height: 11, borderRadius: 999, background: here.length ? st.color : "var(--bg2)", border: `2px solid ${here.length ? st.color : "var(--border)"}`, flexShrink: 0 }} />
+                      {i < stages.length - 1 && <span style={{ flex: 1, height: 2, background: "var(--border)" }} />}
+                      {/* the partial → booked loop hint */}
+                      {st.key === "partial" && <span title={T("loops back to re-book", "zurück zum Buchen", "retour à la réservation")} style={{ fontSize: 12, color: st.color }}>↩</span>}
+                    </div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: here.length ? "var(--w)" : "var(--w3)", lineHeight: 1.2 }}>
+                      {st.label[(lang as "en" | "fr" | "de")] ?? st.label.en}
+                      {here.length > 0 && <span style={{ marginLeft: 5, color: st.color }}>{here.length}</span>}
+                    </div>
+                    {here.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                        {here.map((r) => <Dot key={r.userId} r={r} />)}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

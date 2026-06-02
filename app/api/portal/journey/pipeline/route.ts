@@ -3,6 +3,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, getVisibleCandidateIds } from "@/lib/admin-auth";
 import { computePipelineStatus, type JourneyRow } from "@/lib/journeyPipeline";
 import { evaluateSellable } from "@/lib/sellable";
+import { normalizeB2Stage, isB2Passed } from "@/lib/b2Journey";
 
 /**
  * Anerkennung / Visa Autopilot — pipeline overview (the admin "who's stuck where"
@@ -28,6 +29,7 @@ type ProfileRow = {
   first_name: string | null;
   last_name: string | null;
   profile_photo: string | null;
+  b2_stage: string | null;
 };
 
 export async function GET(req: NextRequest) {
@@ -42,7 +44,7 @@ export async function GET(req: NextRequest) {
   // Load candidate profiles in scope.
   let profQ = db
     .from("candidate_profiles")
-    .select("user_id, first_name, last_name, profile_photo");
+    .select("user_id, first_name, last_name, profile_photo, b2_stage");
   if (visible !== null) {
     if (visible.length === 0) return NextResponse.json({ today: casablancaToday(), candidates: [] });
     profQ = profQ.in("user_id", visible);
@@ -91,7 +93,8 @@ export async function GET(req: NextRequest) {
   const today = casablancaToday();
   const candidates = profiles.map((p) => {
     const journey = byCandidate.get(p.user_id) ?? [];
-    const status = computePipelineStatus(journey, today);
+    const b2Stage = normalizeB2Stage(p.b2_stage);
+    const status = computePipelineStatus(journey, today, isB2Passed(b2Stage));
     const sellable = evaluateSellable({ documents: docsByCandidate.get(p.user_id) ?? [], journey });
     const name = [p.first_name, p.last_name].filter(Boolean).join(" ").trim();
     return {
@@ -100,6 +103,7 @@ export async function GET(req: NextRequest) {
       photo: p.profile_photo ?? null,
       status,
       sellable,
+      b2Stage,
     };
   });
 

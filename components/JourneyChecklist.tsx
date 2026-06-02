@@ -6,6 +6,7 @@ import { useLang } from "@/components/LangContext";
 import { Check, Crown, Building2, User, Trash2, Plus, CalendarClock, AlertTriangle } from "lucide-react";
 import { journeyItemLabel, canToggle, type JourneyOwner } from "@/lib/candidateJourney";
 import { onJourneyChange, emitJourneyChange } from "@/lib/journeyBus";
+import { B2_STAGES, b2StageColor, normalizeB2Stage, type B2Stage } from "@/lib/b2Journey";
 
 type Item = {
   id: string;
@@ -60,6 +61,7 @@ function OwnerIcon({ owner, size = 11 }: { owner: JourneyOwner; size?: number })
 export function JourneyChecklist({ candidateUserId }: { candidateUserId: string }) {
   const { lang } = useLang();
   const L = T[lang as keyof typeof T] ?? T.en;
+  const T_B2 = { title: lang === "de" ? "B2 Deutsch — Phase" : lang === "fr" ? "B2 allemand — phase" : "B2 German — stage" };
 
   const [token, setToken] = useState("");
   const [items, setItems] = useState<Item[]>([]);
@@ -75,6 +77,7 @@ export function JourneyChecklist({ candidateUserId }: { candidateUserId: string 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [showDone, setShowDone] = useState(false); // collapse checked items
+  const [b2Stage, setB2Stage] = useState<B2Stage>("not_started");
 
   const load = useCallback(async (tk: string) => {
     const res = await fetch(`/api/portal/journey?candidateId=${candidateUserId}`, {
@@ -88,8 +91,22 @@ export function JourneyChecklist({ candidateUserId }: { candidateUserId: string 
     const ao = (j.allowedOwners ?? []) as JourneyOwner[];
     setAllowedOwners(ao);
     if (ao.length) setNewOwner(ao.includes("organization") ? "organization" : ao[0]);
+    setB2Stage(normalizeB2Stage(j.b2Stage));
     setLoaded(true);
   }, [candidateUserId]);
+
+  // Set the B2 sub-journey stage (managing parties only).
+  async function setB2(stage: B2Stage) {
+    const prev = b2Stage;
+    setB2Stage(stage);
+    const res = await fetch("/api/portal/journey/b2", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ candidateId: candidateUserId, stage }),
+    }).catch(() => null);
+    if (!res || !res.ok) { setB2Stage(prev); return; }
+    emitJourneyChange(candidateUserId);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -296,6 +313,37 @@ export function JourneyChecklist({ candidateUserId }: { candidateUserId: string 
           <div style={{ height: 7, borderRadius: 4, background: "var(--bg2)", overflow: "hidden" }}>
             <div style={{ width: `${pct}%`, height: "100%", background: pct === 100 ? "#16a34a" : pct >= 50 ? "#f59e0b" : "var(--gold)", transition: "width .3s" }} />
           </div>
+        </div>
+      )}
+
+      {/* B2 sub-journey — flexible parallel track. Managing parties pick the
+          micro-stage; candidate sees it read-only. */}
+      {party && (
+        <div style={{ marginBottom: 14, padding: "10px 12px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg2)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <span style={{ width: 9, height: 9, borderRadius: 999, background: b2StageColor(b2Stage), flexShrink: 0 }} />
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--w)" }}>{T_B2.title}</span>
+          </div>
+          {canManage ? (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+              {B2_STAGES.filter((s) => s.key !== "not_started").map((s) => {
+                const active = b2Stage === s.key;
+                return (
+                  <button key={s.key} onClick={() => void setB2(s.key)}
+                    style={{ fontSize: 11, fontWeight: 600, padding: "4px 9px", borderRadius: 999, cursor: "pointer",
+                      border: `1px solid ${active ? s.color : "var(--border)"}`,
+                      background: active ? s.color : "transparent",
+                      color: active ? "#fff" : "var(--w3)" }}>
+                    {s.label[(lang as "en" | "fr" | "de")] ?? s.label.en}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <span style={{ fontSize: 12, fontWeight: 600, color: b2StageColor(b2Stage) }}>
+              {(B2_STAGES.find((s) => s.key === b2Stage)?.label[(lang as "en" | "fr" | "de")]) ?? "—"}
+            </span>
+          )}
         </div>
       )}
 

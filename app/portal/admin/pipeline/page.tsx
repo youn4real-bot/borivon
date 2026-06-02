@@ -25,7 +25,7 @@ type Status = {
   overdueCount: number; blockedCount: number; health: Health;
 };
 type Sellable = { sellable: boolean; cvDone: boolean; diplomaApproved: boolean };
-type Row = { userId: string; name: string; photo: string | null; status: Status; sellable: Sellable };
+type Row = { userId: string; name: string; photo: string | null; status: Status; sellable: Sellable; b2Stage?: string };
 type Summary = { total: number; sellable: number; almost: number; needsAttention: number; arrived: number };
 
 const HEALTH_STYLE: Record<Health, { dot: string; label: { en: string; de: string; fr: string } }> = {

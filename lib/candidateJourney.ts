@@ -49,11 +49,12 @@ export const JOURNEY_PRESETS: JourneyPreset[] = [
   { key: "flight_booked",         owner: "borivon",      position: 8,  label: { en: "Flight booked",                       fr: "Vol réservé",                         de: "Flug gebucht" } },
   { key: "housing_arranged",      owner: "organization", position: 9,  label: { en: "Housing arranged",                    fr: "Logement organisé",                   de: "Unterkunft organisiert" } },
   { key: "arrived",               owner: "candidate",    position: 10, label: { en: "Arrived in Germany",                  fr: "Arrivé en Allemagne",                 de: "In Deutschland angekommen" } },
-  // Parallel — flexible timing, tracked as a credential badge (see `parallel`).
-  { key: "b2_passed",             owner: "candidate",    position: 99, parallel: true, label: { en: "B2 German passed", fr: "Allemand B2 réussi", de: "B2 Deutsch bestanden" } },
+  // NOTE: B2 is NOT a journey preset anymore — it's its own sub-journey tracked
+  // on candidate_profiles.b2_stage (see lib/b2Journey.ts). It runs in parallel
+  // to this rail with its own mini-roadmap + per-candidate badge.
 ];
 
-/** Sequential (rail-order) milestones only — excludes parallel ones like B2. */
+/** Sequential (rail-order) milestones only — excludes any parallel ones. */
 export const SEQUENTIAL_PRESETS: JourneyPreset[] = JOURNEY_PRESETS.filter((p) => !p.parallel);
 
 export const PRESET_BY_KEY: Record<string, JourneyPreset> =

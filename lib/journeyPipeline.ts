@@ -71,8 +71,12 @@ const DUE_SOON_DAYS = 7;
  * Compute a candidate's pipeline status from their journey rows.
  * @param rows     the candidate's candidate_journey_items
  * @param todayYMD "YYYY-MM-DD" (caller injects — e.g. Casablanca today)
+ * @param b2Passed whether the candidate's B2 sub-journey is complete (B2 runs in
+ *                 PARALLEL on candidate_profiles.b2_stage — it gates "fully
+ *                 arrived" but never sits on the rail). Defaults true so callers
+ *                 that don't track B2 are unaffected.
  */
-export function computePipelineStatus(rows: JourneyRow[], todayYMD: string): PipelineStatus {
+export function computePipelineStatus(rows: JourneyRow[], todayYMD: string, b2Passed: boolean = true): PipelineStatus {
   // Index whatever preset rows EXIST by key. A candidate whose journey was never
   // opened has NO preset rows — those milestones are implicitly NOT done (they
   // sit at the very start), never "complete". We therefore evaluate against the
@@ -92,11 +96,9 @@ export function computePipelineStatus(rows: JourneyRow[], todayYMD: string): Pip
   const doneCount = orderedPresets.filter((p) => rowByKey.get(p.key)?.done === true).length;
   const progress = totalPresets > 0 ? doneCount / totalPresets : 0;
 
-  // Parallel milestones (B2 …) — reported as badges, off the rail.
-  const parallel = JOURNEY_PRESETS.filter((p) => p.parallel).map((p) => ({
-    key: p.key,
-    done: rowByKey.get(p.key)?.done === true,
-  }));
+  // Parallel milestones — B2 lives on candidate_profiles.b2_stage now (passed in
+  // via b2Passed), so it's surfaced here as the single parallel badge.
+  const parallel = [{ key: "b2_passed", done: b2Passed }];
 
   // Open dated/blocked counts span ALL items (presets + custom), since a stuck
   // custom task still means the candidate is stuck.
