@@ -18,6 +18,7 @@ type Status = {
   progress: number; doneCount: number; totalPresets: number;
   current: { key: string; daysToDue: number | null; blocked: boolean } | null;
   overdueCount: number; blockedCount: number; health: Health;
+  parallel?: { key: string; done: boolean }[];
 };
 export type MapRow = { userId: string; name: string; photo: string | null; status: Status; sellable?: { sellable: boolean } };
 
@@ -66,6 +67,7 @@ export function JourneyMap({
   const Dot = ({ r }: { r: MapRow }) => {
     const color = HEALTH_COLOR[r.status.health];
     const isHover = hover === r.userId;
+    const b2 = r.status.parallel?.find((p) => p.key === "b2_passed");
     return (
       <button
         onMouseEnter={() => setHover(r.userId)} onMouseLeave={() => setHover((h) => (h === r.userId ? null : h))}
@@ -93,6 +95,16 @@ export function JourneyMap({
         {/* ready-to-sell gold dot (bottom-right) */}
         {r.sellable?.sellable && (
           <span style={{ position: "absolute", bottom: -3, right: -3, width: 11, height: 11, borderRadius: 999, background: "var(--gold)", border: "1.5px solid var(--card)" }} title="Ready to sell" />
+        )}
+        {/* B2 badge (bottom-left) — green tick = passed, faint = still pending.
+            Parallel: independent of where they are on the rail. */}
+        {b2 && (
+          <span title={b2.done ? "B2 passed" : "B2 pending"}
+            style={{ position: "absolute", bottom: -4, left: -4, fontSize: 7, fontWeight: 800, lineHeight: 1,
+              padding: "2px 3px", borderRadius: 5, border: "1.5px solid var(--card)",
+              background: b2.done ? "#16a34a" : "var(--bg2)", color: b2.done ? "#fff" : "var(--w3)" }}>
+            B2
+          </span>
         )}
         {isHover && (
           <span style={{

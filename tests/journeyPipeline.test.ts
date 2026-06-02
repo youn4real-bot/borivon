@@ -62,16 +62,40 @@ describe("computePipelineStatus", () => {
     expect(s.health).not.toBe("done");
   });
 
-  it("current step advances to the lowest-position not-done preset", () => {
+  it("current step advances to the lowest-position not-done SEQUENTIAL preset (skips parallel B2)", () => {
     const s = computePipelineStatus(
       presetRows({ docs_collected: { done: true }, cv_finalized: { done: true } }),
       TODAY,
     );
     expect(s.doneCount).toBe(2);
-    expect(s.current?.key).toBe("b2_passed"); // position 2
+    expect(s.current?.key).toBe("interview_first"); // B2 is parallel, not the next rail step
   });
 
-  it("all presets done → current null, health done, progress 1", () => {
+  it("B2 is PARALLEL: not passing it never makes the candidate 'stuck at B2'", () => {
+    // Far down the rail (through contract) but B2 still not passed → current is
+    // the next RAIL step (recognition), NOT b2_passed.
+    const s = computePipelineStatus(
+      presetRows({
+        docs_collected: { done: true }, cv_finalized: { done: true },
+        interview_first: { done: true }, interview_second: { done: true },
+        contract_signed: { done: true }, b2_passed: { done: false },
+      }),
+      TODAY,
+    );
+    expect(s.current?.key).toBe("recognition_submitted");
+    expect(s.parallel.find((p) => p.key === "b2_passed")?.done).toBe(false);
+  });
+
+  it("all RAIL stations done but B2 still pending → NOT fully arrived", () => {
+    const railDone = Object.fromEntries(
+      JOURNEY_PRESETS.filter((p) => !p.parallel).map((p) => [p.key, { done: true }]),
+    );
+    const s = computePipelineStatus(presetRows({ ...railDone, b2_passed: { done: false } }), TODAY);
+    expect(s.current).toBeNull();        // no rail step left
+    expect(s.health).not.toBe("done");   // …but B2 pending → not arrived
+  });
+
+  it("every preset (rail + B2) done → current null, health done, progress 1", () => {
     const all = Object.fromEntries(JOURNEY_PRESETS.map((p) => [p.key, { done: true }]));
     const s = computePipelineStatus(presetRows(all), TODAY);
     expect(s.current).toBeNull();

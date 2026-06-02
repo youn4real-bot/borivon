@@ -10,7 +10,7 @@
  * deterministic and unit-testable.
  */
 
-import { JOURNEY_PRESETS, PRESET_BY_KEY, type JourneyOwner } from "@/lib/candidateJourney";
+import { JOURNEY_PRESETS, SEQUENTIAL_PRESETS, PRESET_BY_KEY, type JourneyOwner } from "@/lib/candidateJourney";
 
 export type JourneyRow = {
   id: string;
@@ -48,6 +48,13 @@ export type PipelineStatus = {
   blockedCount: number;
   /** One rolled-up health signal for the row's color dot. */
   health: PipelineHealth;
+  /**
+   * Parallel (flexible-timing) milestones — e.g. B2 German. Reported separately
+   * as side badges; they DON'T affect the rail position / current step, but a
+   * not-done one DOES keep "arrived" from being true (you can't have fully
+   * arrived without B2).
+   */
+  parallel: { key: string; done: boolean }[];
 };
 
 /** Whole-day difference between two YYYY-MM-DD dates (b - a), UTC-safe. */
@@ -70,13 +77,26 @@ export function computePipelineStatus(rows: JourneyRow[], todayYMD: string): Pip
   // opened has NO preset rows — those milestones are implicitly NOT done (they
   // sit at the very start), never "complete". We therefore evaluate against the
   // canonical preset list, not just the rows present.
+  // Map rows by preset key, normalizing the legacy interview_done → interview_first
+  // so a not-yet-migrated DB row still counts toward the rail.
   const rowByKey = new Map<string, JourneyRow>();
-  for (const r of rows) if (r.preset_key && PRESET_BY_KEY[r.preset_key]) rowByKey.set(r.preset_key, r);
+  for (const r of rows) {
+    if (!r.preset_key) continue;
+    const key = r.preset_key === "interview_done" ? "interview_first" : r.preset_key;
+    if (PRESET_BY_KEY[key]) rowByKey.set(key, r);
+  }
 
-  const orderedPresets = JOURNEY_PRESETS.slice().sort((a, b) => a.position - b.position);
+  // The RAIL is sequential presets only — B2 (parallel) never sits on the rail.
+  const orderedPresets = SEQUENTIAL_PRESETS.slice().sort((a, b) => a.position - b.position);
   const totalPresets = orderedPresets.length;
   const doneCount = orderedPresets.filter((p) => rowByKey.get(p.key)?.done === true).length;
   const progress = totalPresets > 0 ? doneCount / totalPresets : 0;
+
+  // Parallel milestones (B2 …) — reported as badges, off the rail.
+  const parallel = JOURNEY_PRESETS.filter((p) => p.parallel).map((p) => ({
+    key: p.key,
+    done: rowByKey.get(p.key)?.done === true,
+  }));
 
   // Open dated/blocked counts span ALL items (presets + custom), since a stuck
   // custom task still means the candidate is stuck.
@@ -109,14 +129,19 @@ export function computePipelineStatus(rows: JourneyRow[], todayYMD: string): Pip
     };
   }
 
+  // "Fully arrived" = every sequential station done AND every parallel
+  // milestone (B2) done. So a candidate sitting at the last rail station with
+  // B2 still pending is NOT "done" yet.
+  const allParallelDone = parallel.every((p) => p.done);
+  const fullyArrived = !current && allParallelDone;
+
   // Roll up to one health signal (priority: done > blocked > overdue > due_soon > on_track).
-  // "done" requires ALL presets complete (current === null), NOT merely an empty list.
   let health: PipelineHealth;
-  if (!current) health = "done";
+  if (fullyArrived) health = "done";
   else if (blockedCount > 0) health = "blocked";
   else if (overdueCount > 0) health = "overdue";
-  else if (current.daysToDue !== null && current.daysToDue <= DUE_SOON_DAYS) health = "due_soon";
+  else if (current && current.daysToDue !== null && current.daysToDue <= DUE_SOON_DAYS) health = "due_soon";
   else health = "on_track";
 
-  return { progress, doneCount, totalPresets, current, overdueCount, blockedCount, health };
+  return { progress, doneCount, totalPresets, current, overdueCount, blockedCount, health, parallel };
 }
