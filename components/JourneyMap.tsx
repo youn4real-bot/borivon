@@ -12,7 +12,7 @@
 
 import { useMemo, useState } from "react";
 import { JOURNEY_PRESETS } from "@/lib/candidateJourney";
-import { B2_STAGES, b2StageColor, b2StageLabel, normalizeB2Stage, type B2Stage } from "@/lib/b2Journey";
+import { B2_STAGES, b2StageColor, normalizeB2Stage, type B2Stage } from "@/lib/b2Journey";
 
 type Health = "on_track" | "due_soon" | "overdue" | "blocked" | "done";
 type Status = {
@@ -65,10 +65,9 @@ export function JourneyMap({
     return p.label[(lang as "en" | "fr" | "de")] ?? p.label.en;
   };
 
-  const Dot = ({ r, showB2 = false }: { r: MapRow; showB2?: boolean }) => {
+  const Dot = ({ r }: { r: MapRow }) => {
     const color = HEALTH_COLOR[r.status.health];
     const isHover = hover === r.userId;
-    const b2Stage = normalizeB2Stage(r.b2Stage);
     return (
       <button
         onMouseEnter={() => setHover(r.userId)} onMouseLeave={() => setHover((h) => (h === r.userId ? null : h))}
@@ -89,25 +88,11 @@ export function JourneyMap({
             {initials(r.name)}
           </span>
         )}
-        {/* blocked badge */}
-        {r.status.health === "blocked" && (
-          <span style={{ position: "absolute", top: -3, right: -3, width: 10, height: 10, borderRadius: 999, background: "#ef4444", border: "1.5px solid var(--card)" }} />
-        )}
-        {/* ready-to-sell gold dot (bottom-right) */}
-        {r.sellable?.sellable && (
-          <span style={{ position: "absolute", bottom: -3, right: -3, width: 11, height: 11, borderRadius: 999, background: "var(--gold)", border: "1.5px solid var(--card)" }} title="Ready to sell" />
-        )}
-        {/* B2 sub-stage badge — ONLY rendered inside the dedicated B2 mini-rail
-            (showB2). The main Morocco→Germany rail stays clean: just the person
-            + their health ring, no B2 clutter on every avatar. */}
-        {showB2 && b2Stage !== "not_started" && (
-          <span title={`B2: ${b2StageLabel(b2Stage, lang)}`}
-            style={{ position: "absolute", bottom: -3, left: -3, width: 12, height: 12, borderRadius: 999,
-              border: "1.5px solid var(--card)", background: b2StageColor(b2Stage),
-              display: "flex", alignItems: "center", justifyContent: "center", fontSize: 6, fontWeight: 800, color: "#fff" }}>
-            {b2Stage === "passed" ? "✓" : ""}
-          </span>
-        )}
+        {/* The avatar is intentionally CLEAN — nothing overlaid on it. Status is
+            conveyed by the RING colour only (blocked = red ring). B2 stage is
+            shown by which column a candidate sits in within the B2 mini-rail
+            (grouping = the signal), and "ready to sell" lives in the list view +
+            hero. Per design: the face stands alone. */}
         {isHover && (
           <span style={{
             position: "absolute", bottom: "calc(100% + 6px)", left: "50%", transform: "translateX(-50%)",
@@ -238,7 +223,7 @@ export function JourneyMap({
                     </div>
                     {here.length > 0 && (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                        {here.map((r) => <Dot key={r.userId} r={r} showB2 />)}
+                        {here.map((r) => <Dot key={r.userId} r={r} />)}
                       </div>
                     )}
                   </div>
