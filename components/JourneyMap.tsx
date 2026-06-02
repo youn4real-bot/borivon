@@ -65,7 +65,7 @@ export function JourneyMap({
     return p.label[(lang as "en" | "fr" | "de")] ?? p.label.en;
   };
 
-  const Dot = ({ r }: { r: MapRow }) => {
+  const Dot = ({ r, showB2 = false }: { r: MapRow; showB2?: boolean }) => {
     const color = HEALTH_COLOR[r.status.health];
     const isHover = hover === r.userId;
     const b2Stage = normalizeB2Stage(r.b2Stage);
@@ -97,10 +97,10 @@ export function JourneyMap({
         {r.sellable?.sellable && (
           <span style={{ position: "absolute", bottom: -3, right: -3, width: 11, height: 11, borderRadius: 999, background: "var(--gold)", border: "1.5px solid var(--card)" }} title="Ready to sell" />
         )}
-        {/* B2 sub-stage badge (bottom-left) — colour = which B2 micro-phase the
-            candidate is in (searching / studying / booked / awaiting / partial /
-            passed). Independent of the main rail. Hidden when not started. */}
-        {b2Stage !== "not_started" && (
+        {/* B2 sub-stage badge — ONLY rendered inside the dedicated B2 mini-rail
+            (showB2). The main Morocco→Germany rail stays clean: just the person
+            + their health ring, no B2 clutter on every avatar. */}
+        {showB2 && b2Stage !== "not_started" && (
           <span title={`B2: ${b2StageLabel(b2Stage, lang)}`}
             style={{ position: "absolute", bottom: -3, left: -3, width: 12, height: 12, borderRadius: 999,
               border: "1.5px solid var(--card)", background: b2StageColor(b2Stage),
@@ -238,7 +238,7 @@ export function JourneyMap({
                     </div>
                     {here.length > 0 && (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                        {here.map((r) => <Dot key={r.userId} r={r} />)}
+                        {here.map((r) => <Dot key={r.userId} r={r} showB2 />)}
                       </div>
                     )}
                   </div>
