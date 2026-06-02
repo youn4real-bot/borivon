@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { enforceRateLimit } from "@/lib/rateLimit";
+import { cleanPublicText as clean } from "@/lib/sanitizeInput";
 
 /**
  * Public registration endpoint for the /online-courses page.
@@ -8,9 +9,9 @@ import { enforceRateLimit } from "@/lib/rateLimit";
  * supabase/online_course_registrations.sql first). Surfaced to admins at
  * /portal/admin/online-courses.
  *
- * Spam mitigation: IP rate-limit (in-process) + body-size cap + 1h dedupe.
+ * Spam + injection mitigation: IP rate-limit (in-process) + body-size cap +
+ * 1h dedupe + per-field input sanitization (lib/sanitizeInput.cleanPublicText).
  */
-const MAX = (s: unknown, n: number) => (typeof s === "string" ? s : "").trim().slice(0, n);
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(req: NextRequest) {
@@ -26,17 +27,22 @@ export async function POST(req: NextRequest) {
   };
   try { body = await req.json(); } catch { return NextResponse.json({ error: "invalid_body" }, { status: 400 }); }
 
-  const email = MAX(body.email, 254).toLowerCase();
+  // Email: validate the RAW value (clean() would strip + / - that are legal in
+  // local-parts). EMAIL_RE already forbids spaces, <, >, quotes, control chars.
+  const email = (typeof body.email === "string" ? body.email : "").trim().toLowerCase().slice(0, 254);
   if (!EMAIL_RE.test(email)) return NextResponse.json({ error: "invalid_email" }, { status: 400 });
 
+  // Phone: keep only digits, +, spaces, () and - (no script payload can survive).
+  const phone = (typeof body.phone === "string" ? body.phone : "").replace(/[^\d+()\s-]/g, "").trim().slice(0, 40);
+
   const row = {
-    first_name: MAX(body.firstName, 80),
-    last_name:  MAX(body.lastName, 80),
+    first_name: clean(body.firstName, 80),
+    last_name:  clean(body.lastName, 80),
     email,
-    phone:      MAX(body.phone, 40),
-    address:    MAX(body.address, 300),
-    group_slot: MAX(body.group, 60),
-    level:      MAX(body.level, 16),
+    phone,
+    address:    clean(body.address, 300),
+    group_slot: clean(body.group, 60),
+    level:      clean(body.level, 16),
   };
 
   const db = getServiceSupabase();

@@ -60,6 +60,15 @@ if (typeof window !== "undefined") {
 }
 
 export function playNotifChime(): void {
+  // HARD GUARD: notification audio is a PORTAL-only thing. Never let a chime
+  // fire on a public/marketing route (e.g. /online-courses, /, landing pages) —
+  // even if some future code path calls this from the wrong place. The route
+  // alone decides; no auth read, no flicker. This seals public pages for good.
+  if (typeof window !== "undefined") {
+    const path = window.location.pathname || "";
+    const isPortal = path.startsWith("/portal") && path !== "/portal"; // exclude the login screen too
+    if (!isPortal) return;
+  }
   const now = Date.now();
   if (now - last < 1200) return; // throttle bursts
   last = now;
