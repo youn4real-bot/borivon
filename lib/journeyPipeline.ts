@@ -66,9 +66,16 @@ const DUE_SOON_DAYS = 7;
  * @param todayYMD "YYYY-MM-DD" (caller injects — e.g. Casablanca today)
  */
 export function computePipelineStatus(rows: JourneyRow[], todayYMD: string): PipelineStatus {
-  const presets = rows.filter((r) => r.preset_key && PRESET_BY_KEY[r.preset_key]);
-  const totalPresets = JOURNEY_PRESETS.length;
-  const doneCount = presets.filter((r) => r.done).length;
+  // Index whatever preset rows EXIST by key. A candidate whose journey was never
+  // opened has NO preset rows — those milestones are implicitly NOT done (they
+  // sit at the very start), never "complete". We therefore evaluate against the
+  // canonical preset list, not just the rows present.
+  const rowByKey = new Map<string, JourneyRow>();
+  for (const r of rows) if (r.preset_key && PRESET_BY_KEY[r.preset_key]) rowByKey.set(r.preset_key, r);
+
+  const orderedPresets = JOURNEY_PRESETS.slice().sort((a, b) => a.position - b.position);
+  const totalPresets = orderedPresets.length;
+  const doneCount = orderedPresets.filter((p) => rowByKey.get(p.key)?.done === true).length;
   const progress = totalPresets > 0 ? doneCount / totalPresets : 0;
 
   // Open dated/blocked counts span ALL items (presets + custom), since a stuck
@@ -81,26 +88,29 @@ export function computePipelineStatus(rows: JourneyRow[], todayYMD: string): Pip
   }).length;
   const blockedCount = open.filter((r) => r.blocked === true).length;
 
-  // The "current" step = the lowest-position not-done PRESET milestone.
-  const nextPreset = presets
-    .filter((r) => !r.done)
-    .sort((a, b) => a.position - b.position)[0];
+  // The "current" step = the first preset (by position) that is NOT done —
+  // whether its row says done:false OR no row exists yet. Only when EVERY one
+  // of the 11 presets is actually ticked is there no current step ("arrived").
+  const nextPreset = orderedPresets.find((p) => rowByKey.get(p.key)?.done !== true) ?? null;
 
   let current: PipelineStatus["current"] = null;
-  if (nextPreset && nextPreset.preset_key) {
-    const daysToDue = nextPreset.due_date ? daysBetween(todayYMD, nextPreset.due_date) : null;
+  if (nextPreset) {
+    const row = rowByKey.get(nextPreset.key);
+    const dueDate = row?.due_date ?? null;
+    const daysToDue = dueDate ? daysBetween(todayYMD, dueDate) : null;
     current = {
-      key: nextPreset.preset_key,
+      key: nextPreset.key,
       owner: nextPreset.owner,
       position: nextPreset.position,
-      dueDate: nextPreset.due_date ?? null,
-      blocked: nextPreset.blocked === true,
-      blockedReason: nextPreset.blocked_reason ?? null,
+      dueDate,
+      blocked: row?.blocked === true,
+      blockedReason: row?.blocked_reason ?? null,
       daysToDue,
     };
   }
 
   // Roll up to one health signal (priority: done > blocked > overdue > due_soon > on_track).
+  // "done" requires ALL presets complete (current === null), NOT merely an empty list.
   let health: PipelineHealth;
   if (!current) health = "done";
   else if (blockedCount > 0) health = "blocked";

@@ -40,6 +40,28 @@ describe("computePipelineStatus", () => {
     expect(s.health).toBe("on_track");
   });
 
+  it("REGRESSION: a candidate with NO journey rows is at the START, never 'arrived'", () => {
+    // The original bug: an unseeded candidate (empty rows) was bucketed as
+    // "done / Arrived in Germany". Empty ≠ complete.
+    const s = computePipelineStatus([], TODAY);
+    expect(s.doneCount).toBe(0);
+    expect(s.progress).toBe(0);
+    expect(s.current?.key).toBe("docs_collected"); // first milestone
+    expect(s.health).not.toBe("done");
+    expect(s.health).toBe("on_track");
+  });
+
+  it("partial rows present → current skips to first incomplete, missing rows count as not-done", () => {
+    // Only the first milestone exists + is done; the other 10 rows don't exist.
+    const s = computePipelineStatus(
+      [{ id: "x", owner: "candidate", done: true, preset_key: "docs_collected", position: 0, text: "", due_date: null, blocked: false, blocked_reason: null }],
+      TODAY,
+    );
+    expect(s.doneCount).toBe(1);
+    expect(s.current?.key).toBe("cv_finalized"); // position 1 — missing row, treated as not-done
+    expect(s.health).not.toBe("done");
+  });
+
   it("current step advances to the lowest-position not-done preset", () => {
     const s = computePipelineStatus(
       presetRows({ docs_collected: { done: true }, cv_finalized: { done: true } }),
