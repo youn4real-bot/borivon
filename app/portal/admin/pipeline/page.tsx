@@ -16,7 +16,7 @@ import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
 import { JOURNEY_PRESETS } from "@/lib/candidateJourney";
 import { JourneyMap } from "@/components/JourneyMap";
-import { ArrowLeft, AlertTriangle, Clock, CheckCircle2, Search, Map as MapIcon, List } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Clock, CheckCircle2, Search, Map as MapIcon, List, BadgeCheck, Sparkles } from "lucide-react";
 
 type Health = "on_track" | "due_soon" | "overdue" | "blocked" | "done";
 type Status = {
@@ -24,7 +24,9 @@ type Status = {
   current: { key: string; owner: string; dueDate: string | null; blocked: boolean; blockedReason: string | null; daysToDue: number | null } | null;
   overdueCount: number; blockedCount: number; health: Health;
 };
-type Row = { userId: string; name: string; photo: string | null; status: Status };
+type Sellable = { sellable: boolean; cvDone: boolean; diplomaApproved: boolean };
+type Row = { userId: string; name: string; photo: string | null; status: Status; sellable: Sellable };
+type Summary = { total: number; sellable: number; almost: number; needsAttention: number; arrived: number };
 
 const HEALTH_STYLE: Record<Health, { dot: string; label: { en: string; de: string; fr: string } }> = {
   blocked:  { dot: "#ef4444", label: { en: "Blocked",   de: "Blockiert",   fr: "Bloqué" } },
@@ -47,9 +49,10 @@ export default function AdminPipelinePage() {
   const T = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<Row[]>([]);
+  const [summary, setSummary] = useState<Summary | null>(null);
   const [today, setToday] = useState("");
   const [q, setQ] = useState("");
-  const [filter, setFilter] = useState<"all" | "attention">("all");
+  const [filter, setFilter] = useState<"all" | "attention" | "sellable">("all");
   const [view, setView] = useState<"map" | "list">("map");
 
   useEffect(() => {
@@ -68,6 +71,7 @@ export default function AdminPipelinePage() {
       const j = await res.json().catch(() => ({ candidates: [] }));
       if (cancelled) return;
       setRows((j.candidates ?? []) as Row[]);
+      setSummary((j.summary ?? null) as Summary | null);
       setToday(j.today ?? "");
       setLoading(false);
     })();
@@ -84,6 +88,7 @@ export default function AdminPipelinePage() {
     const needle = q.trim().toLowerCase();
     return rows.filter((r) => {
       if (filter === "attention" && !(r.status.health === "blocked" || r.status.health === "overdue")) return false;
+      if (filter === "sellable" && !r.sellable.sellable) return false;
       if (needle && !r.name.toLowerCase().includes(needle)) return false;
       return true;
     });
@@ -117,6 +122,45 @@ export default function AdminPipelinePage() {
         </p>
       </div>
 
+      {/* HERO — the dream outcome: candidates ready to sell to employers right now. */}
+      {summary && (
+        <button onClick={() => setFilter(filter === "sellable" ? "all" : "sellable")}
+          className="bv-press w-full text-left mb-4 overflow-hidden"
+          style={{ borderRadius: "var(--r-xl)", border: "1px solid var(--border-gold)",
+            background: "linear-gradient(135deg, color-mix(in srgb, var(--gold) 18%, transparent), color-mix(in srgb, var(--gold) 5%, transparent))",
+            padding: "20px 22px", outline: filter === "sellable" ? "2px solid var(--gold)" : "none" }}>
+          <div className="flex items-center gap-4">
+            <span className="flex-shrink-0 inline-flex items-center justify-center" style={{ width: 56, height: 56, borderRadius: 16, background: "var(--gold)", color: "#131312" }}>
+              <BadgeCheck size={30} strokeWidth={2} />
+            </span>
+            <div className="min-w-0">
+              <div className="flex items-baseline gap-2">
+                <span style={{ fontSize: 40, fontWeight: 800, lineHeight: 1, color: "var(--w)" }}>{summary.sellable}</span>
+                <span className="text-[15px] font-semibold" style={{ color: "var(--w2)" }}>
+                  {summary.sellable === 1
+                    ? T("candidate ready to sell", "Kandidat verkaufsbereit", "candidat prêt à vendre")
+                    : T("candidates ready to sell", "Kandidaten verkaufsbereit", "candidats prêts à vendre")}
+                </span>
+              </div>
+              <p className="text-[12.5px] mt-1.5 inline-flex items-center gap-1.5" style={{ color: "var(--gold)" }}>
+                <Sparkles size={13} />
+                {summary.almost > 0
+                  ? T(`${summary.almost} more almost there — close them this week.`,
+                      `${summary.almost} fast bereit — diese Woche abschließen.`,
+                      `${summary.almost} presque prêts — à finaliser cette semaine.`)
+                  : T("CV finalized + nursing diploma approved = ready for an employer.",
+                      "Lebenslauf fertig + Pflegediplom genehmigt = arbeitgeberbereit.",
+                      "CV finalisé + diplôme infirmier approuvé = prêt pour un employeur.")}
+              </p>
+            </div>
+            <span className="ml-auto hidden sm:block text-[11.5px] font-semibold px-3 py-1.5 rounded-full self-start"
+              style={{ background: filter === "sellable" ? "var(--gold)" : "var(--card)", color: filter === "sellable" ? "#131312" : "var(--w3)", border: "1px solid var(--border)" }}>
+              {filter === "sellable" ? T("Showing these ✓", "Diese werden gezeigt ✓", "Affichés ✓") : T("Show them →", "Anzeigen →", "Afficher →")}
+            </span>
+          </div>
+        </button>
+      )}
+
       {/* Summary stat chips */}
       <div className="flex flex-wrap gap-2 mb-4">
         {([
@@ -140,7 +184,7 @@ export default function AdminPipelinePage() {
             placeholder={T("Search candidate…", "Kandidat suchen…", "Rechercher…")} />
         </div>
         <div className="inline-flex p-0.5 rounded-full" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-          {([["all", T("All", "Alle", "Tous")], ["attention", T("Needs attention", "Braucht Aufmerksamkeit", "À traiter")]] as const).map(([v, label]) => (
+          {([["all", T("All", "Alle", "Tous")], ["sellable", T("Ready to sell", "Verkaufsbereit", "Prêts")], ["attention", T("Needs attention", "Braucht Aufmerksamkeit", "À traiter")]] as const).map(([v, label]) => (
             <button key={v} onClick={() => setFilter(v)}
               className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold transition-colors"
               style={filter === v ? { background: "var(--gold)", color: "#131312" } : { background: "transparent", color: "var(--w3)" }}>
@@ -193,7 +237,16 @@ export default function AdminPipelinePage() {
                 )}
                 {/* Name + current step */}
                 <div className="min-w-0 flex-1">
-                  <p className="text-[13.5px] font-semibold truncate" style={{ color: "var(--w)" }}>{r.name}</p>
+                  <p className="text-[13.5px] font-semibold truncate flex items-center gap-1.5" style={{ color: "var(--w)" }}>
+                    <span className="truncate">{r.name}</span>
+                    {r.sellable.sellable && (
+                      <span className="inline-flex items-center gap-1 flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+                        style={{ background: "var(--gold)", color: "#131312" }}
+                        title={T("Ready to sell to an employer", "Verkaufsbereit", "Prêt à vendre")}>
+                        <BadgeCheck size={10} strokeWidth={2.5} /> {T("SELL", "VERK", "VENTE")}
+                      </span>
+                    )}
+                  </p>
                   <p className="text-[12px] truncate flex items-center gap-1.5" style={{ color: "var(--w3)" }}>
                     {r.status.current ? (
                       <>

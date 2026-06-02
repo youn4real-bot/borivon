@@ -19,7 +19,7 @@ type Status = {
   current: { key: string; daysToDue: number | null; blocked: boolean } | null;
   overdueCount: number; blockedCount: number; health: Health;
 };
-export type MapRow = { userId: string; name: string; photo: string | null; status: Status };
+export type MapRow = { userId: string; name: string; photo: string | null; status: Status; sellable?: { sellable: boolean } };
 
 const HEALTH_COLOR: Record<Health, string> = {
   blocked: "#ef4444", overdue: "#f97316", due_soon: "#f59e0b", on_track: "#16a34a", done: "#6b7280",
@@ -89,6 +89,10 @@ export function JourneyMap({
         {/* blocked badge */}
         {r.status.health === "blocked" && (
           <span style={{ position: "absolute", top: -3, right: -3, width: 10, height: 10, borderRadius: 999, background: "#ef4444", border: "1.5px solid var(--card)" }} />
+        )}
+        {/* ready-to-sell gold dot (bottom-right) */}
+        {r.sellable?.sellable && (
+          <span style={{ position: "absolute", bottom: -3, right: -3, width: 11, height: 11, borderRadius: 999, background: "var(--gold)", border: "1.5px solid var(--card)" }} title="Ready to sell" />
         )}
         {isHover && (
           <span style={{

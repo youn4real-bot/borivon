@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, getVisibleCandidateIds } from "@/lib/admin-auth";
 import { computePipelineStatus, type JourneyRow } from "@/lib/journeyPipeline";
+import { evaluateSellable } from "@/lib/sellable";
 
 /**
  * Anerkennung / Visa Autopilot — pipeline overview (the admin "who's stuck where"
@@ -74,17 +75,43 @@ export async function GET(req: NextRequest) {
     byCandidate.set(r.candidate_user_id, arr);
   }
 
+  // Documents (only what the sellable gate needs) for the same candidates — one
+  // batched query. Powers the "ready to sell" verdict per candidate.
+  const { data: docData } = await db
+    .from("documents")
+    .select("user_id, file_type, status")
+    .in("user_id", ids);
+  const docsByCandidate = new Map<string, { file_type: string | null; status: string | null }[]>();
+  for (const d of (docData ?? []) as { user_id: string; file_type: string | null; status: string | null }[]) {
+    const arr = docsByCandidate.get(d.user_id) ?? [];
+    arr.push({ file_type: d.file_type, status: d.status });
+    docsByCandidate.set(d.user_id, arr);
+  }
+
   const today = casablancaToday();
   const candidates = profiles.map((p) => {
-    const status = computePipelineStatus(byCandidate.get(p.user_id) ?? [], today);
+    const journey = byCandidate.get(p.user_id) ?? [];
+    const status = computePipelineStatus(journey, today);
+    const sellable = evaluateSellable({ documents: docsByCandidate.get(p.user_id) ?? [], journey });
     const name = [p.first_name, p.last_name].filter(Boolean).join(" ").trim();
     return {
       userId: p.user_id,
       name: name || "—",
       photo: p.profile_photo ?? null,
       status,
+      sellable,
     };
   });
+
+  // Hero summary for the admin dashboard.
+  const summary = {
+    total: candidates.length,
+    sellable: candidates.filter((c) => c.sellable.sellable).length,
+    // "Almost" = one of the two gates met (CV xor diploma) but not both.
+    almost: candidates.filter((c) => !c.sellable.sellable && (c.sellable.cvDone || c.sellable.diplomaApproved)).length,
+    needsAttention: candidates.filter((c) => c.status.health === "blocked" || c.status.health === "overdue").length,
+    arrived: candidates.filter((c) => c.status.health === "done").length,
+  };
 
   // Order: most urgent first (blocked → overdue → due_soon → on_track → done),
   // then by how overdue, so the admin's eye lands on fires immediately.
@@ -95,5 +122,5 @@ export async function GET(req: NextRequest) {
     return (b.status.overdueCount + b.status.blockedCount) - (a.status.overdueCount + a.status.blockedCount);
   });
 
-  return NextResponse.json({ today, candidates });
+  return NextResponse.json({ today, candidates, summary });
 }
