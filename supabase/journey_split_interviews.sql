@@ -14,13 +14,25 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- 1. Rename the existing single interview milestone → "first interview".
---    Only touches rows that haven't already been migrated.
-update public.candidate_journey_items
+--    IDEMPOTENT: only rename when the candidate doesn't ALREADY have an
+--    interview_first row (otherwise the unique (candidate, preset_key) index
+--    collides on a re-run). Candidates who already have interview_first just
+--    get their stale interview_done leftover deleted in step 1b.
+update public.candidate_journey_items f
    set preset_key = 'interview_first',
        position   = 2,
        text       = 'First interview',
        updated_at = now()
- where preset_key = 'interview_done';
+ where f.preset_key = 'interview_done'
+   and not exists (
+     select 1 from public.candidate_journey_items x
+      where x.candidate_user_id = f.candidate_user_id
+        and x.preset_key = 'interview_first'
+   );
+
+-- 1b. Any interview_done left over (candidate already had interview_first) is a
+--     duplicate from the old model — remove it.
+delete from public.candidate_journey_items where preset_key = 'interview_done';
 
 -- 2. Seed a "second interview" milestone for every candidate who now has a
 --    first-interview row but no second one yet. position 3 slots it right after.
@@ -40,6 +52,7 @@ select f.candidate_user_id,
         and s.preset_key = 'interview_second'
    );
 
--- 3. Re-align the positions of the later milestones so the rail order is correct
---    (contract=4, recognition=5, … unchanged from the catalog; B2 moved to 99).
-update public.candidate_journey_items set position = 99 where preset_key = 'b2_passed';
+-- 3. B2 is no longer a journey row — it became its own sub-journey on
+--    candidate_profiles.b2_stage (see supabase/b2_stage.sql). Remove any old
+--    b2_passed milestone rows so they don't linger on the rail.
+delete from public.candidate_journey_items where preset_key = 'b2_passed';
