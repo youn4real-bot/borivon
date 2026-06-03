@@ -22,8 +22,12 @@
 
 import { useMemo, useState, createContext, useContext, type ReactNode } from "react";
 import { LayoutGroup, AnimatePresence, motion, useReducedMotion } from "motion/react";
+import {
+  DndContext, DragOverlay, useDraggable, useDroppable,
+  PointerSensor, useSensor, useSensors, closestCenter, type DragEndEvent,
+} from "@dnd-kit/core";
 import { JOURNEY_PRESETS } from "@/lib/candidateJourney";
-import { B2_STAGES, B2_FAILED_COLOR, normalizeB2Stage, type B2Stage } from "@/lib/b2Journey";
+import { B2_STAGES, B2_FAILED_COLOR, b2StageColor, normalizeB2Stage, type B2Stage, type B2StageDef } from "@/lib/b2Journey";
 import { IMPFUNG_STAGES, type ImpfungStage } from "@/lib/impfungJourney";
 
 type Health = "on_track" | "due_soon" | "overdue" | "blocked" | "done";
@@ -57,10 +61,13 @@ function trans(reduce: boolean, extra?: Record<string, number>) {
 // remounts them — Dot/Count keep stable identity at module scope.
 type MapCtxVal = {
   track: MapTrack;
+  lang: string;
   hover: string | null;
   setHover: (id: string | null) => void;
   onPick: (userId: string) => void;
   reduce: boolean;
+  /** B2 track only: avatars are draggable between stages (admin can move them). */
+  canDragB2: boolean;
 };
 const MapCtx = createContext<MapCtxVal | null>(null);
 function useMapCtx(): MapCtxVal {
@@ -73,8 +80,10 @@ function useMapCtx(): MapCtxVal {
 // uniformly. layoutId (scoped per track) makes the SAME face GLIDE to its new
 // stage row when status changes. The face stays CLEAN — status is the ring
 // colour only (LAW #4); an optional corner badge carries dose progress. ──────
-function Dot({ r, ringColor, halo, index = 0, badge }: {
+function Dot({ r, ringColor, halo, index = 0, badge, dragRef, dragHandle, isDragging, draggable }: {
   r: MapRow; ringColor?: string; halo?: string; index?: number; badge?: ReactNode;
+  // Drag wiring (B2 track only) — supplied by DraggableDot via @dnd-kit.
+  dragRef?: (el: HTMLElement | null) => void; dragHandle?: Record<string, unknown>; isDragging?: boolean; draggable?: boolean;
 }) {
   const { track, hover, setHover, onPick, reduce } = useMapCtx();
   const color = ringColor ?? HEALTH_COLOR[r.status.health];
@@ -83,20 +92,24 @@ function Dot({ r, ringColor, halo, index = 0, badge }: {
   const hoverShadow = isHover ? `0 0 0 ${halo ? 6 : 3}px color-mix(in srgb, ${color} 35%, transparent)` : "";
   return (
     <motion.button
+      ref={dragRef}
+      {...(dragHandle ?? {})}
       layout="position"
       layoutId={`${track}:${r.userId}`}
       initial={reduce ? false : { opacity: 0, scale: 0 }}
-      animate={{ opacity: 1, scale: 1 }}
+      animate={{ opacity: isDragging ? 0.35 : 1, scale: 1 }}
       exit={reduce ? { opacity: 0 } : { opacity: 0, scale: 0 }}
       transition={trans(reduce, { delay: reduce ? 0 : Math.min(index * 0.02, 0.45) })}
-      whileHover={reduce ? undefined : { scale: 1.18 }}
+      whileHover={reduce || isDragging ? undefined : { scale: 1.18 }}
       whileTap={reduce ? undefined : { scale: 0.9 }}
       onMouseEnter={() => setHover(r.userId)}
       onMouseLeave={() => setHover(hover === r.userId ? null : hover)}
       onClick={() => onPick(r.userId)}
       title={halo ? `${r.name} — failed B2 before (retaking)` : r.name}
       style={{
-        position: "relative", flexShrink: 0, width: 30, height: 30, borderRadius: 999, padding: 0, cursor: "pointer",
+        position: "relative", flexShrink: 0, width: 30, height: 30, borderRadius: 999, padding: 0,
+        cursor: draggable ? (isDragging ? "grabbing" : "grab") : "pointer",
+        touchAction: draggable ? "none" : undefined,
         border: `2px solid ${color}`, background: "var(--bg2)", overflow: "visible",
         boxShadow: [hoverShadow, haloShadow].filter(Boolean).join(", ") || "none",
         zIndex: isHover ? 6 : 1,
@@ -170,19 +183,110 @@ function Cluster({ children }: { children: ReactNode }) {
   );
 }
 
+// ── DRAG & DROP (B2 track) ───────────────────────────────────────────────────
+// A Dot made draggable via @dnd-kit. Disabled → plain Dot when the viewer can't
+// move stages. Uses DragOverlay (see B2 branch) so NO transform is applied to
+// the source — Motion keeps full control of layout/hover; the source just dims.
+function DraggableDot({ r, ringColor, halo, index }: { r: MapRow; ringColor?: string; halo?: string; index?: number }) {
+  const { canDragB2 } = useMapCtx();
+  const { setNodeRef, listeners, attributes, isDragging } = useDraggable({ id: r.userId, disabled: !canDragB2 });
+  return (
+    <Dot
+      r={r} index={index} ringColor={ringColor} halo={halo}
+      dragRef={setNodeRef}
+      dragHandle={canDragB2 ? { ...listeners, ...attributes } : undefined}
+      isDragging={isDragging}
+      draggable={canDragB2}
+    />
+  );
+}
+
+// A floating copy of the avatar that follows the cursor while dragging.
+function OverlayAvatar({ r }: { r: MapRow }) {
+  const color = b2StageColor(normalizeB2Stage(r.b2Stage));
+  return (
+    <div style={{
+      width: 36, height: 36, borderRadius: 999, border: `2px solid ${color}`, background: "var(--bg2)",
+      overflow: "hidden", boxShadow: "0 10px 24px rgba(0,0,0,0.5)", transform: "rotate(-5deg)", cursor: "grabbing",
+    }}>
+      {r.photo ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={r.photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+      ) : (
+        <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", height: "100%", fontSize: 12, fontWeight: 700, color }}>
+          {initials(r.name)}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// One B2 stage = a droppable row. Drop a face here → move them to this stage.
+function DroppableStageRow({ stage, here, isLast }: { stage: B2StageDef; here: MapRow[]; isLast: boolean }) {
+  const { lang, canDragB2 } = useMapCtx();
+  const { setNodeRef, isOver } = useDroppable({ id: stage.key });
+  const label = stage.label[(lang as "en" | "fr" | "de")] ?? stage.label.en;
+  const lit = here.length > 0 || isOver;
+  return (
+    <div ref={setNodeRef} style={{
+      display: "flex", gap: 12, alignItems: "flex-start", padding: 4, borderRadius: 12,
+      transition: "background .15s, box-shadow .15s",
+      background: isOver ? `color-mix(in srgb, ${stage.color} 12%, transparent)` : "transparent",
+      boxShadow: isOver ? `inset 0 0 0 1.5px ${stage.color}` : "none",
+    }}>
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
+        <span style={{ width: 13, height: 13, borderRadius: 999, marginTop: 4, background: lit ? stage.color : "var(--bg2)", border: `2px solid ${lit ? stage.color : "var(--border)"}` }} />
+        {!isLast && <span style={{ flex: 1, width: 2, minHeight: 28, background: "var(--border)" }} />}
+      </div>
+      <div style={{ flex: 1, minWidth: 0, paddingBottom: 18 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: here.length ? 8 : 0 }}>
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: lit ? "var(--w)" : "var(--w3)" }}>{label}</span>
+          {here.length > 0 && <Count n={here.length} bg={`color-mix(in srgb, ${stage.color} 18%, transparent)`} fg={stage.color} />}
+        </div>
+        {here.length > 0 ? (
+          <Cluster>
+            {here.map((r, idx) => <DraggableDot key={r.userId} r={r} index={idx} ringColor={stage.color} halo={r.b2Failed ? B2_FAILED_COLOR : undefined} />)}
+          </Cluster>
+        ) : isOver && canDragB2 ? (
+          <span style={{ fontSize: 11.5, fontWeight: 600, color: stage.color }}>⤵ {lang === "de" ? "hier ablegen" : lang === "fr" ? "déposer ici" : "drop here"}</span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function JourneyMap({
-  rows, lang, onPick, track = "journey",
+  rows, lang, onPick, track = "journey", onMoveB2,
 }: {
   rows: MapRow[];
   lang: string;
   onPick: (userId: string) => void;
   /** Which roadmap to show: the main Morocco→Germany journey, or the B2 track. */
   track?: MapTrack;
+  /** B2 track: drop a face on a stage → move them there. Omit to disable drag. */
+  onMoveB2?: (userId: string, toStage: B2Stage) => void;
 }) {
   const T = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
   const [hover, setHover] = useState<string | null>(null);
+  const [activeDrag, setActiveDrag] = useState<string | null>(null);
   const reduce = !!useReducedMotion();
-  const ctx: MapCtxVal = { track, hover, setHover, onPick, reduce };
+  // Click still opens the candidate; a 6px move starts a drag (so taps ≠ drags).
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
+  const canDragB2 = !!onMoveB2;
+  const ctx: MapCtxVal = { track, lang, hover, setHover, onPick, reduce, canDragB2 };
+
+  // Drop a face onto a B2 stage row → move them there (no-op if same stage).
+  const onB2DragEnd = (e: DragEndEvent) => {
+    setActiveDrag(null);
+    const overId = e.over?.id;
+    const uid = String(e.active.id);
+    if (!overId) return;
+    const toStage = String(overId) as B2Stage;
+    const row = rows.find((x) => x.userId === uid);
+    if (!row) return;
+    if (normalizeB2Stage(row.b2Stage) === toStage) return;
+    onMoveB2?.(uid, toStage);
+  };
 
   // Stations = the 11 presets in order, plus an implicit "arrived" finish.
   const stations = useMemo(
@@ -251,35 +355,34 @@ export function JourneyMap({
               {T("failed before (retaking)", "vorher nicht bestanden", "échoué avant")}{failedCount > 0 ? ` · ${failedCount}` : ""}
             </span>
           </div>
-          {/* Single vertical rail of the 5 stages. Dots coloured by stage; failed
-              candidates carry the red halo (set via b2Failed). */}
-          <LayoutGroup>
-            <div style={{ display: "flex", flexDirection: "column" }}>
-              {B2_STAGES.map((s, i) => {
-                const here = b2.by.get(s.key) ?? [];
-                const last = i === B2_STAGES.length - 1;
-                return (
-                  <div key={s.key} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
-                      <span style={{ width: 13, height: 13, borderRadius: 999, marginTop: 4, background: here.length ? s.color : "var(--bg2)", border: `2px solid ${here.length ? s.color : "var(--border)"}` }} />
-                      {!last && <span style={{ flex: 1, width: 2, minHeight: 28, background: "var(--border)" }} />}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0, paddingBottom: 18 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: here.length ? 8 : 0 }}>
-                        <span style={{ fontSize: 12.5, fontWeight: 600, color: here.length ? "var(--w)" : "var(--w3)" }}>{s.label[(lang as "en" | "fr" | "de")] ?? s.label.en}</span>
-                        {here.length > 0 && <Count n={here.length} bg={`color-mix(in srgb, ${s.color} 18%, transparent)`} fg={s.color} />}
-                      </div>
-                      {here.length > 0 && (
-                        <Cluster>
-                          {here.map((r, idx) => <Dot key={r.userId} r={r} index={idx} ringColor={s.color} halo={r.b2Failed ? B2_FAILED_COLOR : undefined} />)}
-                        </Cluster>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </LayoutGroup>
+          {/* Drag hint — only when the viewer can actually move stages. */}
+          {canDragB2 && (
+            <p style={{ fontSize: 11, color: "var(--w3)", marginTop: -8, marginBottom: 14 }}>
+              {T("Tip: drag a face onto another stage to move them — e.g. didn't pass → drag back to a new exam date.",
+                 "Tipp: Ziehe ein Gesicht auf eine andere Stufe, um es zu verschieben — z. B. nicht bestanden → zurück zu einem neuen Termin.",
+                 "Astuce : faites glisser un visage sur une autre étape pour le déplacer — ex. échoué → vers une nouvelle date d'examen.")}
+            </p>
+          )}
+          {/* Single vertical rail of the 5 stages — each row is a DROP TARGET.
+              Drag a face onto a stage to move them; Motion glides them home. */}
+          <DndContext sensors={sensors} collisionDetection={closestCenter}
+            onDragStart={(e) => setActiveDrag(String(e.active.id))} onDragEnd={onB2DragEnd} onDragCancel={() => setActiveDrag(null)}>
+            <LayoutGroup>
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                {B2_STAGES.map((s, i) => (
+                  <DroppableStageRow key={s.key} stage={s} here={b2.by.get(s.key) ?? []} isLast={i === B2_STAGES.length - 1} />
+                ))}
+              </div>
+            </LayoutGroup>
+            {/* Floating avatar that follows the cursor; no drop-snap so Motion's
+                layout glide places the real face in its new row. */}
+            <DragOverlay dropAnimation={null}>
+              {activeDrag ? (() => {
+                const r = rows.find((x) => x.userId === activeDrag);
+                return r ? <OverlayAvatar r={r} /> : null;
+              })() : null}
+            </DragOverlay>
+          </DndContext>
           {rows.length === 0 && (
             <p style={{ textAlign: "center", color: "var(--w3)", fontSize: 13, padding: "1rem 0" }}>{T("No candidates yet.", "Noch keine Kandidaten.", "Aucun candidat.")}</p>
           )}

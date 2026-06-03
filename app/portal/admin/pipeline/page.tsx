@@ -26,7 +26,7 @@ type Status = {
   overdueCount: number; blockedCount: number; health: Health;
 };
 type Sellable = { sellable: boolean; cvDone: boolean; diplomaApproved: boolean };
-type Row = { userId: string; name: string; photo: string | null; status: Status; sellable: Sellable; b2Stage?: string; impfungStage?: string; impfungDoses?: { got: number; need: number } };
+type Row = { userId: string; name: string; photo: string | null; status: Status; sellable: Sellable; b2Stage?: string; b2Failed?: boolean; impfungStage?: string; impfungDoses?: { got: number; need: number } };
 
 const HEALTH_STYLE: Record<Health, { dot: string; label: { en: string; de: string; fr: string } }> = {
   blocked:  { dot: "#ef4444", label: { en: "Blocked",   de: "Blockiert",   fr: "Bloqué" } },
@@ -93,6 +93,32 @@ export default function AdminPipelinePage() {
     const needle = q.trim().toLowerCase();
     return needle ? rows.filter((r) => r.name.toLowerCase().includes(needle)) : rows;
   }, [rows, q]);
+
+  // Drag-and-drop: move a candidate to a different B2 stage by dropping their
+  // face on that stage row. Optimistic (instant glide via Motion) → persist to
+  // the B2 route (which gates authority per LAW #25) → roll back on failure.
+  const moveB2 = async (userId: string, toStage: string) => {
+    let rolledBack = false;
+    const snapshot = rows;
+    setRows((rs) => rs.map((r) => (r.userId === userId ? { ...r, b2Stage: toStage } : r)));
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token ?? "";
+      const res = await fetch("/api/portal/journey/b2", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ candidateId: userId, stage: toStage }),
+      });
+      if (!res.ok) { rolledBack = true; setRows(snapshot); }
+    } catch {
+      rolledBack = true;
+      setRows(snapshot);
+    }
+    if (rolledBack) {
+      // Soft, non-blocking notice — the face snaps back so the admin sees it didn't take.
+      console.warn("[pipeline] B2 stage move failed; rolled back");
+    }
+  };
 
   if (loading) return <PageLoader />;
 
@@ -168,7 +194,8 @@ export default function AdminPipelinePage() {
           The B2 track always uses the map style + the search-only list. */}
       {view === "map" || track !== "journey" ? (
         <JourneyMap rows={track !== "journey" ? searchOnlyRows : shown} lang={lang} track={track}
-          onPick={(uid) => router.push(`/portal/admin?nav_user_id=${encodeURIComponent(uid)}`)} />
+          onPick={(uid) => router.push(`/portal/admin?nav_user_id=${encodeURIComponent(uid)}`)}
+          onMoveB2={moveB2} />
       ) : shown.length === 0 ? (
         <div className="bv-card text-center py-16">
           <CheckCircle2 size={30} strokeWidth={1.5} className="mx-auto mb-3" style={{ color: "var(--w3)" }} />
