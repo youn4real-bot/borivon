@@ -56,6 +56,10 @@ function trans(reduce: boolean, extra?: Record<string, number>) {
   return reduce ? { duration: 0 } : { ...SPRING, ...(extra ?? {}) };
 }
 
+// Figma-canvas language: big faces, generous spacing, dotted-grid backdrop.
+const AV = 48;            // avatar diameter (was 30 — bumped for the spacious look)
+const DOT_GRID = "radial-gradient(circle, var(--border) 1.1px, transparent 1.1px)";
+
 // Shared per-render state for the avatar primitives (kept out of props so the
 // many Dot call-sites stay clean). Changing this re-renders consumers but never
 // remounts them — Dot/Count keep stable identity at module scope.
@@ -88,8 +92,9 @@ function Dot({ r, ringColor, halo, index = 0, badge, dragRef, dragHandle, isDrag
   const { track, hover, setHover, onPick, reduce } = useMapCtx();
   const color = ringColor ?? HEALTH_COLOR[r.status.health];
   const isHover = hover === r.userId;
-  const haloShadow = halo ? `0 0 0 3px ${halo}` : "";
-  const hoverShadow = isHover ? `0 0 0 ${halo ? 6 : 3}px color-mix(in srgb, ${color} 35%, transparent)` : "";
+  const haloShadow = halo ? `0 0 0 4px ${halo}` : "";
+  const hoverShadow = isHover ? `0 0 0 ${halo ? 9 : 6}px color-mix(in srgb, ${color} 32%, transparent)` : "";
+  const restShadow = "0 3px 10px rgba(0,0,0,0.30)";
   return (
     <motion.button
       ref={dragRef}
@@ -100,18 +105,18 @@ function Dot({ r, ringColor, halo, index = 0, badge, dragRef, dragHandle, isDrag
       animate={{ opacity: isDragging ? 0.35 : 1, scale: 1 }}
       exit={reduce ? { opacity: 0 } : { opacity: 0, scale: 0 }}
       transition={trans(reduce, { delay: reduce ? 0 : Math.min(index * 0.02, 0.45) })}
-      whileHover={reduce || isDragging ? undefined : { scale: 1.18 }}
-      whileTap={reduce ? undefined : { scale: 0.9 }}
+      whileHover={reduce || isDragging ? undefined : { scale: 1.22, y: -3 }}
+      whileTap={reduce ? undefined : { scale: 0.92 }}
       onMouseEnter={() => setHover(r.userId)}
       onMouseLeave={() => setHover(hover === r.userId ? null : hover)}
       onClick={() => onPick(r.userId)}
       title={halo ? `${r.name} — failed B2 before (retaking)` : r.name}
       style={{
-        position: "relative", flexShrink: 0, width: 30, height: 30, borderRadius: 999, padding: 0,
+        position: "relative", flexShrink: 0, width: AV, height: AV, borderRadius: 999, padding: 0,
         cursor: draggable ? (isDragging ? "grabbing" : "grab") : "pointer",
         touchAction: draggable ? "none" : undefined,
-        border: `2px solid ${color}`, background: "var(--bg2)", overflow: "visible",
-        boxShadow: [hoverShadow, haloShadow].filter(Boolean).join(", ") || "none",
+        border: `2.5px solid ${color}`, background: "var(--bg2)", overflow: "visible",
+        boxShadow: [hoverShadow, haloShadow, restShadow].filter(Boolean).join(", "),
         zIndex: isHover ? 6 : 1,
       }}
     >
@@ -129,7 +134,7 @@ function Dot({ r, ringColor, halo, index = 0, badge, dragRef, dragHandle, isDrag
         // eslint-disable-next-line @next/next/no-img-element
         <img src={r.photo} alt="" style={{ width: "100%", height: "100%", borderRadius: 999, objectFit: "cover" }} />
       ) : (
-        <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", height: "100%", fontSize: 10, fontWeight: 700, color }}>
+        <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", height: "100%", fontSize: 17, fontWeight: 700, color }}>
           {initials(r.name)}
         </span>
       )}
@@ -142,9 +147,9 @@ function Dot({ r, ringColor, halo, index = 0, badge, dragRef, dragHandle, isDrag
             exit={{ opacity: 0, y: 4, scale: 0.9 }}
             transition={{ duration: 0.14 }}
             style={{
-              position: "absolute", bottom: "calc(100% + 6px)", left: "50%", x: "-50%",
-              whiteSpace: "nowrap", fontSize: 11, fontWeight: 600, padding: "3px 8px", borderRadius: 6,
-              background: "var(--card)", color: "var(--w)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", zIndex: 10,
+              position: "absolute", bottom: "calc(100% + 9px)", left: "50%", x: "-50%",
+              whiteSpace: "nowrap", fontSize: 12, fontWeight: 600, padding: "5px 11px", borderRadius: 9,
+              background: "var(--card)", color: "var(--w)", border: "1px solid var(--border)", boxShadow: "0 8px 24px rgba(0,0,0,0.4)", zIndex: 10,
             }}
           >
             {r.name}
@@ -177,7 +182,7 @@ function Count({ n, bg, fg }: { n: number; bg: string; fg: string }) {
 // A wrapped row of avatars with enter/exit + reflow animation.
 function Cluster({ children }: { children: ReactNode }) {
   return (
-    <motion.div layout="position" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+    <motion.div layout="position" style={{ display: "flex", flexWrap: "wrap", gap: 14 }}>
       <AnimatePresence mode="popLayout">{children}</AnimatePresence>
     </motion.div>
   );
@@ -206,14 +211,14 @@ function OverlayAvatar({ r }: { r: MapRow }) {
   const color = b2StageColor(normalizeB2Stage(r.b2Stage));
   return (
     <div style={{
-      width: 36, height: 36, borderRadius: 999, border: `2px solid ${color}`, background: "var(--bg2)",
-      overflow: "hidden", boxShadow: "0 10px 24px rgba(0,0,0,0.5)", transform: "rotate(-5deg)", cursor: "grabbing",
+      width: AV + 8, height: AV + 8, borderRadius: 999, border: `3px solid ${color}`, background: "var(--bg2)",
+      overflow: "hidden", boxShadow: "0 18px 40px rgba(0,0,0,0.55)", transform: "rotate(-5deg) scale(1.05)", cursor: "grabbing",
     }}>
       {r.photo ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={r.photo} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
       ) : (
-        <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", height: "100%", fontSize: 12, fontWeight: 700, color }}>
+        <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", height: "100%", fontSize: 18, fontWeight: 700, color }}>
           {initials(r.name)}
         </span>
       )}
@@ -221,37 +226,51 @@ function OverlayAvatar({ r }: { r: MapRow }) {
   );
 }
 
-// One B2 stage = a droppable row. Drop a face here → move them to this stage.
+// One B2 stage = a spacious, droppable Figma-style FRAME. Drop a face here →
+// move them to this stage. The frame lights up (border + glow + tint) on hover.
 function DroppableStageRow({ stage, here, isLast }: { stage: B2StageDef; here: MapRow[]; isLast: boolean }) {
   const { lang, canDragB2 } = useMapCtx();
   const { setNodeRef, isOver } = useDroppable({ id: stage.key });
   const label = stage.label[(lang as "en" | "fr" | "de")] ?? stage.label.en;
-  const lit = here.length > 0 || isOver;
+  const dropHint = lang === "de" ? "hier ablegen" : lang === "fr" ? "déposer ici" : "drop here";
   return (
-    <div ref={setNodeRef} style={{
-      display: "flex", gap: 12, alignItems: "flex-start", padding: 4, borderRadius: 12,
-      transition: "background .15s, box-shadow .15s",
-      background: isOver ? `color-mix(in srgb, ${stage.color} 12%, transparent)` : "transparent",
-      boxShadow: isOver ? `inset 0 0 0 1.5px ${stage.color}` : "none",
-    }}>
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
-        <span style={{ width: 13, height: 13, borderRadius: 999, marginTop: 4, background: lit ? stage.color : "var(--bg2)", border: `2px solid ${lit ? stage.color : "var(--border)"}` }} />
-        {!isLast && <span style={{ flex: 1, width: 2, minHeight: 28, background: "var(--border)" }} />}
-      </div>
-      <div style={{ flex: 1, minWidth: 0, paddingBottom: 18 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: here.length ? 8 : 0 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 600, color: lit ? "var(--w)" : "var(--w3)" }}>{label}</span>
+    <>
+      <div ref={setNodeRef} style={{
+        borderRadius: 18, padding: "16px 18px",
+        background: isOver ? `color-mix(in srgb, ${stage.color} 16%, var(--card))` : "var(--card)",
+        border: `1.5px solid ${isOver ? stage.color : "var(--border)"}`,
+        boxShadow: isOver ? `0 14px 36px color-mix(in srgb, ${stage.color} 32%, transparent)` : "0 1px 3px rgba(0,0,0,0.25)",
+        transition: "background .18s, border-color .18s, box-shadow .18s",
+      }}>
+        {/* Frame header — colour chip + title + count */}
+        <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 14 }}>
+          <span style={{ width: 12, height: 12, borderRadius: 999, background: stage.color, boxShadow: `0 0 0 5px color-mix(in srgb, ${stage.color} 20%, transparent)` }} />
+          <span style={{ fontSize: 14.5, fontWeight: 700, color: "var(--w)", letterSpacing: -0.2 }}>{label}</span>
           {here.length > 0 && <Count n={here.length} bg={`color-mix(in srgb, ${stage.color} 18%, transparent)`} fg={stage.color} />}
         </div>
+        {/* Frame body — faces, or a spacious empty drop zone */}
         {here.length > 0 ? (
           <Cluster>
             {here.map((r, idx) => <DraggableDot key={r.userId} r={r} index={idx} ringColor={stage.color} halo={r.b2Failed ? B2_FAILED_COLOR : undefined} />)}
           </Cluster>
-        ) : isOver && canDragB2 ? (
-          <span style={{ fontSize: 11.5, fontWeight: 600, color: stage.color }}>⤵ {lang === "de" ? "hier ablegen" : lang === "fr" ? "déposer ici" : "drop here"}</span>
+        ) : canDragB2 ? (
+          <div style={{
+            minHeight: AV + 18, borderRadius: 14, display: "flex", alignItems: "center", justifyContent: "center",
+            border: `1.5px dashed ${isOver ? stage.color : "var(--border)"}`,
+            background: isOver ? `color-mix(in srgb, ${stage.color} 8%, transparent)` : "transparent",
+            color: stage.color, fontSize: 12.5, fontWeight: 700, transition: "all .15s",
+          }}>
+            {isOver ? `⤵ ${dropHint}` : ""}
+          </div>
         ) : null}
       </div>
-    </div>
+      {/* Flow connector between frames */}
+      {!isLast && (
+        <div style={{ display: "flex", justifyContent: "center", padding: "8px 0" }}>
+          <span style={{ width: 2, height: 20, borderRadius: 2, background: "linear-gradient(var(--border), color-mix(in srgb, var(--border) 25%, transparent))" }} />
+        </div>
+      )}
+    </>
   );
 }
 
@@ -338,9 +357,9 @@ export function JourneyMap({
     const failedCount = rows.filter((r) => r.b2Failed).length;
     return (
       <MapCtx.Provider value={ctx}>
-        <div className="bv-card" style={{ padding: "18px 16px", overflow: "hidden" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--w)" }}>📜 {T("B2 German — certificate pathway", "B2 Deutsch — Zertifikatsweg", "B2 allemand — parcours de certification")}</span>
+        <div className="bv-card" style={{ padding: "26px 24px", overflow: "hidden" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 16, fontWeight: 800, color: "var(--w)", letterSpacing: -0.3 }}>📜 {T("B2 German — certificate pathway", "B2 Deutsch — Zertifikatsweg", "B2 allemand — parcours de certification")}</span>
           </div>
           {/* Legend: stage colours + the red-halo = failed-before meaning. */}
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 16, fontSize: 11, color: "var(--w3)" }}>
@@ -367,13 +386,20 @@ export function JourneyMap({
               Drag a face onto a stage to move them; Motion glides them home. */}
           <DndContext sensors={sensors} collisionDetection={closestCenter}
             onDragStart={(e) => setActiveDrag(String(e.active.id))} onDragEnd={onB2DragEnd} onDragCancel={() => setActiveDrag(null)}>
-            <LayoutGroup>
-              <div style={{ display: "flex", flexDirection: "column" }}>
-                {B2_STAGES.map((s, i) => (
-                  <DroppableStageRow key={s.key} stage={s} here={b2.by.get(s.key) ?? []} isLast={i === B2_STAGES.length - 1} />
-                ))}
-              </div>
-            </LayoutGroup>
+            {/* Dotted canvas — the Figma-style backdrop the stage frames sit on. */}
+            <div style={{
+              position: "relative", borderRadius: 22, padding: "22px 20px",
+              background: "var(--bg2)", border: "1px solid var(--border)",
+              backgroundImage: DOT_GRID, backgroundSize: "22px 22px",
+            }}>
+              <LayoutGroup>
+                <div style={{ display: "flex", flexDirection: "column" }}>
+                  {B2_STAGES.map((s, i) => (
+                    <DroppableStageRow key={s.key} stage={s} here={b2.by.get(s.key) ?? []} isLast={i === B2_STAGES.length - 1} />
+                  ))}
+                </div>
+              </LayoutGroup>
+            </div>
             {/* Floating avatar that follows the cursor; no drop-snap so Motion's
                 layout glide places the real face in its new row. */}
             <DragOverlay dropAnimation={null}>
@@ -407,9 +433,9 @@ export function JourneyMap({
     const requiredCount = rows.filter((r) => r.impfungStage && r.impfungStage !== "not_required").length;
     return (
       <MapCtx.Provider value={ctx}>
-        <div className="bv-card" style={{ padding: "18px 16px", overflow: "hidden" }}>
+        <div className="bv-card" style={{ padding: "26px 24px", overflow: "hidden" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-            <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--w)" }}>💉 {T("Impfung — vaccination pathway", "Impfung — Impfweg", "Vaccination — parcours")}</span>
+            <span style={{ fontSize: 16, fontWeight: 800, color: "var(--w)", letterSpacing: -0.3 }}>💉 {T("Impfung — vaccination pathway", "Impfung — Impfweg", "Vaccination — parcours")}</span>
           </div>
           <p style={{ fontSize: 11.5, color: "var(--w3)", marginBottom: 16 }}>
             {T("Only candidates whose agency requires vaccines.", "Nur Kandidaten, deren Agentur Impfungen verlangt.", "Seuls les candidats dont l'agence exige des vaccins.")}
@@ -421,7 +447,12 @@ export function JourneyMap({
             </p>
           ) : (
             <LayoutGroup>
-              <div style={{ display: "flex", flexDirection: "column" }}>
+              <div style={{
+                display: "flex", flexDirection: "column",
+                borderRadius: 22, padding: "20px 18px",
+                background: "var(--bg2)", border: "1px solid var(--border)",
+                backgroundImage: DOT_GRID, backgroundSize: "22px 22px",
+              }}>
                 {/* Required but not started — shows the rest of the required cohort. */}
                 <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
@@ -481,7 +512,7 @@ export function JourneyMap({
 
   return (
     <MapCtx.Provider value={ctx}>
-      <div className="bv-card" style={{ padding: "18px 16px", overflow: "hidden" }}>
+      <div className="bv-card" style={{ padding: "26px 24px", overflow: "hidden" }}>
         {/* Legend */}
         <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 16, fontSize: 11.5, color: "var(--w3)" }}>
           <span style={{ fontWeight: 700, color: "var(--w)" }}>🇲🇦 {T("Morocco", "Marokko", "Maroc")}</span>
@@ -504,7 +535,12 @@ export function JourneyMap({
         {/* The rail: one row per station, candidates clustered at the FURTHEST
             station they've reached. */}
         <LayoutGroup>
-          <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+          <div style={{
+            display: "flex", flexDirection: "column", gap: 0,
+            borderRadius: 22, padding: "20px 18px",
+            background: "var(--bg2)", border: "1px solid var(--border)",
+            backgroundImage: DOT_GRID, backgroundSize: "22px 22px",
+          }}>
             {/* 🇲🇦 Start — candidates who haven't completed any station yet. */}
             {(() => {
               const startHere = byStation.get("__start__") ?? [];
