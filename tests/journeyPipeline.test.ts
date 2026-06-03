@@ -40,6 +40,15 @@ describe("computePipelineStatus", () => {
     expect(s.health).toBe("on_track");
   });
 
+  it("reached = furthest COMPLETED station (avatar 'moves in' once passed)", () => {
+    // Nothing done → reached null (sits at the start).
+    expect(computePipelineStatus(presetRows(), TODAY).reached).toBeNull();
+    // First two done → reached is the 2nd (cv_finalized), not the next to-do.
+    const s = computePipelineStatus(presetRows({ docs_collected: { done: true }, cv_finalized: { done: true } }), TODAY);
+    expect(s.reached?.key).toBe("cv_finalized");
+    expect(s.current?.key).toBe("interview_first"); // current still = next to-do
+  });
+
   it("REGRESSION: a candidate with NO journey rows is at the START, never 'arrived'", () => {
     // The original bug: an unseeded candidate (empty rows) was bucketed as
     // "done / Arrived in Germany". Empty ≠ complete.

@@ -42,6 +42,13 @@ export type PipelineStatus = {
     /** Whole days until due (negative = overdue). null if no due date. */
     daysToDue: number | null;
   } | null;
+  /**
+   * The FURTHEST station the candidate has actually reached = their last
+   * completed sequential preset. null = nothing done yet (they sit at the very
+   * start). This is what the map groups avatars by, so a person visibly MOVES
+   * to a station once they pass it (vs. `current`, which is their next to-do).
+   */
+  reached: { key: string; position: number } | null;
   /** Count of open (not-done) items past their due date. */
   overdueCount: number;
   /** Count of open items flagged blocked. */
@@ -131,6 +138,13 @@ export function computePipelineStatus(rows: JourneyRow[], todayYMD: string, b2Pa
     };
   }
 
+  // FURTHEST reached = the highest-position preset that is DONE. This is where
+  // the avatar sits on the map (they "move in" once they pass a station).
+  let reached: PipelineStatus["reached"] = null;
+  for (const p of orderedPresets) {
+    if (rowByKey.get(p.key)?.done === true) reached = { key: p.key, position: p.position };
+  }
+
   // "Fully arrived" = every sequential station done AND every parallel
   // milestone (B2) done. So a candidate sitting at the last rail station with
   // B2 still pending is NOT "done" yet.
@@ -145,5 +159,5 @@ export function computePipelineStatus(rows: JourneyRow[], todayYMD: string, b2Pa
   else if (current && current.daysToDue !== null && current.daysToDue <= DUE_SOON_DAYS) health = "due_soon";
   else health = "on_track";
 
-  return { progress, doneCount, totalPresets, current, overdueCount, blockedCount, health, parallel };
+  return { progress, doneCount, totalPresets, current, reached, overdueCount, blockedCount, health, parallel };
 }

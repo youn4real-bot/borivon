@@ -22,6 +22,7 @@ type Health = "on_track" | "due_soon" | "overdue" | "blocked" | "done";
 type Status = {
   progress: number; doneCount: number; totalPresets: number;
   current: { key: string; owner: string; dueDate: string | null; blocked: boolean; blockedReason: string | null; daysToDue: number | null } | null;
+  reached: { key: string; position: number } | null;
   overdueCount: number; blockedCount: number; health: Health;
 };
 type Sellable = { sellable: boolean; cvDone: boolean; diplomaApproved: boolean };

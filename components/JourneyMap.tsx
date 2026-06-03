@@ -18,6 +18,7 @@ type Health = "on_track" | "due_soon" | "overdue" | "blocked" | "done";
 type Status = {
   progress: number; doneCount: number; totalPresets: number;
   current: { key: string; daysToDue: number | null; blocked: boolean } | null;
+  reached: { key: string; position: number } | null;
   overdueCount: number; blockedCount: number; health: Health;
   parallel?: { key: string; done: boolean }[];
 };
@@ -47,14 +48,20 @@ export function JourneyMap({
     [],
   );
 
-  // Group candidates by their current station key (done → "__done__").
+  // Group candidates by the FURTHEST station they've REACHED (last completed),
+  // so an avatar visibly "moves in" to a station once they pass it. Buckets:
+  //   "__start__" = nothing completed yet (sit at the very beginning)
+  //   "__done__"  = fully arrived (all stations + B2 done)
+  //   <preset key> = parked at the last station they completed
   const byStation = useMemo(() => {
     const m = new Map<string, MapRow[]>();
     for (const r of rows) {
-      const key = r.status.current ? r.status.current.key : "__done__";
-      const arr = m.get(key) ?? [];
-      arr.push(r);
-      m.set(key, arr);
+      const key = r.status.health === "done"
+        ? "__done__"
+        : r.status.reached
+        ? r.status.reached.key
+        : "__start__";
+      (m.get(key) ?? m.set(key, []).get(key)!).push(r);
     }
     return m;
   }, [rows]);
@@ -147,8 +154,30 @@ export function JourneyMap({
         ))}
       </div>
 
-      {/* The rail: one row per station, candidates clustered at it. */}
+      {/* The rail: one row per station, candidates clustered at the FURTHEST
+          station they've reached. */}
       <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+        {/* 🇲🇦 Start — candidates who haven't completed any station yet. */}
+        {(() => {
+          const startHere = byStation.get("__start__") ?? [];
+          return (
+            <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
+                <span style={{ fontSize: 15, marginTop: -2 }}>🇲🇦</span>
+                <span style={{ flex: 1, width: 2, minHeight: 30, background: "var(--border)" }} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0, paddingBottom: 18 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: startHere.length ? 8 : 0 }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 600, color: startHere.length ? "var(--w)" : "var(--w3)" }}>{T("Just started", "Gerade begonnen", "Vient de commencer")}</span>
+                  {startHere.length > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: "var(--gdim)", color: "var(--gold)" }}>{startHere.length}</span>}
+                </div>
+                {startHere.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>{startHere.map((r) => <Dot key={r.userId} r={r} />)}</div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
         {stations.map((st, i) => {
           const here = byStation.get(st.key) ?? [];
           const last = i === stations.length - 1;
