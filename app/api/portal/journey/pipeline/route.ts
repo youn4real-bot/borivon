@@ -31,6 +31,7 @@ type ProfileRow = {
   last_name: string | null;
   profile_photo: string | null;
   b2_stage: string | null;
+  b2_failed: boolean | null;
 };
 
 export async function GET(req: NextRequest) {
@@ -45,7 +46,7 @@ export async function GET(req: NextRequest) {
   // Load candidate profiles in scope.
   let profQ = db
     .from("candidate_profiles")
-    .select("user_id, first_name, last_name, profile_photo, b2_stage");
+    .select("user_id, first_name, last_name, profile_photo, b2_stage, b2_failed");
   if (visible !== null) {
     if (visible.length === 0) return NextResponse.json({ today: casablancaToday(), candidates: [] });
     profQ = profQ.in("user_id", visible);
@@ -155,6 +156,7 @@ export async function GET(req: NextRequest) {
       status,
       sellable,
       b2Stage,
+      b2Failed: p.b2_failed === true,
       impfungStage,
       impfungDoses,
     };

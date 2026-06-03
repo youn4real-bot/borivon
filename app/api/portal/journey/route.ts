@@ -170,10 +170,10 @@ export async function GET(req: NextRequest) {
     items = items.map(({ blocked_reason, ...rest }) => { void blocked_reason; return rest; });
   }
 
-  // The candidate's B2 sub-journey stage (parallel track on candidate_profiles).
+  // The candidate's B2 sub-journey stage + persistent failed flag.
   const { data: prof } = await db
-    .from("candidate_profiles").select("b2_stage").eq("user_id", candidateId).maybeSingle();
-  const b2Stage = (prof as { b2_stage?: string } | null)?.b2_stage ?? "not_started";
+    .from("candidate_profiles").select("b2_stage, b2_failed").eq("user_id", candidateId).maybeSingle();
+  const pr = prof as { b2_stage?: string; b2_failed?: boolean } | null;
 
   return NextResponse.json({
     items,
@@ -181,7 +181,8 @@ export async function GET(req: NextRequest) {
     canAdd: g.access.canAdd,
     canDelete: g.access.canDelete,
     allowedOwners: g.access.allowedOwners,
-    b2Stage,
+    b2Stage: pr?.b2_stage ?? "studying",
+    b2Failed: pr?.b2_failed === true,
   });
 }
 

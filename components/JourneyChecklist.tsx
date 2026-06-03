@@ -78,6 +78,7 @@ export function JourneyChecklist({ candidateUserId }: { candidateUserId: string 
   const [editText, setEditText] = useState("");
   const [showDone, setShowDone] = useState(false); // collapse checked items
   const [b2Stage, setB2Stage] = useState<B2Stage>("studying");
+  const [b2Failed, setB2Failed] = useState(false);
 
   const load = useCallback(async (tk: string) => {
     const res = await fetch(`/api/portal/journey?candidateId=${candidateUserId}`, {
@@ -92,6 +93,7 @@ export function JourneyChecklist({ candidateUserId }: { candidateUserId: string 
     setAllowedOwners(ao);
     if (ao.length) setNewOwner(ao.includes("organization") ? "organization" : ao[0]);
     setB2Stage(normalizeB2Stage(j.b2Stage));
+    setB2Failed(j.b2Failed === true);
     setLoaded(true);
   }, [candidateUserId]);
 
@@ -105,6 +107,19 @@ export function JourneyChecklist({ candidateUserId }: { candidateUserId: string 
       body: JSON.stringify({ candidateId: candidateUserId, stage }),
     }).catch(() => null);
     if (!res || !res.ok) { setB2Stage(prev); return; }
+    emitJourneyChange(candidateUserId);
+  }
+
+  // Toggle the persistent "failed B2 before" flag (red halo on the map).
+  async function setFailed(failed: boolean) {
+    const prev = b2Failed;
+    setB2Failed(failed);
+    const res = await fetch("/api/portal/journey/b2", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ candidateId: candidateUserId, failed }),
+    }).catch(() => null);
+    if (!res || !res.ok) { setB2Failed(prev); return; }
     emitJourneyChange(candidateUserId);
   }
 
@@ -343,6 +358,17 @@ export function JourneyChecklist({ candidateUserId }: { candidateUserId: string 
             <span style={{ fontSize: 12, fontWeight: 600, color: b2StageColor(b2Stage) }}>
               {(B2_STAGES.find((s) => s.key === b2Stage)?.label[(lang as "en" | "fr" | "de")]) ?? "—"}
             </span>
+          )}
+          {/* Persistent "failed B2 before" flag — adds the red halo on the map.
+              Managing parties only. Stays on through the retake. */}
+          {canManage && (
+            <label style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 10, cursor: "pointer" }}>
+              <input type="checkbox" checked={b2Failed} onChange={(e) => void setFailed(e.target.checked)}
+                style={{ width: 14, height: 14, accentColor: "#ef4444" }} />
+              <span style={{ fontSize: 11.5, fontWeight: 600, color: b2Failed ? "#ef4444" : "var(--w3)" }}>
+                {lang === "de" ? "B2 schon einmal nicht bestanden (Wiederholung)" : lang === "fr" ? "A déjà échoué au B2 (reprise)" : "Failed B2 before (retaking)"}
+              </span>
+            </label>
           )}
         </div>
       )}

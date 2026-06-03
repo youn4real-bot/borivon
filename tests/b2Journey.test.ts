@@ -1,12 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { B2_STAGES, normalizeB2Stage, isB2Stage, isB2Passed, b2StageColor, effectiveB2Stage, isB2CertDoc } from "../lib/b2Journey";
+import { B2_STAGES, B2_FAILED_COLOR, normalizeB2Stage, isB2Stage, isB2Passed, b2StageColor, effectiveB2Stage, isB2CertDoc } from "../lib/b2Journey";
 
 describe("b2Journey", () => {
-  it("has the 5 main stages + 3 failure-branch stages", () => {
+  it("is one linear rail of 5 stages (failure is a flag, not a stage)", () => {
     expect(B2_STAGES.map((s) => s.key)).toEqual([
       "studying", "expected_date", "exam_booked", "awaiting_results", "passed",
-      "failed", "retake_expected", "retake_booked",
     ]);
+  });
+
+  it("exposes a red halo colour for the failed-before flag", () => {
+    expect(B2_FAILED_COLOR).toMatch(/^#[0-9a-f]{6}$/i);
   });
 
   it("normalizeB2Stage falls back to studying (the start) on junk", () => {
@@ -14,18 +17,24 @@ describe("b2Journey", () => {
     expect(normalizeB2Stage("garbage")).toBe("studying");
     expect(normalizeB2Stage(null)).toBe("studying");
     expect(normalizeB2Stage(undefined)).toBe("studying");
+    // Old failure-branch keys no longer exist → normalize back to the start.
+    expect(normalizeB2Stage("failed")).toBe("studying");
+    expect(normalizeB2Stage("retake_booked")).toBe("studying");
   });
 
-  it("isB2Stage validates", () => {
-    expect(isB2Stage("failed")).toBe(true);
+  it("isB2Stage validates against the 5-stage model only", () => {
+    expect(isB2Stage("studying")).toBe(true);
     expect(isB2Stage("awaiting_results")).toBe(true);
+    expect(isB2Stage("passed")).toBe(true);
+    expect(isB2Stage("failed")).toBe(false);      // not a stage anymore
+    expect(isB2Stage("retake_booked")).toBe(false);
     expect(isB2Stage("nope")).toBe(false);
   });
 
   it("isB2Passed only at passed", () => {
     expect(isB2Passed("passed")).toBe(true);
     expect(isB2Passed("exam_booked")).toBe(false);
-    expect(isB2Passed("failed")).toBe(false);
+    expect(isB2Passed("studying")).toBe(false);
   });
 
   it("every stage has a colour", () => {
@@ -47,7 +56,7 @@ describe("b2Journey", () => {
     expect(effectiveB2Stage("studying", [{ file_type: "Certificat de langue B2", status: "pending" }])).toBe("awaiting_results");
     // No cert → keep the stored stage (admin's manual call).
     expect(effectiveB2Stage("expected_date", [])).toBe("expected_date");
-    // A failure-branch stage is admin-set and wins over a pending cert.
-    expect(effectiveB2Stage("retake_booked", [{ file_type: "B2 Sprachzertifikat", status: "pending" }])).toBe("retake_booked");
+    // A pending cert does NOT pull back a stage that's already further along.
+    expect(effectiveB2Stage("passed", [{ file_type: "B2 Sprachzertifikat", status: "pending" }])).toBe("passed");
   });
 });

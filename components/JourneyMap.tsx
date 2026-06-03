@@ -12,7 +12,7 @@
 
 import { useMemo, useState } from "react";
 import { JOURNEY_PRESETS } from "@/lib/candidateJourney";
-import { B2_MAIN_STAGES, B2_FAIL_STAGES, normalizeB2Stage, type B2Stage } from "@/lib/b2Journey";
+import { B2_STAGES, B2_FAILED_COLOR, normalizeB2Stage, type B2Stage } from "@/lib/b2Journey";
 import { IMPFUNG_STAGES, type ImpfungStage } from "@/lib/impfungJourney";
 
 type Health = "on_track" | "due_soon" | "overdue" | "blocked" | "done";
@@ -23,7 +23,7 @@ type Status = {
   overdueCount: number; blockedCount: number; health: Health;
   parallel?: { key: string; done: boolean }[];
 };
-export type MapRow = { userId: string; name: string; photo: string | null; status: Status; sellable?: { sellable: boolean }; b2Stage?: string; impfungStage?: string; impfungDoses?: { got: number; need: number } };
+export type MapRow = { userId: string; name: string; photo: string | null; status: Status; sellable?: { sellable: boolean }; b2Stage?: string; b2Failed?: boolean; impfungStage?: string; impfungDoses?: { got: number; need: number } };
 
 const HEALTH_COLOR: Record<Health, string> = {
   blocked: "#ef4444", overdue: "#f97316", due_soon: "#f59e0b", on_track: "#16a34a", done: "#6b7280",
@@ -90,18 +90,23 @@ export function JourneyMap({
     return { by, onPath };
   }, [rows]);
 
-  const Dot = ({ r }: { r: MapRow }) => {
-    const color = HEALTH_COLOR[r.status.health];
+  const Dot = ({ r, ringColor, halo }: { r: MapRow; ringColor?: string; halo?: string }) => {
+    // ringColor overrides the health colour (used by the B2 track to colour the
+    // ring by B2 stage). halo = a persistent OUTER ring (B2: red = failed once).
+    const color = ringColor ?? HEALTH_COLOR[r.status.health];
     const isHover = hover === r.userId;
+    // Layer the halo (outer) under the hover glow.
+    const haloShadow = halo ? `0 0 0 3px ${halo}` : "";
+    const hoverShadow = isHover ? `0 0 0 ${halo ? 6 : 3}px color-mix(in srgb, ${color} 35%, transparent)` : "";
     return (
       <button
         onMouseEnter={() => setHover(r.userId)} onMouseLeave={() => setHover((h) => (h === r.userId ? null : h))}
         onClick={() => onPick(r.userId)}
-        title={r.name}
+        title={halo ? `${r.name} — failed B2 before (retaking)` : r.name}
         style={{
           position: "relative", flexShrink: 0, width: 30, height: 30, borderRadius: 999, padding: 0, cursor: "pointer",
           border: `2px solid ${color}`, background: "var(--bg2)", overflow: "visible",
-          boxShadow: isHover ? `0 0 0 3px color-mix(in srgb, ${color} 35%, transparent)` : "none",
+          boxShadow: [hoverShadow, haloShadow].filter(Boolean).join(", ") || "none",
           transition: "box-shadow .15s, transform .15s", transform: isHover ? "scale(1.15)" : "scale(1)", zIndex: isHover ? 5 : 1,
         }}
       >
@@ -133,64 +138,56 @@ export function JourneyMap({
 
   const doneRows = byStation.get("__done__") ?? [];
 
-  // ── B2 TRACK — a dedicated full roadmap (same vertical-rail style as the
-  // journey). Candidates cluster at their current B2 stage; the partial/re-book
-  // failure stage shows only when someone is actually in it. ──────────────────
+  // ── B2 TRACK — ONE linear rail. Each candidate's RING colour = their B2 stage
+  // (grey→blue→yellow→amber→green). A persistent RED HALO = failed B2 at least
+  // once: such a candidate keeps the red halo forever while they move back
+  // through the stages for a retake, so you always spot the re-takers. ─────────
   if (track === "b2") {
-    const failCount = B2_FAIL_STAGES.reduce((n, s) => n + (b2.by.get(s.key)?.length ?? 0), 0);
-    // One vertical-rail row.
-    const Row = ({ color, label, here, last, fail }: { color: string; label: string; here: MapRow[]; last?: boolean; fail?: boolean }) => (
-      <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
-          <span style={{ width: 13, height: 13, borderRadius: 999, marginTop: 4, background: here.length ? color : "var(--bg2)", border: `2px solid ${here.length ? color : "var(--border)"}` }} />
-          {!last && <span style={{ flex: 1, width: 2, minHeight: 28, background: fail ? "color-mix(in srgb, #f97316 45%, transparent)" : "var(--border)" }} />}
-        </div>
-        <div style={{ flex: 1, minWidth: 0, paddingBottom: 18 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: here.length ? 8 : 0 }}>
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: here.length ? "var(--w)" : "var(--w3)" }}>{label}</span>
-            {here.length > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: `color-mix(in srgb, ${color} 18%, transparent)`, color }}>{here.length}</span>}
-          </div>
-          {here.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>{here.map((r) => <Dot key={r.userId} r={r} />)}</div>}
-        </div>
-      </div>
-    );
+    const failedCount = rows.filter((r) => r.b2Failed).length;
     return (
       <div className="bv-card" style={{ padding: "18px 16px", overflow: "hidden" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
           <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--w)" }}>📜 {T("B2 German — certificate pathway", "B2 Deutsch — Zertifikatsweg", "B2 allemand — parcours de certification")}</span>
         </div>
-        {/* LEFT = main path (studying → expected → booked → awaiting → passed).
-            RIGHT = failure branch (didn't pass → new date → confirmed), which
-            loops back to "awaiting results". Right column only when in use. */}
-        <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap" }}>
-          {/* LEFT — main path */}
-          <div style={{ flex: "1 1 360px", minWidth: 300, display: "flex", flexDirection: "column" }}>
-            {B2_MAIN_STAGES.map((s, i) => (
-              <Row key={s.key} color={s.color} label={s.label[(lang as "en" | "fr" | "de")] ?? s.label.en}
-                here={b2.by.get(s.key) ?? []} last={i === B2_MAIN_STAGES.length - 1} />
-            ))}
-          </div>
-          {/* RIGHT — failure / retake branch, only if anyone is in it */}
-          {failCount > 0 && (
-            <div style={{ flex: "0 1 280px", minWidth: 240, padding: "14px 16px", borderRadius: 12, background: "color-mix(in srgb, #f97316 7%, transparent)", border: "1px solid color-mix(in srgb, #f97316 32%, transparent)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                <span style={{ fontSize: 12.5, fontWeight: 700, color: "#ef4444" }}>{T("Didn't pass — retake", "Nicht bestanden — Wiederholung", "Échoué — reprise")}</span>
-                <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: "color-mix(in srgb, #f97316 18%, transparent)", color: "#f97316" }}>{failCount}</span>
-              </div>
-              <p style={{ fontSize: 10.5, color: "var(--w3)", marginBottom: 12 }}>{T("New date booked → loops back to awaiting results.", "Neuer Termin → zurück zu „Ergebnisse ausstehend\".", "Nouvelle date → retour à « résultats en attente ».")}</p>
-              <div style={{ display: "flex", flexDirection: "column" }}>
-                {B2_FAIL_STAGES.map((s, i) => (
-                  <Row key={s.key} color={s.color} label={s.label[(lang as "en" | "fr" | "de")] ?? s.label.en}
-                    here={b2.by.get(s.key) ?? []} last={i === B2_FAIL_STAGES.length - 1} fail />
-                ))}
-                {/* loop-back hint */}
-                <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 2, marginTop: -6 }}>
-                  <span style={{ fontSize: 13, color: "#f97316", fontWeight: 700 }}>↩</span>
-                  <span style={{ fontSize: 10.5, color: "var(--w3)" }}>{T("back to awaiting results", "zurück zu Ergebnissen", "retour aux résultats")}</span>
+        {/* Legend: stage colours + the red-halo = failed-before meaning. */}
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 16, fontSize: 11, color: "var(--w3)" }}>
+          {B2_STAGES.map((s) => (
+            <span key={s.key} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <span style={{ width: 9, height: 9, borderRadius: 999, background: s.color }} />
+              {s.label[(lang as "en" | "fr" | "de")] ?? s.label.en}
+            </span>
+          ))}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+            <span style={{ width: 11, height: 11, borderRadius: 999, background: "var(--bg2)", boxShadow: `0 0 0 2px ${B2_FAILED_COLOR}` }} />
+            {T("failed before (retaking)", "vorher nicht bestanden", "échoué avant")}{failedCount > 0 ? ` · ${failedCount}` : ""}
+          </span>
+        </div>
+        {/* Single vertical rail of the 5 stages. Dots coloured by stage; failed
+            candidates carry the red halo (set via b2Failed). */}
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          {B2_STAGES.map((s, i) => {
+            const here = b2.by.get(s.key) ?? [];
+            const last = i === B2_STAGES.length - 1;
+            return (
+              <div key={s.key} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
+                  <span style={{ width: 13, height: 13, borderRadius: 999, marginTop: 4, background: here.length ? s.color : "var(--bg2)", border: `2px solid ${here.length ? s.color : "var(--border)"}` }} />
+                  {!last && <span style={{ flex: 1, width: 2, minHeight: 28, background: "var(--border)" }} />}
+                </div>
+                <div style={{ flex: 1, minWidth: 0, paddingBottom: 18 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: here.length ? 8 : 0 }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: here.length ? "var(--w)" : "var(--w3)" }}>{s.label[(lang as "en" | "fr" | "de")] ?? s.label.en}</span>
+                    {here.length > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: `color-mix(in srgb, ${s.color} 18%, transparent)`, color: s.color }}>{here.length}</span>}
+                  </div>
+                  {here.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 9 }}>
+                      {here.map((r) => <Dot key={r.userId} r={r} ringColor={s.color} halo={r.b2Failed ? B2_FAILED_COLOR : undefined} />)}
+                    </div>
+                  )}
                 </div>
               </div>
-            </div>
-          )}
+            );
+          })}
         </div>
         {rows.length === 0 && (
           <p style={{ textAlign: "center", color: "var(--w3)", fontSize: 13, padding: "1rem 0" }}>{T("No candidates yet.", "Noch keine Kandidaten.", "Aucun candidat.")}</p>

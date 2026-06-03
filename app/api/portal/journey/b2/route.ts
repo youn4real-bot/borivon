@@ -19,8 +19,11 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const candidateId = typeof body?.candidateId === "string" ? body.candidateId : "";
   const stage = body?.stage;
+  const hasStage = stage !== undefined;
+  const hasFailed = typeof body?.failed === "boolean";
   if (!UUID_RE.test(candidateId)) return NextResponse.json({ error: "candidateId required" }, { status: 400 });
-  if (!isB2Stage(stage)) return NextResponse.json({ error: "invalid stage" }, { status: 400 });
+  if (hasStage && !isB2Stage(stage)) return NextResponse.json({ error: "invalid stage" }, { status: 400 });
+  if (!hasStage && !hasFailed) return NextResponse.json({ error: "nothing to update" }, { status: 400 });
 
   const email = user.email;
   const db = getServiceSupabase();
@@ -47,13 +50,16 @@ export async function POST(req: NextRequest) {
   }
   if (!allowed) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
+  const patch: Record<string, unknown> = {};
+  if (hasStage) patch.b2_stage = stage;
+  if (hasFailed) patch.b2_failed = body.failed;
   const { error } = await db
     .from("candidate_profiles")
-    .update({ b2_stage: stage })
+    .update(patch)
     .eq("user_id", candidateId);
   if (error) {
     console.error("[journey/b2] update error:", error.message);
     return NextResponse.json({ error: "update_failed" }, { status: 500 });
   }
-  return NextResponse.json({ ok: true, stage });
+  return NextResponse.json({ ok: true, stage, failed: hasFailed ? body.failed : undefined });
 }
