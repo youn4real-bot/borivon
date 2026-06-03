@@ -32,12 +32,16 @@ function initials(n: string): string {
   return n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join("").toUpperCase() || "?";
 }
 
+export type MapTrack = "journey" | "b2";
+
 export function JourneyMap({
-  rows, lang, onPick,
+  rows, lang, onPick, track = "journey",
 }: {
   rows: MapRow[];
   lang: string;
   onPick: (userId: string) => void;
+  /** Which roadmap to show: the main Morocco→Germany journey, or the B2 track. */
+  track?: MapTrack;
 }) {
   const T = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
   const [hover, setHover] = useState<string | null>(null);
@@ -133,6 +137,54 @@ export function JourneyMap({
 
   const doneRows = byStation.get("__done__") ?? [];
 
+  // ── B2 TRACK — a dedicated full roadmap (same vertical-rail style as the
+  // journey). Candidates cluster at their current B2 stage; the partial/re-book
+  // failure stage shows only when someone is actually in it. ──────────────────
+  if (track === "b2") {
+    return (
+      <div className="bv-card" style={{ padding: "18px 16px", overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+          <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--w)" }}>📜 {T("B2 German — certificate pathway", "B2 Deutsch — Zertifikatsweg", "B2 allemand — parcours de certification")}</span>
+        </div>
+        <p style={{ fontSize: 11.5, color: "var(--w3)", marginBottom: 16 }}>
+          {T("Runs in parallel to the main journey.", "Läuft parallel zur Hauptreise.", "En parallèle du parcours principal.")}
+          {b2.onPath > 0 ? ` · ${b2.onPath}/${rows.length} ${T("on the pathway", "auf dem Weg", "sur le parcours")}` : ""}
+        </p>
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          {b2.visibleStages.map((s, i) => {
+            const here = b2.by.get(s.key) ?? [];
+            const last = i === b2.visibleStages.length - 1;
+            const isFail = s.key === "partial";
+            return (
+              <div key={s.key} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
+                  <span style={{ width: 13, height: 13, borderRadius: 999, marginTop: 4, background: here.length ? s.color : "var(--bg2)", border: `2px solid ${here.length ? s.color : "var(--border)"}` }} />
+                  {!last && <span style={{ flex: 1, width: 2, minHeight: 28, background: isFail ? "#f97316" : "var(--border)" }} />}
+                </div>
+                <div style={{ flex: 1, minWidth: 0, paddingBottom: 18 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: here.length ? 8 : 0 }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: here.length ? "var(--w)" : "var(--w3)" }}>
+                      {isFail && "↩ "}{s.label[(lang as "en" | "fr" | "de")] ?? s.label.en}
+                    </span>
+                    {here.length > 0 && (
+                      <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: `color-mix(in srgb, ${s.color} 18%, transparent)`, color: s.color }}>{here.length}</span>
+                    )}
+                  </div>
+                  {here.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>{here.map((r) => <Dot key={r.userId} r={r} />)}</div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        {rows.length === 0 && (
+          <p style={{ textAlign: "center", color: "var(--w3)", fontSize: 13, padding: "1rem 0" }}>{T("No candidates yet.", "Noch keine Kandidaten.", "Aucun candidat.")}</p>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="bv-card" style={{ padding: "18px 16px", overflow: "hidden" }}>
       {/* Legend */}
@@ -200,46 +252,6 @@ export function JourneyMap({
                 {here.length > 0 && (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
                     {here.map((r) => <Dot key={r.userId} r={r} />)}
-                  </div>
-                )}
-
-                {/* B2 certificate sub-track — rendered INLINE under the German-CV
-                    station (B2 runs in parallel from around this point). It's a
-                    nested mini-track inside the main rail, not a separate board. */}
-                {st.key === "cv_finalized" && (
-                  <div style={{ marginTop: 12, marginBottom: 4, padding: "12px 14px", borderRadius: 12, background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                      <span style={{ fontSize: 11.5, fontWeight: 700, color: "var(--w2)" }}>📜 {T("B2 German certificate", "B2-Deutsch-Zertifikat", "Certificat B2 allemand")}</span>
-                      <span style={{ fontSize: 10, color: "var(--w3)" }}>· {T("parallel", "parallel", "parallèle")}{b2.onPath > 0 ? ` · ${b2.onPath}/${rows.length}` : ""}</span>
-                    </div>
-                    {/* horizontal stage track */}
-                    <div style={{ display: "flex", gap: 0, overflowX: "auto", paddingBottom: 4 }}>
-                      {b2.visibleStages.map((s, si) => {
-                        const at = b2.by.get(s.key) ?? [];
-                        const lastB2 = si === b2.visibleStages.length - 1;
-                        const isFail = s.key === "partial";
-                        return (
-                          <div key={s.key} style={{ flex: "1 0 96px", minWidth: 96 }}>
-                            {/* node + connector line */}
-                            <div style={{ display: "flex", alignItems: "center", gap: 0, marginBottom: 6 }}>
-                              <span style={{ width: 10, height: 10, borderRadius: 999, flexShrink: 0,
-                                background: at.length ? s.color : "var(--card)",
-                                border: `2px solid ${at.length ? s.color : "var(--border)"}`,
-                                ...(isFail ? { boxShadow: "0 0 0 3px color-mix(in srgb, #f97316 25%, transparent)" } : {}) }} />
-                              {!lastB2 && <span style={{ flex: 1, height: 2, background: isFail ? "#f97316" : "var(--border)", ...(isFail ? { backgroundImage: "repeating-linear-gradient(90deg,#f97316,#f97316 3px,transparent 3px,transparent 6px)", background: "none" } : {}) }} />}
-                            </div>
-                            <div style={{ fontSize: 9.5, fontWeight: 600, lineHeight: 1.25, color: at.length ? "var(--w)" : "var(--w3)", paddingRight: 6 }}>
-                              {isFail && "↩ "}{s.label[(lang as "en" | "fr" | "de")] ?? s.label.en}
-                            </div>
-                            {at.length > 0 && (
-                              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
-                                {at.map((r) => <Dot key={r.userId} r={r} />)}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
                   </div>
                 )}
               </div>

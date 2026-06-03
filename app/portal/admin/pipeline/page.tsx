@@ -53,6 +53,7 @@ export default function AdminPipelinePage() {
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<"all" | "attention" | "sellable">("all");
   const [view, setView] = useState<"map" | "list">("map");
+  const [track, setTrack] = useState<"journey" | "b2">("journey");
 
   useEffect(() => {
     let cancelled = false;
@@ -86,6 +87,13 @@ export default function AdminPipelinePage() {
     });
   }, [rows, q, filter]);
 
+  // The B2 track ignores the journey-specific filter tabs (sellable / attention)
+  // — those are about the main journey, not B2. It respects only the search box.
+  const b2Rows = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return needle ? rows.filter((r) => r.name.toLowerCase().includes(needle)) : rows;
+  }, [rows, q]);
+
   if (loading) return <PageLoader />;
 
   const initials = (n: string) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join("").toUpperCase() || "?";
@@ -104,8 +112,21 @@ export default function AdminPipelinePage() {
         <ArrowLeft size={15} strokeWidth={2} /> {T("Back to admin", "Zurück zum Admin", "Retour à l'admin")}
       </button>
 
-      <div className="mb-4">
+      <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
         <h1 className="bv-h1">{T("Pipeline", "Pipeline", "Pipeline")}</h1>
+        {/* Track switcher — flip between roadmaps instantly (no new URL). */}
+        <div className="inline-flex p-0.5 rounded-full" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+          {([
+            ["journey", T("Journey", "Reise", "Parcours")],
+            ["b2", T("B2 German", "B2 Deutsch", "B2 allemand")],
+          ] as const).map(([v, label]) => (
+            <button key={v} onClick={() => setTrack(v)}
+              className="px-3.5 py-1.5 rounded-full text-[12.5px] font-semibold transition-colors"
+              style={track === v ? { background: "var(--gold)", color: "#131312" } : { background: "transparent", color: "var(--w3)" }}>
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Search + filters */}
@@ -115,30 +136,38 @@ export default function AdminPipelinePage() {
           <input value={q} onChange={(e) => setQ(e.target.value)} className="bv-input" style={{ paddingLeft: 36 }}
             placeholder={T("Search candidate…", "Kandidat suchen…", "Rechercher…")} />
         </div>
-        <div className="inline-flex p-0.5 rounded-full" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-          {([["all", T("All", "Alle", "Tous")], ["sellable", T("Ready to sell", "Verkaufsbereit", "Prêts")], ["attention", T("Needs attention", "Braucht Aufmerksamkeit", "À traiter")]] as const).map(([v, label]) => (
-            <button key={v} onClick={() => setFilter(v)}
-              className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold transition-colors"
-              style={filter === v ? { background: "var(--gold)", color: "#131312" } : { background: "transparent", color: "var(--w3)" }}>
-              {label}
-            </button>
-          ))}
-        </div>
-        {/* Map ⇄ List view toggle */}
-        <div className="inline-flex p-0.5 rounded-full" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-          {([["map", MapIcon, T("Map", "Karte", "Carte")], ["list", List, T("List", "Liste", "Liste")]] as const).map(([v, Icon, label]) => (
-            <button key={v} onClick={() => setView(v)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-semibold transition-colors"
-              style={view === v ? { background: "var(--gold)", color: "#131312" } : { background: "transparent", color: "var(--w3)" }}>
-              <Icon size={14} /> <span className="hidden sm:inline">{label}</span>
-            </button>
-          ))}
-        </div>
+        {/* Journey-only controls (sellable/attention filter + Map/List). The B2
+            track is its own roadmap and ignores these. */}
+        {track === "journey" && (
+          <>
+            <div className="inline-flex p-0.5 rounded-full" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+              {([["all", T("All", "Alle", "Tous")], ["sellable", T("Ready to sell", "Verkaufsbereit", "Prêts")], ["attention", T("Needs attention", "Braucht Aufmerksamkeit", "À traiter")]] as const).map(([v, label]) => (
+                <button key={v} onClick={() => setFilter(v)}
+                  className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold transition-colors"
+                  style={filter === v ? { background: "var(--gold)", color: "#131312" } : { background: "transparent", color: "var(--w3)" }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+            {/* Map ⇄ List view toggle */}
+            <div className="inline-flex p-0.5 rounded-full" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+              {([["map", MapIcon, T("Map", "Karte", "Carte")], ["list", List, T("List", "Liste", "Liste")]] as const).map(([v, Icon, label]) => (
+                <button key={v} onClick={() => setView(v)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-semibold transition-colors"
+                  style={view === v ? { background: "var(--gold)", color: "#131312" } : { background: "transparent", color: "var(--w3)" }}>
+                  <Icon size={14} /> <span className="hidden sm:inline">{label}</span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
       </div>
 
-      {/* Map view — the living Morocco→Germany rail */}
-      {view === "map" ? (
-        <JourneyMap rows={shown} lang={lang} onPick={(uid) => router.push(`/portal/admin?nav_user_id=${encodeURIComponent(uid)}`)} />
+      {/* Map view — the living roadmap (Journey or B2, per the track switch).
+          The B2 track always uses the map style + the search-only list. */}
+      {view === "map" || track === "b2" ? (
+        <JourneyMap rows={track === "b2" ? b2Rows : shown} lang={lang} track={track}
+          onPick={(uid) => router.push(`/portal/admin?nav_user_id=${encodeURIComponent(uid)}`)} />
       ) : shown.length === 0 ? (
         <div className="bv-card text-center py-16">
           <CheckCircle2 size={30} strokeWidth={1.5} className="mx-auto mb-3" style={{ color: "var(--w3)" }} />
