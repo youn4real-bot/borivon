@@ -11,7 +11,7 @@
  */
 
 import { NextRequest } from "next/server";
-import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
+import { getServiceSupabase, getAnonVerifyClient, getAuthSchemaClient } from "@/lib/supabase";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 
 /**
@@ -227,6 +227,54 @@ export async function getVisibleCandidateIds(subAdminEmail: string): Promise<str
     .in("org_id", myOrgs);
   type LinkRow = { candidate_user_id: string };
   return [...new Set(((linksData ?? []) as LinkRow[]).map(l => l.candidate_user_id))];
+}
+
+/**
+ * Every email that belongs to STAFF — the supreme admin, every sub-admin, and
+ * every organization member — lowercased for case-insensitive comparison.
+ *
+ * Why: a staff member who opens the candidate dashboard even once gets a
+ * `candidate_profiles` row created for them. They are NOT candidates, so any
+ * candidate-facing list (the pipeline people-map especially) must exclude them.
+ */
+export async function getStaffEmailSet(): Promise<Set<string>> {
+  const db = getServiceSupabase();
+  const out = new Set<string>();
+  const admin = getAdminEmail();
+  if (admin) out.add(admin);
+  const [subsRes, memRes] = await Promise.all([
+    db.from("sub_admins").select("email"),
+    db.from("organization_members").select("sub_admin_email"),
+  ]);
+  for (const r of (subsRes.data ?? []) as { email: string | null }[]) {
+    const e = (r.email ?? "").trim().toLowerCase();
+    if (e) out.add(e);
+  }
+  for (const r of (memRes.data ?? []) as { sub_admin_email: string | null }[]) {
+    const e = (r.sub_admin_email ?? "").trim().toLowerCase();
+    if (e) out.add(e);
+  }
+  return out;
+}
+
+/**
+ * Given a list of user_ids, return the subset that belong to STAFF (admin /
+ * sub-admin / org member). Resolves each id's email from auth.users and tests
+ * it against getStaffEmailSet(). Bounded by the input list — no full-table
+ * pagination. Used to strip staff out of candidate lists.
+ */
+export async function getStaffUserIdsAmong(userIds: string[]): Promise<Set<string>> {
+  const out = new Set<string>();
+  if (userIds.length === 0) return out;
+  const staffEmails = await getStaffEmailSet();
+  if (staffEmails.size === 0) return out;
+  const { data: authRows } = await getAuthSchemaClient()
+    .from("users").select("id, email").in("id", userIds);
+  for (const u of (authRows ?? []) as { id: string; email: string | null }[]) {
+    const e = (u.email ?? "").trim().toLowerCase();
+    if (e && staffEmails.has(e)) out.add(u.id);
+  }
+  return out;
 }
 
 /**

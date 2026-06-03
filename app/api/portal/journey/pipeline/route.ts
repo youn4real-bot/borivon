@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
-import { requireAdminRole, getVisibleCandidateIds } from "@/lib/admin-auth";
+import { requireAdminRole, getVisibleCandidateIds, getStaffUserIdsAmong } from "@/lib/admin-auth";
 import { computePipelineStatus, type JourneyRow } from "@/lib/journeyPipeline";
 import { evaluateSellable } from "@/lib/sellable";
 import { normalizeB2Stage, isB2Passed, effectiveB2Stage } from "@/lib/b2Journey";
@@ -56,7 +56,14 @@ export async function GET(req: NextRequest) {
     console.error("[journey/pipeline] profiles error:", profErr.message);
     return NextResponse.json({ error: "load_failed" }, { status: 500 });
   }
-  const profiles = (profData ?? []) as ProfileRow[];
+  const allProfiles = (profData ?? []) as ProfileRow[];
+  if (allProfiles.length === 0) return NextResponse.json({ today: casablancaToday(), candidates: [] });
+
+  // STAFF are NOT candidates. The supreme admin, sub-admins and org members can
+  // each have a candidate_profiles row (they open the candidate dashboard once),
+  // but they must never appear on the people map. Strip them out.
+  const staffIds = await getStaffUserIdsAmong(allProfiles.map((p) => p.user_id));
+  const profiles = allProfiles.filter((p) => !staffIds.has(p.user_id));
   if (profiles.length === 0) return NextResponse.json({ today: casablancaToday(), candidates: [] });
 
   const ids = profiles.map((p) => p.user_id);

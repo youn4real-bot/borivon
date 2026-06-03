@@ -8,6 +8,7 @@ const h = vi.hoisted(() => ({
   getUser: vi.fn(),     // anon.auth.getUser(jwt)
   getUserById: vi.fn(), // service.auth.admin.getUserById(id)
   tables: {} as Record<string, { data: unknown; error: unknown }>,
+  authTables: {} as Record<string, { data: unknown; error: unknown }>, // auth-schema (getAuthSchemaClient)
 }));
 
 // Mock the Supabase clients. softDeleted is left REAL so the soft-delete gate
@@ -33,7 +34,9 @@ vi.mock("@/lib/supabase", () => {
       from: (t: string) => qb(h.tables[t] ?? { data: null, error: null }),
       auth: { admin: { getUserById: (...a: unknown[]) => h.getUserById(...a) } },
     }),
-    getAuthSchemaClient: () => ({}),
+    getAuthSchemaClient: () => ({
+      from: (t: string) => qb(h.authTables[t] ?? { data: null, error: null }),
+    }),
     supabase: {},
   };
 });
@@ -44,6 +47,8 @@ import {
   requireUser,
   canActOnCandidate,
   getVisibleCandidateIds,
+  getStaffEmailSet,
+  getStaffUserIdsAmong,
   roleByUserId,
 } from "../lib/admin-auth";
 
@@ -66,6 +71,7 @@ beforeEach(() => {
   h.getUser.mockReset();
   h.getUserById.mockReset();
   h.tables = {};
+  h.authTables = {};
 });
 
 describe("ciEmail (ilike wildcard-injection escaping)", () => {
@@ -230,6 +236,49 @@ describe("getVisibleCandidateIds (LAW #25)", () => {
     h.tables.sub_admins = { data: [{ is_agency_admin: false }], error: null };
     h.tables.organization_members = { data: null, error: { message: "blip" } };
     expect(await getVisibleCandidateIds("a@x.com")).toEqual([]);
+  });
+});
+
+describe("getStaffEmailSet (candidates-only filtering)", () => {
+  it("includes the supreme admin + every sub-admin + every org member, all lowercased", async () => {
+    h.tables.sub_admins = { data: [{ email: "Sub@Org.com" }, { email: "hq@borivon.com" }], error: null };
+    h.tables.organization_members = { data: [{ sub_admin_email: "Member@Org.com" }], error: null };
+    const set = await getStaffEmailSet();
+    expect(set.has("admin@borivon.com")).toBe(true);  // ADMIN_EMAIL
+    expect(set.has("sub@org.com")).toBe(true);
+    expect(set.has("hq@borivon.com")).toBe(true);
+    expect(set.has("member@org.com")).toBe(true);
+    expect(set.has("a-real-candidate@x.com")).toBe(false);
+  });
+  it("skips blank / null email rows", async () => {
+    h.tables.sub_admins = { data: [{ email: "" }, { email: null }], error: null };
+    h.tables.organization_members = { data: [{ sub_admin_email: null }], error: null };
+    const set = await getStaffEmailSet();
+    expect(set.has("")).toBe(false);
+    expect(set.has("admin@borivon.com")).toBe(true); // admin still present
+  });
+});
+
+describe("getStaffUserIdsAmong (strip staff from a candidate list)", () => {
+  it("empty input → empty set (no DB hit)", async () => {
+    expect((await getStaffUserIdsAmong([])).size).toBe(0);
+  });
+  it("returns only the ids whose email is a staff email", async () => {
+    h.tables.sub_admins = { data: [{ email: "sub@org.com" }], error: null };
+    h.tables.organization_members = { data: [], error: null };
+    h.authTables.users = {
+      data: [
+        { id: "u1", email: "sub@org.com" },          // sub-admin → staff
+        { id: "u2", email: "real@candidate.com" },   // real candidate → kept
+        { id: "u3", email: "ADMIN@borivon.com" },    // supreme admin (mixed case) → staff
+      ],
+      error: null,
+    };
+    const staff = await getStaffUserIdsAmong(["u1", "u2", "u3"]);
+    expect(staff.has("u1")).toBe(true);
+    expect(staff.has("u3")).toBe(true);
+    expect(staff.has("u2")).toBe(false);
+    expect(staff.size).toBe(2);
   });
 });
 
