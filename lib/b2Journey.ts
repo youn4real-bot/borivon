@@ -14,12 +14,16 @@
  */
 
 export type B2Stage =
-  | "not_started"
-  | "studying"      // still studying
-  | "planning"      // planning a date to sit the exam
-  | "booked"        // confirmed date — booked & paid
-  | "passed"        // B2 passed ✓ (main path end)
-  | "retaking";     // failed / partial — a NEW exam date is booked to try again
+  // ── Main path ──────────────────────────────────────────────────────────
+  | "studying"          // still studying (the starting point)
+  | "expected_date"     // expected passing date confirmed
+  | "exam_booked"       // actual exam date — paid & confirmed
+  | "awaiting_results"  // sat the exam, expected results-release date
+  | "passed"            // B2 passed ✓
+  // ── Failure branch (loops back to awaiting_results) ───────────────────────
+  | "failed"            // didn't pass
+  | "retake_expected"   // expected new passing date
+  | "retake_booked";    // new date paid & confirmed → loops back to results
 
 export type B2StageDef = {
   key: B2Stage;
@@ -29,20 +33,23 @@ export type B2StageDef = {
   label: { en: string; fr: string; de: string };
 };
 
-// Main path (studying → planning → booked → passed). `retaking` is the SEPARATE
-// failure branch (shown on its own, only when used).
+// Main path (studying → expected date → exam booked → awaiting results → passed).
+// The failure branch (failed → expected → booked) loops back to awaiting results.
 export const B2_STAGES: B2StageDef[] = [
-  { key: "not_started", position: 0, color: "#6b7280", label: { en: "Not started",                fr: "Pas commencé",              de: "Nicht begonnen" } },
-  { key: "studying",    position: 1, color: "#3b82f6", label: { en: "Still studying",             fr: "En cours d'étude",          de: "Lernt noch" } },
-  { key: "planning",    position: 2, color: "#8b5cf6", label: { en: "Planning passing date",      fr: "Planification de la date",  de: "Termin wird geplant" } },
-  { key: "booked",      position: 3, color: "#f59e0b", label: { en: "Confirmed date (booked & paid)", fr: "Date confirmée (réservé & payé)", de: "Termin bestätigt (gebucht & bezahlt)" } },
-  { key: "passed",      position: 4, color: "#16a34a", label: { en: "B2 passed",                  fr: "B2 réussi",                 de: "B2 bestanden" } },
-  // Failure branch — own column, only shown when someone is in it.
-  { key: "retaking",    position: 5, color: "#f97316", label: { en: "Retaking — new date booked", fr: "Repasse — nouvelle date",   de: "Wiederholung — neuer Termin" } },
+  { key: "studying",         position: 0, color: "#3b82f6", label: { en: "Studying",                       fr: "En cours d'étude",            de: "Lernphase" } },
+  { key: "expected_date",    position: 1, color: "#8b5cf6", label: { en: "Expected passing date confirmed", fr: "Date prévue confirmée",       de: "Voraussichtl. Termin bestätigt" } },
+  { key: "exam_booked",      position: 2, color: "#f59e0b", label: { en: "Exam date paid & confirmed",      fr: "Date d'examen payée & confirmée", de: "Prüfungstermin bezahlt & bestätigt" } },
+  { key: "awaiting_results", position: 3, color: "#eab308", label: { en: "Awaiting results release",        fr: "Résultats en attente",        de: "Ergebnisse ausstehend" } },
+  { key: "passed",           position: 4, color: "#16a34a", label: { en: "B2 passed",                       fr: "B2 réussi",                   de: "B2 bestanden" } },
+  // Failure branch (right column).
+  { key: "failed",           position: 5, color: "#ef4444", label: { en: "Didn't pass",                    fr: "Échoué",                      de: "Nicht bestanden" } },
+  { key: "retake_expected",  position: 6, color: "#f97316", label: { en: "Expected new date",               fr: "Nouvelle date prévue",        de: "Neuer Termin geplant" } },
+  { key: "retake_booked",    position: 7, color: "#f59e0b", label: { en: "New date paid & confirmed",       fr: "Nouvelle date confirmée",     de: "Neuer Termin bestätigt" } },
 ];
 
-// The four MAIN-path stages (the left rail). `retaking` is the right-side branch.
-export const B2_MAIN_STAGES = B2_STAGES.filter((s) => s.key !== "not_started" && s.key !== "retaking");
+// Left rail = the main path; right column = the failure/retake branch.
+export const B2_MAIN_STAGES = B2_STAGES.filter((s) => ["studying", "expected_date", "exam_booked", "awaiting_results", "passed"].includes(s.key));
+export const B2_FAIL_STAGES = B2_STAGES.filter((s) => ["failed", "retake_expected", "retake_booked"].includes(s.key));
 
 export const B2_STAGE_BY_KEY: Record<string, B2StageDef> =
   Object.fromEntries(B2_STAGES.map((s) => [s.key, s]));
@@ -51,9 +58,9 @@ export function isB2Stage(v: unknown): v is B2Stage {
   return typeof v === "string" && v in B2_STAGE_BY_KEY;
 }
 
-/** Normalize any stored value → a valid stage (defaults to not_started). */
+/** Normalize any stored value → a valid stage (defaults to studying = the start). */
 export function normalizeB2Stage(v: unknown): B2Stage {
-  return isB2Stage(v) ? v : "not_started";
+  return isB2Stage(v) ? v : "studying";
 }
 
 export function b2StageLabel(stage: B2Stage, lang: string): string {
@@ -88,20 +95,24 @@ export function isB2CertDoc(fileType: string | null | undefined): boolean {
  *   • otherwise → the stored stage (admin's manual call: studying / planning /
  *     booked / retaking).
  */
+const FAIL_BRANCH = new Set<B2Stage>(["failed", "retake_expected", "retake_booked"]);
+
 export function effectiveB2Stage(
   stored: B2Stage,
   docs: { file_type: string | null; status: string | null }[],
 ): B2Stage {
   const hasApprovedCert = docs.some((d) => d.status === "approved" && isB2CertDoc(d.file_type));
   if (hasApprovedCert) return "passed";
-  if (stored === "retaking") return "retaking"; // admin-set failure branch wins
+  // The failure branch is set deliberately by an admin — it wins over a pending
+  // cert (a retake candidate may have an old, unapproved cert on file).
+  if (FAIL_BRANCH.has(stored)) return stored;
   const hasAnyCert = docs.some((d) => isB2CertDoc(d.file_type));
   if (hasAnyCert) {
-    // Uploaded but unapproved cert → at least "confirmed date", unless already
-    // further along.
-    const bookedPos = B2_STAGE_BY_KEY["booked"].position;
+    // Uploaded but unapproved cert → they've sat the exam → at least "awaiting
+    // results", unless the stored stage is already further along the main path.
+    const awaitingPos = B2_STAGE_BY_KEY["awaiting_results"].position;
     const storedPos = B2_STAGE_BY_KEY[stored]?.position ?? 0;
-    return storedPos >= bookedPos ? stored : "booked";
+    return storedPos > awaitingPos ? stored : "awaiting_results";
   }
   return stored;
 }

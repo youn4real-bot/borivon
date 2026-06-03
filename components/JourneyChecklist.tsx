@@ -77,7 +77,7 @@ export function JourneyChecklist({ candidateUserId }: { candidateUserId: string 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [showDone, setShowDone] = useState(false); // collapse checked items
-  const [b2Stage, setB2Stage] = useState<B2Stage>("not_started");
+  const [b2Stage, setB2Stage] = useState<B2Stage>("studying");
 
   const load = useCallback(async (tk: string) => {
     const res = await fetch(`/api/portal/journey?candidateId=${candidateUserId}`, {
@@ -326,7 +326,7 @@ export function JourneyChecklist({ candidateUserId }: { candidateUserId: string 
           </div>
           {canManage ? (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-              {B2_STAGES.filter((s) => s.key !== "not_started").map((s) => {
+              {B2_STAGES.map((s) => {
                 const active = b2Stage === s.key;
                 return (
                   <button key={s.key} onClick={() => void setB2(s.key)}

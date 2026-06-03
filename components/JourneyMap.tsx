@@ -12,7 +12,7 @@
 
 import { useMemo, useState } from "react";
 import { JOURNEY_PRESETS } from "@/lib/candidateJourney";
-import { B2_MAIN_STAGES, B2_STAGE_BY_KEY, normalizeB2Stage, type B2Stage } from "@/lib/b2Journey";
+import { B2_MAIN_STAGES, B2_FAIL_STAGES, normalizeB2Stage, type B2Stage } from "@/lib/b2Journey";
 import { IMPFUNG_STAGES, type ImpfungStage } from "@/lib/impfungJourney";
 
 type Health = "on_track" | "due_soon" | "overdue" | "blocked" | "done";
@@ -86,7 +86,7 @@ export function JourneyMap({
       const st = normalizeB2Stage(r.b2Stage);
       (by.get(st) ?? by.set(st, []).get(st)!).push(r);
     }
-    const onPath = rows.length - (by.get("not_started")?.length ?? 0);
+    const onPath = rows.length; // studying is the start → everyone is on the path
     return { by, onPath };
   }, [rows]);
 
@@ -137,15 +137,13 @@ export function JourneyMap({
   // journey). Candidates cluster at their current B2 stage; the partial/re-book
   // failure stage shows only when someone is actually in it. ──────────────────
   if (track === "b2") {
-    const notStarted = b2.by.get("not_started") ?? [];
-    const retaking = b2.by.get("retaking") ?? [];
-    const retakeDef = B2_STAGE_BY_KEY["retaking"];
-    // One vertical-rail row (reused for not-started + each main stage).
-    const Row = ({ color, label, here, last }: { color: string; label: string; here: MapRow[]; last?: boolean }) => (
+    const failCount = B2_FAIL_STAGES.reduce((n, s) => n + (b2.by.get(s.key)?.length ?? 0), 0);
+    // One vertical-rail row.
+    const Row = ({ color, label, here, last, fail }: { color: string; label: string; here: MapRow[]; last?: boolean; fail?: boolean }) => (
       <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
           <span style={{ width: 13, height: 13, borderRadius: 999, marginTop: 4, background: here.length ? color : "var(--bg2)", border: `2px solid ${here.length ? color : "var(--border)"}` }} />
-          {!last && <span style={{ flex: 1, width: 2, minHeight: 28, background: "var(--border)" }} />}
+          {!last && <span style={{ flex: 1, width: 2, minHeight: 28, background: fail ? "color-mix(in srgb, #f97316 45%, transparent)" : "var(--border)" }} />}
         </div>
         <div style={{ flex: 1, minWidth: 0, paddingBottom: 18 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: here.length ? 8 : 0 }}>
@@ -158,34 +156,39 @@ export function JourneyMap({
     );
     return (
       <div className="bv-card" style={{ padding: "18px 16px", overflow: "hidden" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
           <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--w)" }}>📜 {T("B2 German — certificate pathway", "B2 Deutsch — Zertifikatsweg", "B2 allemand — parcours de certification")}</span>
         </div>
-        <p style={{ fontSize: 11.5, color: "var(--w3)", marginBottom: 16 }}>
-          {T("Runs in parallel to the main journey.", "Läuft parallel zur Hauptreise.", "En parallèle du parcours principal.")}
-          {b2.onPath > 0 ? ` · ${b2.onPath}/${rows.length} ${T("on the pathway", "auf dem Weg", "sur le parcours")}` : ""}
-        </p>
-        {/* Two columns: LEFT = main path (studying→planning→booked→passed);
-            RIGHT = retaking branch (failed/partial), only when someone's in it. */}
+        {/* LEFT = main path (studying → expected → booked → awaiting → passed).
+            RIGHT = failure branch (didn't pass → new date → confirmed), which
+            loops back to "awaiting results". Right column only when in use. */}
         <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap" }}>
           {/* LEFT — main path */}
-          <div style={{ flex: "1 1 340px", minWidth: 300, display: "flex", flexDirection: "column" }}>
-            <Row color="var(--border)" label={T("Not started yet", "Noch nicht begonnen", "Pas encore commencé")} here={notStarted} />
+          <div style={{ flex: "1 1 360px", minWidth: 300, display: "flex", flexDirection: "column" }}>
             {B2_MAIN_STAGES.map((s, i) => (
               <Row key={s.key} color={s.color} label={s.label[(lang as "en" | "fr" | "de")] ?? s.label.en}
                 here={b2.by.get(s.key) ?? []} last={i === B2_MAIN_STAGES.length - 1} />
             ))}
           </div>
-          {/* RIGHT — retaking branch, only if anyone failed/partial */}
-          {retaking.length > 0 && (
-            <div style={{ flex: "0 1 260px", minWidth: 220, padding: "12px 14px", borderRadius: 12, background: "color-mix(in srgb, #f97316 8%, transparent)", border: "1px solid color-mix(in srgb, #f97316 35%, transparent)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                <span style={{ width: 11, height: 11, borderRadius: 999, background: retakeDef.color }} />
-                <span style={{ fontSize: 12.5, fontWeight: 700, color: "#f97316" }}>↩ {retakeDef.label[(lang as "en" | "fr" | "de")] ?? retakeDef.label.en}</span>
-                <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: "color-mix(in srgb, #f97316 18%, transparent)", color: "#f97316" }}>{retaking.length}</span>
+          {/* RIGHT — failure / retake branch, only if anyone is in it */}
+          {failCount > 0 && (
+            <div style={{ flex: "0 1 280px", minWidth: 240, padding: "14px 16px", borderRadius: 12, background: "color-mix(in srgb, #f97316 7%, transparent)", border: "1px solid color-mix(in srgb, #f97316 32%, transparent)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: "#ef4444" }}>{T("Didn't pass — retake", "Nicht bestanden — Wiederholung", "Échoué — reprise")}</span>
+                <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: "color-mix(in srgb, #f97316 18%, transparent)", color: "#f97316" }}>{failCount}</span>
               </div>
-              <p style={{ fontSize: 10.5, color: "var(--w3)", marginBottom: 10 }}>{T("Didn't pass — a new exam date is booked to try again.", "Nicht bestanden — neuer Termin gebucht.", "Échoué — nouvelle date réservée.")}</p>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>{retaking.map((r) => <Dot key={r.userId} r={r} />)}</div>
+              <p style={{ fontSize: 10.5, color: "var(--w3)", marginBottom: 12 }}>{T("New date booked → loops back to awaiting results.", "Neuer Termin → zurück zu „Ergebnisse ausstehend\".", "Nouvelle date → retour à « résultats en attente ».")}</p>
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                {B2_FAIL_STAGES.map((s, i) => (
+                  <Row key={s.key} color={s.color} label={s.label[(lang as "en" | "fr" | "de")] ?? s.label.en}
+                    here={b2.by.get(s.key) ?? []} last={i === B2_FAIL_STAGES.length - 1} fail />
+                ))}
+                {/* loop-back hint */}
+                <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 2, marginTop: -6 }}>
+                  <span style={{ fontSize: 13, color: "#f97316", fontWeight: 700 }}>↩</span>
+                  <span style={{ fontSize: 10.5, color: "var(--w3)" }}>{T("back to awaiting results", "zurück zu Ergebnissen", "retour aux résultats")}</span>
+                </div>
+              </div>
             </div>
           )}
         </div>
