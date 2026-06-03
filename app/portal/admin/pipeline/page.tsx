@@ -27,7 +27,6 @@ type Status = {
 };
 type Sellable = { sellable: boolean; cvDone: boolean; diplomaApproved: boolean };
 type Row = { userId: string; name: string; photo: string | null; status: Status; sellable: Sellable; b2Stage?: string };
-type Summary = { total: number; sellable: number; almost: number; needsAttention: number; arrived: number };
 
 const HEALTH_STYLE: Record<Health, { dot: string; label: { en: string; de: string; fr: string } }> = {
   blocked:  { dot: "#ef4444", label: { en: "Blocked",   de: "Blockiert",   fr: "Bloqué" } },
@@ -50,7 +49,6 @@ export default function AdminPipelinePage() {
   const T = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<Row[]>([]);
-  const [summary, setSummary] = useState<Summary | null>(null);
   const [today, setToday] = useState("");
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<"all" | "attention" | "sellable">("all");
@@ -72,7 +70,6 @@ export default function AdminPipelinePage() {
       const j = await res.json().catch(() => ({ candidates: [] }));
       if (cancelled) return;
       setRows((j.candidates ?? []) as Row[]);
-      setSummary((j.summary ?? null) as Summary | null);
       setToday(j.today ?? "");
       setLoading(false);
     })();
@@ -107,24 +104,8 @@ export default function AdminPipelinePage() {
         <ArrowLeft size={15} strokeWidth={2} /> {T("Back to admin", "Zurück zum Admin", "Retour à l'admin")}
       </button>
 
-      <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
+      <div className="mb-4">
         <h1 className="bv-h1">{T("Pipeline", "Pipeline", "Pipeline")}</h1>
-        {/* Slim "ready to sell" pill — the dream-outcome number, minimalist. */}
-        {summary && (
-          <button onClick={() => setFilter(filter === "sellable" ? "all" : "sellable")}
-            className="bv-press inline-flex items-center gap-2 px-3.5 py-2"
-            style={{ borderRadius: 999, border: `1px solid ${filter === "sellable" ? "var(--gold)" : "var(--border-gold)"}`,
-              background: filter === "sellable" ? "var(--gold)" : "var(--gdim)" }}>
-            <BadgeCheck size={15} style={{ color: filter === "sellable" ? "#131312" : "var(--gold)" }} />
-            <span className="text-[13px] font-bold" style={{ color: filter === "sellable" ? "#131312" : "var(--w)" }}>{summary.sellable}</span>
-            <span className="text-[12.5px] font-medium" style={{ color: filter === "sellable" ? "#131312" : "var(--w2)" }}>
-              {T("ready to sell", "verkaufsbereit", "prêts à vendre")}
-            </span>
-            {summary.almost > 0 && (
-              <span className="text-[11px]" style={{ color: filter === "sellable" ? "rgba(0,0,0,0.6)" : "var(--w3)" }}>· +{summary.almost} {T("soon", "bald", "bientôt")}</span>
-            )}
-          </button>
-        )}
       </div>
 
       {/* Search + filters */}
