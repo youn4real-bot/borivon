@@ -13,6 +13,7 @@
 import { useMemo, useState } from "react";
 import { JOURNEY_PRESETS } from "@/lib/candidateJourney";
 import { B2_STAGES, normalizeB2Stage, type B2Stage } from "@/lib/b2Journey";
+import { IMPFUNG_STAGES, type ImpfungStage } from "@/lib/impfungJourney";
 
 type Health = "on_track" | "due_soon" | "overdue" | "blocked" | "done";
 type Status = {
@@ -22,7 +23,7 @@ type Status = {
   overdueCount: number; blockedCount: number; health: Health;
   parallel?: { key: string; done: boolean }[];
 };
-export type MapRow = { userId: string; name: string; photo: string | null; status: Status; sellable?: { sellable: boolean }; b2Stage?: string };
+export type MapRow = { userId: string; name: string; photo: string | null; status: Status; sellable?: { sellable: boolean }; b2Stage?: string; impfungStage?: string; impfungDoses?: { got: number; need: number } };
 
 const HEALTH_COLOR: Record<Health, string> = {
   blocked: "#ef4444", overdue: "#f97316", due_soon: "#f59e0b", on_track: "#16a34a", done: "#6b7280",
@@ -32,7 +33,7 @@ function initials(n: string): string {
   return n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join("").toUpperCase() || "?";
 }
 
-export type MapTrack = "journey" | "b2";
+export type MapTrack = "journey" | "b2" | "impfung";
 
 export function JourneyMap({
   rows, lang, onPick, track = "journey",
@@ -180,6 +181,75 @@ export function JourneyMap({
         </div>
         {rows.length === 0 && (
           <p style={{ textAlign: "center", color: "var(--w3)", fontSize: 13, padding: "1rem 0" }}>{T("No candidates yet.", "Noch keine Kandidaten.", "Aucun candidat.")}</p>
+        )}
+      </div>
+    );
+  }
+
+  // ── IMPFUNG TRACK — vaccination pathway. Only candidates whose agency requires
+  // vaccines appear (others are "not_required"). Same vertical-rail style. ──────
+  if (track === "impfung") {
+    const byImpf = new Map<ImpfungStage, MapRow[]>();
+    for (const r of rows) {
+      const st = (r.impfungStage ?? "not_required") as ImpfungStage;
+      if (st === "not_required" || st === "not_started") continue;
+      (byImpf.get(st) ?? byImpf.set(st, []).get(st)!).push(r);
+    }
+    const onPath = [...byImpf.values()].reduce((n, a) => n + a.length, 0);
+    const requiredCount = rows.filter((r) => r.impfungStage && r.impfungStage !== "not_required").length;
+    return (
+      <div className="bv-card" style={{ padding: "18px 16px", overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+          <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--w)" }}>💉 {T("Impfung — vaccination pathway", "Impfung — Impfweg", "Vaccination — parcours")}</span>
+        </div>
+        <p style={{ fontSize: 11.5, color: "var(--w3)", marginBottom: 16 }}>
+          {T("Only candidates whose agency requires vaccines.", "Nur Kandidaten, deren Agentur Impfungen verlangt.", "Seuls les candidats dont l'agence exige des vaccins.")}
+          {requiredCount > 0 ? ` · ${onPath}/${requiredCount} ${T("started", "begonnen", "commencés")}` : ""}
+        </p>
+        {requiredCount === 0 ? (
+          <p style={{ textAlign: "center", color: "var(--w3)", fontSize: 13, padding: "1rem 0" }}>
+            {T("No candidate's agency requires Impfung yet.", "Keine Agentur verlangt aktuell Impfungen.", "Aucune agence n'exige de vaccination pour l'instant.")}
+          </p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            {IMPFUNG_STAGES.map((s, i) => {
+              const here = byImpf.get(s.key) ?? [];
+              const last = i === IMPFUNG_STAGES.length - 1;
+              return (
+                <div key={s.key} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
+                    <span style={{ width: 13, height: 13, borderRadius: 999, marginTop: 4, background: here.length ? s.color : "var(--bg2)", border: `2px solid ${here.length ? s.color : "var(--border)"}` }} />
+                    {!last && <span style={{ flex: 1, width: 2, minHeight: 28, background: "var(--border)" }} />}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0, paddingBottom: 18 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: here.length ? 8 : 0 }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 600, color: here.length ? "var(--w)" : "var(--w3)" }}>
+                        {s.label[(lang as "en" | "fr" | "de")] ?? s.label.en}
+                      </span>
+                      {here.length > 0 && (
+                        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: `color-mix(in srgb, ${s.color} 18%, transparent)`, color: s.color }}>{here.length}</span>
+                      )}
+                    </div>
+                    {here.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+                        {here.map((r) => (
+                          <span key={r.userId} style={{ position: "relative" }}>
+                            <Dot r={r} />
+                            {/* dose progress hint while still getting doses */}
+                            {(s.key === "in_progress" || s.key === "appointment") && r.impfungDoses && r.impfungDoses.need > 0 && (
+                              <span style={{ position: "absolute", bottom: -4, right: -4, fontSize: 8, fontWeight: 800, lineHeight: 1, padding: "1px 3px", borderRadius: 5, background: s.color, color: "#fff", border: "1.5px solid var(--card)" }}>
+                                {r.impfungDoses.got}/{r.impfungDoses.need}
+                              </span>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
     );

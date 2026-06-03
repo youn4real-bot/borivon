@@ -4,6 +4,7 @@ import { requireAdminRole, getVisibleCandidateIds } from "@/lib/admin-auth";
 import { computePipelineStatus, type JourneyRow } from "@/lib/journeyPipeline";
 import { evaluateSellable } from "@/lib/sellable";
 import { normalizeB2Stage, isB2Passed, effectiveB2Stage } from "@/lib/b2Journey";
+import { deriveImpfungStage, doseProgress, normalizeReq, NO_REQ, type VaccineReq } from "@/lib/impfungJourney";
 
 /**
  * Anerkennung / Visa Autopilot — pipeline overview (the admin "who's stuck where"
@@ -90,6 +91,39 @@ export async function GET(req: NextRequest) {
     docsByCandidate.set(d.user_id, arr);
   }
 
+  // ── Impfung (vaccination) inputs — all batched, no N+1 ──────────────────────
+  // 1. each candidate's vaccines blob (candidate_status.vaccines)
+  const vaxByCandidate = new Map<string, unknown>();
+  {
+    const { data } = await db.from("candidate_status").select("user_id, vaccines").in("user_id", ids);
+    for (const r of (data ?? []) as { user_id: string; vaccines: unknown }[]) vaxByCandidate.set(r.user_id, r.vaccines);
+  }
+  // 2. each candidate's agency vaccine requirement (candidate_organizations → organizations.vaccine_req)
+  const reqByCandidate = new Map<string, VaccineReq>();
+  {
+    const { data: links } = await db
+      .from("candidate_organizations").select("candidate_user_id, org_id").in("candidate_user_id", ids).eq("status", "approved");
+    const orgIds = [...new Set(((links ?? []) as { org_id: string }[]).map((l) => l.org_id))];
+    const reqByOrg = new Map<string, VaccineReq>();
+    if (orgIds.length) {
+      const { data: orgs } = await db.from("organizations").select("id, vaccine_req").in("id", orgIds);
+      for (const o of (orgs ?? []) as { id: string; vaccine_req: unknown }[]) reqByOrg.set(o.id, normalizeReq(o.vaccine_req));
+    }
+    // A candidate may link to several orgs — take the MAX requirement across them.
+    for (const l of (links ?? []) as { candidate_user_id: string; org_id: string }[]) {
+      const r = reqByOrg.get(l.org_id) ?? NO_REQ;
+      const cur = reqByCandidate.get(l.candidate_user_id) ?? NO_REQ;
+      reqByCandidate.set(l.candidate_user_id, { masern: Math.max(cur.masern, r.masern), varizell: Math.max(cur.varizell, r.varizell) });
+    }
+  }
+  // 3. impfung document status per candidate (approved beats pending)
+  const impfungDocStatus = new Map<string, "approved" | "pending">();
+  for (const [uid, ds] of docsByCandidate) {
+    const impfDocs = ds.filter((d) => /impf|vaccin|impfung/i.test(d.file_type ?? ""));
+    if (impfDocs.some((d) => d.status === "approved")) impfungDocStatus.set(uid, "approved");
+    else if (impfDocs.some((d) => d.status === "pending")) impfungDocStatus.set(uid, "pending");
+  }
+
   const today = casablancaToday();
   const candidates = profiles.map((p) => {
     const journey = byCandidate.get(p.user_id) ?? [];
@@ -108,6 +142,11 @@ export async function GET(req: NextRequest) {
     if (docs.some((d) => /lebenslauf/i.test(d.file_type ?? ""))) autoDone.add("cv_finalized");
     const status = computePipelineStatus(journey, today, isB2Passed(b2Stage), autoDone);
     const sellable = evaluateSellable({ documents: docs, journey });
+    // Impfung stage — derived from agency requirement + vaccines + cert doc.
+    const vaxReq = reqByCandidate.get(p.user_id) ?? NO_REQ;
+    const vaccines = vaxByCandidate.get(p.user_id) as Record<string, { doses?: { got: boolean | null; done_date: string | null; expected_date: string | null }[]; cert_expected?: string | null }> | null;
+    const impfungStage = deriveImpfungStage(vaxReq, vaccines, impfungDocStatus.get(p.user_id) ?? null);
+    const impfungDoses = doseProgress(vaxReq, vaccines);
     const name = [p.first_name, p.last_name].filter(Boolean).join(" ").trim();
     return {
       userId: p.user_id,
@@ -116,6 +155,8 @@ export async function GET(req: NextRequest) {
       status,
       sellable,
       b2Stage,
+      impfungStage,
+      impfungDoses,
     };
   });
 

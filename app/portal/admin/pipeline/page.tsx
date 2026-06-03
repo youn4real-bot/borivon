@@ -26,7 +26,7 @@ type Status = {
   overdueCount: number; blockedCount: number; health: Health;
 };
 type Sellable = { sellable: boolean; cvDone: boolean; diplomaApproved: boolean };
-type Row = { userId: string; name: string; photo: string | null; status: Status; sellable: Sellable; b2Stage?: string };
+type Row = { userId: string; name: string; photo: string | null; status: Status; sellable: Sellable; b2Stage?: string; impfungStage?: string; impfungDoses?: { got: number; need: number } };
 
 const HEALTH_STYLE: Record<Health, { dot: string; label: { en: string; de: string; fr: string } }> = {
   blocked:  { dot: "#ef4444", label: { en: "Blocked",   de: "Blockiert",   fr: "Bloqué" } },
@@ -53,7 +53,7 @@ export default function AdminPipelinePage() {
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<"all" | "attention" | "sellable">("all");
   const [view, setView] = useState<"map" | "list">("map");
-  const [track, setTrack] = useState<"journey" | "b2">("journey");
+  const [track, setTrack] = useState<"journey" | "b2" | "impfung">("journey");
 
   useEffect(() => {
     let cancelled = false;
@@ -87,9 +87,9 @@ export default function AdminPipelinePage() {
     });
   }, [rows, q, filter]);
 
-  // The B2 track ignores the journey-specific filter tabs (sellable / attention)
-  // — those are about the main journey, not B2. It respects only the search box.
-  const b2Rows = useMemo(() => {
+  // The B2 / Impfung tracks ignore the journey-specific filter tabs (sellable /
+  // attention) — those are about the main journey. They respect only the search.
+  const searchOnlyRows = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return needle ? rows.filter((r) => r.name.toLowerCase().includes(needle)) : rows;
   }, [rows, q]);
@@ -119,6 +119,7 @@ export default function AdminPipelinePage() {
           {([
             ["journey", T("Journey", "Reise", "Parcours")],
             ["b2", T("B2 German", "B2 Deutsch", "B2 allemand")],
+            ["impfung", T("Impfung", "Impfung", "Vaccins")],
           ] as const).map(([v, label]) => (
             <button key={v} onClick={() => setTrack(v)}
               className="px-3.5 py-1.5 rounded-full text-[12.5px] font-semibold transition-colors"
@@ -165,8 +166,8 @@ export default function AdminPipelinePage() {
 
       {/* Map view — the living roadmap (Journey or B2, per the track switch).
           The B2 track always uses the map style + the search-only list. */}
-      {view === "map" || track === "b2" ? (
-        <JourneyMap rows={track === "b2" ? b2Rows : shown} lang={lang} track={track}
+      {view === "map" || track !== "journey" ? (
+        <JourneyMap rows={track !== "journey" ? searchOnlyRows : shown} lang={lang} track={track}
           onPick={(uid) => router.push(`/portal/admin?nav_user_id=${encodeURIComponent(uid)}`)} />
       ) : shown.length === 0 ? (
         <div className="bv-card text-center py-16">
