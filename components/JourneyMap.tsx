@@ -8,9 +8,20 @@
  *
  * Pure presentation: it consumes the SAME rows the Pipeline board already
  * fetched (no extra API, no cost). Click a dot → open that candidate.
+ *
+ * MOTION: avatars are `motion` elements sharing a `layoutId`, so when a
+ * candidate changes stage (real-time) their face GLIDES to the new row instead
+ * of popping. Faces cascade in on load, count badges spring, the red "retaking"
+ * halo pulses, hover/tap feel alive. Honors prefers-reduced-motion.
+ *
+ * NB: Dot/Count/Cluster are MODULE-LEVEL (stable component identity) and read
+ * shared state via context — defining them inside the render would give them a
+ * new identity every hover, remounting every avatar and replaying the entrance
+ * animation on every hover. Shared state flows through MapCtx instead.
  */
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, createContext, useContext, type ReactNode } from "react";
+import { LayoutGroup, AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { JOURNEY_PRESETS } from "@/lib/candidateJourney";
 import { B2_STAGES, B2_FAILED_COLOR, normalizeB2Stage, type B2Stage } from "@/lib/b2Journey";
 import { IMPFUNG_STAGES, type ImpfungStage } from "@/lib/impfungJourney";
@@ -35,6 +46,130 @@ function initials(n: string): string {
 
 export type MapTrack = "journey" | "b2" | "impfung";
 
+// One spring, reused — snappy but soft. Collapsed to instant under reduced-motion.
+const SPRING = { type: "spring" as const, stiffness: 520, damping: 34, mass: 0.7 };
+function trans(reduce: boolean, extra?: Record<string, number>) {
+  return reduce ? { duration: 0 } : { ...SPRING, ...(extra ?? {}) };
+}
+
+// Shared per-render state for the avatar primitives (kept out of props so the
+// many Dot call-sites stay clean). Changing this re-renders consumers but never
+// remounts them — Dot/Count keep stable identity at module scope.
+type MapCtxVal = {
+  track: MapTrack;
+  hover: string | null;
+  setHover: (id: string | null) => void;
+  onPick: (userId: string) => void;
+  reduce: boolean;
+};
+const MapCtx = createContext<MapCtxVal | null>(null);
+function useMapCtx(): MapCtxVal {
+  const v = useContext(MapCtx);
+  if (!v) throw new Error("JourneyMap primitives used outside provider");
+  return v;
+}
+
+// ── The avatar. A single motion.button so enter/exit/move/hover all animate
+// uniformly. layoutId (scoped per track) makes the SAME face GLIDE to its new
+// stage row when status changes. The face stays CLEAN — status is the ring
+// colour only (LAW #4); an optional corner badge carries dose progress. ──────
+function Dot({ r, ringColor, halo, index = 0, badge }: {
+  r: MapRow; ringColor?: string; halo?: string; index?: number; badge?: ReactNode;
+}) {
+  const { track, hover, setHover, onPick, reduce } = useMapCtx();
+  const color = ringColor ?? HEALTH_COLOR[r.status.health];
+  const isHover = hover === r.userId;
+  const haloShadow = halo ? `0 0 0 3px ${halo}` : "";
+  const hoverShadow = isHover ? `0 0 0 ${halo ? 6 : 3}px color-mix(in srgb, ${color} 35%, transparent)` : "";
+  return (
+    <motion.button
+      layout="position"
+      layoutId={`${track}:${r.userId}`}
+      initial={reduce ? false : { opacity: 0, scale: 0 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={reduce ? { opacity: 0 } : { opacity: 0, scale: 0 }}
+      transition={trans(reduce, { delay: reduce ? 0 : Math.min(index * 0.02, 0.45) })}
+      whileHover={reduce ? undefined : { scale: 1.18 }}
+      whileTap={reduce ? undefined : { scale: 0.9 }}
+      onMouseEnter={() => setHover(r.userId)}
+      onMouseLeave={() => setHover(hover === r.userId ? null : hover)}
+      onClick={() => onPick(r.userId)}
+      title={halo ? `${r.name} — failed B2 before (retaking)` : r.name}
+      style={{
+        position: "relative", flexShrink: 0, width: 30, height: 30, borderRadius: 999, padding: 0, cursor: "pointer",
+        border: `2px solid ${color}`, background: "var(--bg2)", overflow: "visible",
+        boxShadow: [hoverShadow, haloShadow].filter(Boolean).join(", ") || "none",
+        zIndex: isHover ? 6 : 1,
+      }}
+    >
+      {/* Re-takers (B2 failed once): a steady red ring (boxShadow above) PLUS a
+          soft radar pulse so your eye lands on them anywhere on the rail. */}
+      {halo && !reduce && (
+        <motion.span
+          aria-hidden
+          style={{ position: "absolute", inset: -3, borderRadius: 999, border: `2px solid ${halo}`, pointerEvents: "none" }}
+          animate={{ scale: [1, 1.28, 1], opacity: [0.55, 0, 0.55] }}
+          transition={{ duration: 2.2, repeat: Infinity, ease: "easeInOut" }}
+        />
+      )}
+      {r.photo ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={r.photo} alt="" style={{ width: "100%", height: "100%", borderRadius: 999, objectFit: "cover" }} />
+      ) : (
+        <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", height: "100%", fontSize: 10, fontWeight: 700, color }}>
+          {initials(r.name)}
+        </span>
+      )}
+      {badge}
+      <AnimatePresence>
+        {isHover && (
+          <motion.span
+            initial={{ opacity: 0, y: 4, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 4, scale: 0.9 }}
+            transition={{ duration: 0.14 }}
+            style={{
+              position: "absolute", bottom: "calc(100% + 6px)", left: "50%", x: "-50%",
+              whiteSpace: "nowrap", fontSize: 11, fontWeight: 600, padding: "3px 8px", borderRadius: 6,
+              background: "var(--card)", color: "var(--w)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", zIndex: 10,
+            }}
+          >
+            {r.name}
+          </motion.span>
+        )}
+      </AnimatePresence>
+    </motion.button>
+  );
+}
+
+// Count pill that springs when its number changes (real-time arrivals).
+function Count({ n, bg, fg }: { n: number; bg: string; fg: string }) {
+  const { reduce } = useMapCtx();
+  return (
+    <AnimatePresence mode="wait" initial={false}>
+      <motion.span
+        key={n}
+        initial={reduce ? false : { scale: 0.3, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
+        exit={reduce ? { opacity: 0 } : { scale: 0.3, opacity: 0 }}
+        transition={trans(reduce)}
+        style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: bg, color: fg, lineHeight: 1.4, display: "inline-block" }}
+      >
+        {n}
+      </motion.span>
+    </AnimatePresence>
+  );
+}
+
+// A wrapped row of avatars with enter/exit + reflow animation.
+function Cluster({ children }: { children: ReactNode }) {
+  return (
+    <motion.div layout="position" style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+      <AnimatePresence mode="popLayout">{children}</AnimatePresence>
+    </motion.div>
+  );
+}
+
 export function JourneyMap({
   rows, lang, onPick, track = "journey",
 }: {
@@ -46,6 +181,8 @@ export function JourneyMap({
 }) {
   const T = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
   const [hover, setHover] = useState<string | null>(null);
+  const reduce = !!useReducedMotion();
+  const ctx: MapCtxVal = { track, hover, setHover, onPick, reduce };
 
   // Stations = the 11 presets in order, plus an implicit "arrived" finish.
   const stations = useMemo(
@@ -77,64 +214,15 @@ export function JourneyMap({
     return p.label[(lang as "en" | "fr" | "de")] ?? p.label.en;
   };
 
-  // B2 certificate track: group candidates by their B2 stage. Main path stages
-  // render on the left; the 'retaking' failure branch sits on the right and is
-  // only shown when someone is actually in it.
+  // B2 certificate track: group candidates by their B2 stage (one linear rail).
   const b2 = useMemo(() => {
     const by = new Map<B2Stage, MapRow[]>();
     for (const r of rows) {
       const st = normalizeB2Stage(r.b2Stage);
       (by.get(st) ?? by.set(st, []).get(st)!).push(r);
     }
-    const onPath = rows.length; // studying is the start → everyone is on the path
-    return { by, onPath };
+    return { by };
   }, [rows]);
-
-  const Dot = ({ r, ringColor, halo }: { r: MapRow; ringColor?: string; halo?: string }) => {
-    // ringColor overrides the health colour (used by the B2 track to colour the
-    // ring by B2 stage). halo = a persistent OUTER ring (B2: red = failed once).
-    const color = ringColor ?? HEALTH_COLOR[r.status.health];
-    const isHover = hover === r.userId;
-    // Layer the halo (outer) under the hover glow.
-    const haloShadow = halo ? `0 0 0 3px ${halo}` : "";
-    const hoverShadow = isHover ? `0 0 0 ${halo ? 6 : 3}px color-mix(in srgb, ${color} 35%, transparent)` : "";
-    return (
-      <button
-        onMouseEnter={() => setHover(r.userId)} onMouseLeave={() => setHover((h) => (h === r.userId ? null : h))}
-        onClick={() => onPick(r.userId)}
-        title={halo ? `${r.name} — failed B2 before (retaking)` : r.name}
-        style={{
-          position: "relative", flexShrink: 0, width: 30, height: 30, borderRadius: 999, padding: 0, cursor: "pointer",
-          border: `2px solid ${color}`, background: "var(--bg2)", overflow: "visible",
-          boxShadow: [hoverShadow, haloShadow].filter(Boolean).join(", ") || "none",
-          transition: "box-shadow .15s, transform .15s", transform: isHover ? "scale(1.15)" : "scale(1)", zIndex: isHover ? 5 : 1,
-        }}
-      >
-        {r.photo ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={r.photo} alt="" style={{ width: "100%", height: "100%", borderRadius: 999, objectFit: "cover" }} />
-        ) : (
-          <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: "100%", height: "100%", fontSize: 10, fontWeight: 700, color }}>
-            {initials(r.name)}
-          </span>
-        )}
-        {/* The avatar is intentionally CLEAN — nothing overlaid on it. Status is
-            conveyed by the RING colour only (blocked = red ring). B2 stage is
-            shown by which column a candidate sits in within the B2 mini-rail
-            (grouping = the signal), and "ready to sell" lives in the list view +
-            hero. Per design: the face stands alone. */}
-        {isHover && (
-          <span style={{
-            position: "absolute", bottom: "calc(100% + 6px)", left: "50%", transform: "translateX(-50%)",
-            whiteSpace: "nowrap", fontSize: 11, fontWeight: 600, padding: "3px 8px", borderRadius: 6,
-            background: "var(--card)", color: "var(--w)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", zIndex: 10,
-          }}>
-            {r.name}
-          </span>
-        )}
-      </button>
-    );
-  };
 
   const doneRows = byStation.get("__done__") ?? [];
 
@@ -145,54 +233,58 @@ export function JourneyMap({
   if (track === "b2") {
     const failedCount = rows.filter((r) => r.b2Failed).length;
     return (
-      <div className="bv-card" style={{ padding: "18px 16px", overflow: "hidden" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--w)" }}>📜 {T("B2 German — certificate pathway", "B2 Deutsch — Zertifikatsweg", "B2 allemand — parcours de certification")}</span>
-        </div>
-        {/* Legend: stage colours + the red-halo = failed-before meaning. */}
-        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 16, fontSize: 11, color: "var(--w3)" }}>
-          {B2_STAGES.map((s) => (
-            <span key={s.key} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-              <span style={{ width: 9, height: 9, borderRadius: 999, background: s.color }} />
-              {s.label[(lang as "en" | "fr" | "de")] ?? s.label.en}
+      <MapCtx.Provider value={ctx}>
+        <div className="bv-card" style={{ padding: "18px 16px", overflow: "hidden" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--w)" }}>📜 {T("B2 German — certificate pathway", "B2 Deutsch — Zertifikatsweg", "B2 allemand — parcours de certification")}</span>
+          </div>
+          {/* Legend: stage colours + the red-halo = failed-before meaning. */}
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 16, fontSize: 11, color: "var(--w3)" }}>
+            {B2_STAGES.map((s) => (
+              <span key={s.key} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                <span style={{ width: 9, height: 9, borderRadius: 999, background: s.color }} />
+                {s.label[(lang as "en" | "fr" | "de")] ?? s.label.en}
+              </span>
+            ))}
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <span style={{ width: 11, height: 11, borderRadius: 999, background: "var(--bg2)", boxShadow: `0 0 0 2px ${B2_FAILED_COLOR}` }} />
+              {T("failed before (retaking)", "vorher nicht bestanden", "échoué avant")}{failedCount > 0 ? ` · ${failedCount}` : ""}
             </span>
-          ))}
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-            <span style={{ width: 11, height: 11, borderRadius: 999, background: "var(--bg2)", boxShadow: `0 0 0 2px ${B2_FAILED_COLOR}` }} />
-            {T("failed before (retaking)", "vorher nicht bestanden", "échoué avant")}{failedCount > 0 ? ` · ${failedCount}` : ""}
-          </span>
-        </div>
-        {/* Single vertical rail of the 5 stages. Dots coloured by stage; failed
-            candidates carry the red halo (set via b2Failed). */}
-        <div style={{ display: "flex", flexDirection: "column" }}>
-          {B2_STAGES.map((s, i) => {
-            const here = b2.by.get(s.key) ?? [];
-            const last = i === B2_STAGES.length - 1;
-            return (
-              <div key={s.key} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
-                  <span style={{ width: 13, height: 13, borderRadius: 999, marginTop: 4, background: here.length ? s.color : "var(--bg2)", border: `2px solid ${here.length ? s.color : "var(--border)"}` }} />
-                  {!last && <span style={{ flex: 1, width: 2, minHeight: 28, background: "var(--border)" }} />}
-                </div>
-                <div style={{ flex: 1, minWidth: 0, paddingBottom: 18 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: here.length ? 8 : 0 }}>
-                    <span style={{ fontSize: 12.5, fontWeight: 600, color: here.length ? "var(--w)" : "var(--w3)" }}>{s.label[(lang as "en" | "fr" | "de")] ?? s.label.en}</span>
-                    {here.length > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: `color-mix(in srgb, ${s.color} 18%, transparent)`, color: s.color }}>{here.length}</span>}
-                  </div>
-                  {here.length > 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 9 }}>
-                      {here.map((r) => <Dot key={r.userId} r={r} ringColor={s.color} halo={r.b2Failed ? B2_FAILED_COLOR : undefined} />)}
+          </div>
+          {/* Single vertical rail of the 5 stages. Dots coloured by stage; failed
+              candidates carry the red halo (set via b2Failed). */}
+          <LayoutGroup>
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              {B2_STAGES.map((s, i) => {
+                const here = b2.by.get(s.key) ?? [];
+                const last = i === B2_STAGES.length - 1;
+                return (
+                  <div key={s.key} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
+                      <span style={{ width: 13, height: 13, borderRadius: 999, marginTop: 4, background: here.length ? s.color : "var(--bg2)", border: `2px solid ${here.length ? s.color : "var(--border)"}` }} />
+                      {!last && <span style={{ flex: 1, width: 2, minHeight: 28, background: "var(--border)" }} />}
                     </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+                    <div style={{ flex: 1, minWidth: 0, paddingBottom: 18 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: here.length ? 8 : 0 }}>
+                        <span style={{ fontSize: 12.5, fontWeight: 600, color: here.length ? "var(--w)" : "var(--w3)" }}>{s.label[(lang as "en" | "fr" | "de")] ?? s.label.en}</span>
+                        {here.length > 0 && <Count n={here.length} bg={`color-mix(in srgb, ${s.color} 18%, transparent)`} fg={s.color} />}
+                      </div>
+                      {here.length > 0 && (
+                        <Cluster>
+                          {here.map((r, idx) => <Dot key={r.userId} r={r} index={idx} ringColor={s.color} halo={r.b2Failed ? B2_FAILED_COLOR : undefined} />)}
+                        </Cluster>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </LayoutGroup>
+          {rows.length === 0 && (
+            <p style={{ textAlign: "center", color: "var(--w3)", fontSize: 13, padding: "1rem 0" }}>{T("No candidates yet.", "Noch keine Kandidaten.", "Aucun candidat.")}</p>
+          )}
         </div>
-        {rows.length === 0 && (
-          <p style={{ textAlign: "center", color: "var(--w3)", fontSize: 13, padding: "1rem 0" }}>{T("No candidates yet.", "Noch keine Kandidaten.", "Aucun candidat.")}</p>
-        )}
-      </div>
+      </MapCtx.Provider>
     );
   }
 
@@ -211,179 +303,175 @@ export function JourneyMap({
     const onPath = [...byImpf.values()].reduce((n, a) => n + a.length, 0);
     const requiredCount = rows.filter((r) => r.impfungStage && r.impfungStage !== "not_required").length;
     return (
-      <div className="bv-card" style={{ padding: "18px 16px", overflow: "hidden" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-          <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--w)" }}>💉 {T("Impfung — vaccination pathway", "Impfung — Impfweg", "Vaccination — parcours")}</span>
-        </div>
-        <p style={{ fontSize: 11.5, color: "var(--w3)", marginBottom: 16 }}>
-          {T("Only candidates whose agency requires vaccines.", "Nur Kandidaten, deren Agentur Impfungen verlangt.", "Seuls les candidats dont l'agence exige des vaccins.")}
-          {requiredCount > 0 ? ` · ${onPath}/${requiredCount} ${T("started", "begonnen", "commencés")}` : ""}
-        </p>
-        {requiredCount === 0 ? (
-          <p style={{ textAlign: "center", color: "var(--w3)", fontSize: 13, padding: "1rem 0" }}>
-            {T("No candidate's agency requires Impfung yet.", "Keine Agentur verlangt aktuell Impfungen.", "Aucune agence n'exige de vaccination pour l'instant.")}
+      <MapCtx.Provider value={ctx}>
+        <div className="bv-card" style={{ padding: "18px 16px", overflow: "hidden" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+            <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--w)" }}>💉 {T("Impfung — vaccination pathway", "Impfung — Impfweg", "Vaccination — parcours")}</span>
+          </div>
+          <p style={{ fontSize: 11.5, color: "var(--w3)", marginBottom: 16 }}>
+            {T("Only candidates whose agency requires vaccines.", "Nur Kandidaten, deren Agentur Impfungen verlangt.", "Seuls les candidats dont l'agence exige des vaccins.")}
+            {requiredCount > 0 ? ` · ${onPath}/${requiredCount} ${T("started", "begonnen", "commencés")}` : ""}
           </p>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            {/* Required but not started — shows the rest of the required cohort. */}
-            <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
-                <span style={{ width: 13, height: 13, borderRadius: 999, marginTop: 4, background: "var(--bg2)", border: "2px solid var(--border)" }} />
-                <span style={{ flex: 1, width: 2, minHeight: 28, background: "var(--border)" }} />
-              </div>
-              <div style={{ flex: 1, minWidth: 0, paddingBottom: 18 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: notStartedImpf.length ? 8 : 0 }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 600, color: notStartedImpf.length ? "var(--w)" : "var(--w3)" }}>{T("Required — not started", "Erforderlich — nicht begonnen", "Requis — pas commencé")}</span>
-                  {notStartedImpf.length > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: "var(--gdim)", color: "var(--gold)" }}>{notStartedImpf.length}</span>}
-                </div>
-                {notStartedImpf.length > 0 && (
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>{notStartedImpf.map((r) => <Dot key={r.userId} r={r} />)}</div>
-                )}
-              </div>
-            </div>
-            {IMPFUNG_STAGES.map((s, i) => {
-              const here = byImpf.get(s.key) ?? [];
-              const last = i === IMPFUNG_STAGES.length - 1;
-              return (
-                <div key={s.key} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+          {requiredCount === 0 ? (
+            <p style={{ textAlign: "center", color: "var(--w3)", fontSize: 13, padding: "1rem 0" }}>
+              {T("No candidate's agency requires Impfung yet.", "Keine Agentur verlangt aktuell Impfungen.", "Aucune agence n'exige de vaccination pour l'instant.")}
+            </p>
+          ) : (
+            <LayoutGroup>
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                {/* Required but not started — shows the rest of the required cohort. */}
+                <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
-                    <span style={{ width: 13, height: 13, borderRadius: 999, marginTop: 4, background: here.length ? s.color : "var(--bg2)", border: `2px solid ${here.length ? s.color : "var(--border)"}` }} />
-                    {!last && <span style={{ flex: 1, width: 2, minHeight: 28, background: "var(--border)" }} />}
+                    <span style={{ width: 13, height: 13, borderRadius: 999, marginTop: 4, background: "var(--bg2)", border: "2px solid var(--border)" }} />
+                    <span style={{ flex: 1, width: 2, minHeight: 28, background: "var(--border)" }} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0, paddingBottom: 18 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: notStartedImpf.length ? 8 : 0 }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 600, color: notStartedImpf.length ? "var(--w)" : "var(--w3)" }}>{T("Required — not started", "Erforderlich — nicht begonnen", "Requis — pas commencé")}</span>
+                      {notStartedImpf.length > 0 && <Count n={notStartedImpf.length} bg="var(--gdim)" fg="var(--gold)" />}
+                    </div>
+                    {notStartedImpf.length > 0 && (
+                      <Cluster>{notStartedImpf.map((r, idx) => <Dot key={r.userId} r={r} index={idx} />)}</Cluster>
+                    )}
+                  </div>
+                </div>
+                {IMPFUNG_STAGES.map((s, i) => {
+                  const here = byImpf.get(s.key) ?? [];
+                  const last = i === IMPFUNG_STAGES.length - 1;
+                  return (
+                    <div key={s.key} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
+                        <span style={{ width: 13, height: 13, borderRadius: 999, marginTop: 4, background: here.length ? s.color : "var(--bg2)", border: `2px solid ${here.length ? s.color : "var(--border)"}` }} />
+                        {!last && <span style={{ flex: 1, width: 2, minHeight: 28, background: "var(--border)" }} />}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0, paddingBottom: 18 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: here.length ? 8 : 0 }}>
+                          <span style={{ fontSize: 12.5, fontWeight: 600, color: here.length ? "var(--w)" : "var(--w3)" }}>
+                            {s.label[(lang as "en" | "fr" | "de")] ?? s.label.en}
+                          </span>
+                          {here.length > 0 && <Count n={here.length} bg={`color-mix(in srgb, ${s.color} 18%, transparent)`} fg={s.color} />}
+                        </div>
+                        {here.length > 0 && (
+                          <Cluster>
+                            {here.map((r, idx) => (
+                              <Dot key={r.userId} r={r} index={idx} badge={
+                                (s.key === "in_progress" || s.key === "appointment") && r.impfungDoses && r.impfungDoses.need > 0 ? (
+                                  <span style={{ position: "absolute", bottom: -4, right: -4, fontSize: 8, fontWeight: 800, lineHeight: 1, padding: "1px 3px", borderRadius: 5, background: s.color, color: "#fff", border: "1.5px solid var(--card)" }}>
+                                    {r.impfungDoses.got}/{r.impfungDoses.need}
+                                  </span>
+                                ) : undefined
+                              } />
+                            ))}
+                          </Cluster>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </LayoutGroup>
+          )}
+        </div>
+      </MapCtx.Provider>
+    );
+  }
+
+  return (
+    <MapCtx.Provider value={ctx}>
+      <div className="bv-card" style={{ padding: "18px 16px", overflow: "hidden" }}>
+        {/* Legend */}
+        <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 16, fontSize: 11.5, color: "var(--w3)" }}>
+          <span style={{ fontWeight: 700, color: "var(--w)" }}>🇲🇦 {T("Morocco", "Marokko", "Maroc")}</span>
+          <span style={{ flex: 1, minWidth: 20, height: 2, background: "linear-gradient(90deg, var(--border), var(--gold))", borderRadius: 2 }} />
+          <span style={{ fontWeight: 700, color: "var(--w)" }}>{T("Germany", "Deutschland", "Allemagne")} 🇩🇪</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
+          {(["blocked", "overdue", "due_soon", "on_track", "done"] as Health[]).map((h) => (
+            <span key={h} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--w3)" }}>
+              <span style={{ width: 9, height: 9, borderRadius: 999, background: HEALTH_COLOR[h] }} />
+              {h === "blocked" ? T("Blocked", "Blockiert", "Bloqué")
+                : h === "overdue" ? T("Overdue", "Überfällig", "En retard")
+                : h === "due_soon" ? T("Due soon", "Bald fällig", "Bientôt")
+                : h === "on_track" ? T("On track", "Im Plan", "Sur la voie")
+                : T("Arrived", "Angekommen", "Arrivé")}
+            </span>
+          ))}
+        </div>
+
+        {/* The rail: one row per station, candidates clustered at the FURTHEST
+            station they've reached. */}
+        <LayoutGroup>
+          <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+            {/* 🇲🇦 Start — candidates who haven't completed any station yet. */}
+            {(() => {
+              const startHere = byStation.get("__start__") ?? [];
+              return (
+                <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
+                    <span style={{ fontSize: 15, marginTop: -2 }}>🇲🇦</span>
+                    <span style={{ flex: 1, width: 2, minHeight: 30, background: "var(--border)" }} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0, paddingBottom: 18 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: startHere.length ? 8 : 0 }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 600, color: startHere.length ? "var(--w)" : "var(--w3)" }}>{T("Just started", "Gerade begonnen", "Vient de commencer")}</span>
+                      {startHere.length > 0 && <Count n={startHere.length} bg="var(--gdim)" fg="var(--gold)" />}
+                    </div>
+                    {startHere.length > 0 && (
+                      <Cluster>{startHere.map((r, idx) => <Dot key={r.userId} r={r} index={idx} />)}</Cluster>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+            {stations.map((st, i) => {
+              const here = byStation.get(st.key) ?? [];
+              const last = i === stations.length - 1;
+              return (
+                <div key={st.key} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                  {/* Rail spine + node */}
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
+                    <span style={{ width: 13, height: 13, borderRadius: 999, marginTop: 4,
+                      background: here.length ? "var(--gold)" : "var(--bg2)", border: `2px solid ${here.length ? "var(--gold)" : "var(--border)"}` }} />
+                    {!last && <span style={{ flex: 1, width: 2, minHeight: 30, background: "var(--border)" }} />}
+                  </div>
+                  {/* Station label + the candidate dots parked here */}
+                  <div style={{ flex: 1, minWidth: 0, paddingBottom: 18 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: here.length ? 8 : 0 }}>
-                      <span style={{ fontSize: 12.5, fontWeight: 600, color: here.length ? "var(--w)" : "var(--w3)" }}>
-                        {s.label[(lang as "en" | "fr" | "de")] ?? s.label.en}
-                      </span>
-                      {here.length > 0 && (
-                        <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: `color-mix(in srgb, ${s.color} 18%, transparent)`, color: s.color }}>{here.length}</span>
-                      )}
+                      <span style={{ fontSize: 12.5, fontWeight: 600, color: here.length ? "var(--w)" : "var(--w3)" }}>{stationLabel(st.key)}</span>
+                      {here.length > 0 && <Count n={here.length} bg="var(--gdim)" fg="var(--gold)" />}
                     </div>
                     {here.length > 0 && (
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
-                        {here.map((r) => (
-                          <span key={r.userId} style={{ position: "relative" }}>
-                            <Dot r={r} />
-                            {/* dose progress hint while still getting doses */}
-                            {(s.key === "in_progress" || s.key === "appointment") && r.impfungDoses && r.impfungDoses.need > 0 && (
-                              <span style={{ position: "absolute", bottom: -4, right: -4, fontSize: 8, fontWeight: 800, lineHeight: 1, padding: "1px 3px", borderRadius: 5, background: s.color, color: "#fff", border: "1.5px solid var(--card)" }}>
-                                {r.impfungDoses.got}/{r.impfungDoses.need}
-                              </span>
-                            )}
-                          </span>
-                        ))}
-                      </div>
+                      <Cluster>{here.map((r, idx) => <Dot key={r.userId} r={r} index={idx} />)}</Cluster>
                     )}
                   </div>
                 </div>
               );
             })}
+
+            {/* Finish line — arrived in Germany */}
+            <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 22, flexShrink: 0 }}>
+                <span style={{ fontSize: 15, marginTop: -2 }}>🇩🇪</span>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: doneRows.length ? 8 : 0 }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, color: "#16a34a" }}>{T("Arrived in Germany", "In Deutschland angekommen", "Arrivé en Allemagne")}</span>
+                  {doneRows.length > 0 && <Count n={doneRows.length} bg="rgba(22,163,74,0.15)" fg="#16a34a" />}
+                </div>
+                {doneRows.length > 0 && (
+                  <Cluster>{doneRows.map((r, idx) => <Dot key={r.userId} r={r} index={idx} />)}</Cluster>
+                )}
+              </div>
+            </div>
           </div>
+        </LayoutGroup>
+
+        {rows.length === 0 && (
+          <p style={{ textAlign: "center", color: "var(--w3)", fontSize: 13, padding: "1rem 0" }}>
+            {T("No candidates yet.", "Noch keine Kandidaten.", "Aucun candidat.")}
+          </p>
         )}
       </div>
-    );
-  }
-
-  return (
-    <div className="bv-card" style={{ padding: "18px 16px", overflow: "hidden" }}>
-      {/* Legend */}
-      <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 16, fontSize: 11.5, color: "var(--w3)" }}>
-        <span style={{ fontWeight: 700, color: "var(--w)" }}>🇲🇦 {T("Morocco", "Marokko", "Maroc")}</span>
-        <span style={{ flex: 1, minWidth: 20, height: 2, background: "linear-gradient(90deg, var(--border), var(--gold))", borderRadius: 2 }} />
-        <span style={{ fontWeight: 700, color: "var(--w)" }}>{T("Germany", "Deutschland", "Allemagne")} 🇩🇪</span>
-      </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
-        {(["blocked", "overdue", "due_soon", "on_track", "done"] as Health[]).map((h) => (
-          <span key={h} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--w3)" }}>
-            <span style={{ width: 9, height: 9, borderRadius: 999, background: HEALTH_COLOR[h] }} />
-            {h === "blocked" ? T("Blocked", "Blockiert", "Bloqué")
-              : h === "overdue" ? T("Overdue", "Überfällig", "En retard")
-              : h === "due_soon" ? T("Due soon", "Bald fällig", "Bientôt")
-              : h === "on_track" ? T("On track", "Im Plan", "Sur la voie")
-              : T("Arrived", "Angekommen", "Arrivé")}
-          </span>
-        ))}
-      </div>
-
-      {/* The rail: one row per station, candidates clustered at the FURTHEST
-          station they've reached. */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-        {/* 🇲🇦 Start — candidates who haven't completed any station yet. */}
-        {(() => {
-          const startHere = byStation.get("__start__") ?? [];
-          return (
-            <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
-                <span style={{ fontSize: 15, marginTop: -2 }}>🇲🇦</span>
-                <span style={{ flex: 1, width: 2, minHeight: 30, background: "var(--border)" }} />
-              </div>
-              <div style={{ flex: 1, minWidth: 0, paddingBottom: 18 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: startHere.length ? 8 : 0 }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 600, color: startHere.length ? "var(--w)" : "var(--w3)" }}>{T("Just started", "Gerade begonnen", "Vient de commencer")}</span>
-                  {startHere.length > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: "var(--gdim)", color: "var(--gold)" }}>{startHere.length}</span>}
-                </div>
-                {startHere.length > 0 && (
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>{startHere.map((r) => <Dot key={r.userId} r={r} />)}</div>
-                )}
-              </div>
-            </div>
-          );
-        })()}
-        {stations.map((st, i) => {
-          const here = byStation.get(st.key) ?? [];
-          const last = i === stations.length - 1;
-          return (
-            <div key={st.key} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-              {/* Rail spine + node */}
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
-                <span style={{ width: 13, height: 13, borderRadius: 999, marginTop: 4,
-                  background: here.length ? "var(--gold)" : "var(--bg2)", border: `2px solid ${here.length ? "var(--gold)" : "var(--border)"}` }} />
-                {!last && <span style={{ flex: 1, width: 2, minHeight: 30, background: "var(--border)" }} />}
-              </div>
-              {/* Station label + the candidate dots parked here */}
-              <div style={{ flex: 1, minWidth: 0, paddingBottom: 18 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: here.length ? 8 : 0 }}>
-                  <span style={{ fontSize: 12.5, fontWeight: 600, color: here.length ? "var(--w)" : "var(--w3)" }}>{stationLabel(st.key)}</span>
-                  {here.length > 0 && (
-                    <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: "var(--gdim)", color: "var(--gold)" }}>{here.length}</span>
-                  )}
-                </div>
-                {here.length > 0 && (
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
-                    {here.map((r) => <Dot key={r.userId} r={r} />)}
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
-
-        {/* Finish line — arrived in Germany */}
-        <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: 22, flexShrink: 0 }}>
-            <span style={{ fontSize: 15, marginTop: -2 }}>🇩🇪</span>
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: doneRows.length ? 8 : 0 }}>
-              <span style={{ fontSize: 12.5, fontWeight: 700, color: "#16a34a" }}>{T("Arrived in Germany", "In Deutschland angekommen", "Arrivé en Allemagne")}</span>
-              {doneRows.length > 0 && (
-                <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: "rgba(22,163,74,0.15)", color: "#16a34a" }}>{doneRows.length}</span>
-              )}
-            </div>
-            {doneRows.length > 0 && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
-                {doneRows.map((r) => <Dot key={r.userId} r={r} />)}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {rows.length === 0 && (
-        <p style={{ textAlign: "center", color: "var(--w3)", fontSize: 13, padding: "1rem 0" }}>
-          {T("No candidates yet.", "Noch keine Kandidaten.", "Aucun candidat.")}
-        </p>
-      )}
-    </div>
+    </MapCtx.Provider>
   );
 }
