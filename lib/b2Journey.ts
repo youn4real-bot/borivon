@@ -69,3 +69,38 @@ export function b2StageColor(stage: B2Stage): string {
 export function isB2Passed(stage: B2Stage): boolean {
   return stage === "passed";
 }
+
+// Document file_type labels that ARE a B2 language certificate (FR/EN/DE).
+const B2_CERT_RE = /b2\s*(sprachzert|language cert|.*zertifikat)|certificat de langue b2|b2[\s_-]*zertifikat/i;
+export function isB2CertDoc(fileType: string | null | undefined): boolean {
+  return !!fileType && B2_CERT_RE.test(fileType);
+}
+
+/**
+ * Resolve the B2 stage to DISPLAY, honoring real evidence over the stored field.
+ * Like the CV fix: a candidate moves on the B2 track by actually having the
+ * certificate, not by someone manually setting a dropdown.
+ *   • an APPROVED B2 cert  → "passed"
+ *   • a pending B2 cert    → at least "awaiting result" (don't downgrade if the
+ *                            stored stage is already further along the path)
+ *   • otherwise            → the stored stage
+ * The stored field still WINS when it represents a stage the docs can't prove
+ * (searching / studying / registered / booked / partial), so admins keep full
+ * manual control of the early + failure stages.
+ */
+export function effectiveB2Stage(
+  stored: B2Stage,
+  docs: { file_type: string | null; status: string | null }[],
+): B2Stage {
+  const hasApprovedCert = docs.some((d) => d.status === "approved" && isB2CertDoc(d.file_type));
+  if (hasApprovedCert) return "passed";
+  const hasAnyCert = docs.some((d) => isB2CertDoc(d.file_type));
+  if (hasAnyCert) {
+    // A cert is uploaded but not yet approved → they at least sat the exam.
+    // Keep a more-advanced stored stage (e.g. partial) if set.
+    const awaitingPos = B2_STAGE_BY_KEY["awaiting"].position;
+    const storedPos = B2_STAGE_BY_KEY[stored]?.position ?? 0;
+    return storedPos >= awaitingPos ? stored : "awaiting";
+  }
+  return stored;
+}

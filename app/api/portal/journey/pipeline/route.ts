@@ -3,7 +3,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, getVisibleCandidateIds } from "@/lib/admin-auth";
 import { computePipelineStatus, type JourneyRow } from "@/lib/journeyPipeline";
 import { evaluateSellable } from "@/lib/sellable";
-import { normalizeB2Stage, isB2Passed } from "@/lib/b2Journey";
+import { normalizeB2Stage, isB2Passed, effectiveB2Stage } from "@/lib/b2Journey";
 
 /**
  * Anerkennung / Visa Autopilot — pipeline overview (the admin "who's stuck where"
@@ -94,7 +94,10 @@ export async function GET(req: NextRequest) {
   const candidates = profiles.map((p) => {
     const journey = byCandidate.get(p.user_id) ?? [];
     const docs = docsByCandidate.get(p.user_id) ?? [];
-    const b2Stage = normalizeB2Stage(p.b2_stage);
+    // B2 stage honors real evidence (an uploaded/approved B2 certificate) over
+    // the stored field — so candidates appear on the B2 track by actually having
+    // the cert, not by someone setting a dropdown.
+    const b2Stage = effectiveB2Stage(normalizeB2Stage(p.b2_stage), docs);
     // Auto-derive rail milestones from REAL evidence so candidates move on the
     // map by actually doing the work, not by someone ticking a box:
     //   cv_finalized ← a Lebenslauf (German CV) document exists
