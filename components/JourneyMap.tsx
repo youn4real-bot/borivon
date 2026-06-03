@@ -12,7 +12,7 @@
 
 import { useMemo, useState } from "react";
 import { JOURNEY_PRESETS } from "@/lib/candidateJourney";
-import { B2_STAGES, normalizeB2Stage, type B2Stage } from "@/lib/b2Journey";
+import { B2_MAIN_STAGES, B2_STAGE_BY_KEY, normalizeB2Stage, type B2Stage } from "@/lib/b2Journey";
 import { IMPFUNG_STAGES, type ImpfungStage } from "@/lib/impfungJourney";
 
 type Health = "on_track" | "due_soon" | "overdue" | "blocked" | "done";
@@ -77,22 +77,17 @@ export function JourneyMap({
     return p.label[(lang as "en" | "fr" | "de")] ?? p.label.en;
   };
 
-  // B2 certificate sub-track: group candidates by their B2 stage. The failure
-  // path ('partial' = re-book) is only INCLUDED when someone is actually in it —
-  // otherwise the track shows just the happy path (research-backed: exception
-  // branches render only "when applicable", never as permanent clutter).
+  // B2 certificate track: group candidates by their B2 stage. Main path stages
+  // render on the left; the 'retaking' failure branch sits on the right and is
+  // only shown when someone is actually in it.
   const b2 = useMemo(() => {
     const by = new Map<B2Stage, MapRow[]>();
     for (const r of rows) {
       const st = normalizeB2Stage(r.b2Stage);
-      if (st === "not_started") continue;
       (by.get(st) ?? by.set(st, []).get(st)!).push(r);
     }
-    const anyPartial = (by.get("partial")?.length ?? 0) > 0;
-    const visibleStages = B2_STAGES.filter((s) =>
-      s.key !== "not_started" && (s.key !== "partial" || anyPartial));
-    const onPath = rows.length - (by.size === 0 ? 0 : rows.filter((r) => normalizeB2Stage(r.b2Stage) === "not_started").length);
-    return { by, visibleStages, onPath };
+    const onPath = rows.length - (by.get("not_started")?.length ?? 0);
+    return { by, onPath };
   }, [rows]);
 
   const Dot = ({ r }: { r: MapRow }) => {
@@ -142,6 +137,25 @@ export function JourneyMap({
   // journey). Candidates cluster at their current B2 stage; the partial/re-book
   // failure stage shows only when someone is actually in it. ──────────────────
   if (track === "b2") {
+    const notStarted = b2.by.get("not_started") ?? [];
+    const retaking = b2.by.get("retaking") ?? [];
+    const retakeDef = B2_STAGE_BY_KEY["retaking"];
+    // One vertical-rail row (reused for not-started + each main stage).
+    const Row = ({ color, label, here, last }: { color: string; label: string; here: MapRow[]; last?: boolean }) => (
+      <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
+          <span style={{ width: 13, height: 13, borderRadius: 999, marginTop: 4, background: here.length ? color : "var(--bg2)", border: `2px solid ${here.length ? color : "var(--border)"}` }} />
+          {!last && <span style={{ flex: 1, width: 2, minHeight: 28, background: "var(--border)" }} />}
+        </div>
+        <div style={{ flex: 1, minWidth: 0, paddingBottom: 18 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: here.length ? 8 : 0 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: here.length ? "var(--w)" : "var(--w3)" }}>{label}</span>
+            {here.length > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: `color-mix(in srgb, ${color} 18%, transparent)`, color }}>{here.length}</span>}
+          </div>
+          {here.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>{here.map((r) => <Dot key={r.userId} r={r} />)}</div>}
+        </div>
+      </div>
+    );
     return (
       <div className="bv-card" style={{ padding: "18px 16px", overflow: "hidden" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
@@ -151,55 +165,29 @@ export function JourneyMap({
           {T("Runs in parallel to the main journey.", "Läuft parallel zur Hauptreise.", "En parallèle du parcours principal.")}
           {b2.onPath > 0 ? ` · ${b2.onPath}/${rows.length} ${T("on the pathway", "auf dem Weg", "sur le parcours")}` : ""}
         </p>
-        <div style={{ display: "flex", flexDirection: "column" }}>
-          {/* "Not started yet" — every candidate not on a B2 stage, so the whole
-              cohort is visible (you see all avatars, just parked at the start). */}
-          {(() => {
-            const notStarted = rows.filter((r) => normalizeB2Stage(r.b2Stage) === "not_started");
-            return (
-              <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
-                  <span style={{ width: 13, height: 13, borderRadius: 999, marginTop: 4, background: "var(--bg2)", border: "2px solid var(--border)" }} />
-                  <span style={{ flex: 1, width: 2, minHeight: 28, background: "var(--border)" }} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0, paddingBottom: 18 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: notStarted.length ? 8 : 0 }}>
-                    <span style={{ fontSize: 12.5, fontWeight: 600, color: notStarted.length ? "var(--w)" : "var(--w3)" }}>{T("Not started yet", "Noch nicht begonnen", "Pas encore commencé")}</span>
-                    {notStarted.length > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: "var(--gdim)", color: "var(--gold)" }}>{notStarted.length}</span>}
-                  </div>
-                  {notStarted.length > 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>{notStarted.map((r) => <Dot key={r.userId} r={r} />)}</div>
-                  )}
-                </div>
+        {/* Two columns: LEFT = main path (studying→planning→booked→passed);
+            RIGHT = retaking branch (failed/partial), only when someone's in it. */}
+        <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap" }}>
+          {/* LEFT — main path */}
+          <div style={{ flex: "1 1 340px", minWidth: 300, display: "flex", flexDirection: "column" }}>
+            <Row color="var(--border)" label={T("Not started yet", "Noch nicht begonnen", "Pas encore commencé")} here={notStarted} />
+            {B2_MAIN_STAGES.map((s, i) => (
+              <Row key={s.key} color={s.color} label={s.label[(lang as "en" | "fr" | "de")] ?? s.label.en}
+                here={b2.by.get(s.key) ?? []} last={i === B2_MAIN_STAGES.length - 1} />
+            ))}
+          </div>
+          {/* RIGHT — retaking branch, only if anyone failed/partial */}
+          {retaking.length > 0 && (
+            <div style={{ flex: "0 1 260px", minWidth: 220, padding: "12px 14px", borderRadius: 12, background: "color-mix(in srgb, #f97316 8%, transparent)", border: "1px solid color-mix(in srgb, #f97316 35%, transparent)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                <span style={{ width: 11, height: 11, borderRadius: 999, background: retakeDef.color }} />
+                <span style={{ fontSize: 12.5, fontWeight: 700, color: "#f97316" }}>↩ {retakeDef.label[(lang as "en" | "fr" | "de")] ?? retakeDef.label.en}</span>
+                <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: "color-mix(in srgb, #f97316 18%, transparent)", color: "#f97316" }}>{retaking.length}</span>
               </div>
-            );
-          })()}
-          {b2.visibleStages.map((s, i) => {
-            const here = b2.by.get(s.key) ?? [];
-            const last = i === b2.visibleStages.length - 1;
-            const isFail = s.key === "partial";
-            return (
-              <div key={s.key} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
-                  <span style={{ width: 13, height: 13, borderRadius: 999, marginTop: 4, background: here.length ? s.color : "var(--bg2)", border: `2px solid ${here.length ? s.color : "var(--border)"}` }} />
-                  {!last && <span style={{ flex: 1, width: 2, minHeight: 28, background: isFail ? "#f97316" : "var(--border)" }} />}
-                </div>
-                <div style={{ flex: 1, minWidth: 0, paddingBottom: 18 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: here.length ? 8 : 0 }}>
-                    <span style={{ fontSize: 12.5, fontWeight: 600, color: here.length ? "var(--w)" : "var(--w3)" }}>
-                      {isFail && "↩ "}{s.label[(lang as "en" | "fr" | "de")] ?? s.label.en}
-                    </span>
-                    {here.length > 0 && (
-                      <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: `color-mix(in srgb, ${s.color} 18%, transparent)`, color: s.color }}>{here.length}</span>
-                    )}
-                  </div>
-                  {here.length > 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>{here.map((r) => <Dot key={r.userId} r={r} />)}</div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+              <p style={{ fontSize: 10.5, color: "var(--w3)", marginBottom: 10 }}>{T("Didn't pass — a new exam date is booked to try again.", "Nicht bestanden — neuer Termin gebucht.", "Échoué — nouvelle date réservée.")}</p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>{retaking.map((r) => <Dot key={r.userId} r={r} />)}</div>
+            </div>
+          )}
         </div>
         {rows.length === 0 && (
           <p style={{ textAlign: "center", color: "var(--w3)", fontSize: 13, padding: "1rem 0" }}>{T("No candidates yet.", "Noch keine Kandidaten.", "Aucun candidat.")}</p>

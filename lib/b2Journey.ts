@@ -15,13 +15,11 @@
 
 export type B2Stage =
   | "not_started"
-  | "searching"     // looking for a language center
-  | "studying"      // enrolled / in class
-  | "registered"    // registered at a center
-  | "booked"        // exam date booked + PAID
-  | "awaiting"      // sat the exam, waiting on results
-  | "partial"       // passed some modules — must re-book the rest (loops to booked)
-  | "passed";       // fully passed ✓
+  | "studying"      // still studying
+  | "planning"      // planning a date to sit the exam
+  | "booked"        // confirmed date — booked & paid
+  | "passed"        // B2 passed ✓ (main path end)
+  | "retaking";     // failed / partial — a NEW exam date is booked to try again
 
 export type B2StageDef = {
   key: B2Stage;
@@ -31,17 +29,20 @@ export type B2StageDef = {
   label: { en: string; fr: string; de: string };
 };
 
-// Ordered roadmap. `partial` sits AFTER awaiting and visibly loops back to booked.
+// Main path (studying → planning → booked → passed). `retaking` is the SEPARATE
+// failure branch (shown on its own, only when used).
 export const B2_STAGES: B2StageDef[] = [
-  { key: "not_started", position: 0, color: "#6b7280", label: { en: "Not started",            fr: "Pas commencé",            de: "Nicht begonnen" } },
-  { key: "searching",   position: 1, color: "#8b5cf6", label: { en: "Searching center",       fr: "Recherche centre",        de: "Zentrum suchen" } },
-  { key: "studying",    position: 2, color: "#3b82f6", label: { en: "Studying",               fr: "En cours d'étude",        de: "Lernphase" } },
-  { key: "registered",  position: 3, color: "#06b6d4", label: { en: "Registered at center",   fr: "Inscrit au centre",       de: "Im Zentrum angemeldet" } },
-  { key: "booked",      position: 4, color: "#f59e0b", label: { en: "Exam booked & paid",     fr: "Examen réservé & payé",   de: "Prüfung gebucht & bezahlt" } },
-  { key: "awaiting",    position: 5, color: "#eab308", label: { en: "Awaiting result",        fr: "Résultat en attente",     de: "Ergebnis ausstehend" } },
-  { key: "partial",     position: 6, color: "#f97316", label: { en: "Partial — re-book rest", fr: "Partiel — repasser",      de: "Teilweise — Rest buchen" } },
-  { key: "passed",      position: 7, color: "#16a34a", label: { en: "B2 passed",              fr: "B2 réussi",               de: "B2 bestanden" } },
+  { key: "not_started", position: 0, color: "#6b7280", label: { en: "Not started",                fr: "Pas commencé",              de: "Nicht begonnen" } },
+  { key: "studying",    position: 1, color: "#3b82f6", label: { en: "Still studying",             fr: "En cours d'étude",          de: "Lernt noch" } },
+  { key: "planning",    position: 2, color: "#8b5cf6", label: { en: "Planning passing date",      fr: "Planification de la date",  de: "Termin wird geplant" } },
+  { key: "booked",      position: 3, color: "#f59e0b", label: { en: "Confirmed date (booked & paid)", fr: "Date confirmée (réservé & payé)", de: "Termin bestätigt (gebucht & bezahlt)" } },
+  { key: "passed",      position: 4, color: "#16a34a", label: { en: "B2 passed",                  fr: "B2 réussi",                 de: "B2 bestanden" } },
+  // Failure branch — own column, only shown when someone is in it.
+  { key: "retaking",    position: 5, color: "#f97316", label: { en: "Retaking — new date booked", fr: "Repasse — nouvelle date",   de: "Wiederholung — neuer Termin" } },
 ];
+
+// The four MAIN-path stages (the left rail). `retaking` is the right-side branch.
+export const B2_MAIN_STAGES = B2_STAGES.filter((s) => s.key !== "not_started" && s.key !== "retaking");
 
 export const B2_STAGE_BY_KEY: Record<string, B2StageDef> =
   Object.fromEntries(B2_STAGES.map((s) => [s.key, s]));
@@ -78,15 +79,14 @@ export function isB2CertDoc(fileType: string | null | undefined): boolean {
 
 /**
  * Resolve the B2 stage to DISPLAY, honoring real evidence over the stored field.
- * Like the CV fix: a candidate moves on the B2 track by actually having the
- * certificate, not by someone manually setting a dropdown.
- *   • an APPROVED B2 cert  → "passed"
- *   • a pending B2 cert    → at least "awaiting result" (don't downgrade if the
- *                            stored stage is already further along the path)
- *   • otherwise            → the stored stage
- * The stored field still WINS when it represents a stage the docs can't prove
- * (searching / studying / registered / booked / partial), so admins keep full
- * manual control of the early + failure stages.
+ * A candidate moves on the B2 track by actually having the certificate, not by
+ * someone manually setting a dropdown:
+ *   • an APPROVED B2 cert → "passed"
+ *   • a pending (uploaded, not-yet-approved) B2 cert → "booked" (confirmed date;
+ *     they've clearly sat/are sitting the exam) — unless the stored stage is the
+ *     'retaking' failure branch, which an admin set deliberately and we keep.
+ *   • otherwise → the stored stage (admin's manual call: studying / planning /
+ *     booked / retaking).
  */
 export function effectiveB2Stage(
   stored: B2Stage,
@@ -94,13 +94,14 @@ export function effectiveB2Stage(
 ): B2Stage {
   const hasApprovedCert = docs.some((d) => d.status === "approved" && isB2CertDoc(d.file_type));
   if (hasApprovedCert) return "passed";
+  if (stored === "retaking") return "retaking"; // admin-set failure branch wins
   const hasAnyCert = docs.some((d) => isB2CertDoc(d.file_type));
   if (hasAnyCert) {
-    // A cert is uploaded but not yet approved → they at least sat the exam.
-    // Keep a more-advanced stored stage (e.g. partial) if set.
-    const awaitingPos = B2_STAGE_BY_KEY["awaiting"].position;
+    // Uploaded but unapproved cert → at least "confirmed date", unless already
+    // further along.
+    const bookedPos = B2_STAGE_BY_KEY["booked"].position;
     const storedPos = B2_STAGE_BY_KEY[stored]?.position ?? 0;
-    return storedPos >= awaitingPos ? stored : "awaiting";
+    return storedPos >= bookedPos ? stored : "booked";
   }
   return stored;
 }

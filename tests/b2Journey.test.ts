@@ -2,9 +2,9 @@ import { describe, it, expect } from "vitest";
 import { B2_STAGES, normalizeB2Stage, isB2Stage, isB2Passed, b2StageColor, effectiveB2Stage, isB2CertDoc } from "../lib/b2Journey";
 
 describe("b2Journey", () => {
-  it("has the 7 sub-stages + not_started, in loop order", () => {
+  it("has the 4 main stages + not_started + retaking branch", () => {
     expect(B2_STAGES.map((s) => s.key)).toEqual([
-      "not_started", "searching", "studying", "registered", "booked", "awaiting", "partial", "passed",
+      "not_started", "studying", "planning", "booked", "passed", "retaking",
     ]);
   });
 
@@ -16,14 +16,15 @@ describe("b2Journey", () => {
   });
 
   it("isB2Stage validates", () => {
-    expect(isB2Stage("partial")).toBe(true);
+    expect(isB2Stage("retaking")).toBe(true);
+    expect(isB2Stage("planning")).toBe(true);
     expect(isB2Stage("nope")).toBe(false);
   });
 
   it("isB2Passed only at passed", () => {
     expect(isB2Passed("passed")).toBe(true);
-    expect(isB2Passed("awaiting")).toBe(false);
-    expect(isB2Passed("partial")).toBe(false);
+    expect(isB2Passed("booked")).toBe(false);
+    expect(isB2Passed("retaking")).toBe(false);
   });
 
   it("every stage has a colour", () => {
@@ -38,14 +39,14 @@ describe("b2Journey", () => {
     expect(isB2CertDoc(null)).toBe(false);
   });
 
-  it("effectiveB2Stage: approved cert → passed; pending cert → awaiting; else stored", () => {
+  it("effectiveB2Stage: approved cert → passed; pending cert → booked; else stored", () => {
     // Approved B2 cert overrides a not_started field.
     expect(effectiveB2Stage("not_started", [{ file_type: "B2 Language Certificate", status: "approved" }])).toBe("passed");
-    // Uploaded but pending → at least awaiting.
-    expect(effectiveB2Stage("not_started", [{ file_type: "Certificat de langue B2", status: "pending" }])).toBe("awaiting");
+    // Uploaded but pending → at least 'booked' (confirmed date).
+    expect(effectiveB2Stage("not_started", [{ file_type: "Certificat de langue B2", status: "pending" }])).toBe("booked");
     // No cert → keep the stored stage (admin's manual call).
     expect(effectiveB2Stage("studying", [])).toBe("studying");
-    // A pending cert never downgrades a further-along stored stage.
-    expect(effectiveB2Stage("partial", [{ file_type: "B2 Sprachzertifikat", status: "pending" }])).toBe("partial");
+    // The 'retaking' failure branch is admin-set and wins over a pending cert.
+    expect(effectiveB2Stage("retaking", [{ file_type: "B2 Sprachzertifikat", status: "pending" }])).toBe("retaking");
   });
 });
