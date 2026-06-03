@@ -49,6 +49,14 @@ describe("computePipelineStatus", () => {
     expect(s.current?.key).toBe("interview_first"); // current still = next to-do
   });
 
+  it("autoDone moves a candidate even with NO ticked checkbox (CV evidence)", () => {
+    // Empty journey rows, but real evidence says cv_finalized + docs_collected.
+    const s = computePipelineStatus([], TODAY, false, new Set(["docs_collected", "cv_finalized"]));
+    expect(s.doneCount).toBe(2);
+    expect(s.reached?.key).toBe("cv_finalized");        // furthest auto-done
+    expect(s.current?.key).toBe("interview_first");     // next real to-do
+  });
+
   it("REGRESSION: a candidate with NO journey rows is at the START, never 'arrived'", () => {
     // The original bug: an unseeded candidate (empty rows) was bucketed as
     // "done / Arrived in Germany". Empty ≠ complete.

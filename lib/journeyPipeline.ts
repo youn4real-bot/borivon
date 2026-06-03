@@ -83,7 +83,19 @@ const DUE_SOON_DAYS = 7;
  *                 arrived" but never sits on the rail). Defaults true so callers
  *                 that don't track B2 are unaffected.
  */
-export function computePipelineStatus(rows: JourneyRow[], todayYMD: string, b2Passed: boolean = true): PipelineStatus {
+export function computePipelineStatus(
+  rows: JourneyRow[],
+  todayYMD: string,
+  b2Passed: boolean = true,
+  /**
+   * Preset keys to treat as DONE regardless of the manual checkbox — derived
+   * from real evidence elsewhere (e.g. cv_finalized when a Lebenslauf doc
+   * exists, docs_collected when essentials are uploaded). This keeps the map
+   * honest: candidates move when they actually DO the work, not when someone
+   * remembers to tick a box.
+   */
+  autoDone: Set<string> = new Set(),
+): PipelineStatus {
   // Index whatever preset rows EXIST by key. A candidate whose journey was never
   // opened has NO preset rows — those milestones are implicitly NOT done (they
   // sit at the very start), never "complete". We therefore evaluate against the
@@ -97,10 +109,15 @@ export function computePipelineStatus(rows: JourneyRow[], todayYMD: string, b2Pa
     if (PRESET_BY_KEY[key]) rowByKey.set(key, r);
   }
 
+  // A preset counts as done if its checkbox is ticked OR it's auto-derived from
+  // real evidence (autoDone) — so a finalized CV / uploaded docs move the
+  // candidate even when nobody manually ticked the box.
+  const isDone = (key: string) => rowByKey.get(key)?.done === true || autoDone.has(key);
+
   // The RAIL is sequential presets only — B2 (parallel) never sits on the rail.
   const orderedPresets = SEQUENTIAL_PRESETS.slice().sort((a, b) => a.position - b.position);
   const totalPresets = orderedPresets.length;
-  const doneCount = orderedPresets.filter((p) => rowByKey.get(p.key)?.done === true).length;
+  const doneCount = orderedPresets.filter((p) => isDone(p.key)).length;
   const progress = totalPresets > 0 ? doneCount / totalPresets : 0;
 
   // Parallel milestones — B2 lives on candidate_profiles.b2_stage now (passed in
@@ -117,10 +134,8 @@ export function computePipelineStatus(rows: JourneyRow[], todayYMD: string, b2Pa
   }).length;
   const blockedCount = open.filter((r) => r.blocked === true).length;
 
-  // The "current" step = the first preset (by position) that is NOT done —
-  // whether its row says done:false OR no row exists yet. Only when EVERY one
-  // of the 11 presets is actually ticked is there no current step ("arrived").
-  const nextPreset = orderedPresets.find((p) => rowByKey.get(p.key)?.done !== true) ?? null;
+  // The "current" step = the first preset (by position) that is NOT done.
+  const nextPreset = orderedPresets.find((p) => !isDone(p.key)) ?? null;
 
   let current: PipelineStatus["current"] = null;
   if (nextPreset) {
@@ -142,7 +157,7 @@ export function computePipelineStatus(rows: JourneyRow[], todayYMD: string, b2Pa
   // the avatar sits on the map (they "move in" once they pass a station).
   let reached: PipelineStatus["reached"] = null;
   for (const p of orderedPresets) {
-    if (rowByKey.get(p.key)?.done === true) reached = { key: p.key, position: p.position };
+    if (isDone(p.key)) reached = { key: p.key, position: p.position };
   }
 
   // "Fully arrived" = every sequential station done AND every parallel

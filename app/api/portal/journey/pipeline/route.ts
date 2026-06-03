@@ -93,9 +93,17 @@ export async function GET(req: NextRequest) {
   const today = casablancaToday();
   const candidates = profiles.map((p) => {
     const journey = byCandidate.get(p.user_id) ?? [];
+    const docs = docsByCandidate.get(p.user_id) ?? [];
     const b2Stage = normalizeB2Stage(p.b2_stage);
-    const status = computePipelineStatus(journey, today, isB2Passed(b2Stage));
-    const sellable = evaluateSellable({ documents: docsByCandidate.get(p.user_id) ?? [], journey });
+    // Auto-derive rail milestones from REAL evidence so candidates move on the
+    // map by actually doing the work, not by someone ticking a box:
+    //   cv_finalized  ← a Lebenslauf (German CV) document exists
+    //   docs_collected ← they have at least one approved document on file
+    const autoDone = new Set<string>();
+    if (docs.some((d) => /lebenslauf/i.test(d.file_type ?? ""))) autoDone.add("cv_finalized");
+    if (docs.some((d) => d.status === "approved")) autoDone.add("docs_collected");
+    const status = computePipelineStatus(journey, today, isB2Passed(b2Stage), autoDone);
+    const sellable = evaluateSellable({ documents: docs, journey });
     const name = [p.first_name, p.last_name].filter(Boolean).join(" ").trim();
     return {
       userId: p.user_id,
