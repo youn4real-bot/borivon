@@ -36,25 +36,25 @@ describe("computePipelineStatus", () => {
     const s = computePipelineStatus(presetRows(), TODAY);
     expect(s.doneCount).toBe(0);
     expect(s.progress).toBe(0);
-    expect(s.current?.key).toBe("docs_collected"); // position 0
+    expect(s.current?.key).toBe("cv_finalized"); // position 0 (new first station)
     expect(s.health).toBe("on_track");
   });
 
   it("reached = furthest COMPLETED station (avatar 'moves in' once passed)", () => {
     // Nothing done → reached null (sits at the start).
     expect(computePipelineStatus(presetRows(), TODAY).reached).toBeNull();
-    // First two done → reached is the 2nd (cv_finalized), not the next to-do.
-    const s = computePipelineStatus(presetRows({ docs_collected: { done: true }, cv_finalized: { done: true } }), TODAY);
-    expect(s.reached?.key).toBe("cv_finalized");
-    expect(s.current?.key).toBe("interview_first"); // current still = next to-do
+    // First two done → reached is the 2nd (interview_first), not the next to-do.
+    const s = computePipelineStatus(presetRows({ cv_finalized: { done: true }, interview_first: { done: true } }), TODAY);
+    expect(s.reached?.key).toBe("interview_first");
+    expect(s.current?.key).toBe("interview_second"); // current still = next to-do
   });
 
   it("autoDone moves a candidate even with NO ticked checkbox (CV evidence)", () => {
-    // Empty journey rows, but real evidence says cv_finalized + docs_collected.
-    const s = computePipelineStatus([], TODAY, false, new Set(["docs_collected", "cv_finalized"]));
-    expect(s.doneCount).toBe(2);
-    expect(s.reached?.key).toBe("cv_finalized");        // furthest auto-done
-    expect(s.current?.key).toBe("interview_first");     // next real to-do
+    // Empty journey rows, but real evidence says the German CV is finalized.
+    const s = computePipelineStatus([], TODAY, false, new Set(["cv_finalized"]));
+    expect(s.doneCount).toBe(1);
+    expect(s.reached?.key).toBe("cv_finalized");        // furthest auto-done (position 0)
+    expect(s.current?.key).toBe("interview_first");     // next real to-do (position 1)
   });
 
   it("REGRESSION: a candidate with NO journey rows is at the START, never 'arrived'", () => {
@@ -63,29 +63,29 @@ describe("computePipelineStatus", () => {
     const s = computePipelineStatus([], TODAY);
     expect(s.doneCount).toBe(0);
     expect(s.progress).toBe(0);
-    expect(s.current?.key).toBe("docs_collected"); // first milestone
+    expect(s.current?.key).toBe("cv_finalized"); // first milestone (position 0)
     expect(s.health).not.toBe("done");
     expect(s.health).toBe("on_track");
   });
 
   it("partial rows present → current skips to first incomplete, missing rows count as not-done", () => {
-    // Only the first milestone exists + is done; the other 10 rows don't exist.
+    // Only the first milestone exists + is done; the other rows don't exist.
     const s = computePipelineStatus(
-      [{ id: "x", owner: "candidate", done: true, preset_key: "docs_collected", position: 0, text: "", due_date: null, blocked: false, blocked_reason: null }],
+      [{ id: "x", owner: "borivon", done: true, preset_key: "cv_finalized", position: 0, text: "", due_date: null, blocked: false, blocked_reason: null }],
       TODAY,
     );
     expect(s.doneCount).toBe(1);
-    expect(s.current?.key).toBe("cv_finalized"); // position 1 — missing row, treated as not-done
+    expect(s.current?.key).toBe("interview_first"); // position 1 — missing row, treated as not-done
     expect(s.health).not.toBe("done");
   });
 
   it("current step advances to the lowest-position not-done SEQUENTIAL preset (skips parallel B2)", () => {
     const s = computePipelineStatus(
-      presetRows({ docs_collected: { done: true }, cv_finalized: { done: true } }),
+      presetRows({ cv_finalized: { done: true }, interview_first: { done: true } }),
       TODAY,
     );
     expect(s.doneCount).toBe(2);
-    expect(s.current?.key).toBe("interview_first"); // B2 is parallel, not the next rail step
+    expect(s.current?.key).toBe("interview_second"); // B2 is parallel, not the next rail step
   });
 
   it("B2 is PARALLEL (passed via arg): not passing it never makes the candidate 'stuck at B2'", () => {
@@ -120,21 +120,21 @@ describe("computePipelineStatus", () => {
   });
 
   it("an open past-due item → overdue health + count", () => {
-    const s = computePipelineStatus(presetRows({ docs_collected: { due_date: "2026-05-20" } }), TODAY);
+    const s = computePipelineStatus(presetRows({ cv_finalized: { due_date: "2026-05-20" } }), TODAY);
     expect(s.overdueCount).toBe(1);
     expect(s.health).toBe("overdue");
     expect(s.current?.daysToDue).toBe(daysBetween(TODAY, "2026-05-20"));
   });
 
   it("due within 7 days but not past → due_soon", () => {
-    const s = computePipelineStatus(presetRows({ docs_collected: { due_date: "2026-06-06" } }), TODAY);
+    const s = computePipelineStatus(presetRows({ cv_finalized: { due_date: "2026-06-06" } }), TODAY);
     expect(s.health).toBe("due_soon");
     expect(s.overdueCount).toBe(0);
   });
 
   it("blocked beats overdue in health priority", () => {
     const s = computePipelineStatus(
-      presetRows({ docs_collected: { blocked: true, due_date: "2026-05-01" } }),
+      presetRows({ cv_finalized: { blocked: true, due_date: "2026-05-01" } }),
       TODAY,
     );
     expect(s.blockedCount).toBe(1);
