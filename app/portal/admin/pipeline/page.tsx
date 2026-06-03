@@ -9,14 +9,17 @@
  * Read-only overview; edits happen in the candidate's journey checklist.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
 import { JOURNEY_PRESETS } from "@/lib/candidateJourney";
 import { JourneyMap } from "@/components/JourneyMap";
-import { ArrowLeft, AlertTriangle, Clock, CheckCircle2, Search, Map as MapIcon, List, BadgeCheck } from "lucide-react";
+import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
+import { normalizeB2Stage, b2StageLabel, b2StageColor, B2_FAILED_COLOR } from "@/lib/b2Journey";
+import { impfungStageLabel, IMPFUNG_STAGE_BY_KEY, type ImpfungStage } from "@/lib/impfungJourney";
+import { ArrowLeft, AlertTriangle, Clock, CheckCircle2, Search, Map as MapIcon, List, BadgeCheck, ArrowRight } from "lucide-react";
 
 type Health = "on_track" | "due_soon" | "overdue" | "blocked" | "done";
 type Status = {
@@ -54,6 +57,9 @@ export default function AdminPipelinePage() {
   const [filter, setFilter] = useState<"all" | "attention" | "sellable">("all");
   const [view, setView] = useState<"map" | "list">("map");
   const [track, setTrack] = useState<"journey" | "b2" | "impfung">("journey");
+  // Clicking a candidate opens a quick cross-track summary (peek) — NOT a jump
+  // straight to their dossier. The dossier is one button away inside the popup.
+  const [peek, setPeek] = useState<Row | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -194,7 +200,7 @@ export default function AdminPipelinePage() {
           The B2 track always uses the map style + the search-only list. */}
       {view === "map" || track !== "journey" ? (
         <JourneyMap rows={track !== "journey" ? searchOnlyRows : shown} lang={lang} track={track}
-          onPick={(uid) => router.push(`/portal/admin?nav_user_id=${encodeURIComponent(uid)}`)}
+          onPick={(uid) => setPeek(rows.find((r) => r.userId === uid) ?? null)}
           onMoveB2={moveB2} />
       ) : shown.length === 0 ? (
         <div className="bv-card text-center py-16">
@@ -212,7 +218,7 @@ export default function AdminPipelinePage() {
             const pct = Math.round(r.status.progress * 100);
             return (
               <button key={r.userId}
-                onClick={() => router.push(`/portal/admin?nav_user_id=${encodeURIComponent(r.userId)}`)}
+                onClick={() => setPeek(r)}
                 className="bv-card bv-press text-left flex items-center gap-3 p-3 sm:p-3.5" style={{ borderRadius: "var(--r-lg)" }}>
                 {/* Health dot */}
                 <span className="flex-shrink-0" style={{ width: 10, height: 10, borderRadius: 999, background: hs.dot }} />
@@ -267,6 +273,115 @@ export default function AdminPipelinePage() {
           })}
         </div>
       )}
+      {/* Candidate peek — quick cross-track summary; the dossier is one click away. */}
+      <Modal
+        open={!!peek}
+        onClose={() => setPeek(null)}
+        size="md"
+        title={peek?.name ?? ""}
+        subtitle={T("Quick summary — open the full profile for documents & details",
+          "Kurzübersicht — vollständiges Profil für Dokumente & Details",
+          "Résumé rapide — ouvrez le profil complet pour documents et détails")}
+        footer={peek ? (
+          <>
+            <GhostButton onClick={() => setPeek(null)}>{T("Close", "Schließen", "Fermer")}</GhostButton>
+            <GoldButton onClick={() => { const id = peek.userId; setPeek(null); router.push(`/portal/admin?nav_user_id=${encodeURIComponent(id)}`); }}>
+              {T("Open full profile", "Profil öffnen", "Profil complet")} <ArrowRight size={14} strokeWidth={2.5} />
+            </GoldButton>
+          </>
+        ) : null}>
+        {peek && (() => {
+          const b2s = normalizeB2Stage(peek.b2Stage);
+          const imp = (peek.impfungStage ?? "not_required") as ImpfungStage;
+          const impDef = imp !== "not_required" && imp !== "not_started" ? IMPFUNG_STAGE_BY_KEY[imp] : undefined;
+          const pct = Math.round(peek.status.progress * 100);
+          const hs = HEALTH_STYLE[peek.status.health];
+          const journeyLine = peek.status.health === "done"
+            ? T("Arrived in Germany 🇩🇪", "In Deutschland angekommen 🇩🇪", "Arrivé en Allemagne 🇩🇪")
+            : peek.status.current ? presetLabel(peek.status.current.key, lang)
+            : T("Just started", "Gerade begonnen", "Vient de commencer");
+          const card: CSSProperties = { borderRadius: 16, border: "1px solid var(--border)", background: "var(--bg2)", padding: 16 };
+          const cap: CSSProperties = { fontSize: 10.5, fontWeight: 700, color: "var(--w3)", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 10 };
+          return (
+            <div className="p-5 flex flex-col gap-4">
+              {/* Identity */}
+              <div className="flex items-center gap-3">
+                {peek.photo ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={peek.photo} alt="" className="rounded-full object-cover flex-shrink-0" style={{ width: 56, height: 56, border: `2px solid ${hs.dot}` }} />
+                ) : (
+                  <span className="rounded-full flex items-center justify-center flex-shrink-0 text-[18px] font-bold" style={{ width: 56, height: 56, background: "var(--gdim)", color: "var(--gold)", border: `2px solid ${hs.dot}` }}>{initials(peek.name)}</span>
+                )}
+                <div className="min-w-0">
+                  <p className="text-[15px] font-semibold truncate" style={{ color: "var(--w)" }}>{peek.name}</p>
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: `color-mix(in srgb, ${hs.dot} 16%, transparent)`, color: hs.dot }}>
+                      <span style={{ width: 7, height: 7, borderRadius: 999, background: hs.dot }} /> {hs.label[lang as "en" | "fr" | "de"]}
+                    </span>
+                    {peek.sellable?.sellable && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: "var(--gold)", color: "#131312" }}>
+                        <BadgeCheck size={10} strokeWidth={2.5} /> {T("READY TO SELL", "VERKAUFSBEREIT", "PRÊT À VENDRE")}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Journey */}
+              <div style={card}>
+                <div style={cap}>🗺️ {T("Journey", "Reise", "Parcours")}</div>
+                <div className="flex items-center gap-2 mb-2">
+                  <span style={{ width: 9, height: 9, borderRadius: 999, background: hs.dot, flexShrink: 0 }} />
+                  <span className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>{journeyLine}</span>
+                </div>
+                <div style={{ height: 7, borderRadius: 999, background: "var(--border)", overflow: "hidden", marginBottom: 7 }}>
+                  <div style={{ width: `${pct}%`, height: "100%", background: hs.dot }} />
+                </div>
+                <div className="flex items-center gap-2 flex-wrap text-[11.5px]" style={{ color: "var(--w3)" }}>
+                  <span>{peek.status.doneCount}/{peek.status.totalPresets} {T("steps done", "Schritte erledigt", "étapes faites")}</span>
+                  {peek.status.overdueCount > 0 && <span style={{ color: "#f97316" }}>· {peek.status.overdueCount} {T("overdue", "überfällig", "en retard")}</span>}
+                  {peek.status.blockedCount > 0 && <span style={{ color: "#ef4444" }}>· {peek.status.blockedCount} {T("blocked", "blockiert", "bloqué")}</span>}
+                </div>
+              </div>
+
+              {/* B2 German */}
+              <div style={card}>
+                <div style={cap}>📜 {T("B2 German", "B2 Deutsch", "B2 allemand")}</div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span style={{ width: 10, height: 10, borderRadius: 999, background: b2StageColor(b2s), flexShrink: 0 }} />
+                  <span className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>{b2StageLabel(b2s, lang)}</span>
+                  {peek.b2Failed && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: `color-mix(in srgb, ${B2_FAILED_COLOR} 18%, transparent)`, color: B2_FAILED_COLOR }}>
+                      {T("FAILED BEFORE · RETAKING", "NICHT BESTANDEN · WIEDERHOLUNG", "ÉCHOUÉ · REPRISE")}
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Impfung */}
+              <div style={card}>
+                <div style={cap}>💉 {T("Impfung", "Impfung", "Vaccination")}</div>
+                {imp === "not_required" ? (
+                  <span className="text-[12.5px]" style={{ color: "var(--w3)" }}>{T("Not required by their agency", "Von der Agentur nicht verlangt", "Non requis par leur agence")}</span>
+                ) : imp === "not_started" ? (
+                  <div className="flex items-center gap-2">
+                    <span style={{ width: 10, height: 10, borderRadius: 999, background: "var(--w3)", flexShrink: 0 }} />
+                    <span className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>{T("Required — not started", "Erforderlich — nicht begonnen", "Requis — pas commencé")}</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span style={{ width: 10, height: 10, borderRadius: 999, background: impDef?.color ?? "var(--w3)", flexShrink: 0 }} />
+                    <span className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>{impfungStageLabel(imp, lang)}</span>
+                    {peek.impfungDoses && peek.impfungDoses.need > 0 && (
+                      <span className="text-[11.5px] font-semibold px-2 py-0.5 rounded-full" style={{ background: "var(--border)", color: "var(--w2)" }}>{peek.impfungDoses.got}/{peek.impfungDoses.need} {T("doses", "Dosen", "doses")}</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })()}
+      </Modal>
     </main>
   );
 }
