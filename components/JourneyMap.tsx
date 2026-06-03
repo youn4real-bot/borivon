@@ -152,6 +152,28 @@ export function JourneyMap({
           {b2.onPath > 0 ? ` · ${b2.onPath}/${rows.length} ${T("on the pathway", "auf dem Weg", "sur le parcours")}` : ""}
         </p>
         <div style={{ display: "flex", flexDirection: "column" }}>
+          {/* "Not started yet" — every candidate not on a B2 stage, so the whole
+              cohort is visible (you see all avatars, just parked at the start). */}
+          {(() => {
+            const notStarted = rows.filter((r) => normalizeB2Stage(r.b2Stage) === "not_started");
+            return (
+              <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
+                  <span style={{ width: 13, height: 13, borderRadius: 999, marginTop: 4, background: "var(--bg2)", border: "2px solid var(--border)" }} />
+                  <span style={{ flex: 1, width: 2, minHeight: 28, background: "var(--border)" }} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0, paddingBottom: 18 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: notStarted.length ? 8 : 0 }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: notStarted.length ? "var(--w)" : "var(--w3)" }}>{T("Not started yet", "Noch nicht begonnen", "Pas encore commencé")}</span>
+                    {notStarted.length > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: "var(--gdim)", color: "var(--gold)" }}>{notStarted.length}</span>}
+                  </div>
+                  {notStarted.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>{notStarted.map((r) => <Dot key={r.userId} r={r} />)}</div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
           {b2.visibleStages.map((s, i) => {
             const here = b2.by.get(s.key) ?? [];
             const last = i === b2.visibleStages.length - 1;
@@ -195,6 +217,9 @@ export function JourneyMap({
       if (st === "not_required" || st === "not_started") continue;
       (byImpf.get(st) ?? byImpf.set(st, []).get(st)!).push(r);
     }
+    // Required but not yet started — shown as the first row so the WHOLE required
+    // cohort is visible (every avatar), not just those mid-pathway.
+    const notStartedImpf = rows.filter((r) => r.impfungStage === "not_started");
     const onPath = [...byImpf.values()].reduce((n, a) => n + a.length, 0);
     const requiredCount = rows.filter((r) => r.impfungStage && r.impfungStage !== "not_required").length;
     return (
@@ -212,6 +237,22 @@ export function JourneyMap({
           </p>
         ) : (
           <div style={{ display: "flex", flexDirection: "column" }}>
+            {/* Required but not started — shows the rest of the required cohort. */}
+            <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
+                <span style={{ width: 13, height: 13, borderRadius: 999, marginTop: 4, background: "var(--bg2)", border: "2px solid var(--border)" }} />
+                <span style={{ flex: 1, width: 2, minHeight: 28, background: "var(--border)" }} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0, paddingBottom: 18 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: notStartedImpf.length ? 8 : 0 }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 600, color: notStartedImpf.length ? "var(--w)" : "var(--w3)" }}>{T("Required — not started", "Erforderlich — nicht begonnen", "Requis — pas commencé")}</span>
+                  {notStartedImpf.length > 0 && <span style={{ fontSize: 10.5, fontWeight: 700, padding: "1px 7px", borderRadius: 999, background: "var(--gdim)", color: "var(--gold)" }}>{notStartedImpf.length}</span>}
+                </div>
+                {notStartedImpf.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>{notStartedImpf.map((r) => <Dot key={r.userId} r={r} />)}</div>
+                )}
+              </div>
+            </div>
             {IMPFUNG_STAGES.map((s, i) => {
               const here = byImpf.get(s.key) ?? [];
               const last = i === IMPFUNG_STAGES.length - 1;
