@@ -227,6 +227,7 @@ type Org = {
   notes: string | null;
   logo_filename: string | null;
   footer_text: string | null;
+  vaccine_req: { masern?: number; varizell?: number } | null;
   created_at: string;
   memberCount: number;
   candidateCount: number;
@@ -1050,6 +1051,17 @@ export default function OrganizationsPage() {
                               {brandSaving[org.id] ? <Spinner size="xs" color="#131312" /> : brandSaved[org.id] ? <Check size={12} strokeWidth={2} /> : null}
                               {brandSaving[org.id] ? T.saving : brandSaved[org.id] ? T.saved : T.saveBranding}
                             </button>
+
+                            {/* Vaccine requirement — drives the Impfung pipeline track. */}
+                            <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
+                              <VaccineReqEditor
+                                orgId={org.id}
+                                initial={org.vaccine_req}
+                                accessToken={accessToken}
+                                lang={lang}
+                                onSaved={() => loadData(accessToken)}
+                              />
+                            </div>
                           </div>
                         )}
 
@@ -1119,5 +1131,73 @@ export default function OrganizationsPage() {
       </div>
     )}
     </>
+  );
+}
+
+// ── Per-agency vaccine requirement editor (drives the Impfung pipeline track) ──
+function VaccineReqEditor({ orgId, initial, accessToken, lang, onSaved }: {
+  orgId: string;
+  initial: { masern?: number; varizell?: number } | null;
+  accessToken: string;
+  lang: string;
+  onSaved: () => void;
+}) {
+  const L = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
+  const [masern, setMasern] = useState<number>(Math.max(0, Math.floor(Number(initial?.masern) || 0)));
+  const [varizell, setVarizell] = useState<number>(Math.max(0, Math.floor(Number(initial?.varizell) || 0)));
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const required = masern > 0 || varizell > 0;
+
+  async function save() {
+    setSaving(true); setSaved(false);
+    try {
+      const res = await fetch(`/api/portal/admin/organizations/${orgId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ vaccineReq: { masern, varizell } }),
+      });
+      if (res.ok) { setSaved(true); onSaved(); setTimeout(() => setSaved(false), 2000); }
+    } finally { setSaving(false); }
+  }
+
+  const Stepper = ({ label, value, onChange }: { label: string; value: number; onChange: (n: number) => void }) => (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <span style={{ fontSize: 12.5, color: "var(--w2)", minWidth: 70 }}>{label}</span>
+      <div className="inline-flex items-center" style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: 8 }}>
+        <button onClick={() => onChange(Math.max(0, value - 1))} className="px-2.5 py-1.5" style={{ color: "var(--w2)", background: "transparent", border: "none", cursor: "pointer" }}>−</button>
+        <span style={{ minWidth: 24, textAlign: "center", fontSize: 13, fontWeight: 700, color: "var(--w)" }}>{value}</span>
+        <button onClick={() => onChange(Math.min(5, value + 1))} className="px-2.5 py-1.5" style={{ color: "var(--w2)", background: "transparent", border: "none", cursor: "pointer" }}>+</button>
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <label className="block text-[10px] font-semibold uppercase tracking-wide mb-1" style={{ color: "var(--w3)" }}>
+        💉 {L("Vaccine requirement", "Impfanforderung", "Vaccins requis")}
+      </label>
+      <p className="text-[11px] mb-3" style={{ color: "var(--w3)" }}>
+        {L("Doses this agency's candidates must complete. 0 = none required (they won't appear on the Impfung track).",
+           "Dosen, die Kandidaten dieser Agentur benötigen. 0 = keine (erscheinen nicht im Impfweg).",
+           "Doses requises pour les candidats de cette agence. 0 = aucune (n'apparaissent pas dans le parcours vaccins).")}
+      </p>
+      <div className="flex flex-col gap-2.5 mb-3">
+        <Stepper label="Masern" value={masern} onChange={setMasern} />
+        <Stepper label="Varizell" value={varizell} onChange={setVarizell} />
+      </div>
+      <div className="flex items-center gap-3">
+        <button onClick={save} disabled={saving}
+          className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-3.5 py-2 disabled:opacity-50"
+          style={{ background: "var(--gold)", color: "#131312", borderRadius: 10, border: "none", cursor: "pointer" }}>
+          {saving ? <Spinner size="xs" color="#131312" /> : saved ? <Check size={12} strokeWidth={2} /> : null}
+          {saving ? L("Saving…", "Speichern…", "…") : saved ? L("Saved", "Gespeichert", "Enregistré") : L("Save", "Speichern", "Enregistrer")}
+        </button>
+        <span className="text-[11px]" style={{ color: required ? "var(--gold)" : "var(--w3)" }}>
+          {required ? L(`Requires ${masern + varizell} dose(s)`, `Benötigt ${masern + varizell} Dosis(en)`, `${masern + varizell} dose(s)`) : L("No Impfung required", "Keine Impfung nötig", "Aucun vaccin requis")}
+        </span>
+      </div>
+    </div>
   );
 }

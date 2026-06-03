@@ -3,6 +3,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole } from "@/lib/admin-auth";
 import { validateImageDataUrl } from "@/lib/validateDataUrl";
 import { UUID_RE } from "@/lib/uuid";
+import { normalizeReq } from "@/lib/impfungJourney";
 
 
 /**
@@ -53,6 +54,11 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
   }
   if (typeof body?.footerText === "string") {
     updates.footer_text = body.footerText.trim().slice(0, 500) || null;
+  }
+  // Per-agency vaccine requirement (drives the Impfung pipeline track). Always
+  // normalized to {masern,varizell} with each 0..5; all-zero = no Impfung needed.
+  if (body?.vaccineReq !== undefined) {
+    updates.vaccine_req = normalizeReq(body.vaccineReq);
   }
 
   if (Object.keys(updates).length === 0) {

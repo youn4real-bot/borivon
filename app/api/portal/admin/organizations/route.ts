@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
 
   const db = getServiceSupabase();
 
-  const orgsBase = db.from("organizations").select("id, name, invite_code, member_invite_code, notes, logo_filename, footer_text, created_at").order("created_at", { ascending: true });
+  const orgsBase = db.from("organizations").select("id, name, invite_code, member_invite_code, notes, logo_filename, footer_text, vaccine_req, created_at").order("created_at", { ascending: true });
   const [{ data: orgs }, { data: members }, { data: links }] = await Promise.all([
     auth.agencyId ? orgsBase.eq("agency_id", auth.agencyId) : orgsBase,
     db.from("organization_members").select("org_id, sub_admin_email, role"),

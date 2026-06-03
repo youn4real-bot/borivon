@@ -3518,10 +3518,10 @@ export default function AdminPage() {
             {statusOpen && typeof window !== "undefined" && createPortal(
               (() => {
                 const L = lang === "fr"
-                  ? { title:"Statut", q1:"B2 terminé ?", yes:"Oui", no:"Non", cert:"Date du certificat", save:"Enregistrer", cancel:"Annuler", loading:"Chargement…", hint:"Visible uniquement par les admins — le candidat ne voit rien.", wroteQ:"A-t-il passé l'examen ?", wrote:"A passé l'examen", notwrote:"Pas encore passé", examWritten:"Date de l'examen passé", resultsExpected:"Date prévue des résultats", plannedExam:"Date prévue de l'examen", regPaid:"Inscrit — frais payés", regWaiting:"En attente d'ouverture du site", secB2:"B2", secVax:"Vaccins", got:"Reçu", notgot:"Pas encore", doseDate:"Date du vaccin", doseExpected:"Date prévue", certExpected:"Certificat / complet le", dose:"Dose", addDose:"Ajouter une dose", mand:"obligatoire" }
+                  ? { title:"Statut", q1:"B2 terminé ?", yes:"Oui", no:"Non", cert:"Date du certificat", save:"Enregistrer", cancel:"Annuler", loading:"Chargement…", hint:"Visible uniquement par les admins — le candidat ne voit rien.", wroteQ:"A-t-il passé l'examen ?", wrote:"A passé l'examen", notwrote:"Pas encore passé", examWritten:"Date de l'examen passé", resultsExpected:"Date prévue des résultats", plannedExam:"Date prévue de l'examen", regPaid:"Inscrit — frais payés", regWaiting:"En attente d'ouverture du site", secB2:"B2", secVax:"Vaccins", got:"Reçu", notgot:"Pas encore", doseDate:"Date du vaccin", doseExpected:"Date prévue", certExpected:"Certificat / complet le", dose:"Dose", addDose:"Ajouter une dose", mand:"obligatoire", vaxPreset:"Standard UKSH/Calmaroi (2 Masern + 2 Varizell)", vaxPresetHint:"Crée les doses requises en un clic" }
                   : lang === "de"
-                  ? { title:"Status", q1:"B2 abgeschlossen?", yes:"Ja", no:"Nein", cert:"Zertifikatsdatum", save:"Speichern", cancel:"Abbrechen", loading:"Laden…", hint:"Nur für Admins sichtbar — der Kandidat sieht nichts.", wroteQ:"Prüfung abgelegt?", wrote:"Prüfung abgelegt", notwrote:"Noch nicht abgelegt", examWritten:"Datum der abgelegten Prüfung", resultsExpected:"Voraussichtliches Ergebnisdatum", plannedExam:"Voraussichtlicher Prüfungstermin", regPaid:"Angemeldet — Gebühren bezahlt", regWaiting:"Wartet auf Öffnung der Website", secB2:"B2", secVax:"Impfungen", got:"Geimpft", notgot:"Noch nicht", doseDate:"Impfdatum", doseExpected:"Voraussichtliches Datum", certExpected:"Nachweis / vollständig bis", dose:"Dosis", addDose:"Dosis hinzufügen", mand:"Pflicht" }
-                  : { title:"Status", q1:"B2 complete?", yes:"Yes", no:"No", cert:"Certificate date", save:"Save", cancel:"Cancel", loading:"Loading…", hint:"Admin-only — the candidate never sees this.", wroteQ:"Did they write the exam?", wrote:"Wrote the exam", notwrote:"Didn't write yet", examWritten:"Exam written on", resultsExpected:"Expected results date", plannedExam:"Expected exam date", regPaid:"Registered — fees paid", regWaiting:"Waiting for website to open", secB2:"B2", secVax:"Vaccines", got:"Received", notgot:"Not yet", doseDate:"Vaccination date", doseExpected:"Expected date", certExpected:"Certificate / complete by", dose:"Dose", addDose:"Add a dose", mand:"required" };
+                  ? { title:"Status", q1:"B2 abgeschlossen?", yes:"Ja", no:"Nein", cert:"Zertifikatsdatum", save:"Speichern", cancel:"Abbrechen", loading:"Laden…", hint:"Nur für Admins sichtbar — der Kandidat sieht nichts.", wroteQ:"Prüfung abgelegt?", wrote:"Prüfung abgelegt", notwrote:"Noch nicht abgelegt", examWritten:"Datum der abgelegten Prüfung", resultsExpected:"Voraussichtliches Ergebnisdatum", plannedExam:"Voraussichtlicher Prüfungstermin", regPaid:"Angemeldet — Gebühren bezahlt", regWaiting:"Wartet auf Öffnung der Website", secB2:"B2", secVax:"Impfungen", got:"Geimpft", notgot:"Noch nicht", doseDate:"Impfdatum", doseExpected:"Voraussichtliches Datum", certExpected:"Nachweis / vollständig bis", dose:"Dosis", addDose:"Dosis hinzufügen", mand:"Pflicht", vaxPreset:"Standard UKSH/Calmaroi (2 Masern + 2 Varizell)", vaxPresetHint:"Erstellt die nötigen Dosen mit einem Klick" }
+                  : { title:"Status", q1:"B2 complete?", yes:"Yes", no:"No", cert:"Certificate date", save:"Save", cancel:"Cancel", loading:"Loading…", hint:"Admin-only — the candidate never sees this.", wroteQ:"Did they write the exam?", wrote:"Wrote the exam", notwrote:"Didn't write yet", examWritten:"Exam written on", resultsExpected:"Expected results date", plannedExam:"Expected exam date", regPaid:"Registered — fees paid", regWaiting:"Waiting for website to open", secB2:"B2", secVax:"Vaccines", got:"Received", notgot:"Not yet", doseDate:"Vaccination date", doseExpected:"Expected date", certExpected:"Certificate / complete by", dose:"Dose", addDose:"Add a dose", mand:"required", vaxPreset:"UKSH/Calmaroi standard (2 Masern + 2 Varizell)", vaxPresetHint:"Create the required doses in one click" };
                 const pill = (active: boolean) => ({
                   background: active ? "var(--gdim)" : "var(--bg2)",
                   color: active ? "var(--gold)" : "var(--w3)",
@@ -4018,6 +4018,22 @@ export default function AdminPage() {
 
                           {statusTab === "vaccine" && (
                           <StatusSection title={L.secVax} first>
+                          {/* One-click prefill of the standard UKSH/Calmaroi requirement
+                              (2× Masern + 2× Varizell). Pads each vaccine up to 2 dose
+                              rows WITHOUT touching any dose already entered. */}
+                          <button
+                            onClick={() => setStatusForm(f => {
+                              const pad = (arr: VaxDose[]) => { const a = [...arr]; while (a.length < 2) a.push({ ...EMPTY_DOSE }); return a.slice(0, 2); };
+                              return { ...f, vaccines: {
+                                masern:   { ...f.vaccines.masern,   doses: pad(f.vaccines.masern.doses) },
+                                varizell: { ...f.vaccines.varizell, doses: pad(f.vaccines.varizell.doses) },
+                              } };
+                            })}
+                            className="w-full mb-3 py-2 rounded-lg text-[11px] font-semibold inline-flex items-center justify-center gap-1.5 transition-opacity hover:opacity-80"
+                            style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}
+                            title={L.vaxPresetHint}>
+                            <Plus size={11} strokeWidth={2.4} /> {L.vaxPreset}
+                          </button>
                           {([
                             { key: "masern"   as VaxKey, name: "Masern" },
                             { key: "varizell" as VaxKey, name: "Varizell" },
