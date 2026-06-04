@@ -40,6 +40,7 @@
     "@react-pdf/renderer": "^4.5.1",
     "@supabase/supabase-js": "^2.104.0",
     "@tailwindcss/postcss": "^4.2.2",
+    "@tanstack/react-table": "^8.21.3",
     "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",

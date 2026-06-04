@@ -16,6 +16,7 @@ import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
 import { JOURNEY_PRESETS } from "@/lib/candidateJourney";
 import { JourneyMap } from "@/components/JourneyMap";
+import { CandidateTable } from "@/components/CandidateTable";
 import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
 import { normalizeB2Stage, b2StageLabel, b2StageColor, B2_FAILED_COLOR } from "@/lib/b2Journey";
 import { normalizeAnerkennungStage, anerkennungStageLabel, anerkennungStageColor } from "@/lib/anerkennungJourney";
@@ -23,7 +24,7 @@ import { impfungStageLabel, IMPFUNG_STAGE_BY_KEY, type ImpfungStage } from "@/li
 import { NURSE_SPECIALTIES, specialtyLabel } from "@/lib/nurseSpecialties";
 import { recognitionDocLabel } from "@/lib/recognitionDocs";
 import { Toaster, toast } from "sonner";
-import { ArrowLeft, AlertTriangle, Clock, CheckCircle2, Search, Map as MapIcon, List, BadgeCheck, ArrowRight, Bell, FileText, Printer, Pencil, ChevronDown } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Clock, CheckCircle2, Search, Map as MapIcon, List, LayoutGrid, BadgeCheck, ArrowRight, Bell, FileText, Printer, Pencil, ChevronDown } from "lucide-react";
 
 type Health = "on_track" | "due_soon" | "overdue" | "blocked" | "done";
 type Status = {
@@ -63,7 +64,7 @@ export default function AdminPipelinePage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [today, setToday] = useState("");
   const [q, setQ] = useState("");
-  const [view, setView] = useState<"map" | "list">("map");
+  const [view, setView] = useState<"board" | "map" | "list">("board");
   const [track, setTrack] = useState<"journey" | "b2">("journey");
   const [sheetOpen, setSheetOpen] = useState(false); // employer profile sheet
   // Clicking a candidate opens a quick cross-track summary (peek) — NOT a jump
@@ -212,11 +213,12 @@ export default function AdminPipelinePage() {
     return T(`in ${d}d`, `in ${d} T.`, `dans ${d}j`);
   };
 
-  // View options — Map always; List is journey-only.
-  const viewOpts: [("map" | "list"), typeof MapIcon, string][] =
+  // View options — Board (unified table, everyone × everything) is default;
+  // Map (rail) + List are per-track alternates.
+  const viewOpts: [("board" | "map" | "list"), typeof MapIcon, string][] =
     track === "journey"
-      ? [["map", MapIcon, T("Map", "Karte", "Carte")], ["list", List, T("List", "Liste", "Liste")]]
-      : [["map", MapIcon, T("Map", "Karte", "Carte")]];
+      ? [["board", LayoutGrid, T("Board", "Tafel", "Tableau")], ["map", MapIcon, T("Map", "Karte", "Carte")], ["list", List, T("List", "Liste", "Liste")]]
+      : [["board", LayoutGrid, T("Board", "Tafel", "Tableau")], ["map", MapIcon, T("Map", "Karte", "Carte")]];
 
   return (
     <main id="bv-main" className="mx-auto px-4 sm:px-5 py-6 sm:py-10 bv-page-bottom" style={{ maxWidth: 1080 }}>
@@ -226,19 +228,22 @@ export default function AdminPipelinePage() {
 
       <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
         <h1 className="bv-h1">{T("Pipeline", "Pipeline", "Pipeline")}</h1>
-        {/* Track switcher — flip between roadmaps instantly (no new URL). */}
-        <div className="inline-flex p-0.5 rounded-full" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-          {([
-            ["journey", T("Journey", "Reise", "Parcours")],
-            ["b2", T("B2 German", "B2 Deutsch", "B2 allemand")],
-          ] as const).map(([v, label]) => (
-            <button key={v} onClick={() => setTrack(v)}
-              className="px-3.5 py-1.5 rounded-full text-[12.5px] font-semibold transition-colors"
-              style={track === v ? { background: "var(--gold)", color: "#131312" } : { background: "transparent", color: "var(--w3)" }}>
-              {label}
-            </button>
-          ))}
-        </div>
+        {/* Track switcher — only for the per-track Map/List views (the Board is
+            track-independent, so it's hidden there). */}
+        {view !== "board" && (
+          <div className="inline-flex p-0.5 rounded-full" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+            {([
+              ["journey", T("Journey", "Reise", "Parcours")],
+              ["b2", T("B2 German", "B2 Deutsch", "B2 allemand")],
+            ] as const).map(([v, label]) => (
+              <button key={v} onClick={() => setTrack(v)}
+                className="px-3.5 py-1.5 rounded-full text-[12.5px] font-semibold transition-colors"
+                style={track === v ? { background: "var(--gold)", color: "#131312" } : { background: "transparent", color: "var(--w3)" }}>
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Search + filters */}
@@ -261,8 +266,10 @@ export default function AdminPipelinePage() {
         </div>
       </div>
 
-      {/* Map (rail) view — or List for the journey track. */}
-      {view === "map" || track !== "journey" ? (
+      {/* Board — unified sortable table: everyone × every dimension, in one view. */}
+      {view === "board" ? (
+        <CandidateTable rows={shown} lang={lang} onPick={(uid) => setPeek(rows.find((r) => r.userId === uid) ?? null)} />
+      ) : view === "map" || track !== "journey" ? (
         <JourneyMap rows={track !== "journey" ? searchOnlyRows : shown} lang={lang} track={track}
           onPick={(uid) => setPeek(rows.find((r) => r.userId === uid) ?? null)}
           onMoveStage={moveStage} />
