@@ -7,8 +7,8 @@ process.env.ADMIN_EMAIL = "admin@borivon.com";
 const h = vi.hoisted(() => ({
   getUser: vi.fn(),     // anon.auth.getUser(jwt)
   getUserById: vi.fn(), // service.auth.admin.getUserById(id)
+  listUsers: vi.fn(),   // service.auth.admin.listUsers (staff-filter email resolution)
   tables: {} as Record<string, { data: unknown; error: unknown }>,
-  authTables: {} as Record<string, { data: unknown; error: unknown }>, // auth-schema (getAuthSchemaClient)
 }));
 
 // Mock the Supabase clients. softDeleted is left REAL so the soft-delete gate
@@ -32,11 +32,9 @@ vi.mock("@/lib/supabase", () => {
     getAnonVerifyClient: () => ({ auth: { getUser: (...a: unknown[]) => h.getUser(...a) } }),
     getServiceSupabase: () => ({
       from: (t: string) => qb(h.tables[t] ?? { data: null, error: null }),
-      auth: { admin: { getUserById: (...a: unknown[]) => h.getUserById(...a) } },
+      auth: { admin: { getUserById: (...a: unknown[]) => h.getUserById(...a), listUsers: (...a: unknown[]) => h.listUsers(...a) } },
     }),
-    getAuthSchemaClient: () => ({
-      from: (t: string) => qb(h.authTables[t] ?? { data: null, error: null }),
-    }),
+    getAuthSchemaClient: () => ({}),
     supabase: {},
   };
 });
@@ -70,8 +68,8 @@ const activeUser = (email: string, id = "u-1") => ({
 beforeEach(() => {
   h.getUser.mockReset();
   h.getUserById.mockReset();
+  h.listUsers.mockReset();
   h.tables = {};
-  h.authTables = {};
 });
 
 describe("ciEmail (ilike wildcard-injection escaping)", () => {
@@ -266,14 +264,12 @@ describe("getStaffUserIdsAmong (strip staff from a candidate list)", () => {
   it("returns only the ids whose email is a staff email", async () => {
     h.tables.sub_admins = { data: [{ email: "sub@org.com" }], error: null };
     h.tables.organization_members = { data: [], error: null };
-    h.authTables.users = {
-      data: [
-        { id: "u1", email: "sub@org.com" },          // sub-admin → staff
-        { id: "u2", email: "real@candidate.com" },   // real candidate → kept
-        { id: "u3", email: "ADMIN@borivon.com" },    // supreme admin (mixed case) → staff
-      ],
-      error: null,
-    };
+    // listUsers (Admin API) resolves id → email — auth.users isn't on PostgREST.
+    h.listUsers.mockResolvedValue({ data: { users: [
+      { id: "u1", email: "sub@org.com" },          // sub-admin → staff
+      { id: "u2", email: "real@candidate.com" },   // real candidate → kept
+      { id: "u3", email: "ADMIN@borivon.com" },    // supreme admin (mixed case) → staff
+    ] }, error: null });
     const staff = await getStaffUserIdsAmong(["u1", "u2", "u3"]);
     expect(staff.has("u1")).toBe(true);
     expect(staff.has("u3")).toBe(true);

@@ -11,7 +11,7 @@
  */
 
 import { NextRequest } from "next/server";
-import { getServiceSupabase, getAnonVerifyClient, getAuthSchemaClient } from "@/lib/supabase";
+import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 
 /**
@@ -268,11 +268,21 @@ export async function getStaffUserIdsAmong(userIds: string[]): Promise<Set<strin
   if (userIds.length === 0) return out;
   const staffEmails = await getStaffEmailSet();
   if (staffEmails.size === 0) return out;
-  const { data: authRows } = await getAuthSchemaClient()
-    .from("users").select("id, email").in("id", userIds);
-  for (const u of (authRows ?? []) as { id: string; email: string | null }[]) {
-    const e = (u.email ?? "").trim().toLowerCase();
-    if (e && staffEmails.has(e)) out.add(u.id);
+
+  // Resolve id → email via the Admin API. NOTE: auth.users is NOT exposed through
+  // PostgREST (a `.from("users")` on the auth schema fails with "Invalid schema:
+  // auth"), so we page through listUsers — the reliable service-role path.
+  const db = getServiceSupabase();
+  const want = new Set(userIds);
+  for (let page = 1; page <= 20; page++) { // hard cap 20×1000 = 20k users
+    const { data, error } = await db.auth.admin.listUsers({ page, perPage: 1000 });
+    if (error || !data?.users?.length) break;
+    for (const u of data.users) {
+      if (!want.has(u.id)) continue;
+      const e = (u.email ?? "").trim().toLowerCase();
+      if (e && staffEmails.has(e)) out.add(u.id);
+    }
+    if (data.users.length < 1000) break;
   }
   return out;
 }
