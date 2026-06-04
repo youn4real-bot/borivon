@@ -259,6 +259,25 @@ export default function AdminPipelinePage() {
         </div>
       </div>
 
+      {/* Hero stats — the whole pipeline at a glance. */}
+      {(() => {
+        const total = rows.length;
+        const sell = rows.filter((r) => r.sellable?.sellable).length;
+        const flw = rows.filter((r) => r.followUp?.needed).length;
+        const arr = rows.filter((r) => r.status.health === "done").length;
+        const tile: CSSProperties = { background: "var(--card)", border: "1px solid var(--border)", borderRadius: 16, padding: "12px 14px", boxShadow: "0 1px 2px rgba(0,0,0,0.05)" };
+        const num: CSSProperties = { fontSize: 22, fontWeight: 800, letterSpacing: -0.5, lineHeight: 1, fontVariantNumeric: "tabular-nums" };
+        const lab: CSSProperties = { fontSize: 11, fontWeight: 600, color: "var(--w3)", marginTop: 5 };
+        return (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-4">
+            <div style={tile}><div style={{ ...num, color: "var(--w)" }}>{total}</div><div style={lab}>{T("Candidates", "Kandidaten", "Candidats")}</div></div>
+            <div style={tile}><div style={{ ...num, color: "var(--gold)" }}>{sell}</div><div style={lab}>{T("Ready to sell", "Verkaufsbereit", "Prêts à vendre")}</div></div>
+            <div style={tile}><div style={{ ...num, color: "#f59e0b" }}>{flw}</div><div style={lab}>{T("Need follow-up", "Nachfassen", "À relancer")}</div></div>
+            <div style={tile}><div style={{ ...num, color: "#16a34a" }}>{arr}</div><div style={lab}>{T("Arrived 🇩🇪", "Angekommen 🇩🇪", "Arrivés 🇩🇪")}</div></div>
+          </div>
+        );
+      })()}
+
       {/* Two views: Board (unified sortable grid) and Map (the visual rail). */}
       {view === "board" ? (
         <CandidateTable rows={shown} lang={lang} onPick={(uid) => setPeek(rows.find((r) => r.userId === uid) ?? null)} />

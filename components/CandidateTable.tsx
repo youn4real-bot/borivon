@@ -18,17 +18,23 @@ import {
 import { ArrowUpDown, ChevronUp, ChevronDown, AlertTriangle, BadgeCheck } from "lucide-react";
 import { JOURNEY_PRESETS } from "@/lib/candidateJourney";
 import { B2_STAGES, b2StageColor, b2StageLabel, normalizeB2Stage, B2_FAILED_COLOR } from "@/lib/b2Journey";
+import { ANERKENNUNG_STAGES, anerkennungStageColor, anerkennungStageLabel, normalizeAnerkennungStage } from "@/lib/anerkennungJourney";
+import { IMPFUNG_STAGES, IMPFUNG_STAGE_BY_KEY, impfungStageLabel, type ImpfungStage } from "@/lib/impfungJourney";
 import { specialtyLabel } from "@/lib/nurseSpecialties";
 
 const HEALTH_COLOR: Record<string, string> = {
   blocked: "#ef4444", overdue: "#f97316", due_soon: "#f59e0b", on_track: "#16a34a", done: "#6b7280",
 };
 const B2_POS: Record<string, number> = Object.fromEntries(B2_STAGES.map((s, i) => [s.key, i]));
+const ANERK_POS: Record<string, number> = Object.fromEntries(ANERKENNUNG_STAGES.map((s, i) => [s.key, i]));
+const IMPF_POS: Record<string, number> = Object.fromEntries(["not_required", "not_started", ...IMPFUNG_STAGES.map((s) => s.key)].map((k, i) => [k, i]));
 
 export type TableRow = {
   userId: string; name: string; photo: string | null;
   status: { progress: number; doneCount: number; totalPresets: number; health: string; current: { key: string } | null };
   b2Stage?: string; b2Failed?: boolean;
+  anerkennungStage?: string;
+  impfungStage?: string; impfungDoses?: { got: number; need: number };
   facts?: { specialty: string | null };
   docPack?: { collected: number; total: number };
   followUp?: { needed: boolean };
@@ -96,6 +102,35 @@ export function CandidateTable({ rows, lang, onPick }: { rows: TableRow[]; lang:
             <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 120 }}>
               <span style={{ width: 9, height: 9, borderRadius: 999, background: b2StageColor(s), flexShrink: 0, boxShadow: r.b2Failed ? `0 0 0 2px ${B2_FAILED_COLOR}` : undefined }} />
               <span style={{ fontSize: 12, color: "var(--w2)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 150 }}>{b2StageLabel(s, lang)}</span>
+            </div>
+          );
+        },
+      }),
+      ch.accessor((r) => ANERK_POS[normalizeAnerkennungStage(r.anerkennungStage)] ?? 0, {
+        id: "anerkennung", header: () => T("Recognition", "Anerk.", "Reconn."),
+        cell: (info) => {
+          const r = info.row.original; const s = normalizeAnerkennungStage(r.anerkennungStage);
+          return (
+            <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 120 }}>
+              <span style={{ width: 9, height: 9, borderRadius: 999, background: anerkennungStageColor(s), flexShrink: 0 }} />
+              <span style={{ fontSize: 12, color: "var(--w2)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 140 }}>{anerkennungStageLabel(s, lang)}</span>
+            </div>
+          );
+        },
+      }),
+      ch.accessor((r) => IMPF_POS[r.impfungStage ?? "not_required"] ?? 0, {
+        id: "impfung", header: () => T("Impfung", "Impfung", "Vacc."),
+        cell: (info) => {
+          const r = info.row.original; const st = r.impfungStage ?? "not_required";
+          if (st === "not_required") return <span style={{ color: "var(--w3)", fontSize: 12 }}>—</span>;
+          const isNS = st === "not_started";
+          const color = isNS ? "var(--w3)" : (IMPFUNG_STAGE_BY_KEY[st]?.color ?? "var(--w3)");
+          const txt = isNS ? T("Required", "Erforderlich", "Requis")
+            : impfungStageLabel(st as ImpfungStage, lang) + (r.impfungDoses && r.impfungDoses.need > 0 ? ` ${r.impfungDoses.got}/${r.impfungDoses.need}` : "");
+          return (
+            <div style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 110 }}>
+              <span style={{ width: 9, height: 9, borderRadius: 999, background: color, flexShrink: 0 }} />
+              <span style={{ fontSize: 12, color: "var(--w2)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 130 }}>{txt}</span>
             </div>
           );
         },
