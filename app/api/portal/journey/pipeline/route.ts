@@ -170,7 +170,9 @@ export async function GET(req: NextRequest) {
     // visa-readiness judgement (ALL papers gathered) — NOT "has one approved
     // doc" — so it is NOT auto-derived; an admin/org marks it explicitly.
     const autoDone = new Set<string>();
-    if (docs.some((d) => /lebenslauf/i.test(d.file_type ?? ""))) autoDone.add("cv_finalized");
+    // CV is "finalized" only once an admin has APPROVED the Lebenslauf (green),
+    // not merely uploaded — so candidates move here on real approval.
+    if (docs.some((d) => d.status === "approved" && /lebenslauf/i.test(d.file_type ?? ""))) autoDone.add("cv_finalized");
     const status = computePipelineStatus(journey, today, isB2Passed(b2Stage), autoDone);
     const sellable = evaluateSellable({ documents: docs, journey });
 

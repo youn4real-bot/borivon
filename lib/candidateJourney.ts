@@ -41,17 +41,22 @@ export const JOURNEY_PRESETS: JourneyPreset[] = [
   { key: "cv_finalized",          owner: "borivon",      position: 0,  label: { en: "German CV finalized",                 fr: "CV allemand finalisé",                de: "Deutscher Lebenslauf fertig" } },
   { key: "interview_first",       owner: "organization", position: 1,  label: { en: "First interview",                     fr: "Premier entretien",                   de: "Erstes Interview" } },
   { key: "interview_second",      owner: "organization", position: 2,  label: { en: "Second interview (final decision)",   fr: "Deuxième entretien (décision finale)", de: "Zweites Interview (Endentscheidung)" } },
-  { key: "contract_signed",       owner: "organization", position: 3,  label: { en: "Employment contract signed",          fr: "Contrat de travail signé",            de: "Arbeitsvertrag unterschrieben" } },
-  { key: "recognition_submitted", owner: "organization", position: 4,  label: { en: "Recognition (Anerkennung) submitted", fr: "Reconnaissance (Anerkennung) déposée", de: "Anerkennung eingereicht" } },
+  // Renamed from "Employment contract signed" → professional "Contract sealed".
+  { key: "contract_signed",       owner: "organization", position: 3,  label: { en: "Contract sealed",                     fr: "Contrat conclu",                      de: "Vertrag abgeschlossen" } },
+  // Candidate moves here once the recognition is APPROVED by the authority.
+  { key: "recognition_submitted", owner: "organization", position: 4,  label: { en: "Recognition approved",                fr: "Reconnaissance approuvée",            de: "Anerkennung genehmigt" } },
+  // Vorabzustimmung — pre-approval from the Bundesagentur für Arbeit (BFV path),
+  // issued after recognition and before the embassy/visa steps.
+  { key: "vorabzustimmung",       owner: "organization", position: 5,  label: { en: "Vorabzustimmung issued",              fr: "Vorabzustimmung délivrée",            de: "Vorabzustimmung erteilt" } },
   // "Documents collected" = the VISA-READINESS gate: every paper gathered, ready
   // to deposit at the embassy. It sits right before the visa appointment, NOT at
   // the start of the journey.
-  { key: "docs_collected",        owner: "candidate",    position: 5,  label: { en: "Documents ready for embassy",         fr: "Documents prêts pour l'ambassade",    de: "Unterlagen für Botschaft bereit" } },
-  { key: "visa_appointment",      owner: "candidate",    position: 6,  label: { en: "Visa appointment booked",             fr: "Rendez-vous visa pris",               de: "Visumtermin gebucht" } },
-  { key: "visa_approved",         owner: "candidate",    position: 7,  label: { en: "Visa approved",                       fr: "Visa approuvé",                       de: "Visum genehmigt" } },
-  { key: "flight_booked",         owner: "borivon",      position: 8,  label: { en: "Flight booked",                       fr: "Vol réservé",                         de: "Flug gebucht" } },
-  { key: "housing_arranged",      owner: "organization", position: 9,  label: { en: "Housing arranged",                    fr: "Logement organisé",                   de: "Unterkunft organisiert" } },
-  { key: "arrived",               owner: "candidate",    position: 10, label: { en: "Arrived in Germany",                  fr: "Arrivé en Allemagne",                 de: "In Deutschland angekommen" } },
+  { key: "docs_collected",        owner: "candidate",    position: 6,  label: { en: "Documents ready for embassy",         fr: "Documents prêts pour l'ambassade",    de: "Unterlagen für Botschaft bereit" } },
+  { key: "visa_appointment",      owner: "candidate",    position: 7,  label: { en: "Visa appointment booked",             fr: "Rendez-vous visa pris",               de: "Visumtermin gebucht" } },
+  { key: "visa_approved",         owner: "candidate",    position: 8,  label: { en: "Visa approved",                       fr: "Visa approuvé",                       de: "Visum genehmigt" } },
+  { key: "flight_booked",         owner: "borivon",      position: 9,  label: { en: "Flight booked",                       fr: "Vol réservé",                         de: "Flug gebucht" } },
+  { key: "housing_arranged",      owner: "organization", position: 10, label: { en: "Housing arranged",                    fr: "Logement organisé",                   de: "Unterkunft organisiert" } },
+  { key: "arrived",               owner: "candidate",    position: 11, label: { en: "Arrived in Germany",                  fr: "Arrivé en Allemagne",                 de: "In Deutschland angekommen" } },
   // NOTE: B2 is NOT a journey preset anymore — it's its own sub-journey tracked
   // on candidate_profiles.b2_stage (see lib/b2Journey.ts). It runs in parallel
   // to this rail with its own mini-roadmap + per-candidate badge.
