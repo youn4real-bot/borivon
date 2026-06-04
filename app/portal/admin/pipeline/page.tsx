@@ -19,9 +19,11 @@ import { JourneyMap } from "@/components/JourneyMap";
 import { PipelineCanvas } from "@/components/PipelineCanvas";
 import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
 import { normalizeB2Stage, b2StageLabel, b2StageColor, B2_FAILED_COLOR } from "@/lib/b2Journey";
+import { normalizeAnerkennungStage, anerkennungStageLabel, anerkennungStageColor } from "@/lib/anerkennungJourney";
 import { impfungStageLabel, IMPFUNG_STAGE_BY_KEY, type ImpfungStage } from "@/lib/impfungJourney";
 import { NURSE_SPECIALTIES, specialtyLabel } from "@/lib/nurseSpecialties";
-import { ArrowLeft, AlertTriangle, Clock, CheckCircle2, Search, Map as MapIcon, List, BadgeCheck, ArrowRight, Bell, Frame } from "lucide-react";
+import { recognitionDocLabel } from "@/lib/recognitionDocs";
+import { ArrowLeft, AlertTriangle, Clock, CheckCircle2, Search, Map as MapIcon, List, BadgeCheck, ArrowRight, Bell, Frame, FileText, Printer } from "lucide-react";
 
 type Health = "on_track" | "due_soon" | "overdue" | "blocked" | "done";
 type Status = {
@@ -34,7 +36,9 @@ type Sellable = { sellable: boolean; cvDone: boolean; diplomaApproved: boolean }
 type FollowUp = { needed: boolean; reasons: string[] };
 type OpenTask = { key: string | null; text: string | null; owner: string | null; dueDate: string | null; blocked: boolean };
 type Facts = { specialty: string | null; yearsExperience: number | null; workplace: string | null; availableFrom: string | null };
-type Row = { userId: string; name: string; photo: string | null; status: Status; sellable: Sellable; b2Stage?: string; b2Failed?: boolean; impfungStage?: string; impfungDoses?: { got: number; need: number }; followUp?: FollowUp; openTasks?: OpenTask[]; facts?: Facts };
+type DocPackItem = { key: string; status: "approved" | "pending" | "missing" };
+type DocPack = { items: DocPackItem[]; collected: number; total: number };
+type Row = { userId: string; name: string; photo: string | null; status: Status; sellable: Sellable; b2Stage?: string; b2Failed?: boolean; anerkennungStage?: string; impfungStage?: string; impfungDoses?: { got: number; need: number }; followUp?: FollowUp; openTasks?: OpenTask[]; facts?: Facts; docPack?: DocPack };
 
 const HEALTH_STYLE: Record<Health, { dot: string; label: { en: string; de: string; fr: string } }> = {
   blocked:  { dot: "#ef4444", label: { en: "Blocked",   de: "Blockiert",   fr: "Bloqué" } },
@@ -61,7 +65,8 @@ export default function AdminPipelinePage() {
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<"all" | "attention" | "sellable">("all");
   const [view, setView] = useState<"canvas" | "map" | "list">("canvas");
-  const [track, setTrack] = useState<"journey" | "b2" | "impfung">("journey");
+  const [track, setTrack] = useState<"journey" | "b2" | "anerkennung" | "impfung">("journey");
+  const [sheetOpen, setSheetOpen] = useState(false); // employer profile sheet
   // Clicking a candidate opens a quick cross-track summary (peek) — NOT a jump
   // straight to their dossier. The dossier is one button away inside the popup.
   const [peek, setPeek] = useState<Row | null>(null);
@@ -127,29 +132,28 @@ export default function AdminPipelinePage() {
     setFactsSaved(false);
   }, [peek]);
 
-  // Drag-and-drop: move a candidate to a different B2 stage by dropping their
-  // face on that stage row. Optimistic (instant glide via Motion) → persist to
-  // the B2 route (which gates authority per LAW #25) → roll back on failure.
-  const moveB2 = async (userId: string, toStage: string) => {
-    let rolledBack = false;
+  // Drag-and-drop: drop a face on a stage lane to move them. Optimistic (instant
+  // glide via Motion) → persist to the right route (B2 or Anerkennung, both gated
+  // by LAW #25) → roll back on failure. Branches on the currently shown track.
+  const moveStage = async (userId: string, toStage: string) => {
     const snapshot = rows;
-    setRows((rs) => rs.map((r) => (r.userId === userId ? { ...r, b2Stage: toStage } : r)));
+    const isAnerk = track === "anerkennung";
+    const endpoint = isAnerk ? "/api/portal/journey/anerkennung" : "/api/portal/journey/b2";
+    setRows((rs) => rs.map((r) => (r.userId === userId
+      ? { ...r, ...(isAnerk ? { anerkennungStage: toStage } : { b2Stage: toStage }) }
+      : r)));
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token ?? "";
-      const res = await fetch("/api/portal/journey/b2", {
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ candidateId: userId, stage: toStage }),
       });
-      if (!res.ok) { rolledBack = true; setRows(snapshot); }
+      if (!res.ok) { setRows(snapshot); console.warn("[pipeline] stage move failed; rolled back"); }
     } catch {
-      rolledBack = true;
       setRows(snapshot);
-    }
-    if (rolledBack) {
-      // Soft, non-blocking notice — the face snaps back so the admin sees it didn't take.
-      console.warn("[pipeline] B2 stage move failed; rolled back");
+      console.warn("[pipeline] stage move failed; rolled back");
     }
   };
 
@@ -236,6 +240,7 @@ export default function AdminPipelinePage() {
           {([
             ["journey", T("Journey", "Reise", "Parcours")],
             ["b2", T("B2 German", "B2 Deutsch", "B2 allemand")],
+            ["anerkennung", T("Anerkennung", "Anerkennung", "Reconnaissance")],
             ["impfung", T("Impfung", "Impfung", "Vaccins")],
           ] as const).map(([v, label]) => (
             <button key={v} onClick={() => setTrack(v)}
@@ -283,11 +288,11 @@ export default function AdminPipelinePage() {
       {view === "canvas" ? (
         <PipelineCanvas rows={track !== "journey" ? searchOnlyRows : shown} track={track} lang={lang}
           onPick={(uid) => setPeek(rows.find((r) => r.userId === uid) ?? null)}
-          onMoveB2={moveB2} />
+          onMoveStage={moveStage} />
       ) : view === "map" || track !== "journey" ? (
         <JourneyMap rows={track !== "journey" ? searchOnlyRows : shown} lang={lang} track={track}
           onPick={(uid) => setPeek(rows.find((r) => r.userId === uid) ?? null)}
-          onMoveB2={moveB2} />
+          onMoveStage={moveStage} />
       ) : shown.length === 0 ? (
         <div className="bv-card text-center py-16">
           <CheckCircle2 size={30} strokeWidth={1.5} className="mx-auto mb-3" style={{ color: "var(--w3)" }} />
@@ -371,6 +376,11 @@ export default function AdminPipelinePage() {
         footer={peek ? (
           <>
             <GhostButton onClick={() => setPeek(null)}>{T("Close", "Schließen", "Fermer")}</GhostButton>
+            <button onClick={() => setSheetOpen(true)}
+              className="bv-press text-[12.5px] font-semibold px-3.5 py-2 rounded-lg inline-flex items-center gap-1.5"
+              style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+              <FileText size={14} /> {T("Employer sheet", "Arbeitgeber-Blatt", "Fiche employeur")}
+            </button>
             <GoldButton onClick={() => { const id = peek.userId; setPeek(null); router.push(`/portal/admin?nav_user_id=${encodeURIComponent(id)}`); }}>
               {T("Open full profile", "Profil öffnen", "Profil complet")} <ArrowRight size={14} strokeWidth={2.5} />
             </GoldButton>
@@ -378,6 +388,7 @@ export default function AdminPipelinePage() {
         ) : null}>
         {peek && (() => {
           const b2s = normalizeB2Stage(peek.b2Stage);
+          const anerk = normalizeAnerkennungStage(peek.anerkennungStage);
           const imp = (peek.impfungStage ?? "not_required") as ImpfungStage;
           const impDef = imp !== "not_required" && imp !== "not_started" ? IMPFUNG_STAGE_BY_KEY[imp] : undefined;
           const pct = Math.round(peek.status.progress * 100);
@@ -523,6 +534,15 @@ export default function AdminPipelinePage() {
                 </div>
               </div>
 
+              {/* Anerkennung (recognition) */}
+              <div style={card}>
+                <div style={cap}>🏅 {T("Anerkennung", "Anerkennung", "Reconnaissance")}</div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span style={{ width: 10, height: 10, borderRadius: 999, background: anerkennungStageColor(anerk), flexShrink: 0 }} />
+                  <span className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>{anerkennungStageLabel(anerk, lang)}</span>
+                </div>
+              </div>
+
               {/* Impfung */}
               <div style={card}>
                 <div style={cap}>💉 {T("Impfung", "Impfung", "Vaccination")}</div>
@@ -542,6 +562,93 @@ export default function AdminPipelinePage() {
                     )}
                   </div>
                 )}
+              </div>
+
+              {/* Recognition documents — collected vs missing */}
+              {peek.docPack && (
+                <div style={card}>
+                  <div style={cap}>📂 {T("Recognition documents", "Anerkennungsdokumente", "Documents de reconnaissance")}</div>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div style={{ flex: 1, height: 7, borderRadius: 999, background: "var(--border)", overflow: "hidden" }}>
+                      <div style={{ width: `${peek.docPack.total ? Math.round((peek.docPack.collected / peek.docPack.total) * 100) : 0}%`, height: "100%", background: "var(--gold)" }} />
+                    </div>
+                    <span className="text-[11.5px] font-semibold" style={{ color: "var(--w2)" }}>{peek.docPack.collected}/{peek.docPack.total}</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                    {peek.docPack.items.map((it) => (
+                      <div key={it.key} className="flex items-center gap-1.5 text-[12px]" style={{ color: it.status === "missing" ? "var(--w3)" : "var(--w2)" }}>
+                        <span style={{ flexShrink: 0 }}>{it.status === "approved" ? "✅" : it.status === "pending" ? "🕓" : "⬜"}</span>
+                        <span className="truncate">{recognitionDocLabel(it.key, lang)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+      </Modal>
+
+      {/* Employer-ready profile sheet — clean, identity-safe, printable one-pager. */}
+      <Modal open={sheetOpen} onClose={() => setSheetOpen(false)} size="md"
+        title={T("Employer profile sheet", "Arbeitgeber-Profil", "Fiche profil employeur")}
+        footer={peek ? (
+          <>
+            <GhostButton onClick={() => setSheetOpen(false)}>{T("Close", "Schließen", "Fermer")}</GhostButton>
+            <GoldButton onClick={() => window.print()}><Printer size={14} strokeWidth={2.2} /> {T("Print / Save PDF", "Drucken / PDF", "Imprimer / PDF")}</GoldButton>
+          </>
+        ) : null}>
+        {peek && (() => {
+          const b2s = normalizeB2Stage(peek.b2Stage);
+          const anerk = normalizeAnerkennungStage(peek.anerkennungStage);
+          const imp = (peek.impfungStage ?? "not_required") as ImpfungStage;
+          const fct = peek.facts;
+          const pct = peek.docPack && peek.docPack.total ? Math.round((peek.docPack.collected / peek.docPack.total) * 100) : 0;
+          const rowS: CSSProperties = { display: "flex", justifyContent: "space-between", gap: 12, padding: "9px 0", borderBottom: "1px solid var(--border)", fontSize: 13 };
+          const k: CSSProperties = { color: "var(--w3)", fontWeight: 600 };
+          const val: CSSProperties = { color: "var(--w)", fontWeight: 700, textAlign: "right" };
+          return (
+            <div data-employer-sheet style={{ padding: 24 }}>
+              <style>{`@media print { body * { visibility: hidden !important; } [data-employer-sheet], [data-employer-sheet] * { visibility: visible !important; color: #111 !important; } [data-employer-sheet] { position: fixed !important; inset: 0 !important; margin: 0 !important; padding: 28px !important; background: #fff !important; } }`}</style>
+              {/* Brand header — Borivon, never an individual admin (LAW). */}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, paddingBottom: 14, borderBottom: "2px solid var(--gold)" }}>
+                <div>
+                  <div style={{ fontSize: 20, fontWeight: 900, color: "var(--gold)", letterSpacing: -0.5 }}>Borivon</div>
+                  <div style={{ fontSize: 11, color: "var(--w3)" }}>{T("Vetted nursing candidate", "Geprüfte Pflegekraft", "Candidat infirmier vérifié")}</div>
+                </div>
+                {peek.sellable?.sellable && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full" style={{ background: "var(--gold)", color: "#131312" }}>
+                    <BadgeCheck size={11} strokeWidth={2.5} /> {T("READY", "BEREIT", "PRÊT")}
+                  </span>
+                )}
+              </div>
+              {/* Identity */}
+              <div className="flex items-center gap-3.5 mb-4">
+                {peek.photo ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={peek.photo} alt="" className="rounded-full object-cover flex-shrink-0" style={{ width: 68, height: 68, border: "2px solid var(--gold)" }} />
+                ) : (
+                  <span className="rounded-full flex items-center justify-center flex-shrink-0 text-[22px] font-bold" style={{ width: 68, height: 68, background: "var(--gdim)", color: "var(--gold)", border: "2px solid var(--gold)" }}>{initials(peek.name)}</span>
+                )}
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 800, color: "var(--w)" }}>{peek.name}</div>
+                  <div style={{ fontSize: 13, color: "var(--gold)", fontWeight: 600 }}>{fct?.specialty ? specialtyLabel(fct.specialty, lang) : T("Nurse", "Pflegekraft", "Infirmier")}</div>
+                </div>
+              </div>
+              {/* Facts */}
+              <div>
+                <div style={rowS}><span style={k}>{T("Specialty", "Fachbereich", "Spécialité")}</span><span style={val}>{fct?.specialty ? specialtyLabel(fct.specialty, lang) : "—"}</span></div>
+                <div style={rowS}><span style={k}>{T("Experience", "Erfahrung", "Expérience")}</span><span style={val}>{fct?.yearsExperience != null ? `${fct.yearsExperience} ${T("years", "Jahre", "ans")}` : "—"}</span></div>
+                <div style={rowS}><span style={k}>{T("German level (B2)", "Deutsch (B2)", "Allemand (B2)")}</span><span style={val}>{b2StageLabel(b2s, lang)}</span></div>
+                <div style={rowS}><span style={k}>{T("Recognition", "Anerkennung", "Reconnaissance")}</span><span style={val}>{anerkennungStageLabel(anerk, lang)}</span></div>
+                <div style={rowS}><span style={k}>{T("Vaccination", "Impfung", "Vaccination")}</span><span style={val}>{imp === "not_required" ? T("Not required", "Nicht erforderlich", "Non requis") : impfungStageLabel(imp, lang)}</span></div>
+                <div style={rowS}><span style={k}>{T("Documents ready", "Dokumente bereit", "Documents prêts")}</span><span style={val}>{peek.docPack ? `${peek.docPack.collected}/${peek.docPack.total} (${pct}%)` : "—"}</span></div>
+                <div style={{ ...rowS, borderBottom: "none" }}><span style={k}>{T("Available from", "Verfügbar ab", "Disponible dès")}</span><span style={val}>{fct?.availableFrom || "—"}</span></div>
+              </div>
+              <div style={{ marginTop: 16, fontSize: 10, color: "var(--w3)", textAlign: "center" }}>
+                {T("Confidential — shared by Borivon. Contact us to proceed with this candidate.",
+                   "Vertraulich — von Borivon bereitgestellt. Kontaktieren Sie uns für diesen Kandidaten.",
+                   "Confidentiel — partagé par Borivon. Contactez-nous pour ce candidat.")}
               </div>
             </div>
           );

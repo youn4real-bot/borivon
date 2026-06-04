@@ -28,6 +28,7 @@ import {
 } from "@dnd-kit/core";
 import { JOURNEY_PRESETS } from "@/lib/candidateJourney";
 import { B2_STAGES, B2_FAILED_COLOR, b2StageColor, normalizeB2Stage, type B2Stage, type B2StageDef } from "@/lib/b2Journey";
+import { ANERKENNUNG_STAGES, normalizeAnerkennungStage, type AnerkennungStage } from "@/lib/anerkennungJourney";
 import { IMPFUNG_STAGES, type ImpfungStage } from "@/lib/impfungJourney";
 
 type Health = "on_track" | "due_soon" | "overdue" | "blocked" | "done";
@@ -38,7 +39,7 @@ type Status = {
   overdueCount: number; blockedCount: number; health: Health;
   parallel?: { key: string; done: boolean }[];
 };
-export type MapRow = { userId: string; name: string; photo: string | null; status: Status; sellable?: { sellable: boolean }; b2Stage?: string; b2Failed?: boolean; impfungStage?: string; impfungDoses?: { got: number; need: number } };
+export type MapRow = { userId: string; name: string; photo: string | null; status: Status; sellable?: { sellable: boolean }; b2Stage?: string; b2Failed?: boolean; anerkennungStage?: string; impfungStage?: string; impfungDoses?: { got: number; need: number } };
 
 const HEALTH_COLOR: Record<Health, string> = {
   blocked: "#ef4444", overdue: "#f97316", due_soon: "#f59e0b", on_track: "#16a34a", done: "#6b7280",
@@ -48,7 +49,7 @@ function initials(n: string): string {
   return n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join("").toUpperCase() || "?";
 }
 
-export type MapTrack = "journey" | "b2" | "impfung";
+export type MapTrack = "journey" | "b2" | "anerkennung" | "impfung";
 
 // One spring, reused — snappy but soft. Collapsed to instant under reduced-motion.
 const SPRING = { type: "spring" as const, stiffness: 520, damping: 34, mass: 0.7 };
@@ -275,15 +276,15 @@ function DroppableStageRow({ stage, here, isLast }: { stage: B2StageDef; here: M
 }
 
 export function JourneyMap({
-  rows, lang, onPick, track = "journey", onMoveB2,
+  rows, lang, onPick, track = "journey", onMoveStage,
 }: {
   rows: MapRow[];
   lang: string;
   onPick: (userId: string) => void;
-  /** Which roadmap to show: the main Morocco→Germany journey, or the B2 track. */
+  /** Which roadmap to show: the main Morocco→Germany journey, or a sub-track. */
   track?: MapTrack;
-  /** B2 track: drop a face on a stage → move them there. Omit to disable drag. */
-  onMoveB2?: (userId: string, toStage: B2Stage) => void;
+  /** Drop a face on a stage → move them there (B2 rail). Omit to disable drag. */
+  onMoveStage?: (userId: string, toStage: string) => void;
 }) {
   const T = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
   const [hover, setHover] = useState<string | null>(null);
@@ -291,7 +292,7 @@ export function JourneyMap({
   const reduce = !!useReducedMotion();
   // Click still opens the candidate; a 6px move starts a drag (so taps ≠ drags).
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
-  const canDragB2 = !!onMoveB2;
+  const canDragB2 = !!onMoveStage && track === "b2";
   const ctx: MapCtxVal = { track, lang, hover, setHover, onPick, reduce, canDragB2 };
 
   // Drop a face onto a B2 stage row → move them there (no-op if same stage).
@@ -304,7 +305,7 @@ export function JourneyMap({
     const row = rows.find((x) => x.userId === uid);
     if (!row) return;
     if (normalizeB2Stage(row.b2Stage) === toStage) return;
-    onMoveB2?.(uid, toStage);
+    onMoveStage?.(uid, toStage);
   };
 
   // Stations = the 11 presets in order, plus an implicit "arrived" finish.
@@ -409,6 +410,61 @@ export function JourneyMap({
               })() : null}
             </DragOverlay>
           </DndContext>
+          {rows.length === 0 && (
+            <p style={{ textAlign: "center", color: "var(--w3)", fontSize: 13, padding: "1rem 0" }}>{T("No candidates yet.", "Noch keine Kandidaten.", "Aucun candidat.")}</p>
+          )}
+        </div>
+      </MapCtx.Provider>
+    );
+  }
+
+  // ── ANERKENNUNG TRACK — German diploma recognition. One linear rail (the
+  // canvas view supports drag-to-move; this rail is read-only). ────────────────
+  if (track === "anerkennung") {
+    const byA = new Map<AnerkennungStage, MapRow[]>();
+    for (const r of rows) {
+      const st = normalizeAnerkennungStage(r.anerkennungStage);
+      (byA.get(st) ?? byA.set(st, []).get(st)!).push(r);
+    }
+    return (
+      <MapCtx.Provider value={ctx}>
+        <div className="bv-card" style={{ padding: "18px 16px", overflow: "hidden" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--w)" }}>🏅 {T("Anerkennung — recognition pathway", "Anerkennung — Anerkennungsweg", "Reconnaissance — parcours")}</span>
+          </div>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 16, fontSize: 11, color: "var(--w3)" }}>
+            {ANERKENNUNG_STAGES.map((s) => (
+              <span key={s.key} style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                <span style={{ width: 9, height: 9, borderRadius: 999, background: s.color }} />
+                {s.label[(lang as "en" | "fr" | "de")] ?? s.label.en}
+              </span>
+            ))}
+          </div>
+          <LayoutGroup>
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              {ANERKENNUNG_STAGES.map((s, i) => {
+                const here = byA.get(s.key) ?? [];
+                const last = i === ANERKENNUNG_STAGES.length - 1;
+                return (
+                  <div key={s.key} style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", alignSelf: "stretch", width: 22, flexShrink: 0 }}>
+                      <span style={{ width: 13, height: 13, borderRadius: 999, marginTop: 4, background: here.length ? s.color : "var(--bg2)", border: `2px solid ${here.length ? s.color : "var(--border)"}` }} />
+                      {!last && <span style={{ flex: 1, width: 2, minHeight: 28, background: "var(--border)" }} />}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0, paddingBottom: 18 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: here.length ? 8 : 0 }}>
+                        <span style={{ fontSize: 12.5, fontWeight: 600, color: here.length ? "var(--w)" : "var(--w3)" }}>{s.label[(lang as "en" | "fr" | "de")] ?? s.label.en}</span>
+                        {here.length > 0 && <Count n={here.length} bg={`color-mix(in srgb, ${s.color} 18%, transparent)`} fg={s.color} />}
+                      </div>
+                      {here.length > 0 && (
+                        <Cluster>{here.map((r, idx) => <Dot key={r.userId} r={r} index={idx} ringColor={s.color} />)}</Cluster>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </LayoutGroup>
           {rows.length === 0 && (
             <p style={{ textAlign: "center", color: "var(--w3)", fontSize: 13, padding: "1rem 0" }}>{T("No candidates yet.", "Noch keine Kandidaten.", "Aucun candidat.")}</p>
           )}

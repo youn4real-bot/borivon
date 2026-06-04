@@ -4,6 +4,8 @@ import { requireAdminRole, getVisibleCandidateIds, getStaffUserIdsAmong } from "
 import { computePipelineStatus, type JourneyRow } from "@/lib/journeyPipeline";
 import { evaluateSellable } from "@/lib/sellable";
 import { normalizeB2Stage, isB2Passed, effectiveB2Stage } from "@/lib/b2Journey";
+import { normalizeAnerkennungStage } from "@/lib/anerkennungJourney";
+import { computeDocPack } from "@/lib/recognitionDocs";
 import { deriveImpfungStage, doseProgress, normalizeReq, NO_REQ, type VaccineReq } from "@/lib/impfungJourney";
 
 /**
@@ -36,6 +38,7 @@ type ProfileRow = {
   years_experience: number | null;
   current_workplace: string | null;
   available_from: string | null;
+  anerkennung_stage: string | null;
 };
 
 export async function GET(req: NextRequest) {
@@ -50,7 +53,7 @@ export async function GET(req: NextRequest) {
   // Load candidate profiles in scope.
   let profQ = db
     .from("candidate_profiles")
-    .select("user_id, first_name, last_name, profile_photo, b2_stage, b2_failed, nursing_specialty, years_experience, current_workplace, available_from");
+    .select("user_id, first_name, last_name, profile_photo, b2_stage, b2_failed, nursing_specialty, years_experience, current_workplace, available_from, anerkennung_stage");
   if (visible !== null) {
     if (visible.length === 0) return NextResponse.json({ today: casablancaToday(), candidates: [] });
     profQ = profQ.in("user_id", visible);
@@ -202,6 +205,8 @@ export async function GET(req: NextRequest) {
         workplace: p.current_workplace ?? null,
         availableFrom: p.available_from ?? null,
       },
+      anerkennungStage: normalizeAnerkennungStage(p.anerkennung_stage),
+      docPack: computeDocPack(docs),
     };
   });
 

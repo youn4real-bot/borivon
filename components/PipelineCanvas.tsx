@@ -20,6 +20,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import { JOURNEY_PRESETS } from "@/lib/candidateJourney";
 import { B2_STAGES, B2_FAILED_COLOR, b2StageColor, normalizeB2Stage } from "@/lib/b2Journey";
+import { ANERKENNUNG_STAGES, anerkennungStageColor, normalizeAnerkennungStage } from "@/lib/anerkennungJourney";
 import { IMPFUNG_STAGES, IMPFUNG_STAGE_BY_KEY } from "@/lib/impfungJourney";
 import type { MapRow, MapTrack } from "@/components/JourneyMap";
 
@@ -96,6 +97,9 @@ function lanesFor(track: MapTrack, lang: string): Lane[] {
   if (track === "b2") {
     return B2_STAGES.map((s) => ({ key: s.key, label: L(s.label), color: s.color }));
   }
+  if (track === "anerkennung") {
+    return ANERKENNUNG_STAGES.map((s) => ({ key: s.key, label: L(s.label), color: s.color }));
+  }
   if (track === "impfung") {
     return [
       { key: "not_started", label: L({ en: "Required — not started", fr: "Requis — pas commencé", de: "Erforderlich — nicht begonnen" }), color: "#6b7280" },
@@ -113,6 +117,7 @@ function lanesFor(track: MapTrack, lang: string): Lane[] {
 
 function laneKeyForRow(track: MapTrack, r: MapRow): string | null {
   if (track === "b2") return normalizeB2Stage(r.b2Stage);
+  if (track === "anerkennung") return normalizeAnerkennungStage(r.anerkennungStage);
   if (track === "impfung") {
     const st = r.impfungStage ?? "not_required";
     return st === "not_required" ? null : st; // not_required → off the board
@@ -123,6 +128,9 @@ function laneKeyForRow(track: MapTrack, r: MapRow): string | null {
 function ringColorForRow(track: MapTrack, r: MapRow): { color: string; halo?: string } {
   if (track === "b2") {
     return { color: b2StageColor(normalizeB2Stage(r.b2Stage)), halo: r.b2Failed ? B2_FAILED_COLOR : undefined };
+  }
+  if (track === "anerkennung") {
+    return { color: anerkennungStageColor(normalizeAnerkennungStage(r.anerkennungStage)) };
   }
   if (track === "impfung") {
     const st = r.impfungStage ?? "not_required";
@@ -161,7 +169,7 @@ function buildNodes(rows: MapRow[], track: MapTrack, lang: string): { nodes: Nod
       nodes.push({
         id: r.userId, type: "avatar", position: { x: PAD_X + idx * (AV + GAP_X), y: avY },
         data: { row: r, color: ring.color, halo: ring.halo } as unknown as AvatarData,
-        draggable: track === "b2", selectable: false, connectable: false, zIndex: 10,
+        draggable: track === "b2" || track === "anerkennung", selectable: false, connectable: false, zIndex: 10,
       });
     });
   });
@@ -169,14 +177,15 @@ function buildNodes(rows: MapRow[], track: MapTrack, lang: string): { nodes: Nod
 }
 
 export function PipelineCanvas({
-  rows, track, lang, onPick, onMoveB2,
+  rows, track, lang, onPick, onMoveStage,
 }: {
   rows: MapRow[];
   track: MapTrack;
   lang: string;
   onPick: (userId: string) => void;
-  onMoveB2?: (userId: string, toStage: string) => void;
+  onMoveStage?: (userId: string, toStage: string) => void;
 }) {
+  const draggableTrack = track === "b2" || track === "anerkennung";
   const T = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
   const built = useMemo(() => buildNodes(rows, track, lang), [rows, track, lang]);
   const [nodes, setNodes, onNodesChange] = useNodesState(built.nodes);
@@ -188,17 +197,17 @@ export function PipelineCanvas({
     if (node.type === "avatar") onPick(node.id);
   }, [onPick]);
 
-  // Drop a face in another lane → move them to that stage (B2 only).
+  // Drop a face in another lane → move them to that stage (draggable tracks only).
   const onNodeDragStop = useCallback((_e: MouseEvent | TouchEvent, node: Node) => {
-    if (track !== "b2" || node.type !== "avatar" || !onMoveB2) return;
+    if (node.type !== "avatar" || !onMoveStage || !draggableTrack) return;
     const cy = node.position.y + AV / 2;
     let best = built.laneCenters[0]; let bestD = Infinity;
     for (const lc of built.laneCenters) { const d = Math.abs(lc.cy - cy); if (d < bestD) { bestD = d; best = lc; } }
     const row = rows.find((r) => r.userId === node.id);
     if (!row || !best) return;
-    if (normalizeB2Stage(row.b2Stage) === best.key) { setNodes(built.nodes); return; } // snap back
-    onMoveB2(node.id, best.key);
-  }, [track, onMoveB2, built, rows, setNodes]);
+    if (laneKeyForRow(track, row) === best.key) { setNodes(built.nodes); return; } // snap back
+    onMoveStage(node.id, best.key);
+  }, [track, draggableTrack, onMoveStage, built, rows, setNodes]);
 
   const empty = nodes.every((n) => n.type === "zone");
 
@@ -207,13 +216,13 @@ export function PipelineCanvas({
       {/* Hint bar */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 16px", borderBottom: "1px solid var(--border)", flexWrap: "wrap" }}>
         <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--w)" }}>
-          {track === "b2" ? "📜" : track === "impfung" ? "💉" : "🗺️"} {T("Canvas", "Leinwand", "Canevas")}
+          {track === "b2" ? "📜" : track === "anerkennung" ? "🏅" : track === "impfung" ? "💉" : "🗺️"} {T("Canvas", "Leinwand", "Canevas")}
         </span>
         <span style={{ fontSize: 11, color: "var(--w3)" }}>
           {T("Scroll to zoom · drag the space to pan · click a face for details",
              "Scrollen zum Zoomen · Fläche ziehen zum Verschieben · Gesicht anklicken für Details",
              "Molette pour zoomer · glisser le fond pour déplacer · cliquer un visage pour les détails")}
-          {track === "b2" ? ` · ${T("drag a face to another stage to move them", "Gesicht in eine andere Stufe ziehen zum Verschieben", "glisser un visage vers une autre étape pour le déplacer")}` : ""}
+          {draggableTrack ? ` · ${T("drag a face to another stage to move them", "Gesicht in eine andere Stufe ziehen zum Verschieben", "glisser un visage vers une autre étape pour le déplacer")}` : ""}
         </span>
       </div>
       <div style={{ height: "min(76vh, 760px)", width: "100%", position: "relative" }}>
