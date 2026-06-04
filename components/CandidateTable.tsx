@@ -15,7 +15,7 @@ import {
   useReactTable, getCoreRowModel, getSortedRowModel, flexRender,
   createColumnHelper, type SortingState,
 } from "@tanstack/react-table";
-import { ArrowUpDown, AlertTriangle, BadgeCheck } from "lucide-react";
+import { ArrowUpDown, ChevronUp, ChevronDown, AlertTriangle, BadgeCheck } from "lucide-react";
 import { JOURNEY_PRESETS } from "@/lib/candidateJourney";
 import { B2_STAGES, b2StageColor, b2StageLabel, normalizeB2Stage, B2_FAILED_COLOR } from "@/lib/b2Journey";
 import { specialtyLabel } from "@/lib/nurseSpecialties";
@@ -82,7 +82,7 @@ export function CandidateTable({ rows, lang, onPick }: { rows: TableRow[]; lang:
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <div style={{ flex: 1, height: 5, borderRadius: 999, background: "var(--border)", overflow: "hidden", minWidth: 64 }}><div style={{ width: `${pct}%`, height: "100%", background: hc }} /></div>
-                <span style={{ fontSize: 10.5, color: "var(--w3)", flexShrink: 0 }}>{r.status.doneCount}/{r.status.totalPresets}</span>
+                <span style={{ fontSize: 10.5, color: "var(--w3)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{r.status.doneCount}/{r.status.totalPresets}</span>
               </div>
             </div>
           );
@@ -109,7 +109,7 @@ export function CandidateTable({ rows, lang, onPick }: { rows: TableRow[]; lang:
           return (
             <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 88 }}>
               <div style={{ flex: 1, height: 5, borderRadius: 999, background: "var(--border)", overflow: "hidden", minWidth: 48 }}><div style={{ width: `${pct}%`, height: "100%", background: "var(--gold)" }} /></div>
-              <span style={{ fontSize: 10.5, color: "var(--w3)", flexShrink: 0 }}>{r.docPack.collected}/{r.docPack.total}</span>
+              <span style={{ fontSize: 10.5, color: "var(--w3)", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{r.docPack.collected}/{r.docPack.total}</span>
             </div>
           );
         },
@@ -137,29 +137,40 @@ export function CandidateTable({ rows, lang, onPick }: { rows: TableRow[]; lang:
 
   return (
     <div className="bv-card" style={{ padding: 0, overflow: "hidden" }}>
+      <style>{`.bv-cand-row{transition:background .12s ease, box-shadow .12s ease}.bv-cand-row:hover{background:var(--gdim);box-shadow:inset 2px 0 0 var(--gold)}`}</style>
+      {/* Header strip — count + sort hint. */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "13px 16px", borderBottom: "1px solid var(--border)" }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: "var(--w)", letterSpacing: -0.2 }}>
+          {rows.length} {rows.length === 1 ? T("candidate", "Kandidat", "candidat") : T("candidates", "Kandidaten", "candidats")}
+        </span>
+        <span style={{ fontSize: 11, color: "var(--w3)" }}>{T("Tap a column to sort", "Spalte tippen zum Sortieren", "Cliquez un en-tête pour trier")}</span>
+      </div>
       <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             {table.getHeaderGroups().map((hg) => (
-              <tr key={hg.id} style={{ borderBottom: "1px solid var(--border)" }}>
-                {hg.headers.map((h) => (
-                  <th key={h.id} onClick={h.column.getToggleSortingHandler()}
-                    style={{ textAlign: "left", padding: "11px 14px", fontSize: 10.5, fontWeight: 700, color: "var(--w3)", textTransform: "uppercase", letterSpacing: 0.5, cursor: "pointer", whiteSpace: "nowrap", userSelect: "none" }}>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                      {flexRender(h.column.columnDef.header, h.getContext())}
-                      <ArrowUpDown size={11} style={{ opacity: h.column.getIsSorted() ? 1 : 0.25 }} />
-                    </span>
-                  </th>
-                ))}
+              <tr key={hg.id} style={{ background: "var(--bg2)" }}>
+                {hg.headers.map((h) => {
+                  const sort = h.column.getIsSorted();
+                  return (
+                    <th key={h.id} onClick={h.column.getToggleSortingHandler()}
+                      style={{ textAlign: "left", padding: "10px 14px", fontSize: 10.5, fontWeight: 700, color: sort ? "var(--gold)" : "var(--w3)", textTransform: "uppercase", letterSpacing: 0.5, cursor: "pointer", whiteSpace: "nowrap", userSelect: "none", borderBottom: "1px solid var(--border)" }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                        {flexRender(h.column.columnDef.header, h.getContext())}
+                        {sort === "asc" ? <ChevronUp size={12} /> : sort === "desc" ? <ChevronDown size={12} /> : <ArrowUpDown size={11} style={{ opacity: 0.22 }} />}
+                      </span>
+                    </th>
+                  );
+                })}
               </tr>
             ))}
           </thead>
           <tbody>
             {table.getRowModel().rows.map((row) => (
-              <tr key={row.id} onClick={() => onPick(row.original.userId)} className="bv-row-hover"
+              <tr key={row.id} onClick={() => onPick(row.original.userId)} className="bv-cand-row"
                 style={{ borderBottom: "1px solid var(--border)", cursor: "pointer" }}>
                 {row.getVisibleCells().map((cell) => (
-                  <td key={cell.id} style={{ padding: "9px 14px", verticalAlign: "middle" }}>
+                  <td key={cell.id} style={{ padding: "11px 14px", verticalAlign: "middle" }}>
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
                   </td>
                 ))}
