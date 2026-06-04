@@ -39,6 +39,7 @@ export type TableRow = {
   docPack?: { collected: number; total: number };
   followUp?: { needed: boolean };
   sellable?: { sellable: boolean };
+  needsUpdate?: boolean;
 };
 
 function initials(n: string) {
@@ -149,15 +150,16 @@ export function CandidateTable({ rows, lang, onPick }: { rows: TableRow[]; lang:
           );
         },
       }),
-      ch.accessor((r) => (r.followUp?.needed ? 2 : 0) + (r.sellable?.sellable ? 1 : 0), {
+      ch.accessor((r) => (r.needsUpdate ? 4 : 0) + (r.followUp?.needed ? 2 : 0) + (r.sellable?.sellable ? 1 : 0), {
         id: "flags", header: () => T("Flags", "Flags", "Indic."),
         cell: (info) => {
           const r = info.row.original;
           return (
             <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+              {r.needsUpdate && <span title={T("No update in a week — log where they are", "Seit einer Woche kein Update", "Pas de mise à jour depuis une semaine")} style={{ fontSize: 14, lineHeight: 1, filter: "drop-shadow(0 0 2px rgba(245,158,11,0.8))" }}>⚡</span>}
               {r.followUp?.needed && <AlertTriangle size={15} style={{ color: "#f59e0b" }} aria-label={T("Needs follow-up", "Nachfassen", "À relancer")} />}
               {r.sellable?.sellable && <BadgeCheck size={15} style={{ color: "var(--gold)" }} aria-label={T("Ready to sell", "Verkaufsbereit", "Prêt")} />}
-              {!r.followUp?.needed && !r.sellable?.sellable && <span style={{ color: "var(--w3)" }}>—</span>}
+              {!r.followUp?.needed && !r.sellable?.sellable && !r.needsUpdate && <span style={{ color: "var(--w3)" }}>—</span>}
             </div>
           );
         },

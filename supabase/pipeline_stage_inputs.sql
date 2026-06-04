@@ -17,4 +17,7 @@ alter table public.candidate_pipeline
   add column if not exists interview1_status text,
   add column if not exists interview2_status text,
   add column if not exists visa_appt_date    date,
-  add column if not exists housing_done       boolean;
+  add column if not exists housing_done       boolean,
+  -- Last time an admin touched this candidate's pipeline (set by the PATCH route).
+  -- Feeds the "no update in a week → lightning reminder" signal on the board.
+  add column if not exists updated_at         timestamptz;

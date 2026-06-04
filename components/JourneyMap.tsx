@@ -39,7 +39,7 @@ type Status = {
   overdueCount: number; blockedCount: number; health: Health;
   parallel?: { key: string; done: boolean }[];
 };
-export type MapRow = { userId: string; name: string; photo: string | null; status: Status; sellable?: { sellable: boolean }; b2Stage?: string; b2Failed?: boolean; anerkennungStage?: string; impfungStage?: string; impfungDoses?: { got: number; need: number } };
+export type MapRow = { userId: string; name: string; photo: string | null; status: Status; sellable?: { sellable: boolean }; b2Stage?: string; b2Failed?: boolean; anerkennungStage?: string; impfungStage?: string; impfungDoses?: { got: number; need: number }; needsUpdate?: boolean };
 
 const HEALTH_COLOR: Record<Health, string> = {
   blocked: "#ef4444", overdue: "#f97316", due_soon: "#f59e0b", on_track: "#16a34a", done: "#6b7280",
@@ -140,6 +140,14 @@ function Dot({ r, ringColor, halo, index = 0, badge, dragRef, dragHandle, isDrag
         </span>
       )}
       {badge}
+      {/* Weekly reminder — pulsing ⚡ when this candidate has had no update in a
+          week (or ever). Tells the admin "log where they are". */}
+      {r.needsUpdate && (
+        <motion.span aria-hidden
+          style={{ position: "absolute", top: -5, right: -5, fontSize: 13, lineHeight: 1, pointerEvents: "none", filter: "drop-shadow(0 0 2px rgba(245,158,11,0.9))" }}
+          animate={reduce ? undefined : { scale: [1, 1.28, 1], opacity: [0.8, 1, 0.8] }}
+          transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}>⚡</motion.span>
+      )}
       <AnimatePresence>
         {isHover && (
           <motion.span

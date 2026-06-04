@@ -97,6 +97,8 @@ export async function PATCH(req: NextRequest) {
     if (STATUS_FIELDS.has(k) && typeof v === "string" && !VALID_INTERVIEW_STATUS.has(v)) continue;
     fields[k] = (DATE_FIELDS.has(k) && v === "") ? null : v;
   }
+  // Stamp activity so the board's "no update in a week" reminder resets on edits.
+  if (Object.keys(fields).length > 0) fields.updated_at = new Date().toISOString();
 
   const db = getServiceSupabase();
 

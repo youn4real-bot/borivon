@@ -79,7 +79,7 @@ export async function GET(req: NextRequest) {
   // group in memory and compute each candidate's status.
   const { data: itemData, error: itemErr } = await db
     .from("candidate_journey_items")
-    .select("id, candidate_user_id, text, owner, done, preset_key, position, due_date, blocked, blocked_reason")
+    .select("id, candidate_user_id, text, owner, done, done_at, preset_key, position, due_date, blocked, blocked_reason")
     .in("candidate_user_id", ids);
   if (itemErr) {
     console.error("[journey/pipeline] items error:", itemErr.message);
@@ -97,7 +97,7 @@ export async function GET(req: NextRequest) {
   // batched query. Powers the "ready to sell" verdict per candidate.
   const { data: docData } = await db
     .from("documents")
-    .select("user_id, file_type, status")
+    .select("user_id, file_type, status, created_at")
     .in("user_id", ids);
   const docsByCandidate = new Map<string, { file_type: string | null; status: string | null }[]>();
   for (const d of (docData ?? []) as { user_id: string; file_type: string | null; status: string | null }[]) {
@@ -157,15 +157,33 @@ export async function GET(req: NextRequest) {
 
   // Pipeline stage facts — interview outcomes + visa/flight/housing the admin
   // sets from the peek (candidate_pipeline). Batched. Drive board auto-advance.
-  type PipeRow = { user_id: string; interview1_status: string | null; interview2_status: string | null; visa_appt_date: string | null; flight_date: string | null; flight_info: string | null; housing_done: boolean | null; visa_granted: boolean | null; visa_date: string | null };
+  type PipeRow = { user_id: string; interview1_status: string | null; interview2_status: string | null; visa_appt_date: string | null; flight_date: string | null; flight_info: string | null; housing_done: boolean | null; visa_granted: boolean | null; visa_date: string | null; updated_at: string | null };
   const pipeByCandidate = new Map<string, PipeRow>();
   {
     const { data } = await db
       .from("candidate_pipeline")
-      .select("user_id, interview1_status, interview2_status, visa_appt_date, flight_date, flight_info, housing_done, visa_granted, visa_date")
+      .select("user_id, interview1_status, interview2_status, visa_appt_date, flight_date, flight_info, housing_done, visa_granted, visa_date, updated_at")
       .in("user_id", ids);
     for (const r of (data ?? []) as PipeRow[]) pipeByCandidate.set(r.user_id, r);
   }
+
+  // "Last activity" per candidate — newest of: a stage ticked, a doc uploaded, a
+  // self-report, or an admin pipeline edit. Drives the weekly "needs an update"
+  // reminder: no activity in 7 days (or ever) → the avatar pulses for attention.
+  const nowMs = Date.now();
+  const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+  const lastActivity = new Map<string, number>();
+  const bump = (uid: string, ts: string | null | undefined) => {
+    if (!ts) return;
+    const t = Date.parse(ts);
+    if (Number.isFinite(t) && t > (lastActivity.get(uid) ?? 0)) lastActivity.set(uid, t);
+  };
+  for (const r of (itemData ?? []) as { candidate_user_id: string; done?: boolean; done_at?: string | null }[]) {
+    if (r.done && r.done_at) bump(r.candidate_user_id, r.done_at);
+  }
+  for (const d of (docData ?? []) as { user_id: string; created_at?: string | null }[]) bump(d.user_id, d.created_at);
+  for (const [uid, reps] of reportsByCandidate) bump(uid, reps[0]?.created_at);
+  for (const [uid, pp] of pipeByCandidate) bump(uid, pp.updated_at);
 
   const today = casablancaToday();
   const candidates = profiles.map((p) => {
@@ -237,6 +255,8 @@ export async function GET(req: NextRequest) {
       impfungDoses,
       followUp,
       openTasks,
+      needsUpdate: (() => { const la = lastActivity.get(p.user_id); return !la || (nowMs - la) > WEEK_MS; })(),
+      lastActivityAt: lastActivity.has(p.user_id) ? new Date(lastActivity.get(p.user_id)!).toISOString() : null,
       pipeline: {
         interview1: pipe?.interview1_status ?? null,
         interview2: pipe?.interview2_status ?? null,

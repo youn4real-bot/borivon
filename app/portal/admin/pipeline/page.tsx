@@ -22,10 +22,9 @@ import { normalizeB2Stage, b2StageLabel, b2StageColor, B2_FAILED_COLOR } from "@
 import { normalizeAnerkennungStage, anerkennungStageLabel, anerkennungStageColor } from "@/lib/anerkennungJourney";
 import { impfungStageLabel, IMPFUNG_STAGE_BY_KEY, type ImpfungStage } from "@/lib/impfungJourney";
 import { NURSE_SPECIALTIES, specialtyLabel } from "@/lib/nurseSpecialties";
-import { recognitionDocLabel } from "@/lib/recognitionDocs";
 import { relativeTimeShort } from "@/lib/relativeTime";
 import { Toaster, toast } from "sonner";
-import { ArrowLeft, AlertTriangle, CheckCircle2, Search, Map as MapIcon, LayoutGrid, BadgeCheck, ArrowRight, Bell, FileText, Printer, Pencil, ChevronDown } from "lucide-react";
+import { ArrowLeft, AlertTriangle, CheckCircle2, Search, Map as MapIcon, LayoutGrid, BadgeCheck, ArrowRight, Bell, FileText, Printer, Pencil } from "lucide-react";
 
 type Health = "on_track" | "due_soon" | "overdue" | "blocked" | "done";
 type Status = {
@@ -42,7 +41,7 @@ type DocPackItem = { key: string; status: "approved" | "pending" | "missing" };
 type DocPack = { items: DocPackItem[]; collected: number; total: number };
 type SelfReport = { kind: string; outcome: string; note: string | null; created_at: string };
 type PipelineFacts = { interview1: string | null; interview2: string | null; visaApptDate: string | null; flightDate: string | null; flightInfo: string | null; housingDone: boolean };
-type Row = { userId: string; name: string; photo: string | null; status: Status; sellable: Sellable; b2Stage?: string; b2Failed?: boolean; anerkennungStage?: string; impfungStage?: string; impfungDoses?: { got: number; need: number }; followUp?: FollowUp; openTasks?: OpenTask[]; facts?: Facts; docPack?: DocPack; reports?: SelfReport[]; pipeline?: PipelineFacts };
+type Row = { userId: string; name: string; photo: string | null; status: Status; sellable: Sellable; b2Stage?: string; b2Failed?: boolean; anerkennungStage?: string; impfungStage?: string; impfungDoses?: { got: number; need: number }; followUp?: FollowUp; openTasks?: OpenTask[]; facts?: Facts; docPack?: DocPack; reports?: SelfReport[]; pipeline?: PipelineFacts; needsUpdate?: boolean; lastActivityAt?: string | null };
 
 const HEALTH_STYLE: Record<Health, { dot: string; label: { en: string; de: string; fr: string } }> = {
   blocked:  { dot: "#ef4444", label: { en: "Blocked",   de: "Blockiert",   fr: "Bloqué" } },
@@ -79,7 +78,6 @@ export default function AdminPipelinePage() {
   const [factsDraft, setFactsDraft] = useState({ specialty: "", years: "", workplace: "", availableFrom: "" });
   const [factsSaving, setFactsSaving] = useState(false);
   const [factsEdit, setFactsEdit] = useState(false); // nurse-profile editor open?
-  const [docsOpen, setDocsOpen] = useState(false);    // recognition-docs details open?
   // Stage editor (interview pass/fail + visa/flight/housing) for the peeked candidate.
   const [pipeEdit, setPipeEdit] = useState(false);
   const [pipeSaving, setPipeSaving] = useState(false);
@@ -131,7 +129,6 @@ export default function AdminPipelinePage() {
       availableFrom: peek.facts?.availableFrom ?? "",
     });
     setFactsEdit(false);
-    setDocsOpen(false);
     setPipeDraft({
       interview1: peek.pipeline?.interview1 ?? "",
       interview2: peek.pipeline?.interview2 ?? "",
@@ -369,6 +366,7 @@ export default function AdminPipelinePage() {
             ? T("Arrived in Germany 🇩🇪", "In Deutschland angekommen 🇩🇪", "Arrivé en Allemagne 🇩🇪")
             : peek.status.current ? presetLabel(peek.status.current.key, lang)
             : T("Just started", "Gerade begonnen", "Vient de commencer");
+          const didLine = peek.status.reached ? presetLabel(peek.status.reached.key, lang) : T("Just started", "Gerade begonnen", "Vient de commencer");
           const card: CSSProperties = { borderRadius: 16, border: "1px solid var(--border)", background: "var(--bg2)", padding: 16, boxShadow: "0 1px 2px rgba(0,0,0,0.05)" };
           const cap: CSSProperties = { fontSize: 10.5, fontWeight: 700, color: "var(--w3)", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 10 };
           const lbl: CSSProperties = { fontSize: 10.5, fontWeight: 600, color: "var(--w3)", marginBottom: 4, display: "block" };
@@ -419,6 +417,18 @@ export default function AdminPipelinePage() {
                   </div>
                 </div>
               </div>
+
+              {/* Weekly reminder — pulses on the board when no update in a week. */}
+              {peek.needsUpdate && (
+                <button onClick={() => setPipeEdit(true)} className="bv-press w-full text-left flex items-center gap-2 px-3 py-2.5 rounded-xl"
+                  style={{ background: "color-mix(in srgb, #f59e0b 12%, transparent)", border: "1px solid color-mix(in srgb, #f59e0b 45%, var(--border))" }}>
+                  <span style={{ fontSize: 15, flexShrink: 0 }}>⚡</span>
+                  <span className="flex-1 text-[12.5px] font-semibold" style={{ color: "var(--w)" }}>
+                    {T("Needs an update — log where they are", "Update nötig — wo stehen sie?", "Mise à jour requise — où en sont-ils ?")}
+                  </span>
+                  <span className="text-[11.5px] font-semibold flex-shrink-0" style={{ color: "#f59e0b" }}>{T("Update", "Aktualisieren", "Mettre à jour")} →</span>
+                </button>
+              )}
 
               {/* Nurse profile — one compact line; click to edit (progressive disclosure). */}
               {!factsEdit ? (
@@ -516,38 +526,27 @@ export default function AdminPipelinePage() {
                 </div>
               )}
 
-              {/* Journey */}
+              {/* Journey — the two things that matter: what she DID + what's NEXT. */}
               <div style={card}>
                 <div style={cap}>🗺️ {T("Journey", "Reise", "Parcours")}</div>
-                <div className="flex items-center gap-2 mb-2">
-                  <span style={{ width: 9, height: 9, borderRadius: 999, background: hs.dot, flexShrink: 0 }} />
-                  <span className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>{journeyLine}</span>
-                </div>
-                <div style={{ height: 7, borderRadius: 999, background: "var(--border)", overflow: "hidden", marginBottom: 7 }}>
-                  <div style={{ width: `${pct}%`, height: "100%", background: hs.dot }} />
-                </div>
-                <div className="flex items-center gap-2 flex-wrap text-[11.5px]" style={{ color: "var(--w3)" }}>
-                  <span>{peek.status.doneCount}/{peek.status.totalPresets} {T("steps done", "Schritte erledigt", "étapes faites")}</span>
-                  {peek.status.overdueCount > 0 && <span style={{ color: "#f97316" }}>· {peek.status.overdueCount} {T("overdue", "überfällig", "en retard")}</span>}
-                  {peek.status.blockedCount > 0 && <span style={{ color: "#ef4444" }}>· {peek.status.blockedCount} {T("blocked", "blockiert", "bloqué")}</span>}
-                </div>
-              </div>
-
-              {/* Open tasks — what's still outstanding for them */}
-              {peek.openTasks && peek.openTasks.length > 0 && (
-                <div style={card}>
-                  <div style={cap}>📋 {T("Open tasks", "Offene Aufgaben", "Tâches ouvertes")}</div>
-                  <div className="flex flex-col gap-2">
-                    {peek.openTasks.map((task, i) => (
-                      <div key={i} className="flex items-center gap-2 text-[12.5px]" style={{ color: "var(--w2)" }}>
-                        <span style={{ width: 6, height: 6, borderRadius: 999, background: task.blocked ? "#ef4444" : "var(--w3)", flexShrink: 0 }} />
-                        <span className="truncate">{task.key ? presetLabel(task.key, lang) : (task.text || "—")}</span>
-                        {task.blocked && <AlertTriangle size={11} style={{ color: "#ef4444", flexShrink: 0 }} />}
-                      </div>
-                    ))}
+                <div className="flex items-start gap-2 mb-2.5">
+                  <span style={{ color: "var(--success)", fontWeight: 800, flexShrink: 0, lineHeight: 1.3 }}>✓</span>
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--w3)" }}>{T("Did", "Erledigt", "Fait")}</div>
+                    <div className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>{didLine}</div>
                   </div>
                 </div>
-              )}
+                <div className="flex items-start gap-2">
+                  <span style={{ color: "var(--gold)", fontWeight: 800, flexShrink: 0, lineHeight: 1.3 }}>→</span>
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--w3)" }}>{T("Next step", "Nächster Schritt", "Prochaine étape")}</div>
+                    <div className="text-[13.5px] font-bold" style={{ color: "var(--gold)" }}>{journeyLine}</div>
+                  </div>
+                </div>
+                <div style={{ height: 6, borderRadius: 999, background: "var(--border)", overflow: "hidden", marginTop: 11 }}>
+                  <div style={{ width: `${pct}%`, height: "100%", background: hs.dot }} />
+                </div>
+              </div>
 
               {/* Status — B2 / Anerkennung / Impfung at a glance (one card). */}
               <div style={card}>
@@ -625,29 +624,6 @@ export default function AdminPipelinePage() {
                 </div>
               )}
 
-              {/* Recognition documents — compact bar; click for the checklist. */}
-              {peek.docPack && (
-                <div style={card}>
-                  <button onClick={() => setDocsOpen((o) => !o)} className="bv-press w-full flex items-center gap-2.5">
-                    <span style={{ fontSize: 12.5 }}>📂</span>
-                    <div style={{ flex: 1, height: 7, borderRadius: 999, background: "var(--border)", overflow: "hidden" }}>
-                      <div style={{ width: `${peek.docPack.total ? Math.round((peek.docPack.collected / peek.docPack.total) * 100) : 0}%`, height: "100%", background: "var(--gold)" }} />
-                    </div>
-                    <span className="text-[11.5px] font-semibold" style={{ color: "var(--w2)", flexShrink: 0 }}>{peek.docPack.collected}/{peek.docPack.total}</span>
-                    <ChevronDown size={14} style={{ color: "var(--w3)", flexShrink: 0, transform: docsOpen ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
-                  </button>
-                  {docsOpen && (
-                    <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 mt-3">
-                      {peek.docPack.items.map((it) => (
-                        <div key={it.key} className="flex items-center gap-1.5 text-[12px]" style={{ color: it.status === "missing" ? "var(--w3)" : "var(--w2)" }}>
-                          <span style={{ flexShrink: 0 }}>{it.status === "approved" ? "✅" : it.status === "pending" ? "🕓" : "⬜"}</span>
-                          <span className="truncate">{recognitionDocLabel(it.key, lang)}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
           );
         })()}
