@@ -24,7 +24,7 @@ import { impfungStageLabel, IMPFUNG_STAGE_BY_KEY, type ImpfungStage } from "@/li
 import { NURSE_SPECIALTIES, specialtyLabel } from "@/lib/nurseSpecialties";
 import { recognitionDocLabel } from "@/lib/recognitionDocs";
 import { Toaster, toast } from "sonner";
-import { ArrowLeft, AlertTriangle, Clock, CheckCircle2, Search, Map as MapIcon, List, LayoutGrid, BadgeCheck, ArrowRight, Bell, FileText, Printer, Pencil, ChevronDown } from "lucide-react";
+import { ArrowLeft, AlertTriangle, CheckCircle2, Search, Map as MapIcon, LayoutGrid, BadgeCheck, ArrowRight, Bell, FileText, Printer, Pencil, ChevronDown } from "lucide-react";
 
 type Health = "on_track" | "due_soon" | "overdue" | "blocked" | "done";
 type Status = {
@@ -64,7 +64,7 @@ export default function AdminPipelinePage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [today, setToday] = useState("");
   const [q, setQ] = useState("");
-  const [view, setView] = useState<"board" | "map" | "list">("board");
+  const [view, setView] = useState<"board" | "map">("board");
   const [track, setTrack] = useState<"journey" | "b2">("journey");
   const [sheetOpen, setSheetOpen] = useState(false); // employer profile sheet
   // Clicking a candidate opens a quick cross-track summary (peek) — NOT a jump
@@ -205,20 +205,11 @@ export default function AdminPipelinePage() {
 
   const initials = (n: string) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join("").toUpperCase() || "?";
 
-  const dueText = (s: Status): string => {
-    const d = s.current?.daysToDue;
-    if (d === null || d === undefined) return "";
-    if (d < 0) return T(`${-d}d overdue`, `${-d} T. überfällig`, `${-d}j de retard`);
-    if (d === 0) return T("due today", "heute fällig", "dû aujourd'hui");
-    return T(`in ${d}d`, `in ${d} T.`, `dans ${d}j`);
-  };
-
-  // View options — Board (unified table, everyone × everything) is default;
-  // Map (rail) + List are per-track alternates.
-  const viewOpts: [("board" | "map" | "list"), typeof MapIcon, string][] =
-    track === "journey"
-      ? [["board", LayoutGrid, T("Board", "Tafel", "Tableau")], ["map", MapIcon, T("Map", "Karte", "Carte")], ["list", List, T("List", "Liste", "Liste")]]
-      : [["board", LayoutGrid, T("Board", "Tafel", "Tableau")], ["map", MapIcon, T("Map", "Karte", "Carte")]];
+  // Two views only: Board (unified grid, default) + Map (the visual rail).
+  const viewOpts: [("board" | "map"), typeof MapIcon, string][] = [
+    ["board", LayoutGrid, T("Board", "Tafel", "Tableau")],
+    ["map", MapIcon, T("Map", "Karte", "Carte")],
+  ];
 
   return (
     <main id="bv-main" className="mx-auto px-4 sm:px-5 py-6 sm:py-10 bv-page-bottom" style={{ maxWidth: 1080 }}>
@@ -266,81 +257,13 @@ export default function AdminPipelinePage() {
         </div>
       </div>
 
-      {/* Board — unified sortable table: everyone × every dimension, in one view. */}
+      {/* Two views: Board (unified sortable grid) and Map (the visual rail). */}
       {view === "board" ? (
         <CandidateTable rows={shown} lang={lang} onPick={(uid) => setPeek(rows.find((r) => r.userId === uid) ?? null)} />
-      ) : view === "map" || track !== "journey" ? (
+      ) : (
         <JourneyMap rows={track !== "journey" ? searchOnlyRows : shown} lang={lang} track={track}
           onPick={(uid) => setPeek(rows.find((r) => r.userId === uid) ?? null)}
           onMoveStage={moveStage} />
-      ) : shown.length === 0 ? (
-        <div className="bv-card text-center py-16">
-          <CheckCircle2 size={30} strokeWidth={1.5} className="mx-auto mb-3" style={{ color: "var(--w3)" }} />
-          <p className="text-[14px] font-medium" style={{ color: "var(--w2)" }}>
-            {T("No candidates yet", "Noch keine Kandidaten", "Aucun candidat")}
-          </p>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {shown.map((r) => {
-            const hs = HEALTH_STYLE[r.status.health];
-            const pct = Math.round(r.status.progress * 100);
-            return (
-              <button key={r.userId}
-                onClick={() => setPeek(r)}
-                className="bv-card bv-press text-left flex items-center gap-3 p-3 sm:p-3.5" style={{ borderRadius: "var(--r-lg)" }}>
-                {/* Health dot */}
-                <span className="flex-shrink-0" style={{ width: 10, height: 10, borderRadius: 999, background: hs.dot }} />
-                {/* Avatar */}
-                {r.photo ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={r.photo} alt="" className="rounded-full object-cover flex-shrink-0" style={{ width: 38, height: 38 }} />
-                ) : (
-                  <span className="rounded-full flex items-center justify-center flex-shrink-0 text-[13px] font-semibold"
-                    style={{ width: 38, height: 38, background: "var(--gdim)", color: "var(--gold)" }}>{initials(r.name)}</span>
-                )}
-                {/* Name + current step */}
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13.5px] font-semibold truncate flex items-center gap-1.5" style={{ color: "var(--w)" }}>
-                    <span className="truncate">{r.name}</span>
-                    {r.sellable.sellable && (
-                      <span className="inline-flex items-center gap-1 flex-shrink-0 text-[10px] font-bold px-1.5 py-0.5 rounded-full"
-                        style={{ background: "var(--gold)", color: "#131312" }}
-                        title={T("Ready to sell to an employer", "Verkaufsbereit", "Prêt à vendre")}>
-                        <BadgeCheck size={10} strokeWidth={2.5} /> {T("SELL", "VERK", "VENTE")}
-                      </span>
-                    )}
-                  </p>
-                  <p className="text-[12px] truncate flex items-center gap-1.5" style={{ color: "var(--w3)" }}>
-                    {r.status.current ? (
-                      <>
-                        {r.status.current.blocked && <AlertTriangle size={11} style={{ color: "#ef4444" }} />}
-                        <span className="truncate">{presetLabel(r.status.current.key, lang)}</span>
-                        {dueText(r.status) && <span style={{ color: r.status.health === "overdue" ? "#f97316" : "var(--w3)" }}>· {dueText(r.status)}</span>}
-                      </>
-                    ) : (
-                      <span style={{ color: "#16a34a" }}>{T("Journey complete", "Reise abgeschlossen", "Parcours terminé")}</span>
-                    )}
-                  </p>
-                  {/* blocked reason (admin/org only — API already gates) */}
-                  {r.status.current?.blocked && r.status.current.blockedReason && (
-                    <p className="text-[11px] truncate mt-0.5" style={{ color: "#ef4444" }}>⚠ {r.status.current.blockedReason}</p>
-                  )}
-                </div>
-                {/* Progress */}
-                <div className="flex-shrink-0 text-right" style={{ width: 92 }}>
-                  <div className="flex items-center gap-1.5 justify-end mb-1">
-                    <Clock size={11} style={{ color: "var(--w3)" }} />
-                    <span className="text-[11.5px] font-semibold" style={{ color: "var(--w2)" }}>{r.status.doneCount}/{r.status.totalPresets}</span>
-                  </div>
-                  <div style={{ height: 5, borderRadius: 999, background: "var(--bg2)", overflow: "hidden" }}>
-                    <div style={{ width: `${pct}%`, height: "100%", background: hs.dot, transition: "width .3s" }} />
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
       )}
       {/* Candidate peek — quick cross-track summary; the dossier is one click away. */}
       <Modal
