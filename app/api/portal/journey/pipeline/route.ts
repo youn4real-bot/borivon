@@ -155,6 +155,18 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Pipeline stage facts — interview outcomes + visa/flight/housing the admin
+  // sets from the peek (candidate_pipeline). Batched. Drive board auto-advance.
+  type PipeRow = { user_id: string; interview1_status: string | null; interview2_status: string | null; visa_appt_date: string | null; flight_date: string | null; flight_info: string | null; housing_done: boolean | null; visa_granted: boolean | null; visa_date: string | null };
+  const pipeByCandidate = new Map<string, PipeRow>();
+  {
+    const { data } = await db
+      .from("candidate_pipeline")
+      .select("user_id, interview1_status, interview2_status, visa_appt_date, flight_date, flight_info, housing_done, visa_granted, visa_date")
+      .in("user_id", ids);
+    for (const r of (data ?? []) as PipeRow[]) pipeByCandidate.set(r.user_id, r);
+  }
+
   const today = casablancaToday();
   const candidates = profiles.map((p) => {
     const journey = byCandidate.get(p.user_id) ?? [];
@@ -173,6 +185,14 @@ export async function GET(req: NextRequest) {
     // CV is "finalized" only once an admin has APPROVED the Lebenslauf (green),
     // not merely uploaded — so candidates move here on real approval.
     if (docs.some((d) => d.status === "approved" && /lebenslauf/i.test(d.file_type ?? ""))) autoDone.add("cv_finalized");
+    // Auto-advance from the admin's peek inputs (candidate_pipeline):
+    const pipe = pipeByCandidate.get(p.user_id);
+    if (pipe?.interview1_status === "passed") autoDone.add("interview_first");
+    if (pipe?.interview2_status === "passed") autoDone.add("interview_second");
+    if (pipe?.visa_appt_date) autoDone.add("visa_appointment");
+    if (pipe?.visa_granted === true || pipe?.visa_date) autoDone.add("visa_approved");
+    if (pipe?.flight_date) autoDone.add("flight_booked");
+    if (pipe?.housing_done === true) autoDone.add("housing_arranged");
     const status = computePipelineStatus(journey, today, isB2Passed(b2Stage), autoDone);
     const sellable = evaluateSellable({ documents: docs, journey });
 
@@ -217,6 +237,14 @@ export async function GET(req: NextRequest) {
       impfungDoses,
       followUp,
       openTasks,
+      pipeline: {
+        interview1: pipe?.interview1_status ?? null,
+        interview2: pipe?.interview2_status ?? null,
+        visaApptDate: pipe?.visa_appt_date ?? null,
+        flightDate: pipe?.flight_date ?? null,
+        flightInfo: pipe?.flight_info ?? null,
+        housingDone: pipe?.housing_done === true,
+      },
       facts: {
         specialty: p.nursing_specialty ?? null,
         yearsExperience: p.years_experience ?? null,

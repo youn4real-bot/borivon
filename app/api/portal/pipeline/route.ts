@@ -9,9 +9,11 @@ import { UUID_RE } from "@/lib/uuid";
 const ALLOWED_PIPELINE_FIELDS = new Set<string>([
   "interview_link", "interview_date", "interview_status",
   "interview_type", "interview_notes",
+  "interview1_status", "interview2_status",
   "recognition_unlocked", "embassy_unlocked",
-  "visa_granted", "visa_date",
+  "visa_granted", "visa_date", "visa_appt_date",
   "flight_date", "flight_info",
+  "housing_done",
   "docs_approved",
   "integration_unlocked", "start_unlocked",
 ]);
@@ -86,12 +88,13 @@ export async function PATCH(req: NextRequest) {
 
   // Allowlist filter + sanitise: empty strings → null for date/timestamp cols
   // (Postgres rejects "" for date/timestamptz and returns a type error → 500).
-  const DATE_FIELDS = new Set(["interview_date", "visa_date", "flight_date"]);
+  const DATE_FIELDS = new Set(["interview_date", "visa_date", "flight_date", "visa_appt_date"]);
+  const STATUS_FIELDS = new Set(["interview_status", "interview1_status", "interview2_status"]);
   const VALID_INTERVIEW_STATUS = new Set(["pending", "passed", "failed"]);
   const fields: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(rawFields)) {
     if (!allowedFields.has(k)) continue;
-    if (k === "interview_status" && typeof v === "string" && !VALID_INTERVIEW_STATUS.has(v)) continue;
+    if (STATUS_FIELDS.has(k) && typeof v === "string" && !VALID_INTERVIEW_STATUS.has(v)) continue;
     fields[k] = (DATE_FIELDS.has(k) && v === "") ? null : v;
   }
 

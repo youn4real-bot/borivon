@@ -41,7 +41,8 @@ type Facts = { specialty: string | null; yearsExperience: number | null; workpla
 type DocPackItem = { key: string; status: "approved" | "pending" | "missing" };
 type DocPack = { items: DocPackItem[]; collected: number; total: number };
 type SelfReport = { kind: string; outcome: string; note: string | null; created_at: string };
-type Row = { userId: string; name: string; photo: string | null; status: Status; sellable: Sellable; b2Stage?: string; b2Failed?: boolean; anerkennungStage?: string; impfungStage?: string; impfungDoses?: { got: number; need: number }; followUp?: FollowUp; openTasks?: OpenTask[]; facts?: Facts; docPack?: DocPack; reports?: SelfReport[] };
+type PipelineFacts = { interview1: string | null; interview2: string | null; visaApptDate: string | null; flightDate: string | null; flightInfo: string | null; housingDone: boolean };
+type Row = { userId: string; name: string; photo: string | null; status: Status; sellable: Sellable; b2Stage?: string; b2Failed?: boolean; anerkennungStage?: string; impfungStage?: string; impfungDoses?: { got: number; need: number }; followUp?: FollowUp; openTasks?: OpenTask[]; facts?: Facts; docPack?: DocPack; reports?: SelfReport[]; pipeline?: PipelineFacts };
 
 const HEALTH_STYLE: Record<Health, { dot: string; label: { en: string; de: string; fr: string } }> = {
   blocked:  { dot: "#ef4444", label: { en: "Blocked",   de: "Blockiert",   fr: "Bloqué" } },
@@ -79,6 +80,10 @@ export default function AdminPipelinePage() {
   const [factsSaving, setFactsSaving] = useState(false);
   const [factsEdit, setFactsEdit] = useState(false); // nurse-profile editor open?
   const [docsOpen, setDocsOpen] = useState(false);    // recognition-docs details open?
+  // Stage editor (interview pass/fail + visa/flight/housing) for the peeked candidate.
+  const [pipeEdit, setPipeEdit] = useState(false);
+  const [pipeSaving, setPipeSaving] = useState(false);
+  const [pipeDraft, setPipeDraft] = useState({ interview1: "", interview2: "", visaApptDate: "", flightDate: "", flightInfo: "", housingDone: false });
 
   useEffect(() => {
     let cancelled = false;
@@ -127,6 +132,15 @@ export default function AdminPipelinePage() {
     });
     setFactsEdit(false);
     setDocsOpen(false);
+    setPipeDraft({
+      interview1: peek.pipeline?.interview1 ?? "",
+      interview2: peek.pipeline?.interview2 ?? "",
+      visaApptDate: peek.pipeline?.visaApptDate ?? "",
+      flightDate: peek.pipeline?.flightDate ?? "",
+      flightInfo: peek.pipeline?.flightInfo ?? "",
+      housingDone: peek.pipeline?.housingDone ?? false,
+    });
+    setPipeEdit(false);
   }, [peek]);
 
   // Drag-and-drop: drop a face on a stage lane to move them. Optimistic (instant
@@ -201,6 +215,42 @@ export default function AdminPipelinePage() {
       }
     } catch { toast.error(T("Couldn't save", "Speichern fehlgeschlagen", "Échec de l'enregistrement")); }
     setFactsSaving(false);
+  };
+
+  // Re-fetch the board so server-recomputed journey positions reflect new inputs.
+  const reload = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token ?? "";
+      const res = await fetch("/api/portal/journey/pipeline", { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) { const j = await res.json(); setRows((j.candidates ?? []) as Row[]); }
+    } catch { /* keep current */ }
+  };
+
+  // Save stage inputs (interview pass/fail + visa appointment / flight / housing)
+  // from the peek → candidate_pipeline; the board then auto-advances on reload.
+  const savePipeline = async () => {
+    if (!peek) return;
+    const id = peek.userId;
+    setPipeSaving(true);
+    const payload: Record<string, unknown> = { userId: id, flight_info: pipeDraft.flightInfo, housing_done: pipeDraft.housingDone, visa_appt_date: pipeDraft.visaApptDate || "", flight_date: pipeDraft.flightDate || "" };
+    if (pipeDraft.interview1) payload.interview1_status = pipeDraft.interview1;
+    if (pipeDraft.interview2) payload.interview2_status = pipeDraft.interview2;
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token ?? "";
+      const res = await fetch("/api/portal/pipeline", { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(payload) });
+      if (res.ok) {
+        const newPipe: PipelineFacts = { interview1: pipeDraft.interview1 || null, interview2: pipeDraft.interview2 || null, visaApptDate: pipeDraft.visaApptDate || null, flightDate: pipeDraft.flightDate || null, flightInfo: pipeDraft.flightInfo || null, housingDone: pipeDraft.housingDone };
+        setPeek((p) => (p && p.userId === id ? { ...p, pipeline: newPipe } : p));
+        setPipeEdit(false);
+        toast.success(T("Stage updated", "Phase aktualisiert", "Étape mise à jour"));
+        void reload();
+      } else {
+        toast.error(T("Couldn't update", "Update fehlgeschlagen", "Échec de la mise à jour"));
+      }
+    } catch { toast.error(T("Couldn't update", "Update fehlgeschlagen", "Échec de la mise à jour")); }
+    setPipeSaving(false);
   };
 
   if (loading) return <PageLoader />;
@@ -329,6 +379,17 @@ export default function AdminPipelinePage() {
               : T("Interview didn't pass", "Gespräch nicht bestanden", "Entretien non réussi");
             return rep.note || T("Update", "Update", "Mise à jour");
           };
+          const passFail = (value: string, onChange: (v: string) => void) => (
+            <div className="flex gap-2">
+              {([["passed", T("Passed ✅", "Bestanden ✅", "Réussi ✅"), "good"], ["failed", T("Didn't pass ✗", "Nicht bestanden ✗", "Échoué ✗"), "bad"]] as const).map(([v, label, tone]) => {
+                const active = value === v;
+                const st: CSSProperties = active
+                  ? (tone === "good" ? { background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" } : { background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" })
+                  : { background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" };
+                return <button key={v} onClick={() => onChange(active ? "pending" : v)} className="bv-press text-[12px] font-semibold px-2.5 py-1.5 rounded-lg" style={st}>{label}</button>;
+              })}
+            </div>
+          );
           return (
             <div className="p-5 flex flex-col gap-3">
               {/* Identity */}
@@ -348,6 +409,11 @@ export default function AdminPipelinePage() {
                     {peek.sellable?.sellable && (
                       <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: "var(--gold)", color: "#131312" }}>
                         <BadgeCheck size={10} strokeWidth={2.5} /> {T("READY TO SELL", "VERKAUFSBEREIT", "PRÊT À VENDRE")}
+                      </span>
+                    )}
+                    {(peek.pipeline?.interview1 === "failed" || peek.pipeline?.interview2 === "failed") && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
+                        ⚠ {T("INTERVIEW NOT PASSED", "INTERVIEW NICHT BESTANDEN", "ENTRETIEN NON RÉUSSI")}
                       </span>
                     )}
                   </div>
@@ -510,6 +576,54 @@ export default function AdminPipelinePage() {
                   </div>
                 </div>
               </div>
+
+              {/* Stage update — admin records interview pass/fail + visa/flight/housing. */}
+              {!pipeEdit ? (
+                <button onClick={() => setPipeEdit(true)} className="bv-press w-full text-left flex items-center gap-2 text-[12.5px] px-3 py-2.5 rounded-xl"
+                  style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w2)" }}>
+                  <span style={{ flexShrink: 0 }}>🛠️</span>
+                  <span className="flex-1 truncate">{T("Update stage — interview · visa · flight · housing", "Phase aktualisieren", "Mettre à jour l'étape")}</span>
+                  <Pencil size={13} style={{ color: "var(--w3)", flexShrink: 0 }} />
+                </button>
+              ) : (
+                <div style={card}>
+                  <div style={cap}>🛠️ {T("Update stage", "Phase aktualisieren", "Mettre à jour l'étape")}</div>
+                  <div className="flex flex-col gap-3">
+                    <div>
+                      <label style={lbl}>{T("First interview", "Erstes Interview", "Premier entretien")}</label>
+                      {passFail(pipeDraft.interview1, (v) => setPipeDraft((d) => ({ ...d, interview1: v })))}
+                    </div>
+                    <div>
+                      <label style={lbl}>{T("Second interview", "Zweites Interview", "Deuxième entretien")}</label>
+                      {passFail(pipeDraft.interview2, (v) => setPipeDraft((d) => ({ ...d, interview2: v })))}
+                    </div>
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <div>
+                        <label style={lbl}>{T("Visa appointment", "Visumtermin", "RDV visa")}</label>
+                        <input className="bv-input" type="date" value={pipeDraft.visaApptDate} onChange={(e) => setPipeDraft((d) => ({ ...d, visaApptDate: e.target.value }))} style={{ fontSize: 12.5 }} />
+                      </div>
+                      <div>
+                        <label style={lbl}>{T("Flight date", "Flugdatum", "Date de vol")}</label>
+                        <input className="bv-input" type="date" value={pipeDraft.flightDate} onChange={(e) => setPipeDraft((d) => ({ ...d, flightDate: e.target.value }))} style={{ fontSize: 12.5 }} />
+                      </div>
+                    </div>
+                    <div>
+                      <label style={lbl}>{T("Flight info", "Fluginfo", "Infos vol")}</label>
+                      <input className="bv-input" type="text" maxLength={200} value={pipeDraft.flightInfo} onChange={(e) => setPipeDraft((d) => ({ ...d, flightInfo: e.target.value }))} placeholder={T("e.g. CMN → FRA, 14:30", "z. B. CMN → FRA, 14:30", "ex. CMN → FRA, 14:30")} style={{ fontSize: 12.5 }} />
+                    </div>
+                    <label className="flex items-center gap-2" style={{ cursor: "pointer" }}>
+                      <input type="checkbox" checked={pipeDraft.housingDone} onChange={(e) => setPipeDraft((d) => ({ ...d, housingDone: e.target.checked }))} style={{ width: 15, height: 15, accentColor: "var(--gold)" }} />
+                      <span className="text-[12.5px] font-semibold" style={{ color: "var(--w2)" }}>{T("Housing arranged", "Unterkunft organisiert", "Logement organisé")}</span>
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-2 mt-3">
+                    <button onClick={() => void savePipeline()} disabled={pipeSaving} className="bv-press inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 rounded-lg disabled:opacity-60" style={{ background: "var(--gold)", color: "#131312" }}>
+                      {pipeSaving ? T("Saving…", "Speichern…", "Enregistrement…") : T("Save", "Speichern", "Enregistrer")}
+                    </button>
+                    <button onClick={() => setPipeEdit(false)} className="bv-press text-[12px] font-medium px-3 py-1.5" style={{ color: "var(--w3)" }}>{T("Cancel", "Abbrechen", "Annuler")}</button>
+                  </div>
+                </div>
+              )}
 
               {/* Recognition documents — compact bar; click for the checklist. */}
               {peek.docPack && (
