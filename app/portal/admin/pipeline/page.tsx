@@ -298,26 +298,6 @@ export default function AdminPipelinePage() {
           placeholder={T("Search candidate…", "Kandidat suchen…", "Rechercher…")} />
       </div>
 
-      {/* Stats — one quiet inline line, not big tiles. */}
-      {(() => {
-        const total = rows.length;
-        const sell = rows.filter((r) => r.sellable?.sellable).length;
-        const flw = rows.filter((r) => r.followUp?.needed).length;
-        const arr = rows.filter((r) => r.status.health === "done").length;
-        const b: CSSProperties = { fontWeight: 700, fontVariantNumeric: "tabular-nums" };
-        return (
-          <div className="flex items-center gap-x-2.5 gap-y-1 flex-wrap mb-4 text-[12px]" style={{ color: "var(--w3)" }}>
-            <span><b style={{ ...b, color: "var(--w)" }}>{total}</b> {T("candidates", "Kandidaten", "candidats")}</span>
-            <span style={{ color: "var(--border)" }}>·</span>
-            <span><b style={{ ...b, color: "var(--gold)" }}>{sell}</b> {T("ready", "verkaufsbereit", "prêts")}</span>
-            <span style={{ color: "var(--border)" }}>·</span>
-            <span><b style={{ ...b, color: "#f59e0b" }}>{flw}</b> {T("follow-up", "nachfassen", "à relancer")}</span>
-            <span style={{ color: "var(--border)" }}>·</span>
-            <span><b style={{ ...b, color: "#16a34a" }}>{arr}</b> {T("arrived", "angekommen", "arrivés")}</span>
-          </div>
-        );
-      })()}
-
       {/* Two views: Board (unified sortable grid) and Map (the visual rail). */}
       {view === "board" ? (
         <CandidateTable rows={shown} lang={lang} onPick={(uid) => setPeek(rows.find((r) => r.userId === uid) ?? null)} />

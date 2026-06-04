@@ -577,12 +577,7 @@ export function JourneyMap({
   return (
     <MapCtx.Provider value={ctx}>
       <div className="bv-card" style={{ padding: "26px 24px", overflow: "hidden" }}>
-        {/* Legend */}
-        <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", marginBottom: 16, fontSize: 11.5, color: "var(--w3)" }}>
-          <span style={{ fontWeight: 700, color: "var(--w)" }}>🇲🇦 {T("Morocco", "Marokko", "Maroc")}</span>
-          <span style={{ flex: 1, minWidth: 20, height: 2, background: "linear-gradient(90deg, var(--border), var(--gold))", borderRadius: 2 }} />
-          <span style={{ fontWeight: 700, color: "var(--w)" }}>{T("Germany", "Deutschland", "Allemagne")} 🇩🇪</span>
-        </div>
+        {/* Health legend (Morocco→Germany bar removed for minimalism). */}
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
           {(["blocked", "overdue", "due_soon", "on_track", "done"] as Health[]).map((h) => (
             <span key={h} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, color: "var(--w3)" }}>
