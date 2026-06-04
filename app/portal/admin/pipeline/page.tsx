@@ -16,7 +16,6 @@ import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
 import { JOURNEY_PRESETS } from "@/lib/candidateJourney";
 import { JourneyMap } from "@/components/JourneyMap";
-import { PipelineCanvas } from "@/components/PipelineCanvas";
 import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
 import { normalizeB2Stage, b2StageLabel, b2StageColor, B2_FAILED_COLOR } from "@/lib/b2Journey";
 import { normalizeAnerkennungStage, anerkennungStageLabel, anerkennungStageColor } from "@/lib/anerkennungJourney";
@@ -24,7 +23,7 @@ import { impfungStageLabel, IMPFUNG_STAGE_BY_KEY, type ImpfungStage } from "@/li
 import { NURSE_SPECIALTIES, specialtyLabel } from "@/lib/nurseSpecialties";
 import { recognitionDocLabel } from "@/lib/recognitionDocs";
 import { Toaster, toast } from "sonner";
-import { ArrowLeft, AlertTriangle, Clock, CheckCircle2, Search, Map as MapIcon, List, BadgeCheck, ArrowRight, Bell, Frame, FileText, Printer, Pencil, ChevronDown } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Clock, CheckCircle2, Search, Map as MapIcon, List, BadgeCheck, ArrowRight, Bell, FileText, Printer, Pencil, ChevronDown } from "lucide-react";
 
 type Health = "on_track" | "due_soon" | "overdue" | "blocked" | "done";
 type Status = {
@@ -64,9 +63,8 @@ export default function AdminPipelinePage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [today, setToday] = useState("");
   const [q, setQ] = useState("");
-  const [filter, setFilter] = useState<"all" | "attention" | "sellable">("all");
-  const [view, setView] = useState<"canvas" | "map" | "list">("canvas");
-  const [track, setTrack] = useState<"journey" | "b2" | "anerkennung" | "impfung">("journey");
+  const [view, setView] = useState<"map" | "list">("map");
+  const [track, setTrack] = useState<"journey" | "b2">("journey");
   const [sheetOpen, setSheetOpen] = useState(false); // employer profile sheet
   // Clicking a candidate opens a quick cross-track summary (peek) — NOT a jump
   // straight to their dossier. The dossier is one button away inside the popup.
@@ -103,16 +101,9 @@ export default function AdminPipelinePage() {
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    return rows.filter((r) => {
-      if (filter === "attention" && !r.followUp?.needed) return false;
-      if (filter === "sellable" && !r.sellable.sellable) return false;
-      if (needle) {
-        const hay = `${r.name} ${specialtyLabel(r.facts?.specialty, lang)} ${r.facts?.specialty ?? ""} ${r.facts?.workplace ?? ""}`.toLowerCase();
-        if (!hay.includes(needle)) return false;
-      }
-      return true;
-    });
-  }, [rows, q, filter, lang]);
+    if (!needle) return rows;
+    return rows.filter((r) => `${r.name} ${specialtyLabel(r.facts?.specialty, lang)} ${r.facts?.specialty ?? ""} ${r.facts?.workplace ?? ""}`.toLowerCase().includes(needle));
+  }, [rows, q, lang]);
 
   // The B2 / Impfung tracks ignore the journey-specific filter tabs (sellable /
   // attention) — those are about the main journey. They respect only the search.
@@ -140,15 +131,11 @@ export default function AdminPipelinePage() {
   // by LAW #25) → roll back on failure. Branches on the currently shown track.
   const moveStage = async (userId: string, toStage: string) => {
     const snapshot = rows;
-    const isAnerk = track === "anerkennung";
-    const endpoint = isAnerk ? "/api/portal/journey/anerkennung" : "/api/portal/journey/b2";
-    setRows((rs) => rs.map((r) => (r.userId === userId
-      ? { ...r, ...(isAnerk ? { anerkennungStage: toStage } : { b2Stage: toStage }) }
-      : r)));
+    setRows((rs) => rs.map((r) => (r.userId === userId ? { ...r, b2Stage: toStage } : r)));
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token ?? "";
-      const res = await fetch(endpoint, {
+      const res = await fetch("/api/portal/journey/b2", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ candidateId: userId, stage: toStage }),
@@ -225,11 +212,11 @@ export default function AdminPipelinePage() {
     return T(`in ${d}d`, `in ${d} T.`, `dans ${d}j`);
   };
 
-  // View options — Canvas + Map always; List is journey-only.
-  const viewOpts: [("canvas" | "map" | "list"), typeof MapIcon, string][] =
+  // View options — Map always; List is journey-only.
+  const viewOpts: [("map" | "list"), typeof MapIcon, string][] =
     track === "journey"
-      ? [["canvas", Frame, T("Canvas", "Leinwand", "Canevas")], ["map", MapIcon, T("Map", "Karte", "Carte")], ["list", List, T("List", "Liste", "Liste")]]
-      : [["canvas", Frame, T("Canvas", "Leinwand", "Canevas")], ["map", MapIcon, T("Map", "Karte", "Carte")]];
+      ? [["map", MapIcon, T("Map", "Karte", "Carte")], ["list", List, T("List", "Liste", "Liste")]]
+      : [["map", MapIcon, T("Map", "Karte", "Carte")]];
 
   return (
     <main id="bv-main" className="mx-auto px-4 sm:px-5 py-6 sm:py-10 bv-page-bottom" style={{ maxWidth: 1080 }}>
@@ -244,8 +231,6 @@ export default function AdminPipelinePage() {
           {([
             ["journey", T("Journey", "Reise", "Parcours")],
             ["b2", T("B2 German", "B2 Deutsch", "B2 allemand")],
-            ["anerkennung", T("Anerkennung", "Anerkennung", "Reconnaissance")],
-            ["impfung", T("Impfung", "Impfung", "Vaccins")],
           ] as const).map(([v, label]) => (
             <button key={v} onClick={() => setTrack(v)}
               className="px-3.5 py-1.5 rounded-full text-[12.5px] font-semibold transition-colors"
@@ -274,26 +259,10 @@ export default function AdminPipelinePage() {
             </button>
           ))}
         </div>
-        {/* Journey-only filter pills (Ready to sell / Needs attention). */}
-        {track === "journey" && (
-          <div className="inline-flex p-0.5 rounded-full" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-            {([["all", T("All", "Alle", "Tous")], ["sellable", T("Ready to sell", "Verkaufsbereit", "Prêts")], ["attention", T("Needs attention", "Braucht Aufmerksamkeit", "À traiter")]] as const).map(([v, label]) => (
-              <button key={v} onClick={() => setFilter(v)}
-                className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold transition-colors"
-                style={filter === v ? { background: "var(--gold)", color: "#131312" } : { background: "transparent", color: "var(--w3)" }}>
-                {label}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
-      {/* Canvas view — the Figma/Miro-style zoomable, pannable board. Default. */}
-      {view === "canvas" ? (
-        <PipelineCanvas rows={track !== "journey" ? searchOnlyRows : shown} track={track} lang={lang}
-          onPick={(uid) => setPeek(rows.find((r) => r.userId === uid) ?? null)}
-          onMoveStage={moveStage} />
-      ) : view === "map" || track !== "journey" ? (
+      {/* Map (rail) view — or List for the journey track. */}
+      {view === "map" || track !== "journey" ? (
         <JourneyMap rows={track !== "journey" ? searchOnlyRows : shown} lang={lang} track={track}
           onPick={(uid) => setPeek(rows.find((r) => r.userId === uid) ?? null)}
           onMoveStage={moveStage} />
@@ -301,9 +270,7 @@ export default function AdminPipelinePage() {
         <div className="bv-card text-center py-16">
           <CheckCircle2 size={30} strokeWidth={1.5} className="mx-auto mb-3" style={{ color: "var(--w3)" }} />
           <p className="text-[14px] font-medium" style={{ color: "var(--w2)" }}>
-            {filter === "attention"
-              ? T("Nothing needs attention 🎉", "Nichts zu tun 🎉", "Rien à traiter 🎉")
-              : T("No candidates yet", "Noch keine Kandidaten", "Aucun candidat")}
+            {T("No candidates yet", "Noch keine Kandidaten", "Aucun candidat")}
           </p>
         </div>
       ) : (
