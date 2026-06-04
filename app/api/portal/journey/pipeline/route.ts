@@ -150,6 +150,30 @@ export async function GET(req: NextRequest) {
     if (docs.some((d) => /lebenslauf/i.test(d.file_type ?? ""))) autoDone.add("cv_finalized");
     const status = computePipelineStatus(journey, today, isB2Passed(b2Stage), autoDone);
     const sellable = evaluateSellable({ documents: docs, journey });
+
+    // Follow-up signal — who needs chasing. Derived from real evidence:
+    //   blocked / overdue journey steps, or a rejected document sitting unfixed.
+    const hasRejectedDoc = docs.some((d) => d.status === "rejected");
+    const followUpReasons: string[] = [];
+    if (status.blockedCount > 0) followUpReasons.push("blocked");
+    if (status.overdueCount > 0) followUpReasons.push("overdue");
+    if (hasRejectedDoc) followUpReasons.push("rejected_doc");
+    const followUp = { needed: followUpReasons.length > 0, reasons: followUpReasons };
+
+    // The candidate's open (unfinished) journey items — shown in the peek popup
+    // so the admin sees exactly what's outstanding. Capped + ordered.
+    const openTasks = journey
+      .filter((j) => !j.done)
+      .slice()
+      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+      .slice(0, 6)
+      .map((j) => ({
+        key: j.preset_key ?? null,
+        text: j.text ?? null,
+        owner: (j.owner ?? null) as string | null,
+        dueDate: j.due_date ?? null,
+        blocked: j.blocked === true,
+      }));
     // Impfung stage — derived from agency requirement + vaccines + cert doc.
     const vaxReq = reqByCandidate.get(p.user_id) ?? NO_REQ;
     const vaccines = vaxByCandidate.get(p.user_id) as Record<string, { doses?: { got: boolean | null; done_date: string | null; expected_date: string | null }[]; cert_expected?: string | null }> | null;
@@ -166,6 +190,8 @@ export async function GET(req: NextRequest) {
       b2Failed: p.b2_failed === true,
       impfungStage,
       impfungDoses,
+      followUp,
+      openTasks,
     };
   });
 
@@ -176,6 +202,7 @@ export async function GET(req: NextRequest) {
     // "Almost" = one of the two gates met (CV xor diploma) but not both.
     almost: candidates.filter((c) => !c.sellable.sellable && (c.sellable.cvDone || c.sellable.diplomaApproved)).length,
     needsAttention: candidates.filter((c) => c.status.health === "blocked" || c.status.health === "overdue").length,
+    needsFollowUp: candidates.filter((c) => c.followUp.needed).length,
     arrived: candidates.filter((c) => c.status.health === "done").length,
   };
 

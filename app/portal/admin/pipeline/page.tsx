@@ -19,7 +19,7 @@ import { JourneyMap } from "@/components/JourneyMap";
 import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
 import { normalizeB2Stage, b2StageLabel, b2StageColor, B2_FAILED_COLOR } from "@/lib/b2Journey";
 import { impfungStageLabel, IMPFUNG_STAGE_BY_KEY, type ImpfungStage } from "@/lib/impfungJourney";
-import { ArrowLeft, AlertTriangle, Clock, CheckCircle2, Search, Map as MapIcon, List, BadgeCheck, ArrowRight } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Clock, CheckCircle2, Search, Map as MapIcon, List, BadgeCheck, ArrowRight, Bell } from "lucide-react";
 
 type Health = "on_track" | "due_soon" | "overdue" | "blocked" | "done";
 type Status = {
@@ -29,7 +29,9 @@ type Status = {
   overdueCount: number; blockedCount: number; health: Health;
 };
 type Sellable = { sellable: boolean; cvDone: boolean; diplomaApproved: boolean };
-type Row = { userId: string; name: string; photo: string | null; status: Status; sellable: Sellable; b2Stage?: string; b2Failed?: boolean; impfungStage?: string; impfungDoses?: { got: number; need: number } };
+type FollowUp = { needed: boolean; reasons: string[] };
+type OpenTask = { key: string | null; text: string | null; owner: string | null; dueDate: string | null; blocked: boolean };
+type Row = { userId: string; name: string; photo: string | null; status: Status; sellable: Sellable; b2Stage?: string; b2Failed?: boolean; impfungStage?: string; impfungDoses?: { got: number; need: number }; followUp?: FollowUp; openTasks?: OpenTask[] };
 
 const HEALTH_STYLE: Record<Health, { dot: string; label: { en: string; de: string; fr: string } }> = {
   blocked:  { dot: "#ef4444", label: { en: "Blocked",   de: "Blockiert",   fr: "Bloqué" } },
@@ -60,6 +62,8 @@ export default function AdminPipelinePage() {
   // Clicking a candidate opens a quick cross-track summary (peek) — NOT a jump
   // straight to their dossier. The dossier is one button away inside the popup.
   const [peek, setPeek] = useState<Row | null>(null);
+  const [nudging, setNudging] = useState(false);
+  const [nudged, setNudged] = useState<string | null>(null); // userId whose reminder just sent
 
   useEffect(() => {
     let cancelled = false;
@@ -86,7 +90,7 @@ export default function AdminPipelinePage() {
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
     return rows.filter((r) => {
-      if (filter === "attention" && !(r.status.health === "blocked" || r.status.health === "overdue")) return false;
+      if (filter === "attention" && !r.followUp?.needed) return false;
       if (filter === "sellable" && !r.sellable.sellable) return false;
       if (needle && !r.name.toLowerCase().includes(needle)) return false;
       return true;
@@ -124,6 +128,23 @@ export default function AdminPipelinePage() {
       // Soft, non-blocking notice — the face snaps back so the admin sees it didn't take.
       console.warn("[pipeline] B2 stage move failed; rolled back");
     }
+  };
+
+  // Send a follow-up reminder to a candidate (in-app bell notification, masked
+  // as coming from "Borivon"). One click from the peek popup.
+  const sendNudge = async (userId: string) => {
+    setNudging(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token ?? "";
+      const res = await fetch("/api/portal/journey/nudge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ candidateId: userId }),
+      });
+      if (res.ok) setNudged(userId);
+    } catch { /* swallow — button just won't flip to "sent" */ }
+    setNudging(false);
   };
 
   if (loading) return <PageLoader />;
@@ -327,6 +348,34 @@ export default function AdminPipelinePage() {
                 </div>
               </div>
 
+              {/* Needs-follow-up banner + one-click reminder */}
+              {peek.followUp?.needed && (
+                <div style={{ borderRadius: 16, border: "1px solid color-mix(in srgb, #f59e0b 45%, var(--border))", background: "color-mix(in srgb, #f59e0b 10%, transparent)", padding: 16 }}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertTriangle size={15} style={{ color: "#f59e0b" }} />
+                    <span className="text-[13px] font-bold" style={{ color: "var(--w)" }}>{T("Needs follow-up", "Nachfassen nötig", "À relancer")}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 mb-3">
+                    {peek.followUp.reasons.map((reason) => (
+                      <span key={reason} className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
+                        {reason === "blocked" ? T("Blocked", "Blockiert", "Bloqué")
+                          : reason === "overdue" ? T("Overdue step", "Überfälliger Schritt", "Étape en retard")
+                          : T("Rejected document", "Abgelehntes Dokument", "Document rejeté")}
+                      </span>
+                    ))}
+                  </div>
+                  <button onClick={() => sendNudge(peek.userId)} disabled={nudging || nudged === peek.userId}
+                    className="bv-press inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-3.5 py-2 rounded-lg disabled:opacity-70"
+                    style={nudged === peek.userId
+                      ? { background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }
+                      : { background: "#f59e0b", color: "#131312" }}>
+                    {nudged === peek.userId
+                      ? <><CheckCircle2 size={14} strokeWidth={2.2} /> {T("Reminder sent", "Erinnerung gesendet", "Rappel envoyé")}</>
+                      : <><Bell size={14} strokeWidth={2.2} /> {nudging ? T("Sending…", "Senden…", "Envoi…") : T("Send reminder", "Erinnerung senden", "Envoyer un rappel")}</>}
+                  </button>
+                </div>
+              )}
+
               {/* Journey */}
               <div style={card}>
                 <div style={cap}>🗺️ {T("Journey", "Reise", "Parcours")}</div>
@@ -343,6 +392,22 @@ export default function AdminPipelinePage() {
                   {peek.status.blockedCount > 0 && <span style={{ color: "#ef4444" }}>· {peek.status.blockedCount} {T("blocked", "blockiert", "bloqué")}</span>}
                 </div>
               </div>
+
+              {/* Open tasks — what's still outstanding for them */}
+              {peek.openTasks && peek.openTasks.length > 0 && (
+                <div style={card}>
+                  <div style={cap}>📋 {T("Open tasks", "Offene Aufgaben", "Tâches ouvertes")}</div>
+                  <div className="flex flex-col gap-2">
+                    {peek.openTasks.map((task, i) => (
+                      <div key={i} className="flex items-center gap-2 text-[12.5px]" style={{ color: "var(--w2)" }}>
+                        <span style={{ width: 6, height: 6, borderRadius: 999, background: task.blocked ? "#ef4444" : "var(--w3)", flexShrink: 0 }} />
+                        <span className="truncate">{task.key ? presetLabel(task.key, lang) : (task.text || "—")}</span>
+                        {task.blocked && <AlertTriangle size={11} style={{ color: "#ef4444", flexShrink: 0 }} />}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* B2 German */}
               <div style={card}>

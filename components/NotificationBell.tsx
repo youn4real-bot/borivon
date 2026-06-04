@@ -145,7 +145,7 @@ type CandidateNotif = {
   doc_id: string | null;
   doc_name: string;
   doc_type: string;
-  action: "approved" | "rejected" | "verified" | "placed" | "sign_request" | "event_invite";
+  action: "approved" | "rejected" | "verified" | "placed" | "sign_request" | "event_invite" | "follow_up";
   feedback: string | null;
   read: boolean;
   created_at: string;
@@ -435,6 +435,11 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
       router.push("/portal/calendar");
       return;
     }
+    // "follow_up" — a Borivon reminder; just open the dashboard (no doc to resolve).
+    if (n.action === "follow_up") {
+      router.push("/portal/dashboard");
+      return;
+    }
 
     let docId = n.doc_id ?? null;
 
@@ -477,7 +482,8 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
             const placed      = n.action === "placed";
             const signRequest = n.action === "sign_request";
             const eventInvite = n.action === "event_invite";
-            const iconSt = (verified || placed || signRequest || eventInvite)
+            const followUp    = n.action === "follow_up";
+            const iconSt = (verified || placed || signRequest || eventInvite || followUp)
               ? { bg: "var(--gdim)", color: "var(--gold)", border: "1.5px solid var(--border-gold)" }
               : approved
               ? { bg: "var(--success-bg)",  color: "var(--success)",     border: "1.5px solid var(--success-border)" }
@@ -500,7 +506,7 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
                   onClick={() => handleClick(n)}>
                   <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
                     style={{ background: iconSt.bg, color: iconSt.color, border: iconSt.border }}>
-                    {pendingNotifId === n.id ? <Spinner size="xs" /> : verified ? <CheckCircle2 size={15} strokeWidth={1.8} /> : placed ? <span style={{ fontSize: 15 }}>🏢</span> : eventInvite ? <Calendar size={15} strokeWidth={1.8} /> : signRequest ? <FilePen size={14} strokeWidth={1.8} /> : approved ? <CheckCircle2 size={15} strokeWidth={1.8} /> : <XCircle size={15} strokeWidth={1.8} />}
+                    {pendingNotifId === n.id ? <Spinner size="xs" /> : verified ? <CheckCircle2 size={15} strokeWidth={1.8} /> : placed ? <span style={{ fontSize: 15 }}>🏢</span> : eventInvite ? <Calendar size={15} strokeWidth={1.8} /> : signRequest ? <FilePen size={14} strokeWidth={1.8} /> : followUp ? <span style={{ fontSize: 15 }}>🔔</span> : approved ? <CheckCircle2 size={15} strokeWidth={1.8} /> : <XCircle size={15} strokeWidth={1.8} />}
                   </div>
                   <div className="flex-1 min-w-0">
                     {/* Line 1: doc / event TITLE (bold). Line 2+: body text wrapping. */}
@@ -554,6 +560,23 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
                           {bt.signRequestNext}
                         </p>
                       </>
+                    ) : followUp ? (
+                      <>
+                        <p className="text-xs font-semibold flex items-center gap-1 truncate" style={{ color: "var(--w)" }}>
+                          <span className="truncate">{lang === "de" ? "Erinnerung von Borivon" : lang === "fr" ? "Rappel de Borivon" : "Reminder from Borivon"}</span>
+                        </p>
+                        <p className="text-[11px] leading-snug mt-0.5" style={{ color: "var(--gold)", wordBreak: "break-word" }}>
+                          {lang === "de" ? "Bitte öffne dein Portal — es gibt etwas zu erledigen."
+                            : lang === "fr" ? "Merci d'ouvrir ton portail — une action t'attend."
+                            : "Please open your portal — there's something to take care of."}
+                        </p>
+                        {n.feedback && (
+                          <p className="text-[11px] mt-1.5 px-2 py-1.5 rounded-lg leading-snug"
+                            style={{ background: "var(--gdim)", color: "var(--w2)", border: "1px solid var(--border-gold)" }}>
+                            {n.feedback}
+                          </p>
+                        )}
+                      </>
                     ) : (
                       <>
                         {/* Line 1: doc type. Line 2: status. */}
@@ -565,7 +588,7 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
                         </p>
                       </>
                     )}
-                    {!verified && !placed && n.feedback && (
+                    {!verified && !placed && !followUp && n.feedback && (
                       <p className="text-[11px] mt-1.5 px-2 py-1.5 rounded-lg leading-snug"
                         style={{
                           background: approved ? "var(--success-bg)" : "var(--danger-bg)",
@@ -578,8 +601,8 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
                     <p className="text-[10px] mt-1.5 flex items-center gap-1" style={{ color: "var(--w3)" }}>
                       {relativeTimeShort(n.created_at, lang)}
                       <span style={{ color: "var(--border)" }}>·</span>
-                      <span style={{ color: verified || placed || signRequest || eventInvite ? "var(--gold)" : approved ? "var(--success)" : "var(--danger)" }}>
-                        {eventInvite ? bt.viewCalendar : verified || placed || signRequest ? bt.goToDashboard : bt.tapToReview}
+                      <span style={{ color: verified || placed || signRequest || eventInvite || followUp ? "var(--gold)" : approved ? "var(--success)" : "var(--danger)" }}>
+                        {eventInvite ? bt.viewCalendar : verified || placed || signRequest || followUp ? bt.goToDashboard : bt.tapToReview}
                       </span>
                     </p>
                   </div>
