@@ -231,7 +231,7 @@ export default function AdminPipelinePage() {
             ] as const).map(([v, label]) => (
               <button key={v} onClick={() => setTrack(v)}
                 className="px-3.5 py-1.5 rounded-full text-[12.5px] font-semibold transition-colors"
-                style={track === v ? { background: "var(--gold)", color: "#131312" } : { background: "transparent", color: "var(--w3)" }}>
+                style={track === v ? { background: "var(--gold)", color: "#131312", boxShadow: "var(--shadow-gold-sm)" } : { background: "transparent", color: "var(--w3)" }}>
                 {label}
               </button>
             ))}
@@ -252,7 +252,7 @@ export default function AdminPipelinePage() {
           {viewOpts.map(([v, Icon, label]) => (
             <button key={v} onClick={() => setView(v)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-semibold transition-colors"
-              style={view === v ? { background: "var(--gold)", color: "#131312" } : { background: "transparent", color: "var(--w3)" }}>
+              style={view === v ? { background: "var(--gold)", color: "#131312", boxShadow: "var(--shadow-gold-sm)" } : { background: "transparent", color: "var(--w3)" }}>
               <Icon size={14} /> <span className="hidden sm:inline">{label}</span>
             </button>
           ))}
@@ -300,7 +300,7 @@ export default function AdminPipelinePage() {
             ? T("Arrived in Germany 🇩🇪", "In Deutschland angekommen 🇩🇪", "Arrivé en Allemagne 🇩🇪")
             : peek.status.current ? presetLabel(peek.status.current.key, lang)
             : T("Just started", "Gerade begonnen", "Vient de commencer");
-          const card: CSSProperties = { borderRadius: 16, border: "1px solid var(--border)", background: "var(--bg2)", padding: 16 };
+          const card: CSSProperties = { borderRadius: 16, border: "1px solid var(--border)", background: "var(--bg2)", padding: 16, boxShadow: "0 1px 2px rgba(0,0,0,0.05)" };
           const cap: CSSProperties = { fontSize: 10.5, fontWeight: 700, color: "var(--w3)", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 10 };
           const lbl: CSSProperties = { fontSize: 10.5, fontWeight: 600, color: "var(--w3)", marginBottom: 4, display: "block" };
           const reportLabel = (rep: SelfReport) => {
