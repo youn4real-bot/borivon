@@ -23,6 +23,7 @@ import { normalizeAnerkennungStage, anerkennungStageLabel, anerkennungStageColor
 import { impfungStageLabel, IMPFUNG_STAGE_BY_KEY, type ImpfungStage } from "@/lib/impfungJourney";
 import { NURSE_SPECIALTIES, specialtyLabel } from "@/lib/nurseSpecialties";
 import { recognitionDocLabel } from "@/lib/recognitionDocs";
+import { relativeTimeShort } from "@/lib/relativeTime";
 import { Toaster, toast } from "sonner";
 import { ArrowLeft, AlertTriangle, CheckCircle2, Search, Map as MapIcon, LayoutGrid, BadgeCheck, ArrowRight, Bell, FileText, Printer, Pencil, ChevronDown } from "lucide-react";
 
@@ -39,7 +40,8 @@ type OpenTask = { key: string | null; text: string | null; owner: string | null;
 type Facts = { specialty: string | null; yearsExperience: number | null; workplace: string | null; availableFrom: string | null };
 type DocPackItem = { key: string; status: "approved" | "pending" | "missing" };
 type DocPack = { items: DocPackItem[]; collected: number; total: number };
-type Row = { userId: string; name: string; photo: string | null; status: Status; sellable: Sellable; b2Stage?: string; b2Failed?: boolean; anerkennungStage?: string; impfungStage?: string; impfungDoses?: { got: number; need: number }; followUp?: FollowUp; openTasks?: OpenTask[]; facts?: Facts; docPack?: DocPack };
+type SelfReport = { kind: string; outcome: string; note: string | null; created_at: string };
+type Row = { userId: string; name: string; photo: string | null; status: Status; sellable: Sellable; b2Stage?: string; b2Failed?: boolean; anerkennungStage?: string; impfungStage?: string; impfungDoses?: { got: number; need: number }; followUp?: FollowUp; openTasks?: OpenTask[]; facts?: Facts; docPack?: DocPack; reports?: SelfReport[] };
 
 const HEALTH_STYLE: Record<Health, { dot: string; label: { en: string; de: string; fr: string } }> = {
   blocked:  { dot: "#ef4444", label: { en: "Blocked",   de: "Blockiert",   fr: "Bloqué" } },
@@ -301,6 +303,13 @@ export default function AdminPipelinePage() {
           const card: CSSProperties = { borderRadius: 16, border: "1px solid var(--border)", background: "var(--bg2)", padding: 16 };
           const cap: CSSProperties = { fontSize: 10.5, fontWeight: 700, color: "var(--w3)", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 10 };
           const lbl: CSSProperties = { fontSize: 10.5, fontWeight: 600, color: "var(--w3)", marginBottom: 4, display: "block" };
+          const reportLabel = (rep: SelfReport) => {
+            if (rep.kind === "b2") return rep.outcome === "passed" ? T("Passed B2 🎉", "B2 bestanden 🎉", "B2 réussi 🎉") : T("Didn't pass B2 — retaking", "B2 nicht bestanden", "B2 non réussi");
+            if (rep.kind === "interview") return rep.outcome === "passed" ? T("Passed an interview ✅", "Gespräch bestanden ✅", "Entretien réussi ✅")
+              : rep.outcome === "scheduled" ? T("Interview scheduled 📅", "Gespräch geplant 📅", "Entretien planifié 📅")
+              : T("Interview didn't pass", "Gespräch nicht bestanden", "Entretien non réussi");
+            return rep.note || T("Update", "Update", "Mise à jour");
+          };
           return (
             <div className="p-5 flex flex-col gap-3">
               {/* Identity */}
@@ -404,6 +413,21 @@ export default function AdminPipelinePage() {
                       ? <><CheckCircle2 size={14} strokeWidth={2.2} /> {T("Reminder sent", "Erinnerung gesendet", "Rappel envoyé")}</>
                       : <><Bell size={14} strokeWidth={2.2} /> {nudging ? T("Sending…", "Senden…", "Envoi…") : T("Send reminder", "Erinnerung senden", "Envoyer un rappel")}</>}
                   </button>
+                </div>
+              )}
+
+              {/* Candidate updates — what they self-reported (passed B2, interview…) */}
+              {peek.reports && peek.reports.length > 0 && (
+                <div style={card}>
+                  <div style={cap}>🗣️ {T("Candidate updates", "Kandidaten-Updates", "Mises à jour du candidat")}</div>
+                  <div className="flex flex-col gap-2">
+                    {peek.reports.map((rep, i) => (
+                      <div key={i} className="flex items-center justify-between gap-2 text-[12.5px]" style={{ color: "var(--w2)" }}>
+                        <span className="truncate">{reportLabel(rep)}</span>
+                        <span className="flex-shrink-0" style={{ color: "var(--w3)", fontSize: 11 }}>{relativeTimeShort(rep.created_at, lang)}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 

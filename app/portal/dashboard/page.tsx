@@ -35,6 +35,7 @@ import { DocxViewer } from "@/components/DocxViewer";
 import { ZoomPanRotateViewer } from "@/components/ZoomPanRotateViewer";
 import { Spinner, PageLoader } from "@/components/ui/states";
 import { JourneyView } from "@/components/JourneyView";
+import { SelfReportCard } from "@/components/SelfReportCard";
 import { OrgCodeModal } from "@/components/OrgCodeModal";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { buildProfileSlug } from "@/lib/profile-slug";
@@ -2622,6 +2623,10 @@ export default function DashboardPage() {
                 for minimalism — the active phase is already indicated by the
                 gold icon in the left rail, that's enough context. */}
             {viewMode === "docs" && <div key={`docs-phase-${phase}`} className="bv-enter">
+
+            {/* Self-report — candidates log their own milestones (passed/failed B2,
+                interview, etc.) so the team doesn't have to chase + key it in. */}
+            <SelfReportCard lang={lang} />
 
             {/* Premium phase card — mirrors the admin candidate-detail panel
                 so both sides share one visual language. Header inside the

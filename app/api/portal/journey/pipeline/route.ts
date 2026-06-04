@@ -139,6 +139,22 @@ export async function GET(req: NextRequest) {
     else if (impfDocs.some((d) => d.status === "pending")) impfungDocStatus.set(uid, "pending");
   }
 
+  // Candidate self-reports — what each candidate logged about themselves (passed
+  // B2, interview, …). Most-recent-first, capped per candidate. Shown in the peek.
+  const reportsByCandidate = new Map<string, { kind: string; outcome: string; note: string | null; created_at: string }[]>();
+  {
+    const { data } = await db
+      .from("candidate_self_reports")
+      .select("candidate_user_id, kind, outcome, note, created_at")
+      .in("candidate_user_id", ids)
+      .order("created_at", { ascending: false });
+    for (const r of (data ?? []) as { candidate_user_id: string; kind: string; outcome: string; note: string | null; created_at: string }[]) {
+      const arr = reportsByCandidate.get(r.candidate_user_id) ?? [];
+      if (arr.length < 4) arr.push({ kind: r.kind, outcome: r.outcome, note: r.note, created_at: r.created_at });
+      reportsByCandidate.set(r.candidate_user_id, arr);
+    }
+  }
+
   const today = casablancaToday();
   const candidates = profiles.map((p) => {
     const journey = byCandidate.get(p.user_id) ?? [];
@@ -207,6 +223,7 @@ export async function GET(req: NextRequest) {
       },
       anerkennungStage: normalizeAnerkennungStage(p.anerkennung_stage),
       docPack: computeDocPack(docs),
+      reports: reportsByCandidate.get(p.user_id) ?? [],
     };
   });
 
