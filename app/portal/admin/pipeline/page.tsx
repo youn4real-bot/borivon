@@ -20,6 +20,7 @@ import { PipelineCanvas } from "@/components/PipelineCanvas";
 import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
 import { normalizeB2Stage, b2StageLabel, b2StageColor, B2_FAILED_COLOR } from "@/lib/b2Journey";
 import { impfungStageLabel, IMPFUNG_STAGE_BY_KEY, type ImpfungStage } from "@/lib/impfungJourney";
+import { NURSE_SPECIALTIES, specialtyLabel } from "@/lib/nurseSpecialties";
 import { ArrowLeft, AlertTriangle, Clock, CheckCircle2, Search, Map as MapIcon, List, BadgeCheck, ArrowRight, Bell, Frame } from "lucide-react";
 
 type Health = "on_track" | "due_soon" | "overdue" | "blocked" | "done";
@@ -32,7 +33,8 @@ type Status = {
 type Sellable = { sellable: boolean; cvDone: boolean; diplomaApproved: boolean };
 type FollowUp = { needed: boolean; reasons: string[] };
 type OpenTask = { key: string | null; text: string | null; owner: string | null; dueDate: string | null; blocked: boolean };
-type Row = { userId: string; name: string; photo: string | null; status: Status; sellable: Sellable; b2Stage?: string; b2Failed?: boolean; impfungStage?: string; impfungDoses?: { got: number; need: number }; followUp?: FollowUp; openTasks?: OpenTask[] };
+type Facts = { specialty: string | null; yearsExperience: number | null; workplace: string | null; availableFrom: string | null };
+type Row = { userId: string; name: string; photo: string | null; status: Status; sellable: Sellable; b2Stage?: string; b2Failed?: boolean; impfungStage?: string; impfungDoses?: { got: number; need: number }; followUp?: FollowUp; openTasks?: OpenTask[]; facts?: Facts };
 
 const HEALTH_STYLE: Record<Health, { dot: string; label: { en: string; de: string; fr: string } }> = {
   blocked:  { dot: "#ef4444", label: { en: "Blocked",   de: "Blockiert",   fr: "Bloqué" } },
@@ -65,6 +67,10 @@ export default function AdminPipelinePage() {
   const [peek, setPeek] = useState<Row | null>(null);
   const [nudging, setNudging] = useState(false);
   const [nudged, setNudged] = useState<string | null>(null); // userId whose reminder just sent
+  // Editable nurse-profile facts (specialty/experience) for the peeked candidate.
+  const [factsDraft, setFactsDraft] = useState({ specialty: "", years: "", workplace: "", availableFrom: "" });
+  const [factsSaving, setFactsSaving] = useState(false);
+  const [factsSaved, setFactsSaved] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -93,17 +99,33 @@ export default function AdminPipelinePage() {
     return rows.filter((r) => {
       if (filter === "attention" && !r.followUp?.needed) return false;
       if (filter === "sellable" && !r.sellable.sellable) return false;
-      if (needle && !r.name.toLowerCase().includes(needle)) return false;
+      if (needle) {
+        const hay = `${r.name} ${specialtyLabel(r.facts?.specialty, lang)} ${r.facts?.specialty ?? ""} ${r.facts?.workplace ?? ""}`.toLowerCase();
+        if (!hay.includes(needle)) return false;
+      }
       return true;
     });
-  }, [rows, q, filter]);
+  }, [rows, q, filter, lang]);
 
   // The B2 / Impfung tracks ignore the journey-specific filter tabs (sellable /
   // attention) — those are about the main journey. They respect only the search.
   const searchOnlyRows = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    return needle ? rows.filter((r) => r.name.toLowerCase().includes(needle)) : rows;
-  }, [rows, q]);
+    if (!needle) return rows;
+    return rows.filter((r) => `${r.name} ${specialtyLabel(r.facts?.specialty, lang)} ${r.facts?.specialty ?? ""} ${r.facts?.workplace ?? ""}`.toLowerCase().includes(needle));
+  }, [rows, q, lang]);
+
+  // Sync the editable nurse-facts form whenever a different candidate is peeked.
+  useEffect(() => {
+    if (!peek) return;
+    setFactsDraft({
+      specialty: peek.facts?.specialty ?? "",
+      years: peek.facts?.yearsExperience != null ? String(peek.facts.yearsExperience) : "",
+      workplace: peek.facts?.workplace ?? "",
+      availableFrom: peek.facts?.availableFrom ?? "",
+    });
+    setFactsSaved(false);
+  }, [peek]);
 
   // Drag-and-drop: move a candidate to a different B2 stage by dropping their
   // face on that stage row. Optimistic (instant glide via Motion) → persist to
@@ -146,6 +168,41 @@ export default function AdminPipelinePage() {
       if (res.ok) setNudged(userId);
     } catch { /* swallow — button just won't flip to "sent" */ }
     setNudging(false);
+  };
+
+  // Edit a nurse-facts field (also clears the "saved" state so the button resets).
+  const updateFact = (patch: Partial<typeof factsDraft>) => {
+    setFactsDraft((d) => ({ ...d, ...patch }));
+    setFactsSaved(false);
+  };
+
+  // Persist nurse profile facts (specialty / experience / workplace / availability).
+  const saveFacts = async () => {
+    if (!peek) return;
+    const id = peek.userId;
+    setFactsSaving(true);
+    const payload = {
+      candidateId: id,
+      specialty: factsDraft.specialty || null,
+      yearsExperience: factsDraft.years === "" ? null : Number(factsDraft.years),
+      workplace: factsDraft.workplace,
+      availableFrom: factsDraft.availableFrom || null,
+    };
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token ?? "";
+      const res = await fetch("/api/portal/journey/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        setFactsSaved(true);
+        const newFacts: Facts = { specialty: payload.specialty, yearsExperience: payload.yearsExperience, workplace: payload.workplace || null, availableFrom: payload.availableFrom };
+        setRows((rs) => rs.map((r) => (r.userId === id ? { ...r, facts: newFacts } : r)));
+      }
+    } catch { /* no-op — button just won't flip to saved */ }
+    setFactsSaving(false);
   };
 
   if (loading) return <PageLoader />;
@@ -331,6 +388,7 @@ export default function AdminPipelinePage() {
             : T("Just started", "Gerade begonnen", "Vient de commencer");
           const card: CSSProperties = { borderRadius: 16, border: "1px solid var(--border)", background: "var(--bg2)", padding: 16 };
           const cap: CSSProperties = { fontSize: 10.5, fontWeight: 700, color: "var(--w3)", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 10 };
+          const lbl: CSSProperties = { fontSize: 10.5, fontWeight: 600, color: "var(--w3)", marginBottom: 4, display: "block" };
           return (
             <div className="p-5 flex flex-col gap-4">
               {/* Identity */}
@@ -354,6 +412,40 @@ export default function AdminPipelinePage() {
                     )}
                   </div>
                 </div>
+              </div>
+
+              {/* Nurse profile — specialty / experience (what hospitals ask first). Editable. */}
+              <div style={card}>
+                <div style={cap}>🩺 {T("Nurse profile", "Pflegeprofil", "Profil infirmier")}</div>
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div className="col-span-2">
+                    <label style={lbl}>{T("Specialty", "Fachbereich", "Spécialité")}</label>
+                    <select className="bv-input" value={factsDraft.specialty} onChange={(e) => updateFact({ specialty: e.target.value })} style={{ fontSize: 12.5 }}>
+                      <option value="">{T("— none set —", "— keine —", "— aucune —")}</option>
+                      {NURSE_SPECIALTIES.map((s) => <option key={s.key} value={s.key}>{specialtyLabel(s.key, lang)}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={lbl}>{T("Years of experience", "Berufsjahre", "Années d'expérience")}</label>
+                    <input className="bv-input" type="number" min={0} max={60} value={factsDraft.years} onChange={(e) => updateFact({ years: e.target.value })} style={{ fontSize: 12.5 }} />
+                  </div>
+                  <div>
+                    <label style={lbl}>{T("Available from", "Verfügbar ab", "Disponible dès")}</label>
+                    <input className="bv-input" type="date" value={factsDraft.availableFrom} onChange={(e) => updateFact({ availableFrom: e.target.value })} style={{ fontSize: 12.5 }} />
+                  </div>
+                  <div className="col-span-2">
+                    <label style={lbl}>{T("Current workplace", "Aktueller Arbeitsplatz", "Lieu de travail actuel")}</label>
+                    <input className="bv-input" type="text" maxLength={120} value={factsDraft.workplace} onChange={(e) => updateFact({ workplace: e.target.value })}
+                      placeholder={T("e.g. CHU Ibn Sina — ICU", "z. B. CHU Ibn Sina — Intensiv", "ex. CHU Ibn Sina — soins intensifs")} style={{ fontSize: 12.5 }} />
+                  </div>
+                </div>
+                <button onClick={() => void saveFacts()} disabled={factsSaving}
+                  className="bv-press mt-3 inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 rounded-lg disabled:opacity-60"
+                  style={factsSaved
+                    ? { background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }
+                    : { background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                  {factsSaved ? <><CheckCircle2 size={13} strokeWidth={2.2} /> {T("Saved", "Gespeichert", "Enregistré")}</> : factsSaving ? T("Saving…", "Speichern…", "Enregistrement…") : T("Save profile", "Profil speichern", "Enregistrer")}
+                </button>
               </div>
 
               {/* Needs-follow-up banner + one-click reminder */}

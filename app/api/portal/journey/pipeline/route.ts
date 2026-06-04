@@ -32,6 +32,10 @@ type ProfileRow = {
   profile_photo: string | null;
   b2_stage: string | null;
   b2_failed: boolean | null;
+  nursing_specialty: string | null;
+  years_experience: number | null;
+  current_workplace: string | null;
+  available_from: string | null;
 };
 
 export async function GET(req: NextRequest) {
@@ -46,7 +50,7 @@ export async function GET(req: NextRequest) {
   // Load candidate profiles in scope.
   let profQ = db
     .from("candidate_profiles")
-    .select("user_id, first_name, last_name, profile_photo, b2_stage, b2_failed");
+    .select("user_id, first_name, last_name, profile_photo, b2_stage, b2_failed, nursing_specialty, years_experience, current_workplace, available_from");
   if (visible !== null) {
     if (visible.length === 0) return NextResponse.json({ today: casablancaToday(), candidates: [] });
     profQ = profQ.in("user_id", visible);
@@ -192,6 +196,12 @@ export async function GET(req: NextRequest) {
       impfungDoses,
       followUp,
       openTasks,
+      facts: {
+        specialty: p.nursing_specialty ?? null,
+        yearsExperience: p.years_experience ?? null,
+        workplace: p.current_workplace ?? null,
+        availableFrom: p.available_from ?? null,
+      },
     };
   });
 
