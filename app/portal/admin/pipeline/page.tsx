@@ -261,66 +261,59 @@ export default function AdminPipelinePage() {
   ];
 
   return (
-    <main id="bv-main" className="mx-auto px-4 sm:px-5 py-6 sm:py-10 bv-page-bottom" style={{ maxWidth: 1080 }}>
-      <button onClick={() => router.push("/portal/admin")} className="bv-btn bv-btn-ghost mb-5 inline-flex">
-        <ArrowLeft size={15} strokeWidth={2} /> {T("Back to admin", "Zurück zum Admin", "Retour à l'admin")}
+    <main id="bv-main" className="mx-auto px-4 sm:px-5 py-5 sm:py-7 bv-page-bottom" style={{ maxWidth: 1080 }}>
+      <button onClick={() => router.push("/portal/admin")} className="bv-press inline-flex items-center gap-1.5 mb-3 text-[12px]" style={{ color: "var(--w3)" }}>
+        <ArrowLeft size={14} strokeWidth={2} /> {T("Back to admin", "Zurück zum Admin", "Retour à l'admin")}
       </button>
 
-      <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
-        <h1 className="bv-h1">{T("Pipeline", "Pipeline", "Pipeline")}</h1>
-        {/* Track switcher — only for the per-track Map/List views (the Board is
-            track-independent, so it's hidden there). */}
-        {view !== "board" && (
-          <div className="inline-flex p-0.5 rounded-full" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-            {([
-              ["journey", T("Journey", "Reise", "Parcours")],
-              ["b2", T("B2 German", "B2 Deutsch", "B2 allemand")],
-            ] as const).map(([v, label]) => (
-              <button key={v} onClick={() => setTrack(v)}
-                className="px-3.5 py-1.5 rounded-full text-[12.5px] font-semibold transition-colors"
-                style={track === v ? { background: "var(--gold)", color: "#131312", boxShadow: "var(--shadow-gold-sm)" } : { background: "transparent", color: "var(--w3)" }}>
-                {label}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Search + filters */}
-      <div className="flex items-center gap-2 mb-4 flex-wrap">
-        <div className="relative flex-1" style={{ minWidth: 200 }}>
-          <Search size={15} className="absolute" style={{ left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--w3)" }} />
-          <input value={q} onChange={(e) => setQ(e.target.value)} className="bv-input" style={{ paddingLeft: 36 }}
-            placeholder={T("Search candidate…", "Kandidat suchen…", "Rechercher…")} />
-        </div>
-        {/* View toggle — Canvas (Figma board) / Map / List. Always available;
-            List is journey-only. */}
-        <div className="inline-flex p-0.5 rounded-full" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+      {/* Compact top bar — title · stats · track + view, all tight. */}
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+        <h1 style={{ fontSize: 22, fontWeight: 700, letterSpacing: -0.4, color: "var(--w)" }}>{T("Pipeline", "Pipeline", "Pipeline")}</h1>
+        <div className="inline-flex items-center gap-1.5">
+          {view !== "board" && ([
+            ["journey", T("Journey", "Reise", "Parcours")],
+            ["b2", T("B2 German", "B2 Deutsch", "B2 allemand")],
+          ] as const).map(([v, label]) => (
+            <button key={v} onClick={() => setTrack(v)}
+              className="px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-colors"
+              style={track === v ? { background: "var(--gold)", color: "#131312" } : { background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
+              {label}
+            </button>
+          ))}
+          {view !== "board" && <span style={{ width: 1, height: 18, background: "var(--border)", margin: "0 2px" }} />}
           {viewOpts.map(([v, Icon, label]) => (
             <button key={v} onClick={() => setView(v)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-semibold transition-colors"
-              style={view === v ? { background: "var(--gold)", color: "#131312", boxShadow: "var(--shadow-gold-sm)" } : { background: "transparent", color: "var(--w3)" }}>
-              <Icon size={14} /> <span className="hidden sm:inline">{label}</span>
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-colors"
+              style={view === v ? { background: "var(--gold)", color: "#131312" } : { background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
+              <Icon size={13} /> <span className="hidden sm:inline">{label}</span>
             </button>
           ))}
         </div>
       </div>
 
-      {/* Hero stats — the whole pipeline at a glance. */}
+      {/* Search — slim. */}
+      <div className="relative mb-2.5">
+        <Search size={14} className="absolute" style={{ left: 12, top: "50%", transform: "translateY(-50%)", color: "var(--w3)" }} />
+        <input value={q} onChange={(e) => setQ(e.target.value)} className="bv-input" style={{ paddingLeft: 34, height: 38, fontSize: 13 }}
+          placeholder={T("Search candidate…", "Kandidat suchen…", "Rechercher…")} />
+      </div>
+
+      {/* Stats — one quiet inline line, not big tiles. */}
       {(() => {
         const total = rows.length;
         const sell = rows.filter((r) => r.sellable?.sellable).length;
         const flw = rows.filter((r) => r.followUp?.needed).length;
         const arr = rows.filter((r) => r.status.health === "done").length;
-        const tile: CSSProperties = { background: "var(--card)", border: "1px solid var(--border)", borderRadius: 16, padding: "12px 14px", boxShadow: "0 1px 2px rgba(0,0,0,0.05)" };
-        const num: CSSProperties = { fontSize: 22, fontWeight: 800, letterSpacing: -0.5, lineHeight: 1, fontVariantNumeric: "tabular-nums" };
-        const lab: CSSProperties = { fontSize: 11, fontWeight: 600, color: "var(--w3)", marginTop: 5 };
+        const b: CSSProperties = { fontWeight: 700, fontVariantNumeric: "tabular-nums" };
         return (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-4">
-            <div style={tile}><div style={{ ...num, color: "var(--w)" }}>{total}</div><div style={lab}>{T("Candidates", "Kandidaten", "Candidats")}</div></div>
-            <div style={tile}><div style={{ ...num, color: "var(--gold)" }}>{sell}</div><div style={lab}>{T("Ready to sell", "Verkaufsbereit", "Prêts à vendre")}</div></div>
-            <div style={tile}><div style={{ ...num, color: "#f59e0b" }}>{flw}</div><div style={lab}>{T("Need follow-up", "Nachfassen", "À relancer")}</div></div>
-            <div style={tile}><div style={{ ...num, color: "#16a34a" }}>{arr}</div><div style={lab}>{T("Arrived 🇩🇪", "Angekommen 🇩🇪", "Arrivés 🇩🇪")}</div></div>
+          <div className="flex items-center gap-x-2.5 gap-y-1 flex-wrap mb-4 text-[12px]" style={{ color: "var(--w3)" }}>
+            <span><b style={{ ...b, color: "var(--w)" }}>{total}</b> {T("candidates", "Kandidaten", "candidats")}</span>
+            <span style={{ color: "var(--border)" }}>·</span>
+            <span><b style={{ ...b, color: "var(--gold)" }}>{sell}</b> {T("ready", "verkaufsbereit", "prêts")}</span>
+            <span style={{ color: "var(--border)" }}>·</span>
+            <span><b style={{ ...b, color: "#f59e0b" }}>{flw}</b> {T("follow-up", "nachfassen", "à relancer")}</span>
+            <span style={{ color: "var(--border)" }}>·</span>
+            <span><b style={{ ...b, color: "#16a34a" }}>{arr}</b> {T("arrived", "angekommen", "arrivés")}</span>
           </div>
         );
       })()}
