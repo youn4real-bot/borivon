@@ -16,10 +16,11 @@ import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
 import { JOURNEY_PRESETS } from "@/lib/candidateJourney";
 import { JourneyMap } from "@/components/JourneyMap";
+import { PipelineCanvas } from "@/components/PipelineCanvas";
 import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
 import { normalizeB2Stage, b2StageLabel, b2StageColor, B2_FAILED_COLOR } from "@/lib/b2Journey";
 import { impfungStageLabel, IMPFUNG_STAGE_BY_KEY, type ImpfungStage } from "@/lib/impfungJourney";
-import { ArrowLeft, AlertTriangle, Clock, CheckCircle2, Search, Map as MapIcon, List, BadgeCheck, ArrowRight, Bell } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Clock, CheckCircle2, Search, Map as MapIcon, List, BadgeCheck, ArrowRight, Bell, Frame } from "lucide-react";
 
 type Health = "on_track" | "due_soon" | "overdue" | "blocked" | "done";
 type Status = {
@@ -57,7 +58,7 @@ export default function AdminPipelinePage() {
   const [today, setToday] = useState("");
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<"all" | "attention" | "sellable">("all");
-  const [view, setView] = useState<"map" | "list">("map");
+  const [view, setView] = useState<"canvas" | "map" | "list">("canvas");
   const [track, setTrack] = useState<"journey" | "b2" | "impfung">("journey");
   // Clicking a candidate opens a quick cross-track summary (peek) — NOT a jump
   // straight to their dossier. The dossier is one button away inside the popup.
@@ -159,6 +160,12 @@ export default function AdminPipelinePage() {
     return T(`in ${d}d`, `in ${d} T.`, `dans ${d}j`);
   };
 
+  // View options — Canvas + Map always; List is journey-only.
+  const viewOpts: [("canvas" | "map" | "list"), typeof MapIcon, string][] =
+    track === "journey"
+      ? [["canvas", Frame, T("Canvas", "Leinwand", "Canevas")], ["map", MapIcon, T("Map", "Karte", "Carte")], ["list", List, T("List", "Liste", "Liste")]]
+      : [["canvas", Frame, T("Canvas", "Leinwand", "Canevas")], ["map", MapIcon, T("Map", "Karte", "Carte")]];
+
   return (
     <main id="bv-main" className="mx-auto px-4 sm:px-5 py-6 sm:py-10 bv-page-bottom" style={{ maxWidth: 1080 }}>
       <button onClick={() => router.push("/portal/admin")} className="bv-btn bv-btn-ghost mb-5 inline-flex">
@@ -190,36 +197,37 @@ export default function AdminPipelinePage() {
           <input value={q} onChange={(e) => setQ(e.target.value)} className="bv-input" style={{ paddingLeft: 36 }}
             placeholder={T("Search candidate…", "Kandidat suchen…", "Rechercher…")} />
         </div>
-        {/* Journey-only controls (sellable/attention filter + Map/List). The B2
-            track is its own roadmap and ignores these. */}
+        {/* View toggle — Canvas (Figma board) / Map / List. Always available;
+            List is journey-only. */}
+        <div className="inline-flex p-0.5 rounded-full" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+          {viewOpts.map(([v, Icon, label]) => (
+            <button key={v} onClick={() => setView(v)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-semibold transition-colors"
+              style={view === v ? { background: "var(--gold)", color: "#131312" } : { background: "transparent", color: "var(--w3)" }}>
+              <Icon size={14} /> <span className="hidden sm:inline">{label}</span>
+            </button>
+          ))}
+        </div>
+        {/* Journey-only filter pills (Ready to sell / Needs attention). */}
         {track === "journey" && (
-          <>
-            <div className="inline-flex p-0.5 rounded-full" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-              {([["all", T("All", "Alle", "Tous")], ["sellable", T("Ready to sell", "Verkaufsbereit", "Prêts")], ["attention", T("Needs attention", "Braucht Aufmerksamkeit", "À traiter")]] as const).map(([v, label]) => (
-                <button key={v} onClick={() => setFilter(v)}
-                  className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold transition-colors"
-                  style={filter === v ? { background: "var(--gold)", color: "#131312" } : { background: "transparent", color: "var(--w3)" }}>
-                  {label}
-                </button>
-              ))}
-            </div>
-            {/* Map ⇄ List view toggle */}
-            <div className="inline-flex p-0.5 rounded-full" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-              {([["map", MapIcon, T("Map", "Karte", "Carte")], ["list", List, T("List", "Liste", "Liste")]] as const).map(([v, Icon, label]) => (
-                <button key={v} onClick={() => setView(v)}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[12.5px] font-semibold transition-colors"
-                  style={view === v ? { background: "var(--gold)", color: "#131312" } : { background: "transparent", color: "var(--w3)" }}>
-                  <Icon size={14} /> <span className="hidden sm:inline">{label}</span>
-                </button>
-              ))}
-            </div>
-          </>
+          <div className="inline-flex p-0.5 rounded-full" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+            {([["all", T("All", "Alle", "Tous")], ["sellable", T("Ready to sell", "Verkaufsbereit", "Prêts")], ["attention", T("Needs attention", "Braucht Aufmerksamkeit", "À traiter")]] as const).map(([v, label]) => (
+              <button key={v} onClick={() => setFilter(v)}
+                className="px-3 py-1.5 rounded-full text-[12.5px] font-semibold transition-colors"
+                style={filter === v ? { background: "var(--gold)", color: "#131312" } : { background: "transparent", color: "var(--w3)" }}>
+                {label}
+              </button>
+            ))}
+          </div>
         )}
       </div>
 
-      {/* Map view — the living roadmap (Journey or B2, per the track switch).
-          The B2 track always uses the map style + the search-only list. */}
-      {view === "map" || track !== "journey" ? (
+      {/* Canvas view — the Figma/Miro-style zoomable, pannable board. Default. */}
+      {view === "canvas" ? (
+        <PipelineCanvas rows={track !== "journey" ? searchOnlyRows : shown} track={track} lang={lang}
+          onPick={(uid) => setPeek(rows.find((r) => r.userId === uid) ?? null)}
+          onMoveB2={moveB2} />
+      ) : view === "map" || track !== "journey" ? (
         <JourneyMap rows={track !== "journey" ? searchOnlyRows : shown} lang={lang} track={track}
           onPick={(uid) => setPeek(rows.find((r) => r.userId === uid) ?? null)}
           onMoveB2={moveB2} />
