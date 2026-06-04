@@ -23,7 +23,8 @@ import { normalizeAnerkennungStage, anerkennungStageLabel, anerkennungStageColor
 import { impfungStageLabel, IMPFUNG_STAGE_BY_KEY, type ImpfungStage } from "@/lib/impfungJourney";
 import { NURSE_SPECIALTIES, specialtyLabel } from "@/lib/nurseSpecialties";
 import { recognitionDocLabel } from "@/lib/recognitionDocs";
-import { ArrowLeft, AlertTriangle, Clock, CheckCircle2, Search, Map as MapIcon, List, BadgeCheck, ArrowRight, Bell, Frame, FileText, Printer } from "lucide-react";
+import { Toaster, toast } from "sonner";
+import { ArrowLeft, AlertTriangle, Clock, CheckCircle2, Search, Map as MapIcon, List, BadgeCheck, ArrowRight, Bell, Frame, FileText, Printer, Pencil, ChevronDown } from "lucide-react";
 
 type Health = "on_track" | "due_soon" | "overdue" | "blocked" | "done";
 type Status = {
@@ -75,7 +76,8 @@ export default function AdminPipelinePage() {
   // Editable nurse-profile facts (specialty/experience) for the peeked candidate.
   const [factsDraft, setFactsDraft] = useState({ specialty: "", years: "", workplace: "", availableFrom: "" });
   const [factsSaving, setFactsSaving] = useState(false);
-  const [factsSaved, setFactsSaved] = useState(false);
+  const [factsEdit, setFactsEdit] = useState(false); // nurse-profile editor open?
+  const [docsOpen, setDocsOpen] = useState(false);    // recognition-docs details open?
 
   useEffect(() => {
     let cancelled = false;
@@ -129,7 +131,8 @@ export default function AdminPipelinePage() {
       workplace: peek.facts?.workplace ?? "",
       availableFrom: peek.facts?.availableFrom ?? "",
     });
-    setFactsSaved(false);
+    setFactsEdit(false);
+    setDocsOpen(false);
   }, [peek]);
 
   // Drag-and-drop: drop a face on a stage lane to move them. Optimistic (instant
@@ -150,10 +153,10 @@ export default function AdminPipelinePage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ candidateId: userId, stage: toStage }),
       });
-      if (!res.ok) { setRows(snapshot); console.warn("[pipeline] stage move failed; rolled back"); }
+      if (!res.ok) { setRows(snapshot); toast.error(T("Couldn't move — try again", "Verschieben fehlgeschlagen", "Déplacement échoué")); }
     } catch {
       setRows(snapshot);
-      console.warn("[pipeline] stage move failed; rolled back");
+      toast.error(T("Couldn't move — try again", "Verschieben fehlgeschlagen", "Déplacement échoué"));
     }
   };
 
@@ -169,16 +172,13 @@ export default function AdminPipelinePage() {
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ candidateId: userId }),
       });
-      if (res.ok) setNudged(userId);
-    } catch { /* swallow — button just won't flip to "sent" */ }
+      if (res.ok) { setNudged(userId); toast.success(T("Reminder sent", "Erinnerung gesendet", "Rappel envoyé")); }
+      else toast.error(T("Couldn't send reminder", "Senden fehlgeschlagen", "Échec de l'envoi"));
+    } catch { toast.error(T("Couldn't send reminder", "Senden fehlgeschlagen", "Échec de l'envoi")); }
     setNudging(false);
   };
 
-  // Edit a nurse-facts field (also clears the "saved" state so the button resets).
-  const updateFact = (patch: Partial<typeof factsDraft>) => {
-    setFactsDraft((d) => ({ ...d, ...patch }));
-    setFactsSaved(false);
-  };
+  const updateFact = (patch: Partial<typeof factsDraft>) => setFactsDraft((d) => ({ ...d, ...patch }));
 
   // Persist nurse profile facts (specialty / experience / workplace / availability).
   const saveFacts = async () => {
@@ -201,11 +201,15 @@ export default function AdminPipelinePage() {
         body: JSON.stringify(payload),
       });
       if (res.ok) {
-        setFactsSaved(true);
         const newFacts: Facts = { specialty: payload.specialty, yearsExperience: payload.yearsExperience, workplace: payload.workplace || null, availableFrom: payload.availableFrom };
         setRows((rs) => rs.map((r) => (r.userId === id ? { ...r, facts: newFacts } : r)));
+        setPeek((p) => (p && p.userId === id ? { ...p, facts: newFacts } : p));
+        setFactsEdit(false);
+        toast.success(T("Profile saved", "Profil gespeichert", "Profil enregistré"));
+      } else {
+        toast.error(T("Couldn't save", "Speichern fehlgeschlagen", "Échec de l'enregistrement"));
       }
-    } catch { /* no-op — button just won't flip to saved */ }
+    } catch { toast.error(T("Couldn't save", "Speichern fehlgeschlagen", "Échec de l'enregistrement")); }
     setFactsSaving(false);
   };
 
@@ -401,7 +405,7 @@ export default function AdminPipelinePage() {
           const cap: CSSProperties = { fontSize: 10.5, fontWeight: 700, color: "var(--w3)", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 10 };
           const lbl: CSSProperties = { fontSize: 10.5, fontWeight: 600, color: "var(--w3)", marginBottom: 4, display: "block" };
           return (
-            <div className="p-5 flex flex-col gap-4">
+            <div className="p-5 flex flex-col gap-3">
               {/* Identity */}
               <div className="flex items-center gap-3">
                 {peek.photo ? (
@@ -425,39 +429,58 @@ export default function AdminPipelinePage() {
                 </div>
               </div>
 
-              {/* Nurse profile — specialty / experience (what hospitals ask first). Editable. */}
-              <div style={card}>
-                <div style={cap}>🩺 {T("Nurse profile", "Pflegeprofil", "Profil infirmier")}</div>
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div className="col-span-2">
-                    <label style={lbl}>{T("Specialty", "Fachbereich", "Spécialité")}</label>
-                    <select className="bv-input" value={factsDraft.specialty} onChange={(e) => updateFact({ specialty: e.target.value })} style={{ fontSize: 12.5 }}>
-                      <option value="">{T("— none set —", "— keine —", "— aucune —")}</option>
-                      {NURSE_SPECIALTIES.map((s) => <option key={s.key} value={s.key}>{specialtyLabel(s.key, lang)}</option>)}
-                    </select>
+              {/* Nurse profile — one compact line; click to edit (progressive disclosure). */}
+              {!factsEdit ? (
+                <button onClick={() => setFactsEdit(true)}
+                  className="bv-press w-full text-left flex items-center gap-2 text-[12.5px] px-3 py-2.5 rounded-xl"
+                  style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w2)" }}>
+                  <span style={{ flexShrink: 0 }}>🩺</span>
+                  <span className="flex-1 truncate">
+                    {[
+                      peek.facts?.specialty ? specialtyLabel(peek.facts.specialty, lang) : null,
+                      peek.facts?.yearsExperience != null ? `${peek.facts.yearsExperience} ${T("yrs", "J.", "ans")}` : null,
+                      peek.facts?.workplace || null,
+                      peek.facts?.availableFrom ? `${T("from", "ab", "dès")} ${peek.facts.availableFrom}` : null,
+                    ].filter(Boolean).join("  ·  ") || T("Add nurse details", "Pflegedetails hinzufügen", "Ajouter des détails")}
+                  </span>
+                  <Pencil size={13} style={{ color: "var(--w3)", flexShrink: 0 }} />
+                </button>
+              ) : (
+                <div style={card}>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="col-span-2">
+                      <label style={lbl}>{T("Specialty", "Fachbereich", "Spécialité")}</label>
+                      <select className="bv-input" value={factsDraft.specialty} onChange={(e) => updateFact({ specialty: e.target.value })} style={{ fontSize: 12.5 }}>
+                        <option value="">{T("— none set —", "— keine —", "— aucune —")}</option>
+                        {NURSE_SPECIALTIES.map((s) => <option key={s.key} value={s.key}>{specialtyLabel(s.key, lang)}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={lbl}>{T("Years", "Jahre", "Années")}</label>
+                      <input className="bv-input" type="number" min={0} max={60} value={factsDraft.years} onChange={(e) => updateFact({ years: e.target.value })} style={{ fontSize: 12.5 }} />
+                    </div>
+                    <div>
+                      <label style={lbl}>{T("Available from", "Verfügbar ab", "Disponible dès")}</label>
+                      <input className="bv-input" type="date" value={factsDraft.availableFrom} onChange={(e) => updateFact({ availableFrom: e.target.value })} style={{ fontSize: 12.5 }} />
+                    </div>
+                    <div className="col-span-2">
+                      <label style={lbl}>{T("Current workplace", "Aktueller Arbeitsplatz", "Lieu de travail actuel")}</label>
+                      <input className="bv-input" type="text" maxLength={120} value={factsDraft.workplace} onChange={(e) => updateFact({ workplace: e.target.value })}
+                        placeholder={T("e.g. CHU Ibn Sina — ICU", "z. B. CHU Ibn Sina — Intensiv", "ex. CHU Ibn Sina — soins intensifs")} style={{ fontSize: 12.5 }} />
+                    </div>
                   </div>
-                  <div>
-                    <label style={lbl}>{T("Years of experience", "Berufsjahre", "Années d'expérience")}</label>
-                    <input className="bv-input" type="number" min={0} max={60} value={factsDraft.years} onChange={(e) => updateFact({ years: e.target.value })} style={{ fontSize: 12.5 }} />
-                  </div>
-                  <div>
-                    <label style={lbl}>{T("Available from", "Verfügbar ab", "Disponible dès")}</label>
-                    <input className="bv-input" type="date" value={factsDraft.availableFrom} onChange={(e) => updateFact({ availableFrom: e.target.value })} style={{ fontSize: 12.5 }} />
-                  </div>
-                  <div className="col-span-2">
-                    <label style={lbl}>{T("Current workplace", "Aktueller Arbeitsplatz", "Lieu de travail actuel")}</label>
-                    <input className="bv-input" type="text" maxLength={120} value={factsDraft.workplace} onChange={(e) => updateFact({ workplace: e.target.value })}
-                      placeholder={T("e.g. CHU Ibn Sina — ICU", "z. B. CHU Ibn Sina — Intensiv", "ex. CHU Ibn Sina — soins intensifs")} style={{ fontSize: 12.5 }} />
+                  <div className="flex items-center gap-2 mt-3">
+                    <button onClick={() => void saveFacts()} disabled={factsSaving}
+                      className="bv-press inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 rounded-lg disabled:opacity-60"
+                      style={{ background: "var(--gold)", color: "#131312" }}>
+                      {factsSaving ? T("Saving…", "Speichern…", "Enregistrement…") : T("Save", "Speichern", "Enregistrer")}
+                    </button>
+                    <button onClick={() => setFactsEdit(false)} className="bv-press text-[12px] font-medium px-3 py-1.5" style={{ color: "var(--w3)" }}>
+                      {T("Cancel", "Abbrechen", "Annuler")}
+                    </button>
                   </div>
                 </div>
-                <button onClick={() => void saveFacts()} disabled={factsSaving}
-                  className="bv-press mt-3 inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 rounded-lg disabled:opacity-60"
-                  style={factsSaved
-                    ? { background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }
-                    : { background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-                  {factsSaved ? <><CheckCircle2 size={13} strokeWidth={2.2} /> {T("Saved", "Gespeichert", "Enregistré")}</> : factsSaving ? T("Saving…", "Speichern…", "Enregistrement…") : T("Save profile", "Profil speichern", "Enregistrer")}
-                </button>
-              </div>
+              )}
 
               {/* Needs-follow-up banner + one-click reminder */}
               {peek.followUp?.needed && (
@@ -520,68 +543,55 @@ export default function AdminPipelinePage() {
                 </div>
               )}
 
-              {/* B2 German */}
+              {/* Status — B2 / Anerkennung / Impfung at a glance (one card). */}
               <div style={card}>
-                <div style={cap}>📜 {T("B2 German", "B2 Deutsch", "B2 allemand")}</div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span style={{ width: 10, height: 10, borderRadius: 999, background: b2StageColor(b2s), flexShrink: 0 }} />
-                  <span className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>{b2StageLabel(b2s, lang)}</span>
-                  {peek.b2Failed && (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: `color-mix(in srgb, ${B2_FAILED_COLOR} 18%, transparent)`, color: B2_FAILED_COLOR }}>
-                      {T("FAILED BEFORE · RETAKING", "NICHT BESTANDEN · WIEDERHOLUNG", "ÉCHOUÉ · REPRISE")}
+                <div style={cap}>{T("Status", "Status", "Statut")}</div>
+                <div className="flex flex-col gap-2.5">
+                  <div className="flex items-center gap-2 text-[12.5px]">
+                    <span style={{ width: 9, height: 9, borderRadius: 999, background: b2StageColor(b2s), flexShrink: 0 }} />
+                    <span style={{ color: "var(--w3)", fontWeight: 600, width: 86, flexShrink: 0 }}>📜 {T("B2", "B2", "B2")}</span>
+                    <span className="truncate" style={{ color: "var(--w)", fontWeight: 600 }}>{b2StageLabel(b2s, lang)}</span>
+                    {peek.b2Failed && <span style={{ color: B2_FAILED_COLOR, fontWeight: 700, flexShrink: 0 }}>· ↺</span>}
+                  </div>
+                  <div className="flex items-center gap-2 text-[12.5px]">
+                    <span style={{ width: 9, height: 9, borderRadius: 999, background: anerkennungStageColor(anerk), flexShrink: 0 }} />
+                    <span style={{ color: "var(--w3)", fontWeight: 600, width: 86, flexShrink: 0 }}>🏅 {T("Anerk.", "Anerk.", "Reconn.")}</span>
+                    <span className="truncate" style={{ color: "var(--w)", fontWeight: 600 }}>{anerkennungStageLabel(anerk, lang)}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-[12.5px]">
+                    <span style={{ width: 9, height: 9, borderRadius: 999, background: imp === "not_required" || imp === "not_started" ? "var(--w3)" : (impDef?.color ?? "var(--w3)"), flexShrink: 0 }} />
+                    <span style={{ color: "var(--w3)", fontWeight: 600, width: 86, flexShrink: 0 }}>💉 {T("Impf.", "Impf.", "Vacc.")}</span>
+                    <span className="truncate" style={{ color: "var(--w)", fontWeight: 600 }}>
+                      {imp === "not_required" ? T("Not required", "Nicht erforderlich", "Non requis")
+                        : imp === "not_started" ? T("Required — not started", "Erforderlich — offen", "Requis — à faire")
+                        : impfungStageLabel(imp, lang)}
+                      {imp !== "not_required" && peek.impfungDoses && peek.impfungDoses.need > 0 ? ` · ${peek.impfungDoses.got}/${peek.impfungDoses.need}` : ""}
                     </span>
-                  )}
+                  </div>
                 </div>
               </div>
 
-              {/* Anerkennung (recognition) */}
-              <div style={card}>
-                <div style={cap}>🏅 {T("Anerkennung", "Anerkennung", "Reconnaissance")}</div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span style={{ width: 10, height: 10, borderRadius: 999, background: anerkennungStageColor(anerk), flexShrink: 0 }} />
-                  <span className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>{anerkennungStageLabel(anerk, lang)}</span>
-                </div>
-              </div>
-
-              {/* Impfung */}
-              <div style={card}>
-                <div style={cap}>💉 {T("Impfung", "Impfung", "Vaccination")}</div>
-                {imp === "not_required" ? (
-                  <span className="text-[12.5px]" style={{ color: "var(--w3)" }}>{T("Not required by their agency", "Von der Agentur nicht verlangt", "Non requis par leur agence")}</span>
-                ) : imp === "not_started" ? (
-                  <div className="flex items-center gap-2">
-                    <span style={{ width: 10, height: 10, borderRadius: 999, background: "var(--w3)", flexShrink: 0 }} />
-                    <span className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>{T("Required — not started", "Erforderlich — nicht begonnen", "Requis — pas commencé")}</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span style={{ width: 10, height: 10, borderRadius: 999, background: impDef?.color ?? "var(--w3)", flexShrink: 0 }} />
-                    <span className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>{impfungStageLabel(imp, lang)}</span>
-                    {peek.impfungDoses && peek.impfungDoses.need > 0 && (
-                      <span className="text-[11.5px] font-semibold px-2 py-0.5 rounded-full" style={{ background: "var(--border)", color: "var(--w2)" }}>{peek.impfungDoses.got}/{peek.impfungDoses.need} {T("doses", "Dosen", "doses")}</span>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Recognition documents — collected vs missing */}
+              {/* Recognition documents — compact bar; click for the checklist. */}
               {peek.docPack && (
                 <div style={card}>
-                  <div style={cap}>📂 {T("Recognition documents", "Anerkennungsdokumente", "Documents de reconnaissance")}</div>
-                  <div className="flex items-center gap-2 mb-3">
+                  <button onClick={() => setDocsOpen((o) => !o)} className="bv-press w-full flex items-center gap-2.5">
+                    <span style={{ fontSize: 12.5 }}>📂</span>
                     <div style={{ flex: 1, height: 7, borderRadius: 999, background: "var(--border)", overflow: "hidden" }}>
                       <div style={{ width: `${peek.docPack.total ? Math.round((peek.docPack.collected / peek.docPack.total) * 100) : 0}%`, height: "100%", background: "var(--gold)" }} />
                     </div>
-                    <span className="text-[11.5px] font-semibold" style={{ color: "var(--w2)" }}>{peek.docPack.collected}/{peek.docPack.total}</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-1.5">
-                    {peek.docPack.items.map((it) => (
-                      <div key={it.key} className="flex items-center gap-1.5 text-[12px]" style={{ color: it.status === "missing" ? "var(--w3)" : "var(--w2)" }}>
-                        <span style={{ flexShrink: 0 }}>{it.status === "approved" ? "✅" : it.status === "pending" ? "🕓" : "⬜"}</span>
-                        <span className="truncate">{recognitionDocLabel(it.key, lang)}</span>
-                      </div>
-                    ))}
-                  </div>
+                    <span className="text-[11.5px] font-semibold" style={{ color: "var(--w2)", flexShrink: 0 }}>{peek.docPack.collected}/{peek.docPack.total}</span>
+                    <ChevronDown size={14} style={{ color: "var(--w3)", flexShrink: 0, transform: docsOpen ? "rotate(180deg)" : "none", transition: "transform .15s" }} />
+                  </button>
+                  {docsOpen && (
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 mt-3">
+                      {peek.docPack.items.map((it) => (
+                        <div key={it.key} className="flex items-center gap-1.5 text-[12px]" style={{ color: it.status === "missing" ? "var(--w3)" : "var(--w2)" }}>
+                          <span style={{ flexShrink: 0 }}>{it.status === "approved" ? "✅" : it.status === "pending" ? "🕓" : "⬜"}</span>
+                          <span className="truncate">{recognitionDocLabel(it.key, lang)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -654,6 +664,9 @@ export default function AdminPipelinePage() {
           );
         })()}
       </Modal>
+
+      {/* Smooth, battle-tested toasts (sonner) for save / reminder / move feedback. */}
+      <Toaster theme="dark" position="top-center" richColors toastOptions={{ style: { fontSize: "13px" } }} />
     </main>
   );
 }
