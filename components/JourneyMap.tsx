@@ -430,7 +430,7 @@ export function JourneyMap({
       <MapCtx.Provider value={ctx}>
         <div className="bv-card" style={{ padding: "18px 16px", overflow: "hidden" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 13.5, fontWeight: 700, color: "var(--w)" }}>🏅 {T("Anerkennung — recognition pathway", "Anerkennung — Anerkennungsweg", "Reconnaissance — parcours")}</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: "var(--w)", letterSpacing: -0.2 }}>🏅 {T("Anerkennung — recognition pathway", "Anerkennung — Anerkennungsweg", "Reconnaissance — parcours")}</span>
           </div>
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 16, fontSize: 11, color: "var(--w3)" }}>
             {ANERKENNUNG_STAGES.map((s) => (

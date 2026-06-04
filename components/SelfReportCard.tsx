@@ -77,11 +77,11 @@ export function SelfReportCard({ lang }: { lang: string }) {
   return (
     <div className="overflow-hidden mb-4" style={{ background: "var(--card)", borderRadius: "20px", boxShadow: "0 1px 3px rgba(0,0,0,0.06)" }}>
       <div className="px-6 pt-5 pb-4">
-        <p className="text-[15px] font-semibold mb-0.5" style={{ color: "var(--w)" }}>{T("Log your progress 👋", "Fortschritt melden 👋", "Signale ton avancement 👋")}</p>
+        <p className="text-[15px] font-bold tracking-[-0.01em] mb-0.5" style={{ color: "var(--w)" }}>{T("Log your progress 👋", "Fortschritt melden 👋", "Signale ton avancement 👋")}</p>
         <p className="text-[12px] mb-4" style={{ color: "var(--w3)" }}>{T("Tell us your latest step — it helps us move you faster.", "Sag uns deinen letzten Schritt — so geht es schneller.", "Dis-nous ta dernière étape — on avance plus vite.")}</p>
 
         {done && (
-          <div className="flex items-center gap-2 text-[13px] font-semibold mb-3" style={{ color: "var(--success)" }}>✓ {T("Thanks — we got it!", "Danke — erhalten!", "Merci — bien reçu !")}</div>
+          <div className="inline-flex items-center gap-1.5 text-[12.5px] font-semibold mb-3 px-3 py-1.5 rounded-full" style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>✓ {T("Thanks — we got it!", "Danke — erhalten!", "Merci — bien reçu !")}</div>
         )}
 
         <div className="flex flex-col gap-3">

@@ -313,16 +313,16 @@ export default function AdminPipelinePage() {
           return (
             <div className="p-5 flex flex-col gap-3">
               {/* Identity */}
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3.5 pb-3 mb-0.5" style={{ borderBottom: "1px solid var(--border)" }}>
                 {peek.photo ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={peek.photo} alt="" className="rounded-full object-cover flex-shrink-0" style={{ width: 56, height: 56, border: `2px solid ${hs.dot}` }} />
+                  <img src={peek.photo} alt="" className="rounded-full object-cover flex-shrink-0" style={{ width: 60, height: 60, border: `2.5px solid ${hs.dot}`, boxShadow: `0 0 0 4px color-mix(in srgb, ${hs.dot} 14%, transparent)` }} />
                 ) : (
-                  <span className="rounded-full flex items-center justify-center flex-shrink-0 text-[18px] font-bold" style={{ width: 56, height: 56, background: "var(--gdim)", color: "var(--gold)", border: `2px solid ${hs.dot}` }}>{initials(peek.name)}</span>
+                  <span className="rounded-full flex items-center justify-center flex-shrink-0 text-[20px] font-bold" style={{ width: 60, height: 60, background: "var(--gdim)", color: "var(--gold)", border: `2.5px solid ${hs.dot}`, boxShadow: `0 0 0 4px color-mix(in srgb, ${hs.dot} 14%, transparent)` }}>{initials(peek.name)}</span>
                 )}
                 <div className="min-w-0">
-                  <p className="text-[15px] font-semibold truncate" style={{ color: "var(--w)" }}>{peek.name}</p>
-                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                  <p className="text-[16px] font-bold tracking-[-0.01em] truncate" style={{ color: "var(--w)" }}>{peek.name}</p>
+                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                     <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: `color-mix(in srgb, ${hs.dot} 16%, transparent)`, color: hs.dot }}>
                       <span style={{ width: 7, height: 7, borderRadius: 999, background: hs.dot }} /> {hs.label[lang as "en" | "fr" | "de"]}
                     </span>
