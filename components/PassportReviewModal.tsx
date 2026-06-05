@@ -16,11 +16,14 @@
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { X as XIcon, IdCard, FilePen, Save } from "lucide-react";
+import { X as XIcon, IdCard, FilePen, Save, Download } from "lucide-react";
 import { CheckCircle2, XCircle } from "@/components/PortalIcons";
 import { AdminRejectModal } from "@/components/AdminRejectModal";
 import { useLang } from "@/components/LangContext";
 import { natToLang, COUNTRY_MAP } from "@/lib/countries";
+import { isIOSDevice } from "@/lib/platform";
+import { triggerIosDownload } from "@/lib/iosDownload";
+import { useDlToken, withDlt } from "@/lib/dlClient";
 import {
   type PassportProfile, type PassportGroup,
   PASSPORT_SNAPSHOT_FIELDS, isFilled, canApprove, unconfirmedCount,
@@ -50,6 +53,13 @@ function toIsoCode(v: string | null | undefined): string {
     if ([names.fr.toUpperCase(), names.en.toUpperCase(), names.de.toUpperCase()].includes(up)) return code;
   }
   return "";
+}
+/** ASCII filename slug (matches the dashboard's passport-data PDF naming). */
+function slug(s: string | null | undefined): string {
+  return (s ?? "").trim().toLowerCase()
+    .replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss")
+    .normalize("NFKD").replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
 export function buildPassportGroups(p: PassportProfile, lang: string): PassportGroup[] {
@@ -126,6 +136,10 @@ export function PassportReviewModal({ profile, userId, accessToken, onClose, onR
   const [autoSaved, setAutoSaved] = useState(false);
   const editsRef = useRef<Partial<PassportProfile>>({});
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [pdfDl, setPdfDl] = useState(false);
+  // iOS can't download a client-side blob → it streams the PDF via GET with a
+  // short-lived signed token. Desktop uses the POST blob path (no token needed).
+  const dlt = useDlToken(isIOSDevice() ? accessToken : null);
 
   useEffect(() => { document.body.style.overflow = "hidden"; return () => { document.body.style.overflow = ""; }; }, []);
 
@@ -255,6 +269,36 @@ export function PassportReviewModal({ profile, userId, accessToken, onClose, onR
     }
   }
 
+  // Download the confirmed passport data as a PDF (only meaningful once
+  // approved). Desktop = POST → blob; iOS = GET with a signed token (it can't
+  // download a client blob). Named exactly like the dashboard export.
+  async function downloadDataPdf() {
+    if (pdfDl) return;
+    setPdfDl(true);
+    try {
+      const docTitle = T("Passport Data", "Reisepassdaten", "Données du passeport");
+      const docSubtitle = T("Extracted and confirmed passport information", "Extrahierte und bestätigte Reisepassdaten", "Informations de passeport extraites et confirmées");
+      const outName = `${slug(prof.first_name)}_${slug(prof.last_name)}_pflegekraft_reisepass_daten.pdf`;
+      if (isIOSDevice() && accessToken) {
+        if (!dlt) { setPdfDl(false); return; }
+        const json = JSON.stringify({ groups, docTitle, docSubtitle, filename: outName });
+        const b64 = btoa(unescape(encodeURIComponent(json))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+        triggerIosDownload(withDlt(`/api/portal/admin/passport-data-pdf?dl=1&d=${b64}`, dlt), outName, () => setPdfDl(false));
+        return;
+      }
+      const res = await fetch("/api/portal/admin/passport-data-pdf", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ groups, filename: outName, docTitle, docSubtitle }),
+      });
+      if (!res.ok) throw new Error("pdf failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = outName; a.click(); URL.revokeObjectURL(url);
+    } catch (e) { console.error("[passport data pdf]", e); }
+    setPdfDl(false);
+  }
+
   // ── Edit-mode field config (mirrors the dashboard) ──
   const L = lang === "fr"
     ? { fn: "Prénom", ln: "Nom de famille", dob: "Date de naissance", sex: "Sexe", nat: "Nationalité", cob: "Ville de naissance", cntob: "Pays de naissance", pno: "N° passeport", isd: "Date d'émission", exp: "Date d'expiration", iss: "Autorité émettrice", str: "Rue", num: "N°", post: "Code postal", cres: "Ville de résidence", cntres: "Pays de résidence" }
@@ -309,6 +353,13 @@ export function PassportReviewModal({ profile, userId, accessToken, onClose, onR
               <span className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg" style={{ background: savedAs === "approved" ? "var(--success-bg)" : "var(--danger-bg)", color: savedAs === "approved" ? "var(--success)" : "var(--danger)", border: `1px solid ${savedAs === "approved" ? "var(--success-border)" : "var(--danger-border)"}` }}>
                 {savedAs === "approved" ? <><CheckCircle2 size={13} strokeWidth={1.8} /> {pstLabel}</> : <><XCircle size={13} strokeWidth={1.8} /> {T("Rejected", "Abgelehnt", "Refusé")}</>}
               </span>
+            )}
+            {isApproved && (
+              <button onClick={() => void downloadDataPdf()} disabled={pdfDl}
+                aria-label={T("Download data", "Daten herunterladen", "Télécharger les données")} title={T("Download data", "Daten herunterladen", "Télécharger les données")}
+                className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 disabled:opacity-40" style={{ color: "var(--w2)" }}>
+                {pdfDl ? <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" /> : <Download size={14} strokeWidth={1.8} />}
+              </button>
             )}
             <button onClick={() => { exitEdit(); onClose(); }} aria-label={T("Close", "Schließen", "Fermer")} disabled={submitting} className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 disabled:opacity-40" style={{ color: "var(--w3)" }}>
               <XIcon size={14} strokeWidth={1.8} />
