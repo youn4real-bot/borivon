@@ -135,7 +135,7 @@ export async function GET(req: NextRequest) {
   // 3. impfung document status per candidate (approved beats pending)
   const impfungDocStatus = new Map<string, "approved" | "pending">();
   for (const [uid, ds] of docsByCandidate) {
-    const impfDocs = ds.filter((d) => /impf|vaccin|impfung/i.test(d.file_type ?? ""));
+    const impfDocs = ds.filter((d) => { const k = resolveFileKey(d.file_type); return k === "impfung" || k === "impfung_de" || /impf|vaccin|impfung/i.test(d.file_type ?? ""); });
     if (impfDocs.some((d) => d.status === "approved")) impfungDocStatus.set(uid, "approved");
     else if (impfDocs.some((d) => d.status === "pending")) impfungDocStatus.set(uid, "pending");
   }

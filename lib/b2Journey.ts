@@ -13,6 +13,8 @@
  * Pure / server-safe.
  */
 
+import { resolveFileKey } from "./fileKeys";
+
 export type B2Stage =
   | "studying"          // still studying (grey) — the start
   | "expected_date"     // expected passing date confirmed (blue)
@@ -70,10 +72,14 @@ export function isB2Passed(stage: B2Stage): boolean {
   return stage === "passed";
 }
 
-// Document file_type labels that ARE a B2 language certificate (FR/EN/DE).
+// A B2 language certificate is the `langcert` fileKey. Match by canonical key
+// first (covers every label/language + legacy aliases like the bare
+// "Sprachzertifikat" + key-stored rows), with the regex as a belt-and-suspenders
+// fallback for anything not yet in the fileKey catalog.
 const B2_CERT_RE = /b2\s*(sprachzert|language cert|.*zertifikat)|certificat de langue b2|b2[\s_-]*zertifikat/i;
 export function isB2CertDoc(fileType: string | null | undefined): boolean {
-  return !!fileType && B2_CERT_RE.test(fileType);
+  if (!fileType) return false;
+  return resolveFileKey(fileType) === "langcert" || B2_CERT_RE.test(fileType);
 }
 
 /**

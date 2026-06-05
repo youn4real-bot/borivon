@@ -41,10 +41,13 @@ describe("b2Journey", () => {
     for (const s of B2_STAGES) expect(b2StageColor(s.key)).toMatch(/^#[0-9a-f]{6}$/i);
   });
 
-  it("isB2CertDoc matches the FR/EN/DE certificate labels", () => {
+  it("isB2CertDoc matches the FR/EN/DE labels, the legacy alias, and the fileKey", () => {
     expect(isB2CertDoc("B2 Sprachzertifikat")).toBe(true);
     expect(isB2CertDoc("B2 Language Certificate")).toBe(true);
     expect(isB2CertDoc("Certificat de langue B2")).toBe(true);
+    // Robustness: bare legacy alias + key-stored form must still resolve.
+    expect(isB2CertDoc("Sprachzertifikat")).toBe(true); // legacy alias (no "B2")
+    expect(isB2CertDoc("langcert")).toBe(true);          // fileKey-stored
     expect(isB2CertDoc("Reisepass")).toBe(false);
     expect(isB2CertDoc(null)).toBe(false);
   });
