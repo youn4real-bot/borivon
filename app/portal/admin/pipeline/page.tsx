@@ -24,6 +24,7 @@ import { normalizeAnerkennungStage, anerkennungStageLabel, anerkennungStageColor
 import { impfungStageLabel, IMPFUNG_STAGE_BY_KEY, type ImpfungStage } from "@/lib/impfungJourney";
 import { NURSE_SPECIALTIES, specialtyLabel } from "@/lib/nurseSpecialties";
 import { translateDocLabel } from "@/lib/fileKeys";
+import type { PassportProfile } from "@/lib/passportReview";
 import { relativeTimeShort } from "@/lib/relativeTime";
 import { Toaster, toast } from "sonner";
 import { ArrowLeft, AlertTriangle, CheckCircle2, Search, Map as MapIcon, LayoutGrid, BadgeCheck, ArrowRight, Bell, FileText, Printer, Pencil, ChevronLeft, ChevronRight, ChevronDown, Check } from "lucide-react";
@@ -37,6 +38,14 @@ const AdminDocPreviewModal = dynamic(
   { ssr: false },
 );
 type PeekDoc = { id: string; user_id: string; file_name: string; file_type: string; uploaded_at: string; status: string; feedback: string | null; drive_file_id: string | null; uploaded_by_admin?: boolean; rotation?: number | null };
+
+// Passport-data review (extracted fields + LAW #38 human-only confirm boxes) —
+// the dashboard's flow, opened over the peek. Dynamic so it's only fetched when
+// a passport is actually reviewed.
+const PassportReviewModal = dynamic(
+  () => import("@/components/PassportReviewModal").then((m) => m.PassportReviewModal),
+  { ssr: false },
+);
 
 type Health = "on_track" | "due_soon" | "overdue" | "blocked" | "done";
 type Status = {
@@ -94,7 +103,9 @@ export default function AdminPipelinePage() {
   // review/approve/reject papers (e.g. the CV) right here without leaving.
   const [accessToken, setAccessToken] = useState("");
   const [peekDocs, setPeekDocs] = useState<PeekDoc[] | null>(null);
+  const [peekProfile, setPeekProfile] = useState<PassportProfile | null>(null); // candidate profile (passport fields)
   const [docReview, setDocReview] = useState<PeekDoc | null>(null); // open doc-preview popup
+  const [passportOpen, setPassportOpen] = useState(false); // open passport-data review popup
   // Quick one-off note to the candidate (masked as "Borivon"), sent from the peek.
   const [msgText, setMsgText] = useState("");
   const [sendingMsg, setSendingMsg] = useState(false);
@@ -149,9 +160,9 @@ export default function AdminPipelinePage() {
   // the guided steps can surface the real paper to review (CV, etc.) inline.
   useEffect(() => {
     const uid = peek?.userId;
-    if (!uid) { setPeekDocs(null); return; }
+    if (!uid) { setPeekDocs(null); setPeekProfile(null); return; }
     let cancelled = false;
-    setPeekDocs(null);
+    setPeekDocs(null); setPeekProfile(null); setPassportOpen(false); setDocReview(null);
     (async () => {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token ?? "";
@@ -159,9 +170,10 @@ export default function AdminPipelinePage() {
       const res = await fetch(`/api/portal/admin?userId=${encodeURIComponent(uid)}`, { headers: { Authorization: `Bearer ${token}` } });
       if (cancelled) return;
       if (res.ok) {
-        const j = await res.json().catch(() => ({ docs: [] }));
+        const j = await res.json().catch(() => ({ docs: [], profiles: {} }));
         setPeekDocs(((j.docs ?? []) as PeekDoc[]).filter((d) => d.user_id === uid));
-      } else setPeekDocs([]);
+        setPeekProfile((j.profiles?.[uid] ?? null) as PassportProfile | null);
+      } else { setPeekDocs([]); setPeekProfile(null); }
     })();
     return () => { cancelled = true; };
   }, [peek?.userId]);
@@ -835,6 +847,24 @@ export default function AdminPipelinePage() {
                 </div>
               )}
 
+              {/* Passport data — extracted fields + human confirm + approve/reject,
+                  reviewed inline (LAW #38/#39 preserved by the review modal). */}
+              {peekProfile && ((peekDocs ?? []).some((d) => /pass/i.test(d.file_type)) || !!peekProfile.passport_no || !!peekProfile.passport_status) && (() => {
+                const pst = peekProfile.passport_status ?? null;
+                const c = pst === "approved" ? "var(--success)" : pst === "rejected" ? "var(--danger)" : pst === "pending" ? "#f59e0b" : "var(--w3)";
+                const label = pst === "approved" ? T("Approved", "Genehmigt", "Approuvé") : pst === "rejected" ? T("Rejected", "Abgelehnt", "Refusé") : pst === "pending" ? T("Pending review", "In Prüfung", "En vérification") : T("Not submitted", "Nicht eingereicht", "Non soumis");
+                return (
+                  <div style={card}>
+                    <div style={cap}>🪪 {T("Passport data", "Reisepassdaten", "Données du passeport")}</div>
+                    <button onClick={() => setPassportOpen(true)} className="bv-press w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 999, background: c, flexShrink: 0 }} />
+                      <span className="flex-1 truncate text-[12.5px] font-semibold" style={{ color: "var(--w)" }}>{label}</span>
+                      <span className="text-[12px] font-bold flex-shrink-0" style={{ color: "var(--gold)" }}>{T("Review", "Prüfen", "Vérifier")} →</span>
+                    </button>
+                  </div>
+                );
+              })()}
+
               {/* Quick note — reaches her as "Borivon" (never an individual admin). */}
               <div style={card}>
                 <div style={cap}>✉️ {T("Send a quick note", "Kurze Nachricht", "Petit message")}</div>
@@ -862,10 +892,27 @@ export default function AdminPipelinePage() {
           doc={docReview}
           accessToken={accessToken}
           onClose={() => setDocReview(null)}
+          onShowPassportData={peekProfile && /pass/i.test(docReview.file_type) ? () => setPassportOpen(true) : undefined}
           onUpdated={(d) => {
             // Reflect the new status locally + recompute the board/peek so an
             // approved CV instantly advances the guided step to the next question.
             setPeekDocs((ds) => (ds ? ds.map((x) => (x.id === d.id ? { ...x, status: d.status, feedback: d.feedback } : x)) : ds));
+            void reload();
+          }}
+        />
+      )}
+
+      {/* Passport-data review — extracted fields + human confirm + approve/reject,
+          on top of the peek. LAW #38 (human-only boxes) / #39 (no byte mutation)
+          live inside PassportReviewModal. */}
+      {passportOpen && peek && peekProfile && accessToken && (
+        <PassportReviewModal
+          profile={peekProfile}
+          userId={peek.userId}
+          accessToken={accessToken}
+          onClose={() => setPassportOpen(false)}
+          onReviewed={(status, feedback) => {
+            setPeekProfile((pp) => (pp ? { ...pp, passport_status: status, passport_feedback: feedback } : pp));
             void reload();
           }}
         />
