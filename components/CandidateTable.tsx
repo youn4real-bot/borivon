@@ -15,7 +15,7 @@ import {
   useReactTable, getCoreRowModel, getSortedRowModel, flexRender,
   createColumnHelper, type SortingState,
 } from "@tanstack/react-table";
-import { ArrowUpDown, ChevronUp, ChevronDown, AlertTriangle, BadgeCheck } from "lucide-react";
+import { ArrowUpDown, ChevronUp, ChevronDown, AlertTriangle, BadgeCheck, Bell } from "lucide-react";
 import { JOURNEY_PRESETS } from "@/lib/candidateJourney";
 import { B2_STAGES, b2StageColor, b2StageLabel, normalizeB2Stage, B2_FAILED_COLOR } from "@/lib/b2Journey";
 import { ANERKENNUNG_STAGES, anerkennungStageColor, anerkennungStageLabel, normalizeAnerkennungStage } from "@/lib/anerkennungJourney";
@@ -40,7 +40,6 @@ export type TableRow = {
   followUp?: { needed: boolean };
   sellable?: { sellable: boolean };
   needsUpdate?: boolean;
-  stuck?: { stuck: boolean; days: number | null };
 };
 
 function initials(n: string) {
@@ -151,23 +150,16 @@ export function CandidateTable({ rows, lang, onPick }: { rows: TableRow[]; lang:
           );
         },
       }),
-      ch.accessor((r) => (r.stuck?.stuck ? 8 : 0) + (r.needsUpdate ? 4 : 0) + (r.followUp?.needed ? 2 : 0) + (r.sellable?.sellable ? 1 : 0), {
+      ch.accessor((r) => (r.needsUpdate ? 4 : 0) + (r.followUp?.needed ? 2 : 0) + (r.sellable?.sellable ? 1 : 0), {
         id: "flags", header: () => T("Flags", "Flags", "Indic."),
         cell: (info) => {
           const r = info.row.original;
           return (
             <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-              {r.stuck?.stuck && (
-                <span title={T("Stuck too long at this stage — chase", "Zu lange in dieser Phase — nachhaken", "Bloqué trop longtemps — relancer")}
-                  className="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 rounded-full"
-                  style={{ background: "color-mix(in srgb, #ef4444 16%, transparent)", color: "#ef4444", border: "1px solid color-mix(in srgb, #ef4444 40%, transparent)", lineHeight: 1.6 }}>
-                  ⏳{r.stuck.days != null ? `${r.stuck.days}d` : ""}
-                </span>
-              )}
-              {r.needsUpdate && <span title={T("No update in a week — log where they are", "Seit einer Woche kein Update", "Pas de mise à jour depuis une semaine")} style={{ fontSize: 14, lineHeight: 1, filter: "drop-shadow(0 0 2px rgba(245,158,11,0.8))" }}>⚡</span>}
+              {r.needsUpdate && <Bell size={14} strokeWidth={2.2} fill="var(--gold)" style={{ color: "var(--gold)" }} aria-label={T("Weekly check-in — tell them the next step", "Wöchentlicher Check-in", "Suivi hebdomadaire")} />}
               {r.followUp?.needed && <AlertTriangle size={15} style={{ color: "#f59e0b" }} aria-label={T("Needs follow-up", "Nachfassen", "À relancer")} />}
               {r.sellable?.sellable && <BadgeCheck size={15} style={{ color: "var(--gold)" }} aria-label={T("Ready to sell", "Verkaufsbereit", "Prêt")} />}
-              {!r.followUp?.needed && !r.sellable?.sellable && !r.needsUpdate && !r.stuck?.stuck && <span style={{ color: "var(--w3)" }}>—</span>}
+              {!r.followUp?.needed && !r.sellable?.sellable && !r.needsUpdate && <span style={{ color: "var(--w3)" }}>—</span>}
             </div>
           );
         },

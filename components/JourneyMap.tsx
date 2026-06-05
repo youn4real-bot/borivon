@@ -22,6 +22,7 @@
 
 import { useMemo, useState, createContext, useContext, type ReactNode } from "react";
 import { LayoutGroup, AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { Bell } from "lucide-react";
 import {
   DndContext, DragOverlay, useDraggable, useDroppable,
   PointerSensor, useSensor, useSensors, closestCenter, type DragEndEvent,
@@ -140,13 +141,20 @@ function Dot({ r, ringColor, halo, index = 0, badge, dragRef, dragHandle, isDrag
         </span>
       )}
       {badge}
-      {/* Weekly check-in ⚡ — pulses on onboarding → Vorabzustimmung candidates
-          with no update in a week: reach out + tell them the next step. */}
+      {/* Weekly check-in — a premium gold bell badge (onboarding →
+          Vorabzustimmung, no update in a week): reach out + tell them the next
+          step. Calm pulse, ringed so it reads cleanly off the avatar. */}
       {r.needsUpdate && (
         <motion.span aria-hidden
-          style={{ position: "absolute", top: -5, right: -5, fontSize: 13, lineHeight: 1, pointerEvents: "none", filter: "drop-shadow(0 0 2px rgba(245,158,11,0.9))" }}
-          animate={reduce ? undefined : { scale: [1, 1.28, 1], opacity: [0.8, 1, 0.8] }}
-          transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}>⚡</motion.span>
+          style={{
+            position: "absolute", top: -4, right: -4, width: 16, height: 16, borderRadius: 999,
+            background: "var(--gold)", color: "#131312", display: "flex", alignItems: "center", justifyContent: "center",
+            boxShadow: "0 0 0 2px var(--bg2), 0 1px 5px rgba(201,162,64,0.5)", pointerEvents: "none",
+          }}
+          animate={reduce ? undefined : { scale: [1, 1.12, 1] }}
+          transition={{ duration: 1.7, repeat: Infinity, ease: "easeInOut" }}>
+          <Bell size={9} strokeWidth={2.4} fill="currentColor" />
+        </motion.span>
       )}
       <AnimatePresence>
         {isHover && (
