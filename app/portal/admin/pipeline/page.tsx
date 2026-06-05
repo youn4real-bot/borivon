@@ -911,6 +911,7 @@ export default function AdminPipelinePage() {
           userId={peek.userId}
           accessToken={accessToken}
           onClose={() => setPassportOpen(false)}
+          onProfileChange={(patch) => setPeekProfile((pp) => (pp ? { ...pp, ...patch } : pp))}
           onReviewed={(status, feedback) => {
             setPeekProfile((pp) => (pp ? { ...pp, passport_status: status, passport_feedback: feedback } : pp));
             void reload();
