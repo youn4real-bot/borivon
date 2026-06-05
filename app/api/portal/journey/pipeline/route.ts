@@ -8,6 +8,7 @@ import { normalizeAnerkennungStage } from "@/lib/anerkennungJourney";
 import { computeDocPack } from "@/lib/recognitionDocs";
 import { deriveImpfungStage, doseProgress, normalizeReq, NO_REQ, type VaccineReq } from "@/lib/impfungJourney";
 import { resolveFileKey } from "@/lib/fileKeys";
+import { computeStuck } from "@/lib/pipelineStuck";
 
 /**
  * Anerkennung / Visa Autopilot — pipeline overview (the admin "who's stuck where"
@@ -270,6 +271,13 @@ export async function GET(req: NextRequest) {
       openTasks,
       needsUpdate: (() => { const la = lastActivity.get(p.user_id); return !la || (nowMs - la) > WEEK_MS; })(),
       lastActivityAt: lastActivity.has(p.user_id) ? new Date(lastActivity.get(p.user_id)!).toISOString() : null,
+      // Per-stage "stuck" chase signal: sat at the current station longer than
+      // that stage's budget with no activity. Smarter than the flat weekly ⚡.
+      stuck: (() => {
+        const la = lastActivity.get(p.user_id);
+        const daysSinceActivity = la ? Math.floor((nowMs - la) / 86_400_000) : null;
+        return computeStuck({ currentStageKey: status.current?.key ?? null, daysSinceActivity, done: status.health === "done" });
+      })(),
       pipeline: {
         interview1: pipe?.interview1_status ?? null,
         interview2: pipe?.interview2_status ?? null,

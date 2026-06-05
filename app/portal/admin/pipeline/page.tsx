@@ -25,6 +25,7 @@ import { impfungStageLabel, IMPFUNG_STAGE_BY_KEY, type ImpfungStage } from "@/li
 import { NURSE_SPECIALTIES, specialtyLabel } from "@/lib/nurseSpecialties";
 import { translateDocLabel } from "@/lib/fileKeys";
 import type { PassportProfile } from "@/lib/passportReview";
+import type { StuckVerdict } from "@/lib/pipelineStuck";
 import { relativeTimeShort } from "@/lib/relativeTime";
 import { Toaster, toast } from "sonner";
 import { ArrowLeft, AlertTriangle, CheckCircle2, Search, Map as MapIcon, LayoutGrid, BadgeCheck, ArrowRight, Bell, FileText, Printer, Pencil, ChevronLeft, ChevronRight, ChevronDown, Check } from "lucide-react";
@@ -68,7 +69,7 @@ type PipelineFacts = {
   housingDone: boolean; visaGranted: boolean;
   contractDone: boolean; recognitionDone: boolean; vorabDone: boolean; docsReady: boolean; arrivedDone: boolean;
 };
-type Row = { userId: string; name: string; photo: string | null; status: Status; sellable: Sellable; b2Stage?: string; b2Failed?: boolean; anerkennungStage?: string; impfungStage?: string; impfungDoses?: { got: number; need: number }; followUp?: FollowUp; openTasks?: OpenTask[]; facts?: Facts; docPack?: DocPack; reports?: SelfReport[]; pipeline?: PipelineFacts; needsUpdate?: boolean; lastActivityAt?: string | null };
+type Row = { userId: string; name: string; photo: string | null; status: Status; sellable: Sellable; b2Stage?: string; b2Failed?: boolean; anerkennungStage?: string; impfungStage?: string; impfungDoses?: { got: number; need: number }; followUp?: FollowUp; openTasks?: OpenTask[]; facts?: Facts; docPack?: DocPack; reports?: SelfReport[]; pipeline?: PipelineFacts; needsUpdate?: boolean; lastActivityAt?: string | null; stuck?: StuckVerdict };
 
 const HEALTH_STYLE: Record<Health, { dot: string; label: { en: string; de: string; fr: string } }> = {
   blocked:  { dot: "#ef4444", label: { en: "Blocked",   de: "Blockiert",   fr: "Bloqué" } },
@@ -572,6 +573,25 @@ export default function AdminPipelinePage() {
                   )}
                 </div>
               </div>
+
+              {/* Chase banner — sat at this station longer than its budget. */}
+              {peek.stuck?.stuck && (
+                <div className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl" style={{ background: "color-mix(in srgb, #ef4444 12%, transparent)", border: "1px solid color-mix(in srgb, #ef4444 42%, var(--border))" }}>
+                  <span style={{ fontSize: 15, flexShrink: 0 }}>⏳</span>
+                  <span className="flex-1 text-[12px] font-semibold" style={{ color: "var(--w)" }}>
+                    {peek.stuck.days == null
+                      ? T("No activity yet — time to chase.", "Noch keine Aktivität — nachhaken.", "Aucune activité — à relancer.")
+                      : T(`Stuck here ${peek.stuck.days} days (usual ~${peek.stuck.threshold}) — chase or update below.`,
+                          `Seit ${peek.stuck.days} Tagen hier (üblich ~${peek.stuck.threshold}) — nachhaken oder unten aktualisieren.`,
+                          `Bloqué ici depuis ${peek.stuck.days} j (habituel ~${peek.stuck.threshold}) — relancez ou mettez à jour.`)}
+                  </span>
+                  <button onClick={() => sendNudge(peek.userId)} disabled={nudging || nudged === peek.userId}
+                    className="bv-press inline-flex items-center gap-1.5 text-[11.5px] font-bold px-3 py-1.5 rounded-lg flex-shrink-0 disabled:opacity-70"
+                    style={nudged === peek.userId ? { background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" } : { background: "#ef4444", color: "#fff" }}>
+                    {nudged === peek.userId ? <><CheckCircle2 size={13} strokeWidth={2.2} /> {T("Reminded", "Erinnert", "Relancé")}</> : <><Bell size={13} strokeWidth={2.2} /> {nudging ? T("…", "…", "…") : T("Remind", "Erinnern", "Relancer")}</>}
+                  </button>
+                </div>
+              )}
 
               {/* THE one thing — a single guided question for exactly where they are. */}
               {showDone ? (
