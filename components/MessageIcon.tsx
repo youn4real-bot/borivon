@@ -22,7 +22,7 @@ import { createPortal } from "react-dom";
 import { supabase } from "@/lib/supabase";
 import { fetchMyRole, cachedRole } from "@/lib/myRole";
 import { useLang } from "@/components/LangContext";
-import { Send, X as XIcon, Image as ImageIcon, Bug, Maximize2, Minimize2, Download } from "lucide-react";
+import { Send, X as XIcon, Image as ImageIcon, Bug, Maximize2, Minimize2, Download, Mail, Check, SquarePen, Search as SearchIcon } from "lucide-react";
 import { Spinner } from "@/components/ui/states";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { relativeTime, dayLabel, clockTime } from "@/lib/relativeTime";
@@ -498,10 +498,12 @@ function ComposeBar({
 function ThreadModal({
   title, subtitle, msgs, mineRole, scrollRef, onSend, onClose, lang,
   otherInitial, otherName, ownInitial, ownName, verifiedOther, isAdminOther,
-  otherAvatarUrl, ownAvatarUrl, otherBadgeColor,
+  otherAvatarUrl, ownAvatarUrl, otherBadgeColor, headerAction,
 }: {
   title: string;
   subtitle?: string;
+  /** Optional control rendered in the header (e.g. admin's email-nudge button). */
+  headerAction?: React.ReactNode;
   msgs: Msg[];
   mineRole: Role;                                      // which side renders as "mine" (right-aligned)
   scrollRef: React.RefObject<HTMLDivElement | null>;
@@ -664,6 +666,7 @@ function ThreadModal({
             </p>
             {subtitle && <p className="text-[11px] truncate" style={{ color: "var(--w3)" }}>{subtitle}</p>}
           </div>
+          {headerAction}
           <button onClick={onClose} aria-label={t.miClose}
             className="w-8 h-8 flex items-center justify-center rounded-lg flex-shrink-0 hover:scale-110"
             style={{ background: "transparent", color: "var(--w3)", border: "none", transition: "color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease)" }}
@@ -966,6 +969,87 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
 
 // ── Admin side ───────────────────────────────────────────────────────────────
 
+type CandPick = { userId: string; name: string; photo: string | null };
+
+// Header button: email the candidate "you have unread messages" — only when
+// they haven't replied, throttled 1/72h server-side. Manual, optional.
+function EmailNudgeButton({ accessToken, threadUserId, lang }: { accessToken: string; threadUserId: string; lang: string }) {
+  const [st, setSt] = useState<"idle" | "sending" | "sent">("idle");
+  const label = lang === "fr" ? "Rappel par email (si pas de réponse)" : lang === "de" ? "E-Mail-Erinnerung (wenn keine Antwort)" : "Email reminder (if no reply)";
+  async function go() {
+    if (st !== "idle") return;
+    setSt("sending");
+    try {
+      const res = await fetch("/api/portal/admin/messages/remind-email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ threadUserId }),
+      });
+      if (res.ok) { setSt("sent"); setTimeout(() => setSt("idle"), 2500); return; }
+      const j = await res.json().catch(() => ({}));
+      setSt("idle");
+      const m = j?.error === "throttled"
+          ? (lang === "fr" ? `Déjà relancé — réessayez dans ${j.retryAfterHours} h.` : lang === "de" ? `Bereits erinnert — in ${j.retryAfterHours} h erneut.` : `Already reminded — try again in ${j.retryAfterHours}h.`)
+        : j?.error === "already_replied"
+          ? (lang === "fr" ? "Le candidat a déjà répondu — rien à relancer." : lang === "de" ? "Kandidat hat bereits geantwortet." : "They've already replied — nothing to remind.")
+        : j?.error === "no_messages"
+          ? (lang === "fr" ? "Envoyez d'abord un message." : lang === "de" ? "Zuerst eine Nachricht senden." : "Send them a message first.")
+        : j?.error === "email_not_configured"
+          ? (lang === "fr" ? "Email non configuré." : lang === "de" ? "E-Mail nicht eingerichtet." : "Email isn't set up yet.")
+        : (lang === "fr" ? "Échec de l'envoi." : lang === "de" ? "Senden fehlgeschlagen." : "Couldn't send.");
+      alert(m);
+    } catch { setSt("idle"); alert(lang === "fr" ? "Erreur réseau." : lang === "de" ? "Netzwerkfehler." : "Network error."); }
+  }
+  return (
+    <button onClick={go} disabled={st === "sending"} aria-label={label} title={label}
+      className="w-8 h-8 flex items-center justify-center rounded-lg flex-shrink-0 hover:scale-110 disabled:opacity-50"
+      style={{ background: "transparent", color: st === "sent" ? "var(--success)" : "var(--w3)", border: "none", transition: "color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease)" }}
+      onMouseEnter={(e) => { if (st === "idle") e.currentTarget.style.color = "var(--w)"; }}
+      onMouseLeave={(e) => { if (st === "idle") e.currentTarget.style.color = "var(--w3)"; }}>
+      {st === "sending" ? <Spinner size="xs" /> : st === "sent" ? <Check size={14} strokeWidth={2.4} /> : <Mail size={14} strokeWidth={1.8} />}
+    </button>
+  );
+}
+
+// "Start a message": searchable candidate list to open a fresh thread.
+function CandidatePicker({ cands, q, setQ, onPick, onBack, lang }: {
+  cands: CandPick[] | null; q: string; setQ: (v: string) => void;
+  onPick: (c: CandPick) => void; onBack: () => void; lang: string;
+}) {
+  const needle = q.trim().toLowerCase();
+  const filtered = (cands ?? []).filter((c) => c.name.toLowerCase().includes(needle));
+  const ph = lang === "fr" ? "Rechercher un candidat…" : lang === "de" ? "Kandidat suchen…" : "Search candidate…";
+  const none = lang === "fr" ? "Aucun candidat." : lang === "de" ? "Keine Kandidaten." : "No candidates.";
+  return (
+    <div style={{ background: "var(--bg)" }}>
+      <div className="flex items-center gap-2 px-3 py-2.5" style={{ borderBottom: "1px solid var(--border)" }}>
+        <button onClick={onBack} aria-label="Back"
+          className="w-7 h-7 flex items-center justify-center rounded-lg flex-shrink-0" style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
+          <XIcon size={13} strokeWidth={1.8} />
+        </button>
+        <div className="relative flex-1">
+          <SearchIcon size={13} className="absolute" style={{ left: 8, top: "50%", transform: "translateY(-50%)", color: "var(--w3)" }} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={ph} aria-label={ph} autoFocus
+            className="w-full text-[13px] outline-none" style={{ paddingLeft: 26, paddingRight: 8, height: 32, background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: 8, color: "var(--w)" }} />
+        </div>
+      </div>
+      <div className="overflow-y-auto" style={{ maxHeight: 420 }}>
+        {cands === null ? (
+          <div className="px-4 py-10 flex justify-center"><Spinner size="sm" /></div>
+        ) : filtered.length === 0 ? (
+          <p className="px-4 py-10 text-center text-[12px]" style={{ color: "var(--w3)" }}>{none}</p>
+        ) : filtered.map((c) => (
+          <button key={c.userId} onClick={() => onPick(c)}
+            className="bv-row-hover w-full text-left px-3.5 py-2.5 flex items-center gap-2.5">
+            <Avatar initial={(c.name || "?").charAt(0)} avatarUrl={c.photo} size={30} />
+            <span className="text-[13px] truncate" style={{ color: "var(--w)" }}>{c.name || "—"}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function AdminInbox({ accessToken }: { accessToken: string }) {
   const { lang, t } = useLang();
   const ref = useRef<HTMLDivElement>(null);
@@ -974,6 +1058,10 @@ function AdminInbox({ accessToken }: { accessToken: string }) {
   const [convs, setConvs] = useState<AdminConversation[]>([]);
   const [activeThread, setActiveThread] = useState<AdminConversation | null>(null);
   const [threadMsgs, setThreadMsgs] = useState<Msg[]>([]);
+  // "Start a message" compose flow — pick any candidate to open a fresh thread.
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [cands, setCands] = useState<CandPick[] | null>(null);
+  const [candQ, setCandQ] = useState("");
   // The admin side is ONE shared identity — "Borivon Support" + the Borivon
   // brand mark — for the supreme admin AND every sub-admin alike. Never an
   // individual admin's name/photo (that's what made a sub-admin see the
@@ -990,6 +1078,31 @@ function AdminInbox({ accessToken }: { accessToken: string }) {
   }, [accessToken]);
 
   useEffect(() => { fetchConvs(); const t = setInterval(fetchConvs, 20_000); return () => clearInterval(t); }, [fetchConvs]);
+
+  // Candidate list for "Start a message" — the lightweight, admin-scoped roster
+  // from the pipeline (id + name + photo), fetched lazily when compose opens.
+  const fetchCands = useCallback(async () => {
+    try {
+      const res = await fetch("/api/portal/journey/pipeline", { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!res.ok) { setCands([]); return; }
+      const j = await res.json();
+      setCands(((j.candidates ?? []) as { userId: string; name: string; photo: string | null }[]).map((c) => ({ userId: c.userId, name: c.name, photo: c.photo })));
+    } catch { setCands([]); }
+  }, [accessToken]);
+
+  // Close the compose picker whenever the inbox dropdown closes.
+  useEffect(() => { if (!inboxOpen) setComposeOpen(false); }, [inboxOpen]);
+
+  function startThreadWith(c: CandPick) {
+    setComposeOpen(false);
+    setInboxOpen(false);
+    setActiveThread({
+      threadUserId: c.userId, name: c.name, email: "",
+      lastBody: "", lastKind: "message", lastSender: "admin",
+      lastAt: new Date().toISOString(), hasAttachment: false, unread: 0,
+      photoUrl: c.photo, verified: false, isOrgMember: false,
+    });
+  }
 
   useEffect(() => {
     const onFocus = () => fetchConvs();
@@ -1080,17 +1193,33 @@ function AdminInbox({ accessToken }: { accessToken: string }) {
 
   const totalUnread = convs.reduce((sum, c) => sum + c.unread, 0);
   const titleList = lang === "fr" ? "Boîte de réception" : lang === "de" ? "Posteingang" : "Inbox";
+  const startMsgLabel = lang === "fr" ? "Démarrer un message" : lang === "de" ? "Nachricht starten" : "Start a message";
 
   return (
     <>
       <div ref={ref} className="relative">
         <ChatIconBtn unread={totalUnread} open={inboxOpen} onClick={() => setInboxOpen(o => !o)} label={titleList} />
         {inboxOpen && !activeThread && (
-          <InboxDropdown title={titleList} onClose={() => setInboxOpen(false)}
-            subtitle={convs.length > 0
+          <InboxDropdown title={composeOpen ? startMsgLabel : titleList} onClose={() => setInboxOpen(false)}
+            subtitle={!composeOpen && convs.length > 0
               ? (lang === "fr" ? `${convs.length} conversation${convs.length !== 1 ? "s" : ""}` : lang === "de" ? `${convs.length} Konversation${convs.length !== 1 ? "en" : ""}` : `${convs.length} conversation${convs.length !== 1 ? "s" : ""}`)
               : undefined}>
-            <ConversationList convs={convs} onPick={pickConversation} lang={lang} />
+            {composeOpen ? (
+              <CandidatePicker cands={cands} q={candQ} setQ={setCandQ} lang={lang}
+                onBack={() => setComposeOpen(false)} onPick={startThreadWith} />
+            ) : (
+              <>
+                <button onClick={() => { setComposeOpen(true); setCandQ(""); if (!cands) void fetchCands(); }}
+                  className="bv-row-hover w-full text-left px-3.5 py-3 flex items-center gap-2.5"
+                  style={{ background: "var(--bg)", borderBottom: "1px solid var(--border)" }}>
+                  <span className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                    <SquarePen size={15} strokeWidth={1.8} />
+                  </span>
+                  <span className="text-[13px] font-semibold" style={{ color: "var(--gold)" }}>{startMsgLabel}</span>
+                </button>
+                <ConversationList convs={convs} onPick={pickConversation} lang={lang} />
+              </>
+            )}
           </InboxDropdown>
         )}
       </div>
@@ -1102,6 +1231,7 @@ function AdminInbox({ accessToken }: { accessToken: string }) {
           subtitle={activeThread.email}
           msgs={threadMsgs}
           mineRole="admin"
+          headerAction={<EmailNudgeButton accessToken={accessToken} threadUserId={activeThread.threadUserId} lang={lang} />}
           scrollRef={scrollRef}
           onSend={reply}
           onClose={closeThread}

@@ -162,3 +162,31 @@ export async function sendPlacedEmail(to: string, orgName: string): Promise<void
     });
   } catch (e) { console.warn("[email] sendPlacedEmail failed:", e); }
 }
+
+/**
+ * Manual nudge: a candidate has unread/unanswered Borivon messages. Admin-
+ * triggered only, throttled to 1/72h per candidate (see the route). Returns
+ * whether an email was actually dispatched — false when RESEND_API_KEY is unset
+ * (so the caller doesn't stamp the throttle or claim success).
+ */
+export async function sendUnreadMessagesReminderEmail(to: string, firstName: string): Promise<boolean> {
+  const r = getResend(); if (!r) return false;
+  try {
+    await r.emails.send({
+      from: FROM,
+      to,
+      subject: `💬 You have a message waiting — Borivon`,
+      html: baseHtml(`
+        <h1 style="margin:0 0 12px;font-size:20px;font-weight:700;color:#fff;">You have a message on Borivon</h1>
+        <p style="margin:0 0 20px;font-size:14px;color:#a0a09a;line-height:1.6;">
+          ${firstName ? `Hi ${esc(firstName)}, ` : ""}the Borivon team has messaged you and is waiting to hear back.
+          Please log in to read it and reply.
+        </p>
+        <a href="${BASE}/portal/dashboard" style="display:inline-block;background:#c9a240;color:#131312;font-size:14px;font-weight:700;padding:12px 28px;border-radius:12px;text-decoration:none;">
+          Open my messages →
+        </a>
+      `),
+    });
+    return true;
+  } catch (e) { console.warn("[email] sendUnreadMessagesReminderEmail failed:", e); return false; }
+}
