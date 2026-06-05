@@ -9,7 +9,7 @@
  * Pure / server-safe.
  */
 
-import { LABEL_TO_FILE_KEY } from "./fileKeys";
+import { resolveFileKey } from "./fileKeys";
 
 export type DocStatus = "approved" | "pending" | "missing";
 
@@ -36,7 +36,7 @@ export function computeDocPack(docs: { file_type: string | null; status: string 
   // Best status per fileKey across the candidate's documents.
   const best = new Map<string, DocStatus>();
   for (const d of docs) {
-    const key = LABEL_TO_FILE_KEY[(d.file_type ?? "").trim()];
+    const key = resolveFileKey(d.file_type);
     if (!key) continue;
     if (d.status === "approved") best.set(key, "approved");
     else if (d.status === "pending" && best.get(key) !== "approved") best.set(key, "pending");

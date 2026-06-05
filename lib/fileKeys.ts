@@ -107,6 +107,20 @@ export function translateDocLabel(
   return (dict[tKey] as string) || v;
 }
 
+/**
+ * Resolve a stored `documents.file_type` to its canonical fileKey. The column
+ * holds a translated LABEL (any language, incl. legacy aliases) OR — on some
+ * paths — the fileKey itself. This collapses BOTH to the key so evidence checks
+ * (CV finalized, diploma approved, …) work regardless of the candidate's upload
+ * language or how the row was written. Unknown values pass through unchanged so
+ * callers can still compare/skip them.
+ */
+export function resolveFileKey(fileType: string | null | undefined): string {
+  const v = (fileType ?? "").trim();
+  if (!v) return "";
+  return LABEL_TO_FILE_KEY[v] ?? v;
+}
+
 /** fileKey → Set of all translated labels (every supported language).
  *  Used by admin + dashboard getDoc() to match docs regardless of upload language. */
 export const FILE_KEY_ALL_LABELS: Record<string, Set<string>> = {};

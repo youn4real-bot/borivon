@@ -7,6 +7,7 @@ import { normalizeB2Stage, isB2Passed, effectiveB2Stage } from "@/lib/b2Journey"
 import { normalizeAnerkennungStage } from "@/lib/anerkennungJourney";
 import { computeDocPack } from "@/lib/recognitionDocs";
 import { deriveImpfungStage, doseProgress, normalizeReq, NO_REQ, type VaccineReq } from "@/lib/impfungJourney";
+import { resolveFileKey } from "@/lib/fileKeys";
 
 /**
  * Anerkennung / Visa Autopilot — pipeline overview (the admin "who's stuck where"
@@ -202,7 +203,10 @@ export async function GET(req: NextRequest) {
     const autoDone = new Set<string>();
     // CV is "finalized" only once an admin has APPROVED the Lebenslauf (green),
     // not merely uploaded — so candidates move here on real approval.
-    if (docs.some((d) => d.status === "approved" && /lebenslauf/i.test(d.file_type ?? ""))) autoDone.add("cv_finalized");
+    // CV is "finalized" once an approved German CV (Lebenslauf) doc exists.
+    // Match by canonical fileKey (any upload language / key-stored) with the
+    // legacy /lebenslauf/ fallback, so a green CV ALWAYS advances the avatar.
+    if (docs.some((d) => d.status === "approved" && (resolveFileKey(d.file_type) === "cv_de" || /lebenslauf/i.test(d.file_type ?? "")))) autoDone.add("cv_finalized");
     // Auto-advance from the admin's guided-peek answers (candidate_pipeline). The
     // admin walks one question at a time; each answer ticks its milestone here so
     // the board + map move in lock-step. "Documents ready for embassy" stays a

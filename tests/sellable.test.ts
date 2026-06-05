@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { evaluateSellable, hasApprovedDiploma, hasFinalizedCv } from "../lib/sellable";
+import { evaluateSellable, hasApprovedDiploma, hasApprovedCv, hasFinalizedCv } from "../lib/sellable";
 
 const cvDone = [{ preset_key: "cv_finalized", done: true }, { preset_key: "b2_passed", done: false }];
 const cvNot  = [{ preset_key: "cv_finalized", done: false }];
@@ -10,6 +10,11 @@ describe("hasApprovedDiploma", () => {
     expect(hasApprovedDiploma([{ file_type: "Diplom", status: "approved" }])).toBe(true);
     expect(hasApprovedDiploma([{ file_type: "Diplom (DE)", status: "approved" }])).toBe(true);
     expect(hasApprovedDiploma([{ file_type: "Nursing Diploma", status: "approved" }])).toBe(true);
+    expect(hasApprovedDiploma([{ file_type: "Diplôme Infirmier", status: "approved" }])).toBe(true); // FR label
+  });
+  it("matches the canonical fileKey (key-stored or German copy)", () => {
+    expect(hasApprovedDiploma([{ file_type: "diploma", status: "approved" }])).toBe(true);
+    expect(hasApprovedDiploma([{ file_type: "diploma_de", status: "approved" }])).toBe(true);
   });
   it("ignores a diploma that is only pending/rejected", () => {
     expect(hasApprovedDiploma([{ file_type: "Diplom", status: "pending" }])).toBe(false);
@@ -32,6 +37,19 @@ describe("hasFinalizedCv", () => {
   });
 });
 
+describe("hasApprovedCv (the evidence the MAP uses)", () => {
+  it("matches an approved German CV in any label form or the fileKey", () => {
+    expect(hasApprovedCv([{ file_type: "Lebenslauf (DE)", status: "approved" }])).toBe(true); // prod label
+    expect(hasApprovedCv([{ file_type: "Lebenslauf", status: "approved" }])).toBe(true);
+    expect(hasApprovedCv([{ file_type: "CV (German)", status: "approved" }])).toBe(true); // legacy alias
+    expect(hasApprovedCv([{ file_type: "cv_de", status: "approved" }])).toBe(true); // key-stored
+  });
+  it("ignores a CV that is only pending/rejected, and non-CV docs", () => {
+    expect(hasApprovedCv([{ file_type: "Lebenslauf (DE)", status: "pending" }])).toBe(false);
+    expect(hasApprovedCv([{ file_type: "Passport", status: "approved" }])).toBe(false);
+  });
+});
+
 describe("evaluateSellable (the gate)", () => {
   it("sellable only when CV done AND diploma approved", () => {
     expect(evaluateSellable({ documents: dipOK, journey: cvDone })).toEqual({ sellable: true, cvDone: true, diplomaApproved: true });
@@ -41,6 +59,10 @@ describe("evaluateSellable (the gate)", () => {
   });
   it("diploma but CV not finalized → not sellable", () => {
     expect(evaluateSellable({ documents: dipOK, journey: cvNot })).toEqual({ sellable: false, cvDone: false, diplomaApproved: true });
+  });
+  it("an APPROVED CV doc alone counts as CV done (matches the map) — no journey tick needed", () => {
+    const docs = [{ file_type: "Lebenslauf (DE)", status: "approved" }, { file_type: "Diplom (DE)", status: "approved" }];
+    expect(evaluateSellable({ documents: docs, journey: [] })).toEqual({ sellable: true, cvDone: true, diplomaApproved: true });
   });
   it("neither → not sellable", () => {
     expect(evaluateSellable({ documents: [], journey: [] })).toEqual({ sellable: false, cvDone: false, diplomaApproved: false });
