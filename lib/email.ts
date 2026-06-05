@@ -175,15 +175,15 @@ export async function sendUnreadMessagesReminderEmail(to: string, firstName: str
     await r.emails.send({
       from: FROM,
       to,
-      subject: `💬 You have a message waiting — Borivon`,
+      subject: `💬 Du hast eine Nachricht — Borivon`,
       html: baseHtml(`
-        <h1 style="margin:0 0 12px;font-size:20px;font-weight:700;color:#fff;">You have a message on Borivon</h1>
+        <h1 style="margin:0 0 12px;font-size:20px;font-weight:700;color:#fff;">Du hast eine Nachricht auf Borivon</h1>
         <p style="margin:0 0 20px;font-size:14px;color:#a0a09a;line-height:1.6;">
-          ${firstName ? `Hi ${esc(firstName)}, ` : ""}the Borivon team has messaged you and is waiting to hear back.
-          Please log in to read it and reply.
+          ${firstName ? `Hallo ${esc(firstName)}, ` : "Hallo, "}das Borivon-Team hat dir geschrieben und wartet auf deine Antwort.
+          Bitte logge dich ein, um sie zu lesen und zu antworten.
         </p>
         <a href="${BASE}/portal/dashboard" style="display:inline-block;background:#c9a240;color:#131312;font-size:14px;font-weight:700;padding:12px 28px;border-radius:12px;text-decoration:none;">
-          Open my messages →
+          Meine Nachrichten öffnen →
         </a>
       `),
     });
