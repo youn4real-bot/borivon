@@ -23,6 +23,7 @@ import { normalizeB2Stage, b2StageLabel, b2StageColor, B2_FAILED_COLOR } from "@
 import { normalizeAnerkennungStage, anerkennungStageLabel, anerkennungStageColor } from "@/lib/anerkennungJourney";
 import { impfungStageLabel, IMPFUNG_STAGE_BY_KEY, type ImpfungStage } from "@/lib/impfungJourney";
 import { NURSE_SPECIALTIES, specialtyLabel } from "@/lib/nurseSpecialties";
+import { translateDocLabel } from "@/lib/fileKeys";
 import { relativeTimeShort } from "@/lib/relativeTime";
 import { Toaster, toast } from "sonner";
 import { ArrowLeft, AlertTriangle, CheckCircle2, Search, Map as MapIcon, LayoutGrid, BadgeCheck, ArrowRight, Bell, FileText, Printer, Pencil, ChevronLeft, ChevronRight, ChevronDown, Check } from "lucide-react";
@@ -94,6 +95,10 @@ export default function AdminPipelinePage() {
   const [accessToken, setAccessToken] = useState("");
   const [peekDocs, setPeekDocs] = useState<PeekDoc[] | null>(null);
   const [docReview, setDocReview] = useState<PeekDoc | null>(null); // open doc-preview popup
+  // Quick one-off note to the candidate (masked as "Borivon"), sent from the peek.
+  const [msgText, setMsgText] = useState("");
+  const [sendingMsg, setSendingMsg] = useState(false);
+  const [msgSent, setMsgSent] = useState(false);
   const [nudging, setNudging] = useState(false);
   const [nudged, setNudged] = useState<string | null>(null); // userId whose reminder just sent
   // Editable nurse-profile facts (specialty/experience) for the peeked candidate.
@@ -197,6 +202,8 @@ export default function AdminPipelinePage() {
     });
     setStepIndex(null);
     setMoreOpen(false);
+    setMsgText("");
+    setMsgSent(false);
   }, [peek]);
 
   // Drag-and-drop: drop a face on a stage lane to move them. Optimistic (instant
@@ -236,6 +243,25 @@ export default function AdminPipelinePage() {
       else toast.error(T("Couldn't send reminder", "Senden fehlgeschlagen", "Échec de l'envoi"));
     } catch { toast.error(T("Couldn't send reminder", "Senden fehlgeschlagen", "Échec de l'envoi")); }
     setNudging(false);
+  };
+
+  // Quick note to the candidate from the peek — posts to the shared Borivon
+  // inbox (candidate sees "Borivon", never an individual admin). LAW #25 gated.
+  const sendMessage = async () => {
+    if (!peek || !msgText.trim()) return;
+    setSendingMsg(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token ?? accessToken;
+      const res = await fetch("/api/portal/admin/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ threadUserId: peek.userId, body: msgText.trim() }),
+      });
+      if (res.ok) { setMsgText(""); setMsgSent(true); setTimeout(() => setMsgSent(false), 2500); toast.success(T("Message sent", "Nachricht gesendet", "Message envoyé")); }
+      else toast.error(T("Couldn't send", "Senden fehlgeschlagen", "Échec de l'envoi"));
+    } catch { toast.error(T("Couldn't send", "Senden fehlgeschlagen", "Échec de l'envoi")); }
+    setSendingMsg(false);
   };
 
   const updateFact = (patch: Partial<typeof factsDraft>) => setFactsDraft((d) => ({ ...d, ...patch }));
@@ -474,6 +500,22 @@ export default function AdminPipelinePage() {
               {savingStep ? T("Saving…", "Speichern…", "Enregistrement…") : <>{T("Save & next", "Speichern & weiter", "Enregistrer & suivant")} <ArrowRight size={14} strokeWidth={2.5} /></>}
             </button>
           );
+          // Compact, tappable list of the candidate's documents — each opens the
+          // review popup (approve / reject / download). Used on the docs step AND
+          // in "More" so any paper (passport included) is reviewable without
+          // leaving her. The review modal handles passports safely (LAW #39).
+          const docDot = (s: string) => s === "approved" ? "var(--success)" : s === "rejected" ? "var(--danger)" : s === "pending" ? "#f59e0b" : "var(--w3)";
+          const docList = (docs: PeekDoc[]) => (
+            <div className="flex flex-col gap-1.5">
+              {docs.map((d) => (
+                <button key={d.id} onClick={() => setDocReview(d)} className="bv-press w-full flex items-center gap-2 text-left px-3 py-2 rounded-lg" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 999, background: docDot(d.status), flexShrink: 0 }} />
+                  <span className="flex-1 truncate text-[12.5px] font-medium" style={{ color: "var(--w2)" }}>{translateDocLabel(d.file_type, lang as "en" | "fr" | "de")}</span>
+                  <FileText size={13} style={{ color: "var(--w3)", flexShrink: 0 }} />
+                </button>
+              ))}
+            </div>
+          );
           return (
             <div className="p-5 flex flex-col gap-3">
               {/* Identity */}
@@ -562,7 +604,22 @@ export default function AdminPipelinePage() {
                       case "contract_signed": return confirmControls(!!pf?.contractDone, { contract_done: true }, { contractDone: true }, { contract_done: false }, { contractDone: false });
                       case "recognition_submitted": return confirmControls(!!pf?.recognitionDone, { recognition_done: true }, { recognitionDone: true }, { recognition_done: false }, { recognitionDone: false });
                       case "vorabzustimmung": return confirmControls(!!pf?.vorabDone, { vorab_done: true }, { vorabDone: true }, { vorab_done: false }, { vorabDone: false });
-                      case "docs_collected": return confirmControls(!!pf?.docsReady, { docs_ready: true }, { docsReady: true }, { docs_ready: false }, { docsReady: false });
+                      case "docs_collected":
+                        return (
+                          <div className="flex flex-col gap-3">
+                            {peekDocs === null ? (
+                              <p className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Loading documents…", "Dokumente laden…", "Chargement…")}</p>
+                            ) : peekDocs.length > 0 ? (
+                              <div className="flex flex-col gap-1.5">
+                                <span className="text-[11px] font-semibold" style={{ color: "var(--w3)" }}>{T("Tap any to review · approve · reject", "Zum Prüfen tippen", "Touchez pour vérifier")}</span>
+                                {docList(peekDocs)}
+                              </div>
+                            ) : (
+                              <p className="text-[12px]" style={{ color: "var(--w3)" }}>{T("No documents uploaded yet.", "Noch keine Dokumente.", "Aucun document encore.")}</p>
+                            )}
+                            {confirmControls(!!pf?.docsReady, { docs_ready: true }, { docsReady: true }, { docs_ready: false }, { docsReady: false }, T("All ready for embassy ✓", "Alle bereit ✓", "Tout est prêt ✓"))}
+                          </div>
+                        );
                       case "visa_appointment":
                         return (
                           <div className="flex flex-col gap-1.5">
@@ -741,6 +798,29 @@ export default function AdminPipelinePage() {
                     </span>
                   </div>
                 </div>
+              </div>
+
+              {/* Documents — review ANY of her papers (passport, diplomas, …)
+                  right here; each opens the same approve/reject/download popup as
+                  the CV step. The review modal handles passports safely (LAW #39). */}
+              {peekDocs && peekDocs.length > 0 && (
+                <div style={card}>
+                  <div style={cap}>📄 {T("Documents", "Dokumente", "Documents")}</div>
+                  {docList(peekDocs)}
+                </div>
+              )}
+
+              {/* Quick note — reaches her as "Borivon" (never an individual admin). */}
+              <div style={card}>
+                <div style={cap}>✉️ {T("Send a quick note", "Kurze Nachricht", "Petit message")}</div>
+                <textarea value={msgText} onChange={(e) => setMsgText(e.target.value)} rows={2} maxLength={2000}
+                  placeholder={T("Write to her — she sees it as Borivon…", "Nachricht — sie sieht „Borivon“…", "Écrivez-lui — elle voit « Borivon »…")}
+                  className="bv-input" style={{ fontSize: 12.5, resize: "none", lineHeight: 1.45 }} />
+                <button onClick={() => void sendMessage()} disabled={!msgText.trim() || sendingMsg}
+                  className="bv-press inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 rounded-lg disabled:opacity-50 mt-2"
+                  style={msgSent ? { background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" } : { background: "var(--gold)", color: "#131312" }}>
+                  {msgSent ? <><CheckCircle2 size={14} strokeWidth={2.2} /> {T("Sent", "Gesendet", "Envoyé")}</> : (sendingMsg ? T("Sending…", "Senden…", "Envoi…") : T("Send", "Senden", "Envoyer"))}
+                </button>
               </div>
 
                 </div>
