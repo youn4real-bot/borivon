@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
@@ -25,6 +26,16 @@ import { NURSE_SPECIALTIES, specialtyLabel } from "@/lib/nurseSpecialties";
 import { relativeTimeShort } from "@/lib/relativeTime";
 import { Toaster, toast } from "sonner";
 import { ArrowLeft, AlertTriangle, CheckCircle2, Search, Map as MapIcon, LayoutGrid, BadgeCheck, ArrowRight, Bell, FileText, Printer, Pencil, ChevronLeft, ChevronRight, ChevronDown, Check } from "lucide-react";
+
+// Document review reused VERBATIM from the dashboard — opened as a popup ON TOP
+// of the peek so the admin never has to leave the candidate to approve/reject.
+// Dynamically imported so the heavy PDF/DOCX/image viewers stay out of the
+// pipeline bundle until a doc is actually opened.
+const AdminDocPreviewModal = dynamic(
+  () => import("@/components/AdminDocPreviewModal").then((m) => m.AdminDocPreviewModal),
+  { ssr: false },
+);
+type PeekDoc = { id: string; user_id: string; file_name: string; file_type: string; uploaded_at: string; status: string; feedback: string | null; drive_file_id: string | null; uploaded_by_admin?: boolean; rotation?: number | null };
 
 type Health = "on_track" | "due_soon" | "overdue" | "blocked" | "done";
 type Status = {
@@ -78,6 +89,11 @@ export default function AdminPipelinePage() {
   // Clicking a candidate opens a quick cross-track summary (peek) — NOT a jump
   // straight to their dossier. The dossier is one button away inside the popup.
   const [peek, setPeek] = useState<Row | null>(null);
+  // Live JWT (kept fresh) + the peeked candidate's documents, so the admin can
+  // review/approve/reject papers (e.g. the CV) right here without leaving.
+  const [accessToken, setAccessToken] = useState("");
+  const [peekDocs, setPeekDocs] = useState<PeekDoc[] | null>(null);
+  const [docReview, setDocReview] = useState<PeekDoc | null>(null); // open doc-preview popup
   const [nudging, setNudging] = useState(false);
   const [nudged, setNudged] = useState<string | null>(null); // userId whose reminder just sent
   // Editable nurse-profile facts (specialty/experience) for the peeked candidate.
@@ -103,6 +119,7 @@ export default function AdminPipelinePage() {
         try { const { data: r } = await supabase.auth.refreshSession(); if (r?.session?.access_token) token = r.session.access_token; } catch { /* keep */ }
         if (cancelled) return;
       }
+      setAccessToken(token);
       const res = await fetch("/api/portal/journey/pipeline", { headers: { Authorization: `Bearer ${token}` } });
       if (res.status === 401 || res.status === 403) { router.replace("/portal/dashboard"); return; }
       const j = await res.json().catch(() => ({ candidates: [] }));
@@ -113,6 +130,36 @@ export default function AdminPipelinePage() {
     })();
     return () => { cancelled = true; };
   }, [router]);
+
+  // Keep the JWT fresh (it rotates ~hourly) so the doc-review popup's
+  // authenticated fetches / approve-reject calls never 401 mid-session.
+  useEffect(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      if (session?.access_token) setAccessToken(session.access_token);
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  // When a candidate is peeked, load THEIR documents (admin-scoped, LAW #25) so
+  // the guided steps can surface the real paper to review (CV, etc.) inline.
+  useEffect(() => {
+    const uid = peek?.userId;
+    if (!uid) { setPeekDocs(null); return; }
+    let cancelled = false;
+    setPeekDocs(null);
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token ?? "";
+      if (token) setAccessToken(token);
+      const res = await fetch(`/api/portal/admin?userId=${encodeURIComponent(uid)}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (cancelled) return;
+      if (res.ok) {
+        const j = await res.json().catch(() => ({ docs: [] }));
+        setPeekDocs(((j.docs ?? []) as PeekDoc[]).filter((d) => d.user_id === uid));
+      } else setPeekDocs([]);
+    })();
+    return () => { cancelled = true; };
+  }, [peek?.userId]);
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -373,6 +420,10 @@ export default function AdminPipelinePage() {
           // position. Answering it saves + advances to the next. ◀ ▶ revisit any step.
           const firstName = peek.name.split(/\s+/).filter(Boolean)[0] || peek.name;
           const pf = peek.pipeline;
+          // The candidate's German CV (Lebenslauf) doc, if uploaded — so the CV
+          // step can open it for review/approve/reject inline. Latest match first
+          // (docs come back newest-first from the admin route).
+          const cvDoc = (peekDocs ?? []).find((d) => /lebenslauf/i.test(d.file_type)) ?? (peekDocs ?? []).find((d) => /(^|_)cv/i.test(d.file_type));
           const presets = SEQUENTIAL_PRESETS.slice().sort((a, b) => a.position - b.position);
           const total = presets.length;
           const allDone = !peek.status.current;
@@ -462,10 +513,27 @@ export default function AdminPipelinePage() {
                       case "cv_finalized":
                         return (
                           <div className="flex flex-col gap-2.5">
-                            <p className="text-[12.5px]" style={{ color: "var(--w2)" }}>{T("Approve their German CV in the documents — they move on automatically once it's green.", "Lebenslauf in den Dokumenten freigeben — danach geht es automatisch weiter.", "Validez leur CV allemand dans les documents — ça avance dès qu'il est validé.")}</p>
-                            <button onClick={() => { const id = peek.userId; setPeek(null); router.push(`/portal/admin?nav_user_id=${encodeURIComponent(id)}`); }} className="bv-press inline-flex items-center gap-1.5 self-start text-[12.5px] font-bold px-4 py-2 rounded-xl" style={{ background: "var(--gold)", color: "#131312" }}>
-                              {T("Open full profile", "Profil öffnen", "Profil complet")} <ArrowRight size={14} strokeWidth={2.5} />
-                            </button>
+                            {peekDocs === null ? (
+                              <p className="text-[12.5px]" style={{ color: "var(--w3)" }}>{T("Loading their documents…", "Dokumente werden geladen…", "Chargement des documents…")}</p>
+                            ) : cvDoc ? (
+                              <>
+                                <p className="text-[12.5px]" style={{ color: "var(--w2)" }}>
+                                  {cvDoc.status === "rejected"
+                                    ? T("Their German CV was rejected — open it to review again.", "Lebenslauf wurde abgelehnt — erneut prüfen.", "Leur CV a été refusé — rouvrez-le pour revoir.")
+                                    : T("Their German CV is in — review it and approve or reject, right here.", "Lebenslauf liegt vor — hier prüfen und genehmigen oder ablehnen.", "Leur CV est là — vérifiez et approuvez ou refusez, ici même.")}
+                                </p>
+                                <button onClick={() => setDocReview(cvDoc)} className="bv-press inline-flex items-center gap-1.5 self-start text-[13px] font-bold px-4 py-2.5 rounded-xl" style={{ background: "var(--gold)", color: "#131312" }}>
+                                  <FileText size={14} /> {T("Review CV — approve / reject", "Lebenslauf prüfen", "Vérifier le CV")}
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <p className="text-[12.5px]" style={{ color: "var(--w2)" }}>{T("No German CV uploaded yet — build or upload one in their profile.", "Noch kein Lebenslauf — im Profil erstellen oder hochladen.", "Aucun CV allemand encore — créez-en un dans leur profil.")}</p>
+                                <button onClick={() => { const id = peek.userId; setPeek(null); router.push(`/portal/admin?nav_user_id=${encodeURIComponent(id)}`); }} className="bv-press inline-flex items-center gap-1.5 self-start text-[12.5px] font-bold px-4 py-2 rounded-xl" style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                                  {T("Open full profile", "Profil öffnen", "Profil complet")} <ArrowRight size={14} strokeWidth={2.5} />
+                                </button>
+                              </>
+                            )}
                           </div>
                         );
                       case "interview_first":
@@ -681,6 +749,22 @@ export default function AdminPipelinePage() {
           );
         })()}
       </Modal>
+
+      {/* Document review — the dashboard's preview + approve/reject/download,
+          opened ON TOP of the peek so reviewing a CV never means leaving her. */}
+      {docReview && accessToken && (
+        <AdminDocPreviewModal
+          doc={docReview}
+          accessToken={accessToken}
+          onClose={() => setDocReview(null)}
+          onUpdated={(d) => {
+            // Reflect the new status locally + recompute the board/peek so an
+            // approved CV instantly advances the guided step to the next question.
+            setPeekDocs((ds) => (ds ? ds.map((x) => (x.id === d.id ? { ...x, status: d.status, feedback: d.feedback } : x)) : ds));
+            void reload();
+          }}
+        />
+      )}
 
       {/* Employer-ready profile sheet — clean, identity-safe, printable one-pager. */}
       <Modal open={sheetOpen} onClose={() => setSheetOpen(false)} size="md"
