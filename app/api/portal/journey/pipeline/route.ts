@@ -157,12 +157,12 @@ export async function GET(req: NextRequest) {
 
   // Pipeline stage facts — interview outcomes + visa/flight/housing the admin
   // sets from the peek (candidate_pipeline). Batched. Drive board auto-advance.
-  type PipeRow = { user_id: string; interview1_status: string | null; interview2_status: string | null; visa_appt_date: string | null; flight_date: string | null; flight_info: string | null; housing_done: boolean | null; visa_granted: boolean | null; visa_date: string | null; updated_at: string | null };
+  type PipeRow = { user_id: string; interview1_status: string | null; interview2_status: string | null; interview1_date: string | null; interview2_date: string | null; visa_appt_date: string | null; flight_date: string | null; flight_info: string | null; housing_done: boolean | null; visa_granted: boolean | null; visa_date: string | null; contract_done: boolean | null; recognition_done: boolean | null; vorab_done: boolean | null; docs_ready: boolean | null; arrived_done: boolean | null; updated_at: string | null };
   const pipeByCandidate = new Map<string, PipeRow>();
   {
     const { data } = await db
       .from("candidate_pipeline")
-      .select("user_id, interview1_status, interview2_status, visa_appt_date, flight_date, flight_info, housing_done, visa_granted, visa_date, updated_at")
+      .select("user_id, interview1_status, interview2_status, interview1_date, interview2_date, visa_appt_date, flight_date, flight_info, housing_done, visa_granted, visa_date, contract_done, recognition_done, vorab_done, docs_ready, arrived_done, updated_at")
       .in("user_id", ids);
     for (const r of (data ?? []) as PipeRow[]) pipeByCandidate.set(r.user_id, r);
   }
@@ -203,14 +203,23 @@ export async function GET(req: NextRequest) {
     // CV is "finalized" only once an admin has APPROVED the Lebenslauf (green),
     // not merely uploaded — so candidates move here on real approval.
     if (docs.some((d) => d.status === "approved" && /lebenslauf/i.test(d.file_type ?? ""))) autoDone.add("cv_finalized");
-    // Auto-advance from the admin's peek inputs (candidate_pipeline):
+    // Auto-advance from the admin's guided-peek answers (candidate_pipeline). The
+    // admin walks one question at a time; each answer ticks its milestone here so
+    // the board + map move in lock-step. "Documents ready for embassy" stays a
+    // deliberate judgement — it advances only when the admin explicitly confirms
+    // docs_ready in the wizard (never from "one approved doc exists").
     const pipe = pipeByCandidate.get(p.user_id);
     if (pipe?.interview1_status === "passed") autoDone.add("interview_first");
     if (pipe?.interview2_status === "passed") autoDone.add("interview_second");
+    if (pipe?.contract_done === true) autoDone.add("contract_signed");
+    if (pipe?.recognition_done === true) autoDone.add("recognition_submitted");
+    if (pipe?.vorab_done === true) autoDone.add("vorabzustimmung");
+    if (pipe?.docs_ready === true) autoDone.add("docs_collected");
     if (pipe?.visa_appt_date) autoDone.add("visa_appointment");
     if (pipe?.visa_granted === true || pipe?.visa_date) autoDone.add("visa_approved");
     if (pipe?.flight_date) autoDone.add("flight_booked");
     if (pipe?.housing_done === true) autoDone.add("housing_arranged");
+    if (pipe?.arrived_done === true) autoDone.add("arrived");
     const status = computePipelineStatus(journey, today, isB2Passed(b2Stage), autoDone);
     const sellable = evaluateSellable({ documents: docs, journey });
 
@@ -260,10 +269,18 @@ export async function GET(req: NextRequest) {
       pipeline: {
         interview1: pipe?.interview1_status ?? null,
         interview2: pipe?.interview2_status ?? null,
+        interview1Date: pipe?.interview1_date ?? null,
+        interview2Date: pipe?.interview2_date ?? null,
         visaApptDate: pipe?.visa_appt_date ?? null,
         flightDate: pipe?.flight_date ?? null,
         flightInfo: pipe?.flight_info ?? null,
         housingDone: pipe?.housing_done === true,
+        visaGranted: pipe?.visa_granted === true || !!pipe?.visa_date,
+        contractDone: pipe?.contract_done === true,
+        recognitionDone: pipe?.recognition_done === true,
+        vorabDone: pipe?.vorab_done === true,
+        docsReady: pipe?.docs_ready === true,
+        arrivedDone: pipe?.arrived_done === true,
       },
       facts: {
         specialty: p.nursing_specialty ?? null,

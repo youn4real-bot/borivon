@@ -14,7 +14,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
-import { JOURNEY_PRESETS } from "@/lib/candidateJourney";
+import { JOURNEY_PRESETS, SEQUENTIAL_PRESETS } from "@/lib/candidateJourney";
 import { JourneyMap } from "@/components/JourneyMap";
 import { CandidateTable } from "@/components/CandidateTable";
 import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
@@ -24,12 +24,12 @@ import { impfungStageLabel, IMPFUNG_STAGE_BY_KEY, type ImpfungStage } from "@/li
 import { NURSE_SPECIALTIES, specialtyLabel } from "@/lib/nurseSpecialties";
 import { relativeTimeShort } from "@/lib/relativeTime";
 import { Toaster, toast } from "sonner";
-import { ArrowLeft, AlertTriangle, CheckCircle2, Search, Map as MapIcon, LayoutGrid, BadgeCheck, ArrowRight, Bell, FileText, Printer, Pencil } from "lucide-react";
+import { ArrowLeft, AlertTriangle, CheckCircle2, Search, Map as MapIcon, LayoutGrid, BadgeCheck, ArrowRight, Bell, FileText, Printer, Pencil, ChevronLeft, ChevronRight, ChevronDown, Check } from "lucide-react";
 
 type Health = "on_track" | "due_soon" | "overdue" | "blocked" | "done";
 type Status = {
   progress: number; doneCount: number; totalPresets: number;
-  current: { key: string; owner: string; dueDate: string | null; blocked: boolean; blockedReason: string | null; daysToDue: number | null } | null;
+  current: { key: string; owner: string; position: number; dueDate: string | null; blocked: boolean; blockedReason: string | null; daysToDue: number | null } | null;
   reached: { key: string; position: number } | null;
   overdueCount: number; blockedCount: number; health: Health;
 };
@@ -40,7 +40,13 @@ type Facts = { specialty: string | null; yearsExperience: number | null; workpla
 type DocPackItem = { key: string; status: "approved" | "pending" | "missing" };
 type DocPack = { items: DocPackItem[]; collected: number; total: number };
 type SelfReport = { kind: string; outcome: string; note: string | null; created_at: string };
-type PipelineFacts = { interview1: string | null; interview2: string | null; visaApptDate: string | null; flightDate: string | null; flightInfo: string | null; housingDone: boolean };
+type PipelineFacts = {
+  interview1: string | null; interview2: string | null;
+  interview1Date: string | null; interview2Date: string | null;
+  visaApptDate: string | null; flightDate: string | null; flightInfo: string | null;
+  housingDone: boolean; visaGranted: boolean;
+  contractDone: boolean; recognitionDone: boolean; vorabDone: boolean; docsReady: boolean; arrivedDone: boolean;
+};
 type Row = { userId: string; name: string; photo: string | null; status: Status; sellable: Sellable; b2Stage?: string; b2Failed?: boolean; anerkennungStage?: string; impfungStage?: string; impfungDoses?: { got: number; need: number }; followUp?: FollowUp; openTasks?: OpenTask[]; facts?: Facts; docPack?: DocPack; reports?: SelfReport[]; pipeline?: PipelineFacts; needsUpdate?: boolean; lastActivityAt?: string | null };
 
 const HEALTH_STYLE: Record<Health, { dot: string; label: { en: string; de: string; fr: string } }> = {
@@ -78,10 +84,13 @@ export default function AdminPipelinePage() {
   const [factsDraft, setFactsDraft] = useState({ specialty: "", years: "", workplace: "", availableFrom: "" });
   const [factsSaving, setFactsSaving] = useState(false);
   const [factsEdit, setFactsEdit] = useState(false); // nurse-profile editor open?
-  // Stage editor (interview pass/fail + visa/flight/housing) for the peeked candidate.
-  const [pipeEdit, setPipeEdit] = useState(false);
-  const [pipeSaving, setPipeSaving] = useState(false);
-  const [pipeDraft, setPipeDraft] = useState({ interview1: "", interview2: "", visaApptDate: "", flightDate: "", flightInfo: "", housingDone: false });
+  // Guided peek — one question at a time. `stepIndex` null = follow the live
+  // current milestone; a number = the admin paged to a specific step to revisit.
+  // `pipeDraft` holds editable values for whichever step is on screen.
+  const [savingStep, setSavingStep] = useState(false);
+  const [stepIndex, setStepIndex] = useState<number | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false); // collapsed "More" (status · profile · updates)
+  const [pipeDraft, setPipeDraft] = useState({ interview1: "", interview2: "", interview1Date: "", interview2Date: "", visaApptDate: "", flightDate: "", flightInfo: "", housingDone: false });
 
   useEffect(() => {
     let cancelled = false;
@@ -132,12 +141,15 @@ export default function AdminPipelinePage() {
     setPipeDraft({
       interview1: peek.pipeline?.interview1 ?? "",
       interview2: peek.pipeline?.interview2 ?? "",
+      interview1Date: peek.pipeline?.interview1Date ?? "",
+      interview2Date: peek.pipeline?.interview2Date ?? "",
       visaApptDate: peek.pipeline?.visaApptDate ?? "",
       flightDate: peek.pipeline?.flightDate ?? "",
       flightInfo: peek.pipeline?.flightInfo ?? "",
       housingDone: peek.pipeline?.housingDone ?? false,
     });
-    setPipeEdit(false);
+    setStepIndex(null);
+    setMoreOpen(false);
   }, [peek]);
 
   // Drag-and-drop: drop a face on a stage lane to move them. Optimistic (instant
@@ -220,34 +232,37 @@ export default function AdminPipelinePage() {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token ?? "";
       const res = await fetch("/api/portal/journey/pipeline", { headers: { Authorization: `Bearer ${token}` } });
-      if (res.ok) { const j = await res.json(); setRows((j.candidates ?? []) as Row[]); }
+      if (res.ok) {
+        const j = await res.json();
+        const next = (j.candidates ?? []) as Row[];
+        setRows(next);
+        // Keep the OPEN peek in sync so the guided step advances to the next
+        // question the instant an answer is saved (server recomputes `current`).
+        setPeek((p) => (p ? (next.find((r) => r.userId === p.userId) ?? p) : p));
+      }
     } catch { /* keep current */ }
   };
 
-  // Save stage inputs (interview pass/fail + visa appointment / flight / housing)
-  // from the peek → candidate_pipeline; the board then auto-advances on reload.
-  const savePipeline = async () => {
+  // Guided step save — persist ONE milestone's answer to candidate_pipeline, then
+  // reload so the board AND the open peek both advance to the next question. The
+  // optimistic merge gives instant feedback; reload() makes `status` truthful.
+  const saveStep = async (fields: Record<string, unknown>, optimistic: Partial<PipelineFacts>) => {
     if (!peek) return;
     const id = peek.userId;
-    setPipeSaving(true);
-    const payload: Record<string, unknown> = { userId: id, flight_info: pipeDraft.flightInfo, housing_done: pipeDraft.housingDone, visa_appt_date: pipeDraft.visaApptDate || "", flight_date: pipeDraft.flightDate || "" };
-    if (pipeDraft.interview1) payload.interview1_status = pipeDraft.interview1;
-    if (pipeDraft.interview2) payload.interview2_status = pipeDraft.interview2;
+    setSavingStep(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token ?? "";
-      const res = await fetch("/api/portal/pipeline", { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(payload) });
+      const res = await fetch("/api/portal/pipeline", { method: "PATCH", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ userId: id, ...fields }) });
       if (res.ok) {
-        const newPipe: PipelineFacts = { interview1: pipeDraft.interview1 || null, interview2: pipeDraft.interview2 || null, visaApptDate: pipeDraft.visaApptDate || null, flightDate: pipeDraft.flightDate || null, flightInfo: pipeDraft.flightInfo || null, housingDone: pipeDraft.housingDone };
-        setPeek((p) => (p && p.userId === id ? { ...p, pipeline: newPipe } : p));
-        setPipeEdit(false);
-        toast.success(T("Stage updated", "Phase aktualisiert", "Étape mise à jour"));
-        void reload();
+        setPeek((p) => (p && p.userId === id ? { ...p, pipeline: { ...(p.pipeline as PipelineFacts), ...optimistic } } : p));
+        toast.success(T("Saved ✓", "Gespeichert ✓", "Enregistré ✓"));
+        await reload();
       } else {
-        toast.error(T("Couldn't update", "Update fehlgeschlagen", "Échec de la mise à jour"));
+        toast.error(T("Couldn't save", "Speichern fehlgeschlagen", "Échec de l'enregistrement"));
       }
-    } catch { toast.error(T("Couldn't update", "Update fehlgeschlagen", "Échec de la mise à jour")); }
-    setPipeSaving(false);
+    } catch { toast.error(T("Couldn't save", "Speichern fehlgeschlagen", "Échec de l'enregistrement")); }
+    setSavingStep(false);
   };
 
   if (loading) return <PageLoader />;
@@ -312,9 +327,6 @@ export default function AdminPipelinePage() {
         onClose={() => setPeek(null)}
         size="md"
         title={peek?.name ?? ""}
-        subtitle={T("Quick summary — open the full profile for documents & details",
-          "Kurzübersicht — vollständiges Profil für Dokumente & Details",
-          "Résumé rapide — ouvrez le profil complet pour documents et détails")}
         footer={peek ? (
           <>
             <GhostButton onClick={() => setPeek(null)}>{T("Close", "Schließen", "Fermer")}</GhostButton>
@@ -335,11 +347,6 @@ export default function AdminPipelinePage() {
           const impDef = imp !== "not_required" && imp !== "not_started" ? IMPFUNG_STAGE_BY_KEY[imp] : undefined;
           const pct = Math.round(peek.status.progress * 100);
           const hs = HEALTH_STYLE[peek.status.health];
-          const journeyLine = peek.status.health === "done"
-            ? T("Arrived in Germany 🇩🇪", "In Deutschland angekommen 🇩🇪", "Arrivé en Allemagne 🇩🇪")
-            : peek.status.current ? presetLabel(peek.status.current.key, lang)
-            : T("Just started", "Gerade begonnen", "Vient de commencer");
-          const didLine = peek.status.reached ? presetLabel(peek.status.reached.key, lang) : T("Just started", "Gerade begonnen", "Vient de commencer");
           const card: CSSProperties = { borderRadius: 16, border: "1px solid var(--border)", background: "var(--bg2)", padding: 16, boxShadow: "0 1px 2px rgba(0,0,0,0.05)" };
           const cap: CSSProperties = { fontSize: 10.5, fontWeight: 700, color: "var(--w3)", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 10 };
           const lbl: CSSProperties = { fontSize: 10.5, fontWeight: 600, color: "var(--w3)", marginBottom: 4, display: "block" };
@@ -361,6 +368,61 @@ export default function AdminPipelinePage() {
               })}
             </div>
           );
+          // ── Guided flow — where are they, and which single step is on screen? ──
+          // The peek asks ONE question at a time, computed from the candidate's live
+          // position. Answering it saves + advances to the next. ◀ ▶ revisit any step.
+          const firstName = peek.name.split(/\s+/).filter(Boolean)[0] || peek.name;
+          const pf = peek.pipeline;
+          const presets = SEQUENTIAL_PRESETS.slice().sort((a, b) => a.position - b.position);
+          const total = presets.length;
+          const allDone = !peek.status.current;
+          const currentPos = peek.status.current?.position ?? total;
+          const viewPos = stepIndex ?? Math.min(currentPos, total - 1);
+          const stepKey = presets[viewPos]?.key ?? "arrived";
+          const showDone = allDone && stepIndex === null;
+          const stepQuestion = (k: string): string => {
+            switch (k) {
+              case "cv_finalized": return T(`Is ${firstName}'s German CV approved?`, `Ist der Lebenslauf von ${firstName} freigegeben?`, `Le CV allemand de ${firstName} est-il validé ?`);
+              case "interview_first": return T(`Did ${firstName} pass the first interview?`, `Hat ${firstName} das erste Interview bestanden?`, `${firstName} a réussi le premier entretien ?`);
+              case "interview_second": return T(`Did ${firstName} pass the second interview?`, `Hat ${firstName} das zweite Interview bestanden?`, `${firstName} a réussi le deuxième entretien ?`);
+              case "contract_signed": return T("Contract sealed?", "Vertrag abgeschlossen?", "Contrat conclu ?");
+              case "recognition_submitted": return T("Recognition approved?", "Anerkennung genehmigt?", "Reconnaissance approuvée ?");
+              case "vorabzustimmung": return T("Vorabzustimmung issued?", "Vorabzustimmung erteilt?", "Vorabzustimmung délivrée ?");
+              case "docs_collected": return T("All documents ready for the embassy?", "Alle Unterlagen für die Botschaft bereit?", "Tous les documents prêts pour l'ambassade ?");
+              case "visa_appointment": return T("When is the visa appointment?", "Wann ist der Visumtermin?", "Quand est le rendez-vous visa ?");
+              case "visa_approved": return T("Visa approved?", "Visum genehmigt?", "Visa approuvé ?");
+              case "flight_booked": return T("When is the flight?", "Wann ist der Flug?", "Quand est le vol ?");
+              case "housing_arranged": return T("Housing arranged?", "Unterkunft organisiert?", "Logement organisé ?");
+              case "arrived": return T(`Has ${firstName} arrived in Germany?`, `Ist ${firstName} in Deutschland angekommen?`, `${firstName} est arrivé en Allemagne ?`);
+              default: return presetLabel(k, lang);
+            }
+          };
+          const saveInterview = (n: 1 | 2, statusVal: string, dateVal: string) => {
+            const chosen = statusVal === "passed" || statusVal === "failed";
+            if (n === 1) void saveStep({ ...(chosen ? { interview1_status: statusVal } : {}), interview1_date: dateVal || "" }, { ...(chosen ? { interview1: statusVal } : {}), interview1Date: dateVal || null });
+            else void saveStep({ ...(chosen ? { interview2_status: statusVal } : {}), interview2_date: dateVal || "" }, { ...(chosen ? { interview2: statusVal } : {}), interview2Date: dateVal || null });
+          };
+          const confirmControls = (done: boolean, on: Record<string, unknown>, onOpt: Partial<PipelineFacts>, off: Record<string, unknown>, offOpt: Partial<PipelineFacts>, yes?: string) => (
+            <div className="flex items-center gap-2 flex-wrap">
+              {!done ? (
+                <button onClick={() => void saveStep(on, onOpt)} disabled={savingStep} className="bv-press inline-flex items-center gap-1.5 text-[13px] font-bold px-4 py-2.5 rounded-xl disabled:opacity-60" style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
+                  <Check size={15} strokeWidth={2.6} /> {yes ?? T("Yes, done", "Ja, erledigt", "Oui, fait")}
+                </button>
+              ) : (
+                <>
+                  <span className="inline-flex items-center gap-1.5 text-[13px] font-bold px-4 py-2.5 rounded-xl" style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
+                    <CheckCircle2 size={15} strokeWidth={2.4} /> {T("Done ✓", "Erledigt ✓", "Fait ✓")}
+                  </span>
+                  <button onClick={() => void saveStep(off, offOpt)} disabled={savingStep} className="bv-press text-[12px] font-medium px-3 py-2" style={{ color: "var(--w3)" }}>{T("Undo", "Rückgängig", "Annuler")}</button>
+                </>
+              )}
+            </div>
+          );
+          const saveAndNext = (onSave: () => void, disabled: boolean) => (
+            <button onClick={onSave} disabled={savingStep || disabled} className="bv-press inline-flex items-center gap-1.5 self-start text-[12.5px] font-bold px-4 py-2 rounded-xl disabled:opacity-50 mt-1" style={{ background: "var(--gold)", color: "#131312" }}>
+              {savingStep ? T("Saving…", "Speichern…", "Enregistrement…") : <>{T("Save & next", "Speichern & weiter", "Enregistrer & suivant")} <ArrowRight size={14} strokeWidth={2.5} /></>}
+            </button>
+          );
           return (
             <div className="p-5 flex flex-col gap-3">
               {/* Identity */}
@@ -371,37 +433,123 @@ export default function AdminPipelinePage() {
                 ) : (
                   <span className="rounded-full flex items-center justify-center flex-shrink-0 text-[20px] font-bold" style={{ width: 60, height: 60, background: "var(--gdim)", color: "var(--gold)", border: `2.5px solid ${hs.dot}`, boxShadow: `0 0 0 4px color-mix(in srgb, ${hs.dot} 14%, transparent)` }}>{initials(peek.name)}</span>
                 )}
-                <div className="min-w-0">
-                  <p className="text-[16px] font-bold tracking-[-0.01em] truncate" style={{ color: "var(--w)" }}>{peek.name}</p>
-                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                    <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ background: `color-mix(in srgb, ${hs.dot} 16%, transparent)`, color: hs.dot }}>
-                      <span style={{ width: 7, height: 7, borderRadius: 999, background: hs.dot }} /> {hs.label[lang as "en" | "fr" | "de"]}
+                <div className="min-w-0 flex items-center gap-2 flex-wrap">
+                  {peek.sellable?.sellable && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: "var(--gold)", color: "#131312" }}>
+                      <BadgeCheck size={10} strokeWidth={2.5} /> {T("READY TO SELL", "VERKAUFSBEREIT", "PRÊT À VENDRE")}
                     </span>
-                    {peek.sellable?.sellable && (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: "var(--gold)", color: "#131312" }}>
-                        <BadgeCheck size={10} strokeWidth={2.5} /> {T("READY TO SELL", "VERKAUFSBEREIT", "PRÊT À VENDRE")}
-                      </span>
-                    )}
-                    {(peek.pipeline?.interview1 === "failed" || peek.pipeline?.interview2 === "failed") && (
-                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
-                        ⚠ {T("INTERVIEW NOT PASSED", "INTERVIEW NICHT BESTANDEN", "ENTRETIEN NON RÉUSSI")}
-                      </span>
-                    )}
-                  </div>
+                  )}
+                  {(peek.pipeline?.interview1 === "failed" || peek.pipeline?.interview2 === "failed") && (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
+                      ⚠ {T("INTERVIEW NOT PASSED", "INTERVIEW NICHT BESTANDEN", "ENTRETIEN NON RÉUSSI")}
+                    </span>
+                  )}
                 </div>
               </div>
 
-              {/* Weekly reminder — pulses on the board when no update in a week. */}
-              {peek.needsUpdate && (
-                <button onClick={() => setPipeEdit(true)} className="bv-press w-full text-left flex items-center gap-2 px-3 py-2.5 rounded-xl"
-                  style={{ background: "color-mix(in srgb, #f59e0b 12%, transparent)", border: "1px solid color-mix(in srgb, #f59e0b 45%, var(--border))" }}>
-                  <span style={{ fontSize: 15, flexShrink: 0 }}>⚡</span>
-                  <span className="flex-1 text-[12.5px] font-semibold" style={{ color: "var(--w)" }}>
-                    {T("Needs an update — log where they are", "Update nötig — wo stehen sie?", "Mise à jour requise — où en sont-ils ?")}
-                  </span>
-                  <span className="text-[11.5px] font-semibold flex-shrink-0" style={{ color: "#f59e0b" }}>{T("Update", "Aktualisieren", "Mettre à jour")} →</span>
-                </button>
+              {/* THE one thing — a single guided question for exactly where they are. */}
+              {showDone ? (
+                <div style={{ ...card, textAlign: "center", padding: 22 }}>
+                  <div style={{ fontSize: 30, marginBottom: 4 }}>🎉</div>
+                  <div className="text-[15px] font-bold" style={{ color: "var(--w)" }}>{T("Arrived in Germany", "In Deutschland angekommen", "Arrivé en Allemagne")} 🇩🇪</div>
+                  <div className="text-[12px] mt-1" style={{ color: "var(--w3)" }}>{T("Every milestone complete.", "Alle Etappen abgeschlossen.", "Toutes les étapes terminées.")}</div>
+                </div>
+              ) : (
+                <div style={{ ...card, padding: 18 }}>
+                  <div className="text-[16.5px] font-bold leading-snug mb-3.5" style={{ color: "var(--w)", letterSpacing: -0.2 }}>{stepQuestion(stepKey)}</div>
+                  {(() => {
+                    switch (stepKey) {
+                      case "cv_finalized":
+                        return (
+                          <div className="flex flex-col gap-2.5">
+                            <p className="text-[12.5px]" style={{ color: "var(--w2)" }}>{T("Approve their German CV in the documents — they move on automatically once it's green.", "Lebenslauf in den Dokumenten freigeben — danach geht es automatisch weiter.", "Validez leur CV allemand dans les documents — ça avance dès qu'il est validé.")}</p>
+                            <button onClick={() => { const id = peek.userId; setPeek(null); router.push(`/portal/admin?nav_user_id=${encodeURIComponent(id)}`); }} className="bv-press inline-flex items-center gap-1.5 self-start text-[12.5px] font-bold px-4 py-2 rounded-xl" style={{ background: "var(--gold)", color: "#131312" }}>
+                              {T("Open full profile", "Profil öffnen", "Profil complet")} <ArrowRight size={14} strokeWidth={2.5} />
+                            </button>
+                          </div>
+                        );
+                      case "interview_first":
+                      case "interview_second": {
+                        const n: 1 | 2 = stepKey === "interview_first" ? 1 : 2;
+                        const statusVal = n === 1 ? pipeDraft.interview1 : pipeDraft.interview2;
+                        const dateVal = n === 1 ? pipeDraft.interview1Date : pipeDraft.interview2Date;
+                        const chosen = statusVal === "passed" || statusVal === "failed";
+                        const passed = statusVal === "passed";
+                        return (
+                          <div className="flex flex-col gap-3">
+                            {passFail(statusVal, (v) => setPipeDraft((d) => (n === 1 ? { ...d, interview1: v } : { ...d, interview2: v })))}
+                            {(chosen || dateVal) && (
+                              <div>
+                                <label style={lbl}>{passed ? T("When was it?", "Wann war es?", "C'était quand ?") : T("When is it scheduled?", "Wann ist der Termin?", "C'est prévu quand ?")}</label>
+                                <input className="bv-input" type="date" value={dateVal} onChange={(e) => setPipeDraft((d) => (n === 1 ? { ...d, interview1Date: e.target.value } : { ...d, interview2Date: e.target.value }))} style={{ fontSize: 12.5, maxWidth: 210 }} />
+                              </div>
+                            )}
+                            {statusVal === "failed" && (
+                              <p className="text-[11.5px]" style={{ color: "var(--danger)" }}>{T("Logged as not passed — they'll re-sit before moving on.", "Als nicht bestanden erfasst — Wiederholung nötig.", "Enregistré comme non réussi — à repasser.")}</p>
+                            )}
+                            {saveAndNext(() => saveInterview(n, statusVal, dateVal), !chosen && !dateVal)}
+                          </div>
+                        );
+                      }
+                      case "contract_signed": return confirmControls(!!pf?.contractDone, { contract_done: true }, { contractDone: true }, { contract_done: false }, { contractDone: false });
+                      case "recognition_submitted": return confirmControls(!!pf?.recognitionDone, { recognition_done: true }, { recognitionDone: true }, { recognition_done: false }, { recognitionDone: false });
+                      case "vorabzustimmung": return confirmControls(!!pf?.vorabDone, { vorab_done: true }, { vorabDone: true }, { vorab_done: false }, { vorabDone: false });
+                      case "docs_collected": return confirmControls(!!pf?.docsReady, { docs_ready: true }, { docsReady: true }, { docs_ready: false }, { docsReady: false });
+                      case "visa_appointment":
+                        return (
+                          <div className="flex flex-col gap-1.5">
+                            <input className="bv-input" type="date" value={pipeDraft.visaApptDate} onChange={(e) => setPipeDraft((d) => ({ ...d, visaApptDate: e.target.value }))} style={{ fontSize: 12.5, maxWidth: 210 }} />
+                            {saveAndNext(() => void saveStep({ visa_appt_date: pipeDraft.visaApptDate || "" }, { visaApptDate: pipeDraft.visaApptDate || null }), !pipeDraft.visaApptDate)}
+                          </div>
+                        );
+                      case "visa_approved": return confirmControls(!!pf?.visaGranted, { visa_granted: true }, { visaGranted: true }, { visa_granted: false, visa_date: "" }, { visaGranted: false });
+                      case "flight_booked":
+                        return (
+                          <div className="flex flex-col gap-2.5">
+                            <div>
+                              <label style={lbl}>{T("Flight date", "Flugdatum", "Date de vol")}</label>
+                              <input className="bv-input" type="date" value={pipeDraft.flightDate} onChange={(e) => setPipeDraft((d) => ({ ...d, flightDate: e.target.value }))} style={{ fontSize: 12.5, maxWidth: 210 }} />
+                            </div>
+                            <div>
+                              <label style={lbl}>{T("Flight info (optional)", "Fluginfo (optional)", "Infos vol (option.)")}</label>
+                              <input className="bv-input" type="text" maxLength={200} value={pipeDraft.flightInfo} onChange={(e) => setPipeDraft((d) => ({ ...d, flightInfo: e.target.value }))} placeholder={T("e.g. CMN → FRA, 14:30", "z. B. CMN → FRA, 14:30", "ex. CMN → FRA, 14:30")} style={{ fontSize: 12.5 }} />
+                            </div>
+                            {saveAndNext(() => void saveStep({ flight_date: pipeDraft.flightDate || "", flight_info: pipeDraft.flightInfo }, { flightDate: pipeDraft.flightDate || null, flightInfo: pipeDraft.flightInfo || null }), !pipeDraft.flightDate)}
+                          </div>
+                        );
+                      case "housing_arranged": return confirmControls(!!pf?.housingDone, { housing_done: true }, { housingDone: true }, { housing_done: false }, { housingDone: false });
+                      case "arrived": return confirmControls(!!pf?.arrivedDone, { arrived_done: true }, { arrivedDone: true }, { arrived_done: false }, { arrivedDone: false }, T("Yes, arrived 🎉", "Ja, angekommen 🎉", "Oui, arrivé 🎉"));
+                      default: return null;
+                    }
+                  })()}
+                </div>
               )}
+
+              {/* Move through steps — thin progress, ◀ ▶ to log any other step. */}
+              <div className="flex items-center gap-2.5">
+                <button onClick={() => setStepIndex(Math.max(0, viewPos - 1))} disabled={viewPos <= 0}
+                  className="bv-press flex items-center justify-center rounded-lg flex-shrink-0 disabled:opacity-25" style={{ width: 30, height: 30, background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w2)" }} aria-label={T("Previous step", "Vorheriger Schritt", "Étape précédente")}>
+                  <ChevronLeft size={16} />
+                </button>
+                <div className="flex-1" style={{ height: 6, borderRadius: 999, background: "var(--border)", overflow: "hidden" }}>
+                  <div style={{ width: `${pct}%`, height: "100%", background: hs.dot, transition: "width .3s ease" }} />
+                </div>
+                {stepIndex !== null && (
+                  <button onClick={() => setStepIndex(null)} className="bv-press text-[10.5px] font-bold flex-shrink-0" style={{ color: "var(--gold)" }}>{T("now", "jetzt", "actuel")} →</button>
+                )}
+                <button onClick={() => setStepIndex(Math.min(total - 1, viewPos + 1))} disabled={viewPos >= total - 1}
+                  className="bv-press flex items-center justify-center rounded-lg flex-shrink-0 disabled:opacity-25" style={{ width: 30, height: 30, background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w2)" }} aria-label={T("Next step", "Nächster Schritt", "Étape suivante")}>
+                  <ChevronRight size={16} />
+                </button>
+              </div>
+
+              {/* MORE — everything secondary, collapsed so the question stays the star. */}
+              <button onClick={() => setMoreOpen((o) => !o)} className="bv-press w-full flex items-center gap-1.5 text-[11.5px] font-semibold pt-0.5" style={{ color: "var(--w3)" }}>
+                <ChevronDown size={14} style={{ transform: moreOpen ? "rotate(180deg)" : "none", transition: "transform .2s" }} />
+                {moreOpen ? T("Less", "Weniger", "Moins") : T("More — status · profile · updates", "Mehr — Status · Profil · Updates", "Plus — statut · profil · mises à jour")}
+              </button>
+              {moreOpen && (
+                <div className="flex flex-col gap-3">
 
               {/* Nurse profile — one compact line; click to edit (progressive disclosure). */}
               {!factsEdit ? (
@@ -499,28 +647,6 @@ export default function AdminPipelinePage() {
                 </div>
               )}
 
-              {/* Journey — the two things that matter: what she DID + what's NEXT. */}
-              <div style={card}>
-                <div style={cap}>🗺️ {T("Journey", "Reise", "Parcours")}</div>
-                <div className="flex items-start gap-2 mb-2.5">
-                  <span style={{ color: "var(--success)", fontWeight: 800, flexShrink: 0, lineHeight: 1.3 }}>✓</span>
-                  <div className="min-w-0">
-                    <div className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--w3)" }}>{T("Did", "Erledigt", "Fait")}</div>
-                    <div className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>{didLine}</div>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2">
-                  <span style={{ color: "var(--gold)", fontWeight: 800, flexShrink: 0, lineHeight: 1.3 }}>→</span>
-                  <div className="min-w-0">
-                    <div className="text-[10px] font-bold uppercase tracking-wide" style={{ color: "var(--w3)" }}>{T("Next step", "Nächster Schritt", "Prochaine étape")}</div>
-                    <div className="text-[13.5px] font-bold" style={{ color: "var(--gold)" }}>{journeyLine}</div>
-                  </div>
-                </div>
-                <div style={{ height: 6, borderRadius: 999, background: "var(--border)", overflow: "hidden", marginTop: 11 }}>
-                  <div style={{ width: `${pct}%`, height: "100%", background: hs.dot }} />
-                </div>
-              </div>
-
               {/* Status — B2 / Anerkennung / Impfung at a glance (one card). */}
               <div style={card}>
                 <div style={cap}>{T("Status", "Status", "Statut")}</div>
@@ -549,54 +675,8 @@ export default function AdminPipelinePage() {
                 </div>
               </div>
 
-              {/* Stage update — admin records interview pass/fail + visa/flight/housing. */}
-              {!pipeEdit ? (
-                <button onClick={() => setPipeEdit(true)} className="bv-press w-full text-left flex items-center gap-2 text-[12.5px] px-3 py-2.5 rounded-xl"
-                  style={{ background: "var(--bg2)", border: "1px solid var(--border)", color: "var(--w2)" }}>
-                  <span style={{ flexShrink: 0 }}>🛠️</span>
-                  <span className="flex-1 truncate">{T("Update stage — interview · visa · flight · housing", "Phase aktualisieren", "Mettre à jour l'étape")}</span>
-                  <Pencil size={13} style={{ color: "var(--w3)", flexShrink: 0 }} />
-                </button>
-              ) : (
-                <div style={card}>
-                  <div style={cap}>🛠️ {T("Update stage", "Phase aktualisieren", "Mettre à jour l'étape")}</div>
-                  <div className="flex flex-col gap-3">
-                    <div>
-                      <label style={lbl}>{T("First interview", "Erstes Interview", "Premier entretien")}</label>
-                      {passFail(pipeDraft.interview1, (v) => setPipeDraft((d) => ({ ...d, interview1: v })))}
-                    </div>
-                    <div>
-                      <label style={lbl}>{T("Second interview", "Zweites Interview", "Deuxième entretien")}</label>
-                      {passFail(pipeDraft.interview2, (v) => setPipeDraft((d) => ({ ...d, interview2: v })))}
-                    </div>
-                    <div className="grid grid-cols-2 gap-2.5">
-                      <div>
-                        <label style={lbl}>{T("Visa appointment", "Visumtermin", "RDV visa")}</label>
-                        <input className="bv-input" type="date" value={pipeDraft.visaApptDate} onChange={(e) => setPipeDraft((d) => ({ ...d, visaApptDate: e.target.value }))} style={{ fontSize: 12.5 }} />
-                      </div>
-                      <div>
-                        <label style={lbl}>{T("Flight date", "Flugdatum", "Date de vol")}</label>
-                        <input className="bv-input" type="date" value={pipeDraft.flightDate} onChange={(e) => setPipeDraft((d) => ({ ...d, flightDate: e.target.value }))} style={{ fontSize: 12.5 }} />
-                      </div>
-                    </div>
-                    <div>
-                      <label style={lbl}>{T("Flight info", "Fluginfo", "Infos vol")}</label>
-                      <input className="bv-input" type="text" maxLength={200} value={pipeDraft.flightInfo} onChange={(e) => setPipeDraft((d) => ({ ...d, flightInfo: e.target.value }))} placeholder={T("e.g. CMN → FRA, 14:30", "z. B. CMN → FRA, 14:30", "ex. CMN → FRA, 14:30")} style={{ fontSize: 12.5 }} />
-                    </div>
-                    <label className="flex items-center gap-2" style={{ cursor: "pointer" }}>
-                      <input type="checkbox" checked={pipeDraft.housingDone} onChange={(e) => setPipeDraft((d) => ({ ...d, housingDone: e.target.checked }))} style={{ width: 15, height: 15, accentColor: "var(--gold)" }} />
-                      <span className="text-[12.5px] font-semibold" style={{ color: "var(--w2)" }}>{T("Housing arranged", "Unterkunft organisiert", "Logement organisé")}</span>
-                    </label>
-                  </div>
-                  <div className="flex items-center gap-2 mt-3">
-                    <button onClick={() => void savePipeline()} disabled={pipeSaving} className="bv-press inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-1.5 rounded-lg disabled:opacity-60" style={{ background: "var(--gold)", color: "#131312" }}>
-                      {pipeSaving ? T("Saving…", "Speichern…", "Enregistrement…") : T("Save", "Speichern", "Enregistrer")}
-                    </button>
-                    <button onClick={() => setPipeEdit(false)} className="bv-press text-[12px] font-medium px-3 py-1.5" style={{ color: "var(--w3)" }}>{T("Cancel", "Abbrechen", "Annuler")}</button>
-                  </div>
                 </div>
               )}
-
             </div>
           );
         })()}

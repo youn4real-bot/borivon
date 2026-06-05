@@ -10,11 +10,14 @@ const ALLOWED_PIPELINE_FIELDS = new Set<string>([
   "interview_link", "interview_date", "interview_status",
   "interview_type", "interview_notes",
   "interview1_status", "interview2_status",
+  "interview1_date", "interview2_date",
   "recognition_unlocked", "embassy_unlocked",
   "visa_granted", "visa_date", "visa_appt_date",
   "flight_date", "flight_info",
   "housing_done",
   "docs_approved",
+  // Guided-peek milestone flags (one-question-at-a-time wizard).
+  "contract_done", "recognition_done", "vorab_done", "docs_ready", "arrived_done",
   "integration_unlocked", "start_unlocked",
 ]);
 
@@ -88,7 +91,7 @@ export async function PATCH(req: NextRequest) {
 
   // Allowlist filter + sanitise: empty strings → null for date/timestamp cols
   // (Postgres rejects "" for date/timestamptz and returns a type error → 500).
-  const DATE_FIELDS = new Set(["interview_date", "visa_date", "flight_date", "visa_appt_date"]);
+  const DATE_FIELDS = new Set(["interview_date", "visa_date", "flight_date", "visa_appt_date", "interview1_date", "interview2_date"]);
   const STATUS_FIELDS = new Set(["interview_status", "interview1_status", "interview2_status"]);
   const VALID_INTERVIEW_STATUS = new Set(["pending", "passed", "failed"]);
   const fields: Record<string, unknown> = {};
