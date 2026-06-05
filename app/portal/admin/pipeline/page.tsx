@@ -18,7 +18,6 @@ import { PageLoader } from "@/components/ui/states";
 import { JOURNEY_PRESETS, SEQUENTIAL_PRESETS } from "@/lib/candidateJourney";
 import { JourneyMap } from "@/components/JourneyMap";
 import { CandidateTable } from "@/components/CandidateTable";
-import { PipelineFunnel } from "@/components/PipelineFunnel";
 import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
 import { normalizeB2Stage, b2StageLabel, b2StageColor, B2_FAILED_COLOR, B2_STAGES } from "@/lib/b2Journey";
 import { normalizeAnerkennungStage, anerkennungStageLabel, anerkennungStageColor, ANERKENNUNG_STAGES } from "@/lib/anerkennungJourney";
@@ -29,7 +28,7 @@ import type { PassportProfile } from "@/lib/passportReview";
 import type { StuckVerdict } from "@/lib/pipelineStuck";
 import { relativeTimeShort } from "@/lib/relativeTime";
 import { Toaster, toast } from "sonner";
-import { ArrowLeft, AlertTriangle, CheckCircle2, Search, Map as MapIcon, LayoutGrid, BadgeCheck, ArrowRight, Bell, FileText, Printer, Pencil, ChevronLeft, ChevronRight, ChevronDown, Check, BarChart3 } from "lucide-react";
+import { ArrowLeft, AlertTriangle, CheckCircle2, Search, Map as MapIcon, LayoutGrid, BadgeCheck, ArrowRight, Bell, FileText, Printer, Pencil, ChevronLeft, ChevronRight, ChevronDown, Check } from "lucide-react";
 
 // Document review reused VERBATIM from the dashboard — opened as a popup ON TOP
 // of the peek so the admin never has to leave the candidate to approve/reject.
@@ -95,7 +94,7 @@ export default function AdminPipelinePage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [today, setToday] = useState("");
   const [q, setQ] = useState("");
-  const [view, setView] = useState<"board" | "map" | "funnel">("board");
+  const [view, setView] = useState<"board" | "map">("board");
   const [track, setTrack] = useState<"journey" | "b2">("journey");
   const [sheetOpen, setSheetOpen] = useState(false); // employer profile sheet
   // Clicking a candidate opens a quick cross-track summary (peek) — NOT a jump
@@ -377,11 +376,11 @@ export default function AdminPipelinePage() {
 
   const initials = (n: string) => n.split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join("").toUpperCase() || "?";
 
-  // Three views: Board (grid, default) + Map (visual rail) + Funnel (overview).
-  const viewOpts: [("board" | "map" | "funnel"), typeof MapIcon, string][] = [
+  // Two views: Board (unified grid, default) + Map (the visual rail).
+  // New features go ON THE MAP, not as separate views (user directive).
+  const viewOpts: [("board" | "map"), typeof MapIcon, string][] = [
     ["board", LayoutGrid, T("Board", "Tafel", "Tableau")],
     ["map", MapIcon, T("Map", "Karte", "Carte")],
-    ["funnel", BarChart3, T("Funnel", "Trichter", "Entonnoir")],
   ];
 
   return (
@@ -422,11 +421,9 @@ export default function AdminPipelinePage() {
           placeholder={T("Search candidate…", "Kandidat suchen…", "Rechercher…")} />
       </div>
 
-      {/* Three views: Board (sortable grid) · Map (visual rail) · Funnel (overview). */}
+      {/* Two views: Board (unified sortable grid) and Map (the visual rail). */}
       {view === "board" ? (
         <CandidateTable rows={shown} lang={lang} onPick={(uid) => setPeek(rows.find((r) => r.userId === uid) ?? null)} />
-      ) : view === "funnel" ? (
-        <PipelineFunnel rows={shown} lang={lang} />
       ) : (
         <JourneyMap rows={track !== "journey" ? searchOnlyRows : shown} lang={lang} track={track}
           onPick={(uid) => setPeek(rows.find((r) => r.userId === uid) ?? null)}
