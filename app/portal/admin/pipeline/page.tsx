@@ -19,8 +19,8 @@ import { JOURNEY_PRESETS, SEQUENTIAL_PRESETS } from "@/lib/candidateJourney";
 import { JourneyMap } from "@/components/JourneyMap";
 import { CandidateTable } from "@/components/CandidateTable";
 import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
-import { normalizeB2Stage, b2StageLabel, b2StageColor, B2_FAILED_COLOR } from "@/lib/b2Journey";
-import { normalizeAnerkennungStage, anerkennungStageLabel, anerkennungStageColor } from "@/lib/anerkennungJourney";
+import { normalizeB2Stage, b2StageLabel, b2StageColor, B2_FAILED_COLOR, B2_STAGES } from "@/lib/b2Journey";
+import { normalizeAnerkennungStage, anerkennungStageLabel, anerkennungStageColor, ANERKENNUNG_STAGES } from "@/lib/anerkennungJourney";
 import { impfungStageLabel, IMPFUNG_STAGE_BY_KEY, type ImpfungStage } from "@/lib/impfungJourney";
 import { NURSE_SPECIALTIES, specialtyLabel } from "@/lib/nurseSpecialties";
 import { translateDocLabel } from "@/lib/fileKeys";
@@ -204,7 +204,11 @@ export default function AdminPipelinePage() {
     setMoreOpen(false);
     setMsgText("");
     setMsgSent(false);
-  }, [peek]);
+    // Re-init ONLY when the candidate changes — in-place edits (B2 / Anerkennung
+    // / facts / a saved step) keep the open "More" panel + drafts intact instead
+    // of snapping everything shut on every peek mutation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [peek?.userId]);
 
   // Drag-and-drop: drop a face on a stage lane to move them. Optimistic (instant
   // glide via Motion) → persist to the right route (B2 or Anerkennung, both gated
@@ -225,6 +229,23 @@ export default function AdminPipelinePage() {
       setRows(snapshot);
       toast.error(T("Couldn't move — try again", "Verschieben fehlgeschlagen", "Déplacement échoué"));
     }
+  };
+
+  // Set a candidate's B2 or Anerkennung stage straight from the peek's Status
+  // panel — optimistic on the board AND the open peek so it reflects instantly
+  // (without collapsing "More"); reverts via reload on failure. LAW #25 server-side.
+  const setPeekStage = async (track: "b2" | "anerk", userId: string, stage: string) => {
+    const patch = track === "b2" ? { b2Stage: stage } : { anerkennungStage: stage };
+    setRows((rs) => rs.map((r) => (r.userId === userId ? { ...r, ...patch } : r)));
+    setPeek((p) => (p && p.userId === userId ? { ...p, ...patch } : p));
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token ?? accessToken;
+      const url = track === "b2" ? "/api/portal/journey/b2" : "/api/portal/journey/anerkennung";
+      const res = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ candidateId: userId, stage }) });
+      if (res.ok) toast.success(T("Updated ✓", "Aktualisiert ✓", "Mis à jour ✓"));
+      else { toast.error(T("Couldn't update", "Update fehlgeschlagen", "Échec de la mise à jour")); void reload(); }
+    } catch { toast.error(T("Couldn't update", "Update fehlgeschlagen", "Échec de la mise à jour")); void reload(); }
   };
 
   // Send a follow-up reminder to a candidate (in-app bell notification, masked
@@ -778,18 +799,22 @@ export default function AdminPipelinePage() {
                 <div className="flex flex-col gap-2.5">
                   <div className="flex items-center gap-2 text-[12.5px]">
                     <span style={{ width: 9, height: 9, borderRadius: 999, background: b2StageColor(b2s), flexShrink: 0 }} />
-                    <span style={{ color: "var(--w3)", fontWeight: 600, width: 86, flexShrink: 0 }}>📜 {T("B2", "B2", "B2")}</span>
-                    <span className="truncate" style={{ color: "var(--w)", fontWeight: 600 }}>{b2StageLabel(b2s, lang)}</span>
-                    {peek.b2Failed && <span style={{ color: B2_FAILED_COLOR, fontWeight: 700, flexShrink: 0 }}>· ↺</span>}
+                    <span style={{ color: "var(--w3)", fontWeight: 600, width: 64, flexShrink: 0 }}>📜 {T("B2", "B2", "B2")}</span>
+                    <select value={b2s} onChange={(e) => void setPeekStage("b2", peek.userId, e.target.value)} className="bv-input" style={{ fontSize: 12.5, fontWeight: 600, padding: "4px 8px", height: "auto", flex: 1, minWidth: 0 }}>
+                      {B2_STAGES.map((s) => <option key={s.key} value={s.key}>{b2StageLabel(s.key, lang)}</option>)}
+                    </select>
+                    {peek.b2Failed && <span style={{ color: B2_FAILED_COLOR, fontWeight: 700, flexShrink: 0 }} title={T("Failed once", "Einmal nicht bestanden", "Échoué une fois")}>↺</span>}
                   </div>
                   <div className="flex items-center gap-2 text-[12.5px]">
                     <span style={{ width: 9, height: 9, borderRadius: 999, background: anerkennungStageColor(anerk), flexShrink: 0 }} />
-                    <span style={{ color: "var(--w3)", fontWeight: 600, width: 86, flexShrink: 0 }}>🏅 {T("Anerk.", "Anerk.", "Reconn.")}</span>
-                    <span className="truncate" style={{ color: "var(--w)", fontWeight: 600 }}>{anerkennungStageLabel(anerk, lang)}</span>
+                    <span style={{ color: "var(--w3)", fontWeight: 600, width: 64, flexShrink: 0 }}>🏅 {T("Anerk.", "Anerk.", "Reconn.")}</span>
+                    <select value={anerk} onChange={(e) => void setPeekStage("anerk", peek.userId, e.target.value)} className="bv-input" style={{ fontSize: 12.5, fontWeight: 600, padding: "4px 8px", height: "auto", flex: 1, minWidth: 0 }}>
+                      {ANERKENNUNG_STAGES.map((s) => <option key={s.key} value={s.key}>{anerkennungStageLabel(s.key, lang)}</option>)}
+                    </select>
                   </div>
                   <div className="flex items-center gap-2 text-[12.5px]">
                     <span style={{ width: 9, height: 9, borderRadius: 999, background: imp === "not_required" || imp === "not_started" ? "var(--w3)" : (impDef?.color ?? "var(--w3)"), flexShrink: 0 }} />
-                    <span style={{ color: "var(--w3)", fontWeight: 600, width: 86, flexShrink: 0 }}>💉 {T("Impf.", "Impf.", "Vacc.")}</span>
+                    <span style={{ color: "var(--w3)", fontWeight: 600, width: 64, flexShrink: 0 }}>💉 {T("Impf.", "Impf.", "Vacc.")}</span>
                     <span className="truncate" style={{ color: "var(--w)", fontWeight: 600 }}>
                       {imp === "not_required" ? T("Not required", "Nicht erforderlich", "Non requis")
                         : imp === "not_started" ? T("Required — not started", "Erforderlich — offen", "Requis — à faire")
