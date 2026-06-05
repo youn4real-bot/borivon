@@ -22,7 +22,7 @@ import { createPortal } from "react-dom";
 import { supabase } from "@/lib/supabase";
 import { fetchMyRole, cachedRole } from "@/lib/myRole";
 import { useLang } from "@/components/LangContext";
-import { Send, X as XIcon, Image as ImageIcon, Bug, Maximize2, Minimize2, Download, Mail, Check, SquarePen, Search as SearchIcon } from "lucide-react";
+import { Send, X as XIcon, Image as ImageIcon, Bug, Maximize2, Minimize2, Download, Mail, Check, SquarePen, Search as SearchIcon, BellRing } from "lucide-react";
 import { Spinner } from "@/components/ui/states";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { relativeTime, dayLabel, clockTime } from "@/lib/relativeTime";
@@ -971,6 +971,41 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
 
 type CandPick = { userId: string; name: string; photo: string | null };
 
+// The fixed reminder posted into the candidate's chat — ALWAYS German (the
+// working language toward Germany). One canonical text, edited here only.
+const GERMAN_REMINDER = "Hallo 👋 Kurze Erinnerung von Borivon — bitte logge dich in dein Portal ein und antworte uns, sobald du kannst. Vielen Dank! 🙏";
+
+// Header button: post the German reminder straight into the in-app chat with
+// one click. Free + never hits spam, so no throttle (the 2s "sent" state just
+// blocks an accidental double-tap). Works on a fresh thread too (creates it).
+function InAppReminderButton({ accessToken, threadUserId, onSent, lang }: { accessToken: string; threadUserId: string; onSent: () => void; lang: string }) {
+  const [st, setSt] = useState<"idle" | "sending" | "sent">("idle");
+  const label = lang === "fr" ? "Envoyer un rappel (message en allemand)" : lang === "de" ? "Erinnerung senden (deutsche Nachricht)" : "Send reminder (German in-app message)";
+  async function go() {
+    if (st !== "idle") return;
+    setSt("sending");
+    try {
+      const res = await fetch("/api/portal/admin/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ threadUserId, body: GERMAN_REMINDER }),
+      });
+      if (res.ok) { setSt("sent"); onSent(); setTimeout(() => setSt("idle"), 2000); return; }
+      setSt("idle");
+      alert(lang === "fr" ? "Échec de l'envoi." : lang === "de" ? "Senden fehlgeschlagen." : "Couldn't send.");
+    } catch { setSt("idle"); alert(lang === "fr" ? "Erreur réseau." : lang === "de" ? "Netzwerkfehler." : "Network error."); }
+  }
+  return (
+    <button onClick={go} disabled={st === "sending"} aria-label={label} title={label}
+      className="w-8 h-8 flex items-center justify-center rounded-lg flex-shrink-0 hover:scale-110 disabled:opacity-50"
+      style={{ background: "transparent", color: st === "sent" ? "var(--success)" : "var(--w3)", border: "none", transition: "color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease)" }}
+      onMouseEnter={(e) => { if (st === "idle") e.currentTarget.style.color = "var(--w)"; }}
+      onMouseLeave={(e) => { if (st === "idle") e.currentTarget.style.color = "var(--w3)"; }}>
+      {st === "sending" ? <Spinner size="xs" /> : st === "sent" ? <Check size={14} strokeWidth={2.4} /> : <BellRing size={14} strokeWidth={1.8} />}
+    </button>
+  );
+}
+
 // Header button: email the candidate "you have unread messages" — only when
 // they haven't replied, throttled 1/72h server-side. Manual, optional.
 function EmailNudgeButton({ accessToken, threadUserId, lang }: { accessToken: string; threadUserId: string; lang: string }) {
@@ -1231,7 +1266,13 @@ function AdminInbox({ accessToken }: { accessToken: string }) {
           subtitle={activeThread.email}
           msgs={threadMsgs}
           mineRole="admin"
-          headerAction={<EmailNudgeButton accessToken={accessToken} threadUserId={activeThread.threadUserId} lang={lang} />}
+          headerAction={
+            <>
+              <InAppReminderButton accessToken={accessToken} threadUserId={activeThread.threadUserId} lang={lang}
+                onSent={() => { fetchThread(activeThread.threadUserId); fetchConvs(); }} />
+              <EmailNudgeButton accessToken={accessToken} threadUserId={activeThread.threadUserId} lang={lang} />
+            </>
+          }
           scrollRef={scrollRef}
           onSend={reply}
           onClose={closeThread}
