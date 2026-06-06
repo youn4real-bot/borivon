@@ -9,7 +9,7 @@
  * Read-only overview; edits happen in the candidate's journey checklist.
  */
 
-import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
@@ -26,7 +26,7 @@ import { translateDocLabel } from "@/lib/fileKeys";
 import type { PassportProfile } from "@/lib/passportReview";
 import { relativeTimeShort } from "@/lib/relativeTime";
 import { Toaster, toast } from "sonner";
-import { ArrowLeft, AlertTriangle, CheckCircle2, Search, BadgeCheck, ArrowRight, Bell, FileText, Printer, Pencil, ChevronLeft, ChevronRight, ChevronDown, Check, Link2, MousePointerClick } from "lucide-react";
+import { ArrowLeft, AlertTriangle, CheckCircle2, Search, BadgeCheck, ArrowRight, Bell, FileText, Printer, Pencil, ChevronLeft, ChevronRight, ChevronDown, Check, Link2, MousePointerClick, Calendar } from "lucide-react";
 
 // Document review reused VERBATIM from the dashboard — opened as a popup ON TOP
 // of the peek so the admin never has to leave the candidate to approve/reject.
@@ -63,8 +63,13 @@ type SelfReport = { kind: string; outcome: string; note: string | null; created_
 type PipelineFacts = {
   interview1: string | null; interview2: string | null;
   interview1Date: string | null; interview2Date: string | null;
+  interview1Held: boolean; interview2Held: boolean;
+  interview1DateConfirmed: boolean; interview2DateConfirmed: boolean;
+  interview1ResultDate: string | null; interview2ResultDate: string | null;
+  interview1ResultDateConfirmed: boolean; interview2ResultDateConfirmed: boolean;
   interviewLink: string | null; interviewLinkClicks: number; interviewLinkLastClickedAt: string | null;
-  visaApptDate: string | null; flightDate: string | null; flightInfo: string | null;
+  visaApptDate: string | null; visaApptDateConfirmed: boolean;
+  flightDate: string | null; flightDateConfirmed: boolean; flightInfo: string | null;
   housingDone: boolean; visaGranted: boolean;
   contractDone: boolean; recognitionDone: boolean; vorabDone: boolean; docsReady: boolean; arrivedDone: boolean;
 };
@@ -83,6 +88,66 @@ function presetLabel(key: string | undefined, lang: string): string {
   const p = JOURNEY_PRESETS.find((x) => x.key === key);
   if (!p) return key;
   return p.label[(lang as "en" | "fr" | "de")] ?? p.label.en;
+}
+
+// ── German dates (TT.MM.JJJJ) ───────────────────────────────────────────────
+// All wizard dates display + are typed in German format, never US mm/dd/yyyy.
+// Storage stays ISO (yyyy-mm-dd); these convert at the edge.
+function isoToDe(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? "");
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : "";
+}
+function deToIso(de: string): string {
+  const m = /^\s*(\d{1,2})\.(\d{1,2})\.(\d{4})\s*$/.exec(de ?? "");
+  if (!m) return "";
+  const d = +m[1], mo = +m[2], y = +m[3];
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return "";
+  return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+// A German-format date input with an optional Confirmed/Expected pill. The text
+// box reads/writes TT.MM.JJJJ; the calendar button opens the native picker for
+// convenience. `confirmed` is the LAW #4-style status (green = real/confirmed,
+// orange = still only expected — the default for dates that aren't locked yet).
+function GermanDateField({ valueIso, onChangeIso, confirmed, onToggleConfirmed, lang, placeholder }: {
+  valueIso: string;
+  onChangeIso: (iso: string) => void;
+  confirmed?: boolean;
+  onToggleConfirmed?: (next: boolean) => void;
+  lang: "en" | "fr" | "de";
+  placeholder?: string;
+}) {
+  const tr = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
+  const [text, setText] = useState(isoToDe(valueIso));
+  useEffect(() => { setText(isoToDe(valueIso)); }, [valueIso]);
+  const nativeRef = useRef<HTMLInputElement>(null);
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <div style={{ position: "relative", width: 140 }}>
+        <input className="bv-input" inputMode="numeric" placeholder={placeholder ?? "TT.MM.JJJJ"}
+          value={text}
+          onChange={(e) => { setText(e.target.value); onChangeIso(deToIso(e.target.value)); }}
+          style={{ fontSize: 12.5, width: "100%", paddingRight: 30 }} />
+        <button type="button" aria-label={tr("Pick date", "Datum wählen", "Choisir la date")}
+          onClick={() => { const el = nativeRef.current; if (el?.showPicker) el.showPicker(); else el?.focus(); }}
+          style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)", color: "var(--w3)", padding: 4, lineHeight: 0 }}>
+          <Calendar size={14} strokeWidth={1.9} />
+        </button>
+        <input ref={nativeRef} type="date" value={valueIso || ""} tabIndex={-1} aria-hidden
+          onChange={(e) => { onChangeIso(e.target.value); setText(isoToDe(e.target.value)); }}
+          style={{ position: "absolute", right: 4, top: 0, width: 1, height: 1, opacity: 0, pointerEvents: "none" }} />
+      </div>
+      {typeof confirmed === "boolean" && onToggleConfirmed && (
+        <button type="button" onClick={() => onToggleConfirmed(!confirmed)}
+          className="bv-press text-[11px] font-semibold px-2.5 py-1.5 rounded-lg whitespace-nowrap"
+          style={confirmed
+            ? { background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }
+            : { background: "rgba(245,158,11,0.12)", color: "#f59e0b", border: "1px solid rgba(245,158,11,0.35)" }}>
+          {confirmed ? tr("Confirmed", "Bestätigt", "Confirmé") : tr("Expected", "Erwartet", "Prévu")}
+        </button>
+      )}
+    </div>
+  );
 }
 
 export default function AdminPipelinePage() {
@@ -121,7 +186,16 @@ export default function AdminPipelinePage() {
   const [savingStep, setSavingStep] = useState(false);
   const [stepIndex, setStepIndex] = useState<number | null>(null);
   const [moreOpen, setMoreOpen] = useState(false); // collapsed "More" (status · profile · updates)
-  const [pipeDraft, setPipeDraft] = useState({ interview1: "", interview2: "", interview1Date: "", interview2Date: "", interviewLink: "", visaApptDate: "", flightDate: "", flightInfo: "", housingDone: false });
+  const [pipeDraft, setPipeDraft] = useState({
+    interview1: "", interview2: "", interview1Date: "", interview2Date: "",
+    interview1Held: false, interview2Held: false,
+    interview1DateConfirmed: false, interview2DateConfirmed: false,
+    interview1ResultDate: "", interview2ResultDate: "",
+    interview1ResultDateConfirmed: false, interview2ResultDateConfirmed: false,
+    interviewLink: "",
+    visaApptDate: "", visaApptDateConfirmed: false,
+    flightDate: "", flightDateConfirmed: false, flightInfo: "", housingDone: false,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -206,9 +280,19 @@ export default function AdminPipelinePage() {
       interview2: peek.pipeline?.interview2 ?? "",
       interview1Date: peek.pipeline?.interview1Date ?? "",
       interview2Date: peek.pipeline?.interview2Date ?? "",
+      interview1Held: peek.pipeline?.interview1Held ?? false,
+      interview2Held: peek.pipeline?.interview2Held ?? false,
+      interview1DateConfirmed: peek.pipeline?.interview1DateConfirmed ?? false,
+      interview2DateConfirmed: peek.pipeline?.interview2DateConfirmed ?? false,
+      interview1ResultDate: peek.pipeline?.interview1ResultDate ?? "",
+      interview2ResultDate: peek.pipeline?.interview2ResultDate ?? "",
+      interview1ResultDateConfirmed: peek.pipeline?.interview1ResultDateConfirmed ?? false,
+      interview2ResultDateConfirmed: peek.pipeline?.interview2ResultDateConfirmed ?? false,
       interviewLink: peek.pipeline?.interviewLink ?? "",
       visaApptDate: peek.pipeline?.visaApptDate ?? "",
+      visaApptDateConfirmed: peek.pipeline?.visaApptDateConfirmed ?? false,
       flightDate: peek.pipeline?.flightDate ?? "",
+      flightDateConfirmed: peek.pipeline?.flightDateConfirmed ?? false,
       flightInfo: peek.pipeline?.flightInfo ?? "",
       housingDone: peek.pipeline?.housingDone ?? false,
     });
@@ -475,8 +559,8 @@ export default function AdminPipelinePage() {
           const stepQuestion = (k: string): string => {
             switch (k) {
               case "cv_finalized": return T(`Is ${firstName}'s German CV approved?`, `Ist der Lebenslauf von ${firstName} freigegeben?`, `Le CV allemand de ${firstName} est-il validé ?`);
-              case "interview_first": return T(`Did ${firstName} pass the first interview?`, `Hat ${firstName} das erste Interview bestanden?`, `${firstName} a réussi le premier entretien ?`);
-              case "interview_second": return T(`Did ${firstName} pass the second interview?`, `Hat ${firstName} das zweite Interview bestanden?`, `${firstName} a réussi le deuxième entretien ?`);
+              case "interview_first": return T("First interview", "Erstes Interview", "Premier entretien");
+              case "interview_second": return T("Second interview", "Zweites Interview", "Deuxième entretien");
               case "contract_signed": return T("Contract sealed?", "Vertrag abgeschlossen?", "Contrat conclu ?");
               case "recognition_submitted": return T("Recognition approved?", "Anerkennung genehmigt?", "Reconnaissance approuvée ?");
               case "vorabzustimmung": return T("Vorabzustimmung issued?", "Vorabzustimmung erteilt?", "Vorabzustimmung délivrée ?");
@@ -489,10 +573,27 @@ export default function AdminPipelinePage() {
               default: return presetLabel(k, lang);
             }
           };
-          const saveInterview = (n: 1 | 2, statusVal: string, dateVal: string) => {
-            const chosen = statusVal === "passed" || statusVal === "failed";
-            if (n === 1) void saveStep({ ...(chosen ? { interview1_status: statusVal } : {}), interview1_date: dateVal || "" }, { ...(chosen ? { interview1: statusVal } : {}), interview1Date: dateVal || null });
-            else void saveStep({ ...(chosen ? { interview2_status: statusVal } : {}), interview2_date: dateVal || "" }, { ...(chosen ? { interview2: statusVal } : {}), interview2Date: dateVal || null });
+          // Save the WHOLE interview lifecycle for round n: Termin (+confirmed),
+          // whether it was held, and — only once held — the result (+ result date,
+          // +confirmed). Result stays "pending" until she's actually done it, so
+          // "passed/failed" can never be logged before the interview happened.
+          const saveInterviewFull = (n: 1 | 2) => {
+            const d = pipeDraft;
+            if (n === 1) {
+              const held = d.interview1Held;
+              const result = held && (d.interview1 === "passed" || d.interview1 === "failed") ? d.interview1 : "pending";
+              void saveStep(
+                { interview1_held: held, interview1_date: d.interview1Date || "", interview1_date_confirmed: d.interview1DateConfirmed, interview1_status: result, interview1_result_date: held ? (d.interview1ResultDate || "") : "", interview1_result_date_confirmed: d.interview1ResultDateConfirmed },
+                { interview1Held: held, interview1Date: d.interview1Date || null, interview1DateConfirmed: d.interview1DateConfirmed, interview1: result, interview1ResultDate: held ? (d.interview1ResultDate || null) : null, interview1ResultDateConfirmed: d.interview1ResultDateConfirmed },
+              );
+            } else {
+              const held = d.interview2Held;
+              const result = held && (d.interview2 === "passed" || d.interview2 === "failed") ? d.interview2 : "pending";
+              void saveStep(
+                { interview2_held: held, interview2_date: d.interview2Date || "", interview2_date_confirmed: d.interview2DateConfirmed, interview2_status: result, interview2_result_date: held ? (d.interview2ResultDate || "") : "", interview2_result_date_confirmed: d.interview2ResultDateConfirmed },
+                { interview2Held: held, interview2Date: d.interview2Date || null, interview2DateConfirmed: d.interview2DateConfirmed, interview2: result, interview2ResultDate: held ? (d.interview2ResultDate || null) : null, interview2ResultDateConfirmed: d.interview2ResultDateConfirmed },
+              );
+            }
           };
           const confirmControls = (done: boolean, on: Record<string, unknown>, onOpt: Partial<PipelineFacts>, off: Record<string, unknown>, offOpt: Partial<PipelineFacts>, yes?: string) => (
             <div className="flex items-center gap-2 flex-wrap">
@@ -596,14 +697,23 @@ export default function AdminPipelinePage() {
                       case "interview_first":
                       case "interview_second": {
                         const n: 1 | 2 = stepKey === "interview_first" ? 1 : 2;
+                        const held      = n === 1 ? pipeDraft.interview1Held : pipeDraft.interview2Held;
                         const statusVal = n === 1 ? pipeDraft.interview1 : pipeDraft.interview2;
-                        const dateVal = n === 1 ? pipeDraft.interview1Date : pipeDraft.interview2Date;
-                        const chosen = statusVal === "passed" || statusVal === "failed";
-                        const passed = statusVal === "passed";
+                        const apptIso   = n === 1 ? pipeDraft.interview1Date : pipeDraft.interview2Date;
+                        const apptConf  = n === 1 ? pipeDraft.interview1DateConfirmed : pipeDraft.interview2DateConfirmed;
+                        const resIso    = n === 1 ? pipeDraft.interview1ResultDate : pipeDraft.interview2ResultDate;
+                        const resConf   = n === 1 ? pipeDraft.interview1ResultDateConfirmed : pipeDraft.interview2ResultDateConfirmed;
                         const linkChanged = pipeDraft.interviewLink.trim() !== (pf?.interviewLink ?? "");
                         const clicks = pf?.interviewLinkClicks ?? 0;
+                        const setHeld     = (v: boolean) => setPipeDraft((d) => (n === 1 ? { ...d, interview1Held: v } : { ...d, interview2Held: v }));
+                        const setStatus   = (v: string)  => setPipeDraft((d) => (n === 1 ? { ...d, interview1: v } : { ...d, interview2: v }));
+                        const setApptIso  = (iso: string)=> setPipeDraft((d) => (n === 1 ? { ...d, interview1Date: iso } : { ...d, interview2Date: iso }));
+                        const setApptConf = (c: boolean) => setPipeDraft((d) => (n === 1 ? { ...d, interview1DateConfirmed: c } : { ...d, interview2DateConfirmed: c }));
+                        const setResIso   = (iso: string)=> setPipeDraft((d) => (n === 1 ? { ...d, interview1ResultDate: iso } : { ...d, interview2ResultDate: iso }));
+                        const setResConf  = (c: boolean) => setPipeDraft((d) => (n === 1 ? { ...d, interview1ResultDateConfirmed: c } : { ...d, interview2ResultDateConfirmed: c }));
+                        const stageLbl: CSSProperties = { fontSize: 11, fontWeight: 700, color: "var(--w2)", marginBottom: 6, display: "block" };
                         return (
-                          <div className="flex flex-col gap-3">
+                          <div className="flex flex-col gap-3.5">
                             {/* Portal-gated interview link — the candidate can ONLY reach the
                                 Teams/Zoom room through their own dashboard, so an "open" here is
                                 the closest honest "they showed up" signal we can capture. */}
@@ -634,17 +744,49 @@ export default function AdminPipelinePage() {
                                 <p className="text-[11.5px]" style={{ color: "var(--w3)" }}>{T("Add the link so they join through the portal — then you'll see when they open it.", "Link hinzufügen, damit sie über das Portal beitreten — dann sehen Sie, wann sie ihn öffnen.", "Ajoutez le lien pour qu'ils rejoignent via le portail — vous verrez quand ils l'ouvrent.")}</p>
                               )}
                             </div>
-                            {passFail(statusVal, (v) => setPipeDraft((d) => (n === 1 ? { ...d, interview1: v } : { ...d, interview2: v })))}
-                            {(chosen || dateVal) && (
-                              <div>
-                                <label style={lbl}>{passed ? T("When was it?", "Wann war es?", "C'était quand ?") : T("When is it scheduled?", "Wann ist der Termin?", "C'est prévu quand ?")}</label>
-                                <input className="bv-input" type="date" value={dateVal} onChange={(e) => setPipeDraft((d) => (n === 1 ? { ...d, interview1Date: e.target.value } : { ...d, interview2Date: e.target.value }))} style={{ fontSize: 12.5, maxWidth: 210 }} />
+
+                            {/* STAGE 1 — Termin (the appointment), confirmed vs expected. */}
+                            <div>
+                              <label style={stageLbl}>{T("1 · Interview date", "1 · Termin", "1 · Date de l'entretien")}</label>
+                              <GermanDateField valueIso={apptIso} onChangeIso={setApptIso} confirmed={apptConf} onToggleConfirmed={setApptConf} lang={lang} />
+                            </div>
+
+                            {/* STAGE 2 — did she actually show up + do it (separate from passing). */}
+                            <div>
+                              <label style={stageLbl}>{T("2 · Did the interview take place?", "2 · Interview durchgeführt?", "2 · L'entretien a-t-il eu lieu ?")}</label>
+                              <div className="flex gap-2">
+                                {([[false, T("Not yet", "Noch nicht", "Pas encore")], [true, T("Yes, took place ✓", "Ja, durchgeführt ✓", "Oui, effectué ✓")]] as const).map(([v, label]) => {
+                                  const active = held === v;
+                                  const st: CSSProperties = active
+                                    ? (v ? { background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" } : { background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" })
+                                    : { background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" };
+                                  return <button key={String(v)} onClick={() => { setHeld(v); if (!v) setStatus("pending"); }} className="bv-press text-[12px] font-semibold px-3 py-1.5 rounded-lg" style={st}>{label}</button>;
+                                })}
                               </div>
+                            </div>
+
+                            {/* STAGE 3 — the result + when it came (only once it's been held). */}
+                            {held ? (
+                              <div>
+                                <label style={stageLbl}>{T("3 · Result", "3 · Ergebnis", "3 · Résultat")}</label>
+                                <div className="flex flex-col gap-2">
+                                  {passFail(statusVal, setStatus)}
+                                  {(statusVal === "passed" || statusVal === "failed") && (
+                                    <div>
+                                      <label style={lbl}>{T("Result date", "Ergebnis am", "Date du résultat")}</label>
+                                      <GermanDateField valueIso={resIso} onChangeIso={setResIso} confirmed={resConf} onToggleConfirmed={setResConf} lang={lang} />
+                                    </div>
+                                  )}
+                                  {statusVal === "failed" && (
+                                    <p className="text-[11.5px]" style={{ color: "var(--danger)" }}>{T("Logged as not passed — they'll re-sit before moving on.", "Als nicht bestanden erfasst — Wiederholung nötig.", "Enregistré comme non réussi — à repasser.")}</p>
+                                  )}
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-[11.5px]" style={{ color: "var(--w3)" }}>{T("Log the result later — once she's done the interview and heard back.", "Ergebnis später erfassen — sobald sie das Interview hatte und Bescheid bekommen hat.", "Enregistrez le résultat plus tard — une fois l'entretien passé et la réponse reçue.")}</p>
                             )}
-                            {statusVal === "failed" && (
-                              <p className="text-[11.5px]" style={{ color: "var(--danger)" }}>{T("Logged as not passed — they'll re-sit before moving on.", "Als nicht bestanden erfasst — Wiederholung nötig.", "Enregistré comme non réussi — à repasser.")}</p>
-                            )}
-                            {saveAndNext(() => saveInterview(n, statusVal, dateVal), !chosen && !dateVal)}
+
+                            {saveAndNext(() => saveInterviewFull(n), false)}
                           </div>
                         );
                       }
@@ -669,9 +811,9 @@ export default function AdminPipelinePage() {
                         );
                       case "visa_appointment":
                         return (
-                          <div className="flex flex-col gap-1.5">
-                            <input className="bv-input" type="date" value={pipeDraft.visaApptDate} onChange={(e) => setPipeDraft((d) => ({ ...d, visaApptDate: e.target.value }))} style={{ fontSize: 12.5, maxWidth: 210 }} />
-                            {saveAndNext(() => void saveStep({ visa_appt_date: pipeDraft.visaApptDate || "" }, { visaApptDate: pipeDraft.visaApptDate || null }), !pipeDraft.visaApptDate)}
+                          <div className="flex flex-col gap-2">
+                            <GermanDateField valueIso={pipeDraft.visaApptDate} onChangeIso={(iso) => setPipeDraft((d) => ({ ...d, visaApptDate: iso }))} confirmed={pipeDraft.visaApptDateConfirmed} onToggleConfirmed={(c) => setPipeDraft((d) => ({ ...d, visaApptDateConfirmed: c }))} lang={lang} />
+                            {saveAndNext(() => void saveStep({ visa_appt_date: pipeDraft.visaApptDate || "", visa_appt_date_confirmed: pipeDraft.visaApptDateConfirmed }, { visaApptDate: pipeDraft.visaApptDate || null, visaApptDateConfirmed: pipeDraft.visaApptDateConfirmed }), !pipeDraft.visaApptDate)}
                           </div>
                         );
                       case "visa_approved": return confirmControls(!!pf?.visaGranted, { visa_granted: true }, { visaGranted: true }, { visa_granted: false, visa_date: "" }, { visaGranted: false });
@@ -680,13 +822,13 @@ export default function AdminPipelinePage() {
                           <div className="flex flex-col gap-2.5">
                             <div>
                               <label style={lbl}>{T("Flight date", "Flugdatum", "Date de vol")}</label>
-                              <input className="bv-input" type="date" value={pipeDraft.flightDate} onChange={(e) => setPipeDraft((d) => ({ ...d, flightDate: e.target.value }))} style={{ fontSize: 12.5, maxWidth: 210 }} />
+                              <GermanDateField valueIso={pipeDraft.flightDate} onChangeIso={(iso) => setPipeDraft((d) => ({ ...d, flightDate: iso }))} confirmed={pipeDraft.flightDateConfirmed} onToggleConfirmed={(c) => setPipeDraft((d) => ({ ...d, flightDateConfirmed: c }))} lang={lang} />
                             </div>
                             <div>
                               <label style={lbl}>{T("Flight info (optional)", "Fluginfo (optional)", "Infos vol (option.)")}</label>
                               <input className="bv-input" type="text" maxLength={200} value={pipeDraft.flightInfo} onChange={(e) => setPipeDraft((d) => ({ ...d, flightInfo: e.target.value }))} placeholder={T("e.g. CMN → FRA, 14:30", "z. B. CMN → FRA, 14:30", "ex. CMN → FRA, 14:30")} style={{ fontSize: 12.5 }} />
                             </div>
-                            {saveAndNext(() => void saveStep({ flight_date: pipeDraft.flightDate || "", flight_info: pipeDraft.flightInfo }, { flightDate: pipeDraft.flightDate || null, flightInfo: pipeDraft.flightInfo || null }), !pipeDraft.flightDate)}
+                            {saveAndNext(() => void saveStep({ flight_date: pipeDraft.flightDate || "", flight_date_confirmed: pipeDraft.flightDateConfirmed, flight_info: pipeDraft.flightInfo }, { flightDate: pipeDraft.flightDate || null, flightDateConfirmed: pipeDraft.flightDateConfirmed, flightInfo: pipeDraft.flightInfo || null }), !pipeDraft.flightDate)}
                           </div>
                         );
                       case "housing_arranged": return confirmControls(!!pf?.housingDone, { housing_done: true }, { housingDone: true }, { housing_done: false }, { housingDone: false });

@@ -11,9 +11,14 @@ const ALLOWED_PIPELINE_FIELDS = new Set<string>([
   "interview_type", "interview_notes",
   "interview1_status", "interview2_status",
   "interview1_date", "interview2_date",
+  // Split interview lifecycle: held (did it happen) + result date + confirmed flags.
+  "interview1_held", "interview2_held",
+  "interview1_date_confirmed", "interview2_date_confirmed",
+  "interview1_result_date", "interview2_result_date",
+  "interview1_result_date_confirmed", "interview2_result_date_confirmed",
   "recognition_unlocked", "embassy_unlocked",
-  "visa_granted", "visa_date", "visa_appt_date",
-  "flight_date", "flight_info",
+  "visa_granted", "visa_date", "visa_appt_date", "visa_appt_date_confirmed",
+  "flight_date", "flight_info", "flight_date_confirmed",
   "housing_done",
   "docs_approved",
   // Guided-peek milestone flags (one-question-at-a-time wizard).
@@ -91,7 +96,7 @@ export async function PATCH(req: NextRequest) {
 
   // Allowlist filter + sanitise: empty strings → null for date/timestamp cols
   // (Postgres rejects "" for date/timestamptz and returns a type error → 500).
-  const DATE_FIELDS = new Set(["interview_date", "visa_date", "flight_date", "visa_appt_date", "interview1_date", "interview2_date"]);
+  const DATE_FIELDS = new Set(["interview_date", "visa_date", "flight_date", "visa_appt_date", "interview1_date", "interview2_date", "interview1_result_date", "interview2_result_date"]);
   const STATUS_FIELDS = new Set(["interview_status", "interview1_status", "interview2_status"]);
   const VALID_INTERVIEW_STATUS = new Set(["pending", "passed", "failed"]);
   const fields: Record<string, unknown> = {};
