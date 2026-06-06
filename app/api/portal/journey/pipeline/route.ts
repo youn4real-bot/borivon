@@ -96,10 +96,14 @@ export async function GET(req: NextRequest) {
 
   // Documents (only what the sellable gate needs) for the same candidates — one
   // batched query. Powers the "ready to sell" verdict per candidate.
-  const { data: docData } = await db
+  const { data: docData, error: docErr } = await db
     .from("documents")
-    .select("user_id, file_type, status, created_at")
+    .select("user_id, file_type, status, uploaded_at")
     .in("user_id", ids);
+  // NEVER let this fail silently again: a bad column here returns null data and
+  // would zero out ALL document evidence (CV / diploma / B2 / impfung never
+  // auto-advance) — exactly the "approved CV still says needs approval" bug.
+  if (docErr) console.error("[journey/pipeline] documents query error:", docErr.message);
   const docsByCandidate = new Map<string, { file_type: string | null; status: string | null }[]>();
   for (const d of (docData ?? []) as { user_id: string; file_type: string | null; status: string | null }[]) {
     const arr = docsByCandidate.get(d.user_id) ?? [];
@@ -182,7 +186,7 @@ export async function GET(req: NextRequest) {
   for (const r of (itemData ?? []) as { candidate_user_id: string; done?: boolean; done_at?: string | null }[]) {
     if (r.done && r.done_at) bump(r.candidate_user_id, r.done_at);
   }
-  for (const d of (docData ?? []) as { user_id: string; created_at?: string | null }[]) bump(d.user_id, d.created_at);
+  for (const d of (docData ?? []) as { user_id: string; uploaded_at?: string | null }[]) bump(d.user_id, d.uploaded_at);
   for (const [uid, reps] of reportsByCandidate) bump(uid, reps[0]?.created_at);
   for (const [uid, pp] of pipeByCandidate) bump(uid, pp.updated_at);
 
