@@ -59,12 +59,48 @@ function PortalPageInner() {
   // <input> stays editable, so verifying/resending against the live `email`
   // state let an edit (or autofill) silently retarget a different address.
   const [verifyEmail, setVerifyEmail] = useState("");
+  // Are we still checking for an existing session on mount? Start true so the
+  // login form never flashes before we know whether the user is already in.
+  const [checkingSession, setCheckingSession] = useState(true);
 
   useEffect(() => {
     if (resendIn <= 0) return;
     const id = setTimeout(() => setResendIn(s => s - 1), 1000);
     return () => clearTimeout(id);
   }, [resendIn]);
+
+  // Already logged in? Keep the session — don't show the login boxes. A new tab
+  // / refresh of /portal must NOT ask a signed-in user to re-login: detect the
+  // existing session on mount and route by role (redeeming a pending invite if
+  // one is present). Only when there's no session do we reveal the form.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (cancelled) return;
+      const token = session?.access_token;
+      if (!token) { setCheckingSession(false); return; } // not logged in → show the form
+      const code = (codeFromUrl || codeFromStorage).trim();
+      let dest: string | null = null;
+      if (code) {
+        try {
+          const r = await fetch(`/api/portal/invite/${encodeURIComponent(code)}`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+          if (r.ok) { const j = await r.json().catch(() => ({})); if (j?.type === "member" || j?.type === "sub-admin") dest = "/portal/admin"; }
+          try { localStorage.removeItem("bv_invite_code"); } catch { /* ignore */ }
+        } catch { /* ignore */ }
+      }
+      if (!dest) {
+        try {
+          const r = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${token}` } });
+          const { role } = await r.json().catch(() => ({}));
+          dest = (role === "admin" || role === "sub_admin" || role === "org_member") ? "/portal/admin" : "/portal/dashboard";
+        } catch { dest = "/portal/dashboard"; }
+      }
+      if (!cancelled) router.replace(dest);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const inviteLocked = !!prefilledCode; // came via link — code is locked
 
@@ -361,6 +397,16 @@ function PortalPageInner() {
     outline: "none",
     transition: "border-color 160ms",
   };
+
+  // Still resolving whether the user is already signed in → show a quiet loader
+  // (never the login boxes) until we know. Signed-in users get redirected above.
+  if (checkingSession) {
+    return (
+      <main className="min-h-screen flex items-center justify-center" style={{ background: "var(--bg)" }}>
+        <span className="w-7 h-7 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: "var(--gold)" }} aria-label="Loading" />
+      </main>
+    );
+  }
 
   if (checkEmail) {
     return (
