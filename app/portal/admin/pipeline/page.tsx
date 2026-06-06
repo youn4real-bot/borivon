@@ -26,7 +26,7 @@ import { translateDocLabel } from "@/lib/fileKeys";
 import type { PassportProfile } from "@/lib/passportReview";
 import { relativeTimeShort } from "@/lib/relativeTime";
 import { Toaster, toast } from "sonner";
-import { ArrowLeft, AlertTriangle, CheckCircle2, Search, BadgeCheck, ArrowRight, Bell, FileText, Printer, Pencil, ChevronLeft, ChevronRight, ChevronDown, Check } from "lucide-react";
+import { ArrowLeft, AlertTriangle, CheckCircle2, Search, BadgeCheck, ArrowRight, Bell, FileText, Printer, Pencil, ChevronLeft, ChevronRight, ChevronDown, Check, Link2, MousePointerClick } from "lucide-react";
 
 // Document review reused VERBATIM from the dashboard — opened as a popup ON TOP
 // of the peek so the admin never has to leave the candidate to approve/reject.
@@ -63,6 +63,7 @@ type SelfReport = { kind: string; outcome: string; note: string | null; created_
 type PipelineFacts = {
   interview1: string | null; interview2: string | null;
   interview1Date: string | null; interview2Date: string | null;
+  interviewLink: string | null; interviewLinkClicks: number; interviewLinkLastClickedAt: string | null;
   visaApptDate: string | null; flightDate: string | null; flightInfo: string | null;
   housingDone: boolean; visaGranted: boolean;
   contractDone: boolean; recognitionDone: boolean; vorabDone: boolean; docsReady: boolean; arrivedDone: boolean;
@@ -120,7 +121,7 @@ export default function AdminPipelinePage() {
   const [savingStep, setSavingStep] = useState(false);
   const [stepIndex, setStepIndex] = useState<number | null>(null);
   const [moreOpen, setMoreOpen] = useState(false); // collapsed "More" (status · profile · updates)
-  const [pipeDraft, setPipeDraft] = useState({ interview1: "", interview2: "", interview1Date: "", interview2Date: "", visaApptDate: "", flightDate: "", flightInfo: "", housingDone: false });
+  const [pipeDraft, setPipeDraft] = useState({ interview1: "", interview2: "", interview1Date: "", interview2Date: "", interviewLink: "", visaApptDate: "", flightDate: "", flightInfo: "", housingDone: false });
 
   useEffect(() => {
     let cancelled = false;
@@ -205,6 +206,7 @@ export default function AdminPipelinePage() {
       interview2: peek.pipeline?.interview2 ?? "",
       interview1Date: peek.pipeline?.interview1Date ?? "",
       interview2Date: peek.pipeline?.interview2Date ?? "",
+      interviewLink: peek.pipeline?.interviewLink ?? "",
       visaApptDate: peek.pipeline?.visaApptDate ?? "",
       flightDate: peek.pipeline?.flightDate ?? "",
       flightInfo: peek.pipeline?.flightInfo ?? "",
@@ -598,8 +600,40 @@ export default function AdminPipelinePage() {
                         const dateVal = n === 1 ? pipeDraft.interview1Date : pipeDraft.interview2Date;
                         const chosen = statusVal === "passed" || statusVal === "failed";
                         const passed = statusVal === "passed";
+                        const linkChanged = pipeDraft.interviewLink.trim() !== (pf?.interviewLink ?? "");
+                        const clicks = pf?.interviewLinkClicks ?? 0;
                         return (
                           <div className="flex flex-col gap-3">
+                            {/* Portal-gated interview link — the candidate can ONLY reach the
+                                Teams/Zoom room through their own dashboard, so an "open" here is
+                                the closest honest "they showed up" signal we can capture. */}
+                            <div className="rounded-xl p-3 flex flex-col gap-2" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+                              <label style={lbl} className="flex items-center gap-1.5"><Link2 size={13} strokeWidth={2.2} /> {T("Interview link (Teams / Zoom)", "Interview-Link (Teams / Zoom)", "Lien de l'entretien (Teams / Zoom)")}</label>
+                              <div className="flex items-center gap-2">
+                                <input className="bv-input" type="url" inputMode="url" value={pipeDraft.interviewLink}
+                                  onChange={(e) => setPipeDraft((d) => ({ ...d, interviewLink: e.target.value }))}
+                                  placeholder="https://…" style={{ fontSize: 12.5, flex: 1 }} />
+                                {linkChanged && (
+                                  <button onClick={() => void saveStep({ interview_link: pipeDraft.interviewLink.trim() }, { interviewLink: pipeDraft.interviewLink.trim() || null })}
+                                    className="bv-press text-[12px] font-bold px-3 py-2 rounded-lg whitespace-nowrap" style={{ background: "var(--gold)", color: "#131312" }}>
+                                    {T("Save link", "Speichern", "Enregistrer")}
+                                  </button>
+                                )}
+                              </div>
+                              {pf?.interviewLink ? (
+                                clicks > 0 ? (
+                                  <p className="text-[11.5px] flex items-center gap-1.5 font-semibold" style={{ color: "var(--success)" }}>
+                                    <MousePointerClick size={13} strokeWidth={2.2} />
+                                    {T(`Opened ${clicks}×`, `${clicks}× geöffnet`, `Ouvert ${clicks}×`)}
+                                    {pf.interviewLinkLastClickedAt ? <span style={{ color: "var(--w3)", fontWeight: 400 }}>{` · ${T("last", "zuletzt", "dernier")} ${relativeTimeShort(pf.interviewLinkLastClickedAt, lang)}`}</span> : null}
+                                  </p>
+                                ) : (
+                                  <p className="text-[11.5px]" style={{ color: "var(--w3)" }}>{T("Not opened yet — they reach it only from their dashboard.", "Noch nicht geöffnet — erreichbar nur über ihr Dashboard.", "Pas encore ouvert — accessible uniquement depuis leur tableau de bord.")}</p>
+                                )
+                              ) : (
+                                <p className="text-[11.5px]" style={{ color: "var(--w3)" }}>{T("Add the link so they join through the portal — then you'll see when they open it.", "Link hinzufügen, damit sie über das Portal beitreten — dann sehen Sie, wann sie ihn öffnen.", "Ajoutez le lien pour qu'ils rejoignent via le portail — vous verrez quand ils l'ouvrent.")}</p>
+                              )}
+                            </div>
                             {passFail(statusVal, (v) => setPipeDraft((d) => (n === 1 ? { ...d, interview1: v } : { ...d, interview2: v })))}
                             {(chosen || dateVal) && (
                               <div>

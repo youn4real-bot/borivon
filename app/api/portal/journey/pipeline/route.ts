@@ -162,12 +162,12 @@ export async function GET(req: NextRequest) {
 
   // Pipeline stage facts — interview outcomes + visa/flight/housing the admin
   // sets from the peek (candidate_pipeline). Batched. Drive board auto-advance.
-  type PipeRow = { user_id: string; interview1_status: string | null; interview2_status: string | null; interview1_date: string | null; interview2_date: string | null; visa_appt_date: string | null; flight_date: string | null; flight_info: string | null; housing_done: boolean | null; visa_granted: boolean | null; visa_date: string | null; contract_done: boolean | null; recognition_done: boolean | null; vorab_done: boolean | null; docs_ready: boolean | null; arrived_done: boolean | null; updated_at: string | null };
+  type PipeRow = { user_id: string; interview1_status: string | null; interview2_status: string | null; interview1_date: string | null; interview2_date: string | null; interview_link: string | null; interview_link_clicks: number | null; interview_link_last_clicked_at: string | null; visa_appt_date: string | null; flight_date: string | null; flight_info: string | null; housing_done: boolean | null; visa_granted: boolean | null; visa_date: string | null; contract_done: boolean | null; recognition_done: boolean | null; vorab_done: boolean | null; docs_ready: boolean | null; arrived_done: boolean | null; updated_at: string | null };
   const pipeByCandidate = new Map<string, PipeRow>();
   {
     const { data } = await db
       .from("candidate_pipeline")
-      .select("user_id, interview1_status, interview2_status, interview1_date, interview2_date, visa_appt_date, flight_date, flight_info, housing_done, visa_granted, visa_date, contract_done, recognition_done, vorab_done, docs_ready, arrived_done, updated_at")
+      .select("user_id, interview1_status, interview2_status, interview1_date, interview2_date, interview_link, interview_link_clicks, interview_link_last_clicked_at, visa_appt_date, flight_date, flight_info, housing_done, visa_granted, visa_date, contract_done, recognition_done, vorab_done, docs_ready, arrived_done, updated_at")
       .in("user_id", ids);
     for (const r of (data ?? []) as PipeRow[]) pipeByCandidate.set(r.user_id, r);
   }
@@ -289,6 +289,9 @@ export async function GET(req: NextRequest) {
         interview2: pipe?.interview2_status ?? null,
         interview1Date: pipe?.interview1_date ?? null,
         interview2Date: pipe?.interview2_date ?? null,
+        interviewLink: pipe?.interview_link ?? null,
+        interviewLinkClicks: pipe?.interview_link_clicks ?? 0,
+        interviewLinkLastClickedAt: pipe?.interview_link_last_clicked_at ?? null,
         visaApptDate: pipe?.visa_appt_date ?? null,
         flightDate: pipe?.flight_date ?? null,
         flightInfo: pipe?.flight_info ?? null,

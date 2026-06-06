@@ -333,6 +333,14 @@ export default function DashboardPage() {
   // SYNCHRONOUSLY inside the tap gesture (a mint fetch would break the
   // iOS in-gesture download requirement).
   const dlt = useDlToken(authToken || null);
+
+  // Log each time the candidate opens their interview link (the portal-gated
+  // "Join" button). Fire-and-forget + keepalive so it never blocks or delays
+  // the link opening, and a failure is silent (engagement signal, not critical).
+  const logInterviewClick = () => {
+    if (!authToken) return;
+    fetch("/api/portal/me/interview-click", { method: "POST", headers: { Authorization: `Bearer ${authToken}` }, keepalive: true }).catch(() => {});
+  };
   const [firstName, setFirstName]   = useState("");
   const [lastName, setLastName]     = useState("");
   // Track which decided-doc IDs the candidate has already opened (seen).
@@ -2615,7 +2623,7 @@ export default function DashboardPage() {
                 The plan-gate effect above bounces non-Premium users back to
                 docs; we render JourneyView only when they're allowed in. */}
             {viewMode !== "docs" && (!profileLoaded || hasPremium || isAdminUnlocked(viewMode, pipeline)) && (
-              <JourneyView mode={viewMode} pipeline={pipeline} t={t} lang={lang} onBack={() => { setViewMode("docs"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
+              <JourneyView mode={viewMode} pipeline={pipeline} t={t} lang={lang} onInterviewJoin={logInterviewClick} onBack={() => { setViewMode("docs"); window.scrollTo({ top: 0, behavior: "smooth" }); }} />
             )}
 
             {/* Doc upload UI — only shown in docs mode.

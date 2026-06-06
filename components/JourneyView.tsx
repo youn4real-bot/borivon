@@ -166,7 +166,7 @@ const embassyDocs = [
 ];
 
 // ── Single-stage renderer (shared kernel) ───────────────────────────────────
-function StageContent({ mode, p: rawP, t, lang = "en", adminMode = false }: { mode: JourneyMode; p: JourneyPipeline | null; t: Translation; lang?: "fr"|"en"|"de"; adminMode?: boolean }) {
+function StageContent({ mode, p: rawP, t, lang = "en", adminMode = false, onInterviewJoin }: { mode: JourneyMode; p: JourneyPipeline | null; t: Translation; lang?: "fr"|"en"|"de"; adminMode?: boolean; onInterviewJoin?: () => void }) {
   // In adminMode all gates open — show full content unconditionally
   const p: JourneyPipeline | null = adminMode && rawP ? {
     ...rawP,
@@ -299,6 +299,7 @@ function StageContent({ mode, p: rawP, t, lang = "en", adminMode = false }: { mo
           )}
           {p.interview_link && (
             <a href={p.interview_link} target="_blank" rel="noopener noreferrer"
+              onClick={() => onInterviewJoin?.()}
               className="flex items-center justify-center gap-2 w-full py-3 rounded-xl text-sm font-semibold transition-opacity hover:opacity-90"
               style={{ background: "var(--gold)", color: "#131312" }}>
               <ExternalLink size={14} strokeWidth={2} /> {t.pInterviewJoinBtn}
@@ -511,12 +512,15 @@ function StageContent({ mode, p: rawP, t, lang = "en", adminMode = false }: { mo
 }
 
 // ── Public: full candidate-side journey view (with back button) ────────────
-export function JourneyView({ mode, pipeline, t, lang = "en", onBack }: {
+export function JourneyView({ mode, pipeline, t, lang = "en", onBack, onInterviewJoin }: {
   mode: JourneyMode;
   pipeline: JourneyPipeline | null;
   t: Translation;
   lang?: "fr"|"en"|"de";
   onBack: () => void;
+  /** Fired when the candidate opens the interview link — logs the click. Only
+   *  the candidate's own dashboard wires this (admin preview leaves it unset). */
+  onInterviewJoin?: () => void;
 }) {
   return (
     <div className="space-y-4">
@@ -525,7 +529,7 @@ export function JourneyView({ mode, pipeline, t, lang = "en", onBack }: {
         style={{ color: "var(--w3)" }}>
         ← {t.pJourneyDocs}
       </button>
-      <StageContent mode={mode} p={pipeline} t={t} lang={lang} />
+      <StageContent mode={mode} p={pipeline} t={t} lang={lang} onInterviewJoin={onInterviewJoin} />
     </div>
   );
 }
