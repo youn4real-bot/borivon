@@ -22,13 +22,17 @@ export async function GET(req: NextRequest) {
   const db = getServiceSupabase();
   const { data } = await db
     .from("candidate_profiles")
-    .select("cv_draft, profile_photo")
+    // sex is needed so the admin-edit CV builder can set the gendered, LOCKED
+    // nursing-internship title (Pflegepraktikantin / Pflegepraktikant). Without
+    // it the locked title field stays empty → flagged red → generation blocked.
+    .select("cv_draft, profile_photo, sex")
     .eq("user_id", candidateId)
     .maybeSingle();
 
   return NextResponse.json({
     draft: (data as { cv_draft?: unknown } | null)?.cv_draft ?? null,
     photo: (data as { profile_photo?: string | null } | null)?.profile_photo ?? null,
+    sex: (data as { sex?: string | null } | null)?.sex ?? null,
   });
 }
 

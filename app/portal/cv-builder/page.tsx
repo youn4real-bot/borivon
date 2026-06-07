@@ -23,6 +23,7 @@ import { useLang } from "@/components/LangContext";
 import type { CVData, WorkEntry, EduEntry, MonthYear, B2Detail, RegStatus } from "@/components/CVDocument";
 import { COUNTRY_MAP, natToLang, ISO3_TO_ISO2, ISO3_TO_PHONE } from "@/lib/countries";
 import { isoToDDMMYYYY, computeFamilienstand } from "@/lib/personalData";
+import { normalizeSex } from "@/lib/sex";
 import {
   SectionIcon, type SectionKind,
   IdCard, Sparkles, FileText, CheckCircle2, AlertTriangle, User,
@@ -298,6 +299,26 @@ const CV_NAT_MAP = COUNTRY_MAP;
 /** Convert ISO code, any-language country name, or legacy German adjective → German country name (used in the German CV PDF) */
 function toNatDe(v: string | null | undefined): string {
   return natToLang(v, "de");
+}
+
+// The mandatory nursing internship (workEntries[0]) carries a FIXED, gendered,
+// LOCKED German title the candidate can't edit. It MUST always be present in
+// state: if it's empty, the locked field renders red (required) and the
+// candidate physically cannot fill it → CV generation is blocked forever.
+// Single source of truth so every load path (candidate draft, candidate
+// no-draft, AND admin-edit) enforces it identically — a missing copy in the
+// admin branch was exactly the bug that trapped candidates whose draft had an
+// empty title. Masculine default when sex is unknown matches the field's own
+// display fallback.
+function genderedInternshipTitle(sex: unknown): string {
+  // normalizeSex is language-agnostic: F / Female / Femme / Weiblich → "F".
+  return normalizeSex(sex) === "F" ? "Pflegepraktikantin" : "Pflegepraktikant";
+}
+function withInternshipTitle<T extends { title?: string }>(entries: T[] | undefined, sex: unknown): T[] {
+  if (!Array.isArray(entries) || entries.length === 0) return entries ?? [];
+  const next = [...entries];
+  next[0] = { ...next[0], title: genderedInternshipTitle(sex) };
+  return next;
 }
 
 // computeFamilienstand + isoToDDMMYYYY now come from the canonical
@@ -2642,9 +2663,19 @@ function CVBuilderInner() {
           { headers: { Authorization: `Bearer ${session.access_token}` } },
         )
           .then(r => r.ok ? r.json() : null)
-          .catch(() => null) as { draft: Partial<CVData> | null; photo: string | null } | null;
+          .catch(() => null) as { draft: Partial<CVData> | null; photo: string | null; sex?: string | null } | null;
 
         if (serverDraft?.photo) setCvData(d => ({ ...d, photo: serverDraft.photo ?? null }));
+
+        // The candidate's sex drives the LOCKED gendered internship title +
+        // its display. The admin branch used to skip this entirely (no profile
+        // fetch, no title enforcement) → the locked Position-1 title stayed
+        // empty → flagged red → generation blocked. Now surfaced via the API.
+        const candidateSex = serverDraft?.sex ?? null;
+        {
+          const ns = normalizeSex(candidateSex);   // language-agnostic
+          if (ns) setSex(ns);
+        }
 
         const savedRaw = serverDraft?.draft
           ? JSON.stringify(serverDraft.draft)
@@ -2655,7 +2686,11 @@ function CVBuilderInner() {
             const parsed = JSON.parse(savedRaw) as Partial<CVData>;
             const saved: Partial<CVData> = {
               ...parsed,
-              workEntries:    Array.isArray(parsed.workEntries)    ? parsed.workEntries    : undefined,
+              // Enforce the gendered, LOCKED internship title on load so an empty
+              // stored title (saved before sex was known) can't trap the admin's
+              // "Generate" on a field they cannot edit. Also feeds persistBody
+              // below, so the corrected title is written straight back to the DB.
+              workEntries:    Array.isArray(parsed.workEntries)    ? withInternshipTitle(parsed.workEntries, candidateSex) : undefined,
               eduEntries:     Array.isArray(parsed.eduEntries)     ? parsed.eduEntries     : undefined,
               langs:          Array.isArray(parsed.langs)          ? parsed.langs          : undefined,
               edvSelected:    Array.isArray(parsed.edvSelected)    ? parsed.edvSelected    : undefined,
@@ -2665,6 +2700,7 @@ function CVBuilderInner() {
             setCvData(prev => {
               const merged = { ...prev, ...saved };
               if (merged.nationality) merged.nationality = toNatDe(merged.nationality);
+              merged.workEntries = withInternshipTitle(merged.workEntries, candidateSex);
               return merged;
             });
 
@@ -2686,6 +2722,12 @@ function CVBuilderInner() {
             }).catch(() => { /* best-effort */ });
           } catch { /* invalid JSON */ }
         }
+
+        // No-draft case (and a final guarantee): the default CV template also
+        // ships an empty Position-1 title — enforce the gendered internship
+        // title so the locked field is never empty / red, however the admin
+        // arrived here.
+        setCvData(d => ({ ...d, workEntries: withInternshipTitle(d.workEntries, candidateSex) }));
 
         setLoading(false);
         return;
@@ -2727,9 +2769,9 @@ function CVBuilderInner() {
       if ((profile as { manually_verified?: boolean } | null)?.manually_verified) {
         setManuallyVerified(true);
       }
-      if (profile?.sex) {
-        const sx = String(profile.sex).toUpperCase();
-        if (sx === "M" || sx === "F") setSex(sx);
+      {
+        const ns = normalizeSex(profile?.sex);   // language-agnostic
+        if (ns) setSex(ns);
       }
       // NOTE: gendered title (Pflegepraktikant/in) is applied INSIDE the
       // draft-merge setCvData below, not here — so the draft's stored
@@ -2818,31 +2860,18 @@ function CVBuilderInner() {
               }
             }
             // Always enforce the sex-based internship title as the very last
-            // step — this guarantees the draft's stored title (possibly empty
-            // or wrong gender from an older session) can never win.
-            if (profile?.sex && merged.workEntries.length > 0) {
-              const genderedTitle = String(profile.sex).toUpperCase() === "F" ? "Pflegepraktikantin" : "Pflegepraktikant";
-              const wEntries = [...merged.workEntries];
-              wEntries[0] = { ...wEntries[0], title: genderedTitle };
-              merged.workEntries = wEntries;
-            }
+            // step (shared helper — identical in all load paths) so the LOCKED
+            // Position-1 title can never be empty → never traps CV generation.
+            merged.workEntries = withInternshipTitle(merged.workEntries, profile?.sex);
             return merged;
           });
         } catch { /* invalid JSON */ }
       } else {
-        // No draft — auto-fill from passport profile
+        // No draft — auto-fill from passport profile, then enforce the locked
+        // internship title (applyProfile doesn't touch workEntries).
         setCvData(d => ({ ...d, email: session.user.email ?? "" }));
         if (profile) applyProfile(profile);
-        // Apply gendered title (applyProfile doesn't touch workEntries)
-        if (profile?.sex) {
-          const genderedTitle = String(profile.sex).toUpperCase() === "F" ? "Pflegepraktikantin" : "Pflegepraktikant";
-          setCvData(d => {
-            if (!d.workEntries.length) return d;
-            const next = [...d.workEntries];
-            next[0] = { ...next[0], title: genderedTitle };
-            return { ...d, workEntries: next };
-          });
-        }
+        setCvData(d => ({ ...d, workEntries: withInternshipTitle(d.workEntries, profile?.sex) }));
       }
 
       setLoading(false);

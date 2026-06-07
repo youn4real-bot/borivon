@@ -12,6 +12,7 @@ import { useLang } from "@/components/LangContext";
 import { DOC_EXAMPLES } from "@/lib/docExamples";
 import { MAPS_URL, DEMANDE_EXAMPLE_URL } from "@/lib/workLicenseGuide";
 import { COUNTRY_MAP, natToLang as natToLangShared } from "@/lib/countries";
+import { normalizeSex as canonSex } from "@/lib/sex";
 import {
   PhaseIcon, type PhaseKind,
   Lock, Mail, Calendar, ExternalLink, AlertTriangle, PartyPopper,
@@ -1535,12 +1536,12 @@ export default function DashboardPage() {
             } else {
               const blank: PassportData = { first_name: "", last_name: "", dob: "", sex: "", nationality: "", city_of_birth: "", country_of_birth: "", passport_no: "", passport_expiry: "", issuing_authority: "", issue_date: "", address_street: "", address_number: "", address_postal: "", city_of_residence: "", country_of_residence: "", marital_status: "", children_ages: "" };
               const raw = json.passportData ? { ...blank, ...json.passportData } : blank;
-              // Clamp OCR sex to M/F/"" — an exotic value (e.g. "X", a
-              // localized first letter) has no dropdown option, so it would
-              // render "—" yet read as filled/confirmable. Empty → candidate
-              // picks it explicitly.
-              const _sx = normalizeSex(raw.sex, lang);
-              const extracted = { ...raw, sex: _sx === "M" || _sx === "F" ? _sx : "" };
+              // Canonicalize OCR sex to "M"/"F" from ANY language (Female /
+              // Femme / Weiblich / W / …). canonSex returns null for an exotic
+              // or blank value → "" so the candidate picks it explicitly. This
+              // replaces the old display-normalizer that discarded full words
+              // (and German "W") down to "".
+              const extracted = { ...raw, sex: canonSex(raw.sex) ?? "" };
               setPassportModal(extracted);
               setConfirmedFields(new Set());
               // Push extracted data to the DB immediately so it's permanent +

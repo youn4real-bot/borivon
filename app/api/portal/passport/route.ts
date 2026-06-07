@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { uploadPassportPdfToDrive } from "@/lib/passport-pdf";
 import { enforceRateLimit } from "@/lib/rateLimit";
+import { normalizeSex } from "@/lib/sex";
 
 // DD.MM.YYYY → YYYY-MM-DD for Postgres date columns
 function toIso(s: string | null | undefined): string | null {
@@ -136,8 +137,9 @@ export async function POST(req: NextRequest) {
   };
   const countryKey = country_of_birth?.trim().toUpperCase() ?? "";
   const countryDe = COUNTRY_NAME_DE[countryKey] ?? country_of_birth ?? null;
-  // Normalize sex: W (German) → F (canonical)
-  const canonicalSex = sex === "W" ? "F" : (sex || null);
+  // Normalize sex to canonical "M"/"F" from ANY language (Female/Femme/Weiblich/
+  // W/…) so every downstream reader (gendered CV title, salutations) is correct.
+  const canonicalSex = normalizeSex(sex);
 
   const profilePayload = {
     user_id:           user.id,
