@@ -130,9 +130,9 @@ export async function POST(req: NextRequest) {
       }
     }
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error("[replace-passport-pdf] Drive error:", msg);
-    return NextResponse.json({ error: `Upload failed: ${msg}` }, { status: 500 });
+    // Non-fatal: Google Drive is legacy. R2 (below) is the store of record, so a
+    // suspended/erroring Google account must NOT block the passport replace.
+    console.error("[replace-passport-pdf] Drive (legacy) error — ignored, R2 is primary:", err instanceof Error ? err.message : err);
   }
 
   // ── R2 dual-write (best-effort). On a REPLACE we set r2_key to the NEW key
@@ -159,16 +159,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Erreur d'enregistrement." }, { status: 500 });
   }
 
-  // Refresh the Storage cache backup so the file proxy + fallback serve the
-  // clear PDF (best-effort, non-fatal).
-  try {
-    await db.storage.from("sign-documents").upload(
-      `doc-cache/${newDriveId}`,
-      buffer,
-      { contentType: "application/pdf", upsert: true },
-    );
-  } catch (cacheErr) {
-    console.warn("[replace-passport-pdf] Storage cache backup failed (non-fatal):", cacheErr);
+  // Refresh the Storage cache backup (LAW #39 fallback, keyed by driveFileId) —
+  // legacy Drive path only. R2 serves byte-identical originals, so no fallback
+  // is needed there. Best-effort, non-fatal.
+  if (newDriveId) {
+    try {
+      await db.storage.from("sign-documents").upload(
+        `doc-cache/${newDriveId}`,
+        buffer,
+        { contentType: "application/pdf", upsert: true },
+      );
+    } catch (cacheErr) {
+      console.warn("[replace-passport-pdf] Storage cache backup failed (non-fatal):", cacheErr);
+    }
   }
 
   return NextResponse.json({ success: true, driveFileId: newDriveId });

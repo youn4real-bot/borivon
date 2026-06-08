@@ -90,32 +90,43 @@ export async function POST(req: NextRequest) {
   const buffer   = await generatePassportPdf(profile);
   const filename = buildPdfFilename(profile);
 
-  const drive      = getDriveClient();
-  const rootId     = ROOT_FOLDER_ID();
-  const folderName = [profile.first_name?.trim(), profile.last_name?.trim()].filter(Boolean).join(" ") || userId;
-  const folderId   = await getOrCreateFolder(drive, folderName, rootId);
-
-  const stream = new PassThrough();
-  stream.end(buffer);
-
-  const driveRes = await drive.files.create({
-    requestBody: { name: filename, parents: [folderId] },
-    media:       { mimeType: "application/pdf", body: stream },
-    fields:      "id",
-    supportsAllDrives: true,
-  });
-
-  if (driveRes.data.id) await makeDrivePublic(drive, driveRes.data.id);
-
-  // Dual-write to R2 so this PDF exists off-Drive too (best-effort).
+  // ── Cloudflare R2 — primary store of record. ────────────────────────────────
   let r2Key: string | null = null;
   if (r2Configured()) {
     try {
       const key = candidateKey(userId, `${Date.now()}_${filename}`);
       await r2Put(key, buffer, "application/pdf");
       r2Key = key;
-    } catch { r2Key = null; }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[passport-pdf] R2 put failed:", msg);
+      return NextResponse.json({ error: `Storage failed: ${msg}` }, { status: 500 });
+    }
   }
 
-  return NextResponse.json({ success: true, driveFileId: driveRes.data.id, r2Key, filename });
+  // ── Google Drive — legacy, only when R2 isn't configured. Non-fatal so a
+  // suspended Google account can't break this route. ──────────────────────────
+  let driveFileId: string | null = null;
+  if (!r2Configured()) {
+    try {
+      const drive      = getDriveClient();
+      const rootId     = ROOT_FOLDER_ID();
+      const folderName = [profile.first_name?.trim(), profile.last_name?.trim()].filter(Boolean).join(" ") || userId;
+      const folderId   = await getOrCreateFolder(drive, folderName, rootId);
+      const stream = new PassThrough();
+      stream.end(buffer);
+      const driveRes = await drive.files.create({
+        requestBody: { name: filename, parents: [folderId] },
+        media:       { mimeType: "application/pdf", body: stream },
+        fields:      "id",
+        supportsAllDrives: true,
+      });
+      driveFileId = driveRes.data.id ?? null;
+      if (driveFileId) await makeDrivePublic(drive, driveFileId);
+    } catch (e) {
+      console.error("[passport-pdf] Drive (legacy) failed — non-fatal:", e instanceof Error ? e.message : e);
+    }
+  }
+
+  return NextResponse.json({ success: true, driveFileId, r2Key, filename });
 }

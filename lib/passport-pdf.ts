@@ -1,6 +1,7 @@
 import React from "react";
 import { renderToBuffer, Document, Page, View, Text, StyleSheet } from "@react-pdf/renderer";
 import { google } from "googleapis";
+import { r2Configured, r2Put, candidateKey } from "@/lib/r2";
 import { PassThrough } from "stream";
 
 // ── Country / nationality helpers ─────────────────────────────────────────────
@@ -253,24 +254,46 @@ export function buildPdfFilename(profile: { first_name?: string | null; last_nam
   return `${fn}_${ln}_reisepass_daten.pdf`;
 }
 
-/** Generate PDF and upload to Drive. Throws on error. */
+/**
+ * Generate the passport-data PDF and store it. R2 is the store of record; Google
+ * Drive is legacy and only used when R2 isn't configured. NEVER throws — a
+ * storage hiccup (or a suspended Google account) must not break the passport
+ * save (the caller already treats this as best-effort). Returns the Drive id
+ * when a legacy Drive upload happened, else "".
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function uploadPassportPdfToDrive(profile: any): Promise<string> {
   const buffer   = await generatePassportPdf(profile);
   const filename = buildPdfFilename(profile);
-  const drive    = getDriveClient();
-  const rootId   = ROOT_FOLDER_ID();
-  const folderName = [profile.first_name?.trim(), profile.last_name?.trim()].filter(Boolean).join(" ") || String(profile.user_id ?? "unknown");
-  const folderId = await getOrCreateFolder(drive, folderName, rootId);
 
-  const stream = new PassThrough();
-  stream.end(buffer);
+  // R2 — primary. Best-effort.
+  if (r2Configured()) {
+    try {
+      const uid = String(profile.user_id ?? "");
+      if (uid) await r2Put(candidateKey(uid, `${Date.now()}_${filename}`), buffer, "application/pdf");
+    } catch (e) {
+      console.error("[passport-pdf] R2 put failed (non-fatal):", e instanceof Error ? e.message : e);
+    }
+    return "";
+  }
 
-  const driveRes = await drive.files.create({
-    requestBody: { name: filename, parents: [folderId] },
-    media:       { mimeType: "application/pdf", body: stream },
-    fields:      "id",
-    supportsAllDrives: true,
-  });
-  return driveRes.data.id!;
+  // Google Drive — legacy, only when R2 isn't set up. Non-fatal.
+  try {
+    const drive    = getDriveClient();
+    const rootId   = ROOT_FOLDER_ID();
+    const folderName = [profile.first_name?.trim(), profile.last_name?.trim()].filter(Boolean).join(" ") || String(profile.user_id ?? "unknown");
+    const folderId = await getOrCreateFolder(drive, folderName, rootId);
+    const stream = new PassThrough();
+    stream.end(buffer);
+    const driveRes = await drive.files.create({
+      requestBody: { name: filename, parents: [folderId] },
+      media:       { mimeType: "application/pdf", body: stream },
+      fields:      "id",
+      supportsAllDrives: true,
+    });
+    return driveRes.data.id ?? "";
+  } catch (e) {
+    console.error("[passport-pdf] Drive (legacy) failed (non-fatal):", e instanceof Error ? e.message : e);
+    return "";
+  }
 }

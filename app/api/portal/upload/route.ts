@@ -1058,140 +1058,46 @@ export async function POST(req: NextRequest) {
     oldDriveFileId = prior?.drive_file_id ?? null;
   }
 
-  // ── Google Drive upload ───────────────────────────────────────────────────────
-  let driveFileId: string | null = null;
+  // ── Build the structured filename — storage-agnostic (needed by R2) ─────────
+  // LAW #35 naming. None of this needs Google Drive, so it always runs even when
+  // Drive is gone.
+  const ext = file.name.split(".").pop() ?? "bin";
   let structuredName = file.name;
-  try {
-    const drive = getDriveClient();
-    const folderName = firstName && lastName ? `${firstName.trim()} ${lastName.trim()}` : userId;
-    const candidateFolderId = await getOrCreateFolder(drive, folderName, ROOT_FOLDER_ID);
-    const ext = file.name.split(".").pop() ?? "bin";
-
-    // For the "other" multi-doc slot we (a) put files in a "sonstiges"
-    // subfolder under the candidate's main folder, and (b) name them with
-    // an incrementing index (sonstiges_1, sonstiges_2, …) so admin Drive
-    // browsing stays tidy and no two files clash.
-    let folderId = candidateFolderId;
-    if (fileKey === "other") {
-      folderId = await getOrCreateFolder(drive, "sonstiges", candidateFolderId);
-      // Determine the next index by counting existing "other" docs for this
-      // user. Both DB rows and the Drive folder are kept in sync at upload
-      // time, so document count is a reliable next-index source.
-      const dbForCount = getServiceSupabase();
-      const { count: priorCount } = await dbForCount
-        .from("documents")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", userId)
-        .eq("file_type", fileType);
-      // LAW #9 server-side: max 5 Sonstiges per candidate.
-      // Count all language labels ("Autre"/"Other"/"Sonstiges") so switching
-      // UI language mid-journey doesn't bypass the cap.
-      const { count: otherTotalCount } = await dbForCount
-        .from("documents")
-        .select("id", { count: "exact", head: true })
-        .eq("user_id", userId)
-        .in("file_type", ["Autre", "Other", "Sonstiges"]);
-      if ((otherTotalCount ?? 0) >= 5) {
-        return NextResponse.json({ error: "Maximum 5 Dateien für Sonstiges erlaubt." }, { status: 400 });
-      }
-      const idx = (priorCount ?? 0) + 1;
-      const fn = (firstName.trim().toLowerCase().replace(/\s+/g, "_") || "kandidat");
-      const ln = (lastName.trim().toLowerCase().replace(/\s+/g, "_")  || "unbekannt");
-      structuredName = `${fn}_${ln}_pflegekraft_sonstiges_${idx}.${ext}`;
-    } else if (UPLOAD_UUID_RE.test(fileKey)) {
-      // Bearbeitung / Visum wizard slot upload — fileKey IS the slot UUID.
-      // Resolve the admin-defined slot label, slugify (ä→ae, etc.), and use
-      // that as the doctype segment so the candidate's submitted PDF lands
-      // in Drive as e.g. ahmed_benali_pflegekraft_arbeitsvertrag.pdf
-      // instead of the previous <uuid>_filled.pdf.
-      const dbForSlot = getServiceSupabase();
-      const { data: slotRow } = await dbForSlot
-        .from("phase_slots").select("label").eq("id", fileKey).maybeSingle();
-      const label = (slotRow as { label?: string | null } | null)?.label ?? "dokument";
-      const slug = slugifyGerman(label);
-      const fn = (firstName.trim().toLowerCase().replace(/\s+/g, "_") || "kandidat");
-      const ln = (lastName.trim().toLowerCase().replace(/\s+/g, "_")  || "unbekannt");
-      structuredName = `${fn}_${ln}_pflegekraft_${slug}.${ext}`;
-    } else {
-      structuredName = buildFileName(firstName, lastName, fileKey, ext);
+  if (fileKey === "other") {
+    // LAW #9: max 5 Sonstiges per candidate. Count all language labels so
+    // switching UI language mid-journey can't bypass the cap. DB-based, no Drive.
+    const dbForCount = getServiceSupabase();
+    const { count: priorCount } = await dbForCount
+      .from("documents").select("id", { count: "exact", head: true })
+      .eq("user_id", userId).eq("file_type", fileType);
+    const { count: otherTotalCount } = await dbForCount
+      .from("documents").select("id", { count: "exact", head: true })
+      .eq("user_id", userId).in("file_type", ["Autre", "Other", "Sonstiges"]);
+    if ((otherTotalCount ?? 0) >= 5) {
+      return NextResponse.json({ error: "Maximum 5 Dateien für Sonstiges erlaubt." }, { status: 400 });
     }
-
-    // Drive create with retry — handles transient 5xx / network blips so the
-    // user doesn't have to retry the whole upload manually.
-    let createdId: string | null = null;
-    let lastDriveErr: unknown = null;
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      try {
-        const stream = new PassThrough();
-        stream.end(buffer);
-        const r = await drive.files.create({
-          requestBody: { name: structuredName, parents: [folderId] },
-          media: { mimeType: file.type, body: stream },
-          fields: "id",
-          supportsAllDrives: true,
-        });
-        createdId = r.data.id ?? null;
-        break; // success
-      } catch (e: unknown) {
-        lastDriveErr = e;
-        const msg = e instanceof Error ? e.message : String(e);
-        const status = (e as { code?: number; response?: { status?: number } })?.code
-          ?? (e as { response?: { status?: number } })?.response?.status;
-        const retriable = !status || status >= 500 || status === 429 || /ECONN|ETIMEDOUT|ENOTFOUND|socket hang up/i.test(msg);
-        console.warn(`[upload] Drive create attempt ${attempt}/3 failed (status=${status}): ${msg}`);
-        if (!retriable || attempt === 3) throw e;
-        await new Promise(r => setTimeout(r, 400 * attempt)); // 400ms, 800ms backoff
-      }
-    }
-    if (!createdId) throw lastDriveErr ?? new Error("Drive upload failed after retries");
-    driveFileId = createdId;
-    await makeDrivePublic(drive, driveFileId);
-
-    // Supabase Storage backup — best-effort, non-fatal. Lets the file proxy
-    // fall back to Storage when Drive returns 404 (deleted/inaccessible file).
-    // Only PDFs are backed up since that's what signature/preview flows need.
-    if (driveFileId && file.type === "application/pdf") {
-      try {
-        const sb = getServiceSupabase();
-        const cachePath = `doc-cache/${driveFileId}`;
-        await sb.storage.from("sign-documents").upload(cachePath, buffer, {
-          contentType: "application/pdf",
-          upsert: true,
-        });
-      } catch (cacheErr) {
-        console.warn("[upload] Storage backup failed (non-fatal):", cacheErr);
-      }
-    }
-
-    // LAW #33: archive the previous Drive file instead of deleting it.
-    // Move it into an "archive" subfolder inside the candidate's folder.
-    // Failure is non-fatal — log and continue.
-    if (oldDriveFileId) {
-      try {
-        const archiveFolderId = await getOrCreateFolder(drive, "archive", candidateFolderId);
-        await drive.files.update({
-          fileId: oldDriveFileId,
-          addParents: archiveFolderId,
-          removeParents: candidateFolderId,
-          supportsAllDrives: true,
-          fields: "id",
-        });
-      } catch (archErr) {
-        console.warn("[upload] Could not archive old Drive file", oldDriveFileId, archErr);
-      }
-    }
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error("Drive upload error:", msg);
-    return NextResponse.json({ error: `Upload failed: ${msg}` }, { status: 500 });
+    const idx = (priorCount ?? 0) + 1;
+    const fn = (firstName.trim().toLowerCase().replace(/\s+/g, "_") || "kandidat");
+    const ln = (lastName.trim().toLowerCase().replace(/\s+/g, "_")  || "unbekannt");
+    structuredName = `${fn}_${ln}_pflegekraft_sonstiges_${idx}.${ext}`;
+  } else if (UPLOAD_UUID_RE.test(fileKey)) {
+    // Bearbeitung / Visum wizard slot upload — fileKey IS the slot UUID.
+    const dbForSlot = getServiceSupabase();
+    const { data: slotRow } = await dbForSlot
+      .from("phase_slots").select("label").eq("id", fileKey).maybeSingle();
+    const label = (slotRow as { label?: string | null } | null)?.label ?? "dokument";
+    const slug = slugifyGerman(label);
+    const fn = (firstName.trim().toLowerCase().replace(/\s+/g, "_") || "kandidat");
+    const ln = (lastName.trim().toLowerCase().replace(/\s+/g, "_")  || "unbekannt");
+    structuredName = `${fn}_${ln}_pflegekraft_${slug}.${ext}`;
+  } else {
+    structuredName = buildFileName(firstName, lastName, fileKey, ext);
   }
 
-  // ── Cloudflare R2 upload (primary going forward) ──────────────────────────
-  // R2 has free downloads + no Drive rate limits. During migration we keep the
-  // Drive copy above as a backup and the serve route prefers R2 → falls back to
-  // Drive, so nothing is lost if R2 ever hiccups. A unique timestamped key per
-  // upload means re-uploads never overwrite an older file (LAW #33: old bytes
-  // are preserved, just orphaned). Best-effort — a failed R2 put is non-fatal.
+  // ── Cloudflare R2 — PRIMARY + store of record ───────────────────────────────
+  // Unique timestamped key per upload → re-uploads never overwrite older bytes
+  // (LAW #33: old bytes preserved, just orphaned). Failing here IS fatal — R2 is
+  // the only store now (Google Drive is legacy/off).
   let r2Key: string | null = null;
   if (r2Configured()) {
     const key = candidateKey(userId, `${Date.now()}_${structuredName}`);
@@ -1199,7 +1105,52 @@ export async function POST(req: NextRequest) {
       await r2Put(key, buffer, file.type || "application/octet-stream");
       r2Key = key;
     } catch (r2Err) {
-      console.warn("[upload] R2 put failed (non-fatal; Drive backup remains):", r2Err);
+      const msg = r2Err instanceof Error ? r2Err.message : String(r2Err);
+      console.error("[upload] R2 put failed:", msg);
+      return NextResponse.json({ error: `Upload failed: ${msg}` }, { status: 500 });
+    }
+  }
+
+  // ── Google Drive — LEGACY. Only runs when R2 is NOT configured, so once R2 is
+  // set up (it is, in prod) Google is never called and a suspended Google account
+  // can't break uploads. Fully non-fatal. ────────────────────────────────────
+  let driveFileId: string | null = null;
+  if (!r2Configured()) {
+    try {
+      const drive = getDriveClient();
+      const folderName = firstName && lastName ? `${firstName.trim()} ${lastName.trim()}` : userId;
+      const candidateFolderId = await getOrCreateFolder(drive, folderName, ROOT_FOLDER_ID);
+      let folderId = candidateFolderId;
+      if (fileKey === "other") folderId = await getOrCreateFolder(drive, "sonstiges", candidateFolderId);
+      const stream = new PassThrough();
+      stream.end(buffer);
+      const r = await drive.files.create({
+        requestBody: { name: structuredName, parents: [folderId] },
+        media: { mimeType: file.type, body: stream },
+        fields: "id",
+        supportsAllDrives: true,
+      });
+      driveFileId = r.data.id ?? null;
+      if (driveFileId) await makeDrivePublic(drive, driveFileId);
+      if (oldDriveFileId) {
+        const archiveFolderId = await getOrCreateFolder(drive, "archive", candidateFolderId);
+        await drive.files.update({ fileId: oldDriveFileId, addParents: archiveFolderId, removeParents: candidateFolderId, supportsAllDrives: true, fields: "id" });
+      }
+    } catch (err) {
+      console.error("[upload] Drive (legacy) error — ignored, R2 is primary:", err instanceof Error ? err.message : err);
+    }
+  }
+
+  // ── Supabase Storage doc-cache — LAW #39 integrity fallback, keyed by
+  // driveFileId (what ensurePassportIntegrity looks up). Only relevant in the
+  // legacy Drive path; R2 serves byte-identical originals (passport rotation is
+  // client-side, so the server never mutates them → no fallback needed). ──────
+  if (driveFileId && file.type === "application/pdf") {
+    try {
+      const sb = getServiceSupabase();
+      await sb.storage.from("sign-documents").upload(`doc-cache/${driveFileId}`, buffer, { contentType: "application/pdf", upsert: true });
+    } catch (cacheErr) {
+      console.warn("[upload] Storage backup failed (non-fatal):", cacheErr);
     }
   }
 
