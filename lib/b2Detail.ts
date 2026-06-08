@@ -25,6 +25,7 @@ export interface B2Detail {
   retakeDate?: MonthYear;
   retakeRegStatus?: RegStatus;
   modules?: Record<string, { passed?: boolean; passedDate?: MonthYear; expectedDate?: MonthYear; expectedRegStatus?: RegStatus }>;
+  examConfirmation?: { fileName?: string; uploadedAt?: string };
 }
 
 const my = (m: MonthYear | undefined): string =>
@@ -46,6 +47,10 @@ export function formatB2Detail(b: B2Detail | undefined, level: "B1" | "B2"): str
     if (date) parts.push(`Prüfung geplant ${date}`); else parts.push("Prüfung noch nicht angesetzt");
     const r = reg(b.notYetRegStatus ?? null);
     if (r) parts.push(`(${r})`);
+    // When the seat is confirmed & paid, surface whether the proof is on file.
+    if (b.notYetRegStatus === "confirmed") {
+      parts.push(b.examConfirmation?.fileName ? "· Bestätigung hochgeladen" : "· Bestätigung fehlt");
+    }
     return `${head} · ${parts.join(" ")}`;
   }
   if (b.written === "yes" && b.result === "full") {

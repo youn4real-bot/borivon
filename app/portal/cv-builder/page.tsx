@@ -770,6 +770,80 @@ function PhoneInput({ value, onChange, hasError = false }: { value: string; onCh
   );
 }
 
+/* ExamConfirmationUpload — drag-drop / click upload for the B2 exam-confirmation
+   proof (PDF or image). Mandatory once the candidate marks the seat "Confirmed &
+   paid". Uploads straight to the candidate's documents (R2) via /api/portal/upload
+   (forUserId when an admin edits on the candidate's behalf), then records the
+   filename in cv_draft so the CV-generation gate + B2 status can see it. */
+function ExamConfirmationUpload({ value, onUploaded, onRemove, authToken, forUserId, lang, hasError }: {
+  value?: { fileName?: string; uploadedAt?: string };
+  onUploaded: (v: { fileName: string; uploadedAt: string }) => void;
+  onRemove: () => void;
+  authToken: string;
+  forUserId: string | null;
+  lang: "fr" | "en" | "de";
+  hasError?: boolean;
+}) {
+  const tr = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [drag, setDrag] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  async function handleFile(file: File) {
+    setErr("");
+    const okType = file.type === "application/pdf" || file.type.startsWith("image/");
+    if (!okType) { setErr(tr("PDF or image only", "Nur PDF oder Bild", "PDF ou image uniquement")); return; }
+    if (file.size > 15_000_000) { setErr(tr("Max 15 MB", "Max 15 MB", "Max 15 Mo")); return; }
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("fileKey", "b2_exam_confirmation");
+      fd.append("fileType", "b2_exam_confirmation");
+      if (forUserId) fd.append("forUserId", forUserId);
+      const res = await fetch("/api/portal/upload", { method: "POST", headers: { Authorization: `Bearer ${authToken}` }, body: fd });
+      if (!res.ok) { const j = await res.json().catch(() => ({})); setErr(j.error || tr("Upload failed", "Upload fehlgeschlagen", "Échec de l'envoi")); setBusy(false); return; }
+      onUploaded({ fileName: file.name, uploadedAt: new Date().toISOString() });
+    } catch { setErr(tr("Upload failed", "Upload fehlgeschlagen", "Échec de l'envoi")); }
+    setBusy(false);
+  }
+
+  if (value?.fileName) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl text-[13px]"
+        style={{ background: "var(--success-bg)", border: "1px solid var(--success-border)", color: "var(--success)" }}>
+        <FileText size={15} strokeWidth={2} />
+        <span className="flex-1 truncate font-medium">{value.fileName}</span>
+        <button type="button" onClick={onRemove} className="text-[12px] font-semibold underline" style={{ color: "var(--w3)" }}>
+          {tr("Replace", "Ersetzen", "Remplacer")}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <div
+        onClick={() => inputRef.current?.click()}
+        onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+        onDragLeave={() => setDrag(false)}
+        onDrop={(e) => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files?.[0]; if (f) void handleFile(f); }}
+        className="flex flex-col items-center justify-center gap-1.5 px-4 py-6 rounded-xl text-center cursor-pointer transition-colors"
+        style={{ border: `1.5px dashed ${hasError ? "var(--danger)" : drag ? "var(--gold)" : "var(--border)"}`, background: drag ? "var(--gdim)" : "rgba(255,255,255,0.03)" }}>
+        <FileText size={20} strokeWidth={1.7} style={{ color: hasError ? "var(--danger)" : "var(--w3)" }} />
+        <span className="text-[13px] font-medium" style={{ color: hasError ? "var(--danger)" : "var(--w2)" }}>
+          {busy ? tr("Uploading…", "Wird hochgeladen…", "Envoi…") : tr("Drag & drop or click — PDF or image", "Ziehen & ablegen oder klicken — PDF oder Bild", "Glisser-déposer ou cliquer — PDF ou image")}
+        </span>
+        <span className="text-[11px]" style={{ color: "var(--w3)" }}>{tr("Required to generate the CV", "Zum Erstellen des Lebenslaufs erforderlich", "Requis pour générer le CV")}</span>
+        <input ref={inputRef} type="file" accept="application/pdf,image/*" className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleFile(f); e.target.value = ""; }} />
+      </div>
+      {err && <p className="text-[11.5px] mt-1" style={{ color: "var(--danger)" }}>{err}</p>}
+    </>
+  );
+}
+
 /* LangLevelButton — compact level selector. The closed pill shows just the
    short code (A1…C2 / "Native"); the popup shows the full CEFR description. */
 function LangLevelButton({ level, onChange, hasError = false }: {
@@ -3142,6 +3216,15 @@ function CVBuilderInner() {
       if (i >= 4 && l.name?.trim() && !l.level) errors.add(`lang_${i}_level`);
     });
 
+    // 5b. German B1/B2 exam-confirmation — MANDATORY once the candidate marks the
+    //     seat "Confirmed & paid". No proof on file → block CV generation.
+    {
+      const de = cvData.langs.find(l => l.name === "Deutsch");
+      const lvl = de?.level === "B1" ? "b1" : de?.level === "B2" ? "b2" : null;
+      const det = lvl ? (de as { b1?: { notYetRegStatus?: string; examConfirmation?: { fileName?: string } }; b2?: { notYetRegStatus?: string; examConfirmation?: { fileName?: string } } })[lvl] : null;
+      if (det?.notYetRegStatus === "confirmed" && !det.examConfirmation?.fileName) errors.add("b2_examconfirm");
+    }
+
     // 6. IT Skills
     if (cvData.edvSelected.length === 0 && cvData.edvCustomInputs.length === 0) errors.add("edvSelected");
 
@@ -4614,6 +4697,21 @@ function CVBuilderInner() {
                             <MonthYearPicker label={L.notYetDate}
                               value={b.notYetDate ?? { month: "", year: "" }}
                               onChange={v => updateB({ notYetDate: v })} lang={lang} />
+                          )}
+                          {/* Confirmed & paid → mandatory exam-confirmation upload. */}
+                          {b.notYetRegStatus === "confirmed" && (
+                            <div>
+                              <Label>{lang === "de" ? "Prüfungsbestätigung (erforderlich)" : lang === "fr" ? "Confirmation d'examen (obligatoire)" : "Exam confirmation (required)"}</Label>
+                              <ExamConfirmationUpload
+                                value={b.examConfirmation}
+                                onUploaded={(v) => updateB({ examConfirmation: v })}
+                                onRemove={() => updateB({ examConfirmation: undefined })}
+                                authToken={authToken}
+                                forUserId={adminCandidateId ?? null}
+                                lang={lang}
+                                hasError={validationErrors.has("b2_examconfirm")}
+                              />
+                            </div>
                           )}
                         </>
                       )}

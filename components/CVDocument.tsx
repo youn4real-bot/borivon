@@ -106,6 +106,10 @@ export interface B2Detail {
   // "Not yet" branch — when the candidate hasn't written the exam.
   notYetDate?:             MonthYear;   // when they expect to write it
   notYetRegStatus?:        RegStatus;   // school-seat status
+  // Exam-confirmation upload — mandatory once notYetRegStatus === "confirmed".
+  // The file is stored as a `documents` row (fileKey b2_exam_confirmation); this
+  // records it's on file (drives the CV-generation gate + B2 status).
+  examConfirmation?:       { fileName?: string; uploadedAt?: string };
   // "Failed" branch — planned FULL retake.
   retakeDate?:             MonthYear;
   retakeRegStatus?:        RegStatus;
