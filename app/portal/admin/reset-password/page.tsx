@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
-import { ArrowLeft, Search, KeyRound, Copy, Check, ShieldAlert, X } from "lucide-react";
+import { ArrowLeft, Search, KeyRound, Copy, Check, ShieldAlert, X, Eye } from "lucide-react";
 
 type U = { id: string; email: string; name: string; role: string; kind: "borivon" | "org" | "candidate"; photo: string | null };
 type ResetResult = { email: string; password: string; sessionsRevoked: number };
@@ -22,6 +22,9 @@ export default function ResetPasswordPage() {
   const [confirmUser, setConfirmUser] = useState<U | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<(ResetResult & { name: string }) | null>(null);
+  // Keep every password generated THIS PAGE SESSION (in memory only — never the
+  // DB) so closing the modal isn't a dead end: re-open any of them from the list.
+  const [lastResults, setLastResults] = useState<Record<string, ResetResult & { name: string }>>({});
   const [copied, setCopied] = useState(false);
   const [err, setErr] = useState("");
 
@@ -58,7 +61,9 @@ export default function ResetPasswordPage() {
       });
       const j = await res.json().catch(() => ({}));
       if (!res.ok) { setErr(j.error || T("Reset failed", "Zurücksetzen fehlgeschlagen", "Échec")); setBusy(false); return; }
-      setResult({ name: confirmUser.name || confirmUser.email, email: j.email, password: j.password, sessionsRevoked: j.sessionsRevoked ?? 0 });
+      const r = { name: confirmUser.name || confirmUser.email, email: j.email, password: j.password, sessionsRevoked: j.sessionsRevoked ?? 0 };
+      setLastResults(prev => ({ ...prev, [confirmUser.id]: r }));
+      setResult(r);
       setConfirmUser(null);
     } catch {
       setErr(T("Reset failed", "Zurücksetzen fehlgeschlagen", "Échec"));
@@ -112,10 +117,19 @@ export default function ResetPasswordPage() {
               </div>
               <div className="text-[11.5px] truncate" style={{ color: "var(--w3)" }}>{u.email}</div>
             </div>
-            <button onClick={() => { setErr(""); setConfirmUser(u); }} className="bv-press flex-shrink-0 inline-flex items-center gap-1.5 text-[12px] font-bold px-3 py-2 rounded-lg"
-              style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
-              <KeyRound size={13} /> {T("Reset", "Zurücksetzen", "Réinit.")}
-            </button>
+            <div className="flex-shrink-0 flex items-center gap-1.5">
+              {lastResults[u.id] && (
+                <button onClick={() => { setCopied(false); setResult(lastResults[u.id]); }} className="bv-press inline-flex items-center gap-1.5 text-[12px] font-semibold px-2.5 py-2 rounded-lg"
+                  style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}
+                  title={T("Show the password set this session", "Diese Sitzung gesetztes Passwort anzeigen", "Voir le mot de passe défini cette session")}>
+                  <Eye size={13} /> {T("Show", "Anzeigen", "Voir")}
+                </button>
+              )}
+              <button onClick={() => { setErr(""); setConfirmUser(u); }} className="bv-press inline-flex items-center gap-1.5 text-[12px] font-bold px-3 py-2 rounded-lg"
+                style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                <KeyRound size={13} /> {T("Reset", "Zurücksetzen", "Réinit.")}
+              </button>
+            </div>
           </div>
         ))}
       </div>
@@ -178,9 +192,9 @@ export default function ResetPasswordPage() {
               </button>
             </div>
             <p className="text-[11.5px] mt-3 leading-relaxed" style={{ color: "#f59e0b" }}>
-              {T("Copy it now — it won't be shown again. Share it with the user securely.",
-                 "Jetzt kopieren — es wird nicht erneut angezeigt. Sicher an den Nutzer weitergeben.",
-                 "Copiez-le maintenant — il ne sera plus affiché. Partagez-le de façon sécurisée.")}
+              {T("Share it with the user securely. You can re-open it with “Show” from the list until you leave this page — then it's gone for good (never stored).",
+                 "Sicher an den Nutzer weitergeben. Bis Sie die Seite verlassen, können Sie es über „Anzeigen“ in der Liste erneut öffnen — danach ist es endgültig weg (nie gespeichert).",
+                 "Partagez-le de façon sécurisée. Vous pouvez le rouvrir via « Voir » dans la liste jusqu'à ce que vous quittiez la page — ensuite il est perdu (jamais stocké).")}
             </p>
           </div>
         </div>
