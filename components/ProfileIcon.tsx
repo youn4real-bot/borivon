@@ -560,6 +560,22 @@ export function ProfileIcon() {
                   {lang === "fr" ? "Pipeline" : lang === "de" ? "Pipeline" : "Pipeline"}
                 </button>
               )}
+              {/* B2 status overview — where every (scoped) candidate stands in
+                  German B2, plus combined-PDF download. Supreme + sub-admins. */}
+              {user.isAdmin && (
+                <button
+                  onClick={() => { setOpen(false); router.push("/portal/admin/b2-status"); }}
+                  className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
+                  style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "var(--bg2)"; e.currentTarget.style.color = "var(--w)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--w2)"; }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/>
+                  </svg>
+                  {lang === "fr" ? "Statut B2" : lang === "de" ? "B2-Status" : "B2 status"}
+                </button>
+              )}
               {/* Online-course registrations (public /online-courses leads).
                   Supreme admin + sub-admins. */}
               {user.isAdmin && (
