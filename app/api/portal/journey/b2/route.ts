@@ -21,9 +21,15 @@ export async function POST(req: NextRequest) {
   const stage = body?.stage;
   const hasStage = stage !== undefined;
   const hasFailed = typeof body?.failed === "boolean";
+  // Exam date — "" clears it; otherwise must be YYYY-MM-DD. Answers "when".
+  const hasExamDate = typeof body?.examDate === "string";
+  const examDate: string | null = hasExamDate
+    ? (body.examDate === "" ? null : (/^\d{4}-\d{2}-\d{2}$/.test(body.examDate) ? body.examDate : "__invalid__"))
+    : null;
   if (!UUID_RE.test(candidateId)) return NextResponse.json({ error: "candidateId required" }, { status: 400 });
   if (hasStage && !isB2Stage(stage)) return NextResponse.json({ error: "invalid stage" }, { status: 400 });
-  if (!hasStage && !hasFailed) return NextResponse.json({ error: "nothing to update" }, { status: 400 });
+  if (hasExamDate && examDate === "__invalid__") return NextResponse.json({ error: "invalid examDate" }, { status: 400 });
+  if (!hasStage && !hasFailed && !hasExamDate) return NextResponse.json({ error: "nothing to update" }, { status: 400 });
 
   const email = user.email;
   const db = getServiceSupabase();
@@ -53,6 +59,7 @@ export async function POST(req: NextRequest) {
   const patch: Record<string, unknown> = {};
   if (hasStage) patch.b2_stage = stage;
   if (hasFailed) patch.b2_failed = body.failed;
+  if (hasExamDate) patch.b2_exam_date = examDate;
   const { error } = await db
     .from("candidate_profiles")
     .update(patch)

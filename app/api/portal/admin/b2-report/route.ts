@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
 
   const db = getServiceSupabase();
   const [{ data: profs }, { data: docs }] = await Promise.all([
-    db.from("candidate_profiles").select("user_id, first_name, last_name, b2_stage, b2_failed").in("user_id", ids),
+    db.from("candidate_profiles").select("user_id, first_name, last_name, b2_stage, b2_failed, b2_exam_date").in("user_id", ids),
     db.from("documents").select("user_id, file_type, status").in("user_id", ids),
   ]);
 
@@ -50,8 +50,8 @@ export async function POST(req: NextRequest) {
     docsByUser.set(d.user_id, arr);
   }
 
-  type Row = { name: string; stage: B2Stage; failed: boolean; cert: "approved" | "pending" | "none" };
-  const rows: Row[] = (profs ?? []).map((p: { user_id: string; first_name: string | null; last_name: string | null; b2_stage: string | null; b2_failed: boolean | null }) => {
+  type Row = { name: string; stage: B2Stage; failed: boolean; cert: "approved" | "pending" | "none"; examDate: string | null };
+  const rows: Row[] = (profs ?? []).map((p: { user_id: string; first_name: string | null; last_name: string | null; b2_stage: string | null; b2_failed: boolean | null; b2_exam_date: string | null }) => {
     const d = docsByUser.get(p.user_id) ?? [];
     const stage = effectiveB2Stage(normalizeB2Stage(p.b2_stage), d);
     const certApproved = d.some((x) => x.status === "approved" && isB2CertDoc(x.file_type));
@@ -61,6 +61,7 @@ export async function POST(req: NextRequest) {
       stage,
       failed: p.b2_failed === true,
       cert: certApproved ? "approved" : certPending ? "pending" : "none",
+      examDate: p.b2_exam_date ?? null,
     };
   });
   // Furthest-along first, then by name.
@@ -106,22 +107,33 @@ export async function POST(req: NextRequest) {
   page.drawLine({ start: { x: M, y }, end: { x: A4.w - M, y }, thickness: 1, color: rgb(0.85, 0.85, 0.85) });
   y -= 22;
 
+  // ISO → TT.MM.JJJJ; full plain-language B2 status (no cryptic "Stufe X/5").
+  const deDate = (iso: string | null) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? ""); return m ? `${m[3]}.${m[2]}.${m[1]}` : ""; };
+  const statusDe = (stage: B2Stage): string => {
+    switch (stage) {
+      case "passed":           return "B2 bestanden";
+      case "awaiting_results": return "Prüfung abgelegt - Ergebnis ausstehend";
+      case "exam_booked":      return "Prüfungstermin gebucht & bezahlt (bestätigt)";
+      case "expected_date":    return "Voraussichtlicher Termin bestätigt";
+      default:                 return "Lernphase - sucht noch einen Termin";
+    }
+  };
+
   // Rows
   for (const r of rows) {
-    newPageIfNeeded(30);
+    newPageIfNeeded(34);
     const def = B2_STAGE_BY_KEY[r.stage];
     page.drawCircle({ x: M + 5, y: y + 3, size: 5, color: hex(def.color) });
-    page.drawText(truncate(r.name, 42), { x: M + 18, y, size: 12, font: bold, color: ink });
-    // stage label (right-aligned-ish in a second column)
-    const stageLabel = b2StageLabel(r.stage, "de");
-    page.drawText(stageLabel, { x: 300, y, size: 11, font, color: hex(def.color) });
-    // badges line under the name
-    y -= 14;
+    page.drawText(truncate(r.name, 30), { x: M + 18, y, size: 12.5, font: bold, color: ink });
+    // Clear, plain-language status (colored by stage) in a second column.
+    page.drawText(truncate(statusDe(r.stage), 50), { x: 290, y, size: 10.5, font: bold, color: hex(def.color) });
+    y -= 15;
+    // Detail line: WHEN (exam date) · certificate state · failed nuance.
     const bits: string[] = [];
-    bits.push(`Stufe ${def.position + 1}/5`);
-    bits.push(r.cert === "approved" ? "Zertifikat: bestätigt" : r.cert === "pending" ? "Zertifikat: in Prüfung" : "Zertifikat: keins");
-    if (r.failed) bits.push("schon einmal nicht bestanden");
-    page.drawText(bits.join("   ·   "), { x: M + 18, y, size: 9, font, color: dim });
+    if (r.examDate) bits.push(`Prüfungstermin: ${deDate(r.examDate)}`);
+    bits.push(r.cert === "approved" ? "Zertifikat vorhanden" : r.cert === "pending" ? "Zertifikat in Prüfung" : "noch kein Zertifikat");
+    if (r.failed) bits.push(r.stage === "passed" ? "bestanden nach Wiederholung" : "schon einmal nicht bestanden");
+    page.drawText(bits.join("   ·   "), { x: M + 18, y, size: 9.5, font, color: dim });
     y -= 18;
     page.drawLine({ start: { x: M, y: y + 4 }, end: { x: A4.w - M, y: y + 4 }, thickness: 0.5, color: rgb(0.92, 0.92, 0.92) });
     y -= 8;

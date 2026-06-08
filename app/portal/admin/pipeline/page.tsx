@@ -73,7 +73,7 @@ type PipelineFacts = {
   housingDone: boolean; visaGranted: boolean;
   contractDone: boolean; recognitionDone: boolean; vorabDone: boolean; docsReady: boolean; arrivedDone: boolean;
 };
-type Row = { userId: string; name: string; photo: string | null; status: Status; sellable: Sellable; b2Stage?: string; b2Failed?: boolean; anerkennungStage?: string; impfungStage?: string; impfungDoses?: { got: number; need: number }; followUp?: FollowUp; openTasks?: OpenTask[]; facts?: Facts; docPack?: DocPack; reports?: SelfReport[]; pipeline?: PipelineFacts; needsUpdate?: boolean; lastActivityAt?: string | null };
+type Row = { userId: string; name: string; photo: string | null; status: Status; sellable: Sellable; b2Stage?: string; b2Failed?: boolean; b2ExamDate?: string | null; anerkennungStage?: string; impfungStage?: string; impfungDoses?: { got: number; need: number }; followUp?: FollowUp; openTasks?: OpenTask[]; facts?: Facts; docPack?: DocPack; reports?: SelfReport[]; pipeline?: PipelineFacts; needsUpdate?: boolean; lastActivityAt?: string | null };
 
 const HEALTH_STYLE: Record<Health, { dot: string; label: { en: string; de: string; fr: string } }> = {
   blocked:  { dot: "#ef4444", label: { en: "Blocked",   de: "Blockiert",   fr: "Bloqué" } },
@@ -342,6 +342,31 @@ export default function AdminPipelinePage() {
       if (res.ok) toast.success(T("Updated ✓", "Aktualisiert ✓", "Mis à jour ✓"));
       else { toast.error(T("Couldn't update", "Update fehlgeschlagen", "Échec de la mise à jour")); void reload(); }
     } catch { toast.error(T("Couldn't update", "Update fehlgeschlagen", "Échec de la mise à jour")); void reload(); }
+  };
+
+  // B2 exam date — "when". Empty iso clears it. Saved straight to candidate_profiles.
+  const setB2ExamDate = async (userId: string, iso: string) => {
+    setRows((rs) => rs.map((r) => (r.userId === userId ? { ...r, b2ExamDate: iso || null } : r)));
+    setPeek((p) => (p && p.userId === userId ? { ...p, b2ExamDate: iso || null } : p));
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token ?? accessToken;
+      const res = await fetch("/api/portal/journey/b2", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ candidateId: userId, examDate: iso }) });
+      if (res.ok) toast.success(T("Saved ✓", "Gespeichert ✓", "Enregistré ✓"));
+      else { toast.error(T("Couldn't save", "Speichern fehlgeschlagen", "Échec")); void reload(); }
+    } catch { toast.error(T("Couldn't save", "Speichern fehlgeschlagen", "Échec")); void reload(); }
+  };
+  // B2 "failed once" flag (red halo) — toggled by the admin.
+  const setB2Failed = async (userId: string, failed: boolean) => {
+    setRows((rs) => rs.map((r) => (r.userId === userId ? { ...r, b2Failed: failed } : r)));
+    setPeek((p) => (p && p.userId === userId ? { ...p, b2Failed: failed } : p));
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token ?? accessToken;
+      const res = await fetch("/api/portal/journey/b2", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ candidateId: userId, failed }) });
+      if (res.ok) toast.success(T("Updated ✓", "Aktualisiert ✓", "Mis à jour ✓"));
+      else { toast.error(T("Couldn't update", "Update fehlgeschlagen", "Échec")); void reload(); }
+    } catch { toast.error(T("Couldn't update", "Update fehlgeschlagen", "Échec")); void reload(); }
   };
 
   // Send a follow-up reminder to a candidate (in-app bell notification, masked
@@ -965,13 +990,26 @@ export default function AdminPipelinePage() {
               <div style={card}>
                 <div style={cap}>{T("Status", "Status", "Statut")}</div>
                 <div className="flex flex-col gap-2.5">
-                  <div className="flex items-center gap-2 text-[12.5px]">
-                    <span style={{ width: 9, height: 9, borderRadius: 999, background: b2StageColor(b2s), flexShrink: 0 }} />
-                    <span style={{ color: "var(--w3)", fontWeight: 600, width: 64, flexShrink: 0 }}>📜 {T("B2", "B2", "B2")}</span>
-                    <select value={b2s} onChange={(e) => void setPeekStage("b2", peek.userId, e.target.value)} className="bv-input" style={{ fontSize: 12.5, fontWeight: 600, padding: "4px 8px", height: "auto", flex: 1, minWidth: 0 }}>
-                      {B2_STAGES.map((s) => <option key={s.key} value={s.key}>{b2StageLabel(s.key, lang)}</option>)}
-                    </select>
-                    {peek.b2Failed && <span style={{ color: B2_FAILED_COLOR, fontWeight: 700, flexShrink: 0 }} title={T("Failed once", "Einmal nicht bestanden", "Échoué une fois")}>↺</span>}
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex items-center gap-2 text-[12.5px]">
+                      <span style={{ width: 9, height: 9, borderRadius: 999, background: b2StageColor(b2s), flexShrink: 0 }} />
+                      <span style={{ color: "var(--w3)", fontWeight: 600, width: 64, flexShrink: 0 }}>📜 {T("B2", "B2", "B2")}</span>
+                      <select value={b2s} onChange={(e) => void setPeekStage("b2", peek.userId, e.target.value)} className="bv-input" style={{ fontSize: 12.5, fontWeight: 600, padding: "4px 8px", height: "auto", flex: 1, minWidth: 0 }}>
+                        {B2_STAGES.map((s) => <option key={s.key} value={s.key}>{b2StageLabel(s.key, lang)}</option>)}
+                      </select>
+                      <button type="button" onClick={() => void setB2Failed(peek.userId, !peek.b2Failed)} title={T("Mark / unmark failed once", "Als (nicht) bestanden markieren", "Marquer / annuler échoué")}
+                        className="bv-press flex-shrink-0 text-[11px] font-bold px-2 py-1.5 rounded-lg"
+                        style={peek.b2Failed ? { background: "var(--danger-bg)", color: B2_FAILED_COLOR, border: `1px solid ${B2_FAILED_COLOR}` } : { background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
+                        ↺ {T("failed", "1×", "échoué")}
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2" style={{ paddingLeft: 75 }}>
+                      <span style={{ color: "var(--w3)", fontSize: 11, flexShrink: 0 }}>{T("Exam date", "Prüfungstermin", "Date d'examen")}</span>
+                      <GermanDateField valueIso={peek.b2ExamDate ?? ""} onChangeIso={(iso) => { if (iso) void setB2ExamDate(peek.userId, iso); }} lang={lang} />
+                      {peek.b2ExamDate && (
+                        <button type="button" onClick={() => void setB2ExamDate(peek.userId, "")} className="bv-press text-[11px] px-2 py-1 rounded-lg" style={{ color: "var(--w3)", background: "var(--bg2)", border: "1px solid var(--border)" }}>{T("clear", "löschen", "effacer")}</button>
+                      )}
+                    </div>
                   </div>
                   <div className="flex items-center gap-2 text-[12.5px]">
                     <span style={{ width: 9, height: 9, borderRadius: 999, background: anerkennungStageColor(anerk), flexShrink: 0 }} />

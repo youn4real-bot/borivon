@@ -8,7 +8,9 @@ import { PageLoader } from "@/components/ui/states";
 import { ArrowLeft, Search, Download, GraduationCap, Check } from "lucide-react";
 import { B2_STAGES, B2_STAGE_BY_KEY, B2_FAILED_COLOR, b2StageLabel, type B2Stage } from "@/lib/b2Journey";
 
-type Cand = { userId: string; name: string; b2Stage: B2Stage; b2Failed: boolean };
+type Cand = { userId: string; name: string; b2Stage: B2Stage; b2Failed: boolean; b2ExamDate: string | null };
+
+const deDate = (iso: string | null) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso ?? ""); return m ? `${m[3]}.${m[2]}.${m[1]}` : ""; };
 
 export default function B2StatusPage() {
   const router = useRouter();
@@ -32,8 +34,8 @@ export default function B2StatusPage() {
       setToken(tk);
       const res = await fetch("/api/portal/journey/pipeline", { headers: { Authorization: `Bearer ${tk}` } });
       const j = await res.json().catch(() => ({ candidates: [] }));
-      const list: Cand[] = (j.candidates ?? []).map((c: { userId: string; name: string; b2Stage: B2Stage; b2Failed?: boolean }) => ({
-        userId: c.userId, name: c.name, b2Stage: (c.b2Stage ?? "studying") as B2Stage, b2Failed: c.b2Failed === true,
+      const list: Cand[] = (j.candidates ?? []).map((c: { userId: string; name: string; b2Stage: B2Stage; b2Failed?: boolean; b2ExamDate?: string | null }) => ({
+        userId: c.userId, name: c.name, b2Stage: (c.b2Stage ?? "studying") as B2Stage, b2Failed: c.b2Failed === true, b2ExamDate: c.b2ExamDate ?? null,
       }));
       setCands(list);
       setLoading(false);
@@ -146,6 +148,7 @@ export default function B2StatusPage() {
                   <span className="text-[13.5px] font-semibold truncate" style={{ color: "var(--w)" }}>{c.name}</span>
                   {c.b2Failed && <span style={{ fontSize: 10, fontWeight: 700, color: B2_FAILED_COLOR, border: `1px solid ${B2_FAILED_COLOR}`, borderRadius: 6, padding: "0px 5px" }}>{T("failed once", "1× nicht best.", "échoué 1×")}</span>}
                 </div>
+                {c.b2ExamDate && <div className="text-[11.5px] mt-0.5" style={{ color: "var(--w3)" }}>{T("Exam", "Prüfung", "Examen")}: {deDate(c.b2ExamDate)}</div>}
               </div>
               <span className="flex-shrink-0 inline-flex items-center gap-1.5">
                 <span style={{ width: 9, height: 9, borderRadius: 999, background: def.color, display: "inline-block" }} />
