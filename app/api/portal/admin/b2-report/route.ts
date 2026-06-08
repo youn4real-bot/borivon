@@ -4,6 +4,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { UUID_RE } from "@/lib/uuid";
 import { normalizeB2Stage, effectiveB2Stage, B2_STAGE_BY_KEY, b2StageLabel, isB2CertDoc, type B2Stage } from "@/lib/b2Journey";
+import { germanSummary } from "@/lib/b2Detail";
 
 /**
  * B2-status report PDF for one or many candidates (admin "where is everyone in
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
 
   const db = getServiceSupabase();
   const [{ data: profs }, { data: docs }] = await Promise.all([
-    db.from("candidate_profiles").select("user_id, first_name, last_name, b2_stage, b2_failed, b2_exam_date").in("user_id", ids),
+    db.from("candidate_profiles").select("user_id, first_name, last_name, b2_stage, b2_failed, b2_exam_date, cv_draft").in("user_id", ids),
     db.from("documents").select("user_id, file_type, status").in("user_id", ids),
   ]);
 
@@ -50,18 +51,21 @@ export async function POST(req: NextRequest) {
     docsByUser.set(d.user_id, arr);
   }
 
-  type Row = { name: string; stage: B2Stage; failed: boolean; cert: "approved" | "pending" | "none"; examDate: string | null };
-  const rows: Row[] = (profs ?? []).map((p: { user_id: string; first_name: string | null; last_name: string | null; b2_stage: string | null; b2_failed: boolean | null; b2_exam_date: string | null }) => {
+  type Row = { name: string; stage: B2Stage; failed: boolean; cert: "approved" | "pending" | "none"; examDate: string | null; german: string; germanLevel: string | null };
+  const rows: Row[] = (profs ?? []).map((p: { user_id: string; first_name: string | null; last_name: string | null; b2_stage: string | null; b2_failed: boolean | null; b2_exam_date: string | null; cv_draft: unknown }) => {
     const d = docsByUser.get(p.user_id) ?? [];
     const stage = effectiveB2Stage(normalizeB2Stage(p.b2_stage), d);
     const certApproved = d.some((x) => x.status === "approved" && isB2CertDoc(x.file_type));
     const certPending = !certApproved && d.some((x) => isB2CertDoc(x.file_type));
+    const g = germanSummary(p.cv_draft);
     return {
       name: [p.first_name, p.last_name].filter(Boolean).join(" ").trim() || "—",
       stage,
       failed: p.b2_failed === true,
       cert: certApproved ? "approved" : certPending ? "pending" : "none",
       examDate: p.b2_exam_date ?? null,
+      german: g.summary,
+      germanLevel: g.level,
     };
   });
   // Furthest-along first, then by name.
@@ -119,22 +123,44 @@ export async function POST(req: NextRequest) {
     }
   };
 
+  // Word-wrap a string to fit a max width at a given font size.
+  const wrap = (text: string, size: number, maxW: number): string[] => {
+    const out: string[] = [];
+    for (const para of text.split("\n")) {
+      let cur = "";
+      for (const w of para.split(" ")) {
+        const test = cur ? `${cur} ${w}` : w;
+        if (font.widthOfTextAtSize(test, size) > maxW && cur) { out.push(cur); cur = w; } else cur = test;
+      }
+      out.push(cur);
+    }
+    return out;
+  };
+
   // Rows
   for (const r of rows) {
-    newPageIfNeeded(34);
     const def = B2_STAGE_BY_KEY[r.stage];
+    const detailLines = r.german ? wrap(r.german, 9.5, A4.w - 2 * M - 18) : ["Noch keine B2-Angaben im CV ausgefüllt"];
+    newPageIfNeeded(34 + detailLines.length * 12);
     page.drawCircle({ x: M + 5, y: y + 3, size: 5, color: hex(def.color) });
-    page.drawText(truncate(r.name, 30), { x: M + 18, y, size: 12.5, font: bold, color: ink });
-    // Clear, plain-language status (colored by stage) in a second column.
-    page.drawText(truncate(statusDe(r.stage), 50), { x: 290, y, size: 10.5, font: bold, color: hex(def.color) });
-    y -= 15;
-    // Detail line: WHEN (exam date) · certificate state · failed nuance.
+    // Name (+ German level) · plain-language stage on the right.
+    const nm = truncate(r.name, 28);
+    page.drawText(nm, { x: M + 18, y, size: 12.5, font: bold, color: ink });
+    if (r.germanLevel) page.drawText(`(${r.germanLevel})`, { x: M + 18 + bold.widthOfTextAtSize(nm, 12.5) + 4, y, size: 10, font, color: dim });
+    page.drawText(truncate(statusDe(r.stage), 44), { x: 305, y, size: 10, font: bold, color: hex(def.color) });
+    y -= 14;
+    // The REAL CV-builder German detail (exam · when · slot paid · pass/fail · cert).
+    for (const line of detailLines) {
+      page.drawText(line, { x: M + 18, y, size: 9.5, font, color: r.german ? ink : dim });
+      y -= 12;
+    }
+    // Meta line: exam date · certificate doc · failed nuance.
     const bits: string[] = [];
     if (r.examDate) bits.push(`Prüfungstermin: ${deDate(r.examDate)}`);
-    bits.push(r.cert === "approved" ? "Zertifikat vorhanden" : r.cert === "pending" ? "Zertifikat in Prüfung" : "noch kein Zertifikat");
+    bits.push(r.cert === "approved" ? "Zertifikat-Dok vorhanden" : r.cert === "pending" ? "Zertifikat-Dok in Prüfung" : "kein Zertifikat-Dok");
     if (r.failed) bits.push(r.stage === "passed" ? "bestanden nach Wiederholung" : "schon einmal nicht bestanden");
-    page.drawText(bits.join("   ·   "), { x: M + 18, y, size: 9.5, font, color: dim });
-    y -= 18;
+    page.drawText(bits.join("   ·   "), { x: M + 18, y, size: 8.5, font, color: dim });
+    y -= 16;
     page.drawLine({ start: { x: M, y: y + 4 }, end: { x: A4.w - M, y: y + 4 }, thickness: 0.5, color: rgb(0.92, 0.92, 0.92) });
     y -= 8;
   }
