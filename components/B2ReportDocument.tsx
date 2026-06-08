@@ -84,7 +84,7 @@ export function B2ReportDocument({ rows, generatedAt }: { rows: B2ReportRow[]; g
           <Text style={s.footerLine}>contact@borivon.com</Text>
         </View>
 
-        <Text style={s.title}>B2-Status — Borivon</Text>
+        <Text style={s.title}>B2-Status</Text>
         <Text style={s.sub}>{rows.length} Kandidat{rows.length === 1 ? "" : "en"} · {generatedAt}</Text>
 
         <View style={s.summaryRow}>
@@ -101,7 +101,6 @@ export function B2ReportDocument({ rows, generatedAt }: { rows: B2ReportRow[]; g
           const def = B2_STAGE_BY_KEY[r.stage];
           const metaBits = [
             r.examDate ? `Prüfungstermin: ${deDate(r.examDate)}` : null,
-            r.cert === "approved" ? "Zertifikat-Dok vorhanden" : r.cert === "pending" ? "Zertifikat-Dok in Prüfung" : "kein Zertifikat-Dok",
             r.failed ? (r.stage === "passed" ? "bestanden nach Wiederholung" : "schon einmal nicht bestanden") : null,
           ].filter(Boolean).join("   ·   ");
           return (
@@ -117,7 +116,7 @@ export function B2ReportDocument({ rows, generatedAt }: { rows: B2ReportRow[]; g
               <Text style={r.german ? s.detail : s.detailEmpty}>
                 {r.german || "Noch keine B2-Angaben im CV ausgefüllt"}
               </Text>
-              <Text style={s.meta}>{metaBits}</Text>
+              {metaBits ? <Text style={s.meta}>{metaBits}</Text> : null}
               {i < rows.length - 1 ? <View style={s.sep} /> : null}
             </View>
           );
