@@ -89,7 +89,7 @@ export default function B2StatusPage() {
   const card: CSSProperties = { borderRadius: 16, border: "1px solid var(--border)", background: "var(--card)" };
 
   return (
-    <div className="mx-auto w-full max-w-2xl px-4 py-6 pb-28">
+    <div className="mx-auto w-full max-w-2xl px-4 py-6">
       <button onClick={() => router.back()} className="bv-row-hover flex items-center gap-2 text-xs px-2 py-1 mb-4" style={{ color: "var(--w3)" }}>
         <ArrowLeft size={14} /> {T("Back", "Zurück", "Retour")}
       </button>
@@ -129,6 +129,16 @@ export default function B2StatusPage() {
         </button>
       </div>
 
+      {/* Selected + download — right under the search (not a bottom bar). */}
+      {sel.size > 0 && (
+        <div className="flex items-center justify-between gap-3 mb-3 px-3.5 py-2.5 rounded-xl" style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
+          <span className="text-[12.5px] font-semibold" style={{ color: "var(--w)" }}>{sel.size} {T("selected", "ausgewählt", "sélectionné(s)")}</span>
+          <button onClick={download} disabled={downloading} className="bv-press inline-flex items-center gap-2 text-[12.5px] font-bold px-4 py-2 rounded-lg disabled:opacity-60" style={{ background: "var(--gold)", color: "#131312" }}>
+            <Download size={14} /> {downloading ? T("Preparing…", "Wird erstellt…", "Préparation…") : T(`Download PDF (${sel.size})`, `PDF herunterladen (${sel.size})`, `Télécharger PDF (${sel.size})`)}
+          </button>
+        </div>
+      )}
+
       {/* List */}
       <div style={card}>
         {filtered.length === 0 ? (
@@ -166,15 +176,6 @@ export default function B2StatusPage() {
         })}
       </div>
 
-      {/* Sticky download bar */}
-      {sel.size > 0 && (
-        <div className="fixed bottom-0 left-0 right-0 z-[60] flex items-center justify-between gap-3 px-4 py-3" style={{ background: "var(--card)", borderTop: "1px solid var(--border)", boxShadow: "0 -4px 16px rgba(0,0,0,0.25)" }}>
-          <span className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>{sel.size} {T("selected", "ausgewählt", "sélectionné(s)")}</span>
-          <button onClick={download} disabled={downloading} className="bv-press inline-flex items-center gap-2 text-[13.5px] font-bold px-5 py-2.5 rounded-xl disabled:opacity-60" style={{ background: "var(--gold)", color: "#131312" }}>
-            <Download size={15} /> {downloading ? T("Preparing…", "Wird erstellt…", "Préparation…") : T(`Download PDF (${sel.size})`, `PDF herunterladen (${sel.size})`, `Télécharger PDF (${sel.size})`)}
-          </button>
-        </div>
-      )}
     </div>
   );
 }
