@@ -98,6 +98,7 @@ const nextConfig: NextConfig = {
   // serverless function bundle — Vercel's file tracer misses dynamic path.join refs.
   outputFileTracingIncludes: {
     "/api/portal/cv/generate": ["./public/fonts/**", "./public/logos/**"],
+    "/api/portal/admin/b2-report": ["./public/fonts/**"],
   },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   webpack: (config: any) => {
