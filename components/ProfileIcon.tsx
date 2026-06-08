@@ -622,6 +622,18 @@ export function ProfileIcon() {
                     {T.manageAdmins}
                   </button>
                   <button
+                    onClick={() => { setOpen(false); router.push("/portal/admin/reset-password"); }}
+                    className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
+                    style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
+                    onMouseEnter={e => { e.currentTarget.style.background = "var(--bg2)"; e.currentTarget.style.color = "var(--w)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--w2)"; }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>
+                    </svg>
+                    {lang === "fr" ? "Réinitialiser un mot de passe" : lang === "de" ? "Passwort zurücksetzen" : "Reset a password"}
+                  </button>
+                  <button
                     onClick={() => { setOpen(false); router.push("/portal/admin/employers"); }}
                     className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
                     style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
