@@ -20,6 +20,7 @@ import {
   GetObjectCommand,
   DeleteObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
@@ -102,6 +103,22 @@ export async function r2Exists(key: string): Promise<boolean> {
     if (isNotFound(e)) return false;
     throw e;
   }
+}
+
+/** List every object under a key prefix (paginated). Returns key + size.
+ *  Used by the r2_key recovery to match orphaned documents rows to the bytes
+ *  that are already sitting in R2. */
+export async function r2List(prefix: string): Promise<{ key: string; size: number }[]> {
+  const out: { key: string; size: number }[] = [];
+  let token: string | undefined;
+  do {
+    const res = await client().send(new ListObjectsV2Command({
+      Bucket: R2_BUCKET, Prefix: prefix, ContinuationToken: token,
+    }));
+    for (const o of res.Contents ?? []) out.push({ key: o.Key ?? "", size: o.Size ?? 0 });
+    token = res.IsTruncated ? res.NextContinuationToken : undefined;
+  } while (token);
+  return out;
 }
 
 /** HEAD an object — returns its byte size, or null if it doesn't exist.
