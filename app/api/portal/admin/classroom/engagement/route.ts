@@ -1,15 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminRole } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
-import { computeEngagement, type ClassroomEvent, type ClassroomSession } from "@/lib/classroomEngagement";
+import { computeEngagement, computeSessionSummaries, type ClassroomEvent, type ClassroomSession } from "@/lib/classroomEngagement";
 
 /**
  * SUPREME-ADMIN-ONLY (testing phase): per-person engagement scorecard, computed
  * live from the classroom_events ledger (never stored → never drifts). Camera-on
- * %, speaking share, participation actions, attendance → one composite score.
- * The sellable artifact: an engagement profile per candidate for employer match.
+ * %, speaking share, participation actions, punctuality, attendance, camera
+ * discipline, disengagement flag → one composite score. The sellable artifact.
  *
- * GET → { rows, sessions, totalEvents }
+ * GET            → { rows, sessions, sessionSummaries, totalEvents }
+ * GET ?session=X → { sessionId, rows }  (per-person detail for ONE session)
  */
 export const dynamic = "force-dynamic";
 
@@ -46,11 +47,22 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Per-session drill-down: per-person stats for ONE session only.
+  const sessionId = req.nextUrl.searchParams.get("session");
+  if (sessionId) {
+    const s = sessions.find((x) => x.id === sessionId);
+    if (!s) return NextResponse.json({ sessionId, rows: [] });
+    const scoped = events.filter((e) => e.session_id === sessionId);
+    return NextResponse.json({ sessionId, rows: computeEngagement(scoped, [s] as ClassroomSession[], names) });
+  }
+
   const rows = computeEngagement(events, sessions as ClassroomSession[], names);
+  const sessionSummaries = computeSessionSummaries(events, sessions as ClassroomSession[], names);
 
   return NextResponse.json({
     rows,
     sessions: sessions.map((s) => ({ id: s.id, title: s.title || s.room_name, room: s.room_name, status: s.status, startedAt: s.started_at, endedAt: s.ended_at })),
+    sessionSummaries,
     totalEvents: events.length,
   });
 }
