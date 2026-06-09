@@ -27,11 +27,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ user
   let allowed = false;
   let consentRequired = true;
 
-  // Staff path (admin / sub-admin).
+  // Staff path (admin / sub-admin). NB org admins are sub_admins with
+  // isAgencyAdmin=true — they ARE the employer, so they're consent-gated; the
+  // supreme admin + regular Borivon sub-admins are internal (no gate).
   const staff = await requireAdminRole(req);
   if (staff.ok) {
     allowed = staff.role === "admin" ? true : await canActOnCandidate("sub_admin", staff.email, userId);
-    consentRequired = false; // internal — they capture the data
+    consentRequired = staff.role === "sub_admin" && staff.isAgencyAdmin === true;
   } else {
     // Org-member (employer) path — mirror the dossier's scoping exactly.
     const user = await requireUser(req);

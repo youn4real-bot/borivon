@@ -23,6 +23,7 @@ import {
 } from "@/components/PortalIcons";
 import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles, BarChart3 } from "lucide-react";
 import { CandidateEngagementCard } from "@/components/CandidateEngagementCard";
+import { ClassroomTesterToggle } from "@/components/ClassroomTesterToggle";
 import { DndContext, closestCenter, DragOverlay, closestCorners, pointerWithin, useDroppable, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragOverEvent, type DragStartEvent, type CollisionDetection } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove, defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -3681,7 +3682,12 @@ export default function AdminPage() {
                               Shown to staff + org-admin employers; the API
                               consent-gates the employer view. ── */}
                           {statusTab === "engagement" && selectedUser && accessToken && (
-                            <CandidateEngagementCard userId={selectedUser} accessToken={accessToken} lang={(lang === "fr" || lang === "de") ? lang : "en"} />
+                            <>
+                              {isSuperAdmin && (
+                                <ClassroomTesterToggle userId={selectedUser} accessToken={accessToken} lang={(lang === "fr" || lang === "de") ? lang : "en"} />
+                              )}
+                              <CandidateEngagementCard userId={selectedUser} accessToken={accessToken} lang={(lang === "fr" || lang === "de") ? lang : "en"} />
+                            </>
                           )}
                           {statusTab === "b2" && (
                           <StatusSection title={L.secB2} first>

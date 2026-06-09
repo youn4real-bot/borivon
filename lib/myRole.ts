@@ -30,6 +30,8 @@ export type RoleInfo = {
   academyVisible?: boolean;
   orgName?: string | null;
   paymentTier?: string | null;
+  /** Private-test allowlist for the live classroom (candidates only). */
+  classroomTester?: boolean;
 };
 
 const CACHE_KEY = "bv_role_v1";

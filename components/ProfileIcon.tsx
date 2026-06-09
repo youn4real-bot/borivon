@@ -129,6 +129,9 @@ type UserInfo = {
   /** Stripe payment tier — null=free, "premium" = €99 one-off OR €19/month subscription.
    *  Used to hide upgrade prompts that the user has already outgrown. */
   paymentTier: string | null;
+  /** Private-test allowlist for the live classroom — gates the "Live class" menu
+   *  entry so only flagged candidates see it during testing. */
+  classroomTester: boolean;
 };
 
 export function ProfileIcon() {
@@ -204,6 +207,7 @@ export function ProfileIcon() {
       let isSuperAdmin = false;
       let orgName: string | null = null;
       let paymentTier: string | null = null;
+      let classroomTester = false;
       // Instant avatar from session + cached role so the profile button appears
       // together with the other chrome icons (no network stagger on reload).
       // The full object (photo / verified / slug) is set at the end of apply.
@@ -216,7 +220,7 @@ export function ProfileIcon() {
             name, email: u.email ?? "", initials,
             isAdmin: a, isOrgAdmin: false, isOrgMember: om, isSuperAdmin: false,
             profileSlug: a ? ADMIN_PROFILE_SLUG : null,
-            photo: null, verified: a || om, orgName: null, paymentTier: null,
+            photo: null, verified: a || om, orgName: null, paymentTier: null, classroomTester: false,
           });
         }
       }
@@ -229,6 +233,7 @@ export function ProfileIcon() {
           isSuperAdmin = json.isSuperAdmin === true;
           if (isOrgMember) orgName = json.orgName ?? null;
           if (typeof json.paymentTier === "string") paymentTier = json.paymentTier;
+          classroomTester = json.classroomTester === true;
         }
       } catch { /* offline — treat as non-admin */ }
       // Build the public profile slug for non-admin candidates so the
@@ -269,7 +274,7 @@ export function ProfileIcon() {
           if (j?.verified === true) verified = true;
         }
       }
-      if (!cancelled) setUser({ name, email: u.email ?? "", initials, isAdmin, isOrgAdmin, isOrgMember, isSuperAdmin, profileSlug, photo, verified, orgName, paymentTier });
+      if (!cancelled) setUser({ name, email: u.email ?? "", initials, isAdmin, isOrgAdmin, isOrgMember, isSuperAdmin, profileSlug, photo, verified, orgName, paymentTier, classroomTester });
     };
     supabase.auth.getSession().then(({ data: { session } }) => apply(session));
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => apply(session));
@@ -677,8 +682,9 @@ export function ProfileIcon() {
                 </>
               )}
               {/* Live class — candidates only (students join; admins host via
-                  "Live classroom", org members/employers don't attend). */}
-              {!user.isAdmin && !user.isOrgMember && (
+                  "Live classroom", org members/employers don't attend). Gated to
+                  the private-test allowlist so only flagged candidates see it. */}
+              {!user.isAdmin && !user.isOrgMember && user.classroomTester && (
                 <button
                   onClick={() => { setOpen(false); router.push("/portal/classroom"); }}
                   className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"

@@ -52,5 +52,12 @@ export async function GET(req: NextRequest) {
     .eq("user_id", user.userId)
     .maybeSingle();
   const paymentTier = (profile as { payment_tier?: string | null } | null)?.payment_tier ?? null;
-  return NextResponse.json({ role: "candidate", isSuperAdmin: false, paymentTier, academyVisible });
+  // Private-test allowlist for the live classroom. SEPARATE query on purpose:
+  // classroom_tester is a newer column, so if its migration hasn't run yet a
+  // combined select would error and wipe out the (critical) payment-tier above.
+  // A failed select just leaves data null → classroomTester false. Safe.
+  let classroomTester = false;
+  const { data: tp } = await db.from("candidate_profiles").select("classroom_tester").eq("user_id", user.userId).maybeSingle();
+  classroomTester = (tp as { classroom_tester?: boolean } | null)?.classroom_tester === true;
+  return NextResponse.json({ role: "candidate", isSuperAdmin: false, paymentTier, academyVisible, classroomTester });
 }

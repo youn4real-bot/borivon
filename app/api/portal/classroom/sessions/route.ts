@@ -17,6 +17,13 @@ export async function GET(req: NextRequest) {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const db = getServiceSupabase();
+
+  // Private-test allowlist: non-testers never see any live class.
+  const { data: prof } = await db.from("candidate_profiles").select("classroom_tester").eq("user_id", auth.userId).maybeSingle();
+  if ((prof as { classroom_tester?: boolean } | null)?.classroom_tester !== true) {
+    return NextResponse.json({ sessions: [] });
+  }
+
   const { data } = await db
     .from("classroom_sessions")
     .select("id, room_name, title")
