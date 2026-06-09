@@ -395,25 +395,6 @@ export function ProfileIcon() {
     finally { setDeleting(false); setDeleteConfirm(false); setDeleteInput(""); }
   }
 
-  // One-click maintenance: re-attach R2 object keys to documents rows that lost
-  // them to the upload-retry bug (bytes were saved to R2 but the key wasn't
-  // recorded → broken preview/download). Supreme-admin only; safe to re-run.
-  async function repairFileLinks() {
-    if (!accessToken) return;
-    setOpen(false);
-    try {
-      const res = await fetch("/api/portal/admin/recover-r2-keys", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      const j = await res.json().catch(() => ({}));
-      if (!res.ok) { alert(`Repair failed: ${j.error || res.status}`); return; }
-      if (j.r2Configured === false) { alert("⚠ R2 storage is not configured in production — the file links can't be repaired until the R2 keys are set on Vercel."); return; }
-      const lostLine = (j.lost?.length ? `\nNeed re-upload (bytes not in R2): ${j.lost.length}\n  • ${j.lost.slice(0, 12).join("\n  • ")}` : "\nAll matched files recovered. ✅");
-      alert(`File-link repair complete.\nScanned: ${j.scanned}\nRecovered: ${j.recovered}${lostLine}`);
-    } catch { alert("Repair failed — network error. Please try again."); }
-  }
-
   if (!user) return null;
 
   return (
@@ -646,18 +627,6 @@ export function ProfileIcon() {
                       <path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/>
                     </svg>
                     {lang === "fr" ? "Classe en direct" : lang === "de" ? "Live-Klassenzimmer" : "Live classroom"}
-                  </button>
-                  <button
-                    onClick={repairFileLinks}
-                    className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
-                    style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
-                    onMouseEnter={e => { e.currentTarget.style.background = "var(--bg2)"; e.currentTarget.style.color = "var(--w)"; }}
-                    onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--w2)"; }}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>
-                    </svg>
-                    {lang === "fr" ? "Réparer les fichiers" : lang === "de" ? "Dateien reparieren" : "Repair file links"}
                   </button>
                   <button
                     onClick={() => { setOpen(false); router.push("/portal/admin/organizations"); }}
