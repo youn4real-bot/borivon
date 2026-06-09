@@ -612,6 +612,18 @@ export function ProfileIcon() {
               {user.isSuperAdmin && (
                 <>
                   <button
+                    onClick={() => { setOpen(false); router.push("/portal/admin/classroom"); }}
+                    className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
+                    style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
+                    onMouseEnter={e => { e.currentTarget.style.background = "var(--bg2)"; e.currentTarget.style.color = "var(--w)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--w2)"; }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/>
+                    </svg>
+                    {lang === "fr" ? "Classe en direct" : lang === "de" ? "Live-Klassenzimmer" : "Live classroom"}
+                  </button>
+                  <button
                     onClick={() => { setOpen(false); router.push("/portal/admin/organizations"); }}
                     className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
                     style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
