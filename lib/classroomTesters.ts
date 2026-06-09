@@ -18,3 +18,23 @@ export const PERMANENT_TESTER_USER_IDS: readonly string[] = [
 export function isPermanentTester(userId: string | null | undefined): boolean {
   return !!userId && PERMANENT_TESTER_USER_IDS.includes(userId);
 }
+
+/**
+ * THE reusable gate for any EXPERIMENTAL / in-test feature.
+ *
+ * Standing test pair = the supreme admin (role "admin") + the permanent test
+ * candidate(s) (Soufiane). Pass the caller's resolved role + userId; a feature
+ * gated on this is visible to EXACTLY those two and nobody else (sub-admins and
+ * other candidates included). `columnFlag` lets a per-feature DB allowlist
+ * widen it later (e.g. classroom_tester) without touching this core rule.
+ *
+ * Server-side. The client mirror is the `experimental` boolean on /me/role.
+ */
+export function canSeeExperimental(
+  role: string | null | undefined,
+  userId: string | null | undefined,
+  columnFlag = false,
+): boolean {
+  if (role === "admin") return true;               // supreme admin — always
+  return isPermanentTester(userId) || columnFlag === true; // Soufiane (permanent) / DB-flagged
+}

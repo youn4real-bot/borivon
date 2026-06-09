@@ -15,8 +15,9 @@ export async function GET(req: NextRequest) {
   // 1. Check admin first (full admin only — not sub_admin)
   const auth = await requireAdminRole(req);
   if (auth.ok && auth.role === "admin") {
-    // Supreme always sees the Academy tab (they own its visibility).
-    return NextResponse.json({ role: "admin", isSuperAdmin: true, academyVisible: true });
+    // Supreme always sees the Academy tab (they own its visibility) AND all
+    // experimental/in-test features (one half of the standing test pair).
+    return NextResponse.json({ role: "admin", isSuperAdmin: true, academyVisible: true, experimental: true });
   }
 
   // 2. Verify user identity (needed for org_member and sub_admin checks)
@@ -42,6 +43,7 @@ export async function GET(req: NextRequest) {
       agencyId: auth.agencyId ?? null,
       isAgencyAdmin: auth.isAgencyAdmin ?? false,
       academyVisible,
+      experimental: false, // only the SUPREME admin + Soufiane are the test pair
     });
   }
 
@@ -62,5 +64,15 @@ export async function GET(req: NextRequest) {
     const { data: tp } = await db.from("candidate_profiles").select("classroom_tester").eq("user_id", user.userId).maybeSingle();
     classroomTester = (tp as { classroom_tester?: boolean } | null)?.classroom_tester === true;
   }
-  return NextResponse.json({ role: "candidate", isSuperAdmin: false, paymentTier, academyVisible, classroomTester });
+  // The test candidate (Soufiane) is the other half of the pair → sees
+  // experimental features AND the (otherwise hidden) Academy, exactly like the
+  // supreme admin, without touching any other candidate.
+  return NextResponse.json({
+    role: "candidate",
+    isSuperAdmin: false,
+    paymentTier,
+    academyVisible: academyVisible || classroomTester,
+    classroomTester,
+    experimental: classroomTester,
+  });
 }

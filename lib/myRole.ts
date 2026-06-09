@@ -32,6 +32,9 @@ export type RoleInfo = {
   paymentTier?: string | null;
   /** Private-test allowlist for the live classroom (candidates only). */
   classroomTester?: boolean;
+  /** Standing test pair (supreme admin + Soufiane) — sees experimental/in-test
+   *  features before any rollout. The client gate for new features. */
+  experimental?: boolean;
 };
 
 const CACHE_KEY = "bv_role_v1";
