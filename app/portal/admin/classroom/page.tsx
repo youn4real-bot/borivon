@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
@@ -10,7 +10,7 @@ import {
   useLocalParticipant, useIsSpeaking, useRoomContext,
 } from "@livekit/components-react";
 import "@livekit/components-styles";
-import { ArrowLeft, Hand, BookOpen, Video } from "lucide-react";
+import { ArrowLeft, Hand, BookOpen, Video, BarChart3, RefreshCw, Camera, Mic, Clock, Users } from "lucide-react";
 
 /* Fire-and-forget telemetry into the classroom ledger. */
 function logEvent(token: string, payload: { sessionId: string | null; roomName: string; kind: string; value?: Record<string, unknown>; displayName?: string }) {
@@ -100,6 +100,128 @@ function Telemetry({ token, sessionId, roomName, displayName }: { token: string;
   return null;
 }
 
+/* ───────────────────────── Engagement scorecard ───────────────────────── */
+type EngRow = {
+  userId: string; name: string; sessionsAttended: number;
+  presentSeconds: number; cameraOnSeconds: number; cameraPct: number;
+  speakingSeconds: number; speakingShare: number;
+  exerciseActions: number; handRaises: number; score: number;
+};
+type EngSession = { id: string; title: string; room: string; status: string | null; startedAt: string | null; endedAt: string | null };
+
+const fmtDur = (s: number) => s < 60 ? `${s}s` : s < 3600 ? `${Math.round(s / 60)}m` : `${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m`;
+const pct = (x: number) => `${Math.round(x * 100)}%`;
+function scoreColor(score: number): { fg: string; bg: string; bd: string } {
+  if (score >= 70) return { fg: "var(--success)", bg: "var(--success-bg)", bd: "var(--success-border)" };
+  if (score >= 45) return { fg: "var(--gold)", bg: "var(--gdim)", bd: "var(--border-gold)" };
+  return { fg: "var(--danger)", bg: "var(--danger-bg)", bd: "var(--danger-border)" };
+}
+
+function EngagementPanel({ authToken, lang }: { authToken: string; lang: "fr" | "en" | "de" }) {
+  const T = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
+  const [rows, setRows] = useState<EngRow[]>([]);
+  const [sessions, setSessions] = useState<EngSession[]>([]);
+  const [totalEvents, setTotalEvents] = useState(0);
+  const [busy, setBusy] = useState(true);
+  const [loadErr, setLoadErr] = useState("");
+
+  async function load() {
+    setBusy(true); setLoadErr("");
+    try {
+      const res = await fetch("/api/portal/admin/classroom/engagement", { headers: { Authorization: `Bearer ${authToken}` } });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) { setLoadErr(j.error || "load_failed"); setBusy(false); return; }
+      setRows(j.rows ?? []); setSessions(j.sessions ?? []); setTotalEvents(j.totalEvents ?? 0);
+    } catch { setLoadErr("network"); }
+    setBusy(false);
+  }
+  useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
+
+  const Th = ({ children, center }: { children: ReactNode; center?: boolean }) => (
+    <th className="text-[10px] font-bold uppercase tracking-wide px-2.5 py-2 whitespace-nowrap" style={{ color: "var(--w3)", textAlign: center ? "center" : "left" }}>{children}</th>
+  );
+
+  return (
+    <div className="rounded-2xl p-4 mt-3" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <div className="flex items-center gap-2">
+          <BarChart3 size={16} style={{ color: "var(--gold)" }} />
+          <span className="text-[13.5px] font-bold" style={{ color: "var(--w)" }}>{T("Engagement profiles", "Engagement-Profile", "Profils d'engagement")}</span>
+        </div>
+        <button onClick={() => void load()} disabled={busy} className="bv-press inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg disabled:opacity-60" style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
+          <RefreshCw size={11} className={busy ? "animate-spin" : ""} /> {T("Refresh", "Aktualisieren", "Actualiser")}
+        </button>
+      </div>
+
+      {/* summary strip */}
+      <div className="flex flex-wrap gap-2 mb-3">
+        {[
+          { icon: <Users size={12} />, label: T("People", "Personen", "Personnes"), val: String(rows.length) },
+          { icon: <Video size={12} />, label: T("Sessions", "Sitzungen", "Sessions"), val: String(sessions.length) },
+          { icon: <Clock size={12} />, label: T("Events", "Ereignisse", "Événements"), val: String(totalEvents) },
+        ].map((s, i) => (
+          <div key={i} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+            <span style={{ color: "var(--w3)" }}>{s.icon}</span>
+            <span className="text-[12px] font-bold" style={{ color: "var(--w)" }}>{s.val}</span>
+            <span className="text-[10.5px]" style={{ color: "var(--w3)" }}>{s.label}</span>
+          </div>
+        ))}
+      </div>
+
+      {loadErr ? (
+        <p className="text-[12px] py-3" style={{ color: "var(--danger)" }}>{T("Could not load engagement data.", "Engagement-Daten konnten nicht geladen werden.", "Impossible de charger les données.")}</p>
+      ) : busy && rows.length === 0 ? (
+        <p className="text-[12px] py-3" style={{ color: "var(--w3)" }}>{T("Loading…", "Wird geladen…", "Chargement…")}</p>
+      ) : rows.length === 0 ? (
+        <p className="text-[12px] py-3" style={{ color: "var(--w3)" }}>
+          {T("No engagement data yet — run a class and the ledger fills up here.", "Noch keine Engagement-Daten — halte einen Kurs ab, dann füllt sich das Ledger hier.", "Pas encore de données — animez un cours et le registre se remplira ici.")}
+        </p>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table className="w-full border-collapse" style={{ minWidth: 560 }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                <Th>{T("Person", "Person", "Personne")}</Th>
+                <Th center>{T("Score", "Score", "Score")}</Th>
+                <Th center>{T("Sessions", "Sitzungen", "Sessions")}</Th>
+                <Th center><Clock size={11} className="inline" /> {T("Present", "Anwesend", "Présent")}</Th>
+                <Th center><Camera size={11} className="inline" /> {T("Camera", "Kamera", "Caméra")}</Th>
+                <Th center><Mic size={11} className="inline" /> {T("Spoke", "Gesprochen", "Parlé")}</Th>
+                <Th center><BookOpen size={11} className="inline" /> {T("Actions", "Aktionen", "Actions")}</Th>
+                <Th center><Hand size={11} className="inline" /> {T("Hands", "Melden", "Mains")}</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const c = scoreColor(r.score);
+                return (
+                  <tr key={r.userId} style={{ borderBottom: "1px solid var(--border)" }}>
+                    <td className="px-2.5 py-2.5 text-[12.5px] font-semibold whitespace-nowrap" style={{ color: "var(--w)" }}>{r.name}</td>
+                    <td className="px-2.5 py-2.5 text-center">
+                      <span className="inline-block text-[12.5px] font-extrabold px-2 py-0.5 rounded-lg tabular-nums" style={{ color: c.fg, background: c.bg, border: `1px solid ${c.bd}` }}>{r.score}</span>
+                    </td>
+                    <td className="px-2.5 py-2.5 text-center text-[12px] tabular-nums" style={{ color: "var(--w2)" }}>{r.sessionsAttended}</td>
+                    <td className="px-2.5 py-2.5 text-center text-[12px] tabular-nums" style={{ color: "var(--w2)" }}>{fmtDur(r.presentSeconds)}</td>
+                    <td className="px-2.5 py-2.5 text-center text-[12px] tabular-nums" style={{ color: r.cameraPct >= 0.9 ? "var(--success)" : r.cameraPct >= 0.5 ? "var(--gold)" : "var(--danger)" }}>{pct(r.cameraPct)}</td>
+                    <td className="px-2.5 py-2.5 text-center text-[12px] tabular-nums" style={{ color: "var(--w2)" }}>{fmtDur(r.speakingSeconds)}</td>
+                    <td className="px-2.5 py-2.5 text-center text-[12px] tabular-nums" style={{ color: "var(--w2)" }}>{r.exerciseActions}</td>
+                    <td className="px-2.5 py-2.5 text-center text-[12px] tabular-nums" style={{ color: "var(--w2)" }}>{r.handRaises}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <p className="text-[10.5px] mt-2.5 leading-relaxed" style={{ color: "var(--w3)" }}>
+            {T("Score blends camera discipline (40), speaking (30), participation (20) and attendance (10). Computed live from the ledger.",
+               "Der Score kombiniert Kamera-Disziplin (40), Sprechen (30), Beteiligung (20) und Anwesenheit (10). Live aus dem Ledger berechnet.",
+               "Le score combine discipline caméra (40), parole (30), participation (20) et présence (10). Calculé en direct depuis le registre.")}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ClassroomPage() {
   const router = useRouter();
   const { lang } = useLang();
@@ -113,6 +235,7 @@ export default function ClassroomPage() {
   const [needsSetup, setNeedsSetup] = useState(false);
   const [starting, setStarting] = useState(false);
   const [err, setErr] = useState("");
+  const [showStats, setShowStats] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -211,6 +334,13 @@ export default function ClassroomPage() {
           </button>
         </div>
       )}
+
+      {/* Engagement scorecard — the data factory's output, live from the ledger */}
+      <button onClick={() => setShowStats((s) => !s)} className="bv-row-hover inline-flex items-center gap-2 text-[12.5px] font-semibold px-3 py-2.5 mt-3 rounded-xl w-full justify-center" style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
+        <BarChart3 size={15} style={{ color: "var(--gold)" }} />
+        {showStats ? T("Hide engagement profiles", "Engagement-Profile ausblenden", "Masquer les profils") : T("View engagement profiles", "Engagement-Profile ansehen", "Voir les profils d'engagement")}
+      </button>
+      {showStats && <EngagementPanel authToken={authToken} lang={lang} />}
     </div>
   );
 }
