@@ -72,8 +72,17 @@ type Doc = {
   status: string;
   feedback: string | null;
   drive_file_id: string | null;
+  r2_key?: string | null;
   uploaded_by_admin: boolean;
 };
+
+/** A doc has retrievable bytes if it's in EITHER store — Drive (legacy) OR R2
+ *  (current). The download/preview/clickable affordances gate on this; gating
+ *  on drive_file_id alone hid every button for R2-only files after the storage
+ *  migration. Serving resolves the key server-side via ?docId=, so the id is
+ *  all the UI needs — this just decides whether to SHOW the controls. */
+const docHasFile = (d?: { drive_file_id?: string | null; r2_key?: string | null } | null): boolean =>
+  !!(d?.drive_file_id || d?.r2_key);
 type UserInfo = { email: string; name: string };
 type CandidateProfile = {
   first_name: string | null; last_name: string | null;
@@ -3154,7 +3163,7 @@ export default function AdminPage() {
                             // Name EXACTLY like the passport file (German:
                             // firstname_lastname_pflegekraft_reisepass) + "_daten".
                             const passDoc = docs
-                              .filter(d => d.user_id === selectedUser && /pass/i.test(d.file_type) && !!d.drive_file_id && !/dat(en|a)/i.test(d.file_name))
+                              .filter(d => d.user_id === selectedUser && /pass/i.test(d.file_type) && docHasFile(d) && !/dat(en|a)/i.test(d.file_name))
                               .sort((a, b) => (b.uploaded_at ?? "").localeCompare(a.uploaded_at ?? ""))[0];
                             const slug = (s?: string | null) => (s ?? "").trim().toLowerCase()
                               .replace(/ä/g,"ae").replace(/ö/g,"oe").replace(/ü/g,"ue").replace(/ß/g,"ss")
@@ -4359,7 +4368,7 @@ export default function AdminPage() {
                                   const rowColor = rowSt === "approved" ? "#16a34a"
                                     : rowSt === "rejected" ? "#ef4444"
                                     : rowSt === "pending" ? "#f59e0b" : null;
-                                  const rowClickable = submitted && !!doc?.drive_file_id;
+                                  const rowClickable = submitted && docHasFile(doc);
                                   const menuId = doc?.id ?? slot.id;
                                   return (
                                     <SortableSlotItem key={slot.id} id={slot.id} overlay={overlay}>
@@ -4421,7 +4430,7 @@ export default function AdminPage() {
                                                 <Upload size={13} strokeWidth={1.8} />
                                               </button>
                                             ))}
-                                            {doc?.drive_file_id && (
+                                            {docHasFile(doc) && (
                                               <button type="button"
                                                 onClick={e => { e.stopPropagation(); downloadDoc(doc!); }}
                                                 className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
@@ -4519,7 +4528,7 @@ export default function AdminPage() {
                                   { subKey: slot.id,           subLabel: slot.label,                      subDoc: origDocs[0]  ?? null },
                                   { subKey: slot.id + "_de",   subLabel: slot.label_trans ?? "Translated", subDoc: transDocs[0] ?? null },
                                 ];
-                                const canDualMerge = !!(origDocs[0]?.drive_file_id && transDocs[0]?.drive_file_id);
+                                const canDualMerge = (docHasFile(origDocs[0]) && docHasFile(transDocs[0]));
                                 const isDualExpanded = expandedDualSlots.has(slot.id);
                                 const isDualMergeDl = mergePdfDl.has(slot.id);
                                 const isDualMenuOpen = revokeMenu?.id === slot.id ||
@@ -4664,7 +4673,7 @@ export default function AdminPage() {
                                             : subDoc.status === "rejected" ? "rejected"
                                             : "pending";
                                           const subColor = subSt === "approved" ? "#16a34a" : subSt === "pending" ? "#f59e0b" : null;
-                                          const subClickable = !!subDoc?.drive_file_id;
+                                          const subClickable = docHasFile(subDoc);
                                           const isSubMenuOpen = subDoc && revokeMenu?.id === subDoc.id;
                                           return (
                                             <div key={subLabel}
@@ -4697,7 +4706,7 @@ export default function AdminPage() {
                                                     </button>
                                                   )}
                                                   {/* Download */}
-                                                  {subDoc?.drive_file_id && (
+                                                  {docHasFile(subDoc) && (
                                                     <button type="button"
                                                       onClick={e => { e.stopPropagation(); downloadDoc(subDoc!); }}
                                                       className="bv-icon-btn w-8 h-8 flex items-center justify-center rounded-full"
@@ -5033,7 +5042,7 @@ export default function AdminPage() {
                             const submitted = !!pdoc;
                             const rowSt = submitted ? (pdoc!.status === "approved" ? "approved" : pdoc!.status === "rejected" ? "rejected" : "pending") : null;
                             const rowColor = rowSt === "approved" ? "#16a34a" : rowSt === "rejected" ? "#ef4444" : rowSt === "pending" ? "#f59e0b" : null;
-                            const clickable = submitted && !!pdoc?.drive_file_id;
+                            const clickable = submitted && docHasFile(pdoc);
                             const href = pb.isCv ? `/portal/cv-builder?candidateId=${selectedUser}&variant=visa` : `/portal/motivationsschreiben?candidate=${selectedUser}&variant=visa`;
                             const editLabel = pb.isCv
                               ? (lang === "fr" ? "Modifier le CV" : lang === "de" ? "Lebenslauf bearbeiten" : "Edit CV")
@@ -5074,7 +5083,7 @@ export default function AdminPage() {
                                     {/* Present → download + approve/reject + ⋯ (swap / edit / revoke) */}
                                     {submitted && (
                                       <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}>
-                                        {pdoc!.drive_file_id && (
+                                        {docHasFile(pdoc) && (
                                           <button type="button" title={t.aDownload} aria-label={t.aDownload} onClick={e => { e.stopPropagation(); doDownload(); }}
                                             className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full" style={{ color: "var(--w2)" }}>
                                             <Download size={13} strokeWidth={1.8} />
@@ -5094,7 +5103,7 @@ export default function AdminPage() {
                                             </button>
                                           </>
                                         )}
-                                        {pdoc!.drive_file_id && (
+                                        {docHasFile(pdoc) && (
                                           <div className="relative" onClick={e => e.stopPropagation()}>
                                             <button onClick={e => { e.stopPropagation(); openRowMenu(e, pdoc!.id); }} title="More actions" aria-label="More actions"
                                               className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full" style={{ color: "var(--w2)" }}>
@@ -5174,7 +5183,7 @@ export default function AdminPage() {
                             const vdoc = getAdminDocs(vb.key)[0] ?? null;
                             const vSt = !vdoc ? null : (vdoc.status === "approved" ? "approved" : vdoc.status === "rejected" ? "rejected" : "pending");
                             const vColor = vSt === "approved" ? "#16a34a" : vSt === "rejected" ? "#ef4444" : vSt === "pending" ? "#f59e0b" : null;
-                            const vClickable = !!vdoc?.drive_file_id;
+                            const vClickable = docHasFile(vdoc);
                             return (
                               <SortableSlotItem key={vb.key} id={vb.key}>
                               <div>
@@ -5205,7 +5214,7 @@ export default function AdminPage() {
                                       </button>
                                     ) : (
                                       <>
-                                        {vdoc.drive_file_id && (
+                                        {docHasFile(vdoc) && (
                                           <button type="button" title={t.aDownload} aria-label={t.aDownload}
                                             onClick={(e) => { e.stopPropagation(); downloadDoc(vdoc); }}
                                             className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full" style={{ color: "var(--w2)" }}>
@@ -5226,7 +5235,7 @@ export default function AdminPage() {
                                             </button>
                                           </>
                                         )}
-                                        {vdoc.drive_file_id && (
+                                        {docHasFile(vdoc) && (
                                           <div className="relative" onClick={(e) => e.stopPropagation()}>
                                             <button onClick={(e) => { e.stopPropagation(); openRowMenu(e, vdoc.id); }} title="More actions" aria-label="More actions"
                                               className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full" style={{ color: "var(--w2)" }}>
@@ -5799,9 +5808,9 @@ export default function AdminPage() {
                                 <div className="flex items-center gap-1 flex-shrink-0"
                                   onClick={e => e.stopPropagation()}
                                   onMouseDown={e => e.stopPropagation()}>
-                                  {subDoc?.drive_file_id && (
+                                  {docHasFile(subDoc) && (
                                     <button type="button"
-                                      onClick={() => downloadDoc(subDoc)}
+                                      onClick={() => downloadDoc(subDoc!)}
                                       title={t.aDownload}
                                       className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
                                       style={{ color: "var(--w2)" }}>
@@ -6035,7 +6044,7 @@ export default function AdminPage() {
                                         d.status === "approved" ? { bg: "var(--success-bg)",  txt: "var(--success)", bdr: "var(--success-border)" }
                                       : d.status === "rejected"  ? { bg: "var(--danger-bg)",  txt: "var(--danger)", bdr: "var(--danger-bg)" }
                                       :                           { bg: "var(--gdim)", txt: "var(--gold)", bdr: "var(--border-gold)" };
-                                      const dClickable = !!d.drive_file_id;
+                                      const dClickable = docHasFile(d);
                                       return (
                                         <div key={d.id}
                                           onClick={dClickable ? () => setPreviewDoc(d) : undefined}
@@ -6060,7 +6069,7 @@ export default function AdminPage() {
                                               onClick={(e) => e.stopPropagation()}
                                               onMouseDown={(e) => e.stopPropagation()}>
                                             {/* Download — always shown (parity with top-level peer rows) */}
-                                            {d.drive_file_id && (
+                                            {docHasFile(d) && (
                                               <button type="button"
                                                 onClick={(e) => { e.stopPropagation(); downloadDoc(d); }}
                                                 title={t.aDownload} aria-label={t.aDownload}
@@ -6088,7 +6097,7 @@ export default function AdminPage() {
                                               </>
                                             )}
                                             </div>
-                                            {d.drive_file_id && (
+                                            {docHasFile(d) && (
                                               <div className="relative flex-shrink-0">
                                                 <button
                                                   onClick={(e) => { e.stopPropagation(); openRowMenu(e, d.id); }}
@@ -6171,7 +6180,7 @@ export default function AdminPage() {
                                 <div className="flex items-center gap-1.5 flex-shrink-0"
                                   onClick={(e) => e.stopPropagation()}
                                   onMouseDown={(e) => e.stopPropagation()}>
-                                  {doc.drive_file_id && (
+                                  {docHasFile(doc) && (
                                     <button type="button" title={t.aDownload} aria-label={t.aDownload}
                                       onClick={(e) => { e.stopPropagation(); downloadDoc(doc); }}
                                       className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
@@ -6197,7 +6206,7 @@ export default function AdminPage() {
                                       </button>
                                     </>
                                   )}
-                                  {doc.drive_file_id && (
+                                  {docHasFile(doc) && (
                                     <div className="relative" onClick={(e) => e.stopPropagation()}>
                                       <button
                                         onClick={(e) => { e.stopPropagation(); openRowMenu(e, doc.id); }}
@@ -6318,7 +6327,7 @@ export default function AdminPage() {
                                   <p className="text-xs truncate" style={{ color: "var(--w2)" }}>{d.file_name}</p>
                                   <p className="text-[10px]" style={{ color: "var(--w3)" }}>{translateDocLabel(d.file_type, lang as "fr" | "en" | "de")} · {fmtDate(d.uploaded_at)}</p>
                                 </div>
-                                {d.drive_file_id && (
+                                {docHasFile(d) && (
                                   <button onClick={() => setPreviewDoc(d)} title="Preview"
                                     className="bv-icon-btn w-7 h-7 flex items-center justify-center rounded-full flex-shrink-0 bv-touch"
                                     style={{ color: "var(--w3)" }}>
