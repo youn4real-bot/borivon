@@ -629,6 +629,18 @@ export function ProfileIcon() {
                     {lang === "fr" ? "Classe en direct" : lang === "de" ? "Live-Klassenzimmer" : "Live classroom"}
                   </button>
                   <button
+                    onClick={() => { setOpen(false); router.push("/portal/admin/expiry"); }}
+                    className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
+                    style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
+                    onMouseEnter={e => { e.currentTarget.style.background = "var(--bg2)"; e.currentTarget.style.color = "var(--w)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--w2)"; }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+                    </svg>
+                    {lang === "fr" ? "Expiration des documents" : lang === "de" ? "Dokument-Ablauf" : "Document expiry"}
+                  </button>
+                  <button
                     onClick={() => { setOpen(false); router.push("/portal/admin/organizations"); }}
                     className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
                     style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
