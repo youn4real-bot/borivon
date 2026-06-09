@@ -27,6 +27,8 @@ export default function CandidateClassroomPage() {
   // Private-test allowlist gate — only the permanent pair (admin host + Soufiane)
   // is on it during testing. Server is the real gate; this hides the page too.
   const [tester, setTester] = useState(true);
+  // Deep-link from a "live class" notification → auto-join this room (after consent).
+  const [pendingRoom, setPendingRoom] = useState<string | null>(null);
 
   async function loadSessions(tk: string) {
     try {
@@ -48,8 +50,19 @@ export default function CandidateClassroomPage() {
         fetch("/api/portal/classroom/consent", { headers: { Authorization: `Bearer ${tk}` } }).then((r) => r.json()),
         loadSessions(tk),
       ]);
-      setConsented(consentRes.status === "fulfilled" ? !!consentRes.value?.consented : false);
+      const consentOk = consentRes.status === "fulfilled" ? !!consentRes.value?.consented : false;
+      setConsented(consentOk);
       setLoading(false);
+
+      // Arrived from a "live class" notification (?room=…)? Remember it, strip the
+      // URL, and jump straight in if consent is already on; otherwise the consent
+      // screen shows and agree() will join right after.
+      const room = new URLSearchParams(window.location.search).get("room");
+      if (room) {
+        setPendingRoom(room);
+        window.history.replaceState({}, "", "/portal/classroom");
+        if (consentOk) void join(room, tk);
+      }
     });
   }, [router]);
 
@@ -57,7 +70,11 @@ export default function CandidateClassroomPage() {
     setBusy(true); setErr("");
     try {
       const r = await fetch("/api/portal/classroom/consent", { method: "POST", headers: { Authorization: `Bearer ${authToken}` } });
-      if (r.ok) { setConsented(true); await loadSessions(authToken); }
+      if (r.ok) {
+        setConsented(true);
+        await loadSessions(authToken);
+        if (pendingRoom) { void join(pendingRoom); }   // auto-join the class they were invited to
+      }
       else setErr(T("Could not save", "Speichern fehlgeschlagen", "Échec de l'enregistrement"));
     } catch { setErr(T("Could not save", "Speichern fehlgeschlagen", "Échec de l'enregistrement")); }
     setBusy(false);
@@ -70,12 +87,13 @@ export default function CandidateClassroomPage() {
     setBusy(false);
   }
 
-  async function join(room: string) {
+  async function join(room: string, tkOverride?: string) {
+    const tk = tkOverride || authToken;
     setBusy(true); setErr("");
     try {
       const r = await fetch("/api/portal/classroom/token", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${tk}` },
         body: JSON.stringify({ room }),
       });
       if (r.status === 503) { setNeedsSetup(true); setBusy(false); return; }
@@ -83,7 +101,7 @@ export default function CandidateClassroomPage() {
       if (j.needsConsent) { setConsented(false); setBusy(false); return; }
       if (!r.ok) {
         setErr(j.notOpen ? T("This class isn't open right now.", "Dieser Kurs ist gerade nicht geöffnet.", "Ce cours n'est pas ouvert pour le moment.") : (j.error || T("Could not join", "Beitritt fehlgeschlagen", "Échec")));
-        await loadSessions(authToken); setBusy(false); return;
+        await loadSessions(tk); setBusy(false); return;
       }
       setConn({ token: j.token, url: j.url, sessionId: j.sessionId ?? null, room });
     } catch { setErr(T("Could not join", "Beitritt fehlgeschlagen", "Échec")); }

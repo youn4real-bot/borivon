@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
-import { ArrowLeft, Hand, BookOpen, Video, BarChart3, RefreshCw, Camera, Mic, Clock, Users, Download } from "lucide-react";
+import { ArrowLeft, Hand, BookOpen, Video, BarChart3, RefreshCw, Camera, Mic, Clock, Users, Download, X, UserPlus } from "lucide-react";
 import ClassroomRoom from "@/components/ClassroomRoom";
 
 /* ───────────────────────── Engagement scorecard ───────────────────────── */
@@ -232,6 +232,21 @@ export default function ClassroomPage() {
   const [err, setErr] = useState("");
   const [showStats, setShowStats] = useState(false);
   const [openToCandidates, setOpenToCandidates] = useState(false);
+  // Assign specific candidates → they get a notification + can join this class.
+  const [invited, setInvited] = useState<{ userId: string; name: string }[]>([]);
+  const [candQ, setCandQ] = useState("");
+  const [candResults, setCandResults] = useState<{ userId: string; name: string }[]>([]);
+  const [candOpen, setCandOpen] = useState(false);
+
+  async function searchCandidates(q: string, tk: string, exclude: { userId: string }[]) {
+    setCandQ(q); setCandOpen(true);
+    try {
+      const r = await fetch(`/api/portal/admin/classroom/candidates?q=${encodeURIComponent(q)}`, { headers: { Authorization: `Bearer ${tk}` } });
+      const j = await r.json().catch(() => ({}));
+      const list = (j.candidates ?? []) as { userId: string; name: string }[];
+      setCandResults(list.filter((c) => !exclude.some((e) => e.userId === c.userId)));
+    } catch { /* ignore */ }
+  }
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -253,7 +268,7 @@ export default function ClassroomPage() {
       const res = await fetch("/api/portal/admin/classroom/token", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ room: roomName, name: displayName, openToCandidates }),
+        body: JSON.stringify({ room: roomName, name: displayName, openToCandidates, invitedUserIds: invited.map((c) => c.userId) }),
       });
       if (res.status === 503) { setNeedsSetup(true); setStarting(false); return; }
       const j = await res.json().catch(() => ({}));
@@ -310,6 +325,43 @@ export default function ClassroomPage() {
             <label className="text-[10.5px] font-bold uppercase tracking-wide" style={{ color: "var(--w3)" }}>{T("Class room name", "Kursraum-Name", "Nom de la salle")}</label>
             <input className="bv-input" value={roomName} onChange={e => setRoomName(e.target.value.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 60))} style={{ width: "100%", fontSize: 14, marginTop: 4 }} />
           </div>
+
+          {/* Assign candidates — they get a notification that deep-links into the live room */}
+          <div>
+            <label className="text-[10.5px] font-bold uppercase tracking-wide flex items-center gap-1.5" style={{ color: "var(--w3)" }}>
+              <UserPlus size={12} /> {T("Assign candidates", "Kandidaten zuweisen", "Assigner des candidats")}
+            </label>
+            <p className="text-[10.5px] mb-1.5 mt-0.5" style={{ color: "var(--w3)" }}>{T("They get a notification — one tap joins them live.", "Sie erhalten eine Benachrichtigung — ein Tippen bringt sie live hinein.", "Ils reçoivent une notification — un clic les fait rejoindre en direct.")}</p>
+            {invited.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {invited.map((c) => (
+                  <span key={c.userId} className="inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-1 rounded-lg" style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                    {c.name}
+                    <button type="button" onClick={() => setInvited((prev) => prev.filter((x) => x.userId !== c.userId))} className="bv-press" style={{ lineHeight: 0, color: "var(--gold)" }} aria-label="remove"><X size={11} /></button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="relative">
+              <input className="bv-input" placeholder={T("Search a candidate…", "Kandidat suchen…", "Rechercher un candidat…")} value={candQ}
+                onChange={(e) => searchCandidates(e.target.value, authToken, invited)}
+                onFocus={() => { if (candResults.length) setCandOpen(true); }}
+                onBlur={() => setTimeout(() => setCandOpen(false), 150)}
+                style={{ width: "100%", fontSize: 14 }} />
+              {candOpen && candResults.length > 0 && (
+                <div className="absolute left-0 right-0 mt-1 rounded-xl overflow-hidden z-20" style={{ background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)", maxHeight: 176, overflowY: "auto" }}>
+                  {candResults.map((c) => (
+                    <button key={c.userId} type="button"
+                      onMouseDown={(e) => { e.preventDefault(); setInvited((prev) => [...prev, c]); setCandResults((prev) => prev.filter((x) => x.userId !== c.userId)); setCandQ(""); setCandOpen(false); }}
+                      className="bv-row-hover w-full text-left px-3 py-2 text-[12.5px]" style={{ color: "var(--w)" }}>
+                      {c.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
           <button type="button" onClick={() => setOpenToCandidates((v) => !v)} className="bv-row-hover flex items-start gap-2.5 text-left rounded-xl p-2.5" style={{ background: openToCandidates ? "var(--gdim)" : "var(--bg2)", border: `1px solid ${openToCandidates ? "var(--border-gold)" : "var(--border)"}` }}>
             <span className="mt-0.5 inline-flex items-center justify-center rounded-md" style={{ width: 18, height: 18, flex: "0 0 18px", background: openToCandidates ? "var(--gold)" : "transparent", border: `1px solid ${openToCandidates ? "var(--gold)" : "var(--border)"}`, color: "#131312", fontSize: 12, fontWeight: 900 }}>{openToCandidates ? "✓" : ""}</span>
             <span>

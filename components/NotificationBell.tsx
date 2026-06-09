@@ -145,7 +145,7 @@ type CandidateNotif = {
   doc_id: string | null;
   doc_name: string;
   doc_type: string;
-  action: "approved" | "rejected" | "verified" | "placed" | "sign_request" | "event_invite" | "follow_up";
+  action: "approved" | "rejected" | "verified" | "placed" | "sign_request" | "event_invite" | "follow_up" | "live_class";
   feedback: string | null;
   read: boolean;
   created_at: string;
@@ -424,6 +424,13 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
       router.push(`/portal/dashboard${sid ? `?${param}=${encodeURIComponent(sid)}` : ""}`);
       return;
     }
+    // "live_class" — the admin assigned them to a class that's live NOW → jump
+    // straight into the room (/portal/classroom auto-joins after the consent gate).
+    if (n.action === "live_class") {
+      const room = n.doc_id ?? "";
+      router.push(`/portal/classroom${room ? `?room=${encodeURIComponent(room)}` : ""}`);
+      return;
+    }
     // "placed" — just go to dashboard
     if (n.action === "placed") {
       router.push("/portal/dashboard");
@@ -483,7 +490,8 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
             const signRequest = n.action === "sign_request";
             const eventInvite = n.action === "event_invite";
             const followUp    = n.action === "follow_up";
-            const iconSt = (verified || placed || signRequest || eventInvite || followUp)
+            const liveClass   = n.action === "live_class";
+            const iconSt = (verified || placed || signRequest || eventInvite || followUp || liveClass)
               ? { bg: "var(--gdim)", color: "var(--gold)", border: "1.5px solid var(--border-gold)" }
               : approved
               ? { bg: "var(--success-bg)",  color: "var(--success)",     border: "1.5px solid var(--success-border)" }
@@ -506,11 +514,20 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
                   onClick={() => handleClick(n)}>
                   <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
                     style={{ background: iconSt.bg, color: iconSt.color, border: iconSt.border }}>
-                    {pendingNotifId === n.id ? <Spinner size="xs" /> : verified ? <CheckCircle2 size={15} strokeWidth={1.8} /> : placed ? <span style={{ fontSize: 15 }}>🏢</span> : eventInvite ? <Calendar size={15} strokeWidth={1.8} /> : signRequest ? <FilePen size={14} strokeWidth={1.8} /> : followUp ? <span style={{ fontSize: 15 }}>🔔</span> : approved ? <CheckCircle2 size={15} strokeWidth={1.8} /> : <XCircle size={15} strokeWidth={1.8} />}
+                    {pendingNotifId === n.id ? <Spinner size="xs" /> : liveClass ? <span style={{ fontSize: 15 }}>🎥</span> : verified ? <CheckCircle2 size={15} strokeWidth={1.8} /> : placed ? <span style={{ fontSize: 15 }}>🏢</span> : eventInvite ? <Calendar size={15} strokeWidth={1.8} /> : signRequest ? <FilePen size={14} strokeWidth={1.8} /> : followUp ? <span style={{ fontSize: 15 }}>🔔</span> : approved ? <CheckCircle2 size={15} strokeWidth={1.8} /> : <XCircle size={15} strokeWidth={1.8} />}
                   </div>
                   <div className="flex-1 min-w-0">
                     {/* Line 1: doc / event TITLE (bold). Line 2+: body text wrapping. */}
-                    {verified ? (
+                    {liveClass ? (
+                      <>
+                        <p className="text-xs font-semibold truncate" style={{ color: "var(--gold)" }}>
+                          {lang === "de" ? "Live-Kurs läuft" : lang === "fr" ? "Cours en direct" : "Live class started"}
+                        </p>
+                        <p className="text-[11px] leading-snug mt-0.5" style={{ color: "var(--w2)" }}>
+                          {lang === "de" ? "Tippe, um jetzt live beizutreten." : lang === "fr" ? "Touche pour rejoindre en direct." : "Tap to join the class live now."}
+                        </p>
+                      </>
+                    ) : verified ? (
                       <>
                         <p className="text-xs font-semibold flex items-center gap-1 truncate" style={{ color: "var(--gold)" }}>
                           <span className="truncate">{bt.verified}</span>

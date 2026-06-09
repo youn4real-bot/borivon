@@ -20,24 +20,33 @@ export async function GET(req: NextRequest) {
 
   const db = getServiceSupabase();
 
-  // Private-test allowlist: permanent pair (Soufiane) OR flagged via column;
-  // everyone else gets tester=false + no sessions.
+  // Allowlist: permanent pair (Soufiane) OR flagged via column.
   let tester = isPermanentTester(auth.userId);
   if (!tester) {
     const { data: prof } = await db.from("candidate_profiles").select("classroom_tester").eq("user_id", auth.userId).maybeSingle();
     tester = (prof as { classroom_tester?: boolean } | null)?.classroom_tester === true;
   }
-  if (!tester) return NextResponse.json({ sessions: [], tester: false });
 
-  const { data } = await db
-    .from("classroom_sessions")
-    .select("id, room_name, title")
-    .eq("status", "live")
-    .eq("open_to_candidates", true)
-    .order("started_at", { ascending: false })
-    .limit(10);
+  // Sessions this candidate was explicitly INVITED to (admin-assigned).
+  const { data: invs } = await db.from("classroom_invites").select("session_id").eq("user_id", auth.userId);
+  const invitedIds = ((invs ?? []) as { session_id: string }[]).map((i) => i.session_id);
 
-  const sessions = ((data ?? []) as { id: string; room_name: string; title: string | null }[])
-    .map((s) => ({ id: s.id, room: s.room_name, title: s.title || s.room_name }));
-  return NextResponse.json({ sessions });
+  // Access if a tester OR invited to at least one class.
+  if (!tester && invitedIds.length === 0) return NextResponse.json({ sessions: [], tester: false });
+
+  const byId = new Map<string, { id: string; room: string; title: string }>();
+  const add = (rows: { id: string; room_name: string; title: string | null }[]) => {
+    for (const s of rows) byId.set(s.id, { id: s.id, room: s.room_name, title: s.title || s.room_name });
+  };
+  // Testers see every class opened to candidates…
+  if (tester) {
+    const { data } = await db.from("classroom_sessions").select("id, room_name, title").eq("status", "live").eq("open_to_candidates", true).order("started_at", { ascending: false }).limit(10);
+    add((data ?? []) as { id: string; room_name: string; title: string | null }[]);
+  }
+  // …and ANYONE sees the live classes they were personally invited to.
+  if (invitedIds.length) {
+    const { data } = await db.from("classroom_sessions").select("id, room_name, title").eq("status", "live").in("id", invitedIds).order("started_at", { ascending: false }).limit(10);
+    add((data ?? []) as { id: string; room_name: string; title: string | null }[]);
+  }
+  return NextResponse.json({ sessions: Array.from(byId.values()), tester: true });
 }
