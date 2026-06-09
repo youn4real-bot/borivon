@@ -1165,6 +1165,16 @@ export async function POST(req: NextRequest) {
 
   // ── Supabase insert ───────────────────────────────────────────────────────────
   const db = getServiceSupabase();
+
+  // Belt-and-suspenders: NEVER persist a documents row that points at no stored
+  // bytes. If R2 is unconfigured AND the legacy Drive write threw (e.g. Google
+  // suspended), both ids are null → the file is nowhere and would serve as a
+  // broken/empty "PDF". Fail loudly so the candidate re-uploads instead.
+  if (!r2Key && !driveFileId) {
+    console.error("[upload] No storage backend captured the file (r2Key + driveFileId both null) — refusing to insert a phantom row.");
+    return NextResponse.json({ error: "Speicherung fehlgeschlagen — bitte erneut versuchen." }, { status: 500 });
+  }
+
   const { error: dbErr } = await db.from("documents").insert({
     user_id: userId, file_name: structuredName,
     file_path: `gdrive/${userId}/${Date.now()}`,
@@ -1187,10 +1197,15 @@ export async function POST(req: NextRequest) {
     // about the missing column.
     const msg = (dbErr as { message?: string })?.message ?? "";
     if (/file_sha256|column .* does not exist|schema cache/i.test(msg)) {
+      // Drop ONLY the un-migrated file_sha256 column — KEEP r2_key (and every
+      // other field). The previous version omitted r2_key here, so when the
+      // file_sha256 migration wasn't applied, every upload's R2 key was lost →
+      // the bytes sat in R2 but the row pointed nowhere → "Preview not
+      // available" / "Failed to load PDF". r2_key is the store of record now.
       const { error: retryErr } = await db.from("documents").insert({
         user_id: userId, file_name: structuredName,
         file_path: `gdrive/${userId}/${Date.now()}`,
-        file_type: fileType, drive_file_id: driveFileId,
+        file_type: fileType, drive_file_id: driveFileId, r2_key: r2Key,
         uploaded_by_admin: uploadedByAdmin,
         status: uploadedByAdmin ? "approved" : "pending",
       });
