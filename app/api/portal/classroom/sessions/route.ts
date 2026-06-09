@@ -9,7 +9,8 @@ import { isPermanentTester } from "@/lib/classroomTesters";
  * classes); actually JOINING still requires consent + the open+live gate in
  * the token route.
  *
- * GET → { sessions: [{ id, room, title }] }
+ * GET → { sessions: [{ id, room, title }], tester } — tester=false means the
+ *   account isn't on the private-test allowlist (page shows "not available").
  */
 export const dynamic = "force-dynamic";
 
@@ -20,13 +21,13 @@ export async function GET(req: NextRequest) {
   const db = getServiceSupabase();
 
   // Private-test allowlist: permanent pair (Soufiane) OR flagged via column;
-  // everyone else sees no live class at all.
-  if (!isPermanentTester(auth.userId)) {
+  // everyone else gets tester=false + no sessions.
+  let tester = isPermanentTester(auth.userId);
+  if (!tester) {
     const { data: prof } = await db.from("candidate_profiles").select("classroom_tester").eq("user_id", auth.userId).maybeSingle();
-    if ((prof as { classroom_tester?: boolean } | null)?.classroom_tester !== true) {
-      return NextResponse.json({ sessions: [] });
-    }
+    tester = (prof as { classroom_tester?: boolean } | null)?.classroom_tester === true;
   }
+  if (!tester) return NextResponse.json({ sessions: [], tester: false });
 
   const { data } = await db
     .from("classroom_sessions")

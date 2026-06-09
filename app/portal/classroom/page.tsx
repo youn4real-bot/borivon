@@ -24,12 +24,16 @@ export default function CandidateClassroomPage() {
   const [busy, setBusy] = useState(false);
   const [needsSetup, setNeedsSetup] = useState(false);
   const [err, setErr] = useState("");
+  // Private-test allowlist gate — only the permanent pair (admin host + Soufiane)
+  // is on it during testing. Server is the real gate; this hides the page too.
+  const [tester, setTester] = useState(true);
 
   async function loadSessions(tk: string) {
     try {
       const r = await fetch("/api/portal/classroom/sessions", { headers: { Authorization: `Bearer ${tk}` } });
       const j = await r.json().catch(() => ({}));
       setSessions(j.sessions ?? []);
+      setTester(j.tester !== false);
     } catch { /* ignore */ }
   }
 
@@ -109,8 +113,15 @@ export default function CandidateClassroomPage() {
         <h1 className="text-[19px] font-bold" style={{ color: "var(--w)" }}>{T("Live class", "Live-Kurs", "Cours en direct")}</h1>
       </div>
 
-      {/* ── Consent gate (GDPR) ── */}
-      {consented === false ? (
+      {/* ── Private-test gate: not on the allowlist → nothing to do here ── */}
+      {!tester ? (
+        <div className="rounded-2xl p-5 mt-4 text-center" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+          <Video size={26} style={{ color: "var(--w3)", margin: "0 auto 8px" }} />
+          <p className="text-[13px] font-semibold" style={{ color: "var(--w2)" }}>{T("Live classes aren't available for your account yet.", "Live-Kurse sind für dein Konto noch nicht verfügbar.", "Les cours en direct ne sont pas encore disponibles pour ton compte.")}</p>
+          <p className="text-[11.5px] mt-1" style={{ color: "var(--w3)" }}>{T("We're still testing this with a small group. You'll be notified when it opens.", "Wir testen dies noch mit einer kleinen Gruppe. Du wirst benachrichtigt, sobald es verfügbar ist.", "Nous testons encore avec un petit groupe. Tu seras notifié à l'ouverture.")}</p>
+        </div>
+      ) : /* ── Consent gate (GDPR) ── */
+      consented === false ? (
         <div className="rounded-2xl p-4 mt-4" style={{ background: "var(--card)", border: "1px solid var(--border-gold)" }}>
           <div className="flex items-center gap-2 mb-2">
             <ShieldCheck size={17} style={{ color: "var(--gold)" }} />
