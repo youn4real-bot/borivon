@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
+import { isPermanentTester } from "@/lib/classroomTesters";
 
 /**
  * Candidate-facing: which live classes are open to candidates right now.
@@ -18,10 +19,13 @@ export async function GET(req: NextRequest) {
 
   const db = getServiceSupabase();
 
-  // Private-test allowlist: non-testers never see any live class.
-  const { data: prof } = await db.from("candidate_profiles").select("classroom_tester").eq("user_id", auth.userId).maybeSingle();
-  if ((prof as { classroom_tester?: boolean } | null)?.classroom_tester !== true) {
-    return NextResponse.json({ sessions: [] });
+  // Private-test allowlist: permanent pair (Soufiane) OR flagged via column;
+  // everyone else sees no live class at all.
+  if (!isPermanentTester(auth.userId)) {
+    const { data: prof } = await db.from("candidate_profiles").select("classroom_tester").eq("user_id", auth.userId).maybeSingle();
+    if ((prof as { classroom_tester?: boolean } | null)?.classroom_tester !== true) {
+      return NextResponse.json({ sessions: [] });
+    }
   }
 
   const { data } = await db

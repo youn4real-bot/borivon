@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdminRole } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { UUID_RE } from "@/lib/uuid";
+import { isPermanentTester } from "@/lib/classroomTesters";
 
 /**
  * SUPREME-ADMIN-ONLY: flip a candidate's private-test allowlist flag for the
@@ -21,9 +22,11 @@ export async function GET(req: NextRequest) {
   const userId = req.nextUrl.searchParams.get("userId") ?? "";
   if (!UUID_RE.test(userId)) return NextResponse.json({ error: "bad userId" }, { status: 400 });
 
+  const permanent = isPermanentTester(userId);
   const db = getServiceSupabase();
   const { data } = await db.from("candidate_profiles").select("classroom_tester").eq("user_id", userId).maybeSingle();
-  return NextResponse.json({ tester: (data as { classroom_tester?: boolean } | null)?.classroom_tester === true });
+  const col = (data as { classroom_tester?: boolean } | null)?.classroom_tester === true;
+  return NextResponse.json({ tester: permanent || col, permanent });
 }
 
 export async function PATCH(req: NextRequest) {
@@ -35,6 +38,9 @@ export async function PATCH(req: NextRequest) {
   const userId = typeof body.candidateUserId === "string" ? body.candidateUserId : "";
   if (!UUID_RE.test(userId)) return NextResponse.json({ error: "bad candidateUserId" }, { status: 400 });
   const enabled = body.enabled === true;
+
+  // The permanent pair can never be turned off — it's the standing test combo.
+  if (isPermanentTester(userId)) return NextResponse.json({ tester: true, permanent: true });
 
   const db = getServiceSupabase();
   const { error } = await db.from("candidate_profiles").update({ classroom_tester: enabled }).eq("user_id", userId);

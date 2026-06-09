@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { livekitConfigured, livekitUrl, mintClassroomToken } from "@/lib/livekit";
+import { isPermanentTester } from "@/lib/classroomTesters";
 
 /**
  * Candidate-facing classroom join. Three gates, all server-side:
@@ -27,11 +28,18 @@ export async function POST(req: NextRequest) {
 
   const db = getServiceSupabase();
 
-  // Gate 2: PRIVATE-TEST allowlist — only flagged candidates may join while the
-  // classroom is in testing. (One fetch also gives us the display name.)
-  const { data: prof } = await db.from("candidate_profiles").select("first_name, last_name, classroom_tester").eq("user_id", auth.userId).maybeSingle();
-  const p = prof as { first_name: string | null; last_name: string | null; classroom_tester: boolean | null } | null;
-  if (p?.classroom_tester !== true) return NextResponse.json({ error: "Not a tester", notTester: true }, { status: 403 });
+  // Gate 2: PRIVATE-TEST allowlist — the permanent pair (Soufiane) OR a candidate
+  // flagged via the classroom_tester column. Name fetched from always-present
+  // columns; the column is queried separately so a not-yet-run migration can't
+  // break the permanent pair.
+  const { data: prof } = await db.from("candidate_profiles").select("first_name, last_name").eq("user_id", auth.userId).maybeSingle();
+  const p = prof as { first_name: string | null; last_name: string | null } | null;
+  let tester = isPermanentTester(auth.userId);
+  if (!tester) {
+    const { data: tp } = await db.from("candidate_profiles").select("classroom_tester").eq("user_id", auth.userId).maybeSingle();
+    tester = (tp as { classroom_tester?: boolean } | null)?.classroom_tester === true;
+  }
+  if (!tester) return NextResponse.json({ error: "Not a tester", notTester: true }, { status: 403 });
 
   // Gate 3: active consent.
   const { data: consentRow } = await db.from("classroom_consent").select("revoked_at").eq("user_id", auth.userId).maybeSingle();
