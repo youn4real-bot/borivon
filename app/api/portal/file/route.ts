@@ -232,9 +232,13 @@ export async function GET(req: NextRequest) {
         .eq(fileId ? "drive_file_id" : "id", fileId ?? docId!)
         .maybeSingle();
       if (res.error && /file_sha256|column .* does not exist|schema cache/i.test(res.error.message ?? "")) {
+        // Drop ONLY the un-migrated file_sha256 — KEEP r2_key, or the serve path
+        // can't find the R2 object and 404s (the bytes are there, the row points
+        // at them, but this fallback select hid the key). Same bug class as the
+        // upload retry. r2_key is the store of record.
         const res2 = await db
           .from("documents")
-          .select("drive_file_id, rotation, signed_storage_path, file_type")
+          .select("drive_file_id, rotation, signed_storage_path, file_type, r2_key")
           .eq(fileId ? "drive_file_id" : "id", fileId ?? docId!)
           .maybeSingle();
         data = (res2.data as Row | null) ?? null;
