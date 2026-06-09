@@ -1,104 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
-import {
-  LiveKitRoom, VideoConference, RoomAudioRenderer,
-  useLocalParticipant, useIsSpeaking, useRoomContext,
-} from "@livekit/components-react";
-import "@livekit/components-styles";
 import { ArrowLeft, Hand, BookOpen, Video, BarChart3, RefreshCw, Camera, Mic, Clock, Users } from "lucide-react";
-
-/* Fire-and-forget telemetry into the classroom ledger. */
-function logEvent(token: string, payload: { sessionId: string | null; roomName: string; kind: string; value?: Record<string, unknown>; displayName?: string }) {
-  fetch("/api/portal/admin/classroom/event", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify(payload),
-    keepalive: true,
-  }).catch(() => {});
-}
-
-/* Camera-on gate — blocks participation when the camera is off. */
-function CameraGate({ lang }: { lang: "fr" | "en" | "de" }) {
-  const { isCameraEnabled, localParticipant } = useLocalParticipant();
-  const T = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
-  if (isCameraEnabled) return null;
-  return (
-    <div style={{ position: "absolute", inset: 0, zIndex: 30, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14, background: "rgba(10,10,12,0.92)", backdropFilter: "blur(6px)", textAlign: "center", padding: 24 }}>
-      <Video size={36} style={{ color: "var(--gold)" }} />
-      <div style={{ color: "#fff", fontSize: 17, fontWeight: 700 }}>{T("Turn your camera on to participate", "Kamera einschalten, um teilzunehmen", "Activez votre caméra pour participer")}</div>
-      <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 13, maxWidth: 340 }}>{T("Camera is required in this class. Everything resumes once it's on.", "Die Kamera ist in diesem Kurs erforderlich. Es geht weiter, sobald sie an ist.", "La caméra est requise dans ce cours. Tout reprend dès qu'elle est activée.")}</div>
-      <button onClick={() => void localParticipant.setCameraEnabled(true)} className="bv-press" style={{ background: "var(--gold)", color: "#131312", fontWeight: 700, fontSize: 14, padding: "10px 20px", borderRadius: 12, border: "none" }}>
-        {T("Enable camera", "Kamera aktivieren", "Activer la caméra")}
-      </button>
-    </div>
-  );
-}
-
-/* The data factory: captures join/leave, camera on/off, mic on/off, and real
-   speaking seconds — per person, into the ledger. Renders nothing. */
-function Telemetry({ token, sessionId, roomName, displayName }: { token: string; sessionId: string | null; roomName: string; displayName: string }) {
-  const room = useRoomContext();
-  const { localParticipant, isCameraEnabled, isMicrophoneEnabled } = useLocalParticipant();
-  const speaking = useIsSpeaking(localParticipant);
-  const speakStart = useRef<number | null>(null);
-  const base = { sessionId, roomName, displayName };
-
-  // Join on mount, leave (+ flush any open speaking span) on unmount.
-  useEffect(() => {
-    logEvent(token, { ...base, kind: "joined" });
-    return () => {
-      if (speakStart.current) {
-        const secs = Math.round((performance.now() - speakStart.current) / 1000);
-        if (secs >= 1) logEvent(token, { ...base, kind: "spoke", value: { seconds: secs } });
-      }
-      logEvent(token, { ...base, kind: "left" });
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Camera on/off.
-  const camFirst = useRef(true);
-  useEffect(() => {
-    if (camFirst.current) { camFirst.current = false; return; }
-    logEvent(token, { ...base, kind: isCameraEnabled ? "camera_on" : "camera_off" });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isCameraEnabled]);
-
-  // Mic on/off.
-  const micFirst = useRef(true);
-  useEffect(() => {
-    if (micFirst.current) { micFirst.current = false; return; }
-    logEvent(token, { ...base, kind: isMicrophoneEnabled ? "mic_on" : "mic_off" });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isMicrophoneEnabled]);
-
-  // Real speaking time — accumulate a span each time they start→stop speaking.
-  useEffect(() => {
-    if (speaking) {
-      if (!speakStart.current) speakStart.current = performance.now();
-    } else if (speakStart.current) {
-      const secs = Math.round((performance.now() - speakStart.current) / 1000);
-      speakStart.current = null;
-      if (secs >= 1) logEvent(token, { ...base, kind: "spoke", value: { seconds: secs } });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [speaking]);
-
-  // Mark the room ended best-effort when the host closes the tab.
-  useEffect(() => {
-    const onBeforeUnload = () => { if (room.state === "connected") logEvent(token, { ...base, kind: "left" }); };
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  return null;
-}
+import ClassroomRoom from "@/components/ClassroomRoom";
 
 /* ───────────────────────── Engagement scorecard ───────────────────────── */
 type EngRow = {
@@ -236,6 +144,7 @@ export default function ClassroomPage() {
   const [starting, setStarting] = useState(false);
   const [err, setErr] = useState("");
   const [showStats, setShowStats] = useState(false);
+  const [openToCandidates, setOpenToCandidates] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
@@ -257,7 +166,7 @@ export default function ClassroomPage() {
       const res = await fetch("/api/portal/admin/classroom/token", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
-        body: JSON.stringify({ room: roomName, name: displayName }),
+        body: JSON.stringify({ room: roomName, name: displayName, openToCandidates }),
       });
       if (res.status === 503) { setNeedsSetup(true); setStarting(false); return; }
       const j = await res.json().catch(() => ({}));
@@ -274,24 +183,11 @@ export default function ClassroomPage() {
   // ── In the room ──
   if (conn) {
     return (
-      <div style={{ position: "fixed", inset: 0, background: "#0b0b0d", display: "flex", flexDirection: "column" }}>
-        <div className="flex items-center justify-between gap-3 px-4 py-2.5" style={{ background: "var(--card)", borderBottom: "1px solid var(--border)" }}>
-          <span className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>🎓 {roomName}</span>
-          <div className="flex items-center gap-2">
-            <button onClick={() => logEvent(authToken, { sessionId: conn.sessionId, roomName, displayName, kind: "hand_raise" })} className="bv-press inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-2 rounded-lg" style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}><Hand size={13} /> {T("Raise hand", "Melden", "Lever la main")}</button>
-            <button onClick={() => logEvent(authToken, { sessionId: conn.sessionId, roomName, displayName, kind: "exercise_action", value: { test: true } })} className="bv-press inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-2 rounded-lg" style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}><BookOpen size={13} /> {T("Log exercise action", "Übungsaktion loggen", "Logger une action")}</button>
-            <button onClick={leave} className="bv-press text-[12px] font-bold px-3 py-2 rounded-lg" style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>{T("Leave", "Verlassen", "Quitter")}</button>
-          </div>
-        </div>
-        <div style={{ flex: 1, position: "relative", minHeight: 0 }} data-lk-theme="default">
-          <LiveKitRoom token={conn.token} serverUrl={conn.url} connect video audio style={{ height: "100%" }} onDisconnected={leave}>
-            <VideoConference />
-            <RoomAudioRenderer />
-            <CameraGate lang={lang} />
-            <Telemetry token={authToken} sessionId={conn.sessionId} roomName={roomName} displayName={displayName} />
-          </LiveKitRoom>
-        </div>
-      </div>
+      <ClassroomRoom
+        authToken={authToken} connToken={conn.token} url={conn.url}
+        roomName={roomName} sessionId={conn.sessionId} displayName={displayName}
+        lang={lang} onLeave={leave}
+      />
     );
   }
 
@@ -328,6 +224,13 @@ export default function ClassroomPage() {
             <label className="text-[10.5px] font-bold uppercase tracking-wide" style={{ color: "var(--w3)" }}>{T("Class room name", "Kursraum-Name", "Nom de la salle")}</label>
             <input className="bv-input" value={roomName} onChange={e => setRoomName(e.target.value.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 60))} style={{ width: "100%", fontSize: 14, marginTop: 4 }} />
           </div>
+          <button type="button" onClick={() => setOpenToCandidates((v) => !v)} className="bv-row-hover flex items-start gap-2.5 text-left rounded-xl p-2.5" style={{ background: openToCandidates ? "var(--gdim)" : "var(--bg2)", border: `1px solid ${openToCandidates ? "var(--border-gold)" : "var(--border)"}` }}>
+            <span className="mt-0.5 inline-flex items-center justify-center rounded-md" style={{ width: 18, height: 18, flex: "0 0 18px", background: openToCandidates ? "var(--gold)" : "transparent", border: `1px solid ${openToCandidates ? "var(--gold)" : "var(--border)"}`, color: "#131312", fontSize: 12, fontWeight: 900 }}>{openToCandidates ? "✓" : ""}</span>
+            <span>
+              <span className="block text-[12.5px] font-bold" style={{ color: openToCandidates ? "var(--gold)" : "var(--w)" }}>{T("Open this class to candidates", "Diesen Kurs für Kandidaten öffnen", "Ouvrir ce cours aux candidats")}</span>
+              <span className="block text-[11px] mt-0.5" style={{ color: "var(--w3)" }}>{T("Consented candidates can join while this class is live. Off = admin-only.", "Zugestimmte Kandidaten können beitreten, solange der Kurs läuft. Aus = nur Admin.", "Les candidats ayant consenti peuvent rejoindre tant que le cours est en direct. Désactivé = admin uniquement.")}</span>
+            </span>
+          </button>
           {err && <p className="text-[12px]" style={{ color: "var(--danger)" }}>{err}</p>}
           <button onClick={start} disabled={starting || !roomName} className="bv-press inline-flex items-center justify-center gap-2 text-[14px] font-bold px-5 py-3 rounded-xl disabled:opacity-60" style={{ background: "var(--gold)", color: "#131312" }}>
             <Video size={16} /> {starting ? T("Starting…", "Wird gestartet…", "Démarrage…") : T("Start / join class", "Kurs starten / beitreten", "Démarrer / rejoindre")}

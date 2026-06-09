@@ -676,6 +676,22 @@ export function ProfileIcon() {
                   </button>
                 </>
               )}
+              {/* Live class — candidates only (students join; admins host via
+                  "Live classroom", org members/employers don't attend). */}
+              {!user.isAdmin && !user.isOrgMember && (
+                <button
+                  onClick={() => { setOpen(false); router.push("/portal/classroom"); }}
+                  className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
+                  style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "var(--bg2)"; e.currentTarget.style.color = "var(--w)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--w2)"; }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2" ry="2"/>
+                  </svg>
+                  {lang === "fr" ? "Cours en direct" : lang === "de" ? "Live-Kurs" : "Live class"}
+                </button>
+              )}
               {user.profileSlug && !user.isOrgMember && !user.isAdmin && (
                 <button
                   onClick={() => { setOpen(false); setProfilePopupSlug(user.profileSlug); }}

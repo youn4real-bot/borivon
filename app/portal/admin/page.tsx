@@ -21,7 +21,8 @@ import {
   Lock, Unlock, IdCard, FileText, Folder, FilePen, Save, Eye,
   CheckCircle2, XCircle, AlertTriangle, PartyPopper,
 } from "@/components/PortalIcons";
-import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles } from "lucide-react";
+import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles, BarChart3 } from "lucide-react";
+import { CandidateEngagementCard } from "@/components/CandidateEngagementCard";
 import { DndContext, closestCenter, DragOverlay, closestCorners, pointerWithin, useDroppable, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragOverEvent, type DragStartEvent, type CollisionDetection } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove, defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -867,7 +868,7 @@ export default function AdminPage() {
   const [statusCvDraft, setStatusCvDraft] = useState<Record<string, unknown> | null>(null);
   // Left-rail category (like the candidate dashboard). Add a tab id here +
   // an entry in STATUS_TABS + a content block to introduce a new project.
-  const [statusTab, setStatusTab]         = useState<"b2" | "assign" | "vaccine" | "notes" | "docs" | "journey">("b2");
+  const [statusTab, setStatusTab]         = useState<"b2" | "assign" | "vaccine" | "notes" | "docs" | "journey" | "engagement">("b2");
   // Non-persisted view toggle for the assign tab. Defaults to whatever the
   // canonical assignment implies; admin can flip it manually to view the
   // other branch before picking. Cleared on modal close.
@@ -3535,10 +3536,12 @@ export default function AdminPage() {
                   { id: "b2",      label: L.secB2,                                                                 Icon: GraduationCap },
                   { id: "assign",  label: lang === "fr" ? "Affectation" : lang === "de" ? "Zuweisung" : "Assignment", Icon: Building2 },
                   { id: "vaccine", label: L.secVax,                                                                Icon: Syringe },
+                  { id: "engagement", label: lang === "fr" ? "Engagement" : lang === "de" ? "Engagement" : "Engagement", Icon: BarChart3 },
                   { id: "notes",   label: lang === "de" ? "Notizen" : "Notes",                                     Icon: NotebookPen },
-                ] as { id: "b2" | "assign" | "vaccine" | "notes" | "docs" | "journey"; label: string; Icon: typeof GraduationCap }[])
+                ] as { id: "b2" | "assign" | "vaccine" | "notes" | "docs" | "journey" | "engagement"; label: string; Icon: typeof GraduationCap }[])
                   // Org admins don't get the Borivon-internal tabs (Documents,
                   // Journey, Assignment). Borivon team (supreme + sub-admin) does.
+                  // Engagement IS shown to org admins — it's the employer-matching signal.
                   .filter(tab => !(isOrgAdmin && (tab.id === "docs" || tab.id === "journey" || tab.id === "assign")));
                 const assignT = lang === "fr"
                   ? { sec:"Affectation", to:"Affecter à", agency:"Agence", employer:"Employeur direct", pickAg:"Agence", pickSite:"Site / employeur", pickEmp:"Employeur" }
@@ -3672,6 +3675,13 @@ export default function AdminPage() {
                             <StatusSection title={lang === "fr" ? "Parcours" : lang === "de" ? "Verlauf" : "Journey"} first>
                               <JourneyChecklist candidateUserId={selectedUser} />
                             </StatusSection>
+                          )}
+                          {/* ── Engagement: live-class participation profile
+                              (camera %, speaking, attendance, actions → score).
+                              Shown to staff + org-admin employers; the API
+                              consent-gates the employer view. ── */}
+                          {statusTab === "engagement" && selectedUser && accessToken && (
+                            <CandidateEngagementCard userId={selectedUser} accessToken={accessToken} lang={(lang === "fr" || lang === "de") ? lang : "en"} />
                           )}
                           {statusTab === "b2" && (
                           <StatusSection title={L.secB2} first>

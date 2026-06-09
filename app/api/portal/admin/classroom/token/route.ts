@@ -20,20 +20,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "LiveKit not configured", needsSetup: true }, { status: 503 });
   }
 
-  const body = await req.json().catch(() => ({})) as { room?: unknown; name?: unknown };
+  const body = await req.json().catch(() => ({})) as { room?: unknown; name?: unknown; openToCandidates?: unknown };
   const room = (typeof body.room === "string" && body.room.trim()) ? body.room.trim().slice(0, 80) : "borivon-class";
   const name = typeof body.name === "string" ? body.name.trim().slice(0, 80) : "Admin";
+  const openToCandidates = body.openToCandidates === true;
 
   const db = getServiceSupabase();
-  // Upsert the session row (one per room_name). Keep it "live".
+  // Upsert the session row (one per room_name). Keep it "live" + carry the
+  // admin's open-to-candidates choice so the candidate join gate can honor it.
   let sessionId: string | null = null;
   const { data: existing } = await db.from("classroom_sessions").select("id").eq("room_name", room).maybeSingle();
   if (existing) {
     sessionId = (existing as { id: string }).id;
+    await db.from("classroom_sessions").update({ status: "live", open_to_candidates: openToCandidates }).eq("id", sessionId);
   } else {
     const { data: created } = await db
       .from("classroom_sessions")
-      .insert({ room_name: room, title: room, host_user_id: auth.userId, status: "live" })
+      .insert({ room_name: room, title: room, host_user_id: auth.userId, status: "live", open_to_candidates: openToCandidates })
       .select("id").maybeSingle();
     sessionId = (created as { id: string } | null)?.id ?? null;
   }
