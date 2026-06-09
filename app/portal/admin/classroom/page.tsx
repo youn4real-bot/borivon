@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
-import { ArrowLeft, Hand, BookOpen, Video, BarChart3, RefreshCw, Camera, Mic, Clock, Users } from "lucide-react";
+import { ArrowLeft, Hand, BookOpen, Video, BarChart3, RefreshCw, Camera, Mic, Clock, Users, Download } from "lucide-react";
 import ClassroomRoom from "@/components/ClassroomRoom";
 
 /* ───────────────────────── Engagement scorecard ───────────────────────── */
@@ -113,6 +113,19 @@ function EngagementPanel({ authToken, lang }: { authToken: string; lang: "fr" | 
     setSessionBusy(false);
   }
 
+  function exportCsv() {
+    const cols = ["Name", "Score", "Attendance%", "Sessions", "Present(s)", "Camera%", "CameraOff#", "JoinDelay(s)", "Speaking(s)", "Actions", "Hands", "Disengaged", "LastSeen"];
+    const esc = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
+    const lines = [cols.join(",")];
+    for (const r of rows) {
+      lines.push([esc(r.name), r.score, Math.round(r.attendanceRate * 100), r.sessionsAttended, r.presentSeconds, Math.round(r.cameraPct * 100), r.cameraOffCount, r.avgJoinDelaySec ?? "", r.speakingSeconds, r.exerciseActions, r.handRaises, r.disengaged ? "yes" : "no", r.lastSeenAt ?? ""].join(","));
+    }
+    const blob = new Blob([lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "engagement.csv"; a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   const Tab = ({ id, label }: { id: "people" | "sessions"; label: string }) => (
     <button onClick={() => { setView(id); setOpenSession(null); }} className="text-[11.5px] font-semibold px-2.5 py-1 rounded-lg" style={{ background: view === id ? "var(--gdim)" : "transparent", color: view === id ? "var(--gold)" : "var(--w3)", border: `1px solid ${view === id ? "var(--border-gold)" : "transparent"}` }}>{label}</button>
   );
@@ -128,9 +141,16 @@ function EngagementPanel({ authToken, lang }: { authToken: string; lang: "fr" | 
             <Tab id="sessions" label={T("Sessions", "Sitzungen", "Sessions")} />
           </div>
         </div>
-        <button onClick={() => void load()} disabled={busy} className="bv-press inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg disabled:opacity-60" style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
-          <RefreshCw size={11} className={busy ? "animate-spin" : ""} /> {T("Refresh", "Aktualisieren", "Actualiser")}
-        </button>
+        <div className="flex items-center gap-1.5">
+          {rows.length > 0 && (
+            <button onClick={exportCsv} className="bv-press inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg" style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
+              <Download size={11} /> {T("CSV", "CSV", "CSV")}
+            </button>
+          )}
+          <button onClick={() => void load()} disabled={busy} className="bv-press inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1.5 rounded-lg disabled:opacity-60" style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
+            <RefreshCw size={11} className={busy ? "animate-spin" : ""} /> {T("Refresh", "Aktualisieren", "Actualiser")}
+          </button>
+        </div>
       </div>
 
       {/* summary strip */}
