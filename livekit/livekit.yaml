@@ -1,0 +1,18 @@
+# LiveKit server config — single node. API keys are NOT here; they come from
+# the .env file (LIVEKIT_KEYS), which setup.sh generates and which is gitignored.
+port: 7880
+rtc:
+  tcp_port: 7881          # TCP fallback for restrictive networks
+  udp_port: 7882          # single UDP mux port for media (open this in the firewall)
+  use_external_ip: true   # advertise the VPS public IP for WebRTC (auto-detected)
+logging:
+  level: info
+
+# OPTIONAL — server-verified attendance (tamper-proof join/leave straight from
+# the media server). The portal also captures this client-side, so this is a
+# bonus. To enable: set api_key to the NAME of your key (the part BEFORE the
+# colon in .env's LIVEKIT_KEYS) and uncomment this block, then restart.
+# webhook:
+#   api_key: REPLACE_WITH_YOUR_KEY_NAME
+#   urls:
+#     - https://www.borivon.com/api/portal/admin/classroom/webhook

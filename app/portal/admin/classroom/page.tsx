@@ -297,12 +297,11 @@ export default function ClassroomPage() {
       {needsSetup ? (
         <div className="rounded-2xl p-4" style={{ background: "var(--card)", border: "1px solid var(--border-gold)" }}>
           <p className="text-[13.5px] font-bold mb-2" style={{ color: "var(--gold)" }}>{T("Connect LiveKit first", "Zuerst LiveKit verbinden", "Connectez d'abord LiveKit")}</p>
-          <p className="text-[12.5px] mb-2" style={{ color: "var(--w2)" }}>{T("The classroom needs a LiveKit server. Fastest: a free LiveKit Cloud project.", "Das Klassenzimmer braucht einen LiveKit-Server. Am schnellsten: ein kostenloses LiveKit-Cloud-Projekt.", "La classe a besoin d'un serveur LiveKit. Le plus rapide : un projet LiveKit Cloud gratuit.")}</p>
+          <p className="text-[12.5px] mb-2" style={{ color: "var(--w2)" }}>{T("The classroom needs a LiveKit server — self-hosted on your own VPS (open source, no account). Full guide: the livekit/ folder in the repo.", "Das Klassenzimmer braucht einen LiveKit-Server — selbst gehostet auf deinem eigenen VPS (Open Source, kein Konto). Anleitung: der Ordner livekit/ im Repo.", "La classe a besoin d'un serveur LiveKit — auto-hébergé sur ton propre VPS (open source, sans compte). Guide : le dossier livekit/ du dépôt.")}</p>
           <ol className="text-[12px] list-decimal pl-5 space-y-1" style={{ color: "var(--w3)" }}>
-            <li>{T("Create a free project at cloud.livekit.io", "Kostenloses Projekt auf cloud.livekit.io erstellen", "Créez un projet gratuit sur cloud.livekit.io")}</li>
-            <li>{T("Copy its URL + API key + API secret", "URL + API-Key + API-Secret kopieren", "Copiez l'URL + clé API + secret API")}</li>
-            <li>{T("Add them to Vercel as LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET", "In Vercel als LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET hinzufügen", "Ajoutez-les sur Vercel : LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET")}</li>
-            <li>{T("Point the LiveKit webhook to /api/portal/admin/classroom/webhook", "LiveKit-Webhook auf /api/portal/admin/classroom/webhook setzen", "Pointez le webhook LiveKit vers /api/portal/admin/classroom/webhook")}</li>
+            <li>{T("Point a subdomain (e.g. live.borivon.com) at your VPS", "Eine Subdomain (z. B. live.borivon.com) auf deinen VPS zeigen lassen", "Pointez un sous-domaine (ex. live.borivon.com) vers votre VPS")}</li>
+            <li>{T("On the VPS: run livekit/setup.sh (installs Docker, generates your keys)", "Auf dem VPS: livekit/setup.sh ausführen (installiert Docker, erzeugt deine Schlüssel)", "Sur le VPS : lancez livekit/setup.sh (installe Docker, génère vos clés)")}</li>
+            <li>{T("Add LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET to Vercel, then redeploy", "LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET zu Vercel hinzufügen, dann neu deployen", "Ajoutez LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET à Vercel, puis redéployez")}</li>
           </ol>
         </div>
       ) : (

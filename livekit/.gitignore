@@ -1,0 +1,4 @@
+# Never commit the generated API secret or Caddy's cert store.
+.env
+caddy_data/
+caddy_config/

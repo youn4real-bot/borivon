@@ -1,0 +1,7 @@
+# Auto-HTTPS reverse proxy for the LiveKit signaling endpoint.
+# >>> CHANGE live.borivon.com to your subdomain (must have a DNS A record
+#     pointing at this VPS's public IP). This is the ONLY place the domain
+#     appears on the server side. <<<
+live.borivon.com {
+	reverse_proxy localhost:7880
+}
