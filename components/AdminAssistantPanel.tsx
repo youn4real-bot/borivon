@@ -13,28 +13,31 @@ import { DefaultChatTransport } from "ai";
 import { Sparkles, X, Send, Loader2 } from "lucide-react";
 import { useLang } from "@/components/LangContext";
 
-/** Turn the assistant's inline file URLs into real download links; everything
- *  else renders as plain text (no HTML injection). */
-function Linkified({ text, dlLabel }: { text: string; dlLabel: string }) {
+/** Render assistant text safely (no HTML injection). The fragile signed file
+ *  URLs are normally rendered as buttons from the tool's STRUCTURED output (see
+ *  below) — so when hideFileUrls is true we drop any /api/portal/file URL the
+ *  model pasted into its text. The fallback path (structured output missing)
+ *  still shows the URL, trimmed of trailing markdown/punctuation so a stray "_"
+ *  can't corrupt the ".pdf" extension. */
+function Linkified({ text, hideFileUrls, dlLabel }: { text: string; hideFileUrls: boolean; dlLabel: string }) {
   const parts = text.split(/(\/api\/portal\/file\?[^\s)]+|https?:\/\/[^\s)]+)/g);
   return (
     <>
-      {parts.map((p, i) =>
-        /^(\/api\/portal\/file\?|https?:\/\/)/.test(p) ? (
-          <a
-            key={i}
-            href={p}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 font-semibold"
-            style={{ color: "var(--gold)", textDecoration: "underline" }}
-          >
-            ⬇ {dlLabel}
-          </a>
-        ) : (
-          <span key={i}>{p}</span>
-        ),
-      )}
+      {parts.map((p, i) => {
+        if (/^\/api\/portal\/file\?/.test(p)) {
+          if (hideFileUrls) return null; // shown as a structured download button instead
+          const clean = p.replace(/[_*.,;:)\]}>"']+$/, "");
+          return (
+            <a key={i} href={clean} target="_blank" rel="noopener noreferrer"
+               className="font-semibold" style={{ color: "var(--gold)", textDecoration: "underline" }}>⬇ {dlLabel}</a>
+          );
+        }
+        if (/^https?:\/\//.test(p)) {
+          const clean = p.replace(/[_*.,;:)\]}>"']+$/, "");
+          return <a key={i} href={clean} target="_blank" rel="noopener noreferrer" style={{ color: "var(--gold)", textDecoration: "underline" }}>{clean}</a>;
+        }
+        return <span key={i}>{p}</span>;
+      })}
     </>
   );
 }
@@ -151,8 +154,17 @@ export default function AdminAssistantPanel({ accessToken }: { accessToken: stri
                   .filter((p): p is { type: "text"; text: string } => p.type === "text")
                   .map((p) => p.text)
                   .join("");
+                // Download links come from the TOOL's structured output (exact url +
+                // filename) — NOT the model's retyped text, which is what produced the
+                // broken ".pdf_" name. download={fileName} forces the clean save name.
+                const downloads = m.parts
+                  .map((p) => p as { type?: string; output?: { url?: string; fileName?: string }; result?: { url?: string; fileName?: string } })
+                  .filter((p) => p.type === "tool-getDocumentDownloadLink")
+                  .map((p) => p.output ?? p.result)
+                  .filter((o): o is { url?: string; fileName?: string } => !!o && typeof o.url === "string")
+                  .map((o) => ({ url: o.url as string, fileName: o.fileName || "document" }));
                 const isUser = m.role === "user";
-                if (!text && !isUser) return null;
+                if (!text && !isUser && downloads.length === 0) return null;
                 return (
                   <div key={m.id} className={isUser ? "flex justify-end" : "flex justify-start"}>
                     <div
@@ -163,7 +175,20 @@ export default function AdminAssistantPanel({ accessToken }: { accessToken: stri
                           : { background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }
                       }
                     >
-                      {isUser ? text : <Linkified text={text} dlLabel={dlLabel} />}
+                      {isUser ? text : <Linkified text={text} hideFileUrls={downloads.length > 0} dlLabel={dlLabel} />}
+                      {downloads.map((d, i) => (
+                        <a
+                          key={i}
+                          href={d.url}
+                          download={d.fileName}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="bv-press mt-2 inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-3 py-2 rounded-lg"
+                          style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)", textDecoration: "none" }}
+                        >
+                          ⬇ {d.fileName}
+                        </a>
+                      ))}
                     </div>
                   </div>
                 );
