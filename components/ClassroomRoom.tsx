@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   LiveKitRoom, VideoConference, RoomAudioRenderer,
   useLocalParticipant, useIsSpeaking, useRoomContext,
 } from "@livekit/components-react";
 import "@livekit/components-styles";
-import { Hand, BookOpen, Video } from "lucide-react";
+import type { LocalVideoTrack } from "livekit-client";
+import { Hand, BookOpen, Video, Sparkles } from "lucide-react";
 
 export type Lang = "fr" | "en" | "de";
 
@@ -99,6 +100,74 @@ function Telemetry({ token, sessionId, roomName, displayName }: { token: string;
  * The full in-room experience — identical for admin and candidate. Camera-on
  * gate, telemetry ledger, plus the hand-raise + log-exercise-action controls.
  */
+/** Virtual backgrounds — blur (light/strong) + a few clean studio gradients.
+ *  Lazy-loads the segmentation processor (browser-only) on first use, so it
+ *  never touches SSR/the build. */
+function BackgroundControl({ lang }: { lang: Lang }) {
+  const { cameraTrack } = useLocalParticipant();
+  const T = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState("none");
+  const [busy, setBusy] = useState(false);
+
+  const grad = (a: string, b: string) =>
+    "data:image/svg+xml;utf8," + encodeURIComponent(
+      `<svg xmlns='http://www.w3.org/2000/svg' width='1280' height='720'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0' stop-color='${a}'/><stop offset='1' stop-color='${b}'/></linearGradient></defs><rect width='1280' height='720' fill='url(#g)'/></svg>`);
+  const IMAGES: Record<string, string> = {
+    studio:  grad("#374151", "#0b1220"),
+    ocean:   grad("#0ea5e9", "#1e3a8a"),
+    borivon: grad("#f59e0b", "#7c2d12"),
+  };
+
+  async function apply(id: string) {
+    const track = cameraTrack?.track as LocalVideoTrack | undefined;
+    if (!track || busy) return;
+    setBusy(true);
+    try {
+      if (id === "none") { await track.stopProcessor(); }
+      else {
+        const tp = await import("@livekit/track-processors");
+        const proc = id === "blur1" ? tp.BackgroundBlur(8)
+          : id === "blur2" ? tp.BackgroundBlur(20)
+          : tp.VirtualBackground(IMAGES[id]);
+        await track.setProcessor(proc);
+      }
+      setActive(id);
+    } catch (e) { console.error("[classroom bg]", e instanceof Error ? e.message : e); }
+    setBusy(false); setOpen(false);
+  }
+
+  const opts: { id: string; label: string }[] = [
+    { id: "none",    label: T("No background", "Kein Hintergrund", "Aucun fond") },
+    { id: "blur1",   label: T("Blur", "Unschärfe", "Flou") },
+    { id: "blur2",   label: T("Strong blur", "Starke Unschärfe", "Flou fort") },
+    { id: "studio",  label: T("Studio (dark)", "Studio (dunkel)", "Studio (sombre)") },
+    { id: "ocean",   label: T("Ocean", "Ozean", "Océan") },
+    { id: "borivon", label: T("Borivon gold", "Borivon-Gold", "Borivon or") },
+  ];
+
+  return (
+    <div style={{ position: "absolute", top: 12, right: 12, zIndex: 26 }}>
+      <button onClick={() => setOpen((o) => !o)} disabled={busy}
+        className="bv-press inline-flex items-center gap-1.5 text-[12px] font-semibold px-3 py-2 rounded-lg disabled:opacity-60"
+        style={{ background: "rgba(18,18,22,0.82)", color: "#fff", border: "1px solid var(--border)", backdropFilter: "blur(6px)" }}>
+        <Sparkles size={13} /> {T("Background", "Hintergrund", "Arrière-plan")}
+      </button>
+      {open && (
+        <div className="mt-1 rounded-xl overflow-hidden" style={{ position: "absolute", right: 0, minWidth: 190, background: "var(--card)", border: "1px solid var(--border)", boxShadow: "var(--shadow-md)" }}>
+          {opts.map((o) => (
+            <button key={o.id} onClick={() => apply(o.id)} disabled={busy}
+              className="bv-row-hover w-full text-left px-3 py-2 text-[12.5px] flex items-center justify-between disabled:opacity-60"
+              style={{ color: active === o.id ? "var(--gold)" : "var(--w)" }}>
+              {o.label}{active === o.id ? <span>✓</span> : null}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ClassroomRoom({
   authToken, connToken, url, roomName, sessionId, displayName, lang, onLeave,
 }: {
@@ -107,7 +176,7 @@ export default function ClassroomRoom({
 }) {
   const T = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
   return (
-    <div style={{ position: "fixed", inset: 0, background: "#0b0b0d", display: "flex", flexDirection: "column", zIndex: 1000 }}>
+    <div style={{ position: "fixed", inset: 0, background: "#0b0b0d", display: "flex", flexDirection: "column", zIndex: 1400 }}>
       <div className="flex items-center justify-between gap-3 px-4 py-2.5" style={{ background: "var(--card)", borderBottom: "1px solid var(--border)" }}>
         <span className="text-[13px] font-semibold" style={{ color: "var(--w)" }}>🎓 {roomName}</span>
         <div className="flex items-center gap-2">
@@ -121,6 +190,7 @@ export default function ClassroomRoom({
           <VideoConference />
           <RoomAudioRenderer />
           <CameraGate lang={lang} />
+          <BackgroundControl lang={lang} />
           <Telemetry token={authToken} sessionId={sessionId} roomName={roomName} displayName={displayName} />
         </LiveKitRoom>
       </div>
