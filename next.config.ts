@@ -33,7 +33,8 @@ const CSP_DIRECTIVES = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "img-src 'self' data: blob: https:",
   "font-src 'self' data: https://fonts.gstatic.com",
-  "connect-src 'self' blob: data: https://*.supabase.co wss://*.supabase.co https://challenges.cloudflare.com https://api.stripe.com",
+  // wss/https *.borivon.com → the self-hosted LiveKit classroom server (signaling).
+  "connect-src 'self' blob: data: https://*.supabase.co wss://*.supabase.co https://challenges.cloudflare.com https://api.stripe.com wss://*.borivon.com https://*.borivon.com",
   "frame-src 'self' blob: https://drive.google.com https://www.youtube.com https://www.loom.com https://challenges.cloudflare.com https://js.stripe.com https://checkout.stripe.com",
   "media-src 'self' data: blob: https:",
   "worker-src 'self' blob:",
