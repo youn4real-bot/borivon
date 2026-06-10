@@ -195,5 +195,85 @@ export function buildAssistantTools(scope: AssistantScope) {
         return { url, expiresInSec: 180, fileName: d.file_name ?? "document" };
       },
     }),
+
+    // ── Personal task memory (the admin's OWN reminders — not candidate data) ──
+    saveReminder: tool({
+      description:
+        "Save a personal reminder/task for the admin (e.g. 'chase Youssef's passport', 'call the embassy Monday'). Use this whenever the admin tells you to remember something or notes a task to do later. Optionally tie it to a candidate and/or a due date.",
+      inputSchema: z.object({
+        text: z.string().min(1).max(500).describe("the task / thing to remember"),
+        dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("ISO date YYYY-MM-DD if a deadline was mentioned"),
+        candidateUserId: z.string().uuid().optional().describe("if the reminder is about a specific candidate"),
+      }),
+      execute: async ({ text, dueDate, candidateUserId }) => {
+        if (candidateUserId && !(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const { data, error } = await db
+          .from("assistant_reminders")
+          .insert({ owner_user_id: scope.userId, text, due_date: dueDate ?? null, candidate_user_id: candidateUserId ?? null })
+          .select("id")
+          .maybeSingle();
+        if (error) return { error: "save_failed" };
+        return { saved: true, reminderId: (data as { id: string } | null)?.id ?? null };
+      },
+    }),
+
+    listReminders: tool({
+      description:
+        "List the admin's saved reminders/tasks (their own notes), soonest due first. Open (not-done) only by default. Use when the admin asks what they need to do, what's pending, or what's due. Negative daysUntil means it's overdue.",
+      inputSchema: z.object({
+        includeDone: z.boolean().default(false),
+        dueWithinDays: z.number().int().min(1).max(365).optional().describe("only reminders due within N days"),
+      }),
+      execute: async ({ includeDone, dueWithinDays }) => {
+        let qb = db
+          .from("assistant_reminders")
+          .select("id, text, due_date, candidate_user_id, done, created_at")
+          .eq("owner_user_id", scope.userId);
+        if (!includeDone) qb = qb.eq("done", false);
+        const { data, error } = await qb;
+        if (error) return { error: "load_failed" };
+        type R = { id: string; text: string; due_date: string | null; candidate_user_id: string | null; done: boolean; created_at: string };
+        let rows = (data ?? []) as R[];
+        const now = Date.now();
+        if (dueWithinDays != null) {
+          const horizon = now + dueWithinDays * DAY;
+          rows = rows.filter((r) => { const ms = parseDate(r.due_date); return ms !== null && ms <= horizon; });
+        }
+        rows.sort((a, b) => {
+          const ma = parseDate(a.due_date), mb = parseDate(b.due_date);
+          if (ma === null && mb === null) return 0;
+          if (ma === null) return 1;
+          if (mb === null) return -1;
+          return ma - mb;
+        });
+        return {
+          reminders: rows.map((r) => ({
+            reminderId: r.id,
+            text: r.text,
+            dueDate: r.due_date,
+            daysUntil: r.due_date && parseDate(r.due_date) !== null ? Math.round((parseDate(r.due_date)! - now) / DAY) : null,
+            candidateUserId: r.candidate_user_id,
+            done: r.done,
+          })),
+        };
+      },
+    }),
+
+    completeReminder: tool({
+      description: "Mark one of the admin's reminders as done, by its reminderId (get the id from listReminders first).",
+      inputSchema: z.object({ reminderId: z.string().uuid() }),
+      execute: async ({ reminderId }) => {
+        const { data, error } = await db
+          .from("assistant_reminders")
+          .update({ done: true })
+          .eq("id", reminderId)
+          .eq("owner_user_id", scope.userId) // can only complete your OWN reminders
+          .select("id")
+          .maybeSingle();
+        if (error) return { error: "update_failed" };
+        if (!data) return { error: "not_found" };
+        return { completed: true };
+      },
+    }),
   };
 }

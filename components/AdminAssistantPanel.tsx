@@ -78,6 +78,8 @@ export default function AdminAssistantPanel({ accessToken }: { accessToken: stri
   const examples = [
     T("8 candidates with B2 due in the next 3 months", "8 Kandidaten mit B2 in den nächsten 3 Monaten", "8 candidats avec B2 dans les 3 prochains mois"),
     T("Find Fatima and give me her CV link", "Finde Fatima und gib mir ihren Lebenslauf-Link", "Trouve Fatima et donne-moi le lien de son CV"),
+    T("Remind me to chase Youssef's passport next week", "Erinnere mich nächste Woche an Youssefs Reisepass", "Rappelle-moi de relancer le passeport de Youssef la semaine prochaine"),
+    T("What are my reminders?", "Was sind meine Erinnerungen?", "Quels sont mes rappels ?"),
   ];
 
   return (
@@ -131,9 +133,9 @@ export default function AdminAssistantPanel({ accessToken }: { accessToken: stri
                 <div className="space-y-3">
                   <p className="text-[13px]" style={{ color: "var(--w2)" }}>
                     {T(
-                      "Ask me to look up candidates or fetch document links. I'm read-only — I can't change anything.",
-                      "Bitte mich, Kandidaten nachzuschlagen oder Dokument-Links zu holen. Nur Lesezugriff — ich ändere nichts.",
-                      "Demandez-moi de chercher des candidats ou des liens de documents. Lecture seule — je ne modifie rien.",
+                      "Ask me to look up candidates, fetch document links, or remember a task for you. I'm read-only on your candidates — but I'll keep your reminders.",
+                      "Bitte mich, Kandidaten nachzuschlagen, Dokument-Links zu holen oder eine Aufgabe für dich zu merken. Kandidatendaten ändere ich nicht — aber deine Erinnerungen behalte ich.",
+                      "Demandez-moi de chercher des candidats, des liens de documents, ou de retenir une tâche. Je ne modifie pas vos candidats — mais je garde vos rappels.",
                     )}
                   </p>
                   {examples.map((ex, i) => (

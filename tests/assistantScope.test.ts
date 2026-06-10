@@ -13,7 +13,7 @@ const h = vi.hoisted(() => ({
 vi.mock("@/lib/supabase", () => {
   const qb = (result: { data: unknown; error: unknown }) => {
     const b: Record<string, unknown> = {};
-    for (const m of ["select", "or", "ilike", "eq", "neq", "in", "is", "not", "order", "limit", "gte", "lte", "range", "contains"]) {
+    for (const m of ["select", "or", "ilike", "eq", "neq", "in", "is", "not", "order", "limit", "gte", "lte", "range", "contains", "insert", "update", "delete"]) {
       b[m] = () => b;
     }
     b.maybeSingle = () => Promise.resolve(result);
@@ -103,6 +103,12 @@ describe("assistant tools enforce LAW #25 scope (org-admin)", () => {
     };
     expect(r.candidates.map((c) => c.candidateUserId)).toEqual(["allowed-cand"]);
   });
+
+  it("saveReminder → out_of_scope when tied to a candidate outside the org", async () => {
+    foreignOrgMocks();
+    const r = await run(buildAssistantTools(ORG_ADMIN), "saveReminder", { text: "chase passport", candidateUserId: "foreign-cand" });
+    expect(r).toEqual({ error: "out_of_scope" });
+  });
 });
 
 describe("assistant tools allow the supreme admin", () => {
@@ -129,5 +135,11 @@ describe("assistant tools allow the supreme admin", () => {
     };
     expect(r.candidate.name).toBe("Any Body");
     expect(r.candidate.b2ExamDate).toBe("2026-09-01");
+  });
+
+  it("saveReminder stores the admin's own task", async () => {
+    h.tables.assistant_reminders = { data: { id: "r1" }, error: null };
+    const r = await run(buildAssistantTools(SUPREME), "saveReminder", { text: "call the embassy Monday" });
+    expect(r).toEqual({ saved: true, reminderId: "r1" });
   });
 });
