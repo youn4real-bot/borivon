@@ -43,6 +43,12 @@ next-env.d.ts
 # Claude Code session files
 .claude/
 
+# MediaPipe tasks-vision WASM for classroom virtual backgrounds (~19MB) —
+# regenerated from node_modules by scripts/copy-mediapipe-assets.mjs on
+# postinstall (incl. Vercel build). The small selfie_segmenter.tflite model
+# beside it IS committed (not in any npm package).
+/public/mediapipe/wasm/
+
 # stray files
 *.pdf
 

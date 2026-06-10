@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import {
   LiveKitRoom, VideoConference, RoomAudioRenderer,
   useLocalParticipant, useIsSpeaking, useRoomContext,
@@ -119,6 +120,11 @@ function BackgroundControl({ lang }: { lang: Lang }) {
     borivon: grad("#f59e0b", "#7c2d12"),
   };
 
+  // Self-hosted MediaPipe assets (kept off the CDN so our tight CSP needs no
+  // external connect-src holes — wasm folder is postinstall-synced, the model
+  // is committed). See scripts/copy-mediapipe-assets.mjs.
+  const ASSET_PATHS = { tasksVisionFileSet: "/mediapipe/wasm", modelAssetPath: "/mediapipe/selfie_segmenter.tflite" };
+
   async function apply(id: string) {
     const track = cameraTrack?.track as LocalVideoTrack | undefined;
     if (!track || busy) return;
@@ -127,9 +133,11 @@ function BackgroundControl({ lang }: { lang: Lang }) {
       if (id === "none") { await track.stopProcessor(); }
       else {
         const tp = await import("@livekit/track-processors");
-        const proc = id === "blur1" ? tp.BackgroundBlur(8)
-          : id === "blur2" ? tp.BackgroundBlur(20)
-          : tp.VirtualBackground(IMAGES[id]);
+        const proc = id === "blur1"
+          ? tp.BackgroundProcessor({ mode: "background-blur", blurRadius: 8, assetPaths: ASSET_PATHS })
+          : id === "blur2"
+          ? tp.BackgroundProcessor({ mode: "background-blur", blurRadius: 20, assetPaths: ASSET_PATHS })
+          : tp.BackgroundProcessor({ mode: "virtual-background", imagePath: IMAGES[id], assetPaths: ASSET_PATHS });
         await track.setProcessor(proc);
       }
       setActive(id);
@@ -185,7 +193,23 @@ export default function ClassroomRoom({
           <button onClick={onLeave} className="bv-press text-[12px] font-bold px-3 py-2 rounded-lg" style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>{T("Leave", "Verlassen", "Quitter")}</button>
         </div>
       </div>
-      <div style={{ flex: 1, position: "relative", minHeight: 0 }} data-lk-theme="default">
+      <div
+        style={{
+          flex: 1, position: "relative", minHeight: 0,
+          // Make the LiveKit UI match the site: override its [data-lk-theme=default]
+          // defaults (system-ui font + blue accent) with Lexend + Borivon gold +
+          // site borders. Inline beats the stylesheet's element rule, and these
+          // CSS vars cascade to every .lk-* child (control bar, name tags, chat).
+          ...({
+            "--lk-font-family": "var(--font-sans)",
+            "--lk-accent-bg": "var(--gold)",
+            "--lk-accent-fg": "#1a1206",
+            "--lk-border-color": "var(--border)",
+            "--lk-border-radius": "10px",
+          } as CSSProperties),
+        }}
+        data-lk-theme="default"
+      >
         <LiveKitRoom token={connToken} serverUrl={url} connect video audio style={{ height: "100%" }} onDisconnected={onLeave}>
           <VideoConference />
           <RoomAudioRenderer />
