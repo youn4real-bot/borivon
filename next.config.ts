@@ -59,7 +59,7 @@ const SECURITY_HEADERS = [
   // the header still triggers an exploitable bug in older Chrome — set to 0).
   { key: "X-XSS-Protection", value: "0" },
   // Lock down powerful Web APIs we don't use.
-  { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=(self), interest-cohort=()" },
+  { key: "Permissions-Policy", value: "camera=(self), microphone=(self), geolocation=(), payment=(self), interest-cohort=()" },
   // Modern omnibus protection (XSS, clickjacking, mixed content, etc.).
   { key: "Content-Security-Policy", value: CSP_DIRECTIVES },
 ];
