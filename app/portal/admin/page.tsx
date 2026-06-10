@@ -24,6 +24,7 @@ import {
 import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles, BarChart3 } from "lucide-react";
 import { CandidateEngagementCard } from "@/components/CandidateEngagementCard";
 import { ClassroomTesterToggle } from "@/components/ClassroomTesterToggle";
+import AdminAssistantPanel from "@/components/AdminAssistantPanel";
 import { DndContext, closestCenter, DragOverlay, closestCorners, pointerWithin, useDroppable, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragOverEvent, type DragStartEvent, type CollisionDetection } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove, defaultAnimateLayoutChanges, type AnimateLayoutChanges } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
@@ -7091,6 +7092,7 @@ export default function AdminPage() {
   // ── CANDIDATE LIST VIEW ───────────────────────────────────────────────────────
   return (
     <>
+      {isSuperAdmin && accessToken && <AdminAssistantPanel accessToken={accessToken} />}
       {previewDoc && (
           <AdminDocPreviewModal
             doc={previewDoc}
