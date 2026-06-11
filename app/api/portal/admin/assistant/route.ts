@@ -14,27 +14,16 @@
  * UI can say "not connected yet" instead of crashing — ship-then-wire-the-key.
  */
 import { streamText, convertToModelMessages, stepCountIs, type UIMessage } from "ai";
-import { createVertex } from "@ai-sdk/google-vertex";
 import { NextRequest } from "next/server";
 import { requireAdminRole } from "@/lib/admin-auth";
 import { canSeeExperimental } from "@/lib/classroomTesters";
 import { resolveAssistantScope } from "@/lib/assistantScope";
 import { buildAssistantTools } from "@/lib/assistantTools";
+import { vertexModel } from "@/lib/vertexModel";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-
-/** Build the EU-pinned Vertex provider, or null if the key isn't configured. */
-function makeVertex() {
-  const project = process.env.GOOGLE_VERTEX_PROJECT;
-  const location = process.env.GOOGLE_VERTEX_LOCATION || "europe-west4"; // EU (Netherlands); europe-west3 = Frankfurt
-  const credsRaw = process.env.GOOGLE_VERTEX_CREDENTIALS; // service-account JSON (string)
-  if (!project || !credsRaw) return null;
-  let credentials: Record<string, unknown>;
-  try { credentials = JSON.parse(credsRaw); } catch { return null; }
-  return createVertex({ project, location, googleAuthOptions: { credentials } });
-}
 
 const SYSTEM = [
   "You are the Borivon admin assistant — a strictly READ-ONLY helper for the agency's admin.",
@@ -59,8 +48,8 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const vertex = makeVertex();
-  if (!vertex) {
+  const model = vertexModel();
+  if (!model) {
     return Response.json(
       { error: "assistant_not_configured", message: "The assistant isn't connected yet — add the Google Vertex key." },
       { status: 503 },
@@ -75,7 +64,7 @@ export async function POST(req: NextRequest) {
   const modelMessages = await convertToModelMessages(messages);
 
   const result = streamText({
-    model: vertex(process.env.ASSISTANT_MODEL_ID || "gemini-2.5-flash"),
+    model,
     system: SYSTEM,
     messages: modelMessages,
     tools: buildAssistantTools(scope),

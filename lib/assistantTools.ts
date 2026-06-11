@@ -14,6 +14,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { canActOnCandidate } from "@/lib/admin-auth";
 import { resolveFileKey } from "@/lib/fileKeys";
 import { signDlToken } from "@/lib/dlToken";
+import { computeBriefing } from "@/lib/briefing";
 import type { AssistantScope } from "@/lib/assistantScope";
 
 type ProfileRow = {
@@ -273,6 +274,16 @@ export function buildAssistantTools(scope: AssistantScope) {
         if (error) return { error: "update_failed" };
         if (!data) return { error: "not_found" };
         return { completed: true };
+      },
+    }),
+
+    getTodayBriefing: tool({
+      description:
+        "Get the prioritized 'what needs you today' briefing — documents pending review, passports expiring, B2 exams coming up, and the admin's due reminders. Use when the admin asks what to do today, what's important, what's pending, or for a daily summary.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        const { text, count } = await computeBriefing(scope.userId);
+        return { briefing: text, actionableCount: count };
       },
     }),
   };
