@@ -10,7 +10,7 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { Sparkles, X, Send, Loader2 } from "lucide-react";
+import { Sparkles, X, Send, Loader2, Mic } from "lucide-react";
 import { useLang } from "@/components/LangContext";
 
 /** Render assistant text safely (no HTML injection). The fragile signed file
@@ -66,6 +66,55 @@ export default function AdminAssistantPanel({ accessToken }: { accessToken: stri
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, open, busy]);
+
+  // Auto-open when launched from the installed phone app (start_url has ?assistant=1).
+  useEffect(() => {
+    try {
+      if (new URLSearchParams(window.location.search).get("assistant") === "1") setOpen(true);
+    } catch { /* no-op */ }
+  }, []);
+
+  // ── Voice input — Android Chrome Web Speech API: tap mic, speak, auto-send. ──
+  const [listening, setListening] = useState(false);
+  const [voiceOk, setVoiceOk] = useState(false);
+  const recogRef = useRef<{ stop: () => void } | null>(null);
+  useEffect(() => {
+    const w = window as unknown as { SpeechRecognition?: unknown; webkitSpeechRecognition?: unknown };
+    setVoiceOk(!!(w.SpeechRecognition || w.webkitSpeechRecognition));
+  }, []);
+  function toggleMic() {
+    if (listening) { recogRef.current?.stop(); return; }
+    const w = window as unknown as { SpeechRecognition?: new () => unknown; webkitSpeechRecognition?: new () => unknown };
+    const SR = w.SpeechRecognition || w.webkitSpeechRecognition;
+    if (!SR) return;
+    const r = new SR() as {
+      lang: string; interimResults: boolean; continuous: boolean;
+      onresult: ((e: { resultIndex: number; results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }> }) => void) | null;
+      onend: (() => void) | null; onerror: (() => void) | null;
+      start: () => void; stop: () => void;
+    };
+    r.lang = lang === "de" ? "de-DE" : lang === "fr" ? "fr-FR" : "en-US";
+    r.interimResults = true;
+    r.continuous = false;
+    let finalText = "";
+    r.onresult = (e) => {
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const seg = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finalText += seg; else interim += seg;
+      }
+      setInput((finalText + interim).trim());
+    };
+    r.onend = () => {
+      setListening(false);
+      const text = finalText.trim();
+      if (text) { setInput(""); void sendMessage({ text }); } // speak → auto-send
+    };
+    r.onerror = () => setListening(false);
+    recogRef.current = r;
+    setListening(true);
+    try { r.start(); } catch { setListening(false); }
+  }
 
   function submit() {
     const text = input.trim();
@@ -221,10 +270,24 @@ export default function AdminAssistantPanel({ accessToken }: { accessToken: stri
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); } }}
-                placeholder={T("Ask anything about your candidates…", "Frag etwas über deine Kandidaten…", "Posez une question sur vos candidats…")}
+                placeholder={listening
+                  ? T("Listening… speak now", "Ich höre… sprich jetzt", "J'écoute… parlez")
+                  : T("Ask anything about your candidates…", "Frag etwas über deine Kandidaten…", "Posez une question sur vos candidats…")}
                 className="flex-1 text-[13px] px-3 py-2.5 rounded-xl outline-none"
                 style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }}
               />
+              {voiceOk && (
+                <button
+                  onClick={toggleMic}
+                  className="bv-press inline-flex items-center justify-center p-2.5 rounded-xl"
+                  style={listening
+                    ? { background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }
+                    : { background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}
+                  aria-label={T("Speak", "Sprechen", "Parler")}
+                >
+                  <Mic size={16} className={listening ? "animate-pulse" : ""} />
+                </button>
+              )}
               <button
                 onClick={submit}
                 disabled={busy || !input.trim()}
