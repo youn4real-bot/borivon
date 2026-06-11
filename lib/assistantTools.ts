@@ -384,5 +384,56 @@ export function buildAssistantTools(scope: AssistantScope) {
       inputSchema: z.object({}),
       execute: async () => cancelLatestPending(scope),
     }),
+
+    setCandidateMilestone: tool({
+      description:
+        "STAGE a pipeline milestone change for a candidate ('X got their visa', 'X's flight is June 20', 'X signed the contract', 'X arrived'). Two-step: stage → admin confirms → confirmPendingWrite. field is one of: visa_granted/housing_done/contract_done/recognition_done/docs_approved/docs_ready/vorab_done/arrived_done (value true/false), visa_date/visa_appt_date/flight_date (value 'YYYY-MM-DD' or '' to clear), flight_info (value = text).",
+      inputSchema: z.object({
+        candidateUserId: z.string().uuid(),
+        field: z.enum(["visa_granted", "housing_done", "contract_done", "recognition_done", "docs_approved", "docs_ready", "vorab_done", "arrived_done", "visa_date", "visa_appt_date", "flight_date", "flight_info"]),
+        value: z.union([z.boolean(), z.string()]),
+      }),
+      execute: async ({ candidateUserId, field, value }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const { data } = await db.from("candidate_profiles").select("first_name, last_name").eq("user_id", candidateUserId).maybeSingle();
+        const name = data ? nameOf(data as { first_name: string | null; last_name: string | null }) : "this candidate";
+        const human = typeof value === "boolean" ? (value ? "yes" : "no") : (value || "cleared");
+        return stagePending(scope, {
+          toolName: "setCandidateMilestone",
+          args: { candidateUserId, field, value },
+          candidateUserId,
+          summary: `${name}: ${field} → ${human}`,
+        });
+      },
+    }),
+
+    setB2Status: tool({
+      description:
+        "STAGE a B2 German-exam status change. 'passed B2' → stage 'passed'; 'failed B2' → failed:true. stage is one of: studying, expected_date, exam_booked, awaiting_results, passed. examDate 'YYYY-MM-DD' or '' to clear. Two-step: stage → admin confirms → confirmPendingWrite.",
+      inputSchema: z.object({
+        candidateUserId: z.string().uuid(),
+        stage: z.string().optional(),
+        failed: z.boolean().optional(),
+        examDate: z.string().optional(),
+      }),
+      execute: async ({ candidateUserId, stage, failed, examDate }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const { data } = await db.from("candidate_profiles").select("first_name, last_name").eq("user_id", candidateUserId).maybeSingle();
+        const name = data ? nameOf(data as { first_name: string | null; last_name: string | null }) : "this candidate";
+        const parts = [
+          stage ? `stage ${stage}` : null,
+          failed !== undefined ? (failed ? "FAILED" : "not failed") : null,
+          examDate !== undefined ? (examDate ? `exam ${examDate}` : "clear exam date") : null,
+        ].filter(Boolean).join(", ");
+        return stagePending(scope, {
+          toolName: "setB2Status",
+          args: { candidateUserId, stage, failed, examDate },
+          candidateUserId,
+          summary: `${name}: B2 — ${parts || "(no change)"}`,
+        });
+      },
+    }),
   };
 }
