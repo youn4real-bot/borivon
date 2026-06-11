@@ -109,6 +109,11 @@ describe("assistant tools enforce LAW #25 scope (org-admin)", () => {
     const r = await run(buildAssistantTools(ORG_ADMIN), "saveReminder", { text: "chase passport", candidateUserId: "foreign-cand" });
     expect(r).toEqual({ error: "out_of_scope" });
   });
+
+  it("setInterviewResult → admin_only for a sub-admin (status writes are supreme-only)", async () => {
+    const r = await run(buildAssistantTools(ORG_ADMIN), "setInterviewResult", { candidateUserId: "allowed-cand", which: 1, result: "failed" });
+    expect(r).toEqual({ error: "admin_only" });
+  });
 });
 
 describe("assistant tools allow the supreme admin", () => {
@@ -141,5 +146,13 @@ describe("assistant tools allow the supreme admin", () => {
     h.tables.assistant_reminders = { data: { id: "r1" }, error: null };
     const r = await run(buildAssistantTools(SUPREME), "saveReminder", { text: "call the embassy Monday" });
     expect(r).toEqual({ saved: true, reminderId: "r1" });
+  });
+
+  it("setInterviewResult STAGES a confirm-first write (does not apply immediately)", async () => {
+    h.tables.candidate_profiles = { data: { first_name: "Sara", last_name: "Alami" }, error: null };
+    const r = (await run(buildAssistantTools(SUPREME), "setInterviewResult", { candidateUserId: "any-cand", which: 1, result: "failed" })) as { staged?: boolean; summary?: string };
+    expect(r.staged).toBe(true);
+    expect(r.summary).toContain("Sara Alami");
+    expect(r.summary).toContain("FAILED");
   });
 });

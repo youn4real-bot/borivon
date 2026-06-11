@@ -15,6 +15,7 @@ import { canActOnCandidate } from "@/lib/admin-auth";
 import { resolveFileKey } from "@/lib/fileKeys";
 import { signDlToken } from "@/lib/dlToken";
 import { computeBriefing } from "@/lib/briefing";
+import { stagePending, executeLatestPending, cancelLatestPending } from "@/lib/assistantWrites";
 import type { AssistantScope } from "@/lib/assistantScope";
 
 type ProfileRow = {
@@ -325,6 +326,63 @@ export function buildAssistantTools(scope: AssistantScope) {
         if (error) return { error: "delete_failed" };
         return { forgotten: true };
       },
+    }),
+
+    // ── Status WRITES — supreme-admin only, TWO-STEP (stage → admin confirms → apply) ──
+    setInterviewResult: tool({
+      description:
+        "STAGE a change to a candidate's interview result. which = 1 or 2; result passed/failed/pending ('didn't pass' → failed). This does NOT apply immediately — it returns a summary to show the admin; ONLY after they confirm in a SEPARATE message do you call confirmPendingWrite.",
+      inputSchema: z.object({
+        candidateUserId: z.string().uuid(),
+        which: z.union([z.literal(1), z.literal(2)]).default(1),
+        result: z.enum(["passed", "failed", "pending"]),
+      }),
+      execute: async ({ candidateUserId, which, result }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const { data } = await db.from("candidate_profiles").select("first_name, last_name").eq("user_id", candidateUserId).maybeSingle();
+        const name = data ? nameOf(data as { first_name: string | null; last_name: string | null }) : "this candidate";
+        return stagePending(scope, {
+          toolName: "setInterviewResult",
+          args: { candidateUserId, which, result },
+          candidateUserId,
+          summary: `${name}: interview ${which} → ${result.toUpperCase()}`,
+        });
+      },
+    }),
+
+    setInterviewDate: tool({
+      description:
+        "STAGE setting or clearing a candidate's interview date (which = 1 or 2; date 'YYYY-MM-DD', or '' to clear). Two-step like setInterviewResult — stage, the admin confirms, then confirmPendingWrite.",
+      inputSchema: z.object({
+        candidateUserId: z.string().uuid(),
+        which: z.union([z.literal(1), z.literal(2)]).default(1),
+        date: z.string().regex(/^(\d{4}-\d{2}-\d{2})?$/),
+      }),
+      execute: async ({ candidateUserId, which, date }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const { data } = await db.from("candidate_profiles").select("first_name, last_name").eq("user_id", candidateUserId).maybeSingle();
+        const name = data ? nameOf(data as { first_name: string | null; last_name: string | null }) : "this candidate";
+        return stagePending(scope, {
+          toolName: "setInterviewDate",
+          args: { candidateUserId, which, date },
+          candidateUserId,
+          summary: date ? `${name}: interview ${which} date → ${date}` : `${name}: clear interview ${which} date`,
+        });
+      },
+    }),
+
+    confirmPendingWrite: tool({
+      description: "Apply the most recently STAGED change — call ONLY after the admin confirms it in a separate message (e.g. 'yes', 'confirm', 'do it').",
+      inputSchema: z.object({}),
+      execute: async () => executeLatestPending(scope),
+    }),
+
+    cancelPendingWrite: tool({
+      description: "Discard the most recently staged change when the admin says no / cancel / never mind.",
+      inputSchema: z.object({}),
+      execute: async () => cancelLatestPending(scope),
     }),
   };
 }
