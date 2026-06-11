@@ -20,6 +20,7 @@ import { canSeeExperimental } from "@/lib/classroomTesters";
 import { resolveAssistantScope } from "@/lib/assistantScope";
 import { buildAssistantTools } from "@/lib/assistantTools";
 import { vertexModel } from "@/lib/vertexModel";
+import { loadMemory } from "@/lib/assistantMemory";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,6 +36,7 @@ const SYSTEM = [
   "- You CAN save, list and complete the admin's PERSONAL reminders/tasks (saveReminder / listReminders / completeReminder) — use them whenever the admin tells you to remember something, or asks what's pending or due. When they say things like 'remind me to…' or 'remember to…', call saveReminder.",
   "- Apart from those personal reminders you are READ-ONLY: you CANNOT change candidate data, upload, approve, reject, delete, email, or assign/categorize candidates. If asked, say so plainly.",
   "- When you provide a document, do NOT paste the raw link URL in your reply — the app automatically shows a download button from the tool result. Just name the file and mention the download expires in 3 minutes.",
+  "- LEARN the admin: when they state a lasting preference, teach you a term, or correct you for the future, call rememberAboutMe and confirm briefly. 'what do you know about me?' → recallMemory; 'forget that' → forgetMemory. Apply whatever you already know about them (added below when present).",
   "- Always prefer calling a tool over answering from memory. Keep answers short and practical.",
   "- Reply in the language the admin writes in (German, French, or English).",
 ].join("\n");
@@ -57,6 +59,8 @@ export async function POST(req: NextRequest) {
   }
 
   const scope = await resolveAssistantScope(auth);
+  const memory = await loadMemory(scope.userId);
+  const system = memory ? `${SYSTEM}\n\nWHAT YOU ALREADY KNOW ABOUT THIS ADMIN (apply it):\n${memory}` : SYSTEM;
 
   let body: { messages?: UIMessage[] };
   try { body = await req.json(); } catch { return Response.json({ error: "bad_request" }, { status: 400 }); }
@@ -65,7 +69,7 @@ export async function POST(req: NextRequest) {
 
   const result = streamText({
     model,
-    system: SYSTEM,
+    system,
     messages: modelMessages,
     tools: buildAssistantTools(scope),
     stopWhen: stepCountIs(8), // cap the tool-call loop so it can't spin

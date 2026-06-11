@@ -286,5 +286,45 @@ export function buildAssistantTools(scope: AssistantScope) {
         return { briefing: text, actionableCount: count };
       },
     }),
+
+    // ── Memory: how the admin likes to work (learned, applied every chat) ──
+    rememberAboutMe: tool({
+      description:
+        "Save a DURABLE preference, term, or correction about how the admin likes to work — e.g. 'prefers short answers', 'always lead with passports', 'by batch they mean a monthly cohort', 'wants dates as DD.MM.YYYY'. Call this whenever the admin states a lasting preference, teaches you a term, or corrects you for the future, then briefly confirm. Do NOT use it for one-off requests, tasks (use saveReminder), or candidate data.",
+      inputSchema: z.object({
+        text: z.string().min(1).max(300),
+        kind: z.enum(["preference", "fact", "term", "correction"]).default("preference"),
+      }),
+      execute: async ({ text, kind }) => {
+        if (!scope.userId) return { error: "no_user" };
+        const { error } = await db.from("assistant_memory").insert({ owner_user_id: scope.userId, text, kind });
+        if (error) return { error: "save_failed" };
+        return { remembered: true };
+      },
+    }),
+
+    recallMemory: tool({
+      description: "List everything you currently remember about the admin (their preferences/terms/facts). Use when they ask 'what do you know about me?' or 'what do you remember'.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        const { data, error } = await db
+          .from("assistant_memory")
+          .select("id, kind, text")
+          .eq("owner_user_id", scope.userId)
+          .order("created_at", { ascending: true });
+        if (error) return { error: "load_failed" };
+        return { memory: ((data ?? []) as { id: string; kind: string; text: string }[]).map((r) => ({ memoryId: r.id, kind: r.kind, text: r.text })) };
+      },
+    }),
+
+    forgetMemory: tool({
+      description: "Delete one remembered item by its memoryId (get ids from recallMemory). Use when the admin says 'forget that', 'that's wrong', or 'stop doing that'.",
+      inputSchema: z.object({ memoryId: z.string().uuid() }),
+      execute: async ({ memoryId }) => {
+        const { error } = await db.from("assistant_memory").delete().eq("id", memoryId).eq("owner_user_id", scope.userId);
+        if (error) return { error: "delete_failed" };
+        return { forgotten: true };
+      },
+    }),
   };
 }
