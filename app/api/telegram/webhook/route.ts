@@ -19,7 +19,7 @@ import { vertexModel } from "@/lib/vertexModel";
 import { buildAssistantTools } from "@/lib/assistantTools";
 import type { AssistantScope } from "@/lib/assistantScope";
 import { computeBriefing } from "@/lib/briefing";
-import { tgSend, tgGetFileBytes, getAdminUserId, telegramConfigured } from "@/lib/telegram";
+import { tgSend, tgSendDocument, tgGetFileBytes, getAdminUserId, telegramConfigured } from "@/lib/telegram";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -112,9 +112,34 @@ export async function POST(req: NextRequest) {
       tools: buildAssistantTools(scope),
       stopWhen: stepCountIs(8),
     });
-    // Make any relative download links tappable in Telegram.
-    const reply = (result.text || "Done.").replace(/\/api\/portal\/file/g, `${BASE_URL}/api/portal/file`);
-    await tgSend(chatId, reply);
+
+    // PULL: if the model produced download link(s), deliver the actual file(s)
+    // INTO the chat (not just a link). Aggregate across all tool-call steps.
+    let sentFile = false;
+    try {
+      const steps = (result as { steps?: Array<{ toolResults?: unknown[] }> }).steps;
+      const all = (steps?.flatMap((s) => s.toolResults ?? []) ?? (result.toolResults ?? [])) as Array<{
+        toolName?: string; output?: { url?: string; fileName?: string }; result?: { url?: string; fileName?: string };
+      }>;
+      for (const t of all) {
+        const out = t.output ?? t.result;
+        if (t.toolName !== "getDocumentDownloadLink" || !out?.url) continue;
+        const f = await fetch(`${BASE_URL}${out.url}`);
+        if (f.ok) {
+          const bytes = new Uint8Array(await f.arrayBuffer());
+          if (await tgSendDocument(chatId, bytes, out.fileName || "document")) sentFile = true;
+        }
+      }
+    } catch (e) {
+      console.error("[telegram] file pull failed:", e instanceof Error ? e.message : e);
+    }
+
+    // Text reply: if we delivered the file, strip the raw link; else make links tappable.
+    let reply = result.text || (sentFile ? "" : "Done.");
+    reply = sentFile
+      ? reply.replace(/\/api\/portal\/file\?[^\s)]+/g, "(sent above ⬆️)")
+      : reply.replace(/\/api\/portal\/file/g, `${BASE_URL}/api/portal/file`);
+    if (reply.trim()) await tgSend(chatId, reply);
   } catch (e) {
     console.error("[telegram] generate failed:", e instanceof Error ? e.message : e);
     await tgSend(chatId, "Sorry — something went wrong handling that. Try again, or type it instead of voice.");

@@ -29,6 +29,28 @@ export async function tgSend(chatId: string | number, text: string): Promise<voi
   }
 }
 
+/** Send an actual file INTO the chat (multipart). Used to "pull" a candidate's
+ *  document so it lands in Telegram, not just a link. */
+export async function tgSendDocument(
+  chatId: string | number,
+  bytes: Uint8Array,
+  fileName: string,
+  caption?: string,
+): Promise<boolean> {
+  if (!token()) return false;
+  try {
+    const fd = new FormData();
+    fd.append("chat_id", String(chatId));
+    fd.append("document", new Blob([bytes]), fileName || "document");
+    if (caption) fd.append("caption", caption.slice(0, 1000));
+    const r = await fetch(`${API}/bot${token()}/sendDocument`, { method: "POST", body: fd });
+    return r.ok;
+  } catch (e) {
+    console.error("[telegram] sendDocument failed:", e instanceof Error ? e.message : e);
+    return false;
+  }
+}
+
 /** Download a Telegram file (e.g. a voice note) → bytes + best-guess mime. */
 export async function tgGetFileBytes(fileId: string): Promise<{ bytes: Uint8Array; mime: string } | null> {
   if (!token()) return null;
