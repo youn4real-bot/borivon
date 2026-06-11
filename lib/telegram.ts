@@ -41,7 +41,7 @@ export async function tgSendDocument(
   try {
     const fd = new FormData();
     fd.append("chat_id", String(chatId));
-    fd.append("document", new Blob([bytes]), fileName || "document");
+    fd.append("document", new Blob([bytes as BlobPart]), fileName || "document");
     if (caption) fd.append("caption", caption.slice(0, 1000));
     const r = await fetch(`${API}/bot${token()}/sendDocument`, { method: "POST", body: fd });
     return r.ok;
