@@ -55,12 +55,12 @@ export async function POST(req: NextRequest) {
   if (!msg || chatId == null) return ok();
 
   // 2) Lock to the founder's chat. Until TELEGRAM_CHAT_ID is set, only reveal the id.
-  const allowed = process.env.TELEGRAM_CHAT_ID;
+  const allowed = (process.env.TELEGRAM_CHAT_ID || "").trim();
   if (!allowed) {
     await tgSend(chatId, `👋 Borivon bot connected.\nYour chat id is: ${chatId}\n\nAdd TELEGRAM_CHAT_ID=${chatId} in Vercel and redeploy to lock this bot to you. Until then I won't answer questions.`);
     return ok();
   }
-  if (String(chatId) !== String(allowed)) return ok(); // stranger → silently ignore
+  if (String(chatId) !== allowed) return ok(); // stranger → silently ignore
 
   const text = (msg.text || "").trim();
 

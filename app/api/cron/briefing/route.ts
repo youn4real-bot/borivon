@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
     return new Response("forbidden", { status: 403 });
   }
 
-  const chatId = process.env.TELEGRAM_CHAT_ID;
+  const chatId = (process.env.TELEGRAM_CHAT_ID || "").trim();
   if (!telegramConfigured() || !chatId) {
     return Response.json({ skipped: "telegram_not_configured" });
   }
