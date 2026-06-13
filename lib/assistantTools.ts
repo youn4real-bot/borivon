@@ -16,6 +16,7 @@ import { canActOnCandidate, getStaffEmailSet, resolveAuthNames } from "@/lib/adm
 import { resolveFileKey, translateDocLabel, FILE_KEY_LABELS } from "@/lib/fileKeys";
 import { signDlToken } from "@/lib/dlToken";
 import { UUID_RE } from "@/lib/uuid";
+import { germanSummary } from "@/lib/b2Detail";
 import { computeBriefing } from "@/lib/briefing";
 import { stagePending, executeLatestPending, cancelLatestPending, MILESTONE_BOOL } from "@/lib/assistantWrites";
 import { AUTOMATIONS, getAutomationFlags, setAutomation as persistAutomation } from "@/lib/automationSettings";
@@ -133,6 +134,34 @@ export function buildAssistantTools(
       if (u.users.length < 1000) break;
     }
     return roster;
+  }
+
+  // Resolve ONE admin-supplied identifier (a candidateUserId or a name) against
+  // the roster. Exact full-name match wins; else require EVERY token of the
+  // query to appear in the name — so "Hajar El Kairaa" pins one person while a
+  // bare "Hajar" (shared by several) returns ambiguous instead of a wrong guess.
+  type PickResult =
+    | { status: "ok"; candidate: { userId: string; name: string } }
+    | { status: "ambiguous"; matches: { userId: string; name: string }[] }
+    | { status: "not_found" };
+  function pickCandidate(roster: { userId: string; name: string }[], raw: string): PickResult {
+    const q = (raw ?? "").trim();
+    if (!q) return { status: "not_found" };
+    let matches: { userId: string; name: string }[];
+    if (UUID_RE.test(q)) {
+      matches = roster.filter((c) => c.userId === q);
+    } else {
+      const needle = q.toLowerCase();
+      const exact = roster.filter((c) => c.name.toLowerCase() === needle);
+      const toks = needle.split(/\s+/).filter(Boolean);
+      matches = exact.length ? exact : roster.filter((c) => {
+        const n = c.name.toLowerCase();
+        return toks.every((tk) => n.includes(tk));
+      });
+    }
+    if (matches.length === 0) return { status: "not_found" };
+    if (matches.length > 1) return { status: "ambiguous", matches: matches.slice(0, 6) };
+    return { status: "ok", candidate: matches[0] };
   }
 
   return {
@@ -338,30 +367,14 @@ export function buildAssistantTools(
         const roster = await candidateRoster();
         const results: Array<Record<string, unknown>> = [];
         for (const raw of candidates) {
-          const q = (raw ?? "").trim();
-          if (!q) continue;
-          // Resolve: a UUID → direct; else by name. Prefer an exact full-name
-          // match; otherwise require EVERY token of the query to appear in the
-          // name — so "Hajar El Kairaa" pins one person while a bare "Hajar"
-          // (which matches several) comes back ambiguous instead of guessing.
-          let matches: { userId: string; name: string }[];
-          if (UUID_RE.test(q)) {
-            matches = roster.filter((c) => c.userId === q);
-          } else {
-            const needle = q.toLowerCase();
-            const exact = roster.filter((c) => c.name.toLowerCase() === needle);
-            const toks = needle.split(/\s+/).filter(Boolean);
-            matches = exact.length ? exact : roster.filter((c) => {
-              const n = c.name.toLowerCase();
-              return toks.every((tk) => n.includes(tk));
-            });
-          }
-          if (matches.length === 0) { results.push({ query: raw, status: "not_found" }); continue; }
-          if (matches.length > 1) {
-            results.push({ query: raw, status: "ambiguous", matches: matches.slice(0, 6).map((m) => ({ candidateUserId: m.userId, name: m.name })) });
+          if (!(raw ?? "").trim()) continue;
+          const m = pickCandidate(roster, raw);
+          if (m.status === "not_found") { results.push({ query: raw, status: "not_found" }); continue; }
+          if (m.status === "ambiguous") {
+            results.push({ query: raw, status: "ambiguous", matches: m.matches.map((x) => ({ candidateUserId: x.userId, name: x.name })) });
             continue;
           }
-          const cand = matches[0];
+          const cand = m.candidate;
           const { data: docs } = await db
             .from("documents")
             .select("id, file_name, file_type, status, uploaded_at, drive_file_id, r2_key")
@@ -746,17 +759,73 @@ export function buildAssistantTools(
 
     getB2Overview: tool({
       description:
-        "B2 German-exam overview for every candidate you can see — each one's B2 stage, whether they've failed, and exam date. Read-only. Use for 'how is everyone doing on B2' / 'who has a B2 exam soon'.",
+        "B2 German-exam overview for EVERY candidate you can see — each one's B2 stage, whether they failed, exam date, AND the rich exam detail from their CV (which exam Goethe/telc/ÖSD, written yes/no, result, certificate or expected dates, planned retake) when they've filled it in. Read-only. Use for 'how is EVERYONE doing on B2' / 'who has a B2 exam soon'. For SPECIFIC people (or a 'these candidates' follow-up), use getB2Status with their names instead.",
       inputSchema: z.object({}),
       execute: async () => {
         if (lockedOut) return { error: "out_of_scope" };
         const roster = await candidateRoster();
         if (roster.length === 0) return { candidates: [] };
         const nameById = new Map(roster.map((r) => [r.userId, r.name]));
-        const { data } = await db.from("candidate_profiles").select("user_id, b2_stage, b2_failed, b2_exam_date").in("user_id", roster.map((r) => r.userId));
-        const candidates = ((data ?? []) as { user_id: string; b2_stage: string | null; b2_failed: boolean | null; b2_exam_date: string | null }[])
-          .map((p) => ({ candidateUserId: p.user_id, name: nameById.get(p.user_id) ?? "—", stage: p.b2_stage ?? "studying", failed: p.b2_failed === true, examDate: p.b2_exam_date ?? null }));
+        const ids = roster.map((r) => r.userId);
+        // Pull only the langs sub-tree of cv_draft (egress-safe), with a fallback
+        // to the coarse columns if the PostgREST arrow-select isn't supported.
+        type Row = { user_id: string; b2_stage: string | null; b2_failed: boolean | null; b2_exam_date: string | null; cv_langs?: unknown };
+        const narrow = await db.from("candidate_profiles").select("user_id, b2_stage, b2_failed, b2_exam_date, cv_langs:cv_draft->langs").in("user_id", ids);
+        const rows = narrow.error
+          ? ((await db.from("candidate_profiles").select("user_id, b2_stage, b2_failed, b2_exam_date").in("user_id", ids)).data ?? [])
+          : (narrow.data ?? []);
+        const candidates = (rows as unknown as Row[]).map((p) => {
+          const g = germanSummary({ langs: p.cv_langs });
+          return {
+            candidateUserId: p.user_id,
+            name: nameById.get(p.user_id) ?? "—",
+            stage: p.b2_stage ?? "studying",
+            failed: p.b2_failed === true,
+            examDate: p.b2_exam_date ?? null,
+            germanLevel: g.level,
+            detail: g.summary || null,
+          };
+        });
         return { candidates };
+      },
+    }),
+
+    getB2Status: tool({
+      description:
+        "DETAILED B2 German-exam status for SPECIFIC candidates by name — use whenever the admin asks about 'these candidates', names a few people, or follows up after pulling their CVs (e.g. 'now give me their B2 status'). Pass candidates=[the FULL names]. Returns per person: their pipeline B2 stage, whether they failed, the exam date, AND the rich detail from their CV (which exam Goethe/telc/ÖSD, written yes/no, result voll/teil/nicht bestanden/wartet, certificate received or expected date, planned retake). Per-entry status: ok / ambiguous (name shared — show matches, ask which) / not_found. For the WHOLE roster at once, use getB2Overview.",
+      inputSchema: z.object({
+        candidates: z.array(z.string().min(1).max(120)).min(1).max(20).describe("the candidates' full names (or candidateUserIds)"),
+      }),
+      execute: async ({ candidates }) => {
+        if (lockedOut) return { results: [] };
+        const roster = await candidateRoster();
+        const results: Array<Record<string, unknown>> = [];
+        for (const raw of candidates) {
+          if (!(raw ?? "").trim()) continue;
+          const m = pickCandidate(roster, raw);
+          if (m.status === "not_found") { results.push({ query: raw, status: "not_found" }); continue; }
+          if (m.status === "ambiguous") {
+            results.push({ query: raw, status: "ambiguous", matches: m.matches.map((x) => ({ candidateUserId: x.userId, name: x.name })) });
+            continue;
+          }
+          const cand = m.candidate;
+          // One row, so the full cv_draft is cheap — no arrow-select needed.
+          const { data } = await db.from("candidate_profiles").select("b2_stage, b2_failed, b2_exam_date, cv_draft").eq("user_id", cand.userId).maybeSingle();
+          const p = (data ?? {}) as { b2_stage?: string | null; b2_failed?: boolean | null; b2_exam_date?: string | null; cv_draft?: unknown };
+          const g = germanSummary(p.cv_draft);
+          results.push({
+            query: raw,
+            status: "ok",
+            candidateUserId: cand.userId,
+            name: cand.name,
+            b2Stage: p.b2_stage ?? "studying",
+            failed: p.b2_failed === true,
+            examDate: p.b2_exam_date ?? null,
+            germanLevel: g.level,
+            detail: g.summary || "no exam details filled in on their CV yet",
+          });
+        }
+        return { results };
       },
     }),
 

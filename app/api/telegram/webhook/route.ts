@@ -20,6 +20,7 @@ import { buildAssistantTools } from "@/lib/assistantTools";
 import type { AssistantScope } from "@/lib/assistantScope";
 import { computeBriefing } from "@/lib/briefing";
 import { loadMemory } from "@/lib/assistantMemory";
+import { loadChatHistory, saveChatTurns } from "@/lib/assistantChatHistory";
 import { tgSend, tgSendDocument, tgGetFileBytes, getAdminUserId, telegramConfigured } from "@/lib/telegram";
 import { r2Configured, r2Put } from "@/lib/r2";
 import { randomUUID, createHash } from "crypto";
@@ -49,7 +50,8 @@ const TG_SYSTEM = [
   "- More candidate-progress writes (all two-step, confirm-first): getCandidatePipeline (READ a candidate's status before changing it); setAnerkennungStage (recognition: not_started→submitted→in_review→deficit→exam_or_course→recognized); setNurseProfile (specialty / years experience / workplace / available-from — the facts hospitals filter on); sendFollowUpNudge (a soft 'Borivon' reminder in their bell); manageJourneyItem (add/toggle/rename/delete/schedule a checklist task — owner 'candidate' = a task the candidate sees & does). You can NEVER lock/unlock a stage — that stays on the website.",
   "- DOCUMENT REVIEW (all two-step, confirm-first): reviewDocument(docId, status approved/rejected/pending, feedback) — approve or reject an uploaded file (rejection NEEDS a reason; it auto-notifies + emails the candidate); use listCandidateDocuments to get the docId. setPassportDataStatus(candidateUserId, status, feedback) — approve/reject the extracted passport DATA (reject wipes the fields + notifies). editCandidateProfileField(candidateUserId, field, value) — fix ONE passport/identity field (name, dob, passport_no, address, etc.); it propagates into their CV automatically. rotateDocument(docId, deltaRotation) — rotate a scan by 90°. You can NEVER tick the passport confirmation checkboxes (human-only) and NEVER alter passport image bytes.",
   "- CV: readCvDraft(candidateUserId) READS the candidate's German CV data. editCvDraft(candidateUserId, field driverLicense/hobbies/email/phone, value) edits a CV-only field (for name/birth/address use editCandidateProfileField — it flows into the CV). setCvBrandingMode(candidateUserId, mode agency/borivon/none) sets the branding on the ADMIN-generated CV — 'agency' = the employer's agency logo+footer (e.g. Calmaroi), 'borivon' = plain Borivon, 'none' = no branding. generateAndPublishCv(candidateUserId) GENERATES the German CV PDF and PUBLISHES it as the candidate's official Lebenslauf (set branding first if needed) — use it for 'generate/make X's CV', or before emailing a CV for a candidate who has none on file. All three are two-step confirm-first.",
-  "- READ / OVERVIEW tools (read-only, answer questions instantly): getPipelineBoard (every candidate's key milestones — interview/contract/visa/arrived — for 'who needs me / where is everyone'), listAssignedTasks (custom tasks you gave candidates, onlyOpen for the undone ones), listLeads (website/funnel leads, supreme-only), getCandidatePhone (their number + a wa.me link), listExpiringPassports (passport-expiry radar, within N days), getB2Overview (everyone's B2 stage / exam date). Use these for 'who has a passport expiring soon', 'what leads do we have', 'how is everyone on B2', 'where is everyone', 'what's X's number'.",
+  "- READ / OVERVIEW tools (read-only, answer questions instantly): getPipelineBoard (every candidate's key milestones — interview/contract/visa/arrived — for 'who needs me / where is everyone'), listAssignedTasks (custom tasks you gave candidates, onlyOpen for the undone ones), listLeads (website/funnel leads, supreme-only), getCandidatePhone (their number + a wa.me link), listExpiringPassports (passport-expiry radar, within N days), getB2Overview (EVERYONE's B2 stage + exam + rich CV detail), getB2Status(candidates=[names]) (DETAILED B2 for SPECIFIC people). Use getB2Overview for 'how is EVERYONE on B2'; use getB2Status whenever the admin names people or says 'these candidates' / 'their B2 status' (e.g. right after pulling some CVs) — pass exactly those names, do NOT dump the whole roster. Use the others for 'who has a passport expiring soon', 'what leads do we have', 'where is everyone', 'what's X's number'.",
+  "- CONTEXT: this is a continuing conversation — earlier turns are included. When the admin says 'these candidates', 'them', 'their', 'those', it refers to the people from the PREVIOUS turns (e.g. the CVs you just pulled). Resolve the reference from the recent conversation and act ONLY on those people — never silently fall back to the entire roster.",
   "- INBOX: listConversations (all chat threads with last message + unread count), getCandidateThread(candidateUserId) (the full chat with one candidate), markThreadRead(candidateUserId) (clear the unread badge — immediate). To REPLY, use sendCandidateMessage.",
   "- EMPLOYERS/ORGS: listEmployers (the hospitals/clinics — id+name), listOrganizations (partner orgs + their invite code + branding, supreme-only), getAssignedEmployer(candidateUserId) (who they're placed at). assignEmployer(candidateUserId, employerId or '' to clear) STAGES setting a candidate's employer — this sets the visa-letter recipient AND (with agency branding) their CV logo. Two-step confirm-first. Use listEmployers first to get the id. upsertEmployer creates a NEW hospital/clinic (name + address) or edits one (id + fields; active:false retires) — supreme-only, confirm-first; create the employer first, then assignEmployer the candidate to it. linkCandidateToOrg(candidateUserId, orgId, op link/unlink, status?) links/unlinks a candidate to a partner ORGANIZATION (gives that org dossier access; placement is silent) — supreme-only, confirm-first; orgId from listOrganizations. getAgencyProfile reads YOUR employer/agency contact block (fills section C of German forms); setAgencyProfile updates it (firma/strasse/plz/ort/kontaktperson/telefon/email/betriebsnummer…) — supreme-only, confirm-first.",
   "- ORG PIPELINE (supreme-only, for managing partner organizations & matching): listOrgRequests shows the inbox of candidates waiting to be approved into an org; reviewOrgRequest(candidateUserId, orgId, decision approve/reject) clears one (approve = grant that org dossier access) — confirm-first. listSuggestedMatches shows system-proposed candidate↔org matches with the requirement; decideSuggestedMatch(matchId, action accepted/skipped) — 'accepted' SILENTLY links the candidate to that org — confirm-first. listOrgNeeds shows every org's open hiring needs; manageOrgRequirement(op add/edit/close, orgId for add | requirementId for edit/close, specialty/slots/location/startDate/notes) — confirm-first. manageOrganization(op create/edit, name/notes/inviteCode) creates a new partner org or renames one (DELETE stays web-only — it cascades to candidate links). setOrgBranding(orgId, footerText?, masern?, varizell?) sets an org's footer line + vaccine requirement (logo upload stays web-only) — confirm-first. listAgencies shows the tenancy containers + their admin/member/candidate counts (read-only). e.g. 'any pending org requests?' → listOrgRequests; 'approve Hajar into UKSH' → reviewOrgRequest → confirm.",
@@ -126,6 +128,7 @@ export async function POST(req: NextRequest) {
   const document = msg.document ?? null;
   let content: string | Array<{ type: "text"; text: string } | { type: "file"; data: Uint8Array; mediaType: string }>;
   let pendingFile: { r2Key: string; mime: string; fileName: string; sha256: string } | undefined;
+  let userText = ""; // the human-readable user turn, saved to conversation history
 
   if (photo || document) {
     // The admin attached a file to STORE into a candidate's documents. Download
@@ -152,6 +155,7 @@ export async function POST(req: NextRequest) {
       type: "text",
       text: `The admin attached a FILE to store in Borivon (original name: "${fileName}", type: ${mime}). ${caption ? `Their caption: "${caption}".` : "There is NO caption."} Use your tools to identify which candidate it is for (searchCandidates / listAllCandidates) and the document type, then call storeCandidateDocument with their candidateUserId + the docKey. If you can't tell WHO it's for, ASK the admin who. Do NOT call confirmPendingWrite yourself.`,
     }];
+    userText = `[sent a file: ${fileName}${caption ? ` — ${caption}` : ""}]`;
   } else if (msg.voice) {
     const audio = await tgGetFileBytes(msg.voice.file_id);
     if (!audio) { await tgSend(chatId, "Couldn't fetch that voice note — please try again or type."); return ok(); }
@@ -159,8 +163,10 @@ export async function POST(req: NextRequest) {
       { type: "file", data: audio.bytes, mediaType: audio.mime },
       { type: "text", text: "This is a voice message from the admin. Understand it and act using your tools." },
     ];
+    userText = "[voice message]";
   } else if (text) {
     content = text;
+    userText = text;
   } else {
     return ok(); // nothing actionable (sticker, etc.)
   }
@@ -168,11 +174,14 @@ export async function POST(req: NextRequest) {
   // 5) Run the brain, reply.
   const memory = await loadMemory(scope.userId);
   const tgSystem = memory ? `${TG_SYSTEM}\n\nWHAT YOU ALREADY KNOW ABOUT THIS ADMIN (apply it):\n${memory}` : TG_SYSTEM;
+  // Recent turns so follow-ups resolve in context ("give me THEIR B2 status"
+  // after pulling some CVs). Fail-safe: [] until the table is migrated.
+  const history = await loadChatHistory(scope.userId);
   try {
     const result = await generateText({
       model,
       system: tgSystem,
-      messages: [{ role: "user", content }],
+      messages: [...history, { role: "user", content }],
       tools: buildAssistantTools(scope, pendingFile),
       // Headroom for multi-item requests (e.g. "pull the CVs of these 4 people"):
       // the batch tools (getCvLinks) collapse most of that into one call, but
@@ -218,6 +227,12 @@ export async function POST(req: NextRequest) {
       ? reply.replace(/\/api\/portal\/file\?[^\s)]+/g, "(sent above ⬆️)")
       : reply.replace(/\/api\/portal\/file/g, `${BASE_URL}/api/portal/file`);
     if (reply.trim()) await tgSend(chatId, reply);
+    // Remember this turn so the NEXT message has context (e.g. "their B2 status"
+    // after pulling some CVs). The assistant turn keeps the names it just used.
+    await saveChatTurns(scope.userId, [
+      { role: "user", content: userText },
+      { role: "assistant", content: reply.trim() || (sentFile ? "[delivered the requested file(s)]" : "") },
+    ]);
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
     console.error("[telegram] generate failed:", detail);

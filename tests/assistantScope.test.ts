@@ -330,6 +330,36 @@ describe("assistant tools allow the supreme admin", () => {
     expect(byQ["Nour Eddine Zzz"]?.status).toBe("not_found");
   });
 
+  it("getB2Status returns per-candidate B2 for NAMED people (resolves full names, flags ambiguous, never dumps the roster)", async () => {
+    h.tables.candidate_profiles = {
+      data: [
+        { user_id: "u-ismail", first_name: "Ismail", last_name: "Louali" },
+        { user_id: "u-hajar1", first_name: "Hajar", last_name: "El Kairaa" },
+        { user_id: "u-hajar2", first_name: "Hajar", last_name: "Bousfiha" },
+      ],
+      error: null,
+    };
+    h.authUsers = [
+      { id: "u-ismail", email: "ismail@x.com", user_metadata: { full_name: "Ismail Louali" } },
+      { id: "u-hajar1", email: "h1@x.com", user_metadata: { full_name: "Hajar El Kairaa" } },
+      { id: "u-hajar2", email: "h2@x.com", user_metadata: { full_name: "Hajar Bousfiha" } },
+    ];
+    const r = (await run(buildAssistantTools(SUPREME), "getB2Status", { candidates: ["Ismail Louali", "Hajar", "Nobody Xyz"] })) as {
+      results?: { query?: string; status?: string; name?: string; b2Stage?: string; detail?: string }[];
+    };
+    const byQ = Object.fromEntries((r.results ?? []).map((x) => [x.query, x]));
+    // Full name → exactly one person, with the detailed B2 fields present.
+    expect(byQ["Ismail Louali"]?.status).toBe("ok");
+    expect(byQ["Ismail Louali"]?.name).toBe("Ismail Louali");
+    expect(typeof byQ["Ismail Louali"]?.b2Stage).toBe("string");
+    expect(typeof byQ["Ismail Louali"]?.detail).toBe("string");
+    // Bare shared first name → ambiguous (ask which), never a roster dump.
+    expect(byQ["Hajar"]?.status).toBe("ambiguous");
+    expect(byQ["Nobody Xyz"]?.status).toBe("not_found");
+    // Only the 3 requested people come back — not all candidates.
+    expect((r.results ?? []).length).toBe(3);
+  });
+
   it("getCandidateById returns the profile summary for the supreme admin", async () => {
     h.tables.candidate_profiles = {
       data: { user_id: "any-cand", first_name: "Any", last_name: "Body", b2_exam_date: "2026-09-01", passport_expiry: null, passport_status: null },
