@@ -251,6 +251,17 @@ describe("assistant tools enforce LAW #25 scope (org-admin)", () => {
     const r = await run(buildAssistantTools(ORG_ADMIN), "listSignRequests", { candidateUserId: "foreign-cand" });
     expect(r).toEqual({ error: "out_of_scope" });
   });
+
+  it("staff & access tools → admin_only for a sub-admin", async () => {
+    const t = buildAssistantTools(ORG_ADMIN);
+    const orgUuid = "11111111-1111-1111-1111-111111111111";
+    expect(await run(t, "listStaff", {})).toEqual({ error: "admin_only" });
+    expect(await run(t, "inviteSubAdmin", {})).toEqual({ error: "admin_only" });
+    expect(await run(t, "manageSubAdmin", { op: "create", email: "helper@borivon.com" })).toEqual({ error: "admin_only" });
+    expect(await run(t, "assignCandidate", { op: "assign", subAdminEmail: "helper@borivon.com", candidateUserId: "allowed-cand" })).toEqual({ error: "admin_only" });
+    expect(await run(t, "setCandidateVerified", { candidateUserId: "allowed-cand", verified: true })).toEqual({ error: "admin_only" });
+    expect(await run(t, "manageOrgMember", { op: "add", orgId: orgUuid, email: "m@org.com", role: "member" })).toEqual({ error: "admin_only" });
+  });
 });
 
 describe("assistant tools allow the supreme admin", () => {
@@ -648,6 +659,58 @@ describe("assistant tools allow the supreme admin", () => {
     expect(reqs.count).toBe(1);
     expect(reqs.requests?.[0]?.documentName).toBe("Vollmacht");
     expect(reqs.requests?.[0]?.awaitingReview).toBe(true);
+  });
+
+  const STAFF_ORG = "11111111-1111-1111-1111-111111111111";
+
+  it("inviteSubAdmin mints a self-serve /join/subadmin link (immediate)", async () => {
+    const r = (await run(buildAssistantTools(SUPREME), "inviteSubAdmin", {})) as { url?: string; code?: string };
+    expect(r.url).toContain("/join/subadmin/");
+    expect((r.code ?? "").length).toBeGreaterThan(20);
+  });
+
+  it("manageSubAdmin stages create, validates the email", async () => {
+    const ok = (await run(buildAssistantTools(SUPREME), "manageSubAdmin", { op: "create", email: "Helper@Borivon.com", name: "Helper One" })) as { staged?: boolean; summary?: string };
+    expect(ok.staged).toBe(true);
+    expect(ok.summary).toContain("Add sub-admin");
+    expect(ok.summary).toContain("helper@borivon.com"); // normalized to lowercase in the summary
+    expect(await run(buildAssistantTools(SUPREME), "manageSubAdmin", { op: "remove", email: "not-an-email" })).toEqual({ error: "bad_email" });
+  });
+
+  it("assignCandidate stages an assign with the candidate's name", async () => {
+    h.tables.candidate_profiles = { data: { first_name: "Hajar", last_name: "B" }, error: null };
+    const ok = (await run(buildAssistantTools(SUPREME), "assignCandidate", { op: "assign", subAdminEmail: "helper@borivon.com", candidateUserId: "cand-1" })) as { staged?: boolean; summary?: string };
+    expect(ok.staged).toBe(true);
+    expect(ok.summary).toContain("Assign");
+    expect(ok.summary).toContain("Hajar");
+    expect(ok.summary).toContain("helper@borivon.com");
+  });
+
+  it("setCandidateVerified stages grant/revoke", async () => {
+    h.tables.candidate_profiles = { data: { first_name: "Sara", last_name: "L" }, error: null };
+    const ok = (await run(buildAssistantTools(SUPREME), "setCandidateVerified", { candidateUserId: "cand-1", verified: true })) as { staged?: boolean; summary?: string };
+    expect(ok.staged).toBe(true);
+    expect(ok.summary).toContain("Grant verified tick");
+    expect(ok.summary).toContain("Sara");
+  });
+
+  it("manageOrgMember stages add with org name, and requires a role for setRole", async () => {
+    h.tables.organizations = { data: { name: "UKSH Kiel" }, error: null };
+    const ok = (await run(buildAssistantTools(SUPREME), "manageOrgMember", { op: "add", orgId: STAFF_ORG, email: "m@org.com", role: "owner" })) as { staged?: boolean; summary?: string };
+    expect(ok.staged).toBe(true);
+    expect(ok.summary).toContain("UKSH Kiel");
+    expect(ok.summary).toContain("m@org.com");
+    expect(await run(buildAssistantTools(SUPREME), "manageOrgMember", { op: "setRole", orgId: STAFF_ORG, email: "m@org.com" })).toEqual({ error: "role_required" });
+  });
+
+  it("listStaff returns sub-admins with assigned counts", async () => {
+    h.tables.sub_admins = { data: [{ email: "helper@borivon.com", name: "Helper", label: null, is_agency_admin: false, agency_id: null, created_at: "2026-01-01" }], error: null };
+    h.tables.sub_admin_assignments = { data: [{ sub_admin_email: "helper@borivon.com", candidate_user_id: "c1" }, { sub_admin_email: "helper@borivon.com", candidate_user_id: "c2" }], error: null };
+    const r = (await run(buildAssistantTools(SUPREME), "listStaff", {})) as { count?: number; staff?: { email?: string; assignedCount?: number; orgScoped?: boolean }[] };
+    expect(r.count).toBe(1);
+    expect(r.staff?.[0]?.email).toBe("helper@borivon.com");
+    expect(r.staff?.[0]?.assignedCount).toBe(2);
+    expect(r.staff?.[0]?.orgScoped).toBe(false);
   });
 
   it("listAutomations returns the switches (defaults on), and setAutomation flips one", async () => {

@@ -1309,6 +1309,140 @@ export function buildAssistantTools(
       },
     }),
 
+    listStaff: tool({
+      description:
+        "List your STAFF — every sub-admin (Borivon HQ helpers + org-scoped admins) with their name/label, whether they're org-scoped (is_agency_admin), and how many candidates are directly assigned to them. Read-only, supreme-only. Use for 'who has access', 'how many candidates does X handle'. (To see one org's members, use listOrganizations + the org's people on the site.)",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const [{ data: subs }, { data: asg }] = await Promise.all([
+          db.from("sub_admins").select("email, name, label, is_agency_admin, agency_id, created_at").order("created_at", { ascending: true }),
+          db.from("sub_admin_assignments").select("sub_admin_email, candidate_user_id"),
+        ]);
+        const counts: Record<string, number> = {};
+        for (const a of (asg ?? []) as { sub_admin_email: string }[]) counts[a.sub_admin_email] = (counts[a.sub_admin_email] ?? 0) + 1;
+        const staff = ((subs ?? []) as { email: string; name: string | null; label: string | null; is_agency_admin: boolean | null; agency_id: string | null }[]).map((s) => ({
+          email: s.email, name: s.name || null, label: s.label || null,
+          orgScoped: !!s.is_agency_admin, agencyId: s.agency_id || null,
+          assignedCount: counts[s.email] ?? 0,
+        }));
+        return { count: staff.length, staff };
+      },
+    }),
+
+    inviteSubAdmin: tool({
+      description:
+        "Generate a fresh SUB-ADMIN invite link — the same /join/subadmin link the Manage page produces. Whoever redeems it becomes a Borivon HQ sub-admin (all-candidate visibility, LAW #25). Returns a URL — include it verbatim so the admin can copy and send it. Each call mints a NEW single-use link. Immediate — NO confirmation step. Supreme-only.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const code = randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "").slice(0, 8);
+        let { error } = await db.from("invite_tokens").insert({ org_id: null, type: "sub-admin", code, agency_id: null });
+        if (error) ({ error } = await db.from("invite_tokens").insert({ org_id: null, type: "member", code, agency_id: null }));
+        if (error) return { error: "invite_failed" };
+        const base = (process.env.PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_BASE_URL || "https://www.borivon.com").replace(/\/+$/, "");
+        return { url: `${base}/join/subadmin/${code}`, code, note: "single-use sub-admin invite link" };
+      },
+    }),
+
+    manageSubAdmin: tool({
+      description:
+        "STAGE creating or removing a Borivon HQ SUB-ADMIN. op 'create' (needs email; optional name + label) adds a sub-admin who can see ALL candidates (LAW #25). op 'remove' (needs email) deletes them and all their candidate assignments. Supreme-only. Two-step: stage → admin confirms → confirmPendingWrite. (To onboard them yourself, use inviteSubAdmin for a self-serve link instead.)",
+      inputSchema: z.object({
+        op: z.enum(["create", "remove"]),
+        email: z.string().max(254),
+        name: z.string().max(200).optional(),
+        label: z.string().max(200).optional(),
+      }),
+      execute: async ({ op, email, name, label }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const e = email.trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return { error: "bad_email" };
+        const args: Record<string, unknown> = { op, email: e };
+        if (name !== undefined) args.name = name;
+        if (label !== undefined) args.label = label;
+        return stagePending(scope, {
+          toolName: "manageSubAdmin",
+          args,
+          candidateUserId: null,
+          summary: `${op === "create" ? "Add" : "Remove"} sub-admin: ${e}${name ? ` (${name})` : ""}`,
+        });
+      },
+    }),
+
+    assignCandidate: tool({
+      description:
+        "STAGE assigning (or unassigning) a candidate to a SUB-ADMIN so that sub-admin handles them. op 'assign' or 'unassign'; subAdminEmail from listStaff + candidateUserId from searchCandidates. Supreme-only. Two-step: stage → admin confirms → confirmPendingWrite.",
+      inputSchema: z.object({
+        op: z.enum(["assign", "unassign"]),
+        subAdminEmail: z.string().max(254),
+        candidateUserId: z.string().uuid(),
+      }),
+      execute: async ({ op, subAdminEmail, candidateUserId }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const e = subAdminEmail.trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return { error: "bad_email" };
+        const name = await displayName(candidateUserId);
+        return stagePending(scope, {
+          toolName: "assignCandidate",
+          args: { op, subAdminEmail: e, candidateUserId },
+          candidateUserId,
+          summary: `${op === "assign" ? "Assign" : "Unassign"} ${name} ${op === "assign" ? "→" : "from"} ${e}`,
+        });
+      },
+    }),
+
+    setCandidateVerified: tool({
+      description:
+        "STAGE granting or revoking a candidate's blue VERIFIED tick (manually_verified). Grant makes them show as verified everywhere regardless of document status, and sends them a one-time 'verified' notification + email. verified true to grant, false to revoke. Supreme-only. Two-step: stage → admin confirms → confirmPendingWrite.",
+      inputSchema: z.object({
+        candidateUserId: z.string().uuid(),
+        verified: z.boolean(),
+      }),
+      execute: async ({ candidateUserId, verified }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const name = await displayName(candidateUserId);
+        return stagePending(scope, {
+          toolName: "setCandidateVerified",
+          args: { userId: candidateUserId, verified },
+          candidateUserId,
+          summary: `${verified ? "Grant" : "Revoke"} verified tick: ${name}`,
+        });
+      },
+    }),
+
+    manageOrgMember: tool({
+      description:
+        "STAGE adding, changing the role of, or removing an ORGANIZATION MEMBER (a person who logs in scoped to one partner org — sees ONLY that org's candidates). orgId from listOrganizations. op 'add' (email + role member/owner, optional name/label — creates their org-scoped sub-admin login if new), 'setRole' (email + role), or 'remove' (email — removes them from the org but keeps their account). Supreme-only. Two-step: stage → admin confirms → confirmPendingWrite.",
+      inputSchema: z.object({
+        op: z.enum(["add", "setRole", "remove"]),
+        orgId: z.string().uuid(),
+        email: z.string().max(254),
+        role: z.enum(["member", "owner"]).optional(),
+        name: z.string().max(200).optional(),
+        label: z.string().max(200).optional(),
+      }),
+      execute: async ({ op, orgId, email, role, name, label }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const e = email.trim().toLowerCase();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return { error: "bad_email" };
+        if (op === "setRole" && !role) return { error: "role_required" };
+        const { data: org } = await db.from("organizations").select("name").eq("id", orgId).maybeSingle();
+        const orgName = (org as { name?: string } | null)?.name ?? orgId;
+        const args: Record<string, unknown> = { op, orgId, email: e };
+        if (role !== undefined) args.role = role;
+        if (name !== undefined) args.name = name;
+        if (label !== undefined) args.label = label;
+        const verb = op === "add" ? `Add ${e}${role ? ` (${role})` : ""} to` : op === "setRole" ? `Set ${e} role ${role} @` : `Remove ${e} from`;
+        return stagePending(scope, {
+          toolName: "manageOrgMember",
+          args,
+          candidateUserId: null,
+          summary: `${verb} ${orgName}`,
+        });
+      },
+    }),
+
     listStuckCandidates: tool({
       description:
         "List candidates who may need a NUDGE — their latest uploaded document was rejected ≥3 days ago and not re-submitted, or their pipeline hasn't moved in 3+ weeks. Read-only; returns each name + the reason(s). To nudge them, use nudgeStuckCandidates (all at once, confirm-first) or message one with sendCandidateMessage / sendFollowUpNudge. This is the same list the daily auto-chase push surfaces.",

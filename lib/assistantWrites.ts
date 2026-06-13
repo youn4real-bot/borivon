@@ -9,13 +9,13 @@
  * the AI path can never bypass the portal's validation. Supreme-admin only.
  */
 import { getServiceSupabase } from "@/lib/supabase";
-import { canActOnCandidate } from "@/lib/admin-auth";
+import { canActOnCandidate, ciEmail } from "@/lib/admin-auth";
 import { isB2Stage } from "@/lib/b2Journey";
 import { isAnerkennungStage } from "@/lib/anerkennungJourney";
 import { isNurseSpecialty } from "@/lib/nurseSpecialties";
 import { allowedOwnersFor, isJourneyOwner } from "@/lib/candidateJourney";
 import { cleanPublicText } from "@/lib/sanitizeInput";
-import { sendCandidateMessageEmail } from "@/lib/email";
+import { sendCandidateMessageEmail, sendVerifiedEmail } from "@/lib/email";
 import { FILE_KEY_LABELS } from "@/lib/fileKeys";
 import { applyDocReview, applyCandidateProfilePatch } from "@/lib/adminCandidateActions";
 import { backfillPassportFromCvDraft } from "@/lib/cvDraftBackfill";
@@ -806,6 +806,121 @@ async function writeSignRequestReview(scope: AssistantScope, signRequestId: stri
   return { ok: true };
 }
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Create or remove a (Borivon HQ) sub-admin — mirrors POST/DELETE
+ *  /api/portal/admin/sub-admins. create: collapse any rows for the email (no
+ *  unique constraint) then insert one with is_agency_admin:false (schema-
+ *  tolerant). remove: delete assignments FIRST, then the row. */
+async function writeManageSubAdmin(op: string, email: string, name: string, label: string): Promise<WriteResult> {
+  const e = email.trim().toLowerCase();
+  if (!EMAIL_RE.test(e)) return { ok: false, error: "bad_email" };
+  const db = getServiceSupabase();
+  if (op === "create") {
+    await db.from("sub_admins").delete().ilike("email", ciEmail(e));
+    let { error } = await db.from("sub_admins").insert({ email: e, name: name.slice(0, 200), label: label.slice(0, 200), is_agency_admin: false });
+    if (error && /is_agency_admin|column .* does not exist|schema cache/i.test(error.message)) {
+      ({ error } = await db.from("sub_admins").insert({ email: e, name: name.slice(0, 200), label: label.slice(0, 200) }));
+    }
+    if (error && !/duplicate key|unique|already exists|23505/i.test(error.message)) return { ok: false, error: "write_failed" };
+    return { ok: true };
+  }
+  if (op === "remove") {
+    const { error: aErr } = await db.from("sub_admin_assignments").delete().eq("sub_admin_email", e);
+    if (aErr) return { ok: false, error: "write_failed" };
+    const { error } = await db.from("sub_admins").delete().eq("email", e);
+    if (error) return { ok: false, error: "write_failed" };
+    return { ok: true };
+  }
+  return { ok: false, error: "bad_op" };
+}
+
+/** Assign / unassign a candidate to a sub-admin — mirrors POST/DELETE
+ *  /api/portal/admin/sub-admins/assign (upsert / delete sub_admin_assignments). */
+async function writeAssignCandidate(op: string, subAdminEmail: string, candidateUserId: string): Promise<WriteResult> {
+  const e = subAdminEmail.trim().toLowerCase();
+  if (!EMAIL_RE.test(e)) return { ok: false, error: "bad_email" };
+  if (!UUID_RE.test(candidateUserId)) return { ok: false, error: "bad_id" };
+  const db = getServiceSupabase();
+  if (op === "assign") {
+    const { error } = await db.from("sub_admin_assignments").upsert(
+      { sub_admin_email: e, candidate_user_id: candidateUserId }, { onConflict: "sub_admin_email,candidate_user_id" });
+    if (error) return { ok: false, error: "write_failed" };
+    return { ok: true };
+  }
+  if (op === "unassign") {
+    const { error } = await db.from("sub_admin_assignments").delete().eq("sub_admin_email", e).eq("candidate_user_id", candidateUserId);
+    if (error) return { ok: false, error: "write_failed" };
+    return { ok: true };
+  }
+  return { ok: false, error: "bad_op" };
+}
+
+/** Grant / revoke a candidate's manual verification (blue tick) — mirrors POST
+ *  /api/portal/admin/verify-user: upsert candidate_profiles.manually_verified;
+ *  on grant, send the one-time "verified" notification + email (idempotent). */
+async function writeSetVerified(userId: string, verified: boolean): Promise<WriteResult> {
+  if (!UUID_RE.test(userId)) return { ok: false, error: "bad_id" };
+  const db = getServiceSupabase();
+  const { error } = await db.from("candidate_profiles").upsert(
+    { user_id: userId, manually_verified: verified }, { onConflict: "user_id" });
+  if (error) return { ok: false, error: "write_failed" };
+  if (verified) {
+    const { data: existing } = await db.from("notifications").select("id").eq("user_id", userId).eq("action", "verified").limit(1);
+    if (!existing?.length) {
+      await db.from("notifications").insert({
+        user_id: userId, doc_id: null, doc_name: "Verifizierung", doc_type: "Passport",
+        action: "verified", feedback: null, read: false,
+      });
+      try {
+        const { data } = await db.auth.admin.getUserById(userId);
+        const email = data?.user?.email;
+        if (email) {
+          const firstName = ((data?.user?.user_metadata?.full_name as string | undefined) ?? "").split(" ")[0];
+          await sendVerifiedEmail(email, firstName);
+        }
+      } catch { /* non-fatal */ }
+    }
+  }
+  return { ok: true };
+}
+
+/** Add / change-role / remove an organization member — mirrors POST/PATCH/DELETE
+ *  /api/portal/admin/organizations/[id]/members. add: ensure a sub_admins row
+ *  (is_agency_admin:true, schema-tolerant) then upsert organization_members.
+ *  setRole: update role. remove: delete the membership only (keep sub_admins). */
+async function writeManageOrgMember(op: string, orgId: string, email: string, role: string, name: string, label: string): Promise<WriteResult> {
+  if (!UUID_RE.test(orgId)) return { ok: false, error: "bad_id" };
+  const e = email.trim().toLowerCase();
+  if (!EMAIL_RE.test(e)) return { ok: false, error: "bad_email" };
+  const db = getServiceSupabase();
+  if (op === "add") {
+    const r = role === "owner" ? "owner" : "member";
+    await db.from("sub_admins").delete().ilike("email", ciEmail(e));
+    let { error: subErr } = await db.from("sub_admins").insert({ email: e, name: name.slice(0, 200), label: label.slice(0, 200), is_agency_admin: true });
+    if (subErr && /is_agency_admin|column .* does not exist|schema cache/i.test(subErr.message)) {
+      ({ error: subErr } = await db.from("sub_admins").insert({ email: e, name: name.slice(0, 200), label: label.slice(0, 200) }));
+    }
+    if (subErr && !/duplicate key|unique|already exists|23505/i.test(subErr.message)) return { ok: false, error: "write_failed" };
+    const { error } = await db.from("organization_members").upsert({ org_id: orgId, sub_admin_email: e, role: r }, { onConflict: "org_id,sub_admin_email" });
+    if (error) return { ok: false, error: "write_failed" };
+    return { ok: true };
+  }
+  if (op === "setRole") {
+    const r = role === "owner" ? "owner" : role === "member" ? "member" : null;
+    if (!r) return { ok: false, error: "bad_role" };
+    const { error } = await db.from("organization_members").update({ role: r }).eq("org_id", orgId).eq("sub_admin_email", e);
+    if (error) return { ok: false, error: "write_failed" };
+    return { ok: true };
+  }
+  if (op === "remove") {
+    const { error } = await db.from("organization_members").delete().eq("org_id", orgId).eq("sub_admin_email", e);
+    if (error) return { ok: false, error: "write_failed" };
+    return { ok: true };
+  }
+  return { ok: false, error: "bad_op" };
+}
+
 type PendingRow = {
   id: string;
   tool_name: string;
@@ -1020,6 +1135,14 @@ export async function executeLatestPending(
     result = await writeSlotNotify(String(a.slotId), String(a.candidateUserId), a.needsSign === true, a.needsFill === true);
   } else if (row.tool_name === "reviewSignRequest") {
     result = await writeSignRequestReview(scope, String(a.signRequestId), String(a.action ?? ""), a.feedback == null ? null : String(a.feedback));
+  } else if (row.tool_name === "manageSubAdmin") {
+    result = await writeManageSubAdmin(String(a.op ?? ""), String(a.email ?? ""), a.name == null ? "" : String(a.name), a.label == null ? "" : String(a.label));
+  } else if (row.tool_name === "assignCandidate") {
+    result = await writeAssignCandidate(String(a.op ?? ""), String(a.subAdminEmail ?? ""), String(a.candidateUserId ?? ""));
+  } else if (row.tool_name === "setCandidateVerified") {
+    result = await writeSetVerified(String(a.userId ?? ""), a.verified === true);
+  } else if (row.tool_name === "manageOrgMember") {
+    result = await writeManageOrgMember(String(a.op ?? ""), String(a.orgId ?? ""), String(a.email ?? ""), a.role == null ? "" : String(a.role), a.name == null ? "" : String(a.name), a.label == null ? "" : String(a.label));
   }
   if (!result.ok) return { error: result.error };
   const db = getServiceSupabase();
