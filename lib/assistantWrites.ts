@@ -1200,6 +1200,7 @@ export async function stagePending(
 /** Apply the most recent staged write AFTER the admin confirms. */
 export async function executeLatestPending(
   scope: AssistantScope,
+  opts?: { allowSameTurn?: boolean },
 ): Promise<{ done: true; summary: string } | { error: string }> {
   const row = await getLatestPending(scope.userId);
   if (!row) return { error: "nothing_pending" };
@@ -1208,8 +1209,12 @@ export async function executeLatestPending(
   // it could stage AND call confirmPendingWrite in one turn — skipping the human
   // checkpoint (e.g. driven by an instruction injected into a candidate's data).
   // Confirmation must come from a LATER admin message (a fresh requestId).
+  // EXCEPTION: the auto-apply path (allowSameTurn) deliberately runs a just-staged
+  // NON-destructive action in the same turn — that's the "just do it, no yes/no"
+  // behaviour the founder wants. Destructive actions never take this path
+  // (autoApplyPending refuses them), so they still require a separate human "yes".
   const stagedReq = (row.args as Record<string, unknown> | null)?.__stagedReq;
-  if (stagedReq && scope.requestId && stagedReq === scope.requestId) {
+  if (!opts?.allowSameTurn && stagedReq && scope.requestId && stagedReq === scope.requestId) {
     return { error: "confirm_in_new_message" };
   }
   // Serve-time scope re-check (defense-in-depth).
@@ -1434,4 +1439,25 @@ export async function cancelLatestPending(
   const db = getServiceSupabase();
   await db.from("assistant_pending_actions").update({ status: "cancelled" }).eq("id", row.id);
   return { cancelled: true, summary: row.summary };
+}
+
+// IRREVERSIBLE actions that still require an explicit human "yes" before running
+// — a competent assistant double-checks before permanently deleting. Everything
+// else auto-applies (the founder wants a chat assistant, not a yes/no robot).
+export const DESTRUCTIVE_TOOLS = new Set<string>(["deleteCandidateAccount", "deleteOrganization"]);
+
+/**
+ * "Just do it" — apply the latest staged action immediately (same turn), UNLESS
+ * it's irreversible/destructive (then leave it pending for an explicit "yes").
+ * Called by the Telegram webhook right after the model runs, so the admin can
+ * talk naturally ("email these to Anna") and it happens — no confirm dance.
+ */
+export async function autoApplyPending(
+  scope: AssistantScope,
+): Promise<{ done: true; summary: string } | { skipped: "nothing" | "destructive"; summary?: string } | { error: string }> {
+  const row = await getLatestPending(scope.userId);
+  if (!row) return { skipped: "nothing" };
+  if (DESTRUCTIVE_TOOLS.has(row.tool_name)) return { skipped: "destructive", summary: row.summary };
+  const r = await executeLatestPending(scope, { allowSameTurn: true });
+  return r;
 }
