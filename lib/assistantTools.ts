@@ -535,9 +535,9 @@ export function buildAssistantTools(
 
     setAutomation: tool({
       description:
-        "Turn a proactive automation ON or OFF — immediate, no confirmation needed. key is one of: daily_briefing (the 6am 'what needs you today'), weekly_report (Monday business report), signup_ping (instant ping when a candidate signs up). enabled true = on, false = off. e.g. 'turn off the weekly report' → setAutomation('weekly_report', false); 'enable signup pings' → setAutomation('signup_ping', true).",
+        "Turn a proactive automation ON or OFF — immediate, no confirmation needed. key is one of: daily_briefing (the 6am 'what needs you today'), weekly_report (Monday business report), signup_ping (instant ping when a candidate signs up), auto_chase (morning stuck-candidate surface), inbox_reminder (morning unanswered-email reminder). enabled true = on, false = off. e.g. 'turn off the weekly report' → setAutomation('weekly_report', false); 'stop the email reminders' → setAutomation('inbox_reminder', false).",
       inputSchema: z.object({
-        key: z.enum(["daily_briefing", "weekly_report", "signup_ping", "auto_chase"]),
+        key: z.enum(["daily_briefing", "weekly_report", "signup_ping", "auto_chase", "inbox_reminder"]),
         enabled: z.boolean(),
       }),
       execute: async ({ key, enabled }) => {
@@ -545,6 +545,21 @@ export function buildAssistantTools(
         const err = await persistAutomation(key, enabled);
         if (err) return { error: err };
         return { ok: true, key, enabled, label: AUTOMATIONS[key].label };
+      },
+    }),
+
+    listUnansweredEmails: tool({
+      description:
+        "List UNANSWERED emails in the founder's inbox — unread messages from real people that still need a reply (no-reply / automated / newsletter senders are skipped), oldest (most overdue) first. Read-only. Use when the admin asks 'any emails I haven't replied to', 'what's in my inbox', 'unanswered emails', 'who's waiting on me'. Returns sender + subject + how many days it's been waiting. (Reading the inbox needs the Gmail App Password + IMAP enabled; returns gmail_read_failed if it can't connect.)",
+      inputSchema: z.object({
+        limit: z.number().int().min(1).max(50).optional().describe("max emails to return (default 20)"),
+      }),
+      execute: async ({ limit }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const { getUnansweredEmails } = await import("@/lib/gmailInbox");
+        const emails = await getUnansweredEmails(limit ?? 20);
+        if (emails === null) return { error: "gmail_read_failed" };
+        return { count: emails.length, emails };
       },
     }),
 

@@ -209,6 +209,12 @@ describe("assistant tools enforce LAW #25 scope (org-admin)", () => {
     const t = buildAssistantTools(ORG_ADMIN);
     expect(await run(t, "listAutomations", {})).toEqual({ error: "admin_only" });
     expect(await run(t, "setAutomation", { key: "weekly_report", enabled: false })).toEqual({ error: "admin_only" });
+    expect(await run(t, "setAutomation", { key: "inbox_reminder", enabled: false })).toEqual({ error: "admin_only" });
+  });
+
+  it("listUnansweredEmails → admin_only for a sub-admin (never reads the inbox)", async () => {
+    const r = await run(buildAssistantTools(ORG_ADMIN), "listUnansweredEmails", {});
+    expect(r).toEqual({ error: "admin_only" });
   });
 
   it("sendExternalEmail → admin_only for a sub-admin", async () => {

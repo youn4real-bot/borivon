@@ -6,7 +6,8 @@
   "crons": [
     { "path": "/api/cron/briefing", "schedule": "0 6 * * *" },
     { "path": "/api/cron/weekly-report", "schedule": "0 7 * * 1" },
-    { "path": "/api/cron/auto-chase", "schedule": "0 8 * * *" }
+    { "path": "/api/cron/auto-chase", "schedule": "0 8 * * *" },
+    { "path": "/api/cron/inbox-reminder", "schedule": "30 8 * * *" }
   ],
   "headers": [
     {
