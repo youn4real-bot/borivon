@@ -921,6 +921,52 @@ async function writeManageOrgMember(op: string, orgId: string, email: string, ro
   return { ok: false, error: "bad_op" };
 }
 
+/** Create a calendar event (or N weekly recurrences) — mirrors the core INSERT
+ *  of POST /api/portal/calendar (same field caps, repeat_weekly 1..52, public
+ *  by default). Skips the Google-Calendar push (needs the admin's OAuth) — the
+ *  event still appears in the portal calendar. */
+async function writeCalendarEvent(scope: AssistantScope, opts: { title: string; startsAt: string; endsAt?: string; description?: string; location?: string; linkUrl?: string; vipOnly?: boolean; repeatWeekly?: number }): Promise<WriteResult> {
+  const title = opts.title.trim().slice(0, 200);
+  if (!title) return { ok: false, error: "title_required" };
+  const startMs = Date.parse(opts.startsAt);
+  if (!Number.isFinite(startMs)) return { ok: false, error: "bad_start" };
+  let endMs: number | null = null;
+  if (opts.endsAt) { const p = Date.parse(opts.endsAt); if (Number.isFinite(p) && p >= startMs) endMs = p; }
+  let link: string | null = null;
+  if (opts.linkUrl) { const u = opts.linkUrl.trim(); if (/^https?:\/\//i.test(u)) link = u.slice(0, 1000); }
+  const baseRow = {
+    title,
+    description: (opts.description ?? "").slice(0, 4000) || null,
+    image_url: null,
+    link_url: link,
+    location: (opts.location ?? "").slice(0, 200) || null,
+    vip_only: opts.vipOnly === true,
+    attendee_ids: [] as string[],
+    created_by: scope.userId,
+  };
+  const repeat = Math.max(1, Math.min(52, Math.floor(opts.repeatWeekly ?? 1) || 1));
+  const WEEK = 7 * 24 * 60 * 60 * 1000;
+  const rows = Array.from({ length: repeat }, (_, i) => ({
+    ...baseRow,
+    starts_at: new Date(startMs + i * WEEK).toISOString(),
+    ends_at: endMs != null ? new Date(endMs + i * WEEK).toISOString() : null,
+  }));
+  const db = getServiceSupabase();
+  const { error } = await db.from("calendar_events").insert(rows);
+  if (error) return { ok: false, error: "write_failed" };
+  return { ok: true };
+}
+
+/** Delete a calendar event — mirrors DELETE /api/portal/calendar (skips the
+ *  best-effort Google-Calendar removal). */
+async function writeDeleteCalendarEvent(eventId: string): Promise<WriteResult> {
+  if (!UUID_RE.test(eventId)) return { ok: false, error: "bad_id" };
+  const db = getServiceSupabase();
+  const { error } = await db.from("calendar_events").delete().eq("id", eventId);
+  if (error) return { ok: false, error: "write_failed" };
+  return { ok: true };
+}
+
 type PendingRow = {
   id: string;
   tool_name: string;
@@ -1143,6 +1189,19 @@ export async function executeLatestPending(
     result = await writeSetVerified(String(a.userId ?? ""), a.verified === true);
   } else if (row.tool_name === "manageOrgMember") {
     result = await writeManageOrgMember(String(a.op ?? ""), String(a.orgId ?? ""), String(a.email ?? ""), a.role == null ? "" : String(a.role), a.name == null ? "" : String(a.name), a.label == null ? "" : String(a.label));
+  } else if (row.tool_name === "createCalendarEvent") {
+    result = await writeCalendarEvent(scope, {
+      title: String(a.title ?? ""),
+      startsAt: String(a.startsAt ?? ""),
+      endsAt: a.endsAt == null ? undefined : String(a.endsAt),
+      description: a.description == null ? undefined : String(a.description),
+      location: a.location == null ? undefined : String(a.location),
+      linkUrl: a.linkUrl == null ? undefined : String(a.linkUrl),
+      vipOnly: a.vipOnly === true,
+      repeatWeekly: a.repeatWeekly == null ? undefined : Number(a.repeatWeekly),
+    });
+  } else if (row.tool_name === "deleteCalendarEvent") {
+    result = await writeDeleteCalendarEvent(String(a.eventId ?? ""));
   }
   if (!result.ok) return { error: result.error };
   const db = getServiceSupabase();

@@ -262,6 +262,21 @@ describe("assistant tools enforce LAW #25 scope (org-admin)", () => {
     expect(await run(t, "setCandidateVerified", { candidateUserId: "allowed-cand", verified: true })).toEqual({ error: "admin_only" });
     expect(await run(t, "manageOrgMember", { op: "add", orgId: orgUuid, email: "m@org.com", role: "member" })).toEqual({ error: "admin_only" });
   });
+
+  it("calendar + academy tools → admin_only for a sub-admin", async () => {
+    const t = buildAssistantTools(ORG_ADMIN);
+    const evUuid = "66666666-6666-6666-6666-666666666666";
+    expect(await run(t, "listCalendarEvents", {})).toEqual({ error: "admin_only" });
+    expect(await run(t, "createCalendarEvent", { title: "Networking", startsAt: "2026-07-10T10:00:00Z" })).toEqual({ error: "admin_only" });
+    expect(await run(t, "deleteCalendarEvent", { eventId: evUuid })).toEqual({ error: "admin_only" });
+    expect(await run(t, "listCohorts", {})).toEqual({ error: "admin_only" });
+  });
+
+  it("getAcademyStanding → out_of_scope for a foreign candidate", async () => {
+    foreignOrgMocks();
+    const r = await run(buildAssistantTools(ORG_ADMIN), "getAcademyStanding", { candidateUserId: "foreign-cand" });
+    expect(r).toEqual({ error: "out_of_scope" });
+  });
 });
 
 describe("assistant tools allow the supreme admin", () => {
@@ -711,6 +726,57 @@ describe("assistant tools allow the supreme admin", () => {
     expect(r.staff?.[0]?.email).toBe("helper@borivon.com");
     expect(r.staff?.[0]?.assignedCount).toBe(2);
     expect(r.staff?.[0]?.orgScoped).toBe(false);
+  });
+
+  const EVENT_UUID = "66666666-6666-6666-6666-666666666666";
+
+  it("createCalendarEvent stages a valid event and rejects a bad start", async () => {
+    const ok = (await run(buildAssistantTools(SUPREME), "createCalendarEvent", { title: "Networking Night", startsAt: "2026-07-10T18:00:00Z", location: "Berlin", repeatWeekly: 3 })) as { staged?: boolean; summary?: string };
+    expect(ok.staged).toBe(true);
+    expect(ok.summary).toContain("Networking Night");
+    expect(ok.summary).toContain("Berlin");
+    expect(ok.summary).toContain("×3 weekly");
+    expect(await run(buildAssistantTools(SUPREME), "createCalendarEvent", { title: "X", startsAt: "not-a-date" })).toEqual({ error: "bad_start" });
+  });
+
+  it("deleteCalendarEvent stages with the event title, 404s a missing one", async () => {
+    h.tables.calendar_events = { data: { title: "Career Fair", starts_at: "2026-08-01T09:00:00Z" }, error: null };
+    const ok = (await run(buildAssistantTools(SUPREME), "deleteCalendarEvent", { eventId: EVENT_UUID })) as { staged?: boolean; summary?: string };
+    expect(ok.staged).toBe(true);
+    expect(ok.summary).toContain("Career Fair");
+    h.tables.calendar_events = { data: null, error: null };
+    expect(await run(buildAssistantTools(SUPREME), "deleteCalendarEvent", { eventId: EVENT_UUID })).toEqual({ error: "not_found" });
+  });
+
+  it("listCalendarEvents returns upcoming events, listCohorts returns cohorts", async () => {
+    h.tables.calendar_events = { data: [{ id: EVENT_UUID, title: "Future Event", starts_at: "2099-01-01T00:00:00Z", ends_at: null, location: "Berlin", link_url: null, vip_only: false, attendee_ids: [] }], error: null };
+    const evs = (await run(buildAssistantTools(SUPREME), "listCalendarEvents", {})) as { count?: number; events?: { title?: string }[] };
+    expect(evs.count).toBe(1);
+    expect(evs.events?.[0]?.title).toBe("Future Event");
+
+    h.tables.academy_cohorts = { data: [{ id: "co-1", name: "A1 Basics", target_level: "B2", status: "active", created_at: "2026-01-01" }], error: null };
+    h.tables.academy_cohort_members = { data: [{ cohort_id: "co-1", status: "active" }, { cohort_id: "co-1", status: "dropped" }], error: null };
+    const cos = (await run(buildAssistantTools(SUPREME), "listCohorts", {})) as { count?: number; cohorts?: { name?: string; activeMembers?: number }[] };
+    expect(cos.count).toBe(1);
+    expect(cos.cohorts?.[0]?.name).toBe("A1 Basics");
+    expect(cos.cohorts?.[0]?.activeMembers).toBe(1); // only the active member counts
+  });
+
+  it("getAcademyStanding reports not-enrolled, then a full standing", async () => {
+    h.tables.academy_cohort_members = { data: null, error: null };
+    expect(await run(buildAssistantTools(SUPREME), "getAcademyStanding", { candidateUserId: "cand-1" })).toEqual({ enrolled: false });
+
+    h.tables.academy_cohort_members = { data: { cohort_id: "co-1", current_level: "A2", status: "active" }, error: null };
+    h.tables.academy_cohorts = { data: { name: "A1 Basics" }, error: null };
+    h.tables.academy_point_events = { data: [{ points: 10 }, { points: 5 }], error: null };
+    h.tables.academy_attendance = { data: [{ status: "present" }, { status: "late" }], error: null };
+    h.tables.academy_submissions = { data: [{ on_time: true, passed: true }], error: null };
+    const st = (await run(buildAssistantTools(SUPREME), "getAcademyStanding", { candidateUserId: "cand-1" })) as { enrolled?: boolean; cohortName?: string; level?: string; score?: number; attendanceRatePct?: number };
+    expect(st.enrolled).toBe(true);
+    expect(st.cohortName).toBe("A1 Basics");
+    expect(st.level).toBe("A2");
+    expect(st.score).toBe(15);
+    expect(st.attendanceRatePct).toBe(100); // present+late / non-excused
   });
 
   it("listAutomations returns the switches (defaults on), and setAutomation flips one", async () => {

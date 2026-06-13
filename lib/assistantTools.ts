@@ -1443,6 +1443,141 @@ export function buildAssistantTools(
       },
     }),
 
+    listCalendarEvents: tool({
+      description:
+        "List the upcoming community CALENDAR events — title, date/time, location, link, and whether it's VIP-only. Read-only, supreme-only. Optional onlyUpcoming (default true) to hide past events; limit caps the count. Use for 'what's on the calendar', 'next event'. Create one with createCalendarEvent, remove with deleteCalendarEvent.",
+      inputSchema: z.object({
+        onlyUpcoming: z.boolean().optional(),
+        limit: z.number().int().min(1).max(100).optional(),
+      }),
+      execute: async ({ onlyUpcoming, limit }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const { data, error } = await db.from("calendar_events")
+          .select("id, title, starts_at, ends_at, location, link_url, vip_only, attendee_ids")
+          .order("starts_at", { ascending: true });
+        if (error) return { error: "load_failed" };
+        const nowIso = new Date().toISOString();
+        let rows = ((data ?? []) as { id: string; title: string; starts_at: string; ends_at: string | null; location: string | null; link_url: string | null; vip_only: boolean; attendee_ids: string[] | null }[]);
+        if (onlyUpcoming !== false) rows = rows.filter((r) => (r.ends_at ?? r.starts_at) >= nowIso);
+        const events = rows.slice(0, limit ?? 50).map((r) => ({
+          eventId: r.id, title: r.title, startsAt: r.starts_at, endsAt: r.ends_at,
+          location: r.location, linkUrl: r.link_url, vipOnly: r.vip_only,
+          tagged: Array.isArray(r.attendee_ids) && r.attendee_ids.length > 0,
+        }));
+        return { count: events.length, events };
+      },
+    }),
+
+    createCalendarEvent: tool({
+      description:
+        "STAGE creating a community CALENDAR event. title + startsAt (ISO date-time) required; optional endsAt, description, location, linkUrl (http/https), vipOnly (premium-only), repeatWeekly (1-52 → that many weekly copies). The event is PUBLIC (shown to everyone, or all premium if vipOnly). Image upload + tagging specific attendees stay website-only. Supreme-only. Two-step: stage → admin confirms → confirmPendingWrite.",
+      inputSchema: z.object({
+        title: z.string().max(200),
+        startsAt: z.string().max(40).describe("ISO 8601, e.g. 2026-07-10T10:00:00Z"),
+        endsAt: z.string().max(40).optional(),
+        description: z.string().max(4000).optional(),
+        location: z.string().max(200).optional(),
+        linkUrl: z.string().max(1000).optional(),
+        vipOnly: z.boolean().optional(),
+        repeatWeekly: z.number().int().min(1).max(52).optional(),
+      }),
+      execute: async ({ title, startsAt, endsAt, description, location, linkUrl, vipOnly, repeatWeekly }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!title.trim()) return { error: "title_required" };
+        if (!Number.isFinite(Date.parse(startsAt))) return { error: "bad_start" };
+        const args: Record<string, unknown> = { title, startsAt };
+        if (endsAt !== undefined) args.endsAt = endsAt;
+        if (description !== undefined) args.description = description;
+        if (location !== undefined) args.location = location;
+        if (linkUrl !== undefined) args.linkUrl = linkUrl;
+        if (vipOnly !== undefined) args.vipOnly = vipOnly;
+        if (repeatWeekly !== undefined) args.repeatWeekly = repeatWeekly;
+        const when = new Date(Date.parse(startsAt)).toISOString().replace("T", " ").slice(0, 16);
+        const rep = repeatWeekly && repeatWeekly > 1 ? ` ×${repeatWeekly} weekly` : "";
+        return stagePending(scope, {
+          toolName: "createCalendarEvent",
+          args,
+          candidateUserId: null,
+          summary: `Calendar event: "${title.trim().slice(0, 80)}" @ ${when}${location ? ` · ${location}` : ""}${vipOnly ? " (VIP)" : ""}${rep}`,
+        });
+      },
+    }),
+
+    deleteCalendarEvent: tool({
+      description:
+        "STAGE deleting a community CALENDAR event by eventId (from listCalendarEvents). Supreme-only. Two-step: stage → admin confirms → confirmPendingWrite.",
+      inputSchema: z.object({ eventId: z.string().uuid() }),
+      execute: async ({ eventId }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const { data: ev } = await db.from("calendar_events").select("title, starts_at").eq("id", eventId).maybeSingle();
+        if (!ev) return { error: "not_found" };
+        const e = ev as { title?: string; starts_at?: string };
+        const when = e.starts_at ? ` (${new Date(e.starts_at).toISOString().slice(0, 10)})` : "";
+        return stagePending(scope, {
+          toolName: "deleteCalendarEvent",
+          args: { eventId },
+          candidateUserId: null,
+          summary: `Delete calendar event: "${(e.title || "event").slice(0, 80)}"${when}`,
+        });
+      },
+    }),
+
+    listCohorts: tool({
+      description:
+        "List the ACADEMY cohorts (German-school classes) — id, name, target level, status, and member count. Read-only, supreme-only. Use for 'what cohorts do we have'. For one candidate's standing, use getAcademyStanding.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const [{ data: cohorts, error }, { data: members }] = await Promise.all([
+          db.from("academy_cohorts").select("id, name, target_level, status, created_at").order("created_at", { ascending: false }),
+          db.from("academy_cohort_members").select("cohort_id, status"),
+        ]);
+        if (error) return { error: "load_failed" };
+        const counts: Record<string, number> = {};
+        for (const m of (members ?? []) as { cohort_id: string; status: string }[]) {
+          if (m.status === "active") counts[m.cohort_id] = (counts[m.cohort_id] ?? 0) + 1;
+        }
+        const rows = ((cohorts ?? []) as { id: string; name: string; target_level: string | null; status: string | null }[]).map((c) => ({
+          cohortId: c.id, name: c.name, targetLevel: c.target_level, status: c.status,
+          activeMembers: counts[c.id] ?? 0,
+        }));
+        return { count: rows.length, cohorts: rows };
+      },
+    }),
+
+    getAcademyStanding: tool({
+      description:
+        "Read a candidate's ACADEMY standing — their cohort + current CEFR level, total points (score), and the employer-facing reliability snapshot (attendance rate, punctuality, quiz on-time/pass rates). Read-only. Use for 'how is X doing in the academy / school', 'X's attendance'.",
+      inputSchema: z.object({ candidateUserId: z.string().uuid() }),
+      execute: async ({ candidateUserId }) => {
+        if (lockedOut) return { error: "out_of_scope" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const { data: mem } = await db.from("academy_cohort_members")
+          .select("cohort_id, current_level, status").eq("candidate_user_id", candidateUserId).eq("status", "active").maybeSingle();
+        const m = mem as { cohort_id?: string; current_level?: string } | null;
+        if (!m) return { enrolled: false };
+        let cohortName: string | null = null;
+        if (m.cohort_id) {
+          const { data: c } = await db.from("academy_cohorts").select("name").eq("id", m.cohort_id).maybeSingle();
+          cohortName = (c as { name?: string } | null)?.name ?? null;
+        }
+        const { getScore, getReliability } = await import("@/lib/academyPoints");
+        const [score, reliability] = await Promise.all([getScore(candidateUserId), getReliability(candidateUserId)]);
+        return {
+          enrolled: true,
+          cohortName,
+          level: m.current_level ?? null,
+          score,
+          attendanceRatePct: Math.round(reliability.attendanceRate * 100),
+          punctualityPct: Math.round(reliability.punctualityRate * 100),
+          sessionsAttended: reliability.sessions,
+          quizzes: reliability.quizzes,
+          quizOnTimePct: Math.round(reliability.onTimeRate * 100),
+          quizPassPct: Math.round(reliability.passRate * 100),
+        };
+      },
+    }),
+
     listStuckCandidates: tool({
       description:
         "List candidates who may need a NUDGE — their latest uploaded document was rejected ≥3 days ago and not re-submitted, or their pipeline hasn't moved in 3+ weeks. Read-only; returns each name + the reason(s). To nudge them, use nudgeStuckCandidates (all at once, confirm-first) or message one with sendCandidateMessage / sendFollowUpNudge. This is the same list the daily auto-chase push surfaces.",
