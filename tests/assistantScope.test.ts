@@ -283,6 +283,14 @@ describe("assistant tools enforce LAW #25 scope (org-admin)", () => {
     const r = await run(buildAssistantTools(ORG_ADMIN), "getAcademyStanding", { candidateUserId: "foreign-cand" });
     expect(r).toEqual({ error: "out_of_scope" });
   });
+
+  it("full-power tools (stage lock/unlock, delete org, delete account) → admin_only for a sub-admin", async () => {
+    const t = buildAssistantTools(ORG_ADMIN);
+    const orgUuid = "77777777-7777-7777-7777-777777777777";
+    expect(await run(t, "toggleStageLock", { candidateUserId: "11111111-1111-1111-1111-111111111111", stage: "visum", unlocked: true })).toEqual({ error: "admin_only" });
+    expect(await run(t, "deleteOrganization", { orgId: orgUuid })).toEqual({ error: "admin_only" });
+    expect(await run(t, "deleteCandidateAccount", { candidateUserId: "11111111-1111-1111-1111-111111111111" })).toEqual({ error: "admin_only" });
+  });
 });
 
 describe("assistant tools allow the supreme admin", () => {
@@ -829,6 +837,31 @@ describe("assistant tools allow the supreme admin", () => {
     expect(ok.summary).toContain("Career Fair");
     h.tables.calendar_events = { data: null, error: null };
     expect(await run(buildAssistantTools(SUPREME), "deleteCalendarEvent", { eventId: EVENT_UUID })).toEqual({ error: "not_found" });
+  });
+
+  it("toggleStageLock stages a lock/unlock with the human stage label", async () => {
+    const r = (await run(buildAssistantTools(SUPREME), "toggleStageLock", { candidateUserId: "11111111-1111-1111-1111-111111111111", stage: "visum", unlocked: true })) as { staged?: boolean; summary?: string };
+    expect(r.staged).toBe(true);
+    expect(r.summary).toContain("Unlock");
+    expect(r.summary).toContain("Visum");
+  });
+
+  it("deleteOrganization stages with the org name, 404s a missing org", async () => {
+    const ORG_UUID = "77777777-7777-7777-7777-777777777777";
+    h.tables.organizations = { data: { name: "UKSH" }, error: null };
+    const ok = (await run(buildAssistantTools(SUPREME), "deleteOrganization", { orgId: ORG_UUID })) as { staged?: boolean; summary?: string };
+    expect(ok.staged).toBe(true);
+    expect(ok.summary).toContain("UKSH");
+    h.tables.organizations = { data: null, error: null };
+    expect(await run(buildAssistantTools(SUPREME), "deleteOrganization", { orgId: ORG_UUID })).toEqual({ error: "not_found" });
+  });
+
+  it("deleteCandidateAccount stages an irreversible delete with the candidate name", async () => {
+    h.tables.candidate_profiles = { data: { first_name: "Hajar", last_name: "El Kairaa" }, error: null };
+    const r = (await run(buildAssistantTools(SUPREME), "deleteCandidateAccount", { candidateUserId: "11111111-1111-1111-1111-111111111111" })) as { staged?: boolean; summary?: string };
+    expect(r.staged).toBe(true);
+    expect(r.summary).toContain("Hajar El Kairaa");
+    expect(r.summary).toContain("DELETE");
   });
 
   it("listCalendarEvents returns upcoming events, listCohorts returns cohorts", async () => {

@@ -39,10 +39,11 @@ const VALID_INTERVIEW_STATUS = new Set(["pending", "passed", "failed"]);
 // Pipeline milestones the AI may set — the full non-supreme allowlist that the
 // pipeline PATCH route accepts (ALLOWED_PIPELINE_FIELDS), MINUS the LAW #31
 // stage-unlock gates (recognition_unlocked / embassy_unlocked /
-// integration_unlocked / start_unlocked). Those four are deliberately ABSENT
-// from every set here, so writeMilestone returns bad_field for them — stage
-// lock/unlock stays the supreme admin's manual web-only decision (founder
-// confirmed: keep it off the bot).
+// integration_unlocked / start_unlocked). Those four stay ABSENT here so the
+// GENERIC milestone tool can't touch a lock by accident. Stage lock/unlock now
+// has its OWN dedicated supreme-only tool (toggleStageLock → writeStageLock),
+// per the founder's 2026-06 decision to put every supreme-admin action in the
+// bot — the supreme admin operating the lock via the bot IS LAW #31.
 export const MILESTONE_BOOL = new Set([
   "visa_granted", "housing_done", "contract_done", "recognition_done", "docs_approved", "docs_ready", "vorab_done", "arrived_done",
   "interview1_held", "interview2_held",
@@ -967,6 +968,56 @@ async function writeDeleteCalendarEvent(eventId: string): Promise<WriteResult> {
   return { ok: true };
 }
 
+// LAW #31 — supreme-admin stage lock/unlock. Maps the spoken stage name to the
+// candidate_pipeline boolean column. `unlocked=true` opens the stage for the
+// candidate; `false` locks it. (The generic milestone tool deliberately can't
+// reach these columns — only this dedicated tool can.)
+export const STAGE_LOCK_COLUMN: Record<string, string> = {
+  bearbeitung: "recognition_unlocked", recognition: "recognition_unlocked",
+  visum: "embassy_unlocked", embassy: "embassy_unlocked",
+  integration: "integration_unlocked", start: "start_unlocked",
+};
+async function writeStageLock(userId: string, stage: string, unlocked: boolean): Promise<WriteResult> {
+  const col = STAGE_LOCK_COLUMN[stage];
+  if (!col) return { ok: false, error: "bad_stage" };
+  return applyPipelinePatch(userId, { [col]: unlocked });
+}
+
+// Permanently delete a partner organization. The FK cascade removes its members
+// + unlinks every candidate tied to it (candidate accounts themselves survive).
+async function writeDeleteOrganization(orgId: string): Promise<WriteResult> {
+  if (!UUID_RE.test(orgId)) return { ok: false, error: "bad_id" };
+  const db = getServiceSupabase();
+  const { error } = await db.from("organizations").delete().eq("id", orgId);
+  if (error) return { ok: false, error: "delete_failed" };
+  return { ok: true };
+}
+
+// Permanently delete a candidate's account + ALL their data. Uses the SAME
+// canonical RPC the website's delete-user route runs as its primary path
+// (app_delete_user — clears every table FK'd to auth.users(id) + the auth row
+// in one transaction; if it fails, nothing was deleted, so this is safe).
+async function writeDeleteCandidate(userId: string): Promise<WriteResult> {
+  if (!UUID_RE.test(userId)) return { ok: false, error: "bad_id" };
+  const db = getServiceSupabase();
+  // Capture sign-document Storage blob paths BEFORE the cascade drops their rows
+  // (Storage objects aren't reached by the DB FK cascade).
+  let blobPaths: string[] = [];
+  try {
+    const { data: sigReqs } = await db.from("sign_requests")
+      .select("pdf_storage_path, signed_pdf_path").eq("candidate_user_id", userId);
+    blobPaths = (sigReqs ?? []).flatMap(
+      (r: { pdf_storage_path: string | null; signed_pdf_path: string | null }) =>
+        [r.pdf_storage_path, r.signed_pdf_path].filter(Boolean) as string[],
+    );
+  } catch { /* best-effort */ }
+  const { error } = await db.rpc("app_delete_user", { p_uid: userId });
+  if (error) return { ok: false, error: "delete_failed" };
+  // Row gone — drop the now-orphaned Storage blobs (best-effort).
+  if (blobPaths.length) { try { await db.storage.from("sign-documents").remove(blobPaths); } catch { /* ignore */ } }
+  return { ok: true };
+}
+
 type PendingRow = {
   id: string;
   tool_name: string;
@@ -1203,6 +1254,12 @@ export async function executeLatestPending(
     });
   } else if (row.tool_name === "deleteCalendarEvent") {
     result = await writeDeleteCalendarEvent(String(a.eventId ?? ""));
+  } else if (row.tool_name === "toggleStageLock") {
+    result = await writeStageLock(String(a.candidateUserId), String(a.stage ?? ""), a.unlocked === true);
+  } else if (row.tool_name === "deleteOrganization") {
+    result = await writeDeleteOrganization(String(a.orgId ?? ""));
+  } else if (row.tool_name === "deleteCandidateAccount") {
+    result = await writeDeleteCandidate(String(a.candidateUserId));
   }
   if (!result.ok) return { error: result.error };
   const db = getServiceSupabase();

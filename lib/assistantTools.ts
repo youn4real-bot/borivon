@@ -1675,6 +1675,61 @@ export function buildAssistantTools(
       },
     }),
 
+    toggleStageLock: tool({
+      description:
+        "STAGE locking or UNLOCKING a candidate's pipeline STAGE (LAW #31 — supreme admin only; you operating it via the bot IS that power). stage one of 'bearbeitung' (the recognition/Bearbeitung stage), 'visum' (the embassy/Visum stage), 'integration', or 'start'. unlocked=true opens the stage for the candidate, false locks it. Two-step: stage → admin confirms → confirmPendingWrite. e.g. 'unlock the Visum stage for Hajar' → toggleStageLock(candidateUserId, 'visum', true); 'lock Bearbeitung for Ali' → toggleStageLock(candidateUserId, 'bearbeitung', false).",
+      inputSchema: z.object({
+        candidateUserId: z.string().uuid(),
+        stage: z.enum(["bearbeitung", "recognition", "visum", "embassy", "integration", "start"]),
+        unlocked: z.boolean(),
+      }),
+      execute: async ({ candidateUserId, stage, unlocked }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const name = await displayName(candidateUserId);
+        const label = stage === "bearbeitung" || stage === "recognition" ? "Bearbeitung" : stage === "visum" || stage === "embassy" ? "Visum" : stage === "integration" ? "Integration" : "Start";
+        return stagePending(scope, {
+          toolName: "toggleStageLock",
+          args: { candidateUserId, stage, unlocked },
+          candidateUserId,
+          summary: `${unlocked ? "Unlock" : "Lock"} the ${label} stage for ${name}`,
+        });
+      },
+    }),
+
+    deleteOrganization: tool({
+      description:
+        "STAGE permanently DELETING a partner ORGANIZATION by orgId (get it from listOrganizations). This CASCADES: it removes the org's members and unlinks every candidate tied to it (the candidates' own accounts are NOT deleted). Supreme-only, irreversible. Two-step: stage → admin confirms → confirmPendingWrite.",
+      inputSchema: z.object({ orgId: z.string().uuid() }),
+      execute: async ({ orgId }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const { data: org } = await db.from("organizations").select("name").eq("id", orgId).maybeSingle();
+        if (!org) return { error: "not_found" };
+        const orgName = (org as { name?: string } | null)?.name ?? orgId;
+        return stagePending(scope, {
+          toolName: "deleteOrganization",
+          args: { orgId },
+          candidateUserId: null,
+          summary: `DELETE organization "${orgName}" — also unlinks its candidates + removes its members (cannot be undone)`,
+        });
+      },
+    }),
+
+    deleteCandidateAccount: tool({
+      description:
+        "STAGE permanently DELETING a candidate's ENTIRE account + ALL their data — documents, pipeline, profile, messages, sign-requests, feed activity — and their login. IRREVERSIBLE. Supreme-only. Use ONLY when the admin clearly says to delete/remove a person's account (not for 'archive' or 'hide'). If unsure who they mean, searchCandidates first. Two-step: stage → admin confirms → confirmPendingWrite.",
+      inputSchema: z.object({ candidateUserId: z.string().uuid() }),
+      execute: async ({ candidateUserId }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const name = await displayName(candidateUserId);
+        return stagePending(scope, {
+          toolName: "deleteCandidateAccount",
+          args: { candidateUserId },
+          candidateUserId,
+          summary: `PERMANENTLY DELETE ${name}'s account + all their data — this cannot be undone`,
+        });
+      },
+    }),
+
     listCohorts: tool({
       description:
         "List the ACADEMY cohorts (German-school classes) — id, name, target level, status, and member count. Read-only, supreme-only. Use for 'what cohorts do we have'. For one candidate's standing, use getAcademyStanding.",
