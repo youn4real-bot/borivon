@@ -19,6 +19,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { getStaffUserIdsAmong } from "@/lib/admin-auth";
 import { computeStuckCandidates } from "@/lib/autoChase";
 import { getUnansweredEmails } from "@/lib/gmailInbox";
+import { computeBatchTasks, formatBatchTasks } from "@/lib/batchBoard";
 
 const DAY = 86_400_000;
 
@@ -94,9 +95,10 @@ export async function computeBriefing(adminUserId: string | null): Promise<Brief
   // 🔔 stuck candidates + 📧 unanswered emails — folded in (best-effort, each
   // wrapped so a failure can NEVER break the briefing) so this one message is the
   // complete triage. getUnansweredEmails returns null if Gmail/IMAP is unavailable.
-  const [stuck, emails] = await Promise.all([
+  const [stuck, emails, batch] = await Promise.all([
     computeStuckCandidates().catch(() => null),
     getUnansweredEmails().catch(() => null),
+    computeBatchTasks().catch(() => null),
   ]);
 
   const lines: string[] = ["🗓️ Borivon — what needs you today", ""];
@@ -131,6 +133,10 @@ export async function computeBriefing(adminUserId: string | null): Promise<Brief
       lines.push(`   • ${r.text}${tag}`);
     }
     lines.push("");
+  }
+  if (batch && batch.tasks.length) {
+    count += batch.count;
+    lines.push(formatBatchTasks(batch.tasks), "");
   }
   if (stuck && stuck.candidates.length) {
     count += stuck.candidates.length;

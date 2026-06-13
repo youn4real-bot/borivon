@@ -294,6 +294,13 @@ describe("assistant tools enforce LAW #25 scope (org-admin)", () => {
     const tf = buildAssistantTools(ORG_ADMIN, { r2Key: "k", mime: "image/png", fileName: "logo.png", sha256: "abc" });
     expect(await run(tf, "uploadOrgLogo", { orgId: "77777777-7777-7777-7777-777777777777" })).toEqual({ error: "admin_only" });
   });
+
+  it("Batch Board tools (listBatches, manageBatch, setFunnelStage) → admin_only for a sub-admin", async () => {
+    const t = buildAssistantTools(ORG_ADMIN);
+    expect(await run(t, "listBatches", {})).toEqual({ error: "admin_only" });
+    expect(await run(t, "manageBatch", { op: "create", name: "UKSH — Q3 2026", seats: 10 })).toEqual({ error: "admin_only" });
+    expect(await run(t, "setFunnelStage", { candidateUserId: "11111111-1111-1111-1111-111111111111", stage: "waiting_2nd" })).toEqual({ error: "admin_only" });
+  });
 });
 
 describe("assistant tools allow the supreme admin", () => {
@@ -873,6 +880,21 @@ describe("assistant tools allow the supreme admin", () => {
     expect(r.staged).toBe(true);
     expect(r.summary).toContain("Doha Zini");
     expect(r.summary).toContain("B1");
+  });
+
+  it("manageBatch stages a create, setFunnelStage stages a stage change", async () => {
+    const created = (await run(buildAssistantTools(SUPREME), "manageBatch", { op: "create", name: "UKSH — Q3 2026", seats: 10 })) as { staged?: boolean; summary?: string };
+    expect(created.staged).toBe(true);
+    expect(created.summary).toContain("UKSH — Q3 2026");
+    expect(created.summary).toContain("10 seats");
+    expect(await run(buildAssistantTools(SUPREME), "manageBatch", { op: "edit" })).toEqual({ error: "batchId_required" });
+
+    h.tables.candidate_profiles = { data: { first_name: "Hajar", last_name: "El Kairaa" }, error: null };
+    const staged = (await run(buildAssistantTools(SUPREME), "setFunnelStage", { candidateUserId: "11111111-1111-1111-1111-111111111111", stage: "waiting_2nd" })) as { staged?: boolean; summary?: string };
+    expect(staged.staged).toBe(true);
+    expect(staged.summary).toContain("Hajar El Kairaa");
+    expect(staged.summary).toContain("waiting_2nd");
+    expect(await run(buildAssistantTools(SUPREME), "setFunnelStage", { candidateUserId: "11111111-1111-1111-1111-111111111111" })).toEqual({ error: "nothing_to_set" });
   });
 
   it("uploadOrgLogo stages with the org name when a file is attached, no_file without one", async () => {

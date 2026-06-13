@@ -1824,6 +1824,92 @@ export function buildAssistantTools(
       },
     }),
 
+    listBatches: tool({
+      description:
+        "List the employer intake BATCHES (e.g. 'UKSH — Q2 2026') — each with its employer, seat target, how many candidates are assigned so far (filled), target window, and status. Read-only, supreme-only. Default shows only OPEN batches; includeClosed=true to see all. Use for 'which batches do we have', 'how full is the UKSH intake'. Create/edit with manageBatch; put a candidate in one with setFunnelStage(batchId).",
+      inputSchema: z.object({ includeClosed: z.boolean().optional() }),
+      execute: async ({ includeClosed }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        let q = db.from("employer_batches").select("id, employer_id, name, seats, target_start, target_end, status").order("created_at", { ascending: false });
+        if (!includeClosed) q = q.eq("status", "open");
+        const { data: batches, error } = await q;
+        if (error) return { error: "load_failed" };
+        const list = (batches ?? []) as { id: string; employer_id: string | null; name: string; seats: number; target_start: string | null; target_end: string | null; status: string }[];
+        const { data: assigned } = await db.from("candidate_pipeline").select("batch_id").not("batch_id", "is", null);
+        const cnt = new Map<string, number>();
+        for (const r of (assigned ?? []) as { batch_id: string }[]) cnt.set(r.batch_id, (cnt.get(r.batch_id) ?? 0) + 1);
+        const empIds = [...new Set(list.map((b) => b.employer_id).filter(Boolean) as string[])];
+        const empName = new Map<string, string>();
+        if (empIds.length) {
+          const { data: emps } = await db.from("employers").select("id, name").in("id", empIds);
+          for (const e of (emps ?? []) as { id: string; name: string }[]) empName.set(e.id, e.name);
+        }
+        return {
+          count: list.length,
+          batches: list.map((b) => ({
+            batchId: b.id, name: b.name, employer: b.employer_id ? empName.get(b.employer_id) ?? null : null,
+            filled: cnt.get(b.id) ?? 0, seats: b.seats, targetStart: b.target_start, targetEnd: b.target_end, status: b.status,
+          })),
+        };
+      },
+    }),
+
+    manageBatch: tool({
+      description:
+        "STAGE creating/editing/closing an employer intake BATCH. op 'create' (name required, e.g. 'UKSH — Q3 2026'; optional employerId from listEmployers, seats default 10, targetStart/targetEnd as YYYY-MM-DD, notes), 'edit' (batchId + any field), or 'close' (batchId — stops it counting as an open gap to fill). Supreme-only, confirm-first. e.g. 'open a UKSH batch for Q3, 10 seats' → manageBatch(op 'create', name 'UKSH — Q3 2026', seats 10).",
+      inputSchema: z.object({
+        op: z.enum(["create", "edit", "close"]),
+        batchId: z.string().uuid().optional(),
+        employerId: z.string().uuid().optional(),
+        name: z.string().max(120).optional(),
+        seats: z.number().int().min(1).max(1000).optional(),
+        targetStart: z.string().max(10).optional(),
+        targetEnd: z.string().max(10).optional(),
+        notes: z.string().max(500).optional(),
+      }),
+      execute: async ({ op, batchId, employerId, name, seats, targetStart, targetEnd, notes }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if ((op === "edit" || op === "close") && !batchId) return { error: "batchId_required" };
+        if (op === "create" && !name) return { error: "name_required" };
+        const args: Record<string, unknown> = { op };
+        if (batchId !== undefined) args.batchId = batchId;
+        if (employerId !== undefined) args.employerId = employerId;
+        if (name !== undefined) args.name = name;
+        if (seats !== undefined) args.seats = seats;
+        if (targetStart !== undefined) args.targetStart = targetStart;
+        if (targetEnd !== undefined) args.targetEnd = targetEnd;
+        if (notes !== undefined) args.notes = notes;
+        if (op === "close") args.close = true;
+        let label = batchId ?? "";
+        if (op !== "create" && batchId) {
+          const { data: b } = await db.from("employer_batches").select("name").eq("id", batchId).maybeSingle();
+          label = (b as { name?: string } | null)?.name ?? batchId;
+        }
+        const summary = op === "create" ? `Open new batch "${name}"${seats ? ` (${seats} seats)` : ""}` : op === "close" ? `Close batch "${label}"` : `Edit batch "${label}"`;
+        return stagePending(scope, { toolName: "manageBatch", args, candidateUserId: null, summary });
+      },
+    }),
+
+    setFunnelStage: tool({
+      description:
+        "STAGE setting a candidate's FUNNEL STAGE and/or their BATCH. stage one of funneling / screening / interview1 / waiting_2nd / interview2 / passed / departed ('waiting_2nd' = passed the 1st interview and waiting for the 2nd date — the DROP-OUT danger zone the daily tasks watch). batchId from listBatches (or '' to unassign). At least one of stage/batchId required. Supreme-only, confirm-first. e.g. 'mark Hajar waiting for her 2nd interview' → setFunnelStage(candidateUserId, stage 'waiting_2nd'); 'put Ali in the UKSH Q3 batch' → setFunnelStage(candidateUserId, batchId …).",
+      inputSchema: z.object({
+        candidateUserId: z.string().uuid(),
+        stage: z.enum(["funneling", "screening", "interview1", "waiting_2nd", "interview2", "passed", "departed"]).optional(),
+        batchId: z.string().optional(),
+      }),
+      execute: async ({ candidateUserId, stage, batchId }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (stage === undefined && batchId === undefined) return { error: "nothing_to_set" };
+        const name = await displayName(candidateUserId);
+        const args: Record<string, unknown> = { candidateUserId };
+        if (stage !== undefined) args.stage = stage;
+        if (batchId !== undefined) args.batchId = batchId; // "" → unassign
+        const bits = [stage ? `stage → ${stage}` : null, batchId !== undefined ? (batchId ? "assign to a batch" : "unassign batch") : null].filter(Boolean).join(", ");
+        return stagePending(scope, { toolName: "setFunnelStage", args, candidateUserId, summary: `${name}: ${bits}` });
+      },
+    }),
+
     listStuckCandidates: tool({
       description:
         "List candidates who may need a NUDGE — their latest uploaded document was rejected ≥3 days ago and not re-submitted, or their pipeline hasn't moved in 3+ weeks. Read-only; returns each name + the reason(s). To nudge them, use nudgeStuckCandidates (all at once, confirm-first) or message one with sendCandidateMessage / sendFollowUpNudge. This is the same list the daily auto-chase push surfaces.",

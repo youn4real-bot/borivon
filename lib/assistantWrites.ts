@@ -23,6 +23,7 @@ import { sendOutboundEmail, type OutboundAttachment } from "@/lib/outboundEmail"
 import { CV_DE_FILE_TYPES } from "@/lib/constants";
 import { r2GetObject } from "@/lib/r2";
 import { validateImageDataUrl } from "@/lib/validateDataUrl";
+import { isFunnelStage } from "@/lib/batchBoard";
 import { UUID_RE } from "@/lib/uuid";
 import { serverBroadcast, ASSIGNMENTS_TOPIC } from "@/lib/serverBroadcast";
 import { normalizeReq } from "@/lib/impfungJourney";
@@ -1069,6 +1070,59 @@ async function writeAcademyLevel(userId: string, level: string): Promise<WriteRe
   return { ok: true };
 }
 
+// ── Batch Board ──────────────────────────────────────────────────────────────
+// Create / edit / close an employer intake batch (employer_batches).
+async function writeManageBatch(opts: { op: string; batchId?: string; employerId?: string; name?: string; seats?: number; targetStart?: string; targetEnd?: string; notes?: string; close?: boolean }): Promise<WriteResult> {
+  const db = getServiceSupabase();
+  if (opts.op === "create") {
+    if (!opts.name) return { ok: false, error: "name_required" };
+    const row: Record<string, unknown> = { name: opts.name, seats: opts.seats && opts.seats > 0 ? opts.seats : 10 };
+    if (opts.employerId) row.employer_id = opts.employerId;
+    if (opts.targetStart) row.target_start = opts.targetStart;
+    if (opts.targetEnd) row.target_end = opts.targetEnd;
+    if (opts.notes) row.notes = opts.notes;
+    const { error } = await db.from("employer_batches").insert(row);
+    return error ? { ok: false, error: "write_failed" } : { ok: true };
+  }
+  if (!opts.batchId || !UUID_RE.test(opts.batchId)) return { ok: false, error: "bad_id" };
+  const upd: Record<string, unknown> = {};
+  if (opts.name !== undefined) upd.name = opts.name;
+  if (opts.seats !== undefined && opts.seats > 0) upd.seats = opts.seats;
+  if (opts.employerId !== undefined) upd.employer_id = opts.employerId || null;
+  if (opts.targetStart !== undefined) upd.target_start = opts.targetStart || null;
+  if (opts.targetEnd !== undefined) upd.target_end = opts.targetEnd || null;
+  if (opts.notes !== undefined) upd.notes = opts.notes || null;
+  if (opts.close) upd.status = "closed";
+  if (Object.keys(upd).length === 0) return { ok: false, error: "nothing_to_update" };
+  const { error } = await db.from("employer_batches").update(upd).eq("id", opts.batchId);
+  return error ? { ok: false, error: "write_failed" } : { ok: true };
+}
+
+// Set a candidate's funnel stage and/or batch (candidate_pipeline columns).
+async function writeFunnelStage(userId: string, stage: string | undefined, batchId: string | null | undefined): Promise<WriteResult> {
+  const fields: Record<string, unknown> = {};
+  if (stage !== undefined) {
+    if (!isFunnelStage(stage)) return { ok: false, error: "bad_stage" };
+    fields.funnel_stage = stage;
+  }
+  if (batchId !== undefined) {
+    if (batchId && !UUID_RE.test(batchId)) return { ok: false, error: "bad_batch_id" };
+    fields.batch_id = batchId || null;
+  }
+  if (Object.keys(fields).length === 0) return { ok: false, error: "nothing_to_set" };
+  return applyPipelinePatch(userId, fields);
+}
+
+// Stamp last_touch_at so a warmed candidate drops off the "cold" list. Best-effort
+// — silently no-ops if the column isn't migrated yet. Called after a nudge/message.
+async function stampTouch(userIds: string[]): Promise<void> {
+  const ids = userIds.filter(Boolean);
+  if (!ids.length) return;
+  try {
+    await getServiceSupabase().from("candidate_pipeline").update({ last_touch_at: new Date().toISOString() }).in("user_id", ids);
+  } catch { /* column not migrated → ignore */ }
+}
+
 type PendingRow = {
   id: string;
   tool_name: string;
@@ -1315,8 +1369,33 @@ export async function executeLatestPending(
     result = await writeAcademyLevel(String(a.candidateUserId), String(a.level ?? ""));
   } else if (row.tool_name === "uploadOrgLogo") {
     result = await writeUploadOrgLogo(String(a.orgId ?? ""), String(a.r2Key ?? ""), String(a.mime ?? ""));
+  } else if (row.tool_name === "manageBatch") {
+    result = await writeManageBatch({
+      op: String(a.op ?? ""),
+      batchId: a.batchId == null ? undefined : String(a.batchId),
+      employerId: a.employerId === undefined ? undefined : a.employerId == null ? "" : String(a.employerId),
+      name: a.name == null ? undefined : String(a.name),
+      seats: a.seats == null ? undefined : Number(a.seats),
+      targetStart: a.targetStart == null ? undefined : String(a.targetStart),
+      targetEnd: a.targetEnd == null ? undefined : String(a.targetEnd),
+      notes: a.notes == null ? undefined : String(a.notes),
+      close: a.close === true,
+    });
+  } else if (row.tool_name === "setFunnelStage") {
+    result = await writeFunnelStage(
+      String(a.candidateUserId),
+      a.stage == null ? undefined : String(a.stage),
+      a.batchId === undefined ? undefined : a.batchId == null ? null : String(a.batchId),
+    );
   }
   if (!result.ok) return { error: result.error };
+  // Retention: warming a candidate (nudge/message) stamps last_touch_at so the
+  // all-day nudger won't re-nag you about someone you just contacted today.
+  if (row.tool_name === "sendFollowUpNudge" || row.tool_name === "sendCandidateMessage") {
+    if (a.candidateUserId) await stampTouch([String(a.candidateUserId)]);
+  } else if (row.tool_name === "nudgeStuckCandidates") {
+    await stampTouch(Array.isArray(a.candidateIds) ? (a.candidateIds as unknown[]).map((x) => String(x)) : []);
+  }
   const db = getServiceSupabase();
   await db.from("assistant_pending_actions").update({ status: "confirmed" }).eq("id", row.id);
   return { done: true, summary: row.summary };
