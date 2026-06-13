@@ -17,6 +17,7 @@ import { resolveFileKey, translateDocLabel, FILE_KEY_LABELS } from "@/lib/fileKe
 import { signDlToken } from "@/lib/dlToken";
 import { UUID_RE } from "@/lib/uuid";
 import { germanSummary } from "@/lib/b2Detail";
+import { stripEmailFormatting } from "@/lib/emailFormat";
 import { computeBriefing } from "@/lib/briefing";
 import { stagePending, executeLatestPending, cancelLatestPending, MILESTONE_BOOL } from "@/lib/assistantWrites";
 import { AUTOMATIONS, getAutomationFlags, setAutomation as persistAutomation } from "@/lib/automationSettings";
@@ -2125,7 +2126,11 @@ export function buildAssistantTools(
             candIds.length ? `${candIds.length} CV${candIds.length > 1 ? "s" : ""}${names.length ? ` (${names.join(", ")})` : ""}` : null,
             docIds.length ? `${docIds.length} document${docIds.length > 1 ? "s" : ""}` : null,
           ].filter(Boolean).join(" + ") || "none";
-        const args: Record<string, unknown> = { to: email, subject, body };
+        // Strip any markdown the model added so the preview AND the sent email
+        // are plain text — no relying on it to "remember" the no-stars rule.
+        const cleanBody = stripEmailFormatting(body);
+        const cleanSubject = stripEmailFormatting(subject);
+        const args: Record<string, unknown> = { to: email, subject: cleanSubject, body: cleanBody };
         if (toName !== undefined) args.toName = toName;
         if (ccList.length) args.cc = ccList.join(",");
         if (attachCandidateIds !== undefined) args.attachCandidateIds = attachCandidateIds;
@@ -2134,7 +2139,7 @@ export function buildAssistantTools(
           toolName: "sendExternalEmail",
           args,
           candidateUserId: null,
-          summary: `📧 To: ${toName ? `${toName} <${email}>` : email}${ccList.length ? `\nCC: ${ccList.join(", ")}` : ""}\nSubject: ${subject}\nAttachments: ${attachDesc}\n\n${body.slice(0, 600)}${body.length > 600 ? "…" : ""}`,
+          summary: `📧 To: ${toName ? `${toName} <${email}>` : email}${ccList.length ? `\nCC: ${ccList.join(", ")}` : ""}\nSubject: ${cleanSubject}\nAttachments: ${attachDesc}\n\n${cleanBody.slice(0, 600)}${cleanBody.length > 600 ? "…" : ""}`,
         });
       },
     }),

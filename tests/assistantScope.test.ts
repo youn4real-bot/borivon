@@ -618,6 +618,11 @@ describe("assistant tools allow the supreme admin", () => {
     expect(lumped.staged).toBe(true);
     expect(lumped.summary).toContain("To: a.gombert@calmaroi.de");
     expect(lumped.summary).toContain("CC: o.musleh@calmaroi.de");
+    // Markdown is stripped in code — no ** ever reaches the email/preview.
+    const md = (await run(buildAssistantTools(SUPREME), "sendExternalEmail", { to: "a@b.com", subject: "Hi", body: "Hallo **Anna**, hier `code` und *kursiv*." })) as { staged?: boolean; summary?: string };
+    expect(md.staged).toBe(true);
+    expect(md.summary).not.toContain("**");
+    expect(md.summary).toContain("Hallo Anna");
   });
 
   it("setAgencyProfile stages only changed fields, and rejects an empty patch", async () => {

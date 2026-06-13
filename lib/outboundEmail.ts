@@ -13,6 +13,7 @@
  */
 import nodemailer from "nodemailer";
 import { Resend } from "resend";
+import { stripEmailFormatting } from "@/lib/emailFormat";
 
 /** From address (must be on the verified borivon.com domain to send via Resend). */
 export const OUTBOUND_FROM_EMAIL = (process.env.OUTBOUND_FROM_EMAIL || "youness.taoufiq@borivon.com").trim();
@@ -42,9 +43,9 @@ export async function sendOutboundEmail(opts: {
   body: string; // plain text (newlines preserved)
   attachments?: OutboundAttachment[];
 }): Promise<OutboundResult> {
-  const subject = opts.subject.replace(/[\r\n]+/g, " ").trim().slice(0, 200);
-  const text = opts.body;
-  const html = textToHtml(opts.body);
+  const subject = stripEmailFormatting(opts.subject).replace(/[\r\n]+/g, " ").trim().slice(0, 200);
+  const text = stripEmailFormatting(opts.body); // guarantee plain text — no stray **/*/`/# ever
+  const html = textToHtml(text);
   const atts = opts.attachments ?? [];
   const cc = (opts.cc ?? []).map((c) => c.trim()).filter(Boolean);
 
