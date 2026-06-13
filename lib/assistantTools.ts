@@ -937,6 +937,279 @@ export function buildAssistantTools(
       },
     }),
 
+    listOrgRequests: tool({
+      description:
+        "List PENDING candidate→organization link requests (the 'pending requests' inbox) — who applied to join which partner org, awaiting your approval. Read-only, supreme-only. Returns each candidate name + org name + when they applied. Approve/reject with reviewOrgRequest.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const { data: links } = await db.from("candidate_organizations")
+          .select("candidate_user_id, org_id, added_by, added_at").eq("status", "pending").order("added_at", { ascending: false });
+        const rows = (links ?? []) as { candidate_user_id: string; org_id: string; added_by: string; added_at: string }[];
+        if (!rows.length) return { count: 0, requests: [] };
+        const orgIds = [...new Set(rows.map((r) => r.org_id))];
+        const { data: orgs } = await db.from("organizations").select("id, name").in("id", orgIds);
+        const orgName: Record<string, string> = {};
+        for (const o of (orgs ?? []) as { id: string; name: string }[]) orgName[o.id] = o.name;
+        const names = await resolveAuthNames([...new Set(rows.map((r) => r.candidate_user_id))]);
+        return {
+          count: rows.length,
+          requests: rows.map((r) => ({
+            candidateUserId: r.candidate_user_id,
+            candidateName: names[r.candidate_user_id]?.name ?? r.candidate_user_id,
+            orgId: r.org_id,
+            orgName: orgName[r.org_id] ?? "(deleted org)",
+            addedBy: r.added_by,
+            addedAt: r.added_at,
+          })),
+        };
+      },
+    }),
+
+    reviewOrgRequest: tool({
+      description:
+        "STAGE approving or rejecting a pending candidate→org link request (from listOrgRequests). decision 'approve' grants the org's people dossier access to that candidate; 'reject' marks it rejected (kept for audit, never hard-deleted). Supreme-only. Two-step: stage → admin confirms → confirmPendingWrite.",
+      inputSchema: z.object({
+        candidateUserId: z.string().uuid(),
+        orgId: z.string().uuid(),
+        decision: z.enum(["approve", "reject"]),
+      }),
+      execute: async ({ candidateUserId, orgId, decision }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const name = await displayName(candidateUserId);
+        const { data: org } = await db.from("organizations").select("name").eq("id", orgId).maybeSingle();
+        const orgName = (org as { name?: string } | null)?.name ?? orgId;
+        return stagePending(scope, {
+          toolName: "reviewOrgRequest",
+          args: { candidateUserId, orgId, decision },
+          candidateUserId,
+          summary: `${decision === "approve" ? "Approve" : "Reject"} ${name} → ${orgName}`,
+        });
+      },
+    }),
+
+    listSuggestedMatches: tool({
+      description:
+        "List PENDING suggested candidate↔organization matches the system proposed (based on org needs). Read-only, supreme-only. Returns each candidate name + org name + the requirement (specialty/slots/location). Accept or skip with decideSuggestedMatch.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const { data: matches } = await db.from("suggested_matches")
+          .select("id, candidate_user_id, org_id, requirement_id, suggested_at").eq("status", "pending").order("suggested_at", { ascending: false });
+        const rows = (matches ?? []) as { id: string; candidate_user_id: string; org_id: string; requirement_id: string | null; suggested_at: string }[];
+        if (!rows.length) return { count: 0, matches: [] };
+        const orgIds = [...new Set(rows.map((r) => r.org_id))];
+        const { data: orgs } = await db.from("organizations").select("id, name").in("id", orgIds);
+        const orgName: Record<string, string> = {};
+        for (const o of (orgs ?? []) as { id: string; name: string }[]) orgName[o.id] = o.name;
+        const reqIds = [...new Set(rows.map((r) => r.requirement_id).filter(Boolean))] as string[];
+        const reqById: Record<string, { specialty: string | null; slots: number; location: string | null }> = {};
+        if (reqIds.length) {
+          const { data: reqs } = await db.from("org_requirements").select("id, specialty, slots, location").in("id", reqIds);
+          for (const r of (reqs ?? []) as { id: string; specialty: string | null; slots: number; location: string | null }[]) reqById[r.id] = { specialty: r.specialty, slots: r.slots, location: r.location };
+        }
+        const names = await resolveAuthNames([...new Set(rows.map((r) => r.candidate_user_id))]);
+        return {
+          count: rows.length,
+          matches: rows.map((r) => ({
+            matchId: r.id,
+            candidateUserId: r.candidate_user_id,
+            candidateName: names[r.candidate_user_id]?.name ?? r.candidate_user_id,
+            orgId: r.org_id,
+            orgName: orgName[r.org_id] ?? "(deleted)",
+            requirement: r.requirement_id ? (reqById[r.requirement_id] ?? null) : null,
+            suggestedAt: r.suggested_at,
+          })),
+        };
+      },
+    }),
+
+    decideSuggestedMatch: tool({
+      description:
+        "STAGE accepting or skipping a suggested match (matchId from listSuggestedMatches). action 'accepted' silently links the candidate to that org (approved, no candidate notification — exactly like the website); 'skipped' dismisses the suggestion. Supreme-only. Two-step: stage → admin confirms → confirmPendingWrite.",
+      inputSchema: z.object({
+        matchId: z.string().uuid(),
+        action: z.enum(["accepted", "skipped"]),
+      }),
+      execute: async ({ matchId, action }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const { data: m } = await db.from("suggested_matches").select("candidate_user_id, org_id, status").eq("id", matchId).maybeSingle();
+        if (!m) return { error: "match_not_found" };
+        if ((m as { status?: string }).status !== "pending") return { error: "already_decided" };
+        const mm = m as { candidate_user_id: string; org_id: string };
+        const name = await displayName(mm.candidate_user_id);
+        const { data: org } = await db.from("organizations").select("name").eq("id", mm.org_id).maybeSingle();
+        const orgName = (org as { name?: string } | null)?.name ?? mm.org_id;
+        return stagePending(scope, {
+          toolName: "decideSuggestedMatch",
+          args: { matchId, action },
+          candidateUserId: mm.candidate_user_id,
+          summary: `${action === "accepted" ? "Accept match" : "Skip match"}: ${name} ↔ ${orgName}`,
+        });
+      },
+    }),
+
+    listOrgNeeds: tool({
+      description:
+        "List every OPEN requirement across all partner organizations — what each org is currently hiring for (specialty, slots, location, start date). Read-only, supreme-only. Use for 'what do our orgs need', 'who's hiring intensive-care nurses'. Add/edit/close one with manageOrgRequirement.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const [{ data: reqs }, { data: orgs }] = await Promise.all([
+          db.from("org_requirements").select("id, org_id, specialty, slots, location, start_date, notes, created_at").eq("active", true).order("created_at", { ascending: false }),
+          db.from("organizations").select("id, name"),
+        ]);
+        const orgName: Record<string, string> = {};
+        for (const o of (orgs ?? []) as { id: string; name: string }[]) orgName[o.id] = o.name;
+        const needs = ((reqs ?? []) as { id: string; org_id: string; specialty: string | null; slots: number; location: string | null; start_date: string | null; notes: string | null; created_at: string }[]).map((r) => ({
+          requirementId: r.id, orgId: r.org_id, orgName: orgName[r.org_id] ?? "(unknown)",
+          specialty: r.specialty, slots: r.slots, location: r.location, startDate: r.start_date, notes: r.notes,
+        }));
+        return { count: needs.length, needs };
+      },
+    }),
+
+    manageOrgRequirement: tool({
+      description:
+        "STAGE adding, editing, or closing an organization's open requirement (a hiring need). op 'add' (needs orgId from listOrganizations + any of specialty/slots/location/startDate/notes), 'edit' (needs requirementId from listOrgNeeds + the fields to change), or 'close' (needs requirementId — sets it inactive, audit-kept). Supreme-only. Two-step: stage → admin confirms → confirmPendingWrite.",
+      inputSchema: z.object({
+        op: z.enum(["add", "edit", "close"]),
+        orgId: z.string().uuid().optional().describe("required for op 'add'"),
+        requirementId: z.string().uuid().optional().describe("required for op 'edit' / 'close'"),
+        specialty: z.string().max(200).optional(),
+        slots: z.number().int().optional(),
+        location: z.string().max(200).optional(),
+        startDate: z.string().max(40).optional().describe("YYYY-MM-DD"),
+        notes: z.string().max(500).optional(),
+      }),
+      execute: async ({ op, orgId, requirementId, specialty, slots, location, startDate, notes }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (op === "add" && !orgId) return { error: "orgId_required" };
+        if ((op === "edit" || op === "close") && !requirementId) return { error: "requirementId_required" };
+        const args: Record<string, unknown> = { op };
+        if (orgId !== undefined) args.orgId = orgId;
+        if (requirementId !== undefined) args.requirementId = requirementId;
+        if (specialty !== undefined) args.specialty = specialty;
+        if (slots !== undefined) args.slots = slots;
+        if (location !== undefined) args.location = location;
+        if (startDate !== undefined) args.startDate = startDate;
+        if (notes !== undefined) args.notes = notes;
+        let orgLabel = "";
+        if (orgId) {
+          const { data: org } = await db.from("organizations").select("name").eq("id", orgId).maybeSingle();
+          orgLabel = (org as { name?: string } | null)?.name ?? orgId;
+        }
+        const verb = op === "add" ? "Add need" : op === "close" ? "Close need" : "Edit need";
+        const detail = [specialty, location, slots ? `${slots} slot${slots > 1 ? "s" : ""}` : ""].filter(Boolean).join(", ");
+        return stagePending(scope, {
+          toolName: "manageOrgRequirement",
+          args,
+          candidateUserId: null,
+          summary: `${verb}${orgLabel ? ` @ ${orgLabel}` : ""}${detail ? `: ${detail}` : ""}`.slice(0, 300),
+        });
+      },
+    }),
+
+    manageOrganization: tool({
+      description:
+        "STAGE creating a NEW partner organization or renaming/editing one. op 'create' (needs name; optionally notes + a custom inviteCode, else one is generated) or 'edit' (needs orgId + any of name/notes/inviteCode). Supreme-only. Two-step: stage → admin confirms → confirmPendingWrite. (Deleting an org cascades to candidate links and stays a website-only action.)",
+      inputSchema: z.object({
+        op: z.enum(["create", "edit"]),
+        orgId: z.string().uuid().optional().describe("required for op 'edit'"),
+        name: z.string().max(200).optional(),
+        notes: z.string().max(500).optional(),
+        inviteCode: z.string().max(32).optional().describe("custom join code (A-Z 0-9 -); omit on create to auto-generate"),
+      }),
+      execute: async ({ op, orgId, name, notes, inviteCode }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (op === "create" && !(name ?? "").trim()) return { error: "name_required" };
+        if (op === "edit" && !orgId) return { error: "orgId_required" };
+        const args: Record<string, unknown> = { op };
+        if (orgId !== undefined) args.orgId = orgId;
+        if (name !== undefined) args.name = name;
+        if (notes !== undefined) args.notes = notes;
+        if (inviteCode !== undefined) args.inviteCode = inviteCode;
+        let label = name ? name.trim() : "";
+        if (op === "edit" && !label && orgId) {
+          const { data: org } = await db.from("organizations").select("name").eq("id", orgId).maybeSingle();
+          label = (org as { name?: string } | null)?.name ?? orgId;
+        }
+        return stagePending(scope, {
+          toolName: "manageOrganization",
+          args,
+          candidateUserId: null,
+          summary: `${op === "create" ? "Create org" : "Edit org"}: ${label}`,
+        });
+      },
+    }),
+
+    setOrgBranding: tool({
+      description:
+        "STAGE setting an organization's branding footer text and/or vaccine requirement. orgId from listOrganizations. footerText = the footer line on that org's CVs/PDFs (or '' to clear). masern / varizell = required dose counts (0-5; drives the candidate Impfung track; both 0 = no vaccine requirement). Logo upload stays a website-only action (needs a file). Supreme-only. Two-step: stage → admin confirms → confirmPendingWrite.",
+      inputSchema: z.object({
+        orgId: z.string().uuid(),
+        footerText: z.string().max(500).optional(),
+        masern: z.number().int().min(0).max(5).optional(),
+        varizell: z.number().int().min(0).max(5).optional(),
+      }),
+      execute: async ({ orgId, footerText, masern, varizell }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (footerText === undefined && masern === undefined && varizell === undefined) return { error: "nothing_to_change" };
+        const { data: org } = await db.from("organizations").select("name").eq("id", orgId).maybeSingle();
+        const orgName = (org as { name?: string } | null)?.name ?? orgId;
+        const args: Record<string, unknown> = { orgId };
+        if (footerText !== undefined) args.footerText = footerText;
+        if (masern !== undefined) args.masern = masern;
+        if (varizell !== undefined) args.varizell = varizell;
+        const bits = [
+          footerText !== undefined ? `footer: ${footerText || "(cleared)"}` : "",
+          (masern !== undefined || varizell !== undefined) ? `vaccine: Masern ${masern ?? 0} / Varizellen ${varizell ?? 0}` : "",
+        ].filter(Boolean).join(", ");
+        return stagePending(scope, {
+          toolName: "setOrgBranding",
+          args,
+          candidateUserId: null,
+          summary: `${orgName} branding → ${bits}`.slice(0, 300),
+        });
+      },
+    }),
+
+    listAgencies: tool({
+      description:
+        "List all AGENCIES (the multi-tenancy containers that isolate sub-admins + candidates) — id, name, and admin/member/candidate counts. Read-only, supreme-only. (Distinct from organizations: agencies are the tenancy layer; organizations are the per-employer job layer.)",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const { data: agencies } = await db.from("agencies").select("id, name, created_at").order("name", { ascending: true });
+        const rows = (agencies ?? []) as { id: string; name: string; created_at: string }[];
+        if (!rows.length) return { count: 0, agencies: [] };
+        const [{ data: subs }, { data: cands }] = await Promise.all([
+          db.from("sub_admins").select("agency_id, is_agency_admin"),
+          db.from("candidate_profiles").select("agency_id"),
+        ]);
+        const adminCount: Record<string, number> = {};
+        const memberCount: Record<string, number> = {};
+        for (const s of (subs ?? []) as { agency_id: string | null; is_agency_admin: boolean }[]) {
+          if (!s.agency_id) continue;
+          if (s.is_agency_admin) adminCount[s.agency_id] = (adminCount[s.agency_id] ?? 0) + 1;
+          else memberCount[s.agency_id] = (memberCount[s.agency_id] ?? 0) + 1;
+        }
+        const candCount: Record<string, number> = {};
+        for (const c of (cands ?? []) as { agency_id: string | null }[]) {
+          if (c.agency_id) candCount[c.agency_id] = (candCount[c.agency_id] ?? 0) + 1;
+        }
+        return {
+          count: rows.length,
+          agencies: rows.map((a) => ({
+            id: a.id, name: a.name,
+            adminCount: adminCount[a.id] ?? 0,
+            memberCount: memberCount[a.id] ?? 0,
+            candidateCount: candCount[a.id] ?? 0,
+          })),
+        };
+      },
+    }),
+
     listStuckCandidates: tool({
       description:
         "List candidates who may need a NUDGE — their latest uploaded document was rejected ≥3 days ago and not re-submitted, or their pipeline hasn't moved in 3+ weeks. Read-only; returns each name + the reason(s). To nudge them, use nudgeStuckCandidates (all at once, confirm-first) or message one with sendCandidateMessage / sendFollowUpNudge. This is the same list the daily auto-chase push surfaces.",

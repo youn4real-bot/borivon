@@ -24,6 +24,7 @@ import { CV_DE_FILE_TYPES } from "@/lib/constants";
 import { r2GetObject } from "@/lib/r2";
 import { UUID_RE } from "@/lib/uuid";
 import { serverBroadcast, ASSIGNMENTS_TOPIC } from "@/lib/serverBroadcast";
+import { normalizeReq } from "@/lib/impfungJourney";
 import type { AssistantScope } from "@/lib/assistantScope";
 
 const MIME_EXT: Record<string, string> = {
@@ -586,6 +587,163 @@ async function writeAgencyProfile(userId: string, fields: Record<string, string>
   return { ok: true };
 }
 
+/** Approve / reject a pending candidate→org link request — mirrors
+ *  POST (approve) / DELETE (reject) /api/portal/admin/organization-requests.
+ *  Approve stamps approved_at/by; reject writes status='rejected' (audit trail,
+ *  never hard-delete); both only touch rows still status='pending'. */
+async function writeOrgRequest(scope: AssistantScope, candidateUserId: string, orgId: string, decision: string): Promise<WriteResult> {
+  if (!UUID_RE.test(candidateUserId) || !UUID_RE.test(orgId)) return { ok: false, error: "bad_id" };
+  const db = getServiceSupabase();
+  if (decision === "approve") {
+    const { error } = await db.from("candidate_organizations").update({
+      status: "approved", approved_at: new Date().toISOString(), approved_by: scope.email,
+    }).eq("candidate_user_id", candidateUserId).eq("org_id", orgId).eq("status", "pending");
+    if (error) return { ok: false, error: "write_failed" };
+  } else if (decision === "reject") {
+    const { error } = await db.from("candidate_organizations").update({ status: "rejected" })
+      .eq("candidate_user_id", candidateUserId).eq("org_id", orgId).eq("status", "pending");
+    if (error) return { ok: false, error: "write_failed" };
+  } else {
+    return { ok: false, error: "bad_decision" };
+  }
+  try { await serverBroadcast(ASSIGNMENTS_TOPIC, "changed"); } catch { /* non-fatal */ }
+  return { ok: true };
+}
+
+/** Accept / skip a suggested candidate↔org match — mirrors POST
+ *  /api/portal/admin/suggested-matches. Marks the match decided; on accept,
+ *  upserts an approved candidate_organizations link (silent placement — no
+ *  candidate notification, exactly like the website). */
+async function writeSuggestedMatch(scope: AssistantScope, matchId: string, action: string): Promise<WriteResult> {
+  if (!UUID_RE.test(matchId)) return { ok: false, error: "bad_id" };
+  if (action !== "accepted" && action !== "skipped") return { ok: false, error: "bad_action" };
+  const db = getServiceSupabase();
+  const { data: match } = await db.from("suggested_matches")
+    .select("id, candidate_user_id, org_id, status").eq("id", matchId).eq("status", "pending").maybeSingle();
+  if (!match) return { ok: false, error: "not_found_or_decided" };
+  const m = match as { candidate_user_id: string; org_id: string };
+  const { error: decErr } = await db.from("suggested_matches").update({
+    status: action, decided_at: new Date().toISOString(), decided_by: scope.email,
+  }).eq("id", matchId);
+  if (decErr) return { ok: false, error: "write_failed" };
+  if (action === "accepted") {
+    const { data: existing } = await db.from("candidate_organizations").select("status")
+      .eq("candidate_user_id", m.candidate_user_id).eq("org_id", m.org_id).maybeSingle();
+    if (existing) {
+      await db.from("candidate_organizations").update({
+        status: "approved", approved_at: new Date().toISOString(), approved_by: scope.email,
+      }).eq("candidate_user_id", m.candidate_user_id).eq("org_id", m.org_id);
+    } else {
+      await db.from("candidate_organizations").insert({
+        candidate_user_id: m.candidate_user_id, org_id: m.org_id, status: "approved",
+        added_by: "admin", approved_at: new Date().toISOString(), approved_by: scope.email,
+      });
+    }
+    try { await serverBroadcast(ASSIGNMENTS_TOPIC, "changed"); } catch { /* non-fatal */ }
+  }
+  return { ok: true };
+}
+
+/** Create or rename/edit a partner organization — mirrors POST
+ *  /api/portal/admin/organizations (create: name required, mints unique 8-char
+ *  invite_code + crypto member_invite_code) and PATCH .../[id] (edit name/notes/
+ *  invite_code). No delete — org deletion cascades to candidate links, so it
+ *  stays a web-only action. */
+async function writeManageOrganization(opts: { op: string; orgId?: string; name?: string; notes?: string; inviteCode?: string }): Promise<WriteResult> {
+  const db = getServiceSupabase();
+  const cleanCode = (v: string) => v.trim().toUpperCase().replace(/[^A-Z0-9-]/g, "").slice(0, 32);
+  if (opts.op === "create") {
+    const name = (opts.name ?? "").trim().slice(0, 200);
+    if (!name) return { ok: false, error: "name_required" };
+    let code = opts.inviteCode ? cleanCode(opts.inviteCode) : "";
+    if (code) {
+      const { data: clash } = await db.from("organizations").select("id").eq("invite_code", code).maybeSingle();
+      if (clash) return { ok: false, error: "code_in_use" };
+    } else {
+      for (let i = 0; i < 5; i++) {
+        const cand = Array.from(crypto.getRandomValues(new Uint8Array(8))).map((b) => "ABCDEFGHJKMNPQRSTUVWXYZ23456789"[b % 30]).join("");
+        const { data: clash } = await db.from("organizations").select("id").eq("invite_code", cand).maybeSingle();
+        if (!clash) { code = cand; break; }
+      }
+      if (!code) return { ok: false, error: "code_gen_failed" };
+    }
+    const memberCode = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "").slice(0, 8);
+    const { error } = await db.from("organizations").insert({
+      name, notes: (opts.notes ?? "").trim().slice(0, 500) || null, invite_code: code, member_invite_code: memberCode,
+    });
+    if (error) return { ok: false, error: "write_failed" };
+    return { ok: true };
+  } else if (opts.op === "edit") {
+    if (!opts.orgId || !UUID_RE.test(opts.orgId)) return { ok: false, error: "bad_id" };
+    const updates: Record<string, unknown> = {};
+    if (opts.name !== undefined) { const n = opts.name.trim().slice(0, 200); if (!n) return { ok: false, error: "name_empty" }; updates.name = n; }
+    if (opts.notes !== undefined) updates.notes = opts.notes.trim().slice(0, 500) || null;
+    if (opts.inviteCode !== undefined) { const c = cleanCode(opts.inviteCode); if (!c) return { ok: false, error: "code_empty" }; updates.invite_code = c; }
+    if (Object.keys(updates).length === 0) return { ok: false, error: "nothing_to_update" };
+    const { error } = await db.from("organizations").update(updates).eq("id", opts.orgId);
+    if (error) return { ok: false, error: (error as { code?: string }).code === "23505" ? "code_in_use" : "write_failed" };
+    return { ok: true };
+  }
+  return { ok: false, error: "bad_op" };
+}
+
+/** Set an org's branding / vaccine requirement — mirrors the branding fields of
+ *  PATCH /api/portal/admin/organizations/[id] (footer_text + vaccine_req via
+ *  normalizeReq). Logo upload stays web-only (needs a file). */
+async function writeOrgBranding(orgId: string, opts: { footerText?: string; masern?: number; varizell?: number }): Promise<WriteResult> {
+  if (!UUID_RE.test(orgId)) return { ok: false, error: "bad_id" };
+  const updates: Record<string, unknown> = {};
+  if (opts.footerText !== undefined) updates.footer_text = opts.footerText.trim().slice(0, 500) || null;
+  if (opts.masern !== undefined || opts.varizell !== undefined) {
+    updates.vaccine_req = normalizeReq({ masern: opts.masern ?? 0, varizell: opts.varizell ?? 0 });
+  }
+  if (Object.keys(updates).length === 0) return { ok: false, error: "nothing_to_update" };
+  const db = getServiceSupabase();
+  const { error } = await db.from("organizations").update(updates).eq("id", orgId);
+  if (error) return { ok: false, error: "write_failed" };
+  return { ok: true };
+}
+
+/** Add / edit / close an org requirement (open need) — mirrors POST/PATCH/DELETE
+ *  /api/portal/admin/organizations/[id]/requirements. Close = active:false
+ *  (audit trail, never hard-delete). */
+async function writeOrgRequirement(opts: { op: string; orgId?: string; requirementId?: string; specialty?: string; slots?: number; location?: string; startDate?: string; notes?: string }): Promise<WriteResult> {
+  const db = getServiceSupabase();
+  if (opts.op === "add") {
+    if (!opts.orgId || !UUID_RE.test(opts.orgId)) return { ok: false, error: "bad_id" };
+    const { error } = await db.from("org_requirements").insert({
+      org_id: opts.orgId,
+      specialty: opts.specialty ? opts.specialty.trim().slice(0, 200) || null : null,
+      slots: typeof opts.slots === "number" ? Math.max(1, Math.floor(opts.slots)) : 1,
+      location: opts.location ? opts.location.trim().slice(0, 200) || null : null,
+      start_date: opts.startDate ? opts.startDate : null,
+      notes: opts.notes ? opts.notes.trim().slice(0, 500) || null : null,
+      active: true,
+    });
+    if (error) return { ok: false, error: "write_failed" };
+    return { ok: true };
+  }
+  if (!opts.requirementId || !UUID_RE.test(opts.requirementId)) return { ok: false, error: "bad_id" };
+  if (opts.op === "close") {
+    const { error } = await db.from("org_requirements").update({ active: false }).eq("id", opts.requirementId);
+    if (error) return { ok: false, error: "write_failed" };
+    return { ok: true };
+  }
+  if (opts.op === "edit") {
+    const updates: Record<string, unknown> = {};
+    if (opts.specialty !== undefined) updates.specialty = opts.specialty.trim().slice(0, 200) || null;
+    if (typeof opts.slots === "number") updates.slots = Math.max(1, Math.floor(opts.slots));
+    if (opts.location !== undefined) updates.location = opts.location.trim().slice(0, 200) || null;
+    if (opts.startDate !== undefined) updates.start_date = opts.startDate || null;
+    if (opts.notes !== undefined) updates.notes = opts.notes.trim().slice(0, 500) || null;
+    if (Object.keys(updates).length === 0) return { ok: false, error: "nothing_to_update" };
+    const { error } = await db.from("org_requirements").update(updates).eq("id", opts.requirementId);
+    if (error) return { ok: false, error: "write_failed" };
+    return { ok: true };
+  }
+  return { ok: false, error: "bad_op" };
+}
+
 type PendingRow = {
   id: string;
   tool_name: string;
@@ -767,6 +925,35 @@ export async function executeLatestPending(
     const f: Record<string, string> = {};
     for (const k of AGENCY_PROFILE_FIELDS) { if (a[k] !== undefined) f[k] = a[k] == null ? "" : String(a[k]); }
     result = await writeAgencyProfile(scope.userId, f);
+  } else if (row.tool_name === "reviewOrgRequest") {
+    result = await writeOrgRequest(scope, String(a.candidateUserId), String(a.orgId), String(a.decision ?? ""));
+  } else if (row.tool_name === "decideSuggestedMatch") {
+    result = await writeSuggestedMatch(scope, String(a.matchId), String(a.action ?? ""));
+  } else if (row.tool_name === "manageOrganization") {
+    result = await writeManageOrganization({
+      op: String(a.op ?? ""),
+      orgId: a.orgId == null ? undefined : String(a.orgId),
+      name: a.name == null ? undefined : String(a.name),
+      notes: a.notes == null ? undefined : String(a.notes),
+      inviteCode: a.inviteCode == null ? undefined : String(a.inviteCode),
+    });
+  } else if (row.tool_name === "setOrgBranding") {
+    result = await writeOrgBranding(String(a.orgId), {
+      footerText: a.footerText == null ? undefined : String(a.footerText),
+      masern: a.masern == null ? undefined : Number(a.masern),
+      varizell: a.varizell == null ? undefined : Number(a.varizell),
+    });
+  } else if (row.tool_name === "manageOrgRequirement") {
+    result = await writeOrgRequirement({
+      op: String(a.op ?? ""),
+      orgId: a.orgId == null ? undefined : String(a.orgId),
+      requirementId: a.requirementId == null ? undefined : String(a.requirementId),
+      specialty: a.specialty == null ? undefined : String(a.specialty),
+      slots: a.slots == null ? undefined : Number(a.slots),
+      location: a.location == null ? undefined : String(a.location),
+      startDate: a.startDate == null ? undefined : String(a.startDate),
+      notes: a.notes == null ? undefined : String(a.notes),
+    });
   }
   if (!result.ok) return { error: result.error };
   const db = getServiceSupabase();

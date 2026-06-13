@@ -221,6 +221,21 @@ describe("assistant tools enforce LAW #25 scope (org-admin)", () => {
     expect(await run(t, "getAgencyProfile", {})).toEqual({ error: "admin_only" });
     expect(await run(t, "setAgencyProfile", { firma: "Borivon GmbH" })).toEqual({ error: "admin_only" });
   });
+
+  it("org-pipeline tools → admin_only for a sub-admin", async () => {
+    const t = buildAssistantTools(ORG_ADMIN);
+    const orgUuid = "11111111-1111-1111-1111-111111111111";
+    const reqUuid = "22222222-2222-2222-2222-222222222222";
+    expect(await run(t, "listOrgRequests", {})).toEqual({ error: "admin_only" });
+    expect(await run(t, "reviewOrgRequest", { candidateUserId: "allowed-cand", orgId: orgUuid, decision: "approve" })).toEqual({ error: "admin_only" });
+    expect(await run(t, "listSuggestedMatches", {})).toEqual({ error: "admin_only" });
+    expect(await run(t, "decideSuggestedMatch", { matchId: reqUuid, action: "accepted" })).toEqual({ error: "admin_only" });
+    expect(await run(t, "listOrgNeeds", {})).toEqual({ error: "admin_only" });
+    expect(await run(t, "manageOrgRequirement", { op: "add", orgId: orgUuid, specialty: "Intensiv" })).toEqual({ error: "admin_only" });
+    expect(await run(t, "manageOrganization", { op: "create", name: "Klinik X" })).toEqual({ error: "admin_only" });
+    expect(await run(t, "setOrgBranding", { orgId: orgUuid, footerText: "Footer" })).toEqual({ error: "admin_only" });
+    expect(await run(t, "listAgencies", {})).toEqual({ error: "admin_only" });
+  });
 });
 
 describe("assistant tools allow the supreme admin", () => {
@@ -492,6 +507,84 @@ describe("assistant tools allow the supreme admin", () => {
     expect(ok.summary).toContain("Borivon GmbH");
     expect(ok.summary).toContain("betriebsnummer");
     expect(await run(buildAssistantTools(SUPREME), "setAgencyProfile", {})).toEqual({ error: "nothing_to_change" });
+  });
+
+  const ORG_UUID = "11111111-1111-1111-1111-111111111111";
+  const REQ_UUID = "22222222-2222-2222-2222-222222222222";
+  const MATCH_UUID = "33333333-3333-3333-3333-333333333333";
+
+  it("reviewOrgRequest stages an approve/reject with candidate + org names", async () => {
+    h.tables.candidate_profiles = { data: { first_name: "Hajar", last_name: "B" }, error: null };
+    h.tables.organizations = { data: { name: "UKSH Kiel" }, error: null };
+    const ok = (await run(buildAssistantTools(SUPREME), "reviewOrgRequest", { candidateUserId: "cand-1", orgId: ORG_UUID, decision: "approve" })) as { staged?: boolean; summary?: string };
+    expect(ok.staged).toBe(true);
+    expect(ok.summary).toContain("Approve");
+    expect(ok.summary).toContain("Hajar");
+    expect(ok.summary).toContain("UKSH Kiel");
+  });
+
+  it("decideSuggestedMatch stages a pending match, and rejects an already-decided / missing one", async () => {
+    h.tables.suggested_matches = { data: { candidate_user_id: "cand-1", org_id: ORG_UUID, status: "pending" }, error: null };
+    h.tables.candidate_profiles = { data: { first_name: "Sara", last_name: "L" }, error: null };
+    h.tables.organizations = { data: { name: "Charité" }, error: null };
+    const ok = (await run(buildAssistantTools(SUPREME), "decideSuggestedMatch", { matchId: MATCH_UUID, action: "accepted" })) as { staged?: boolean; summary?: string };
+    expect(ok.staged).toBe(true);
+    expect(ok.summary).toContain("Accept match");
+    expect(ok.summary).toContain("Sara");
+
+    h.tables.suggested_matches = { data: { candidate_user_id: "cand-1", org_id: ORG_UUID, status: "accepted" }, error: null };
+    expect(await run(buildAssistantTools(SUPREME), "decideSuggestedMatch", { matchId: MATCH_UUID, action: "skipped" })).toEqual({ error: "already_decided" });
+
+    h.tables.suggested_matches = { data: null, error: null };
+    expect(await run(buildAssistantTools(SUPREME), "decideSuggestedMatch", { matchId: MATCH_UUID, action: "skipped" })).toEqual({ error: "match_not_found" });
+  });
+
+  it("manageOrgRequirement stages add (org name) and requires the right id per op", async () => {
+    h.tables.organizations = { data: { name: "UKSH Kiel" }, error: null };
+    const add = (await run(buildAssistantTools(SUPREME), "manageOrgRequirement", { op: "add", orgId: ORG_UUID, specialty: "Intensiv", slots: 3, location: "Kiel" })) as { staged?: boolean; summary?: string };
+    expect(add.staged).toBe(true);
+    expect(add.summary).toContain("Add need");
+    expect(add.summary).toContain("UKSH Kiel");
+    expect(add.summary).toContain("Intensiv");
+    expect(await run(buildAssistantTools(SUPREME), "manageOrgRequirement", { op: "edit", specialty: "X" })).toEqual({ error: "requirementId_required" });
+    const close = (await run(buildAssistantTools(SUPREME), "manageOrgRequirement", { op: "close", requirementId: REQ_UUID })) as { staged?: boolean; summary?: string };
+    expect(close.staged).toBe(true);
+    expect(close.summary).toContain("Close need");
+  });
+
+  it("manageOrganization stages create/edit and validates required fields", async () => {
+    const create = (await run(buildAssistantTools(SUPREME), "manageOrganization", { op: "create", name: "Pflege Nord" })) as { staged?: boolean; summary?: string };
+    expect(create.staged).toBe(true);
+    expect(create.summary).toContain("Create org");
+    expect(create.summary).toContain("Pflege Nord");
+    expect(await run(buildAssistantTools(SUPREME), "manageOrganization", { op: "create", name: "  " })).toEqual({ error: "name_required" });
+    expect(await run(buildAssistantTools(SUPREME), "manageOrganization", { op: "edit", name: "Renamed" })).toEqual({ error: "orgId_required" });
+  });
+
+  it("setOrgBranding stages footer + vaccine, and rejects an empty change", async () => {
+    h.tables.organizations = { data: { name: "UKSH Kiel" }, error: null };
+    const ok = (await run(buildAssistantTools(SUPREME), "setOrgBranding", { orgId: ORG_UUID, footerText: "Powered by Borivon", masern: 2, varizell: 1 })) as { staged?: boolean; summary?: string };
+    expect(ok.staged).toBe(true);
+    expect(ok.summary).toContain("UKSH Kiel");
+    expect(ok.summary).toContain("Masern 2");
+    expect(await run(buildAssistantTools(SUPREME), "setOrgBranding", { orgId: ORG_UUID })).toEqual({ error: "nothing_to_change" });
+  });
+
+  it("listOrgNeeds / listAgencies return their shapes for the supreme admin", async () => {
+    h.tables.org_requirements = { data: [{ id: REQ_UUID, org_id: ORG_UUID, specialty: "Intensiv", slots: 2, location: "Kiel", start_date: null, notes: null, created_at: "2026-01-01" }], error: null };
+    h.tables.organizations = { data: [{ id: ORG_UUID, name: "UKSH Kiel" }], error: null };
+    const needs = (await run(buildAssistantTools(SUPREME), "listOrgNeeds", {})) as { count?: number; needs?: { orgName?: string }[] };
+    expect(needs.count).toBe(1);
+    expect(needs.needs?.[0]?.orgName).toBe("UKSH Kiel");
+
+    h.tables.agencies = { data: [{ id: "ag-1", name: "Calmaroi", created_at: "2026-01-01" }], error: null };
+    h.tables.sub_admins = { data: [{ agency_id: "ag-1", is_agency_admin: true }], error: null };
+    h.tables.candidate_profiles = { data: [{ agency_id: "ag-1" }, { agency_id: "ag-1" }], error: null };
+    const ags = (await run(buildAssistantTools(SUPREME), "listAgencies", {})) as { count?: number; agencies?: { name?: string; adminCount?: number; candidateCount?: number }[] };
+    expect(ags.count).toBe(1);
+    expect(ags.agencies?.[0]?.name).toBe("Calmaroi");
+    expect(ags.agencies?.[0]?.adminCount).toBe(1);
+    expect(ags.agencies?.[0]?.candidateCount).toBe(2);
   });
 
   it("listAutomations returns the switches (defaults on), and setAutomation flips one", async () => {
