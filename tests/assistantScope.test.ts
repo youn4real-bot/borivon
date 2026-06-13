@@ -236,6 +236,21 @@ describe("assistant tools enforce LAW #25 scope (org-admin)", () => {
     expect(await run(t, "setOrgBranding", { orgId: orgUuid, footerText: "Footer" })).toEqual({ error: "admin_only" });
     expect(await run(t, "listAgencies", {})).toEqual({ error: "admin_only" });
   });
+
+  it("slot + sign-request tools → admin_only for a sub-admin", async () => {
+    const t = buildAssistantTools(ORG_ADMIN);
+    const slotUuid = "44444444-4444-4444-4444-444444444444";
+    const srUuid = "55555555-5555-5555-5555-555555555555";
+    expect(await run(t, "listSlots", { phase: "visum" })).toEqual({ error: "admin_only" });
+    expect(await run(t, "sendSlotRequest", { slotId: slotUuid, candidateUserId: "allowed-cand" })).toEqual({ error: "admin_only" });
+    expect(await run(t, "reviewSignRequest", { signRequestId: srUuid, action: "accept" })).toEqual({ error: "admin_only" });
+  });
+
+  it("listSignRequests → out_of_scope for a foreign candidate (no sign-requests leaked)", async () => {
+    foreignOrgMocks();
+    const r = await run(buildAssistantTools(ORG_ADMIN), "listSignRequests", { candidateUserId: "foreign-cand" });
+    expect(r).toEqual({ error: "out_of_scope" });
+  });
 });
 
 describe("assistant tools allow the supreme admin", () => {
@@ -585,6 +600,54 @@ describe("assistant tools allow the supreme admin", () => {
     expect(ags.agencies?.[0]?.name).toBe("Calmaroi");
     expect(ags.agencies?.[0]?.adminCount).toBe(1);
     expect(ags.agencies?.[0]?.candidateCount).toBe(2);
+  });
+
+  const SLOT_UUID = "44444444-4444-4444-4444-444444444444";
+  const SR_UUID = "55555555-5555-5555-5555-555555555555";
+
+  it("sendSlotRequest stages and auto-derives sign/fill from the slot flags", async () => {
+    h.tables.phase_slots = { data: { label: "Arbeitsvertrag", candidate_signs: true, candidate_fills: false }, error: null };
+    h.tables.candidate_profiles = { data: { first_name: "Hajar", last_name: "B" }, error: null };
+    const ok = (await run(buildAssistantTools(SUPREME), "sendSlotRequest", { slotId: SLOT_UUID, candidateUserId: "cand-1" })) as { staged?: boolean; summary?: string; args?: { needsSign?: boolean; needsFill?: boolean } };
+    expect(ok.staged).toBe(true);
+    expect(ok.summary).toContain("Hajar");
+    expect(ok.summary).toContain("sign");
+    expect(ok.summary).toContain("Arbeitsvertrag");
+    // an unknown slot is rejected
+    h.tables.phase_slots = { data: null, error: null };
+    expect(await run(buildAssistantTools(SUPREME), "sendSlotRequest", { slotId: SLOT_UUID, candidateUserId: "cand-1" })).toEqual({ error: "slot_not_found" });
+  });
+
+  it("reviewSignRequest stages only a SIGNED request, needs feedback to reject, 404s a missing one", async () => {
+    h.tables.sign_requests = { data: { candidate_user_id: "cand-1", document_name: "Vollmacht", status: "signed" }, error: null };
+    h.tables.candidate_profiles = { data: { first_name: "Sara", last_name: "L" }, error: null };
+    const ok = (await run(buildAssistantTools(SUPREME), "reviewSignRequest", { signRequestId: SR_UUID, action: "accept" })) as { staged?: boolean; summary?: string };
+    expect(ok.staged).toBe(true);
+    expect(ok.summary).toContain("Accept");
+    expect(ok.summary).toContain("Vollmacht");
+    // reject without feedback is refused before any DB read
+    expect(await run(buildAssistantTools(SUPREME), "reviewSignRequest", { signRequestId: SR_UUID, action: "reject" })).toEqual({ error: "feedback_required" });
+    // a not-yet-signed request can't be reviewed
+    h.tables.sign_requests = { data: { candidate_user_id: "cand-1", document_name: "Vollmacht", status: "pending" }, error: null };
+    expect(await run(buildAssistantTools(SUPREME), "reviewSignRequest", { signRequestId: SR_UUID, action: "accept" })).toEqual({ error: "not_signed_yet" });
+    // missing request
+    h.tables.sign_requests = { data: null, error: null };
+    expect(await run(buildAssistantTools(SUPREME), "reviewSignRequest", { signRequestId: SR_UUID, action: "accept" })).toEqual({ error: "not_found" });
+  });
+
+  it("listSlots / listSignRequests return their shapes for the supreme admin", async () => {
+    h.tables.phase_slots = { data: [{ id: SLOT_UUID, label: "Arbeitsvertrag", phase: "visum", position: 1, type: "simple", action_type: "sign", admin_signs: false, candidate_signs: true, admin_fills: false, candidate_fills: false, pdf_has_native_fields: false, template_pdf_path: "slot-templates/x.pdf", org_id: null }], error: null };
+    const slots = (await run(buildAssistantTools(SUPREME), "listSlots", { phase: "visum" })) as { count?: number; slots?: { label?: string; candidateSigns?: boolean; hasTemplate?: boolean }[] };
+    expect(slots.count).toBe(1);
+    expect(slots.slots?.[0]?.label).toBe("Arbeitsvertrag");
+    expect(slots.slots?.[0]?.candidateSigns).toBe(true);
+    expect(slots.slots?.[0]?.hasTemplate).toBe(true);
+
+    h.tables.sign_requests = { data: [{ id: SR_UUID, document_name: "Vollmacht", note: null, status: "signed", review_status: null, review_feedback: null, signed_at: "2026-02-01", created_at: "2026-01-01" }], error: null };
+    const reqs = (await run(buildAssistantTools(SUPREME), "listSignRequests", { candidateUserId: "cand-1" })) as { count?: number; requests?: { documentName?: string; awaitingReview?: boolean }[] };
+    expect(reqs.count).toBe(1);
+    expect(reqs.requests?.[0]?.documentName).toBe("Vollmacht");
+    expect(reqs.requests?.[0]?.awaitingReview).toBe(true);
   });
 
   it("listAutomations returns the switches (defaults on), and setAutomation flips one", async () => {

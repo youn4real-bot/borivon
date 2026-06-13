@@ -1210,6 +1210,105 @@ export function buildAssistantTools(
       },
     }),
 
+    listSlots: tool({
+      description:
+        "List the Bearbeitung or Visum WIZARD SLOTS (the per-phase document/sign/fill steps a candidate works through). phase 'bearbeitung' or 'visum'; optional orgId for an org's slots (omit for the global set). Read-only, supreme-only. Returns each slot's id, label, what's required (sign/fill, who), whether a PDF template is attached. Use to find a slotId for sendSlotRequest.",
+      inputSchema: z.object({
+        phase: z.enum(["bearbeitung", "visum"]),
+        orgId: z.string().uuid().optional(),
+      }),
+      execute: async ({ phase, orgId }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        let q = db.from("phase_slots").select("id, label, phase, position, type, action_type, admin_signs, candidate_signs, admin_fills, candidate_fills, pdf_has_native_fields, template_pdf_path, org_id").eq("phase", phase);
+        q = orgId ? q.eq("org_id", orgId) : q.is("org_id", null);
+        const { data, error } = await q.order("position", { ascending: true });
+        if (error) return { error: "load_failed" };
+        const slots = ((data ?? []) as { id: string; label: string; position: number; type: string; action_type: string | null; admin_signs: boolean; candidate_signs: boolean; admin_fills: boolean; candidate_fills: boolean; pdf_has_native_fields: boolean; template_pdf_path: string | null }[]).map((s) => ({
+          slotId: s.id, label: s.label, position: s.position, type: s.type, actionType: s.action_type,
+          adminSigns: s.admin_signs, candidateSigns: s.candidate_signs, adminFills: s.admin_fills, candidateFills: s.candidate_fills,
+          hasTemplate: !!s.template_pdf_path, hasNativeFields: s.pdf_has_native_fields,
+        }));
+        return { count: slots.length, slots };
+      },
+    }),
+
+    sendSlotRequest: tool({
+      description:
+        "STAGE sending a candidate a Bearbeitung/Visum slot request — the action that turns the slot ORANGE (waiting on the candidate to sign/fill it) and drops a bell notification in their portal. slotId from listSlots. By default it figures out whether the candidate needs to sign and/or fill from the slot's own flags; you may override with needsSign/needsFill. Two-step: stage → admin confirms → confirmPendingWrite. (Uploading the slot's PDF template + drawing signature zones stays a website-only action.)",
+      inputSchema: z.object({
+        slotId: z.string().uuid(),
+        candidateUserId: z.string().uuid(),
+        needsSign: z.boolean().optional().describe("override; defaults to the slot's candidate_signs flag"),
+        needsFill: z.boolean().optional().describe("override; defaults to the slot's candidate_fills flag"),
+      }),
+      execute: async ({ slotId, candidateUserId, needsSign, needsFill }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const { data: slot } = await db.from("phase_slots").select("label, candidate_signs, candidate_fills").eq("id", slotId).maybeSingle();
+        if (!slot) return { error: "slot_not_found" };
+        const s = slot as { label?: string; candidate_signs?: boolean; candidate_fills?: boolean };
+        const sign = needsSign === undefined ? !!s.candidate_signs : needsSign;
+        const fill = needsFill === undefined ? !!s.candidate_fills : needsFill;
+        const name = await displayName(candidateUserId);
+        const what = sign && fill ? "sign + fill" : sign ? "sign" : fill ? "fill" : "review";
+        return stagePending(scope, {
+          toolName: "sendSlotRequest",
+          args: { slotId, candidateUserId, needsSign: sign, needsFill: fill },
+          candidateUserId,
+          summary: `Ask ${name} to ${what}: ${(s.label || "Dokument").slice(0, 80)}`,
+        });
+      },
+    }),
+
+    listSignRequests: tool({
+      description:
+        "List a candidate's stand-alone SIGN-REQUESTS (PDFs sent for their signature) with each one's status (pending / signed / declined) and review outcome (accepted/rejected). Read-only. Use to see what's waiting — a 'signed' request with no review yet is ready for reviewSignRequest.",
+      inputSchema: z.object({ candidateUserId: z.string().uuid() }),
+      execute: async ({ candidateUserId }) => {
+        if (lockedOut) return { error: "out_of_scope" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const { data, error } = await db.from("sign_requests")
+          .select("id, document_name, note, status, review_status, review_feedback, signed_at, created_at")
+          .eq("candidate_user_id", candidateUserId).order("created_at", { ascending: false });
+        if (error) return { error: "load_failed" };
+        const requests = ((data ?? []) as { id: string; document_name: string; note: string | null; status: string; review_status: string | null; review_feedback: string | null; signed_at: string | null; created_at: string }[]).map((r) => ({
+          signRequestId: r.id, documentName: r.document_name, note: r.note,
+          status: r.status, reviewStatus: r.review_status, reviewFeedback: r.review_feedback,
+          signedAt: r.signed_at, createdAt: r.created_at,
+          awaitingReview: r.status === "signed" && !r.review_status,
+        }));
+        return { count: requests.length, requests };
+      },
+    }),
+
+    reviewSignRequest: tool({
+      description:
+        "STAGE accepting or rejecting a candidate-SIGNED sign-request (signRequestId from listSignRequests). Only a request the candidate has already signed can be reviewed. 'reject' NEEDS a feedback reason (LAW #20) — the candidate is notified either way. Two-step: stage → admin confirms → confirmPendingWrite. (Creating a new sign-request from a PDF stays a website-only action.)",
+      inputSchema: z.object({
+        signRequestId: z.string().uuid(),
+        action: z.enum(["accept", "reject"]),
+        feedback: z.string().max(2000).optional().describe("required when action is 'reject'"),
+      }),
+      execute: async ({ signRequestId, action, feedback }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (action === "reject" && !(feedback ?? "").trim()) return { error: "feedback_required" };
+        const { data: sr } = await db.from("sign_requests").select("candidate_user_id, document_name, status").eq("id", signRequestId).maybeSingle();
+        if (!sr) return { error: "not_found" };
+        const r = sr as { candidate_user_id: string; document_name: string; status: string };
+        if (r.status !== "signed") return { error: "not_signed_yet" };
+        if (!(await canActOnCandidate(scope.role, scope.email, r.candidate_user_id))) return { error: "out_of_scope" };
+        const name = await displayName(r.candidate_user_id);
+        const args: Record<string, unknown> = { signRequestId, action };
+        if (feedback !== undefined) args.feedback = feedback;
+        return stagePending(scope, {
+          toolName: "reviewSignRequest",
+          args,
+          candidateUserId: r.candidate_user_id,
+          summary: `${action === "accept" ? "Accept" : "Reject"} ${name}'s signed "${(r.document_name || "document").slice(0, 60)}"${action === "reject" ? ` — ${(feedback ?? "").trim().slice(0, 80)}` : ""}`,
+        });
+      },
+    }),
+
     listStuckCandidates: tool({
       description:
         "List candidates who may need a NUDGE — their latest uploaded document was rejected ≥3 days ago and not re-submitted, or their pipeline hasn't moved in 3+ weeks. Read-only; returns each name + the reason(s). To nudge them, use nudgeStuckCandidates (all at once, confirm-first) or message one with sendCandidateMessage / sendFollowUpNudge. This is the same list the daily auto-chase push surfaces.",

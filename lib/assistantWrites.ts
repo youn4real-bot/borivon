@@ -744,6 +744,68 @@ async function writeOrgRequirement(opts: { op: string; orgId?: string; requireme
   return { ok: false, error: "bad_op" };
 }
 
+/** Send a candidate the B/V wizard slot request (turns the slot orange,
+ *  "waiting on candidate") — mirrors POST /api/portal/admin/phase-slots/notify:
+ *  resolve the label server-side, dedupe an unread sign_request bell for the
+ *  same slot, else insert one. doc_type variant drives the deep-link routing. */
+async function writeSlotNotify(slotId: string, candidateUserId: string, needsSign: boolean, needsFill: boolean): Promise<WriteResult> {
+  if (!UUID_RE.test(slotId) || !UUID_RE.test(candidateUserId)) return { ok: false, error: "bad_id" };
+  const db = getServiceSupabase();
+  const { data: slotRow } = await db.from("phase_slots").select("label").eq("id", slotId).maybeSingle();
+  const label = ((slotRow as { label?: string | null } | null)?.label ?? "").trim() || "Dokument";
+  const docType =
+    needsSign && needsFill ? "slot_setup_sign_fill" :
+    needsSign ? "slot_setup_sign" :
+    needsFill ? "slot_setup_fill" :
+    "slot_setup";
+  const { data: existing } = await db.from("notifications").select("id")
+    .eq("user_id", candidateUserId).eq("doc_id", slotId).eq("action", "sign_request").eq("read", false)
+    .order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if ((existing as { id?: string } | null)?.id) {
+    const { error } = await db.from("notifications").update({
+      doc_name: label, doc_type: docType, created_at: new Date().toISOString(),
+    }).eq("id", (existing as { id: string }).id);
+    if (error) return { ok: false, error: "write_failed" };
+  } else {
+    const { error } = await db.from("notifications").insert({
+      user_id: candidateUserId, doc_id: slotId, doc_name: label, doc_type: docType,
+      action: "sign_request", feedback: null, read: false,
+    });
+    if (error) return { ok: false, error: "write_failed" };
+  }
+  return { ok: true };
+}
+
+/** Accept / reject a candidate-signed sign_request — mirrors PATCH
+ *  /api/portal/admin/sign-request/[id]: only a status='signed' request can be
+ *  reviewed (LAW #20: reject needs feedback), set review_status, notify the
+ *  candidate. */
+async function writeSignRequestReview(scope: AssistantScope, signRequestId: string, action: string, feedback: string | null): Promise<WriteResult> {
+  if (!UUID_RE.test(signRequestId)) return { ok: false, error: "bad_id" };
+  if (action !== "accept" && action !== "reject") return { ok: false, error: "bad_action" };
+  const fb = (feedback ?? "").trim();
+  if (action === "reject" && !fb) return { ok: false, error: "feedback_required" };
+  const db = getServiceSupabase();
+  const { data: request } = await db.from("sign_requests")
+    .select("id, candidate_user_id, document_name, status").eq("id", signRequestId).maybeSingle();
+  if (!request) return { ok: false, error: "not_found" };
+  const r = request as { candidate_user_id: string; document_name: string; status: string };
+  if (r.status !== "signed") return { ok: false, error: "not_signed_yet" };
+  if (!(await canActOnCandidate(scope.role, scope.email, r.candidate_user_id))) return { ok: false, error: "out_of_scope" };
+  const { error } = await db.from("sign_requests").update({
+    review_status: action === "accept" ? "accepted" : "rejected",
+    review_feedback: action === "reject" ? fb : null,
+  }).eq("id", signRequestId);
+  if (error) return { ok: false, error: "write_failed" };
+  try {
+    await db.from("notifications").insert({
+      user_id: r.candidate_user_id, doc_id: signRequestId, doc_name: r.document_name, doc_type: r.document_name,
+      action: action === "accept" ? "approved" : "rejected", feedback: action === "reject" ? fb : null, read: false,
+    });
+  } catch { /* non-fatal */ }
+  return { ok: true };
+}
+
 type PendingRow = {
   id: string;
   tool_name: string;
@@ -954,6 +1016,10 @@ export async function executeLatestPending(
       startDate: a.startDate == null ? undefined : String(a.startDate),
       notes: a.notes == null ? undefined : String(a.notes),
     });
+  } else if (row.tool_name === "sendSlotRequest") {
+    result = await writeSlotNotify(String(a.slotId), String(a.candidateUserId), a.needsSign === true, a.needsFill === true);
+  } else if (row.tool_name === "reviewSignRequest") {
+    result = await writeSignRequestReview(scope, String(a.signRequestId), String(a.action ?? ""), a.feedback == null ? null : String(a.feedback));
   }
   if (!result.ok) return { error: result.error };
   const db = getServiceSupabase();
