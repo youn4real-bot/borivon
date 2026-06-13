@@ -290,6 +290,7 @@ describe("assistant tools enforce LAW #25 scope (org-admin)", () => {
     expect(await run(t, "toggleStageLock", { candidateUserId: "11111111-1111-1111-1111-111111111111", stage: "visum", unlocked: true })).toEqual({ error: "admin_only" });
     expect(await run(t, "deleteOrganization", { orgId: orgUuid })).toEqual({ error: "admin_only" });
     expect(await run(t, "deleteCandidateAccount", { candidateUserId: "11111111-1111-1111-1111-111111111111" })).toEqual({ error: "admin_only" });
+    expect(await run(t, "setAcademyLevel", { candidateUserId: "11111111-1111-1111-1111-111111111111", level: "B2" })).toEqual({ error: "admin_only" });
   });
 });
 
@@ -862,6 +863,14 @@ describe("assistant tools allow the supreme admin", () => {
     expect(r.staged).toBe(true);
     expect(r.summary).toContain("Hajar El Kairaa");
     expect(r.summary).toContain("DELETE");
+  });
+
+  it("setAcademyLevel stages a level change with the candidate name + level", async () => {
+    h.tables.candidate_profiles = { data: { first_name: "Doha", last_name: "Zini" }, error: null };
+    const r = (await run(buildAssistantTools(SUPREME), "setAcademyLevel", { candidateUserId: "11111111-1111-1111-1111-111111111111", level: "B1" })) as { staged?: boolean; summary?: string };
+    expect(r.staged).toBe(true);
+    expect(r.summary).toContain("Doha Zini");
+    expect(r.summary).toContain("B1");
   });
 
   it("listCalendarEvents returns upcoming events, listCohorts returns cohorts", async () => {

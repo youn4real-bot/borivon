@@ -1018,6 +1018,38 @@ async function writeDeleteCandidate(userId: string): Promise<WriteResult> {
   return { ok: true };
 }
 
+// Set a candidate's ACADEMY CEFR level — mirrors the academy admin route's
+// set_level action: updates current_level in their ACTIVE cohort (auto-resolved,
+// so the admin needn't know the cohortId) and, when climbing UP, awards the
+// one-time level_up points (idempotent per target level) + pings the student.
+const ACADEMY_LEVELS = ["A1", "A2", "B1", "B2"] as const;
+const LEVEL_UP_EVENT: Record<string, string> = {
+  A2: "a2000000-0000-4000-8000-000000000002",
+  B1: "b1000000-0000-4000-8000-000000000001",
+  B2: "b2000000-0000-4000-8000-000000000002",
+};
+async function writeAcademyLevel(userId: string, level: string): Promise<WriteResult> {
+  if (!(ACADEMY_LEVELS as readonly string[]).includes(level)) return { ok: false, error: "bad_level" };
+  const db = getServiceSupabase();
+  const { data: mem } = await db.from("academy_cohort_members")
+    .select("cohort_id, current_level").eq("candidate_user_id", userId).eq("status", "active").maybeSingle();
+  const m = mem as { cohort_id: string; current_level: string | null } | null;
+  if (!m) return { ok: false, error: "not_enrolled" };
+  const oldLevel = m.current_level ?? "A1";
+  const { error } = await db.from("academy_cohort_members")
+    .update({ current_level: level }).eq("cohort_id", m.cohort_id).eq("candidate_user_id", userId);
+  if (error) return { ok: false, error: "write_failed" };
+  const lvls = ACADEMY_LEVELS as readonly string[];
+  if (lvls.indexOf(level) > lvls.indexOf(oldLevel) && LEVEL_UP_EVENT[level]) {
+    try {
+      const { awardPoints } = await import("@/lib/academyPoints");
+      await awardPoints({ candidateUserId: userId, cohortId: m.cohort_id, type: "level_up", sourceKind: "system", sourceId: LEVEL_UP_EVENT[level], meta: { level } });
+      serverBroadcast(`academy:${userId}`, "points", { reason: "level_up", level }).catch(() => {});
+    } catch { /* points are best-effort — the level change already persisted */ }
+  }
+  return { ok: true };
+}
+
 type PendingRow = {
   id: string;
   tool_name: string;
@@ -1260,6 +1292,8 @@ export async function executeLatestPending(
     result = await writeDeleteOrganization(String(a.orgId ?? ""));
   } else if (row.tool_name === "deleteCandidateAccount") {
     result = await writeDeleteCandidate(String(a.candidateUserId));
+  } else if (row.tool_name === "setAcademyLevel") {
+    result = await writeAcademyLevel(String(a.candidateUserId), String(a.level ?? ""));
   }
   if (!result.ok) return { error: result.error };
   const db = getServiceSupabase();

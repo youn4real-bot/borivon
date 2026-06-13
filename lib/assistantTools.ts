@@ -1786,6 +1786,25 @@ export function buildAssistantTools(
       },
     }),
 
+    setAcademyLevel: tool({
+      description:
+        "STAGE setting a candidate's ACADEMY (German-school) CEFR LEVEL — 'A1', 'A2', 'B1' or 'B2' — in their active cohort. Climbing UP awards the one-time level-up points + pings the student. The candidate must already be enrolled in a cohort (else not_enrolled — enrol them on the website first). Supreme-only. Two-step: stage → admin confirms → confirmPendingWrite. e.g. 'promote Hajar to B2 in the school' → setAcademyLevel(candidateUserId, 'B2'). (Marking attendance + class bonus + building quizzes stay on the live-class teacher screen.)",
+      inputSchema: z.object({
+        candidateUserId: z.string().uuid(),
+        level: z.enum(["A1", "A2", "B1", "B2"]),
+      }),
+      execute: async ({ candidateUserId, level }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const name = await displayName(candidateUserId);
+        return stagePending(scope, {
+          toolName: "setAcademyLevel",
+          args: { candidateUserId, level },
+          candidateUserId,
+          summary: `Set ${name}'s academy level to ${level}`,
+        });
+      },
+    }),
+
     listStuckCandidates: tool({
       description:
         "List candidates who may need a NUDGE — their latest uploaded document was rejected ≥3 days ago and not re-submitted, or their pipeline hasn't moved in 3+ weeks. Read-only; returns each name + the reason(s). To nudge them, use nudgeStuckCandidates (all at once, confirm-first) or message one with sendCandidateMessage / sendFollowUpNudge. This is the same list the daily auto-chase push surfaces.",
