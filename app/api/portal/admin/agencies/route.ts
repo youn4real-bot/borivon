@@ -15,13 +15,12 @@ export async function GET(req: NextRequest) {
     .select("id, name, created_at")
     .order("created_at", { ascending: true });
 
-  // Count sub-admins and candidates per agency
+  type AgencyRow = { id: string; name: string; created_at: string };
+  const agencyRows = (agencies ?? []) as AgencyRow[];
+
+  // sub_admins is a tiny staff table — fetching its two scalar columns is cheap.
   const { data: subAdmins } = await db.from("sub_admins").select("agency_id, is_agency_admin");
-  const { data: candidates } = await db.from("candidate_profiles").select("agency_id");
-
   type SARow = { agency_id: string | null; is_agency_admin: boolean };
-  type CRow  = { agency_id: string | null };
-
   const adminCounts: Record<string, number> = {};
   const memberCounts: Record<string, number> = {};
   for (const sa of (subAdmins ?? []) as SARow[]) {
@@ -29,14 +28,22 @@ export async function GET(req: NextRequest) {
     if (sa.is_agency_admin) adminCounts[sa.agency_id] = (adminCounts[sa.agency_id] ?? 0) + 1;
     else memberCounts[sa.agency_id] = (memberCounts[sa.agency_id] ?? 0) + 1;
   }
-  const candCounts: Record<string, number> = {};
-  for (const c of (candidates ?? []) as CRow[]) {
-    if (!c.agency_id) continue;
-    candCounts[c.agency_id] = (candCounts[c.agency_id] ?? 0) + 1;
-  }
 
-  type AgencyRow = { id: string; name: string; created_at: string };
-  const decorated = ((agencies ?? []) as AgencyRow[]).map(a => ({
+  // EGRESS: candidate_profiles scales with the whole candidate base, so NEVER
+  // pull its rows just to count — ask Postgres for an exact head count per
+  // agency (zero rows over the wire). One count per agency (agencies are few).
+  const candCountEntries = await Promise.all(
+    agencyRows.map(async (a) => {
+      const { count } = await db
+        .from("candidate_profiles")
+        .select("user_id", { count: "exact", head: true })
+        .eq("agency_id", a.id);
+      return [a.id, count ?? 0] as const;
+    }),
+  );
+  const candCounts: Record<string, number> = Object.fromEntries(candCountEntries);
+
+  const decorated = agencyRows.map(a => ({
     ...a,
     adminCount:     adminCounts[a.id]  ?? 0,
     memberCount:    memberCounts[a.id] ?? 0,

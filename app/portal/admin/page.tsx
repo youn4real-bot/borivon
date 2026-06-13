@@ -1087,9 +1087,12 @@ export default function AdminPage() {
     // Fallback poll while this candidate is open — realtime on `documents`
     // can be RLS-gated for the admin's client, so guarantee sync within 8s
     // even if the subscription never delivers. Cheap: one request / 8s,
-    // only while actively reviewing ONE candidate.
-    const timer = setInterval(refresh, 8_000);
-    return () => { alive = false; clearInterval(timer); supabase.removeChannel(ch); };
+    // only while actively reviewing ONE candidate. EGRESS: skip the poll while
+    // the tab is hidden, and refetch once on re-show so there's no blind window.
+    const timer = setInterval(() => { if (!document.hidden) refresh(); }, 8_000);
+    const onVis = () => { if (document.visibilityState === "visible") refresh(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { alive = false; clearInterval(timer); document.removeEventListener("visibilitychange", onVis); supabase.removeChannel(ch); };
   }, [selectedUser, accessToken]);
 
   // Passport FILE download state (pipeline view)

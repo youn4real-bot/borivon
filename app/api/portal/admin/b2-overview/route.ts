@@ -20,15 +20,28 @@ export async function GET(req: NextRequest) {
   const db = getServiceSupabase();
   const visible = auth.role === "admin" ? null : await getVisibleCandidateIds(auth.email);
 
-  let q = db.from("candidate_profiles").select("user_id, first_name, last_name, b2_stage, b2_failed, b2_exam_date, cv_draft");
-  if (visible !== null) {
-    if (visible.length === 0) return NextResponse.json({ candidates: [] });
-    q = q.in("user_id", visible);
+  // EGRESS: germanSummary() only reads cv_draft.langs, so pull ONLY that JSON
+  // sub-tree (a few hundred bytes) instead of the whole cv_draft blob (work
+  // history, education, skills, photo refs — up to 500KB per candidate × N).
+  // Falls back to the full column if this PostgREST arrow-select isn't supported.
+  const COLS = "user_id, first_name, last_name, b2_stage, b2_failed, b2_exam_date";
+  type Prof = { user_id: string; first_name: string | null; last_name: string | null; b2_stage: string | null; b2_failed: boolean | null; b2_exam_date: string | null; cv_langs?: unknown; cv_draft?: unknown };
+  const runQuery = async (cols: string) => {
+    let q = db.from("candidate_profiles").select(cols);
+    if (visible !== null) q = q.in("user_id", visible);
+    return q;
+  };
+  if (visible !== null && visible.length === 0) return NextResponse.json({ candidates: [] });
+
+  let { data: profs, error } = await runQuery(`${COLS}, cv_langs:cv_draft->langs`);
+  if (error) {
+    // Arrow-select unsupported on this PostgREST → take the full column (correct
+    // result, just heavier). Never fail the page over the optimization.
+    ({ data: profs, error } = await runQuery(`${COLS}, cv_draft`));
   }
-  const { data: profs, error } = await q;
   if (error) { console.error("[b2-overview] profiles error:", error.message); return NextResponse.json({ error: "load_failed" }, { status: 500 }); }
 
-  const all = (profs ?? []) as { user_id: string; first_name: string | null; last_name: string | null; b2_stage: string | null; b2_failed: boolean | null; b2_exam_date: string | null; cv_draft: unknown }[];
+  const all = (profs ?? []) as unknown as Prof[];
   // Strip staff (they can have a profile row but aren't candidates).
   const staff = await getStaffUserIdsAmong(all.map((p) => p.user_id));
   const rows = all.filter((p) => !staff.has(p.user_id));
@@ -48,7 +61,9 @@ export async function GET(req: NextRequest) {
     const stage: B2Stage = effectiveB2Stage(normalizeB2Stage(p.b2_stage), d);
     const certApproved = d.some((x) => x.status === "approved" && isB2CertDoc(x.file_type));
     const certPending = !certApproved && d.some((x) => isB2CertDoc(x.file_type));
-    const g = germanSummary(p.cv_draft);
+    // Reconstruct the minimal shape germanSummary() needs: either the narrow
+    // arrow-selected langs array, or the full cv_draft from the fallback.
+    const g = germanSummary(p.cv_langs !== undefined ? { langs: p.cv_langs } : p.cv_draft);
     return {
       userId: p.user_id,
       name: [p.first_name, p.last_name].filter(Boolean).join(" ").trim() || "—",

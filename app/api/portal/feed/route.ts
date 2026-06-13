@@ -197,17 +197,18 @@ export async function GET(req: NextRequest) {
 
   const postIds = rows.map(r => r.id);
 
-  // Likes
-  const { data: likes } = await db
-    .from("feed_likes")
-    .select("post_id, user_id")
-    .in("post_id", postIds);
+  // Likes — EGRESS: fetch only post_id for the per-post counts (half the bytes
+  // vs post_id+user_id), and resolve "liked by me" with a separate tiny query
+  // scoped to my own likes (≤ postIds rows) instead of scanning every like.
+  const [{ data: likeRows }, { data: myLikes }] = await Promise.all([
+    db.from("feed_likes").select("post_id").in("post_id", postIds),
+    db.from("feed_likes").select("post_id").eq("user_id", auth.userId).in("post_id", postIds),
+  ]);
   const likesByPost: Record<string, number> = {};
-  const likedByMe = new Set<string>();
-  for (const l of (likes ?? []) as { post_id: string; user_id: string }[]) {
+  for (const l of (likeRows ?? []) as { post_id: string }[]) {
     likesByPost[l.post_id] = (likesByPost[l.post_id] ?? 0) + 1;
-    if (l.user_id === auth.userId) likedByMe.add(l.post_id);
   }
+  const likedByMe = new Set<string>(((myLikes ?? []) as { post_id: string }[]).map((l) => l.post_id));
 
   // Comments: counts + first 3 unique commenter user_ids per post
   const { data: allComments } = await db
