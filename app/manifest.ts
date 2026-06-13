@@ -3,16 +3,16 @@ import type { MetadataRoute } from "next";
 /**
  * PWA manifest — lets the admin "install" Borivon to their phone home screen
  * (Android Chrome / iOS Safari → Add to Home Screen) so it opens like an app,
- * full-screen, straight into the AI assistant (start_url carries ?assistant=1,
- * which AdminAssistantPanel reads to auto-open). Next.js serves this at
- * /manifest.webmanifest and injects the <link rel="manifest"> automatically.
+ * full-screen. Next.js serves this at /manifest.webmanifest and injects the
+ * <link rel="manifest"> automatically. (The AI assistant now lives only in the
+ * Telegram bot — there is no in-app assistant panel to deep-link into.)
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Borivon",
     short_name: "Borivon",
-    description: "Borivon — candidates, documents & your AI assistant.",
-    start_url: "/portal/admin?assistant=1",
+    description: "Borivon — candidates, documents & pipeline.",
+    start_url: "/portal/admin",
     scope: "/",
     display: "standalone",
     orientation: "portrait",
