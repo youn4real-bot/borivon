@@ -759,7 +759,7 @@ export function buildAssistantTools(
 
     getB2Overview: tool({
       description:
-        "B2 German-exam overview for EVERY candidate you can see — each one's B2 stage, whether they failed, exam date, AND the rich exam detail from their CV (which exam Goethe/telc/ÖSD, written yes/no, result, certificate or expected dates, planned retake) when they've filled it in. Read-only. Use for 'how is EVERYONE doing on B2' / 'who has a B2 exam soon'. For SPECIFIC people (or a 'these candidates' follow-up), use getB2Status with their names instead.",
+        "B2 German-exam overview for the ENTIRE roster — EVERY candidate you can see. ONLY use this when the admin explicitly asks about EVERYONE / the whole roster ('how is everyone doing on B2', 'who has a B2 exam soon'). NEVER use it to answer about specific, named, or 'these'/'those'/'all N' candidates, and NEVER take the first few rows of its output and present them as the people the admin asked about — that returns the WRONG people. For any specific or referenced candidates, you MUST use getB2Status with their exact names instead.",
       inputSchema: z.object({}),
       execute: async () => {
         if (lockedOut) return { error: "out_of_scope" };

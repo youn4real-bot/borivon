@@ -14,5 +14,10 @@ export function vertexModel() {
   let credentials: Record<string, unknown>;
   try { credentials = JSON.parse(credsRaw); } catch { return null; }
   const vertex = createVertex({ project, location, googleAuthOptions: { credentials } });
-  return vertex(process.env.ASSISTANT_MODEL_ID || "gemini-2.5-flash");
+  // Default to the PRO tier: Flash kept fumbling multi-step tool selection
+  // (e.g. "B2 status of these 4 named people" → it grabbed the first 4 of the
+  // roster instead of looking up the names). Pro reasons through tool choice +
+  // name extraction reliably. Override with ASSISTANT_MODEL_ID if a region
+  // needs a different id, or to revert to "gemini-2.5-flash" for lower cost.
+  return vertex(process.env.ASSISTANT_MODEL_ID || "gemini-2.5-pro");
 }
