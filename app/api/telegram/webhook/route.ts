@@ -21,6 +21,7 @@ import type { AssistantScope } from "@/lib/assistantScope";
 import { computeBriefing } from "@/lib/briefing";
 import { loadMemory } from "@/lib/assistantMemory";
 import { loadChatHistory, saveChatTurns } from "@/lib/assistantChatHistory";
+import { stripMarkdown } from "@/lib/emailFormat";
 import { tgSend, tgSendDocument, tgGetFileBytes, getAdminUserId, telegramConfigured } from "@/lib/telegram";
 import { r2Configured, r2Put } from "@/lib/r2";
 import { randomUUID, createHash } from "crypto";
@@ -270,6 +271,11 @@ export async function POST(req: NextRequest) {
 
     // Text reply: if we delivered the file, strip the raw link; else make links tappable.
     let reply = result.text || (sentFile ? "" : "Done.");
+    // ROOT FIX for the "** stars everywhere" complaint: Telegram doesn't render
+    // Markdown, so the model's habitual **bold**/`code`/* bullets show up as ugly
+    // literal characters no matter how many times we tell it "no stars". Strip it
+    // in CODE on EVERY reply (not just emails) so it can never reach the chat.
+    reply = stripMarkdown(reply);
     reply = sentFile
       ? reply.replace(/\/api\/portal\/file\?[^\s)]+/g, "(sent above ⬆️)")
       : reply.replace(/\/api\/portal\/file/g, `${BASE_URL}/api/portal/file`);
