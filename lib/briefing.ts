@@ -1,17 +1,24 @@
 /**
- * "What needs you today" — a daily priority briefing computed live from the
- * portal. Four reliable, action-oriented signals (no fuzzy guessing):
+ * "What needs you today" — the ONE complete daily triage, computed live from the
+ * portal. This is THE highest-leverage use of the bot: ask it once each morning
+ * and act on the short list. Six reliable, action-oriented signals:
  *   👀 documents pending YOUR review (documents.status = 'pending')
  *   🛂 passports expiring within 90 days (candidate_profiles.passport_expiry)
  *   🎓 B2 exams coming up within 30 days (candidate_profiles.b2_exam_date)
  *   ⏰ your own reminders due/overdue (assistant_reminders)
+ *   🔔 candidates who may need a nudge (lib/autoChase — went quiet / rejected doc)
+ *   📧 unanswered emails waiting on you (lib/gmailInbox — best-effort)
  *
- * Returned as a Telegram-friendly plain-text block (no markdown to escape) plus
- * a count of actionable items. Used by the daily cron, the Telegram bot, and the
- * in-app assistant's getTodayBriefing tool.
+ * The last two are folded in (best-effort, never break the briefing) so this is
+ * a SINGLE message, not three separate morning pings. Returned as a
+ * Telegram-friendly plain-text block (no markdown to escape) plus a count of
+ * actionable items. Used by the daily cron, the Telegram bot, and the in-app
+ * assistant's getTodayBriefing tool.
  */
 import { getServiceSupabase } from "@/lib/supabase";
 import { getStaffUserIdsAmong } from "@/lib/admin-auth";
+import { computeStuckCandidates } from "@/lib/autoChase";
+import { getUnansweredEmails } from "@/lib/gmailInbox";
 
 const DAY = 86_400_000;
 
@@ -84,6 +91,14 @@ export async function computeBriefing(adminUserId: string | null): Promise<Brief
       .map((r) => ({ text: r.text, due: r.due, days: r.ms === null ? null : Math.round((r.ms - now) / DAY) }));
   }
 
+  // 🔔 stuck candidates + 📧 unanswered emails — folded in (best-effort, each
+  // wrapped so a failure can NEVER break the briefing) so this one message is the
+  // complete triage. getUnansweredEmails returns null if Gmail/IMAP is unavailable.
+  const [stuck, emails] = await Promise.all([
+    computeStuckCandidates().catch(() => null),
+    getUnansweredEmails().catch(() => null),
+  ]);
+
   const lines: string[] = ["🗓️ Borivon — what needs you today", ""];
   let count = 0;
 
@@ -117,9 +132,24 @@ export async function computeBriefing(adminUserId: string | null): Promise<Brief
     }
     lines.push("");
   }
+  if (stuck && stuck.candidates.length) {
+    count += stuck.candidates.length;
+    lines.push(`🔔 ${stuck.candidates.length} candidate(s) may need a nudge:`);
+    for (const c of stuck.candidates.slice(0, 10)) lines.push(`   • ${c.name} — ${c.reasons.join("; ")}`);
+    lines.push("");
+  }
+  if (emails && emails.length) {
+    count += emails.length;
+    lines.push(`📧 ${emails.length} unanswered email(s):`);
+    for (const e of emails.slice(0, 10)) {
+      const age = e.ageDays === 0 ? "today" : e.ageDays === 1 ? "1d" : `${e.ageDays}d`;
+      lines.push(`   • ${e.fromName} — ${e.subject} (${age})`);
+    }
+    lines.push("");
+  }
 
   if (count === 0) lines.push("✅ Nothing urgent — you're all caught up.");
-  else lines.push(`That's ${count} thing${count > 1 ? "s" : ""} that need you. Open the portal to act, or ask me for details.`);
+  else lines.push(`That's ${count} thing${count > 1 ? "s" : ""} that need you. Just tell me to act on any of them — e.g. "nudge the stuck ones", "approve X's diploma", "reply to that email".`);
 
   return { text: lines.join("\n").trim(), count };
 }

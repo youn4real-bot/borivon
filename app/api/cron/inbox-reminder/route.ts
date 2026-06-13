@@ -31,6 +31,12 @@ export async function GET(req: NextRequest) {
   if (!(await isAutomationEnabled("inbox_reminder"))) {
     return Response.json({ skipped: "disabled" });
   }
+  // The morning briefing now FOLDS IN the unanswered-email list, so when it's on
+  // this separate push would just be a duplicate — skip it. It only fires
+  // standalone if the briefing is turned off but inbox_reminder is left on.
+  if (await isAutomationEnabled("daily_briefing")) {
+    return Response.json({ skipped: "covered_by_briefing" });
+  }
 
   const emails = await getUnansweredEmails(20);
   if (emails === null) return Response.json({ skipped: "gmail_read_unavailable" });

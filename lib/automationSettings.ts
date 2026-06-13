@@ -15,11 +15,11 @@ import { getServiceSupabase } from "@/lib/supabase";
 export type AutomationKey = "daily_briefing" | "weekly_report" | "signup_ping" | "auto_chase" | "inbox_reminder";
 
 export const AUTOMATIONS: Record<AutomationKey, { label: string; default: boolean; desc: string }> = {
-  daily_briefing: { label: "Daily 6am briefing", default: true, desc: "Every morning: documents to review, passports expiring, B2 exams coming up, your due reminders." },
+  daily_briefing: { label: "Daily morning briefing — \"what needs you today\"", default: true, desc: "Every morning, ONE message with everything that needs you: documents to review, passports expiring, B2 exams coming up, your due reminders, candidates who may need a nudge, and unanswered emails. The complete daily triage." },
   weekly_report:  { label: "Weekly business report", default: true, desc: "Every Monday: pipeline snapshot, new signups this week, and what needs your attention." },
   signup_ping:    { label: "New-signup ping", default: true, desc: "An instant Telegram ping the moment a new candidate signs up." },
-  auto_chase:     { label: "Auto-chase stuck candidates", default: true, desc: "Each morning: surfaces candidates who went quiet or didn't re-submit a rejected document — you approve a nudge with one tap (never auto-sent)." },
-  inbox_reminder: { label: "Unanswered-email reminder", default: true, desc: "Each morning: reminds you of unread emails from real people in your inbox that still need a reply (no-reply/automated senders skipped)." },
+  auto_chase:     { label: "Auto-chase stuck candidates", default: true, desc: "Candidates who went quiet or didn't re-submit a rejected document. NOW FOLDED INTO the morning briefing — this only sends as a separate ping if you turn the briefing off." },
+  inbox_reminder: { label: "Unanswered-email reminder", default: true, desc: "Unread emails from real people in your inbox still needing a reply (no-reply/automated senders skipped). NOW FOLDED INTO the morning briefing — only sends separately if you turn the briefing off." },
 };
 
 export function isAutomationKey(k: string): k is AutomationKey {

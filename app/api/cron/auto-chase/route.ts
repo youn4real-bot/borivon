@@ -27,6 +27,12 @@ export async function GET(req: NextRequest) {
   if (!(await isAutomationEnabled("auto_chase"))) {
     return Response.json({ skipped: "disabled" });
   }
+  // The morning briefing now FOLDS IN the stuck-candidate list, so when it's on
+  // this separate push would just be a duplicate — skip it. It only fires
+  // standalone if the briefing is turned off but auto_chase is left on.
+  if (await isAutomationEnabled("daily_briefing")) {
+    return Response.json({ skipped: "covered_by_briefing" });
+  }
 
   const { text, count } = await computeStuckCandidates();
   // Only ping when there's actually someone to chase — no daily "nobody's stuck" noise.
