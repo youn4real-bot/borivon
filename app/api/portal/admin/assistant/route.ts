@@ -20,7 +20,7 @@ import { requireAdminRole } from "@/lib/admin-auth";
 import { canSeeExperimental } from "@/lib/classroomTesters";
 import { resolveAssistantScope } from "@/lib/assistantScope";
 import { buildAssistantTools } from "@/lib/assistantTools";
-import { vertexModel } from "@/lib/vertexModel";
+import { vertexModel, chooseTier } from "@/lib/vertexModel";
 import { loadMemory } from "@/lib/assistantMemory";
 
 export const runtime = "nodejs";
@@ -71,8 +71,8 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const model = vertexModel();
-  if (!model) {
+  const flashModel = vertexModel("flash");
+  if (!flashModel) {
     return Response.json(
       { error: "assistant_not_configured", message: "The assistant isn't connected yet — add the Google Vertex key." },
       { status: 503 },
@@ -88,6 +88,16 @@ export async function POST(req: NextRequest) {
   try { body = await req.json(); } catch { return Response.json({ error: "bad_request" }, { status: 400 }); }
   const messages = Array.isArray(body.messages) ? body.messages : [];
   const modelMessages = await convertToModelMessages(messages);
+
+  // HYBRID ROUTING: cheap Flash by default; Pro for the hard / multi-person /
+  // "these candidates" requests where Flash fumbles (same logic as the bot).
+  const lastUser = [...messages].reverse().find((m) => m.role === "user");
+  const lastUserText = (lastUser?.parts ?? [])
+    .filter((p): p is { type: "text"; text: string } => p.type === "text" && typeof (p as { text?: unknown }).text === "string")
+    .map((p) => p.text)
+    .join(" ");
+  const tier = chooseTier(lastUserText, { hasHistory: messages.length > 1 });
+  const model = (tier === "pro" ? vertexModel("pro") : flashModel) ?? flashModel;
 
   const result = streamText({
     model,

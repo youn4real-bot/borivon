@@ -15,7 +15,7 @@
  */
 import { NextRequest } from "next/server";
 import { generateText, stepCountIs } from "ai";
-import { vertexModel } from "@/lib/vertexModel";
+import { vertexModel, chooseTier, looksWeak } from "@/lib/vertexModel";
 import { buildAssistantTools } from "@/lib/assistantTools";
 import type { AssistantScope } from "@/lib/assistantScope";
 import { computeBriefing } from "@/lib/briefing";
@@ -104,8 +104,9 @@ export async function POST(req: NextRequest) {
     return ok();
   }
 
-  const model = vertexModel();
-  if (!model) { await tgSend(chatId, "The assistant isn't connected yet (missing the Google Vertex key)."); return ok(); }
+  const flashModel = vertexModel("flash");
+  if (!flashModel) { await tgSend(chatId, "The assistant isn't connected yet (missing the Google Vertex key)."); return ok(); }
+  const proModel = vertexModel("pro") ?? flashModel;
 
   const adminUserId = await getAdminUserId();
   const scope: AssistantScope = {
@@ -178,17 +179,31 @@ export async function POST(req: NextRequest) {
   // Recent turns so follow-ups resolve in context ("give me THEIR B2 status"
   // after pulling some CVs). Fail-safe: [] until the table is migrated.
   const history = await loadChatHistory(scope.userId);
+  // HYBRID ROUTING: cheap Flash by default; auto-pick Pro for hard requests
+  // (multi-person, "these candidates", files, voice, comparisons). Below we
+  // ALSO escalate Flash→Pro reactively if Flash errors or punts.
+  const tier = chooseTier(userText, { hasHistory: history.length > 0, hasFile: !!pendingFile, isVoice: !!msg.voice });
+  const genArgs = {
+    system: tgSystem,
+    messages: [...history, { role: "user" as const, content }],
+    tools: buildAssistantTools(scope, pendingFile),
+    // Headroom for multi-item requests (e.g. "pull the CVs of these 4 people"):
+    // the batch tools (getCvLinks) collapse most of that into one call, but
+    // keep a generous ceiling so a per-person fallback path can still finish.
+    stopWhen: stepCountIs(20),
+  };
   try {
-    const result = await generateText({
-      model,
-      system: tgSystem,
-      messages: [...history, { role: "user", content }],
-      tools: buildAssistantTools(scope, pendingFile),
-      // Headroom for multi-item requests (e.g. "pull the CVs of these 4 people"):
-      // the batch tools (getCvLinks) collapse most of that into one call, but
-      // keep a generous ceiling so a per-person fallback path can still finish.
-      stopWhen: stepCountIs(20),
-    });
+    // Run on the chosen tier; if Flash throws, escalate to Pro instead of erroring.
+    let result = await generateText({ model: tier === "pro" ? proModel : flashModel, ...genArgs })
+      .catch((genErr) => {
+        if (tier === "flash" && proModel !== flashModel) return generateText({ model: proModel, ...genArgs });
+        throw genErr;
+      });
+    // Reactive escalation: Flash answered but punted ("which one?") or came back
+    // empty → redo the SAME turn on Pro and use that instead.
+    if (tier === "flash" && proModel !== flashModel && looksWeak(result.text)) {
+      try { result = await generateText({ model: proModel, ...genArgs }); } catch { /* keep the Flash result */ }
+    }
 
     // PULL: if the model produced download link(s), deliver the actual file(s)
     // INTO the chat (not just a link). Aggregate across all tool-call steps,
