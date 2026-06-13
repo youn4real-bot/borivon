@@ -17,7 +17,14 @@ import { stripEmailFormatting } from "@/lib/emailFormat";
 
 /** From address (must be on the verified borivon.com domain to send via Resend). */
 export const OUTBOUND_FROM_EMAIL = (process.env.OUTBOUND_FROM_EMAIL || "youness.taoufiq@borivon.com").trim();
-export const OUTBOUND_FROM_NAME = (process.env.OUTBOUND_FROM_NAME || "Youness — Borivon").trim();
+// The sender's display name — appears as "Youness Taoufiq <youness.taoufiq@…>".
+export const OUTBOUND_FROM_NAME = (process.env.OUTBOUND_FROM_NAME || "Youness Taoufiq").trim();
+
+// Email signature. Gmail's web/app signature is NOT applied to App-Password/SMTP
+// sends (it's only added when you compose in the Gmail UI), so we append it here.
+// Override the whole thing with the OUTBOUND_SIGNATURE env var (newlines kept).
+export const OUTBOUND_SIGNATURE = (process.env.OUTBOUND_SIGNATURE ??
+  "Youness Taoufiq\nBorivon\nyouness.taoufiq@borivon.com\nwww.borivon.com").trim();
 
 export type OutboundAttachment = { filename: string; content: Buffer };
 export type OutboundResult =
@@ -44,7 +51,12 @@ export async function sendOutboundEmail(opts: {
   attachments?: OutboundAttachment[];
 }): Promise<OutboundResult> {
   const subject = stripEmailFormatting(opts.subject).replace(/[\r\n]+/g, " ").trim().slice(0, 200);
-  const text = stripEmailFormatting(opts.body); // guarantee plain text — no stray **/*/`/# ever
+  const bodyText = stripEmailFormatting(opts.body); // guarantee plain text — no stray **/*/`/# ever
+  // Append the signature (Gmail SMTP won't add it). Skip if the body already ends
+  // with it, so re-sends / a model that pasted it don't double it up.
+  const text = OUTBOUND_SIGNATURE && !bodyText.trimEnd().endsWith(OUTBOUND_SIGNATURE)
+    ? `${bodyText.trimEnd()}\n\n${OUTBOUND_SIGNATURE}`
+    : bodyText;
   const html = textToHtml(text);
   const atts = opts.attachments ?? [];
   const cc = (opts.cc ?? []).map((c) => c.trim()).filter(Boolean);
