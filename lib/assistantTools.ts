@@ -486,14 +486,25 @@ export function buildAssistantTools(
     // ── Memory: how the admin likes to work (learned, applied every chat) ──
     rememberAboutMe: tool({
       description:
-        "Save a DURABLE preference, term, or correction about how the admin likes to work — e.g. 'prefers short answers', 'always lead with passports', 'by batch they mean a monthly cohort', 'wants dates as DD.MM.YYYY'. Call this whenever the admin states a lasting preference, teaches you a term, or corrects you for the future, then briefly confirm. Do NOT use it for one-off requests, tasks (use saveReminder), or candidate data.",
+        "Save a DURABLE rule about HOW you should WORK — a preference, a term, or a correction. Good: 'prefers short answers', 'always lead with passports', 'by batch they mean a monthly cohort', 'wants dates as DD.MM.YYYY', 'for B2 of named people use getB2Status, never getB2Overview'. Call it whenever the admin states a lasting preference, teaches a term, or corrects you for the future, then confirm briefly. Do NOT use it for: one-off requests/tasks (use saveReminder); candidate-specific facts or statuses (e.g. 'Hajar is on leave until June', 'Ali failed B2') — that's about a PERSON, not your behaviour; or anything tied to a date/deadline. If a 'from now on / always / never' instruction is really about ONE candidate or a temporary situation, it is NOT a standing rule — don't store it here.",
       inputSchema: z.object({
         text: z.string().min(1).max(300),
         kind: z.enum(["preference", "fact", "term", "correction"]).default("preference"),
       }),
       execute: async ({ text, kind }) => {
         if (!scope.userId) return { error: "no_user" };
-        const { error } = await db.from("assistant_memory").insert({ owner_user_id: scope.userId, text, kind });
+        const clean = text.trim();
+        if (!clean) return { error: "empty" };
+        // Dedup: don't pile up the same rule each time the admin repeats/reinforces
+        // it (keeps the injected standing-instructions block lean).
+        const { data: existing } = await db
+          .from("assistant_memory")
+          .select("id")
+          .eq("owner_user_id", scope.userId)
+          .ilike("text", clean)
+          .limit(1);
+        if ((existing as { id: string }[] | null)?.length) return { remembered: true, alreadyKnew: true };
+        const { error } = await db.from("assistant_memory").insert({ owner_user_id: scope.userId, text: clean, kind });
         if (error) return { error: "save_failed" };
         return { remembered: true };
       },

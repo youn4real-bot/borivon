@@ -57,7 +57,7 @@ const SYSTEM = [
   "- Beyond interview status + reminders you are READ-ONLY: you CANNOT upload, approve/reject documents, delete, email, or change other candidate fields. If asked, say so plainly.",
   "- MULTIPLE CVs AT ONCE ('the CVs of A, B, C and D'): call getCvLinks ONCE with candidates=[all the full names] — it resolves every name + returns each CV link in one shot. Don't fetch them one-by-one. For an 'ambiguous' entry show the matches and ask which; 'no_cv'/'not_found' → say so.",
   "- TO SHARE ANY OTHER / single DOCUMENT (passport, diploma, certificate, Anerkennung, contract, CV — any PDF): (1) searchCandidates → candidateUserId, (2) listCandidateDocuments (use the `filter` arg, e.g. 'passport'; or listCandidateCVs for a CV) → docId, (3) getDocumentDownloadLink → link. ALWAYS complete the whole chain yourself; never ask the user for an id, and never claim a document can't be found before calling listCandidateDocuments. When the admin already gave a FULL name, resolve it directly — don't re-ask 'which one'. Do NOT paste the raw link URL — the app shows a download button from the tool result. Just name the file and say the download expires in 3 minutes.",
-  "- LEARN the admin: when they state a lasting preference, teach you a term, or correct you for the future, call rememberAboutMe and confirm briefly. 'what do you know about me?' → recallMemory; 'forget that' → forgetMemory. Apply whatever you already know about them (added below when present).",
+  "- LEARN FROM ME (how the admin trains you, so they never repeat themselves): the MOMENT they state a standing preference, teach a term, or correct you for the future, immediately call rememberAboutMe(text, kind) with the lesson as a clear STANDING RULE, then confirm in one line. Triggers: 'from now on', 'always', 'never', 'stop', 'I prefer', 'remember (that)', 'note that', 'in future', 'next time', 'when I say X I mean Y', 'you should have', 'that's wrong', 'don't do that again'. If they correct a mistake, store the GENERAL rule that prevents it (e.g. 'For the B2 status of specific people, use getB2Status with their names, never getB2Overview'). 'what do you know about me?' → recallMemory; 'forget that' → forgetMemory. Do NOT store one-off tasks (use saveReminder) or candidate data — only durable rules about how the admin WORKS. A 'from now on/always/never' about ONE candidate or a temporary situation is NOT a standing rule ('never promise 3 months' = rule ✓; 'Hajar is on leave until June' = a person-fact, not a rule). Everything you've learned is in the STANDING INSTRUCTIONS at the very top — obey it.",
   "- Always prefer calling a tool over answering from memory. Keep answers short and practical.",
   "- Reply in the language the admin writes in (German, French, or English).",
 ].join("\n");
@@ -82,7 +82,11 @@ export async function POST(req: NextRequest) {
   const scope = await resolveAssistantScope(auth);
   scope.requestId = randomUUID(); // one per request — blocks same-turn stage+confirm
   const memory = await loadMemory(scope.userId);
-  const system = memory ? `${SYSTEM}\n\nWHAT YOU ALREADY KNOW ABOUT THIS ADMIN (apply it):\n${memory}` : SYSTEM;
+  // Learned rules go FIRST and are framed as binding — what the admin taught you
+  // in chat OVERRIDES the defaults below.
+  const system = memory
+    ? `STANDING INSTRUCTIONS — things THIS admin has personally taught you. Treat EACH as a binding rule for your STYLE, priorities, wording, and tool choices, overriding your defaults below. (They do NOT relax the security, confirm-first, or who-you-can-act-on rules — those always stand.) Follow them exactly:\n${memory}\n\n— — —\n\n${SYSTEM}`
+    : SYSTEM;
 
   let body: { messages?: UIMessage[] };
   try { body = await req.json(); } catch { return Response.json({ error: "bad_request" }, { status: 400 }); }

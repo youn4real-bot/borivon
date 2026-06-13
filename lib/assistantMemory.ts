@@ -9,14 +9,17 @@ import { getServiceSupabase } from "@/lib/supabase";
 export async function loadMemory(adminUserId: string | null): Promise<string> {
   if (!adminUserId) return "";
   const db = getServiceSupabase();
+  // Newest first + cap, so once the founder has taught >100 rules it's the most
+  // RECENT teachings that survive (not the oldest) — then re-order chronologically
+  // for a natural read. (Loading oldest-first silently dropped new lessons.)
   const { data, error } = await db
     .from("assistant_memory")
     .select("text")
     .eq("owner_user_id", adminUserId)
-    .order("created_at", { ascending: true })
+    .order("created_at", { ascending: false })
     .limit(100);
   if (error) return ""; // memory is best-effort — never block the chat on it
   const rows = (data ?? []) as { text: string }[];
   if (!rows.length) return "";
-  return rows.map((r) => `- ${r.text}`).join("\n");
+  return rows.reverse().map((r) => `- ${r.text}`).join("\n");
 }

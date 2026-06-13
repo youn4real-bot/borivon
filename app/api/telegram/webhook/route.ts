@@ -69,7 +69,7 @@ const TG_SYSTEM = [
   "- Otherwise you are READ-ONLY on candidate data (no uploads, approvals, deletes, emails, or other field changes).",
   "- MULTIPLE CVs AT ONCE (the common case — 'pull the CVs of A, B, C and D'): call getCvLinks ONCE with candidates=[all the full names the admin gave], NOT one person at a time. It resolves every name, finds each CV, and the files are delivered straight into this chat in one go. For any entry that comes back 'ambiguous', show those matches and ask which; 'no_cv'/'not_found' → say so. NEVER fetch multi-person CVs by repeating searchCandidates+getDocumentDownloadLink per person (you'll run out of steps and only deliver some).",
   "- TO SEND/SHARE/PULL ANY OTHER DOCUMENT, or a single person's doc (passport, diploma, certificate, Anerkennung, contract, CV — any PDF): (1) searchCandidates to get the candidateUserId, (2) listCandidateDocuments (use the `filter` arg, e.g. 'passport'; or listCandidateCVs for a CV) to find the docId, (3) getDocumentDownloadLink for that docId. ALWAYS run the whole chain yourself — the file is delivered straight into this chat. NEVER ask the admin for an id, and NEVER say you can't find a document before actually calling listCandidateDocuments. When the admin already gave a FULL name (first + last), resolve it directly — don't re-ask 'which one'. The link expires in 3 minutes.",
-  "- LEARN the admin: when they state a lasting preference, teach you a term, or correct you for the future, call rememberAboutMe and confirm briefly. 'what do you know about me?' → recallMemory; 'forget that' → forgetMemory. Apply what you already know about them (added below when present).",
+  "- LEARN FROM ME — this is how I train you, so I never have to re-explain (don't make me repeat myself): the MOMENT I state a standing preference, teach a term, or correct you for the future, immediately call rememberAboutMe(text, kind) with the lesson written as a clear STANDING RULE, then confirm in one line ('Got it — from now on I'll …'). Trigger words: 'from now on', 'always', 'never', 'stop doing/saying', 'I prefer', 'remember (that)', 'note that', 'in future', 'next time', 'going forward', 'when I say X I mean Y', 'you should have', 'that's wrong', 'don't do that again'. If I CORRECT a mistake, store the GENERAL rule that prevents it next time — e.g. after the B2 mix-up: rememberAboutMe('When asked for the B2 status of specific/named people, call getB2Status with their exact names — never getB2Overview.', 'correction'). 'what do you know about me?' → recallMemory; 'forget that' / 'that's no longer true' → forgetMemory (ids from recallMemory). Do NOT store one-off tasks (use saveReminder) or candidate data — only durable rules about how I WORK. IMPORTANT: a 'from now on / always / never' that's about ONE candidate or a temporary situation is NOT a standing rule — e.g. 'never tell candidates it takes 3 months' is a behaviour rule (store it ✓), but 'Hajar is on leave until June' is a fact about a person (do NOT store as a rule — that's saveReminder/candidate info). Everything you've learned is in the STANDING INSTRUCTIONS at the very top — obey it.",
   "- Keep replies short and mobile-friendly (it's a chat). Reply in the admin's language (German/French/English).",
 ].join("\n");
 
@@ -176,7 +176,11 @@ export async function POST(req: NextRequest) {
 
   // 5) Run the brain, reply.
   const memory = await loadMemory(scope.userId);
-  const tgSystem = memory ? `${TG_SYSTEM}\n\nWHAT YOU ALREADY KNOW ABOUT THIS ADMIN (apply it):\n${memory}` : TG_SYSTEM;
+  // Learned rules go FIRST and are framed as binding — so what the admin taught
+  // you in chat OVERRIDES the defaults below (this is how they "train" you).
+  const tgSystem = memory
+    ? `STANDING INSTRUCTIONS — things THIS admin has personally taught you. Treat EACH as a binding rule for your STYLE, priorities, wording, and tool choices, overriding your defaults below. (They do NOT relax the security, confirm-first, or who-you-can-act-on rules — those always stand.) Follow them exactly:\n${memory}\n\n— — —\n\n${TG_SYSTEM}`
+    : TG_SYSTEM;
   // Recent turns so follow-ups resolve in context ("give me THEIR B2 status"
   // after pulling some CVs). Fail-safe: [] until the table is migrated.
   const history = await loadChatHistory(scope.userId);
