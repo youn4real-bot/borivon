@@ -233,6 +233,11 @@ export async function POST(req: NextRequest) {
     let wantedFiles = 0;
     const failedFiles: string[] = [];
     const seenUrls = new Set<string>();
+    // Truthful confirm status — the model sometimes claims "done/versendet" even
+    // when confirmPendingWrite was refused or errored. We read the ACTUAL result
+    // and append the real outcome below so the bot can never falsely claim a write
+    // (e.g. an email send) happened.
+    let confirmOutcome: { done?: boolean; summary?: string; error?: string } | null = null;
     try {
       const steps = (result as { steps?: Array<{ toolResults?: unknown[] }> }).steps;
       const all = (steps?.flatMap((s) => s.toolResults ?? []) ?? (result.toolResults ?? [])) as Array<{
@@ -266,6 +271,12 @@ export async function POST(req: NextRequest) {
           }
         }
       }
+      // Capture the real confirmPendingWrite outcome (last one wins).
+      for (const t of all as Array<{ toolName?: string; output?: unknown; result?: unknown }>) {
+        if (t.toolName !== "confirmPendingWrite") continue;
+        const out = (t.output ?? t.result) as { done?: boolean; summary?: string; error?: string } | undefined;
+        if (out && (out.done !== undefined || out.error !== undefined)) confirmOutcome = out;
+      }
     } catch (e) {
       console.error("[telegram] file pull failed:", e instanceof Error ? e.message : e);
     }
@@ -283,6 +294,19 @@ export async function POST(req: NextRequest) {
     // Be honest about partial delivery rather than letting the model claim "sent all".
     if (failedFiles.length) {
       reply = `${reply}\n\n⚠️ Couldn't deliver ${failedFiles.length} of ${wantedFiles} file(s): ${failedFiles.slice(0, 8).join(", ")}. Try again in a moment.`.trim();
+    }
+    // Code-enforced TRUTH about the confirm: never let the model claim a write
+    // happened when it didn't (e.g. it said "versendet" but the send was refused).
+    if (confirmOutcome) {
+      if (confirmOutcome.error === "confirm_in_new_message") {
+        reply = `${reply}\n\n⚠️ Not done yet — send "yes" (or "senden") as a separate message and I'll apply it.`.trim();
+      } else if (confirmOutcome.error === "nothing_pending") {
+        reply = `${reply}\n\n⚠️ There was nothing pending to confirm — ask me again and I'll re-prepare it.`.trim();
+      } else if (confirmOutcome.error) {
+        reply = `${reply}\n\n⚠️ I could NOT apply that: ${confirmOutcome.error}. Nothing was sent/changed.`.trim();
+      } else if (confirmOutcome.done && !/✅/.test(reply)) {
+        reply = `${reply}\n\n✅ Done${confirmOutcome.summary ? ` — ${confirmOutcome.summary}` : ""}.`.trim();
+      }
     }
     if (reply.trim()) await tgSend(chatId, reply);
     // Remember this turn so the NEXT message has context (e.g. "their B2 status"

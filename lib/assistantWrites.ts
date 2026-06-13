@@ -1154,6 +1154,30 @@ export async function stagePending(
 ): Promise<{ staged: true; summary: string } | { error: string }> {
   if (!scope.userId) return { error: "no_user" };
   const db = getServiceSupabase();
+  // The model often RE-STAGES the same action on the very turn the admin confirms
+  // ("yes"/"Senden") — re-calling the staging tool before confirmPendingWrite. If
+  // we restamped __stagedReq with the CURRENT request every time, the same-turn
+  // anti-injection guard in executeLatestPending would refuse the confirm forever
+  // and the admin could NEVER get it to run (this is what made "send the email"
+  // silently never send). So: if the newest pending is the IDENTICAL action
+  // (same tool + same args), treat the re-stage as a NO-OP — keep the original
+  // row and its original __stagedReq (set in an earlier turn) so a later-turn
+  // confirm is allowed. A genuinely NEW/changed action still cancels the old and
+  // stamps the current request, so staging+confirming a new action in ONE turn
+  // stays blocked (the injection case is unchanged).
+  const sig = (a: Record<string, unknown> | undefined) => {
+    const { __stagedReq, ...rest } = (a ?? {}) as Record<string, unknown>;
+    void __stagedReq;
+    return JSON.stringify(rest);
+  };
+  const { data: prior } = await db.from("assistant_pending_actions")
+    .select("tool_name, args").eq("owner_user_id", scope.userId).eq("status", "pending")
+    .order("created_at", { ascending: false }).limit(1).maybeSingle();
+  const priorRow = prior as { tool_name: string; args: Record<string, unknown> } | null;
+  if (priorRow && priorRow.tool_name === opts.toolName && sig(priorRow.args) === sig(opts.args)) {
+    return { staged: true, summary: opts.summary }; // identical re-stage → keep the existing pending untouched
+  }
+
   // Drop any older still-pending proposal for this admin so 'yes' is unambiguous.
   await db.from("assistant_pending_actions").update({ status: "cancelled" })
     .eq("owner_user_id", scope.userId).eq("status", "pending");
