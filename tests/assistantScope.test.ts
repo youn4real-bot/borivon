@@ -613,6 +613,11 @@ describe("assistant tools allow the supreme admin", () => {
     expect(bad).toEqual({ error: "bad_email" });
     const badCc = await run(buildAssistantTools(SUPREME), "sendExternalEmail", { to: "a@b.com", cc: "nope", subject: "x", body: "y" });
     expect(badCc).toEqual({ error: "bad_cc:nope" });
+    // Tolerant: two addresses lumped into `to` → first is To, rest fold into CC.
+    const lumped = (await run(buildAssistantTools(SUPREME), "sendExternalEmail", { to: "a.gombert@calmaroi.de, o.musleh@calmaroi.de", subject: "B2", body: "Hallo" })) as { staged?: boolean; summary?: string };
+    expect(lumped.staged).toBe(true);
+    expect(lumped.summary).toContain("To: a.gombert@calmaroi.de");
+    expect(lumped.summary).toContain("CC: o.musleh@calmaroi.de");
   });
 
   it("setAgencyProfile stages only changed fields, and rejects an empty patch", async () => {

@@ -2101,9 +2101,15 @@ export function buildAssistantTools(
       execute: async ({ to, toName, cc, subject, body, attachCandidateIds, attachDocIds }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
         const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        const email = to.trim();
+        // Tolerant: if several addresses get lumped into `to`, the FIRST is the
+        // primary recipient and the rest fold into CC — so "send to A, B" works
+        // even if the model didn't split them itself.
+        const toParts = to.split(/[,;]+/).map((s) => s.trim()).filter(Boolean);
+        const email = toParts[0] ?? "";
         if (!emailRe.test(email)) return { error: "bad_email" };
-        const ccList = (cc ?? "").split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+        const ccList = [...toParts.slice(1), ...(cc ?? "").split(/[,;]/)]
+          .map((s) => s.trim()).filter(Boolean)
+          .filter((c) => c.toLowerCase() !== email.toLowerCase()); // never CC the primary
         const badCc = ccList.find((c) => !emailRe.test(c));
         if (badCc) return { error: `bad_cc:${badCc}` };
         const candIds = (attachCandidateIds ?? "").split(",").map((s) => s.trim()).filter(Boolean);
