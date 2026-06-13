@@ -291,6 +291,8 @@ describe("assistant tools enforce LAW #25 scope (org-admin)", () => {
     expect(await run(t, "deleteOrganization", { orgId: orgUuid })).toEqual({ error: "admin_only" });
     expect(await run(t, "deleteCandidateAccount", { candidateUserId: "11111111-1111-1111-1111-111111111111" })).toEqual({ error: "admin_only" });
     expect(await run(t, "setAcademyLevel", { candidateUserId: "11111111-1111-1111-1111-111111111111", level: "B2" })).toEqual({ error: "admin_only" });
+    const tf = buildAssistantTools(ORG_ADMIN, { r2Key: "k", mime: "image/png", fileName: "logo.png", sha256: "abc" });
+    expect(await run(tf, "uploadOrgLogo", { orgId: "77777777-7777-7777-7777-777777777777" })).toEqual({ error: "admin_only" });
   });
 });
 
@@ -871,6 +873,18 @@ describe("assistant tools allow the supreme admin", () => {
     expect(r.staged).toBe(true);
     expect(r.summary).toContain("Doha Zini");
     expect(r.summary).toContain("B1");
+  });
+
+  it("uploadOrgLogo stages with the org name when a file is attached, no_file without one", async () => {
+    const ORG_UUID = "77777777-7777-7777-7777-777777777777";
+    h.tables.organizations = { data: { name: "Calmaroi" }, error: null };
+    // No attached file → can't set a logo.
+    expect(await run(buildAssistantTools(SUPREME), "uploadOrgLogo", { orgId: ORG_UUID })).toEqual({ error: "no_file" });
+    // With an attached image → stages.
+    const tf = buildAssistantTools(SUPREME, { r2Key: "chat-uploads/a/x.png", mime: "image/png", fileName: "calmaroi.png", sha256: "abc" });
+    const r = (await run(tf, "uploadOrgLogo", { orgId: ORG_UUID })) as { staged?: boolean; summary?: string };
+    expect(r.staged).toBe(true);
+    expect(r.summary).toContain("Calmaroi");
   });
 
   it("listCalendarEvents returns upcoming events, listCohorts returns cohorts", async () => {

@@ -1714,6 +1714,25 @@ export function buildAssistantTools(
       },
     }),
 
+    uploadOrgLogo: tool({
+      description:
+        "Set a partner ORGANIZATION's logo from a PHOTO/IMAGE the admin ATTACHED to this message (PNG/JPEG/WebP/GIF, up to ~300KB). orgId from listOrganizations. That logo brands the org's candidates' CVs (agency branding) + their footer. Supreme-only. Two-step: stage → admin confirms → confirmPendingWrite. Only call this when the admin actually ATTACHED an image AND named an org (otherwise an attached file is a candidate document → storeCandidateDocument).",
+      inputSchema: z.object({ orgId: z.string().uuid() }),
+      execute: async ({ orgId }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!pendingFile) return { error: "no_file" };
+        const { data: org } = await db.from("organizations").select("name").eq("id", orgId).maybeSingle();
+        if (!org) return { error: "not_found" };
+        const orgName = (org as { name?: string } | null)?.name ?? orgId;
+        return stagePending(scope, {
+          toolName: "uploadOrgLogo",
+          args: { orgId, r2Key: pendingFile.r2Key, mime: pendingFile.mime },
+          candidateUserId: null,
+          summary: `Set ${orgName}'s logo to the attached image (${pendingFile.fileName})`,
+        });
+      },
+    }),
+
     deleteCandidateAccount: tool({
       description:
         "STAGE permanently DELETING a candidate's ENTIRE account + ALL their data — documents, pipeline, profile, messages, sign-requests, feed activity — and their login. IRREVERSIBLE. Supreme-only. Use ONLY when the admin clearly says to delete/remove a person's account (not for 'archive' or 'hide'). If unsure who they mean, searchCandidates first. Two-step: stage → admin confirms → confirmPendingWrite.",

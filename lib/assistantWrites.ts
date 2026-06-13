@@ -22,6 +22,7 @@ import { backfillPassportFromCvDraft } from "@/lib/cvDraftBackfill";
 import { sendOutboundEmail, type OutboundAttachment } from "@/lib/outboundEmail";
 import { CV_DE_FILE_TYPES } from "@/lib/constants";
 import { r2GetObject } from "@/lib/r2";
+import { validateImageDataUrl } from "@/lib/validateDataUrl";
 import { UUID_RE } from "@/lib/uuid";
 import { serverBroadcast, ASSIGNMENTS_TOPIC } from "@/lib/serverBroadcast";
 import { normalizeReq } from "@/lib/impfungJourney";
@@ -1018,6 +1019,24 @@ async function writeDeleteCandidate(userId: string): Promise<WriteResult> {
   return { ok: true };
 }
 
+// Set a partner org's LOGO from a bot-attached image. The bytes already live in
+// R2 (chat-uploads/...) — fetch them back, build a data URL, and store it on
+// organizations.logo_filename, EXACTLY as the website's org PATCH does (inline
+// data URL, strict image validation, ~300KB cap on the data-URL string). The
+// logo then brands that org's candidate CVs (agency branding) + footer.
+async function writeUploadOrgLogo(orgId: string, r2Key: string, mime: string): Promise<WriteResult> {
+  if (!UUID_RE.test(orgId)) return { ok: false, error: "bad_id" };
+  const obj = r2Key ? await r2GetObject(r2Key) : null;
+  if (!obj?.body) return { ok: false, error: "file_missing" };
+  const dataUrl = `data:${(mime || "image/png").toLowerCase()};base64,${obj.body.toString("base64")}`;
+  if (dataUrl.length > 307_200) return { ok: false, error: "logo_too_large" }; // mirrors the route's ~300KB cap
+  if (!validateImageDataUrl(dataUrl).ok) return { ok: false, error: "invalid_image" }; // PNG/JPEG/WebP/GIF only, no SVG/script
+  const db = getServiceSupabase();
+  const { error } = await db.from("organizations").update({ logo_filename: dataUrl }).eq("id", orgId);
+  if (error) return { ok: false, error: "write_failed" };
+  return { ok: true };
+}
+
 // Set a candidate's ACADEMY CEFR level — mirrors the academy admin route's
 // set_level action: updates current_level in their ACTIVE cohort (auto-resolved,
 // so the admin needn't know the cohortId) and, when climbing UP, awards the
@@ -1294,6 +1313,8 @@ export async function executeLatestPending(
     result = await writeDeleteCandidate(String(a.candidateUserId));
   } else if (row.tool_name === "setAcademyLevel") {
     result = await writeAcademyLevel(String(a.candidateUserId), String(a.level ?? ""));
+  } else if (row.tool_name === "uploadOrgLogo") {
+    result = await writeUploadOrgLogo(String(a.orgId ?? ""), String(a.r2Key ?? ""), String(a.mime ?? ""));
   }
   if (!result.ok) return { error: result.error };
   const db = getServiceSupabase();
