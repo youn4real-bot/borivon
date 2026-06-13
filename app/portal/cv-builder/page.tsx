@@ -3226,6 +3226,45 @@ function CVBuilderInner() {
       if (det?.notYetRegStatus === "confirmed" && !det.examConfirmation?.fileName) errors.add("b2_examconfirm");
     }
 
+    // 5c. MANDATORY German B2 target — B2 is the north star, so once the German
+    //     entry is below B2 (A1/A2/B1) AND the B1 block has been answered, the
+    //     candidate MUST declare their B2 plan with a DATE (passed, or expected).
+    //     Mirrors the fixed B2 block rendered under the German card.
+    {
+      const de = cvData.langs.find(l => l.name === "Deutsch") as
+        | { level?: string; b1?: B2Detail; b2?: B2Detail }
+        | undefined;
+      const lvl = de?.level;
+      if (de && (lvl === "A1" || lvl === "A2" || lvl === "B1")) {
+        const b1 = (de.b1 ?? {}) as B2Detail;
+        // The B2 block only appears (and is only required) once B1 is answered:
+        // for A1/A2 there is no B1 sub-form so it's always shown; for B1 it shows
+        // once they've said whether they sat the exam (+ a result if they did).
+        const b1Answered =
+          lvl !== "B1" || b1.written === "no" || (b1.written === "yes" && !!b1.result);
+        if (b1Answered) {
+          const b2 = (de.b2 ?? {}) as B2Detail;
+          const hasMY = (m?: MonthYear) => !!(m && (m.month || m.year));
+          if (!b2.written) {
+            errors.add("b2_target_written");
+          } else if (b2.written === "no") {
+            // Planned: must give a planned exam date.
+            if (!hasMY(b2.notYetDate)) errors.add("b2_target_date");
+          } else {
+            // Sat the exam: must pick a result, and (for full/failed) a date.
+            if (!b2.result) errors.add("b2_target_result");
+            else if (b2.result === "full") {
+              if (b2.certificateStatus === "got" && !hasMY(b2.certificateDate)) errors.add("b2_target_date");
+              else if (b2.certificateStatus === "waiting" && !hasMY(b2.certificateExpectedDate)) errors.add("b2_target_date");
+              else if (!b2.certificateStatus) errors.add("b2_target_date");
+            } else if (b2.result === "failed" && !hasMY(b2.retakeDate)) {
+              errors.add("b2_target_date");
+            }
+          }
+        }
+      }
+    }
+
     // 6. IT Skills
     if (cvData.edvSelected.length === 0 && cvData.edvCustomInputs.length === 0) errors.add("edvSelected");
 
@@ -4448,7 +4487,7 @@ function CVBuilderInner() {
 
         {/* ── 5. Languages ── */}
         <SectionCard id="lang-section" title={t.cvb_langSection} kind="languages"
-          forceOpen={[...validationErrors].some(k => k.startsWith("lang_"))}>
+          forceOpen={[...validationErrors].some(k => k.startsWith("lang_") || k.startsWith("b2_"))}>
           <div className="space-y-3">
             {cvData.langs.map((l, i) => (
               <div key={i}>
@@ -4509,8 +4548,13 @@ function CVBuilderInner() {
                        ÖSD B1          → 4 modules (same)
                        ÖSD B2 + telc   → 2 modules (Schriftlich/Mündlich)
                 */}
-                {l.name === "Deutsch" && (l.level === "B1" || l.level === "B2") && (() => {
-                  const level: "B1" | "B2" = l.level === "B1" ? "B1" : "B2";
+                {l.name === "Deutsch" && (() => {
+                  // ONE renderer for the German exam detail form, reused for the
+                  // candidate's own level (B1) AND the mandatory B2 TARGET block
+                  // (B2 is the north star — every A1/A2/B1 candidate must declare
+                  // a B2 plan + date). `mandatory` flips the header + red border +
+                  // wires the validate() b2_target_* gate.
+                  const renderDetail = (level: "B1" | "B2", mandatory: boolean) => {
                   const bKey: "b1" | "b2" = level === "B1" ? "b1" : "b2";
                   const b: B2Detail = (l[bKey] ?? {}) as B2Detail;
                   const updateB = (patch: Partial<B2Detail>) => {
@@ -4627,11 +4671,30 @@ function CVBuilderInner() {
                     border:     `1px solid ${active ? "var(--border-gold)" : "var(--border)"}`,
                   });
                   return (
-                    <div className="mt-3 p-4 rounded-2xl space-y-3"
-                      style={{ background: "var(--bg2)", border: "1px solid var(--border-gold)" }}>
-                      {/* Header removed 2026-05 — went straight to the first
-                          question to save vertical space. L.title / L.hint
-                          strings remain in the L object for future reuse. */}
+                    <div key={bKey} className="mt-3 p-4 rounded-2xl space-y-3"
+                      style={{ background: "var(--bg2)", border: mandatory ? "2px solid var(--danger)" : "1px solid var(--border-gold)" }}>
+                      {/* For the candidate's own level (B1) the header stays
+                          removed (went straight to the first question 2026-05).
+                          The MANDATORY B2 target gets a clear required header so
+                          it reads as a separate, must-fill block. */}
+                      {mandatory && (
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="text-[14px] font-bold" style={{ color: "var(--w)" }}>Deutsch B2</h4>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                              style={{ background: "var(--danger)", color: "#fff" }}>
+                              {lang === "de" ? "ERFORDERLICH" : lang === "fr" ? "REQUIS" : "REQUIRED"}
+                            </span>
+                          </div>
+                          <p className="text-[12px]" style={{ color: "var(--w3)" }}>
+                            {lang === "de"
+                              ? "B2 ist das Ziel. Bitte gib deinen B2-Plan an — mit einem Datum, an dem du bestehst (oder es erwartest)."
+                              : lang === "fr"
+                              ? "Le B2 est l'objectif. Indiquez votre plan B2 — avec une date à laquelle vous le réussissez (ou la date prévue)."
+                              : "B2 is the goal. Tell us your B2 plan — with a date you pass it (or expect to)."}
+                          </p>
+                        </div>
+                      )}
 
                       {/* Step 1 — Prüfung geschrieben? */}
                       <div>
@@ -4949,6 +5012,27 @@ function CVBuilderInner() {
                       )}
                     </div>
                   );
+                  }; // ── end renderDetail ──
+
+                  // Dispatch: B2+ shows the B2 block as before. A1/A2/B1 shows the
+                  // candidate's own B1 detail (B1 only) PLUS the mandatory B2
+                  // TARGET block — which appears for A1/A2 immediately and for B1
+                  // once the B1 block has been answered (so the form isn't
+                  // overwhelming). C1/C2/Muttersprache (already ≥B2) show nothing.
+                  const lvl = l.level;
+                  if (lvl === "B2") return renderDetail("B2", false);
+                  if (lvl === "A1" || lvl === "A2" || lvl === "B1") {
+                    const b1d = (l.b1 ?? {}) as B2Detail;
+                    const b1Answered =
+                      lvl !== "B1" || b1d.written === "no" || (b1d.written === "yes" && !!b1d.result);
+                    return (
+                      <>
+                        {lvl === "B1" && renderDetail("B1", false)}
+                        {b1Answered && renderDetail("B2", true)}
+                      </>
+                    );
+                  }
+                  return null;
                 })()}
               </div>
             ))}
