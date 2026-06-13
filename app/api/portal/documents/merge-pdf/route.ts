@@ -7,6 +7,7 @@ import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 import { dlTokenUserId } from "@/lib/dlToken";
 import { r2GetObject } from "@/lib/r2";
 import { isPassportFileType } from "@/lib/passportFile";
+import { enforceRateLimitDistributed } from "@/lib/rateLimit";
 
 function getDriveClient() {
   const auth = new google.auth.GoogleAuth({
@@ -113,6 +114,18 @@ export async function GET(req: NextRequest) {
 
   const allowed = await isAuthorised(req, origId, transId, origDocId, transDocId);
   if (!allowed) return new NextResponse("Forbidden", { status: 403 });
+
+  // isAuthorised() returns only a boolean across four distinct auth branches
+  // (admin / sub-admin / JWT user / dl-token) and never surfaces the actor's
+  // id, so there's no safe per-identity key here — fall back to a per-IP
+  // distributed limit, placed after the auth gate but before the PDF merge.
+  const rl = await enforceRateLimitDistributed(req, "generate", { limit: 20, windowMs: 60_000 });
+  if (!rl.ok) {
+    return new NextResponse("Too many requests", {
+      status: 429,
+      headers: { "Retry-After": String(rl.retryAfterSec) },
+    });
+  }
 
   // Resolve doc IDs to drive file IDs + per-doc rotation.
   const db = getServiceSupabase();

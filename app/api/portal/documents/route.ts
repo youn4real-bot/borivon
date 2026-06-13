@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { UUID_RE } from "@/lib/uuid";
 
 
@@ -21,6 +22,9 @@ export async function GET(req: NextRequest) {
   if (candidateId !== auth.userId) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  const rl = await enforceUserRateLimit("doc-read", `u:${auth.userId}`, { limit: 60, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const db = getServiceSupabase();
 

@@ -21,7 +21,7 @@ import type { CVData } from "@/components/CVDocument";
 import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { registerPdfFonts } from "@/lib/pdf-fonts";
-import { enforceRateLimit, enforceRateLimitDistributed } from "@/lib/rateLimit";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { sanitizeCvData } from "@/lib/cvSanitize";
 import { UUID_RE } from "@/lib/uuid";
 
@@ -35,8 +35,8 @@ export const maxDuration = 60;
 export async function GET(req: NextRequest) {
   const auth = await requireUser(req);
   if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status });
-  const rl = await enforceRateLimitDistributed(req, "cv-visa", { limit: 30, windowMs: 60_000 });
-  if (!rl.ok) return Response.json({ error: "Too many requests" }, { status: 429 });
+  const rl = await enforceUserRateLimit("generate", `u:${auth.userId}`, { limit: 15, windowMs: 60_000 });
+  if (!rl.ok) return Response.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   // Resolve target: self, or a candidate an admin is allowed to act on.
   const qCand = req.nextUrl.searchParams.get("candidateId");

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import Stripe from "stripe";
 import { requireUser } from "@/lib/admin-auth";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 
 function getStripe() {
   const key = process.env.STRIPE_SECRET_KEY;
@@ -36,6 +37,9 @@ type Plan = "premium_onetime" | "premium_monthly";
 export async function POST(req: NextRequest) {
   const auth = await requireUser(req);
   if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status });
+
+  const rl = await enforceUserRateLimit("checkout", `u:${auth.userId}`, { limit: 5, windowMs: 60000 });
+  if (!rl.ok) return Response.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const body = await req.json().catch(() => ({}));
   const plan: Plan = body.plan === "premium_monthly" ? "premium_monthly" : "premium_onetime";

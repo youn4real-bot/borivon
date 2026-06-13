@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 
 // Cache the admin user_id lookup for the lifetime of this serverless container
 // so repeated calls (one per candidate message load) don't scan auth.users each time.
@@ -35,6 +36,9 @@ async function getAdminUserId(): Promise<string | null> {
 export async function GET(req: NextRequest) {
   const auth = await requireUser(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  const rl = await enforceUserRateLimit("misc-read", `u:${auth.userId}`, { limit: 60, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const adminUserId = await getAdminUserId();
   if (!adminUserId) return NextResponse.json({ photo: null });

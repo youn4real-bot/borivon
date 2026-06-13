@@ -146,6 +146,37 @@ function getCategoryMeta(value: string, lang: string) {
   return { emoji: cat.emoji, label: cat.label[lang as keyof typeof cat.label] ?? cat.label.en };
 }
 
+// Client-side downscale before upload — feed photos are served to every viewer
+// at full size, so shrinking the source here directly cuts Supabase Storage
+// egress. Mirrors components/MessageIcon.tsx's compressImage: draw to a canvas
+// capped at `maxW`, re-encode as JPEG (which the server's validateImageDataUrl
+// accepts). Falls back to the raw file's data URL if the canvas is unavailable.
+async function compressImage(file: File, maxW: number, quality: number): Promise<string> {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise<HTMLImageElement>((res, rej) => {
+      const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url;
+    });
+    const ratio = img.width > maxW ? maxW / img.width : 1;
+    const w = Math.round(img.width * ratio);
+    const h = Math.round(img.height * ratio);
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      return await new Promise((res, rej) => {
+        const r = new FileReader();
+        r.onload = () => res(r.result as string);
+        r.onerror = rej; r.readAsDataURL(file);
+      });
+    }
+    ctx.drawImage(img, 0, 0, w, h);
+    return canvas.toDataURL("image/jpeg", quality);
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 // ── Avatar ────────────────────────────────────────────────────────────────────
 // Thin wrappers over the single source of truth (lib/roleTick). NOTE: black
 // = Borivon TEAM (supreme admin OR sub-admin), so we key off isBorivonTeam,
@@ -600,14 +631,14 @@ function PostCard({
         {/* Photo */}
         {post.imageUrl && (
           <div className="rounded-xl overflow-hidden mb-3" style={{ maxHeight: 400 }}>
-            <img src={post.imageUrl} alt="" className="w-full object-cover" style={{ maxHeight: 400 }} />
+            <img src={post.imageUrl} alt="" loading="lazy" decoding="async" className="w-full object-cover" style={{ maxHeight: 400 }} />
           </div>
         )}
 
         {/* GIF */}
         {post.gifUrl && (
           <div className="rounded-xl overflow-hidden mb-3" style={{ maxHeight: 320 }}>
-            <img src={post.gifUrl} alt="GIF" className="w-full object-contain"
+            <img src={post.gifUrl} alt="GIF" loading="lazy" decoding="async" className="w-full object-contain"
               style={{ maxHeight: 320, background: "var(--bg2)" }} />
           </div>
         )}
@@ -739,6 +770,10 @@ export default function FeedPage() {
   // New posts banner
   const [pendingPosts, setPendingPosts] = useState<Post[]>([]);
   const postIdsRef = useRef<Set<string>>(new Set());
+  // True once the bootstrap has loaded page 0. Gates the community-switch effect
+  // so it never duplicates the initial load (it used to fire a 2nd identical
+  // page-0 fetch on every open).
+  const bootstrappedRef = useRef(false);
 
   // Session init — fires role check, profile, communities, and posts in
   // parallel so the feed reveals once with everything ready instead of the
@@ -799,6 +834,7 @@ export default function FeedPage() {
       }
 
       await loadPosts(tk, 0, firstOrgId);
+      bootstrappedRef.current = true; // initial page-0 load done — let the switch effect take over
      } catch (e) {
        // Never leave the feed stuck on the loader (getSession reject /
        // loadPosts throw). Reveal — the feed has its own error/empty state.
@@ -830,9 +866,11 @@ export default function FeedPage() {
     return () => clearInterval(timer);
   }, [authToken, activeOrgId]);
 
-  // Reload when active community changes
+  // Reload when active community changes — but NOT for the initial mount, which
+  // the bootstrap already loaded (bootstrappedRef gate prevents the duplicate
+  // page-0 fetch that used to fire on every open).
   useEffect(() => {
-    if (!authToken) return;
+    if (!authToken || !bootstrappedRef.current) return;
     setPosts([]);
     setPendingPosts([]);
     loadPosts(authToken, 0, activeOrgId);
@@ -877,11 +915,22 @@ export default function FeedPage() {
     } finally { setPosting(false); }
   };
 
-  const processImageFile = (file: File) => {
+  const processImageFile = async (file: File) => {
     if (!file.type.startsWith("image/")) return;
-    const reader = new FileReader();
-    reader.onload = ev => { const b64 = ev.target?.result as string; setImageBase64(b64); setImagePreview(b64); setGifUrl(null); };
-    reader.readAsDataURL(file);
+    // 5 MB guard on the SOURCE file (matches the server's 5 MB cap) so an
+    // absurd upload is rejected before we even decode it.
+    if (file.size > 5 * 1024 * 1024) { setPostError(gT.fdPostFail); return; }
+    // Downscale client-side before upload — feed photos are served full-size to
+    // every viewer, so capping the source at ~1280px JPEG directly cuts the
+    // Supabase Storage egress bill. JPEG output passes the server's
+    // validateImageDataUrl magic-byte check.
+    try {
+      const b64 = await compressImage(file, 1280, 0.82);
+      setImageBase64(b64); setImagePreview(b64); setGifUrl(null);
+    } catch {
+      // Corrupt / undecodable image → show an error instead of silently aborting.
+      setPostError(gT.fdPostFail);
+    }
   };
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {

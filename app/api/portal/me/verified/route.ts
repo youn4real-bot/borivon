@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
 
@@ -36,6 +37,9 @@ export async function GET(req: NextRequest) {
   } catch {
     return NextResponse.json({ authenticated: false, verified: false, isAdmin: false });
   }
+
+  const rl = await enforceUserRateLimit("me-read", `u:${userId}`, { limit: 60, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const isAdmin = !!ADMIN_EMAIL && userEmail === ADMIN_EMAIL;
   if (isAdmin) {

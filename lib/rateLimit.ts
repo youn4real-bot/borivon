@@ -23,6 +23,7 @@
  */
 
 import type { NextRequest } from "next/server";
+import { getServiceSupabase } from "@/lib/supabase";
 
 type Bucket = { count: number; resetAt: number };
 
@@ -91,15 +92,11 @@ export type RateLimitResult =
  * Pass `bucketName` to namespace different routes (e.g. "upload", "msg-send",
  * "sign") so a heavy use of one doesn't starve another.
  */
-export function enforceRateLimit(
-  req: NextRequest,
-  bucketName: string,
-  opts: RateLimitOptions,
-): RateLimitResult {
+/** Core in-process bucket hit, by a fully-built key. */
+function hitInProcess(key: string, opts: RateLimitOptions): RateLimitResult {
   const now = Date.now();
   maybeGc(now);
 
-  const key = `${bucketName}:${clientId(req)}`;
   const existing = buckets.get(key);
   if (!existing || existing.resetAt <= now) {
     const resetAt = now + opts.windowMs;
@@ -117,6 +114,66 @@ export function enforceRateLimit(
 
   existing.count += 1;
   return { ok: true, remaining: opts.limit - existing.count, resetAt: existing.resetAt };
+}
+
+/** Trusted client IP — for keying public (unauthenticated) per-IP limits. */
+export function requestIp(req: NextRequest): string {
+  return clientId(req);
+}
+
+export function enforceRateLimit(
+  req: NextRequest,
+  bucketName: string,
+  opts: RateLimitOptions,
+): RateLimitResult {
+  return hitInProcess(`${bucketName}:${clientId(req)}`, opts);
+}
+
+/**
+ * Atomic SHARED counter via the Postgres rl_hit() RPC (supabase/rate_limits.sql).
+ * Returns null when the RPC is unavailable (not migrated yet / DB error) so
+ * callers FAIL OPEN to the in-process limiter — never breaks legit traffic.
+ */
+async function checkRateLimitPg(key: string, opts: RateLimitOptions): Promise<RateLimitResult | null> {
+  try {
+    const { data, error } = await getServiceSupabase().rpc("rl_hit", {
+      p_key: key,
+      p_window_ms: opts.windowMs,
+      p_now_ms: Date.now(),
+    });
+    if (error || !data) return null;
+    const row = (Array.isArray(data) ? data[0] : data) as { new_count?: number; reset_ms?: number } | undefined;
+    const count = typeof row?.new_count === "number" ? row.new_count : null;
+    if (count == null) return null;
+    const resetAt = typeof row?.reset_ms === "number" ? row.reset_ms : Date.now() + opts.windowMs;
+    if (count > opts.limit) {
+      return { ok: false, retryAfterSec: Math.max(1, Math.ceil((resetAt - Date.now()) / 1000)), resetAt };
+    }
+    return { ok: true, remaining: Math.max(0, opts.limit - count), resetAt };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Per-IDENTITY distributed limit (Postgres-backed, fail-open to in-process).
+ *
+ * `identity` MUST be type-prefixed by the caller so buckets can't collide across
+ * principal types:
+ *   `u:<userId>`            candidate / org member (requireUser)
+ *   `e:<email>`             admin / sub-admin (requireAdminRole)
+ *   `ip:<requestIp(req)>`   public / unauthenticated
+ * Call this AFTER auth/scope so a rejected request never spends a bucket, but
+ * BEFORE the expensive work.
+ */
+export async function enforceUserRateLimit(
+  bucket: string,
+  identity: string,
+  opts: RateLimitOptions,
+): Promise<RateLimitResult> {
+  const key = `${bucket}:${identity}`;
+  const pg = await checkRateLimitPg(key, opts);
+  return pg ?? hitInProcess(key, opts);
 }
 
 /**
@@ -155,7 +212,11 @@ export async function enforceRateLimitDistributed(
   opts: RateLimitOptions,
 ): Promise<RateLimitResult> {
   const creds = kvCreds();
-  if (!creds) return enforceRateLimit(req, bucketName, opts); // not provisioned
+  if (!creds) {
+    // Default distributed backend = Postgres (rl_hit); fail open to in-process.
+    const pg = await checkRateLimitPg(`${bucketName}:${clientId(req)}`, opts);
+    return pg ?? enforceRateLimit(req, bucketName, opts);
+  }
 
   const key = `rl:${bucketName}:${clientId(req)}`;
   const ctrl = new AbortController();

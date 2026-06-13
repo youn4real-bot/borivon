@@ -4,6 +4,7 @@ import { renderToBuffer } from "@react-pdf/renderer";
 import { LetterDocument } from "@/components/LetterDocument";
 import type { LetterData, LetterBrand } from "@/components/LetterDocument";
 import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { getServiceSupabase } from "@/lib/supabase";
 import { registerPdfFonts } from "@/lib/pdf-fonts";
 import { VISA_RECIPIENT_LINES, VISA_SUBJECT } from "@/lib/visaLetter";
@@ -16,18 +17,7 @@ registerPdfFonts();
 export const maxDuration = 60;
 
 
-const RL_MAX = 20;
-const RL_WINDOW_MS = 60_000;
 const MAX_BODY_BYTES = 256 * 1024;
-const rl = new Map<string, number[]>();
-
-function rateLimited(userId: string): boolean {
-  const now = Date.now();
-  const arr = (rl.get(userId) ?? []).filter(t => now - t < RL_WINDOW_MS);
-  if (arr.length >= RL_MAX) { rl.set(userId, arr); return true; }
-  arr.push(now); rl.set(userId, arr);
-  return false;
-}
 
 async function resolveBrand(userId: string): Promise<LetterBrand> {
   // Letter is candidate-generated only. Per user 2026-05: candidate-side
@@ -64,9 +54,9 @@ export async function POST(req: NextRequest) {
     targetUid = auth.userId;
   }
 
-  if (rateLimited(targetUid)) {
-    return Response.json({ error: "Rate limit exceeded" }, { status: 429 });
-  }
+  // Distributed cap (Postgres-backed, fails open to in-process): 10 renders / 60s per user.
+  const rl = await enforceUserRateLimit("generate", `u:${targetUid}`, { limit: 10, windowMs: 60_000 });
+  if (!rl.ok) return Response.json({ error: "Rate limit exceeded" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   try {
     const rawBody = await req.text();

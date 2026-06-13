@@ -4,7 +4,9 @@
   "outputDirectory": ".next",
   "installCommand": "npm install",
   "crons": [
-    { "path": "/api/cron/briefing", "schedule": "0 6 * * *" }
+    { "path": "/api/cron/briefing", "schedule": "0 6 * * *" },
+    { "path": "/api/cron/weekly-report", "schedule": "0 7 * * 1" },
+    { "path": "/api/cron/auto-chase", "schedule": "0 8 * * *" }
   ],
   "headers": [
     {

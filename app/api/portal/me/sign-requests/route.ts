@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 
 const BUCKET = "sign-documents";
 
 export async function GET(req: NextRequest) {
   const auth = await requireUser(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  const rl = await enforceUserRateLimit("download", `u:${auth.userId}`, { limit: 30, windowMs: 60000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const db = getServiceSupabase();
   const { data, error } = await db

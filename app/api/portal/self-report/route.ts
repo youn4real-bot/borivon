@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
 import { cleanPublicText } from "@/lib/sanitizeInput";
-import { enforceRateLimit } from "@/lib/rateLimit";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 
 /**
  * Candidate self-reports — a candidate logs their own latest step (passed /
@@ -23,8 +23,8 @@ export async function POST(req: NextRequest) {
   const user = await requireUser(req);
   if (!user.ok) return NextResponse.json({ error: user.error }, { status: user.status });
 
-  const rl = enforceRateLimit(req, "self-report", { limit: 20, windowMs: 60_000 });
-  if (!rl.ok) return NextResponse.json({ error: "Too many updates — slow down." }, { status: 429 });
+  const rl = await enforceUserRateLimit("self-report", `u:${user.userId}`, { limit: 20, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many updates — slow down." }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const body = await req.json().catch(() => ({}));
   const kind = typeof body?.kind === "string" ? body.kind : "";

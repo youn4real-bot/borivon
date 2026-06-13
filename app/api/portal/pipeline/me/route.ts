@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 
 export async function GET(req: NextRequest) {
   // ── Auth: verify JWT ──────────────────────────────────────────────────────
@@ -12,6 +13,9 @@ export async function GET(req: NextRequest) {
   if (authErr || !user) {
     return NextResponse.json({ pipeline: null }, { status: 401 });
   }
+
+  const rl = await enforceUserRateLimit("me-read", `u:${user.id}`, { limit: 60, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   // Use verified user.id — ignore any uid param from client
   const db = getServiceSupabase();

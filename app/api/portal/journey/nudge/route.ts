@@ -3,7 +3,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { UUID_RE } from "@/lib/uuid";
 import { cleanPublicText } from "@/lib/sanitizeInput";
-import { enforceRateLimit } from "@/lib/rateLimit";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 
 /**
  * Follow-up nudge — drop an in-app reminder into a candidate's notification bell
@@ -23,10 +23,6 @@ export async function POST(req: NextRequest) {
   const auth = await requireAdminRole(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-  // Cap reminders per admin so the candidate bell can't be spammed.
-  const rl = enforceRateLimit(req, "nudge", { limit: 40, windowMs: 60_000 });
-  if (!rl.ok) return NextResponse.json({ error: "Too many reminders — slow down." }, { status: 429 });
-
   const body = await req.json().catch(() => ({}));
   const candidateId = typeof body?.candidateId === "string" ? body.candidateId : "";
   if (!UUID_RE.test(candidateId)) return NextResponse.json({ error: "candidateId required" }, { status: 400 });
@@ -34,6 +30,10 @@ export async function POST(req: NextRequest) {
   // LAW #25 — may this admin act on this candidate?
   const allowed = await canActOnCandidate(auth.role, auth.email, candidateId);
   if (!allowed) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  // Cap reminders per admin so the candidate bell can't be spammed.
+  const rl = await enforceUserRateLimit("nudge", `e:${auth.email}`, { limit: 20, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many reminders — slow down." }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const message = cleanPublicText(body?.message, 200); // optional custom note
 

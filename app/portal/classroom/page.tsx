@@ -5,8 +5,13 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
-import ClassroomRoom from "@/components/ClassroomRoom";
+import dynamic from "next/dynamic";
 import { ArrowLeft, Video, ShieldCheck, Camera, Mic, Activity, CheckCircle2 } from "lucide-react";
+
+// Lazy-load the LiveKit stack (~23 MB of client JS) — it's only rendered AFTER
+// the user joins a room (the `if (conn)` branch), so the pre-join lobby loads
+// without it. Big first-load win on this route.
+const ClassroomRoom = dynamic(() => import("@/components/ClassroomRoom"), { ssr: false, loading: () => <PageLoader /> });
 
 type Session = { id: string; room: string; title: string };
 

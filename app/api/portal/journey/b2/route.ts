@@ -3,6 +3,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser, ciEmail } from "@/lib/admin-auth";
 import { UUID_RE } from "@/lib/uuid";
 import { isB2Stage } from "@/lib/b2Journey";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 
 /**
  * Set a candidate's B2 sub-journey stage (candidate_profiles.b2_stage).
@@ -55,6 +56,9 @@ export async function POST(req: NextRequest) {
     }
   }
   if (!allowed) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const rl = await enforceUserRateLimit("journey", `u:${user.userId}`, { limit: 10, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const patch: Record<string, unknown> = {};
   if (hasStage) patch.b2_stage = stage;

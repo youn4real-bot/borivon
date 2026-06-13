@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
 import { backfillPassportFromCvDraft } from "@/lib/cvDraftBackfill";
-import { enforceRateLimit } from "@/lib/rateLimit";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 
 export async function GET(req: NextRequest) {
   const auth = await requireUser(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  const rl = await enforceUserRateLimit("me-read", `u:${auth.userId}`, { limit: 60, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const db = getServiceSupabase();
   const { data } = await db
@@ -29,11 +32,11 @@ export async function PUT(req: NextRequest) {
   const auth = await requireUser(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-  // CV draft autosaves on every change. 60/min covers active editing
-  // (the client already debounces) without leaving an abuse surface.
+  // CV draft autosaves on every change. Generous per-user cap (180/min ≈
+  // 3/sec avg) so it never blocks normal typing, while still bounding abuse.
   // The backfill side-effect makes each save more than just a JSON write,
   // so capping the rate keeps the candidate_profiles update path cheap.
-  const rl = enforceRateLimit(req, "cv-draft", { limit: 60, windowMs: 60_000 });
+  const rl = await enforceUserRateLimit("cv-autosave", `u:${auth.userId}`, { limit: 180, windowMs: 60_000 });
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Too many saves — slow down" },

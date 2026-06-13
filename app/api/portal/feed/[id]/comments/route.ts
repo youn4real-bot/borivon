@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { isVerified } from "@/lib/verified";
-import { requireUser, ciEmail } from "@/lib/admin-auth";
+import { requireUser, ciEmail, resolveAuthNames } from "@/lib/admin-auth";
 import { canAccessPost } from "@/lib/feedAccess";
-import { enforceRateLimit } from "@/lib/rateLimit";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { UUID_RE } from "@/lib/uuid";
 
 
@@ -51,15 +51,10 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
 
   // Enrich author info
   const userIds = [...new Set(rows.map(r => r.user_id))];
-  const authInfo: Record<string, { name: string; email: string }> = {};
   const photoInfo: Record<string, { photo: string | null; verified: boolean }> = {};
 
-  await Promise.all(userIds.map(async uid => {
-    try {
-      const { data } = await db.auth.admin.getUserById(uid);
-      if (data?.user) authInfo[uid] = { name: data.user.user_metadata?.full_name ?? data.user.email ?? uid, email: data.user.email ?? "" };
-    } catch { /* skip */ }
-  }));
+  // ONE bounded listUsers walk instead of a getUserById per commenter.
+  const authInfo = await resolveAuthNames(userIds);
 
   const { data: profiles } = await db
     .from("candidate_profiles")
@@ -118,15 +113,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const { id } = await ctx.params;
   if (!UUID_RE.test(id)) return NextResponse.json({ error: "Invalid post id" }, { status: 400 });
 
-  // Anti-spam: cap comment creation per trusted IP.
-  const rl = enforceRateLimit(req, "feed-comment", { limit: 20, windowMs: 60_000 });
-  if (!rl.ok) {
-    return NextResponse.json(
-      { error: "You're commenting too fast — slow down a bit" },
-      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
-    );
-  }
-
   const db = getServiceSupabase();
 
   // Channel gate — caller must be able to access this post's channel before
@@ -134,6 +120,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   // members on their own channel AND under-blocked cross-org candidates).
   const access = await canAccessPost(db, id, auth.userId, auth.email);
   if (!access.ok) return NextResponse.json({ error: access.status === 404 ? "Not found" : "Forbidden" }, { status: access.status });
+
+  // Anti-spam: cap comment creation per user.
+  const rl = await enforceUserRateLimit("feed-comment", `u:${auth.userId}`, { limit: 30, windowMs: 60_000 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "You're commenting too fast — slow down a bit" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
+  }
 
   const body = await req.json().catch(() => ({}));
   const content = typeof body.content === "string" ? body.content.trim() : "";
@@ -218,6 +213,14 @@ export async function PATCH(req: NextRequest, _ctx: { params: Promise<{ id: stri
   const access = await canAccessPost(db, postId, auth.userId, auth.email);
   if (!access.ok) return NextResponse.json({ error: access.status === 404 ? "Not found" : "Forbidden" }, { status: access.status });
 
+  const rl = await enforceUserRateLimit("feed-comment", `u:${auth.userId}`, { limit: 20, windowMs: 60_000 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Too many requests" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
+  }
+
   const { data: existing } = await db
     .from("feed_comment_likes")
     .select("comment_id")
@@ -251,6 +254,14 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
 
   const commentId = req.nextUrl.searchParams.get("commentId") ?? "";
   if (!UUID_RE.test(commentId)) return NextResponse.json({ error: "Invalid comment id" }, { status: 400 });
+
+  const rl = await enforceUserRateLimit("feed-comment", `u:${auth.userId}`, { limit: 20, windowMs: 60_000 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Too many requests" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
+  }
 
   const db = getServiceSupabase();
 

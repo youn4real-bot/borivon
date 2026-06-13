@@ -35,7 +35,9 @@ type Msg = {
   id: string;
   sender_role: Role;
   body: string;
-  attachment: string | null;
+  // The list/poll payload no longer carries the attachment bytes — just a flag.
+  // The actual image is fetched lazily (once) via the [id]/attachment endpoint.
+  has_attachment?: boolean;
   kind: Kind;
   created_at: string;
   read_by_candidate?: boolean;
@@ -135,6 +137,35 @@ async function compressImage(file: File, maxW: number, quality: number): Promise
   }
 }
 
+// Lazy-load + cache chat image attachments. The message LIST now carries only a
+// `has_attachment` flag (the inline bytes were the app's biggest Supabase
+// egress); each image is fetched ONCE from the per-message endpoint and cached
+// as an object URL for the session, so polls/realtime move only metadata.
+// `base` is the messages API base for this side (candidate vs admin).
+function useAttachmentLoader(base: string, accessToken: string) {
+  const cache = useRef<Map<string, string>>(new Map());
+  const loadAttachment = useCallback(async (msgId: string): Promise<string | null> => {
+    const hit = cache.current.get(msgId);
+    if (hit) return hit;
+    try {
+      const res = await fetch(`${base}/${msgId}/attachment`, { headers: { Authorization: `Bearer ${accessToken}` } });
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      const objUrl = URL.createObjectURL(blob);
+      cache.current.set(msgId, objUrl);
+      return objUrl;
+    } catch {
+      return null;
+    }
+  }, [base, accessToken]);
+  // Revoke object URLs when the chat unmounts so blobs don't leak.
+  useEffect(() => {
+    const cur = cache.current;
+    return () => { for (const u of cur.values()) URL.revokeObjectURL(u); cur.clear(); };
+  }, []);
+  return loadAttachment;
+}
+
 // ── Visual primitives ────────────────────────────────────────────────────────
 
 function ChatIconBtn({ unread, open, onClick, label }: { unread: number; open: boolean; onClick: () => void; label: string }) {
@@ -193,15 +224,25 @@ function Avatar({ initial, avatarUrl, size = 32, isAdmin = false }: {
 }
 
 
-function MessageBubble({ msg, mine, lang, showAvatar, senderInitial, senderAvatarUrl, onOpenImage }: {
+function MessageBubble({ msg, mine, lang, showAvatar, senderInitial, senderAvatarUrl, onOpenImage, loadAttachment }: {
   msg: Msg; mine: boolean; lang: string;
   showAvatar: boolean;          // false when the previous bubble was from the same sender within a short window
   senderInitial: string;        // first letter of the sender's name (or "B" for admin) — fallback if no photo
   senderAvatarUrl?: string | null; // actual photo URL for the avatar (candidate photo or admin logo)
   onOpenImage: (src: string) => void;
+  loadAttachment: (msgId: string) => Promise<string | null>; // lazy image fetch (cached)
 }) {
   const { t } = useLang();
   const isBug = msg.kind === "bug";
+  // Lazy-load the attachment image the first time this bubble renders. The list
+  // payload only told us has_attachment; the bytes come from R2 via the endpoint.
+  const [imgSrc, setImgSrc] = useState<string | null>(null);
+  useEffect(() => {
+    if (!msg.has_attachment) return;
+    let alive = true;
+    loadAttachment(msg.id).then((s) => { if (alive) setImgSrc(s); });
+    return () => { alive = false; };
+  }, [msg.id, msg.has_attachment, loadAttachment]);
   return (
     <div className={`flex items-end gap-2 ${mine ? "flex-row-reverse" : "flex-row"} ${showAvatar ? "mt-3" : "mt-1"}`}>
       <div className="w-8 flex-shrink-0">
@@ -231,21 +272,31 @@ function MessageBubble({ msg, mine, lang, showAvatar, senderInitial, senderAvata
               <Bug size={10} strokeWidth={2.2} /> {lang === "fr" ? "Rapport de bug" : lang === "de" ? "Fehlerbericht" : "Bug report"}
             </p>
           )}
-          {/* Attachment first, caption below — matches WhatsApp/Telegram convention. */}
-          {msg.attachment && (
-            <button type="button"
-              onClick={() => onOpenImage(msg.attachment!)}
-              aria-label={lang === "fr" ? "Agrandir l'image" : lang === "de" ? "Bild vergrößern" : "Open image"}
-              className="block p-0 m-0 cursor-zoom-in"
-              style={{ background: "transparent", border: "none" }}>
-              { /* eslint-disable-next-line @next/next/no-img-element */ }
-              <img src={msg.attachment} alt={t.miAttachment}
-                className="max-h-[200px] rounded-md block"
-                style={{ border: "1px solid var(--border)" }} />
-            </button>
+          {/* Attachment first, caption below — matches WhatsApp/Telegram convention.
+              Bytes are lazy-loaded (see effect above): a placeholder shows until
+              the image resolves, then the tappable thumbnail. */}
+          {msg.has_attachment && (
+            imgSrc ? (
+              <button type="button"
+                onClick={() => onOpenImage(imgSrc)}
+                aria-label={lang === "fr" ? "Agrandir l'image" : lang === "de" ? "Bild vergrößern" : "Open image"}
+                className="block p-0 m-0 cursor-zoom-in"
+                style={{ background: "transparent", border: "none" }}>
+                { /* eslint-disable-next-line @next/next/no-img-element */ }
+                <img src={imgSrc} alt={t.miAttachment}
+                  className="max-h-[200px] rounded-md block"
+                  style={{ border: "1px solid var(--border)" }} />
+              </button>
+            ) : (
+              <div className="flex items-center justify-center rounded-md"
+                style={{ width: 150, height: 110, background: mine ? "rgba(19,19,18,0.08)" : "var(--bg)", border: "1px solid var(--border)" }}
+                aria-label={t.miAttachment}>
+                <ImageIcon size={20} strokeWidth={1.6} style={{ color: mine ? "rgba(19,19,18,0.4)" : "var(--w3)" }} />
+              </div>
+            )
           )}
           {msg.body && (
-            <p className={`text-[13.5px] leading-snug whitespace-pre-wrap break-words ${msg.attachment ? "mt-2" : ""}`}>
+            <p className={`text-[13.5px] leading-snug whitespace-pre-wrap break-words ${msg.has_attachment ? "mt-2" : ""}`}>
               {msg.body}
             </p>
           )}
@@ -273,6 +324,7 @@ function renderItems(
   otherInitial: string, ownInitial: string,
   otherAvatarUrl: string | null | undefined, ownAvatarUrl: string | null | undefined,
   mineRole: Role, onOpenImage: (src: string) => void,
+  loadAttachment: (msgId: string) => Promise<string | null>,
 ): React.ReactNode[] {
   const out: React.ReactNode[] = [];
   let lastDay = "";
@@ -294,7 +346,7 @@ function renderItems(
         showAvatar={!!showAvatar}
         senderInitial={mine ? ownInitial : otherInitial}
         senderAvatarUrl={mine ? ownAvatarUrl : otherAvatarUrl}
-        onOpenImage={onOpenImage} />,
+        onOpenImage={onOpenImage} loadAttachment={loadAttachment} />,
     );
   }
   return out;
@@ -332,14 +384,22 @@ function Lightbox({ src, onClose }: { src: string; onClose: () => void }) {
     onClose();
   }
 
-  function download(e: React.MouseEvent) {
+  async function download(e: React.MouseEvent) {
     e.stopPropagation();
     try {
+      // Derive a correct extension. Legacy data URLs carry the mime inline;
+      // object (blob:) URLs don't, so re-read the local blob's type — a blob:
+      // fetch is local + instant (no network) so this stays snappy.
+      let ext = "png";
+      const m = src.match(/^data:image\/(\w+)/);
+      if (m) {
+        ext = m[1];
+      } else if (src.startsWith("blob:")) {
+        try { const b = await (await fetch(src)).blob(); ext = b.type.split("/")[1] || "png"; } catch { /* keep png */ }
+      }
+      if (ext === "jpeg") ext = "jpg";
       const a = document.createElement("a");
       a.href = src;
-      // Try to derive a sensible filename + extension from the data URL.
-      const m = src.match(/^data:image\/(\w+)/);
-      const ext = m ? m[1] : "png";
       a.download = `borivon-attachment-${Date.now()}.${ext}`;
       document.body.appendChild(a);
       a.click();
@@ -498,7 +558,7 @@ function ComposeBar({
 function ThreadModal({
   title, subtitle, msgs, mineRole, scrollRef, onSend, onClose, lang,
   otherInitial, otherName, ownInitial, ownName, verifiedOther, isAdminOther,
-  otherAvatarUrl, ownAvatarUrl, otherBadgeColor, headerAction,
+  otherAvatarUrl, ownAvatarUrl, otherBadgeColor, headerAction, loadAttachment,
 }: {
   title: string;
   subtitle?: string;
@@ -522,6 +582,8 @@ function ThreadModal({
   otherBadgeColor?: "gold" | "org" | "black";
   /** Actual photo URL for the current user (candidate photo or admin logo) */
   ownAvatarUrl?: string | null;
+  /** Lazy image fetcher (cached) for message attachments. */
+  loadAttachment: (msgId: string) => Promise<string | null>;
 }) {
   const { t } = useLang();
   // Compact = passport-popup-sized (max-w-md ~448px / max-h 90vh).
@@ -682,7 +744,7 @@ function ThreadModal({
           {msgs.length === 0 ? (
             <p className="text-center text-[13px] mt-10 px-6" style={{ color: "var(--w3)" }}>{empty}</p>
           ) : (
-            renderItems(msgs, lang, otherInitial, ownInitial, otherAvatarUrl, ownAvatarUrl, mineRole, setLightboxSrc)
+            renderItems(msgs, lang, otherInitial, ownInitial, otherAvatarUrl, ownAvatarUrl, mineRole, setLightboxSrc, loadAttachment)
           )}
         </div>
 
@@ -801,6 +863,7 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
   }, []);
 
   const candidateInitial = (candidateName || "?").charAt(0).toUpperCase();
+  const loadAttachment = useAttachmentLoader("/api/portal/messages", accessToken);
 
   const fetchMsgs = useCallback(async () => {
     try {
@@ -898,7 +961,7 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
   const last = msgs[msgs.length - 1];
   const lastBody = last?.body ?? "";
   const lastAt = last?.created_at ?? new Date(0).toISOString();
-  const hasAttachment = !!last?.attachment;
+  const hasAttachment = !!last?.has_attachment;
   const lastSender: Role = last?.sender_role ?? "admin";
 
   const startConversation = lang === "fr" ? "Démarrer une conversation"
@@ -960,6 +1023,7 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
           ownInitial={candidateInitial} ownName={candidateName}
           otherAvatarUrl={adminPhoto}
           ownAvatarUrl={candidatePhoto}
+          loadAttachment={loadAttachment}
           verifiedOther isAdminOther
         />
       )}
@@ -1136,6 +1200,7 @@ function AdminInbox({ accessToken }: { accessToken: string }) {
   // individual admin's name/photo (that's what made a sub-admin see the
   // supreme admin's identity). Fixed, no per-admin photo fetch.
   const ownPhoto = ADMIN_LOGO_URL;
+  const loadAttachment = useAttachmentLoader("/api/portal/admin/messages", accessToken);
 
   const fetchConvs = useCallback(async () => {
     try {
@@ -1322,6 +1387,7 @@ function AdminInbox({ accessToken }: { accessToken: string }) {
           ownName="Borivon Support"
           otherAvatarUrl={activeThread.photoUrl ?? null}
           ownAvatarUrl={ownPhoto}
+          loadAttachment={loadAttachment}
           verifiedOther={!!activeThread.verified}
           otherBadgeColor={activeThread.isOrgMember ? "org" : "gold"}
         />

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser, ciEmail } from "@/lib/admin-auth";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
-import { enforceRateLimit, enforceRateLimitDistributed } from "@/lib/rateLimit";
+import { enforceRateLimitDistributed } from "@/lib/rateLimit";
 import { serverBroadcast, ASSIGNMENTS_TOPIC } from "@/lib/serverBroadcast";
 
 type OrgRow = { id: string; name: string };
@@ -137,7 +137,7 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ code: strin
   // Public, unauthenticated code oracle. A legit user opens a join link once;
   // anything beyond that is someone brute-forcing static member/candidate
   // codes to discover a redeemable one. Trusted-IP throttle.
-  const rl = enforceRateLimit(req, "invite-lookup", { limit: 20, windowMs: 60_000 });
+  const rl = await enforceRateLimitDistributed(req, "invite-get", { limit: 20, windowMs: 60_000 });
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Too many requests" },
@@ -175,7 +175,7 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ code: stri
   // Redeeming a `member` code grants org-admin + auto gold tick; `sub-admin`
   // grants full candidate visibility. The code is the only secret — throttle
   // redemption attempts so a guessed static code can't be found by spraying.
-  const rl = await enforceRateLimitDistributed(req, "invite-redeem", { limit: 8, windowMs: 60_000 });
+  const rl = await enforceRateLimitDistributed(req, "invite-redeem", { limit: 8, windowMs: 3_600_000 });
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Too many attempts — try again shortly" },

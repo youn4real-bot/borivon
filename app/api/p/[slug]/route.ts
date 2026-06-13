@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { buildProfileSlug, parseProfileSlug, ADMIN_PROFILE_SLUG } from "@/lib/profile-slug";
-import { enforceRateLimit } from "@/lib/rateLimit";
+import { enforceRateLimitDistributed } from "@/lib/rateLimit";
 
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
 // A miss falls through to scanning auth.users. Bound that hard so a bot
@@ -27,7 +27,7 @@ export async function GET(
   // Unauthenticated and returns candidate PII (name/city/country/photo).
   // Edge cache softens repeat hits but unique-slug enumeration bypasses it —
   // throttle per trusted IP so a scraper can't walk the slug space.
-  const rl = enforceRateLimit(req, "pub-profile", { limit: 30, windowMs: 60_000 });
+  const rl = await enforceRateLimitDistributed(req, "p-slug", { limit: 100, windowMs: 60_000 });
   if (!rl.ok) {
     return NextResponse.json(
       { error: "Too many requests" },

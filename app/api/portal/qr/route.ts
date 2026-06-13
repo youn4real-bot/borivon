@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/admin-auth";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 
 /** GET /api/portal/qr?data=<url>&label=<label>
  *  Proxies the QR image from api.qrserver.com so the browser can download it
@@ -32,6 +33,9 @@ export async function GET(req: NextRequest) {
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
     return NextResponse.json({ error: "Unsupported URL scheme" }, { status: 400 });
   }
+
+  const rl = await enforceUserRateLimit("qr", `u:${auth.userId}`, { limit: 30, windowMs: 60000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const qrUrl =
     `https://api.qrserver.com/v1/create-qr-code/?size=400x400` +

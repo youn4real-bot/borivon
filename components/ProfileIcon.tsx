@@ -22,6 +22,33 @@ const LANGS: { code: Lang; flagSrc: string; label: string }[] = [
   { code: "de", flagSrc: "https://flagcdn.com/de.svg", label: "Deutsch" },
 ];
 
+// Cap an avatar data URL to ~maxW px before upload. The crop modal outputs a
+// 600×600 JPEG; an avatar is never rendered larger than a small circle, so
+// re-encoding at 512px shrinks the bytes the client sends (and that Supabase
+// Storage later serves to every viewer) with no visible quality loss. JPEG
+// output passes the server's validateImageDataUrl magic-byte check. Falls back
+// to the original data URL if the canvas is unavailable or the image fails to
+// decode, so the upload never breaks.
+async function downscaleAvatar(dataUrl: string, maxW = 512, quality = 0.85): Promise<string> {
+  try {
+    const img = await new Promise<HTMLImageElement>((res, rej) => {
+      const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = dataUrl;
+    });
+    if (!img.width || img.width <= maxW) return dataUrl;
+    const ratio = maxW / img.width;
+    const w = Math.round(img.width * ratio);
+    const h = Math.round(img.height * ratio);
+    const canvas = document.createElement("canvas");
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return dataUrl;
+    ctx.drawImage(img, 0, 0, w, h);
+    return canvas.toDataURL("image/jpeg", quality);
+  } catch {
+    return dataUrl;
+  }
+}
+
 const t = {
   en: {
     organizations: "Agencies",
@@ -160,6 +187,17 @@ export function ProfileIcon() {
   const orgPhotoInputRef = useRef<HTMLInputElement>(null);
   const ref = useRef<HTMLDivElement>(null);
   const router = useRouter();
+
+  // Snappier clicks: when the admin opens the profile dropdown, prefetch the
+  // routes its buttons link to so the eventual click navigates near-instantly
+  // (the chunk + RSC payload are already warm). Pure additive; prefetching a
+  // route only loads its bundle — it doesn't bypass any auth gate (LAW #1).
+  useEffect(() => {
+    if (!open || !user?.isAdmin) return;
+    const routes = ["/portal/admin", "/portal/admin/pipeline", "/portal/admin/progress", "/portal/admin/b2-status", "/portal/admin/leads", "/portal/admin/expiry"];
+    if (user.isSuperAdmin) routes.push("/portal/admin/organizations", "/portal/admin/manage", "/portal/admin/employers", "/portal/admin/online-courses", "/portal/admin/academy");
+    for (const r of routes) { try { router.prefetch(r); } catch { /* ignore */ } }
+  }, [open, user, router]);
 
   async function handleCheckout(plan: "premium_onetime" | "premium_monthly") {
     if (!accessToken || checkoutPlan) return;
@@ -1044,10 +1082,13 @@ export function ProfileIcon() {
             setPhotoSaving(true);
             setPhotoSaveMsg(null);
             try {
+              // Cap to ~512px before upload — avatars are only ever shown small,
+              // so this shrinks the bytes the client sends (and Storage serves).
+              const photo = await downscaleAvatar(croppedUrl);
               const res = await fetch("/api/portal/me/profile-photo", {
                 method: "POST",
                 headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
-                body: JSON.stringify({ photo: croppedUrl }),
+                body: JSON.stringify({ photo }),
               });
               if (res.ok) {
                 // Use the Storage URL returned by the API (not the local base64)

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
 import { canAccessPost } from "@/lib/feedAccess";
-import { enforceRateLimit } from "@/lib/rateLimit";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { UUID_RE } from "@/lib/uuid";
 
 
@@ -18,15 +18,6 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   const { id } = await ctx.params;
   if (!UUID_RE.test(id)) return NextResponse.json({ error: "Invalid post id" }, { status: 400 });
 
-  // Anti-spam: like is a toggle so allow a generous burst.
-  const rl = enforceRateLimit(req, "feed-like", { limit: 60, windowMs: 60_000 });
-  if (!rl.ok) {
-    return NextResponse.json(
-      { error: "Too many requests" },
-      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
-    );
-  }
-
   const db = getServiceSupabase();
 
   // Channel gate: the post must be in a feed the caller can access (global
@@ -34,6 +25,15 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string
   // private-channel like-inflation hole.
   const access = await canAccessPost(db, id, auth.userId, auth.email);
   if (!access.ok) return NextResponse.json({ error: access.status === 404 ? "Not found" : "Forbidden" }, { status: access.status });
+
+  // Anti-spam: like is a toggle so allow a generous burst.
+  const rl = await enforceUserRateLimit("feed-like", `u:${auth.userId}`, { limit: 60, windowMs: 60_000 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Too many requests" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
+  }
 
   // Check existing like
   const { data: existing } = await db

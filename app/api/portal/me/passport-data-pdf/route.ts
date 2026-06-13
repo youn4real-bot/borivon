@@ -8,7 +8,7 @@ import { getAnonVerifyClient } from "@/lib/supabase";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 import { dlTokenUserId } from "@/lib/dlToken";
 import { registerPdfFonts } from "@/lib/pdf-fonts";
-import { enforceRateLimit, enforceRateLimitDistributed } from "@/lib/rateLimit";
+import { enforceRateLimitDistributed, enforceUserRateLimit } from "@/lib/rateLimit";
 
 registerPdfFonts();
 
@@ -49,6 +49,14 @@ export async function GET(req: NextRequest) {
     actorId = dlTokenUserId(req);
   }
   if (!actorId) return new Response("Unauthorized", { status: 401 });
+
+  const rl = await enforceUserRateLimit("generate", `u:${actorId}`, { limit: 10, windowMs: 60_000 });
+  if (!rl.ok) {
+    return Response.json(
+      { error: "Too many requests" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
+  }
 
   const d = req.nextUrl.searchParams.get("d") ?? "";
   if (!d || d.length > 200_000) return new Response("Bad request", { status: 400 });

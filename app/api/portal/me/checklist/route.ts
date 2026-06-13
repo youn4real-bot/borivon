@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { UUID_RE } from "@/lib/uuid";
 
 /**
@@ -28,6 +29,9 @@ export async function GET(req: NextRequest) {
   const auth = await requireUser(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
+  const rl = await enforceUserRateLimit("me-read", `u:${auth.userId}`, { limit: 60, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+
   const { data, error } = await getServiceSupabase()
     .from("admin_checklist_items")
     .select(SELECT)
@@ -43,6 +47,9 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await requireUser(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  const rl = await enforceUserRateLimit("checklist", `u:${auth.userId}`, { limit: 20, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const body = await req.json().catch(() => ({}));
   const text = typeof body?.text === "string" ? body.text.trim().slice(0, MAX_TEXT) : "";
@@ -84,6 +91,9 @@ export async function PATCH(req: NextRequest) {
   const auth = await requireUser(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
+  const rl = await enforceUserRateLimit("checklist", `u:${auth.userId}`, { limit: 20, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+
   const body = await req.json().catch(() => ({}));
   const id = typeof body?.id === "string" ? body.id : "";
   if (!UUID_RE.test(id)) return NextResponse.json({ error: "id required" }, { status: 400 });
@@ -113,6 +123,9 @@ export async function PATCH(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const auth = await requireUser(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  const rl = await enforceUserRateLimit("checklist", `u:${auth.userId}`, { limit: 20, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const body = await req.json().catch(() => ({}));
   const id = typeof body?.id === "string" ? body.id : "";

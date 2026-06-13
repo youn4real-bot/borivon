@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
-import { enforceRateLimit } from "@/lib/rateLimit";
+import { enforceRateLimitDistributed } from "@/lib/rateLimit";
 
 /**
  * Public lead-capture endpoint for the homepage funnel (components/Funnel.tsx).
@@ -26,7 +26,7 @@ const DETAIL_FIELDS = ["level", "company", "service", "format", "field", "sector
 export async function POST(req: NextRequest) {
   // Tight rate-limit on the public lead endpoint — bots love forms. A real
   // user fills the funnel once, maybe twice; 5/min is generous.
-  const rl = enforceRateLimit(req, "leads", { limit: 5, windowMs: 60_000 });
+  const rl = await enforceRateLimitDistributed(req, "leads", { limit: 10, windowMs: 3_600_000 });
   if (!rl.ok) return NextResponse.json({ error: "too_many" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   // Hard cap the body so a bot can't POST megabytes in a loop. A real lead is

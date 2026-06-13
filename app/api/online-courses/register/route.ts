@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
-import { enforceRateLimit } from "@/lib/rateLimit";
+import { enforceRateLimitDistributed } from "@/lib/rateLimit";
 import { cleanPublicText as clean } from "@/lib/sanitizeInput";
 
 /**
@@ -15,7 +15,7 @@ import { cleanPublicText as clean } from "@/lib/sanitizeInput";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function POST(req: NextRequest) {
-  const rl = enforceRateLimit(req, "oc-register", { limit: 5, windowMs: 60_000 });
+  const rl = await enforceRateLimitDistributed(req, "oc-register", { limit: 5, windowMs: 60_000 });
   if (!rl.ok) return NextResponse.json({ error: "too_many" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const len = Number(req.headers.get("content-length") ?? 0);

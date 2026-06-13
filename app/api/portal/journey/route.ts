@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser, ciEmail } from "@/lib/admin-auth";
 import { UUID_RE } from "@/lib/uuid";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 import {
   JOURNEY_PRESETS,
   allowedOwnersFor,
@@ -194,6 +195,9 @@ export async function POST(req: NextRequest) {
   if (!g.ok) return NextResponse.json({ error: g.error }, { status: g.status });
   if (!g.access.canAdd) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
+  const rl = await enforceUserRateLimit("journey", `u:${g.access.email}`, { limit: 20, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+
   const text = typeof body?.text === "string" ? body.text.trim().slice(0, MAX_TEXT) : "";
   const owner = body?.owner;
   if (!text) return NextResponse.json({ error: "text required" }, { status: 400 });
@@ -235,6 +239,9 @@ export async function PATCH(req: NextRequest) {
   const g = await resolveAccess(req, candidateId);
   if (!g.ok) return NextResponse.json({ error: g.error }, { status: g.status });
   if (!UUID_RE.test(id)) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+  const rl = await enforceUserRateLimit("journey", `u:${g.access.email}`, { limit: 20, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const db = getServiceSupabase();
   // Load the row (and confirm it belongs to this candidate).
@@ -314,6 +321,9 @@ export async function DELETE(req: NextRequest) {
   if (!g.ok) return NextResponse.json({ error: g.error }, { status: g.status });
   if (!g.access.canDelete) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   if (!UUID_RE.test(id)) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+  const rl = await enforceUserRateLimit("journey", `u:${g.access.email}`, { limit: 20, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const db = getServiceSupabase();
   // Only custom items (preset_key null) are deletable — guard in the query.

@@ -1,47 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import { getServiceSupabase } from "@/lib/supabase";
 import { isVerified } from "@/lib/verified";
-import { requireAdminRole, canActOnCandidate, getVisibleCandidateIds, ciEmail } from "@/lib/admin-auth";
+import { requireAdminRole, canActOnCandidate, getVisibleCandidateIds, resolveAuthNames } from "@/lib/admin-auth";
 import { validateImageDataUrl } from "@/lib/validateDataUrl";
-import { enforceRateLimit } from "@/lib/rateLimit";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
+import { r2Configured, r2Put } from "@/lib/r2";
+import { chatAttachmentKey } from "@/lib/chatAttachments";
+import { isOrgSide } from "@/lib/messagesAuth";
+
+export const runtime = "nodejs";
 
 const MAX_BODY_CHARS = 5000;
 const MAX_ATTACHMENT_CHARS = 800_000;
-
-/**
- * "Borivon Support" is a SHARED inbox for the Borivon team: the supreme
- * admin + ALL Borivon sub-admins see the same candidate conversations and
- * any of them can reply (one identity to the candidate). Org admins / org
- * members are NOT part of it — anyone with an organization_members row is
- * org-side and blocked here. Supreme (role "admin") is always Borivon team.
- */
-async function isOrgSide(
-  db: ReturnType<typeof getServiceSupabase>,
-  role: string,
-  email: string,
-): Promise<boolean> {
-  if (role === "admin") return false; // supreme is always Borivon team
-  // An org admin is a sub_admins row with is_agency_admin=true. The old check
-  // only looked at organization_members — an org admin invited but not yet a
-  // member (or a casing mismatch) slipped INTO the shared Borivon Support
-  // inbox and could read/reply to their org candidates as "Borivon Support".
-  // Treat is_agency_admin=true as org-side regardless of membership rows.
-  const { data: subRows, error: subErr } = await db
-    .from("sub_admins")
-    .select("is_agency_admin")
-    .ilike("email", ciEmail(email))
-    .limit(1);
-  if (subErr) return true; // FAIL CLOSED — unknown role never gets the team inbox
-  if (((subRows ?? [])[0] as { is_agency_admin?: boolean } | undefined)?.is_agency_admin === true) {
-    return true;
-  }
-  const { data } = await db
-    .from("organization_members")
-    .select("sub_admin_email")
-    .ilike("sub_admin_email", ciEmail(email))
-    .limit(1);
-  return !!(data ?? [])[0];
-}
 
 /**
  * Admin-side messaging:
@@ -75,7 +46,9 @@ export async function GET(req: NextRequest) {
     }
     const { data, error } = await db
       .from("messages")
-      .select("id, sender_role, body, attachment, kind, created_at, read_by_admin")
+      // No `attachment` — the bytes are fetched lazily via [id]/attachment. The
+      // cheap has_attachment flag tells the client which bubbles carry an image.
+      .select("id, sender_role, body, kind, created_at, read_by_admin, has_attachment")
       .eq("thread_user_id", threadUserId)
       .order("created_at", { ascending: true })
       .limit(200);
@@ -98,7 +71,10 @@ export async function GET(req: NextRequest) {
 
   let listQuery = db
     .from("messages")
-    .select("id, thread_user_id, sender_role, body, kind, attachment, read_by_admin, created_at")
+    // has_attachment (cheap boolean) instead of the full base64 `attachment`
+    // column — the conversations list only needs the 📎 flag, and pulling the
+    // attachment for up to 500 rows was a large needless Supabase egress.
+    .select("id, thread_user_id, sender_role, body, kind, has_attachment, read_by_admin, created_at")
     .order("created_at", { ascending: false })
     .limit(500);
   if (visibleIds !== null) listQuery = listQuery.in("thread_user_id", visibleIds);
@@ -111,7 +87,7 @@ export async function GET(req: NextRequest) {
 
   type Row = {
     id: string; thread_user_id: string; sender_role: "candidate" | "admin";
-    body: string; kind: "message" | "bug"; attachment: string | null;
+    body: string; kind: "message" | "bug"; has_attachment: boolean;
     read_by_admin: boolean; created_at: string;
   };
   const sorted = (rows ?? []) as Row[];
@@ -136,7 +112,7 @@ export async function GET(req: NextRequest) {
         lastKind: r.kind,
         lastSender: r.sender_role,
         lastAt: r.created_at,
-        hasAttachment: !!r.attachment,
+        hasAttachment: !!r.has_attachment,
         unread: !r.read_by_admin && r.sender_role === "candidate" ? 1 : 0,
       };
     } else if (!r.read_by_admin && r.sender_role === "candidate") {
@@ -144,20 +120,12 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Resolve user names/emails
+  // Resolve user names/emails — ONE bounded listUsers walk instead of one
+  // getUserById per conversation (the inbox lists up to 500 threads).
   const userIds = Object.keys(threads);
+  const resolvedNames = await resolveAuthNames(userIds);
   const userMap: Record<string, { name: string; email: string }> = {};
-  await Promise.all(userIds.map(async (uid) => {
-    const { data } = await db.auth.admin.getUserById(uid);
-    if (data?.user) {
-      userMap[uid] = {
-        email: data.user.email ?? uid,
-        name: (data.user.user_metadata?.full_name as string | undefined) ?? data.user.email ?? uid,
-      };
-    } else {
-      userMap[uid] = { name: uid, email: uid };
-    }
-  }));
+  for (const uid of userIds) userMap[uid] = resolvedNames[uid] ?? { name: uid, email: uid };
 
   // Fetch verified status + profile photo + payment tier for all candidates in one batch query
   const profileMap: Record<string, { verified: boolean; photoUrl: string | null; paymentTier: string | null }> = {};
@@ -209,15 +177,17 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const rl = enforceRateLimit(req, "admin-msg-send", { limit: 60, windowMs: 60_000 });
-  if (!rl.ok) return NextResponse.json({ error: "Too many messages" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
-
   const auth = await requireAdminRole(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   if (await isOrgSide(getServiceSupabase(), auth.role, auth.email)) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  // Limit AFTER auth so an unauthenticated / org-side caller never spends a
+  // bucket; keyed per-admin (e:) to match the rollout's distributed pattern.
+  const rl = await enforceUserRateLimit("admin-msg-send", `e:${auth.email}`, { limit: 60, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many messages" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   let body: { threadUserId?: unknown; body?: unknown; attachment?: unknown };
   try {
@@ -244,6 +214,10 @@ export async function POST(req: NextRequest) {
   if (text.length > MAX_BODY_CHARS) {
     return NextResponse.json({ error: "Message too long" }, { status: 400 });
   }
+  // Attachment → Cloudflare R2 (free egress), keep only an object key on the row.
+  let legacyInline: string | null = null; // only used when R2 isn't configured
+  let attachmentKey: string | null = null;
+  let attachmentMime: string | null = null;
   if (attachment) {
     if (attachment.length > MAX_ATTACHMENT_CHARS) {
       return NextResponse.json({ error: "Attachment too large" }, { status: 413 });
@@ -253,6 +227,19 @@ export async function POST(req: NextRequest) {
     if (!validated.ok) {
       console.warn("[admin messages POST] attachment rejected:", validated.reason);
       return NextResponse.json({ error: "Invalid attachment" }, { status: 400 });
+    }
+    if (r2Configured()) {
+      const key = chatAttachmentKey(threadUserId, randomUUID(), validated.mime);
+      try {
+        await r2Put(key, validated.bytes, validated.mime);
+      } catch (e) {
+        console.error("[admin messages POST] R2 upload failed:", e instanceof Error ? e.message : e);
+        return NextResponse.json({ error: "Internal error" }, { status: 500 });
+      }
+      attachmentKey = key;
+      attachmentMime = validated.mime;
+    } else {
+      legacyInline = attachment; // R2 not configured → keep legacy inline
     }
   }
 
@@ -264,12 +251,14 @@ export async function POST(req: NextRequest) {
       sender_user_id: auth.userId,
       sender_role: "admin",
       body: text,
-      attachment,
+      attachment: legacyInline,
+      attachment_key: attachmentKey,
+      attachment_mime: attachmentMime,
       kind: "message",
       read_by_admin: true,
       read_by_candidate: false,
     })
-    .select("id, sender_role, body, attachment, kind, created_at, read_by_admin")
+    .select("id, sender_role, body, kind, created_at, read_by_admin, has_attachment")
     .single();
 
   if (error) {

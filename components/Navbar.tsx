@@ -174,7 +174,9 @@ export function Navbar({ rightExtra, leftExtra, hideThemeLang }: { rightExtra?: 
       } catch { /* offline */ }
     };
     poll();
-    const id = setInterval(poll, 60_000);
+    // Skip the poll while the tab is hidden (cuts idle background-tab egress);
+    // the focus/visibility refetch picks it up the instant the tab is shown.
+    const id = setInterval(() => { if (!document.hidden) poll(); }, 60_000);
     return () => clearInterval(id);
   }, [authTk, isFeed]);
   // ─────────────────────────────────────────────────────────────────────────────

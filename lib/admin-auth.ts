@@ -288,6 +288,50 @@ export async function getStaffUserIdsAmong(userIds: string[]): Promise<Set<strin
 }
 
 /**
+ * Batch-resolve display name + email for many user_ids in ONE bounded
+ * listUsers walk (one HTTP round-trip per 1000 users), instead of N separate
+ * getUserById calls. Falls back to getUserById only for ids not found in the
+ * walk (rare). Returns uid -> { name, email }. Used by the hot, repeatedly-
+ * polled routes (feed, admin inbox) that used to fire one getUserById per user.
+ */
+export async function resolveAuthNames(
+  userIds: string[],
+): Promise<Record<string, { name: string; email: string }>> {
+  const out: Record<string, { name: string; email: string }> = {};
+  const want = new Set(userIds.filter(Boolean));
+  if (want.size === 0) return out;
+  const db = getServiceSupabase();
+  for (let page = 1; page <= 20 && Object.keys(out).length < want.size; page++) {
+    const { data, error } = await db.auth.admin.listUsers({ page, perPage: 1000 });
+    if (error || !data?.users?.length) break;
+    for (const u of data.users) {
+      if (!want.has(u.id)) continue;
+      out[u.id] = {
+        name: ((u.user_metadata as Record<string, unknown> | undefined)?.full_name as string | undefined) ?? u.email ?? u.id,
+        email: u.email ?? "",
+      };
+    }
+    if (data.users.length < 1000) break;
+  }
+  // Fallback for any still-unresolved ids (beyond the walk) — rare.
+  const missing = [...want].filter((id) => !out[id]);
+  if (missing.length) {
+    await Promise.all(missing.map(async (id) => {
+      try {
+        const { data } = await db.auth.admin.getUserById(id);
+        if (data?.user) {
+          out[id] = {
+            name: ((data.user.user_metadata as Record<string, unknown> | undefined)?.full_name as string | undefined) ?? data.user.email ?? id,
+            email: data.user.email ?? "",
+          };
+        }
+      } catch { /* skip */ }
+    }));
+  }
+  return out;
+}
+
+/**
  * Lightweight wrapper for routes that authenticate any logged-in user
  * (not just admins) — verifies the Bearer JWT and returns the user.
  */

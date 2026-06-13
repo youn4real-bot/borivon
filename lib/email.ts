@@ -164,6 +164,32 @@ export async function sendPlacedEmail(to: string, orgName: string): Promise<void
 }
 
 /**
+ * A custom message from the Borivon team to a candidate — e.g. sent from the
+ * admin's Telegram bot ("tell X their interview is Monday"). Returns whether it
+ * was dispatched (false if RESEND_API_KEY is unset). `body` is admin free text →
+ * esc() it and turn newlines into <br/>.
+ */
+export async function sendCandidateMessageEmail(to: string, firstName: string, body: string): Promise<boolean> {
+  const r = getResend(); if (!r) return false;
+  const safeBody = esc(body).replace(/\n/g, "<br/>");
+  try {
+    await r.emails.send({
+      from: FROM,
+      to,
+      subject: `💬 Eine Nachricht von Borivon`,
+      html: baseHtml(`
+        <h1 style="margin:0 0 12px;font-size:20px;font-weight:700;color:#fff;">${firstName ? `Hallo ${esc(firstName)},` : "Hallo,"}</h1>
+        <p style="margin:0 0 20px;font-size:14px;color:#e0e0da;line-height:1.6;">${safeBody}</p>
+        <a href="${BASE}/portal/dashboard" style="display:inline-block;background:#c9a240;color:#131312;font-size:14px;font-weight:700;padding:12px 28px;border-radius:12px;text-decoration:none;">
+          Zum Portal →
+        </a>
+      `),
+    });
+    return true;
+  } catch (e) { console.warn("[email] sendCandidateMessageEmail failed:", e); return false; }
+}
+
+/**
  * Manual nudge: a candidate has unread/unanswered Borivon messages. Admin-
  * triggered only, throttled to 1/72h per candidate (see the route). Returns
  * whether an email was actually dispatched — false when RESEND_API_KEY is unset

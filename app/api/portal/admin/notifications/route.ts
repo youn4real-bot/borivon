@@ -11,6 +11,11 @@ export async function GET(req: NextRequest) {
 
   const db = getServiceSupabase();
 
+  // id → email map, built lazily and reused for both the sub-admin scope filter
+  // and the photo enrichment below. Avoids paginating the ENTIRE auth.users table
+  // on every bell poll — work stays bounded to the handful of rows we serve.
+  const emailToId: Record<string, string> = {};
+
   // Build the query — sub-admins get filtered by their visible candidates' emails
   let query = db
     .from("admin_notifications")
@@ -23,17 +28,15 @@ export async function GET(req: NextRequest) {
     const visibleIds = await getVisibleCandidateIds(auth.email);
     if (visibleIds !== null) {
       if (visibleIds.length === 0) return NextResponse.json({ notifications: [] });
-      // Resolve user_ids to emails so we can filter admin_notifications by user_email.
-      let emails: string[] = [];
-      let page = 1;
-      while (true) {
-        const { data: batch } = await db.auth.admin.listUsers({ page, perPage: 50 });
-        const list = batch?.users ?? [];
-        for (const u of list) {
-          if (u.id && u.email && visibleIds.includes(u.id)) emails.push(u.email);
-        }
-        if (list.length < 50) break;
-        page++;
+      // Resolve ONLY the visible candidate ids → emails (bounded by the org scope),
+      // not the whole user table. getUserById takes the id directly.
+      const resolved = await Promise.all(
+        visibleIds.map(id => db.auth.admin.getUserById(id).catch(() => null)),
+      );
+      const emails: string[] = [];
+      for (const r of resolved) {
+        const u = r?.data?.user;
+        if (u?.id && u.email) { emails.push(u.email); emailToId[u.email] = u.id; }
       }
       if (emails.length === 0) return NextResponse.json({ notifications: [] });
       query = query.in("user_email", emails);
@@ -50,23 +53,25 @@ export async function GET(req: NextRequest) {
 
   const rows = data ?? [];
 
-  // Enrich with profile photo + verified status by joining through auth.users
+  // Enrich with profile photo + verified status by joining through auth.users.
   const emails = [...new Set(rows.map(n => n.user_email).filter(Boolean))];
   const photoMap: Record<string, { photo: string | null; verified: boolean }> = {};
   if (emails.length > 0) {
-    let page = 1;
-    const authUsers: { id: string; email?: string }[] = [];
-    while (true) {
-      const { data: batch } = await db.auth.admin.listUsers({ page, perPage: 50 });
-      authUsers.push(...(batch?.users ?? []));
-      if ((batch?.users ?? []).length < 50) break;
-      page++;
+    // Resolve email → id for ONLY the emails these <=40 rows reference. auth.users
+    // is not exposed via PostgREST and listUsers has no email filter, so page the
+    // Admin API but STOP as soon as every needed email is matched (and hard-cap the
+    // walk) — never a guaranteed full-table sweep on this polled route. Any emails
+    // already resolved above (sub-admin scope) are skipped entirely.
+    const need = new Set(emails.filter(e => !emailToId[e]));
+    for (let page = 1; need.size > 0 && page <= 20; page++) { // hard cap 20×1000 = 20k
+      const { data: batch, error: lErr } = await db.auth.admin.listUsers({ page, perPage: 1000 });
+      const list = batch?.users ?? [];
+      for (const u of list) {
+        if (u.email && need.has(u.email)) { emailToId[u.email] = u.id; need.delete(u.email); }
+      }
+      if (lErr || list.length < 1000) break;
     }
-    const emailToId: Record<string, string> = {};
-    for (const u of authUsers) {
-      if (u.email && emails.includes(u.email)) emailToId[u.email] = u.id;
-    }
-    const userIds = Object.values(emailToId);
+    const userIds = emails.map(e => emailToId[e]).filter(Boolean);
     if (userIds.length > 0) {
       const { data: profiles } = await db
         .from("candidate_profiles")
@@ -74,7 +79,9 @@ export async function GET(req: NextRequest) {
         .in("user_id", userIds);
       const profileById: Record<string, { profile_photo: string | null; manually_verified: boolean | null }> =
         Object.fromEntries((profiles ?? []).map(p => [p.user_id, p]));
-      for (const [email, uid] of Object.entries(emailToId)) {
+      for (const email of emails) {
+        const uid = emailToId[email];
+        if (!uid) continue;
         const p = profileById[uid];
         photoMap[email] = { photo: p?.profile_photo ?? null, verified: !!p?.manually_verified };
       }

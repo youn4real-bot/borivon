@@ -10,12 +10,14 @@
  */
 import { tool } from "ai";
 import { z } from "zod";
+import { randomUUID } from "crypto";
 import { getServiceSupabase } from "@/lib/supabase";
-import { canActOnCandidate } from "@/lib/admin-auth";
-import { resolveFileKey } from "@/lib/fileKeys";
+import { canActOnCandidate, getStaffEmailSet, resolveAuthNames } from "@/lib/admin-auth";
+import { resolveFileKey, translateDocLabel, FILE_KEY_LABELS } from "@/lib/fileKeys";
 import { signDlToken } from "@/lib/dlToken";
 import { computeBriefing } from "@/lib/briefing";
-import { stagePending, executeLatestPending, cancelLatestPending } from "@/lib/assistantWrites";
+import { stagePending, executeLatestPending, cancelLatestPending, MILESTONE_BOOL } from "@/lib/assistantWrites";
+import { AUTOMATIONS, getAutomationFlags, setAutomation as persistAutomation } from "@/lib/automationSettings";
 import type { AssistantScope } from "@/lib/assistantScope";
 
 type ProfileRow = {
@@ -54,36 +56,118 @@ function parseDate(raw: string | null): number | null {
   return Number.isFinite(t) ? t : null;
 }
 
-/** Escape ilike wildcards so a name with %/_ can't act as a wildcard. */
-const esc = (s: string): string => s.replace(/[\\%_]/g, (c) => "\\" + c);
-
-export function buildAssistantTools(scope: AssistantScope) {
+export function buildAssistantTools(
+  scope: AssistantScope,
+  // Set ONLY on the Telegram path when the admin attached a photo/document — the
+  // already-staged-to-R2 file's reference. Undefined everywhere else (the in-app
+  // assistant), so storeCandidateDocument returns no_file there.
+  pendingFile?: { r2Key: string; mime: string; fileName: string; sha256: string },
+) {
   const db = getServiceSupabase();
   const lockedOut = scope.visibleIds !== null && scope.visibleIds.length === 0;
+
+  // id → authoritative display name. A candidate's real name is set at
+  // registration in auth.users.user_metadata.full_name; candidate_profiles
+  // first/last is often EMPTY (only filled via the CV builder). Resolve names
+  // from auth so the bot finds people by the name the admin actually sees.
+  async function authNameMap(ids: string[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    if (ids.length === 0) return out;
+    const want = new Set(ids);
+    for (let page = 1; page <= 20; page++) {
+      const { data: u, error } = await db.auth.admin.listUsers({ page, perPage: 1000 });
+      if (error || !u?.users?.length) break;
+      for (const usr of u.users) {
+        if (!want.has(usr.id)) continue;
+        const fn = ((usr.user_metadata as Record<string, unknown> | undefined)?.full_name as string | undefined)?.trim();
+        out.set(usr.id, fn || usr.email || "");
+      }
+      if (u.users.length < 1000) break;
+    }
+    return out;
+  }
+
+  // One candidate's display name for a confirm summary: profile name → auth
+  // full_name → email. Same fallback the message/store tools use inline.
+  async function displayName(candidateUserId: string): Promise<string> {
+    const { data } = await db.from("candidate_profiles").select("first_name, last_name").eq("user_id", candidateUserId).maybeSingle();
+    let name = data ? nameOf(data as { first_name: string | null; last_name: string | null }) : "—";
+    if (name === "—") {
+      try {
+        const { data: u } = await db.auth.admin.getUserById(candidateUserId);
+        const fn = ((u?.user?.user_metadata as Record<string, unknown> | undefined)?.full_name as string | undefined)?.trim();
+        name = fn || u?.user?.email || "this candidate";
+      } catch { name = "this candidate"; }
+    }
+    return name;
+  }
+
+  // The full candidate roster the caller may see: candidate_profiles in scope,
+  // minus staff, with names resolved (profile name → auth full_name → email).
+  // This is the SAME candidate set the pipeline board uses, but with working names.
+  async function candidateRoster(): Promise<{ userId: string; name: string }[]> {
+    if (lockedOut) return [];
+    let q = db.from("candidate_profiles").select("user_id, first_name, last_name");
+    if (scope.visibleIds !== null) q = q.in("user_id", scope.visibleIds);
+    const { data, error } = await q;
+    if (error) return [];
+    const profs = (data ?? []) as { user_id: string; first_name: string | null; last_name: string | null }[];
+    if (profs.length === 0) return [];
+    const profById = new Map(profs.map((p) => [p.user_id, p] as const));
+    const want = new Set(profs.map((p) => p.user_id));
+    const staffEmails = await getStaffEmailSet(); // exclude admin/sub-admins/org members
+    const roster: { userId: string; name: string }[] = [];
+    for (let page = 1; page <= 20; page++) {
+      const { data: u, error: uerr } = await db.auth.admin.listUsers({ page, perPage: 1000 });
+      if (uerr || !u?.users?.length) break;
+      for (const usr of u.users) {
+        if (!want.has(usr.id) || !scope.inScope(usr.id)) continue;
+        const email = (usr.email ?? "").trim().toLowerCase();
+        if (email && staffEmails.has(email)) continue; // candidates only
+        const p = profById.get(usr.id);
+        const profName = [p?.first_name, p?.last_name].filter(Boolean).join(" ").trim();
+        const authName = ((usr.user_metadata as Record<string, unknown> | undefined)?.full_name as string | undefined)?.trim();
+        roster.push({ userId: usr.id, name: profName || authName || usr.email || "—" });
+      }
+      if (u.users.length < 1000) break;
+    }
+    return roster;
+  }
 
   return {
     searchCandidates: tool({
       description:
-        "Search candidates by name (first or last, partial is fine). Returns the candidates you are allowed to see, each with a candidateUserId you can pass to other tools. Use this to find a person before looking up their details or documents.",
+        "Find candidates by name (first or last, partial is fine). Matches the name on their ACCOUNT, so it works even when their profile name field is empty. Returns the candidates you may see, each with a candidateUserId for other tools. Use this to find a person before looking up details or documents.",
       inputSchema: z.object({
         query: z.string().min(1).max(120).describe("name or partial name"),
-        limit: z.number().int().min(1).max(25).default(10),
+        limit: z.number().int().min(1).max(50).default(15),
       }),
       execute: async ({ query, limit }) => {
         if (lockedOut) return { candidates: [] };
-        const q = esc(query);
-        let qb = db
-          .from("candidate_profiles")
-          .select("user_id, first_name, last_name")
-          .or(`first_name.ilike.%${q}%,last_name.ilike.%${q}%`);
-        if (scope.visibleIds !== null) qb = qb.in("user_id", scope.visibleIds);
-        const { data, error } = await qb.limit(Math.min((limit ?? 10) * 3, 75));
-        if (error) return { error: "search_failed" };
-        const rows = ((data ?? []) as ProfileRow[])
-          .filter((r) => scope.inScope(r.user_id))
-          .slice(0, limit ?? 10)
-          .map((r) => ({ candidateUserId: r.user_id, name: nameOf(r) }));
+        const needle = query.trim().toLowerCase();
+        const roster = await candidateRoster();
+        const rows = roster
+          .filter((c) => c.name.toLowerCase().includes(needle))
+          .slice(0, limit ?? 15)
+          .map((c) => ({ candidateUserId: c.userId, name: c.name }));
         return { candidates: rows };
+      },
+    }),
+
+    listAllCandidates: tool({
+      description:
+        "List EVERY candidate you can see (name + candidateUserId), alphabetically. Use whenever the admin asks to 'list all candidates', 'all the names we have', 'who do we have', or wants the full roster. Returns the total count and the list (capped at 300).",
+      inputSchema: z.object({
+        limit: z.number().int().min(1).max(300).default(300),
+      }),
+      execute: async ({ limit }) => {
+        if (lockedOut) return { total: 0, candidates: [] };
+        const roster = await candidateRoster();
+        roster.sort((a, b) => a.name.localeCompare(b.name));
+        return {
+          total: roster.length,
+          candidates: roster.slice(0, limit ?? 300).map((c) => ({ candidateUserId: c.userId, name: c.name })),
+        };
       },
     }),
 
@@ -105,18 +189,20 @@ export function buildAssistantTools(scope: AssistantScope) {
         if (error) return { error: "load_failed" };
         const now = Date.now();
         const horizon = now + (withinDays ?? 90) * DAY;
-        const rows = ((data ?? []) as ProfileRow[])
+        const picked = ((data ?? []) as ProfileRow[])
           .filter((r) => scope.inScope(r.user_id))
           .map((r) => ({ r, ms: parseDate(r.b2_exam_date) }))
           .filter((x): x is { r: ProfileRow; ms: number } => x.ms !== null && x.ms <= horizon)
           .sort((a, b) => a.ms - b.ms)
-          .slice(0, limit ?? 20)
-          .map((x) => ({
-            candidateUserId: x.r.user_id,
-            name: nameOf(x.r),
-            b2ExamDate: x.r.b2_exam_date,
-            daysUntil: Math.round((x.ms - now) / DAY),
-          }));
+          .slice(0, limit ?? 20);
+        // Fill in any missing names from the auth account (profile names are often empty).
+        const fallback = await authNameMap(picked.filter((x) => nameOf(x.r) === "—").map((x) => x.r.user_id));
+        const rows = picked.map((x) => ({
+          candidateUserId: x.r.user_id,
+          name: nameOf(x.r) === "—" ? (fallback.get(x.r.user_id) || "—") : nameOf(x.r),
+          b2ExamDate: x.r.b2_exam_date,
+          daysUntil: Math.round((x.ms - now) / DAY),
+        }));
         return { candidates: rows };
       },
     }),
@@ -135,10 +221,19 @@ export function buildAssistantTools(scope: AssistantScope) {
         if (error) return { error: "load_failed" };
         if (!data) return { error: "not_found" };
         const r = data as ProfileRow;
+        let name = nameOf(r);
+        if (name === "—") {
+          // Profile name empty → fall back to the account's registration name.
+          try {
+            const { data: u } = await db.auth.admin.getUserById(candidateUserId);
+            const fn = ((u?.user?.user_metadata as Record<string, unknown> | undefined)?.full_name as string | undefined)?.trim();
+            name = fn || u?.user?.email || "—";
+          } catch { /* keep — */ }
+        }
         return {
           candidate: {
             candidateUserId: r.user_id,
-            name: nameOf(r),
+            name,
             b2ExamDate: r.b2_exam_date,
             passportExpiry: r.passport_expiry,
             passportStatus: r.passport_status,
@@ -168,6 +263,39 @@ export function buildAssistantTools(scope: AssistantScope) {
             uploadedAt: d.uploaded_at,
           }));
         return { cvs };
+      },
+    }),
+
+    listCandidateDocuments: tool({
+      description:
+        "List ALL of a candidate's documents — passport, diploma, nursing certificate, recognition (Anerkennung) paperwork, employment contract, CVs, and any other uploaded PDF — each with a docId you pass to getDocumentDownloadLink, a human label, and its status. Use this whenever the admin asks to SEE, SEND, PULL, or DOWNLOAD any document (not just a CV). Optionally pass `filter` (e.g. 'passport', 'diploma') to narrow the list. Returns { error: 'out_of_scope' } if you are not allowed to see this candidate — don't guess in that case.",
+      inputSchema: z.object({
+        candidateUserId: z.string().uuid(),
+        filter: z.string().max(60).optional().describe("optional keyword to match against the document name/type, e.g. 'passport' or 'diploma'"),
+      }),
+      execute: async ({ candidateUserId, filter }) => {
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const { data, error } = await db
+          .from("documents")
+          .select("id, file_name, file_type, status, uploaded_at, drive_file_id, r2_key")
+          .eq("user_id", candidateUserId)
+          .order("uploaded_at", { ascending: false });
+        if (error) return { error: "load_failed" };
+        const needle = (filter ?? "").trim().toLowerCase();
+        const documents = ((data ?? []) as DocRow[])
+          .map((d) => {
+            const label = translateDocLabel(d.file_type, "de") || d.file_type || d.file_name || "Dokument";
+            return {
+              docId: d.id,
+              name: label,
+              fileName: d.file_name ?? label,
+              kind: resolveFileKey(d.file_type),
+              status: d.status,
+              uploadedAt: d.uploaded_at,
+            };
+          })
+          .filter((d) => !needle || `${d.name} ${d.fileName} ${d.kind}`.toLowerCase().includes(needle));
+        return { documents };
       },
     }),
 
@@ -204,14 +332,15 @@ export function buildAssistantTools(scope: AssistantScope) {
         "Save a personal reminder/task for the admin (e.g. 'chase Youssef's passport', 'call the embassy Monday'). Use this whenever the admin tells you to remember something or notes a task to do later. Optionally tie it to a candidate and/or a due date.",
       inputSchema: z.object({
         text: z.string().min(1).max(500).describe("the task / thing to remember"),
-        dueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("ISO date YYYY-MM-DD if a deadline was mentioned"),
+        dueDate: z.string().optional().describe("ISO date YYYY-MM-DD if a deadline was mentioned"),
         candidateUserId: z.string().uuid().optional().describe("if the reminder is about a specific candidate"),
       }),
       execute: async ({ text, dueDate, candidateUserId }) => {
         if (candidateUserId && !(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const due = dueDate && /^\d{4}-\d{2}-\d{2}$/.test(dueDate) ? dueDate : null; // ignore non-ISO the model might emit
         const { data, error } = await db
           .from("assistant_reminders")
-          .insert({ owner_user_id: scope.userId, text, due_date: dueDate ?? null, candidate_user_id: candidateUserId ?? null })
+          .insert({ owner_user_id: scope.userId, text, due_date: due, candidate_user_id: candidateUserId ?? null })
           .select("id")
           .maybeSingle();
         if (error) return { error: "save_failed" };
@@ -334,7 +463,7 @@ export function buildAssistantTools(scope: AssistantScope) {
         "STAGE a change to a candidate's interview result. which = 1 or 2; result passed/failed/pending ('didn't pass' → failed). This does NOT apply immediately — it returns a summary to show the admin; ONLY after they confirm in a SEPARATE message do you call confirmPendingWrite.",
       inputSchema: z.object({
         candidateUserId: z.string().uuid(),
-        which: z.union([z.literal(1), z.literal(2)]).default(1),
+        which: z.number().int().min(1).max(2).default(1),
         result: z.enum(["passed", "failed", "pending"]),
       }),
       execute: async ({ candidateUserId, which, result }) => {
@@ -356,11 +485,12 @@ export function buildAssistantTools(scope: AssistantScope) {
         "STAGE setting or clearing a candidate's interview date (which = 1 or 2; date 'YYYY-MM-DD', or '' to clear). Two-step like setInterviewResult — stage, the admin confirms, then confirmPendingWrite.",
       inputSchema: z.object({
         candidateUserId: z.string().uuid(),
-        which: z.union([z.literal(1), z.literal(2)]).default(1),
-        date: z.string().regex(/^(\d{4}-\d{2}-\d{2})?$/),
+        which: z.number().int().min(1).max(2).default(1),
+        date: z.string().describe("'YYYY-MM-DD', or '' to clear the date"),
       }),
       execute: async ({ candidateUserId, which, date }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
+        if (date !== "" && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return { error: "bad_date_format" };
         if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
         const { data } = await db.from("candidate_profiles").select("first_name, last_name").eq("user_id", candidateUserId).maybeSingle();
         const name = data ? nameOf(data as { first_name: string | null; last_name: string | null }) : "this candidate";
@@ -385,23 +515,72 @@ export function buildAssistantTools(scope: AssistantScope) {
       execute: async () => cancelLatestPending(scope),
     }),
 
+    listAutomations: tool({
+      description:
+        "List the PROACTIVE automations (scheduled Telegram pushes the bot sends on its own) and whether each is ON or OFF. Use when the admin asks 'what automations do I have', 'what's turned on', 'what do you send me automatically'.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const flags = await getAutomationFlags();
+        return {
+          automations: (Object.keys(AUTOMATIONS) as (keyof typeof AUTOMATIONS)[]).map((k) => ({
+            key: k,
+            label: AUTOMATIONS[k].label,
+            description: AUTOMATIONS[k].desc,
+            enabled: flags[k],
+          })),
+        };
+      },
+    }),
+
+    setAutomation: tool({
+      description:
+        "Turn a proactive automation ON or OFF — immediate, no confirmation needed. key is one of: daily_briefing (the 6am 'what needs you today'), weekly_report (Monday business report), signup_ping (instant ping when a candidate signs up). enabled true = on, false = off. e.g. 'turn off the weekly report' → setAutomation('weekly_report', false); 'enable signup pings' → setAutomation('signup_ping', true).",
+      inputSchema: z.object({
+        key: z.enum(["daily_briefing", "weekly_report", "signup_ping", "auto_chase"]),
+        enabled: z.boolean(),
+      }),
+      execute: async ({ key, enabled }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const err = await persistAutomation(key, enabled);
+        if (err) return { error: err };
+        return { ok: true, key, enabled, label: AUTOMATIONS[key].label };
+      },
+    }),
+
     setCandidateMilestone: tool({
       description:
-        "STAGE a pipeline milestone change for a candidate ('X got their visa', 'X's flight is June 20', 'X signed the contract', 'X arrived'). Two-step: stage → admin confirms → confirmPendingWrite. field is one of: visa_granted/housing_done/contract_done/recognition_done/docs_approved/docs_ready/vorab_done/arrived_done (value true/false), visa_date/visa_appt_date/flight_date (value 'YYYY-MM-DD' or '' to clear), flight_info (value = text).",
+        "STAGE a pipeline milestone change for a candidate ('X got their visa', 'X's flight is June 20', 'X signed the contract', 'X arrived'). Two-step: stage → admin confirms → confirmPendingWrite. field is one of — yes/no flags (value 'true'/'false'): visa_granted, housing_done, contract_done, recognition_done, docs_approved, docs_ready, vorab_done, arrived_done, interview1_held, interview2_held, interview1_date_confirmed, interview2_date_confirmed, interview1_result_date_confirmed, interview2_result_date_confirmed, visa_appt_date_confirmed, flight_date_confirmed; date fields (value 'YYYY-MM-DD' or '' to clear): visa_date, visa_appt_date, flight_date, interview1_result_date, interview2_result_date; text fields: flight_info, interview_link, interview_type, interview_notes. (For interview pass/fail use setInterviewResult; for interview dates use setInterviewDate. Stage LOCK/UNLOCK is NOT available here — that stays on the website.)",
       inputSchema: z.object({
         candidateUserId: z.string().uuid(),
-        field: z.enum(["visa_granted", "housing_done", "contract_done", "recognition_done", "docs_approved", "docs_ready", "vorab_done", "arrived_done", "visa_date", "visa_appt_date", "flight_date", "flight_info"]),
-        value: z.union([z.boolean(), z.string()]),
+        field: z.enum(["visa_granted", "housing_done", "contract_done", "recognition_done", "docs_approved", "docs_ready", "vorab_done", "arrived_done", "interview1_held", "interview2_held", "interview1_date_confirmed", "interview2_date_confirmed", "interview1_result_date_confirmed", "interview2_result_date_confirmed", "visa_appt_date_confirmed", "flight_date_confirmed", "visa_date", "visa_appt_date", "flight_date", "interview1_result_date", "interview2_result_date", "flight_info", "interview_link", "interview_type", "interview_notes"]),
+        value: z.string().describe("'true' or 'false' for the yes/no fields; 'YYYY-MM-DD' (or '' to clear) for the date fields; free text for the text fields"),
       }),
       execute: async ({ candidateUserId, field, value }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
         if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        // For the yes/no fields, NORMALIZE value to the exact 'true'/'false' the
+        // write expects, and reject anything ambiguous — so the summary the admin
+        // confirms can never disagree with what's written (the model may emit
+        // 'yes'/'1'/'ja'; writeMilestone only treats 'true' as true, so without
+        // this an approved 'yes' would silently persist as FALSE).
+        let storeValue = value;
+        if (MILESTONE_BOOL.has(field)) {
+          const t = value.trim().toLowerCase();
+          const TRUE = new Set(["true", "1", "yes", "y", "ja", "oui", "done", "granted", "got", "approved", "x", "✓"]);
+          const FALSE = new Set(["false", "0", "no", "n", "nein", "non", "not", "none", ""]);
+          if (TRUE.has(t)) storeValue = "true";
+          else if (FALSE.has(t)) storeValue = "false";
+          else return { error: "bad_value" };
+        }
         const { data } = await db.from("candidate_profiles").select("first_name, last_name").eq("user_id", candidateUserId).maybeSingle();
         const name = data ? nameOf(data as { first_name: string | null; last_name: string | null }) : "this candidate";
-        const human = typeof value === "boolean" ? (value ? "yes" : "no") : (value || "cleared");
+        const human = MILESTONE_BOOL.has(field)
+          ? (storeValue === "true" ? "yes" : "no")
+          : (storeValue || "cleared");
         return stagePending(scope, {
           toolName: "setCandidateMilestone",
-          args: { candidateUserId, field, value },
+          args: { candidateUserId, field, value: storeValue },
           candidateUserId,
           summary: `${name}: ${field} → ${human}`,
         });
@@ -432,6 +611,824 @@ export function buildAssistantTools(scope: AssistantScope) {
           args: { candidateUserId, stage, failed, examDate },
           candidateUserId,
           summary: `${name}: B2 — ${parts || "(no change)"}`,
+        });
+      },
+    }),
+
+    getCandidatePipeline: tool({
+      description:
+        "Read a candidate's pipeline facts by candidateUserId — interview status/dates, visa, flight, housing, contract, recognition milestones. Read-only. Use it to check current progress before staging a status change, or to answer 'where is X in the process'.",
+      inputSchema: z.object({ candidateUserId: z.string().uuid() }),
+      execute: async ({ candidateUserId }) => {
+        if (lockedOut) return { error: "out_of_scope" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const { data, error } = await db.from("candidate_pipeline").select("*").eq("user_id", candidateUserId).maybeSingle();
+        if (error) return { error: "load_failed" };
+        return { pipeline: data ?? null };
+      },
+    }),
+
+    listLeads: tool({
+      description:
+        "List homepage/funnel LEADS — prospective candidates captured from the website or added via createLead (they show in the admin Leads page; not login accounts). Supreme-admin only. Newest first. Optional kind filter (e.g. 'person').",
+      inputSchema: z.object({ kind: z.string().max(40).optional(), limit: z.number().int().min(1).max(200).default(50) }),
+      execute: async ({ kind, limit }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        let q = db.from("leads").select("id, kind, name, email, phone, message, details, created_at").order("created_at", { ascending: false }).limit(limit);
+        if (kind) q = q.eq("kind", kind);
+        const { data, error } = await q;
+        if (error) return { error: (error as { code?: string }).code === "PGRST205" ? "leads_not_set_up" : "load_failed" };
+        return { leads: data ?? [] };
+      },
+    }),
+
+    getCandidatePhone: tool({
+      description:
+        "Get a candidate's phone number (for a WhatsApp / call reminder) by candidateUserId. Read-only. Returns the number + a ready wa.me link.",
+      inputSchema: z.object({ candidateUserId: z.string().uuid() }),
+      execute: async ({ candidateUserId }) => {
+        if (lockedOut) return { error: "out_of_scope" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const { data } = await db.from("candidate_profiles").select("phone").eq("user_id", candidateUserId).maybeSingle();
+        const phone = (data as { phone?: string | null } | null)?.phone ?? null;
+        const name = await displayName(candidateUserId);
+        return { name, phone, wa: phone ? `https://wa.me/${phone.replace(/[^0-9]/g, "")}` : null };
+      },
+    }),
+
+    listExpiringPassports: tool({
+      description:
+        "Passport-expiry radar — list candidates whose passport expires within N days (default 180), soonest first (negative daysUntil = already expired). Read-only; scoped to the candidates you can see.",
+      inputSchema: z.object({ withinDays: z.number().int().min(1).max(3650).default(180) }),
+      execute: async ({ withinDays }) => {
+        if (lockedOut) return { error: "out_of_scope" };
+        const roster = await candidateRoster();
+        if (roster.length === 0) return { passports: [] };
+        const nameById = new Map(roster.map((r) => [r.userId, r.name]));
+        const { data } = await db.from("candidate_profiles").select("user_id, passport_expiry").in("user_id", roster.map((r) => r.userId));
+        const now = Date.now();
+        const passports = ((data ?? []) as { user_id: string; passport_expiry: string | null }[])
+          .map((p) => ({ p, ms: parseDate(p.passport_expiry) }))
+          .filter((x): x is { p: { user_id: string; passport_expiry: string | null }; ms: number } => x.ms !== null && x.ms <= now + withinDays * DAY)
+          .sort((a, b) => a.ms - b.ms)
+          .map((x) => ({ candidateUserId: x.p.user_id, name: nameById.get(x.p.user_id) ?? "—", expiry: x.p.passport_expiry, daysUntil: Math.round((x.ms - now) / DAY) }));
+        return { passports };
+      },
+    }),
+
+    getB2Overview: tool({
+      description:
+        "B2 German-exam overview for every candidate you can see — each one's B2 stage, whether they've failed, and exam date. Read-only. Use for 'how is everyone doing on B2' / 'who has a B2 exam soon'.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (lockedOut) return { error: "out_of_scope" };
+        const roster = await candidateRoster();
+        if (roster.length === 0) return { candidates: [] };
+        const nameById = new Map(roster.map((r) => [r.userId, r.name]));
+        const { data } = await db.from("candidate_profiles").select("user_id, b2_stage, b2_failed, b2_exam_date").in("user_id", roster.map((r) => r.userId));
+        const candidates = ((data ?? []) as { user_id: string; b2_stage: string | null; b2_failed: boolean | null; b2_exam_date: string | null }[])
+          .map((p) => ({ candidateUserId: p.user_id, name: nameById.get(p.user_id) ?? "—", stage: p.b2_stage ?? "studying", failed: p.b2_failed === true, examDate: p.b2_exam_date ?? null }));
+        return { candidates };
+      },
+    }),
+
+    getPipelineBoard: tool({
+      description:
+        "Progress board for EVERY candidate you can see — each one's key milestones (interview 1/2 result, contract signed, visa granted, arrived) + when it last moved. Read-only; use for 'who needs me', 'where is everyone', triage. For ONE candidate's full pipeline use getCandidatePipeline.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (lockedOut) return { error: "out_of_scope" };
+        const roster = await candidateRoster();
+        if (roster.length === 0) return { board: [] };
+        const { data } = await db
+          .from("candidate_pipeline")
+          .select("user_id, interview1_status, interview2_status, contract_done, visa_granted, arrived_done, updated_at")
+          .in("user_id", roster.map((r) => r.userId));
+        const byId = new Map(((data ?? []) as Record<string, unknown>[]).map((r) => [String(r.user_id), r]));
+        const board = roster.map((r) => {
+          const p = (byId.get(r.userId) ?? {}) as { interview1_status?: string | null; interview2_status?: string | null; contract_done?: boolean | null; visa_granted?: boolean | null; arrived_done?: boolean | null; updated_at?: string | null };
+          return {
+            candidateUserId: r.userId, name: r.name,
+            interview1: p.interview1_status ?? null, interview2: p.interview2_status ?? null,
+            contract: p.contract_done === true, visa: p.visa_granted === true, arrived: p.arrived_done === true,
+            lastUpdate: p.updated_at ?? null,
+          };
+        });
+        return { board };
+      },
+    }),
+
+    listAssignedTasks: tool({
+      description:
+        "List the CUSTOM journey tasks assigned to candidates (not the auto preset milestones), grouped by candidate, with done state + owner. onlyOpen=true returns just the not-yet-done ones. Read-only. Use for 'what tasks have I given people', 'who still hasn't done their task'.",
+      inputSchema: z.object({ onlyOpen: z.boolean().default(false) }),
+      execute: async ({ onlyOpen }) => {
+        if (lockedOut) return { error: "out_of_scope" };
+        const roster = await candidateRoster();
+        if (roster.length === 0) return { candidates: [] };
+        const nameById = new Map(roster.map((r) => [r.userId, r.name]));
+        const { data } = await db
+          .from("candidate_journey_items")
+          .select("candidate_user_id, text, owner, done, due_date")
+          .in("candidate_user_id", roster.map((r) => r.userId))
+          .is("preset_key", null);
+        let rows = (data ?? []) as { candidate_user_id: string; text: string; owner: string; done: boolean | null; due_date: string | null }[];
+        if (onlyOpen) rows = rows.filter((r) => r.done !== true);
+        const grouped = new Map<string, { text: string; owner: string; done: boolean; dueDate: string | null }[]>();
+        for (const r of rows) {
+          const arr = grouped.get(r.candidate_user_id) ?? [];
+          arr.push({ text: r.text, owner: r.owner, done: r.done === true, dueDate: r.due_date ?? null });
+          grouped.set(r.candidate_user_id, arr);
+        }
+        const candidates = [...grouped.entries()].map(([uid, tasks]) => ({ candidateUserId: uid, name: nameById.get(uid) ?? "—", tasks }));
+        return { candidates };
+      },
+    }),
+
+    listConversations: tool({
+      description:
+        "List message conversations (candidate ↔ Borivon) — each thread's candidate name, last-message preview, who sent it last, time, and unread count (candidate messages you haven't read). Read-only, newest activity first. For one thread's full messages use getCandidateThread; to reply use sendCandidateMessage.",
+      inputSchema: z.object({ limit: z.number().int().min(1).max(100).default(40) }),
+      execute: async ({ limit }) => {
+        if (lockedOut) return { error: "out_of_scope" };
+        let q = db
+          .from("messages")
+          .select("id, thread_user_id, sender_role, body, kind, has_attachment, read_by_admin, created_at")
+          .order("created_at", { ascending: false })
+          .limit(500);
+        if (scope.visibleIds !== null) q = q.in("thread_user_id", scope.visibleIds);
+        const { data, error } = await q;
+        if (error) return { error: "load_failed" };
+        type Row = { id: string; thread_user_id: string; sender_role: "candidate" | "admin"; body: string; kind: string; has_attachment: boolean; read_by_admin: boolean; created_at: string };
+        const rows = (data ?? []) as Row[];
+        const threads = new Map<string, { threadUserId: string; lastBody: string; lastSender: string; lastAt: string; hasAttachment: boolean; unread: number }>();
+        for (const r of rows) { // newest-first → first row per thread is the latest message
+          let t = threads.get(r.thread_user_id);
+          if (!t) { t = { threadUserId: r.thread_user_id, lastBody: r.body ?? "", lastSender: r.sender_role, lastAt: r.created_at, hasAttachment: r.has_attachment === true, unread: 0 }; threads.set(r.thread_user_id, t); }
+          if (r.sender_role === "candidate" && !r.read_by_admin) t.unread++;
+        }
+        const names = await resolveAuthNames([...threads.keys()]);
+        const conversations = [...threads.values()]
+          .sort((a, b) => Date.parse(b.lastAt) - Date.parse(a.lastAt))
+          .slice(0, limit)
+          .map((t) => ({ candidateUserId: t.threadUserId, name: names[t.threadUserId]?.name ?? t.threadUserId, lastBody: (t.lastBody || "").slice(0, 140), lastSender: t.lastSender, lastAt: t.lastAt, hasAttachment: t.hasAttachment, unread: t.unread }));
+        return { conversations };
+      },
+    }),
+
+    getCandidateThread: tool({
+      description:
+        "Read the full message thread with one candidate (their portal chat), oldest → newest, up to 200 messages. Read-only. To reply, use sendCandidateMessage; to clear the unread badge, markThreadRead.",
+      inputSchema: z.object({ candidateUserId: z.string().uuid() }),
+      execute: async ({ candidateUserId }) => {
+        if (lockedOut) return { error: "out_of_scope" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const { data, error } = await db
+          .from("messages")
+          .select("id, sender_role, body, kind, created_at, read_by_admin, has_attachment")
+          .eq("thread_user_id", candidateUserId)
+          .order("created_at", { ascending: true })
+          .limit(200);
+        if (error) return { error: "load_failed" };
+        return { messages: data ?? [] };
+      },
+    }),
+
+    markThreadRead: tool({
+      description:
+        "Mark a candidate's chat messages as READ by the admin (clears the unread badge on that thread). Immediate, low-stakes — no confirmation needed.",
+      inputSchema: z.object({ candidateUserId: z.string().uuid() }),
+      execute: async ({ candidateUserId }) => {
+        if (lockedOut) return { error: "out_of_scope" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const { error } = await db
+          .from("messages")
+          .update({ read_by_admin: true })
+          .eq("thread_user_id", candidateUserId)
+          .eq("sender_role", "candidate")
+          .eq("read_by_admin", false);
+        if (error) return { error: "write_failed" };
+        return { ok: true };
+      },
+    }),
+
+    listEmployers: tool({
+      description:
+        "List active EMPLOYERS (the hospitals/clinics candidates get placed at) — id, name, agencyId. Read-only. Use to find an employer's id before assignEmployer.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        const { data, error } = await db.from("employers").select("id, name, slug, agency_id").eq("active", true).order("name", { ascending: true });
+        if (error) return { error: "load_failed" };
+        return { employers: ((data ?? []) as { id: string; name: string; slug: string | null; agency_id: string | null }[]).map((e) => ({ id: e.id, name: e.name, slug: e.slug, agencyId: e.agency_id })) };
+      },
+    }),
+
+    listOrganizations: tool({
+      description:
+        "List all ORGANIZATIONS (partner agencies / employers with portal access) — id, name, invite code, and branding (logo + footer). Supreme-admin only. Use to find an org's id for linking candidates or setting branding.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const { data, error } = await db.from("organizations").select("id, name, invite_code, logo_filename, footer_text").order("name", { ascending: true });
+        if (error) return { error: "load_failed" };
+        return { organizations: data ?? [] };
+      },
+    }),
+
+    getAssignedEmployer: tool({
+      description:
+        "Get which EMPLOYER a candidate is currently assigned to (by candidateUserId). Read-only. Returns the employer id + name, or null if none.",
+      inputSchema: z.object({ candidateUserId: z.string().uuid() }),
+      execute: async ({ candidateUserId }) => {
+        if (lockedOut) return { error: "out_of_scope" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const { data } = await db.from("candidate_profiles").select("employer_id").eq("user_id", candidateUserId).maybeSingle();
+        const eid = (data as { employer_id?: string | null } | null)?.employer_id ?? null;
+        if (!eid) return { employerId: null, employerName: null };
+        const { data: emp } = await db.from("employers").select("name").eq("id", eid).maybeSingle();
+        return { employerId: eid, employerName: (emp as { name?: string } | null)?.name ?? null };
+      },
+    }),
+
+    assignEmployer: tool({
+      description:
+        "STAGE assigning a candidate to an EMPLOYER (their target hospital/clinic). Sets candidate_profiles.employer_id — this drives the recipient on their visa cover letter AND (with the agency branding flag) which agency logo their CV carries. employerId = an id from listEmployers, or '' to CLEAR. Two-step: stage → admin confirms → confirmPendingWrite.",
+      inputSchema: z.object({ candidateUserId: z.string().uuid(), employerId: z.string().describe("an employer id from listEmployers, or '' to clear the assignment") }),
+      execute: async ({ candidateUserId, employerId }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const eid = employerId.trim();
+        let empName = "(cleared)";
+        if (eid) {
+          const { data: emp } = await db.from("employers").select("name, active").eq("id", eid).maybeSingle();
+          if (!emp) return { error: "unknown_employer" };
+          if ((emp as { active?: boolean }).active === false) return { error: "inactive_employer" };
+          empName = (emp as { name?: string }).name ?? eid;
+        }
+        const name = await displayName(candidateUserId);
+        return stagePending(scope, {
+          toolName: "assignEmployer",
+          args: { candidateUserId, employerId: eid },
+          candidateUserId,
+          summary: `${name}: employer → ${empName}`,
+        });
+      },
+    }),
+
+    upsertEmployer: tool({
+      description:
+        "STAGE creating a NEW employer (hospital/clinic) or updating an existing one. CREATE: give name + address (the postal address, one line per line break). UPDATE: give id + the fields to change. slug optional (a-z 0-9 _ -). agencyId = the agency org id this employer belongs to (from listOrganizations), or '' to clear. active=false RETIRES it (no hard delete). Supreme-admin only. Two-step: stage → admin confirms → confirmPendingWrite. After creating, use assignEmployer to place a candidate there.",
+      inputSchema: z.object({
+        id: z.string().optional().describe("employer id to UPDATE; omit to CREATE a new one"),
+        name: z.string().max(200).optional(),
+        address: z.string().max(2000).optional().describe("postal address — one line per newline"),
+        slug: z.string().max(64).optional(),
+        agencyId: z.string().optional().describe("agency org id, or '' to clear"),
+        active: z.boolean().optional().describe("false to retire the employer"),
+        notes: z.string().max(2000).optional(),
+      }),
+      execute: async ({ id, name, address, slug, agencyId, active, notes }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!id && !(name ?? "").trim()) return { error: "name_required" };
+        if (!id && !(address ?? "").trim()) return { error: "address_required" };
+        const args: Record<string, unknown> = {};
+        if (id !== undefined) args.id = id;
+        if (name !== undefined) args.name = name;
+        if (address !== undefined) args.address = address;
+        if (slug !== undefined) args.slug = slug;
+        if (agencyId !== undefined) args.agencyId = agencyId;
+        if (active !== undefined) args.active = active;
+        if (notes !== undefined) args.notes = notes;
+        const verb = id ? "Update" : "Create";
+        const label = name ? name.trim() : id;
+        return stagePending(scope, {
+          toolName: "upsertEmployer",
+          args,
+          candidateUserId: null,
+          summary: `${verb} employer: ${label}${active === false ? " (retire)" : ""}`,
+        });
+      },
+    }),
+
+    linkCandidateToOrg: tool({
+      description:
+        "STAGE linking (or unlinking) a candidate to an ORGANIZATION (partner agency/employer with portal access — gives that org's people dossier access to the candidate). op 'link' (status 'approved' default, or 'pending') or 'unlink'. orgId from listOrganizations. Placement is SILENT (no candidate notification). Supreme-admin only. Two-step: stage → admin confirms → confirmPendingWrite.",
+      inputSchema: z.object({
+        candidateUserId: z.string().uuid(),
+        orgId: z.string().uuid(),
+        op: z.enum(["link", "unlink"]),
+        status: z.enum(["approved", "pending"]).optional(),
+      }),
+      execute: async ({ candidateUserId, orgId, op, status }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const name = await displayName(candidateUserId);
+        const { data: org } = await db.from("organizations").select("name").eq("id", orgId).maybeSingle();
+        const orgName = (org as { name?: string } | null)?.name ?? orgId;
+        const args: Record<string, unknown> = { candidateUserId, orgId, op };
+        if (status !== undefined) args.status = status;
+        const verb = op === "unlink" ? "Unlink" : `Link${status === "pending" ? " (pending)" : ""}`;
+        return stagePending(scope, {
+          toolName: "linkCandidateToOrg",
+          args,
+          candidateUserId,
+          summary: `${verb} ${name} ${op === "unlink" ? "from" : "→"} ${orgName}`,
+        });
+      },
+    }),
+
+    listStuckCandidates: tool({
+      description:
+        "List candidates who may need a NUDGE — their latest uploaded document was rejected ≥3 days ago and not re-submitted, or their pipeline hasn't moved in 3+ weeks. Read-only; returns each name + the reason(s). To nudge them, use nudgeStuckCandidates (all at once, confirm-first) or message one with sendCandidateMessage / sendFollowUpNudge. This is the same list the daily auto-chase push surfaces.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const { computeStuckCandidates } = await import("@/lib/autoChase");
+        const { candidates, count } = await computeStuckCandidates();
+        return { count, candidates };
+      },
+    }),
+
+    nudgeStuckCandidates: tool({
+      description:
+        "STAGE a gentle follow-up nudge (a 'Borivon' bell reminder, never auto-sent) to ALL currently-stuck candidates (the listStuckCandidates set). Optional short custom message. Two-step: stage → show the count + names → admin confirms → confirmPendingWrite. (For one candidate, use sendFollowUpNudge or sendCandidateMessage.)",
+      inputSchema: z.object({ message: z.string().max(200).optional() }),
+      execute: async ({ message }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const { computeStuckCandidates } = await import("@/lib/autoChase");
+        const { candidates } = await computeStuckCandidates();
+        if (candidates.length === 0) return { error: "none_stuck" };
+        const ids = candidates.map((c) => c.userId);
+        const names = candidates.slice(0, 12).map((c) => c.name).join(", ");
+        const args: Record<string, unknown> = { candidateIds: ids };
+        if (message !== undefined) args.message = message;
+        return stagePending(scope, {
+          toolName: "nudgeStuckCandidates",
+          args,
+          candidateUserId: null,
+          summary: `Nudge ${candidates.length} stuck candidate${candidates.length > 1 ? "s" : ""}: ${names}${candidates.length > 12 ? "…" : ""}`,
+        });
+      },
+    }),
+
+    getAgencyProfile: tool({
+      description:
+        "Read YOUR agency/employer contact profile (firma, address, contact person, phone, email, Betriebsnummer, etc.) — the block that auto-fills section C of German employer forms. Read-only, supreme-admin only.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const { data } = await db.from("agency_profiles").select("firma, strasse, hausnummer, plz, ort, kontaktperson, telefon, email, telefax, betriebsnummer").eq("user_id", scope.userId).maybeSingle();
+        return { profile: data ?? null };
+      },
+    }),
+
+    setAgencyProfile: tool({
+      description:
+        "STAGE updating YOUR agency/employer contact profile (fills section C of German employer forms). Pass only the fields to change: firma (company name), strasse, hausnummer, plz, ort, kontaktperson, telefon, email, telefax, betriebsnummer. Two-step: stage → admin confirms → confirmPendingWrite.",
+      inputSchema: z.object({
+        firma: z.string().max(200).optional(),
+        strasse: z.string().max(200).optional(),
+        hausnummer: z.string().max(40).optional(),
+        plz: z.string().max(20).optional(),
+        ort: z.string().max(120).optional(),
+        kontaktperson: z.string().max(120).optional(),
+        telefon: z.string().max(60).optional(),
+        email: z.string().max(254).optional(),
+        telefax: z.string().max(60).optional(),
+        betriebsnummer: z.string().max(60).optional(),
+      }),
+      execute: async (inp) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const entries = Object.entries(inp).filter(([, v]) => v !== undefined);
+        if (entries.length === 0) return { error: "nothing_to_change" };
+        const args: Record<string, unknown> = {};
+        for (const [k, v] of entries) args[k] = v;
+        const summary = `Agency profile → ${entries.map(([k, v]) => `${k}: ${v || "(cleared)"}`).join(", ")}`.slice(0, 350);
+        return stagePending(scope, { toolName: "setAgencyProfile", args, candidateUserId: null, summary });
+      },
+    }),
+
+    setAnerkennungStage: tool({
+      description:
+        "STAGE a candidate's Anerkennung (German diploma-recognition) stage. stage is one of: not_started, submitted (Antrag sent), in_review, deficit (Defizitbescheid), exam_or_course (Kenntnisprüfung/Anpassungslehrgang), recognized (full Approbation). Two-step: stage → admin confirms → confirmPendingWrite.",
+      inputSchema: z.object({
+        candidateUserId: z.string().uuid(),
+        stage: z.enum(["not_started", "submitted", "in_review", "deficit", "exam_or_course", "recognized"]),
+      }),
+      execute: async ({ candidateUserId, stage }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const name = await displayName(candidateUserId);
+        return stagePending(scope, {
+          toolName: "setAnerkennungStage",
+          args: { candidateUserId, stage },
+          candidateUserId,
+          summary: `${name}: Anerkennung → ${stage}`,
+        });
+      },
+    }),
+
+    setNurseProfile: tool({
+      description:
+        "STAGE a candidate's nurse-profile facts (the structured data German hospitals filter on). Pass ONLY the fields to change. specialty ∈ general/intensive/geriatric/surgical/pediatric/emergency/anesthesia/psychiatric/obstetrics/oncology/cardiology/dialysis (or '' to clear). yearsExperience = whole number 0–60 as a string (or '' to clear). workplace = current/last workplace (or '' to clear). availableFrom = 'YYYY-MM-DD' (or '' to clear). Two-step: stage → admin confirms → confirmPendingWrite.",
+      inputSchema: z.object({
+        candidateUserId: z.string().uuid(),
+        specialty: z.string().optional(),
+        yearsExperience: z.string().optional().describe("whole number 0-60 as a string, or '' to clear"),
+        workplace: z.string().optional(),
+        availableFrom: z.string().optional().describe("'YYYY-MM-DD' or '' to clear"),
+      }),
+      execute: async ({ candidateUserId, specialty, yearsExperience, workplace, availableFrom }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const args: Record<string, unknown> = { candidateUserId };
+        const parts: string[] = [];
+        if (specialty !== undefined) { args.specialty = specialty; parts.push(specialty ? `specialty ${specialty}` : "clear specialty"); }
+        if (yearsExperience !== undefined) { args.yearsExperience = yearsExperience; parts.push(yearsExperience ? `${yearsExperience}y experience` : "clear experience"); }
+        if (workplace !== undefined) { args.workplace = workplace; parts.push(workplace ? `workplace "${workplace.slice(0, 40)}"` : "clear workplace"); }
+        if (availableFrom !== undefined) { args.availableFrom = availableFrom; parts.push(availableFrom ? `available ${availableFrom}` : "clear availability"); }
+        if (parts.length === 0) return { error: "nothing_to_change" };
+        const name = await displayName(candidateUserId);
+        return stagePending(scope, {
+          toolName: "setNurseProfile",
+          args,
+          candidateUserId,
+          summary: `${name}: ${parts.join(", ")}`,
+        });
+      },
+    }),
+
+    sendFollowUpNudge: tool({
+      description:
+        "STAGE a gentle follow-up nudge into a candidate's notification bell (shown as coming from 'Borivon', never you) — use when they've gone quiet or missed a step. Optional short message. De-duped: refreshes an existing unread nudge rather than stacking. Two-step: stage → admin confirms → confirmPendingWrite. (To send an actual chat message or email, use sendCandidateMessage instead.)",
+      inputSchema: z.object({
+        candidateUserId: z.string().uuid(),
+        message: z.string().max(200).optional(),
+      }),
+      execute: async ({ candidateUserId, message }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const name = await displayName(candidateUserId);
+        const preview = (message ?? "").trim().slice(0, 80);
+        const args: Record<string, unknown> = { candidateUserId };
+        if (message !== undefined) args.message = message;
+        return stagePending(scope, {
+          toolName: "sendFollowUpNudge",
+          args,
+          candidateUserId,
+          summary: `Nudge ${name}${preview ? `: "${preview}"` : ""}`,
+        });
+      },
+    }),
+
+    manageJourneyItem: tool({
+      description:
+        "STAGE a change to a candidate's JOURNEY checklist. op: 'add' a task (text required; owner = who it's tagged to — 'candidate' = a task the candidate sees & does (DEFAULT), 'borivon' = internal Borivon task, 'organization' = the partner org's task); 'toggle' done/undone (id + done); 'rename' a custom task (id + text); 'delete' a custom task (id); 'setDue' a deadline (id + dueDate 'YYYY-MM-DD' or '' to clear); 'setBlocked' (id + blocked true/false + optional reason). Preset milestones can be toggled/dated/blocked but NOT renamed or deleted. Item ids show on the candidate's dashboard journey list. Two-step: stage → admin confirms → confirmPendingWrite.",
+      inputSchema: z.object({
+        candidateUserId: z.string().uuid(),
+        op: z.enum(["add", "toggle", "rename", "delete", "setDue", "setBlocked"]),
+        text: z.string().max(500).optional(),
+        owner: z.enum(["candidate", "borivon", "organization"]).optional(),
+        id: z.string().uuid().optional().describe("the journey item id (for toggle/rename/delete/setDue/setBlocked)"),
+        done: z.boolean().optional(),
+        dueDate: z.string().optional().describe("'YYYY-MM-DD' or '' to clear"),
+        blocked: z.boolean().optional(),
+        reason: z.string().max(500).optional(),
+      }),
+      execute: async ({ candidateUserId, op, text, owner, id, done, dueDate, blocked, reason }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        if (op === "add" && !(text ?? "").trim()) return { error: "text_required" };
+        if (op !== "add" && !id) return { error: "id_required" };
+        const name = await displayName(candidateUserId);
+        let summary: string;
+        if (op === "add") summary = `${name}: add task "${(text ?? "").trim().slice(0, 80)}" (${owner ?? "candidate"})`;
+        else if (op === "toggle") summary = `${name}: mark a task ${done === false ? "NOT done" : "done"}`;
+        else if (op === "rename") summary = `${name}: rename a task → "${(text ?? "").trim().slice(0, 80)}"`;
+        else if (op === "delete") summary = `${name}: delete a custom task`;
+        else if (op === "setDue") summary = `${name}: task due ${dueDate || "(cleared)"}`;
+        else summary = `${name}: task ${blocked ? "blocked" : "unblocked"}${blocked && reason ? ` (${reason.slice(0, 40)})` : ""}`;
+        const args: Record<string, unknown> = { candidateUserId, op };
+        if (text !== undefined) args.text = text;
+        if (owner !== undefined) args.owner = owner;
+        if (id !== undefined) args.id = id;
+        if (done !== undefined) args.done = done;
+        if (dueDate !== undefined) args.dueDate = dueDate;
+        if (blocked !== undefined) args.blocked = blocked;
+        if (reason !== undefined) args.reason = reason;
+        return stagePending(scope, { toolName: "manageJourneyItem", args, candidateUserId, summary });
+      },
+    }),
+
+    reviewDocument: tool({
+      description:
+        "STAGE approving / rejecting / re-pending a candidate's uploaded DOCUMENT by its docId. status: 'approved' | 'rejected' | 'pending'. A rejection MUST include a non-empty feedback reason (shown to the candidate). Approve/reject fires the candidate's notification + email automatically (same as the website). Get the docId from listCandidateDocuments. NOTE: to approve/reject the passport DATA (extracted fields), use setPassportDataStatus instead — this is for the uploaded file's status. Two-step: stage → admin confirms → confirmPendingWrite.",
+      inputSchema: z.object({
+        docId: z.string().uuid(),
+        status: z.enum(["approved", "rejected", "pending"]),
+        feedback: z.string().max(2000).optional().describe("REQUIRED when status is 'rejected' — the reason shown to the candidate"),
+      }),
+      execute: async ({ docId, status, feedback }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (status === "rejected" && !(feedback ?? "").trim()) return { error: "reject_needs_reason" };
+        const { data: doc } = await db.from("documents").select("user_id, file_name, file_type").eq("id", docId).maybeSingle();
+        if (!doc) return { error: "not_found" };
+        const ownerId = (doc as { user_id: string }).user_id;
+        if (!(await canActOnCandidate(scope.role, scope.email, ownerId))) return { error: "out_of_scope" };
+        const name = await displayName(ownerId);
+        const fileLabel = String((doc as { file_name?: string | null; file_type?: string | null }).file_name || (doc as { file_type?: string | null }).file_type || "document").slice(0, 60);
+        const verb = status === "approved" ? "APPROVE" : status === "rejected" ? "REJECT" : "re-pend";
+        const args: Record<string, unknown> = { docId, status };
+        if (feedback !== undefined) args.feedback = feedback;
+        return stagePending(scope, {
+          toolName: "reviewDocument",
+          args,
+          candidateUserId: ownerId,
+          summary: `${verb} "${fileLabel}" for ${name}${status === "rejected" && feedback ? ` — reason: "${feedback.trim().slice(0, 80)}"` : ""}`,
+        });
+      },
+    }),
+
+    setPassportDataStatus: tool({
+      description:
+        "STAGE approving / rejecting / re-pending a candidate's passport DATA (the extracted fields: name, dob, passport no, etc. — NOT the scan PDF, which is reviewDocument). status: 'approved' | 'rejected' | 'pending'. Rejecting REQUIRES feedback, WIPES the extracted OCR fields, and notifies the candidate to re-submit. (LAW #38: this only flips the data's status — it can NEVER tick the human passport confirmation checkboxes.) Two-step: stage → admin confirms → confirmPendingWrite.",
+      inputSchema: z.object({
+        candidateUserId: z.string().uuid(),
+        status: z.enum(["approved", "rejected", "pending"]),
+        feedback: z.string().max(2000).optional().describe("REQUIRED when status is 'rejected'"),
+      }),
+      execute: async ({ candidateUserId, status, feedback }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (status === "rejected" && !(feedback ?? "").trim()) return { error: "reject_needs_reason" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const name = await displayName(candidateUserId);
+        const args: Record<string, unknown> = { candidateUserId, status };
+        if (feedback !== undefined) args.feedback = feedback;
+        return stagePending(scope, {
+          toolName: "setPassportDataStatus",
+          args,
+          candidateUserId,
+          summary: `${name}: passport DATA → ${status.toUpperCase()}${status === "rejected" ? " (wipes the extracted fields)" : ""}`,
+        });
+      },
+    }),
+
+    editCandidateProfileField: tool({
+      description:
+        "STAGE editing ONE passport/identity/contact field on a candidate's profile. candidate_profiles is the SINGLE SOURCE OF TRUTH (LAW #37) — the edit auto-propagates into their CV draft and everywhere their name shows. field is one of: first_name, last_name, dob, sex, nationality, passport_no, passport_expiry, city_of_birth, country_of_birth, issuing_authority, issue_date, address_street, address_number, address_postal, city_of_residence, country_of_residence, marital_status, children_ages. Dates accept 'YYYY-MM-DD' or 'DD.MM.YYYY'. value = the new value ('' clears it). To APPROVE/REJECT the passport data, use setPassportDataStatus. Two-step: stage → admin confirms → confirmPendingWrite.",
+      inputSchema: z.object({
+        candidateUserId: z.string().uuid(),
+        field: z.enum(["first_name", "last_name", "dob", "sex", "nationality", "passport_no", "passport_expiry", "city_of_birth", "country_of_birth", "issuing_authority", "issue_date", "address_street", "address_number", "address_postal", "city_of_residence", "country_of_residence", "marital_status", "children_ages"]),
+        value: z.string().describe("the new value, or '' to clear"),
+      }),
+      execute: async ({ candidateUserId, field, value }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const name = await displayName(candidateUserId);
+        return stagePending(scope, {
+          toolName: "editCandidateProfileField",
+          args: { candidateUserId, field, value },
+          candidateUserId,
+          summary: `${name}: set ${field} → ${value || "(cleared)"}`,
+        });
+      },
+    }),
+
+    rotateDocument: tool({
+      description:
+        "STAGE rotating a stored document by a multiple of 90° (deltaRotation: 90, 180, 270, or -90). Persists the rotation. Passport scans rotate too (metadata-only — the bytes are never altered). Two-step: stage → admin confirms → confirmPendingWrite.",
+      inputSchema: z.object({
+        docId: z.string().uuid(),
+        deltaRotation: z.number().int().describe("degrees to rotate by — a multiple of 90 (e.g. 90, -90, 180)"),
+      }),
+      execute: async ({ docId, deltaRotation }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (deltaRotation % 90 !== 0) return { error: "bad_rotation" };
+        const { data: doc } = await db.from("documents").select("user_id, file_name").eq("id", docId).maybeSingle();
+        if (!doc) return { error: "not_found" };
+        const ownerId = (doc as { user_id: string }).user_id;
+        if (!(await canActOnCandidate(scope.role, scope.email, ownerId))) return { error: "out_of_scope" };
+        const name = await displayName(ownerId);
+        const label = String((doc as { file_name?: string | null }).file_name || "document").slice(0, 50);
+        return stagePending(scope, {
+          toolName: "rotateDocument",
+          args: { docId, deltaRotation },
+          candidateUserId: ownerId,
+          summary: `${name}: rotate "${label}" by ${deltaRotation}°`,
+        });
+      },
+    }),
+
+    readCvDraft: tool({
+      description:
+        "Read a candidate's CV draft (the structured data behind their German CV) by candidateUserId. Read-only; returns the draft JSON so you can answer questions about their CV or check it before staging an edit. Returns { hasCv: false } if they have no CV yet. Note: identity/passport fields mirror their profile (edit those via editCandidateProfileField); driver licence / hobbies / contact are CV-only (edit via editCvDraft).",
+      inputSchema: z.object({ candidateUserId: z.string().uuid() }),
+      execute: async ({ candidateUserId }) => {
+        if (lockedOut) return { error: "out_of_scope" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const { data, error } = await db.from("candidate_profiles").select("cv_draft").eq("user_id", candidateUserId).maybeSingle();
+        if (error) return { error: "load_failed" };
+        const draft = (data as { cv_draft?: unknown } | null)?.cv_draft ?? null;
+        if (!draft) return { hasCv: false };
+        return { hasCv: true, draft };
+      },
+    }),
+
+    editCvDraft: tool({
+      description:
+        "STAGE editing a CV-only field on a candidate's German CV draft. field ∈ driverLicense ('B' for a B licence, or '' for none), hobbies (free text), email, phone. value = the new value ('' clears it). For NAME / birth date / address / nationality / marital status, use editCandidateProfileField instead — those are the single source of truth and propagate into the CV automatically. The candidate must already have a CV draft (returns no_cv_yet otherwise). Two-step: stage → admin confirms → confirmPendingWrite.",
+      inputSchema: z.object({
+        candidateUserId: z.string().uuid(),
+        field: z.enum(["driverLicense", "hobbies", "email", "phone"]),
+        value: z.string().describe("the new value, or '' to clear"),
+      }),
+      execute: async ({ candidateUserId, field, value }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const name = await displayName(candidateUserId);
+        return stagePending(scope, {
+          toolName: "editCvDraft",
+          args: { candidateUserId, field, value },
+          candidateUserId,
+          summary: `${name}: CV ${field} → ${value || "(cleared)"}`,
+        });
+      },
+    }),
+
+    generateAndPublishCv: tool({
+      description:
+        "STAGE generating the candidate's German CV PDF from their CV data and PUBLISHING it as their official 'Lebenslauf' document (it appears on their dashboard as approved/green and becomes attachable/sendable). It uses the candidate's current CV-branding setting — set it first with setCvBrandingMode if the admin wants agency/no branding. Requires the candidate to have CV data (returns no_cv_data otherwise). Use this when the admin says 'generate/make X's CV', or before emailing a CV for a candidate who has none on file yet. Two-step: stage → admin confirms → confirmPendingWrite. After it's published you can attach it via sendExternalEmail or deliver it via getDocumentDownloadLink.",
+      inputSchema: z.object({ candidateUserId: z.string().uuid() }),
+      execute: async ({ candidateUserId }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const name = await displayName(candidateUserId);
+        return stagePending(scope, {
+          toolName: "generateAndPublishCv",
+          args: { candidateUserId },
+          candidateUserId,
+          summary: `Generate & publish the German CV (Lebenslauf) for ${name}`,
+        });
+      },
+    }),
+
+    setCvBrandingMode: tool({
+      description:
+        "STAGE the branding used on a candidate's ADMIN-generated CV. mode: 'agency' = their employer's agency logo + footer (e.g. the Calmaroi branding); 'borivon' = plain Borivon; 'none' = no logo or footer at all. (Branding only applies when the CV is generated on the admin side — a candidate's own download is always plain Borivon.) Two-step: stage → admin confirms → confirmPendingWrite.",
+      inputSchema: z.object({
+        candidateUserId: z.string().uuid(),
+        mode: z.enum(["agency", "borivon", "none"]),
+      }),
+      execute: async ({ candidateUserId, mode }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const name = await displayName(candidateUserId);
+        const desc = mode === "agency" ? "agency logo + footer" : mode === "borivon" ? "plain Borivon" : "no branding";
+        return stagePending(scope, {
+          toolName: "setCvBrandingMode",
+          args: { candidateUserId, mode },
+          candidateUserId,
+          summary: `${name}: CV branding → ${desc}`,
+        });
+      },
+    }),
+
+    sendExternalEmail: tool({
+      description:
+        "STAGE an outbound EMAIL to an EXTERNAL person (an employer, recruiter, hospital contact — NOT a candidate; for candidates use sendCandidateMessage). e.g. 'send Hajar and Ali's CVs to anna.gombert@klinikum.de'. Provide to (their email), an optional toName, a subject, and a body (you write a clean, professional message). To attach candidate CVs, pass their candidateUserIds as a COMMA-SEPARATED string in attachCandidateIds — each candidate's latest German CV on file is attached. To attach specific documents, pass their docIds comma-separated in attachDocIds. Two-step: STAGE it, then SHOW the admin the full draft (recipient, subject, body, attachments) and ONLY after they confirm in a SEPARATE message call confirmPendingWrite (cancelPendingWrite on no). It sends from youness.taoufiq@borivon.com (through the founder's Gmail once set up, otherwise via Borivon mail).",
+      inputSchema: z.object({
+        to: z.string().min(3).max(254).describe("the recipient's email address"),
+        toName: z.string().max(120).optional().describe("the recipient's name, if known"),
+        subject: z.string().min(1).max(200),
+        body: z.string().min(1).max(8000).describe("the email body — write it professionally"),
+        attachCandidateIds: z.string().optional().describe("comma-separated candidateUserIds whose latest German CV to attach"),
+        attachDocIds: z.string().optional().describe("comma-separated document ids to attach"),
+      }),
+      execute: async ({ to, toName, subject, body, attachCandidateIds, attachDocIds }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const email = to.trim();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: "bad_email" };
+        const candIds = (attachCandidateIds ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+        const docIds = (attachDocIds ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+        // Must be allowed to send each attached candidate's CV.
+        for (const cid of candIds) {
+          if (!(await canActOnCandidate(scope.role, scope.email, cid))) return { error: "out_of_scope" };
+        }
+        const names: string[] = [];
+        for (const cid of candIds.slice(0, 10)) names.push(await displayName(cid));
+        const attachDesc =
+          [
+            candIds.length ? `${candIds.length} CV${candIds.length > 1 ? "s" : ""}${names.length ? ` (${names.join(", ")})` : ""}` : null,
+            docIds.length ? `${docIds.length} document${docIds.length > 1 ? "s" : ""}` : null,
+          ].filter(Boolean).join(" + ") || "none";
+        const args: Record<string, unknown> = { to: email, subject, body };
+        if (toName !== undefined) args.toName = toName;
+        if (attachCandidateIds !== undefined) args.attachCandidateIds = attachCandidateIds;
+        if (attachDocIds !== undefined) args.attachDocIds = attachDocIds;
+        return stagePending(scope, {
+          toolName: "sendExternalEmail",
+          args,
+          candidateUserId: null,
+          summary: `📧 To: ${toName ? `${toName} <${email}>` : email}\nSubject: ${subject}\nAttachments: ${attachDesc}\n\n${body.slice(0, 600)}${body.length > 600 ? "…" : ""}`,
+        });
+      },
+    }),
+
+    sendCandidateMessage: tool({
+      description:
+        "STAGE a message to a candidate — e.g. 'tell X to re-upload their CV in French', 'message X their interview is Monday 10:00', 'email X to send their passport scan'. channel: 'chat' = post into their portal chat as 'Borivon Support' (in-app, default); 'email' = send it as an email; 'both'. Two-step: this STAGES it + returns a summary — show it and ask the admin to confirm; ONLY when they confirm in a SEPARATE message do you call confirmPendingWrite (cancelPendingWrite on no). NEVER confirm in the same message you staged.",
+      inputSchema: z.object({
+        candidateUserId: z.string().uuid(),
+        text: z.string().min(1).max(2000).describe("the message to send"),
+        channel: z.enum(["chat", "email", "both"]).default("chat").describe("'chat' = portal chat (default), 'email', or 'both'"),
+      }),
+      execute: async ({ candidateUserId, text, channel }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const { data } = await db.from("candidate_profiles").select("first_name, last_name").eq("user_id", candidateUserId).maybeSingle();
+        let name = data ? nameOf(data as { first_name: string | null; last_name: string | null }) : "—";
+        if (name === "—") {
+          try {
+            const { data: u } = await db.auth.admin.getUserById(candidateUserId);
+            const fn = ((u?.user?.user_metadata as Record<string, unknown> | undefined)?.full_name as string | undefined)?.trim();
+            name = fn || u?.user?.email || "this candidate";
+          } catch { name = "this candidate"; }
+        }
+        const via = channel === "email" ? "email" : channel === "both" ? "chat + email" : "portal chat";
+        const preview = text.trim().slice(0, 120);
+        return stagePending(scope, {
+          toolName: "sendCandidateMessage",
+          args: { candidateUserId, text, channel: channel ?? "chat" },
+          candidateUserId,
+          summary: `Message to ${name} (${via}): "${preview}${text.trim().length > 120 ? "…" : ""}"`,
+        });
+      },
+    }),
+
+    createLead: tool({
+      description:
+        "STAGE creating a new LEAD / prospective-candidate record in Borivon — e.g. 'add Sara Alami, +212600112233, as a June 2027 candidate'. Captures the name + optional phone/email/note + an optional cohort label (like 'June 2027'). Two-step: stage → admin confirms → confirmPendingWrite. This creates a LEAD (it shows up in the admin Leads page); it does NOT create a candidate login account.",
+      inputSchema: z.object({
+        name: z.string().min(1).max(120),
+        phone: z.string().max(40).optional(),
+        email: z.string().max(254).optional(),
+        note: z.string().max(1000).optional(),
+        cohort: z.string().max(60).optional().describe("a batch/cohort label, e.g. 'June 2027'"),
+      }),
+      execute: async ({ name, phone, email, note, cohort }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const parts = [name.trim(), cohort ? `(${cohort})` : null, phone || null, email || null].filter(Boolean).join(" · ");
+        return stagePending(scope, {
+          toolName: "createLead",
+          args: { name, phone, email, note, cohort },
+          candidateUserId: null,
+          summary: `New lead: ${parts}`,
+        });
+      },
+    }),
+
+    createCandidateInviteLink: tool({
+      description:
+        "Generate a fresh CANDIDATE invitation link — the exact same /join/candidate signup link the website's 'Invite candidate' button produces. Use this whenever the admin asks for an invite link, a signup link, or to 'invite a new candidate'. Returns a URL — ALWAYS include the full URL verbatim in your reply so the admin can copy and send it. Each call mints a NEW single-use link (one candidate per link). This is immediate — no confirmation step.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        // Mirror the HQ branch of /api/portal/admin/invite-candidate: a standalone
+        // single-use candidate token (org_id null, agency_id null for the supreme admin).
+        const code = randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "").slice(0, 8);
+        const { error } = await db.from("invite_tokens").insert({ org_id: null, type: "candidate", code, agency_id: null });
+        if (error) return { error: "invite_failed" };
+        const base = (process.env.PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_BASE_URL || "https://www.borivon.com").replace(/\/+$/, "");
+        return { url: `${base}/join/candidate/${code}`, code, note: "single-use candidate invite link" };
+      },
+    }),
+
+    storeCandidateDocument: tool({
+      description:
+        "STAGE storing the FILE the admin just attached to their Telegram message (a photo or document) into a candidate's documents. ONLY works when a file was actually attached — returns no_file otherwise. Steps: identify the candidate (searchCandidates / listAllCandidates), then call this with their candidateUserId and the docKey. docKey: 'id' = passport (Reisepass), 'cv_de' = CV (Lebenslauf), 'langcert' = B2 certificate, 'diploma' = diploma, 'workcert' = work permit, 'impfung' = vaccination record, or 'other' = Sonstiges (default — use when unsure). Two-step: stage → admin confirms in a SEPARATE message → confirmPendingWrite. The file lands in the candidate's portal as a pending document for review.",
+      inputSchema: z.object({
+        candidateUserId: z.string().uuid(),
+        docKey: z.enum(["id", "cv_de", "langcert", "diploma", "workcert", "impfung", "other"]).default("other"),
+      }),
+      execute: async ({ candidateUserId, docKey }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!pendingFile) return { error: "no_file" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const { data } = await db.from("candidate_profiles").select("first_name, last_name").eq("user_id", candidateUserId).maybeSingle();
+        let name = data ? nameOf(data as { first_name: string | null; last_name: string | null }) : "—";
+        if (name === "—") {
+          try {
+            const { data: u } = await db.auth.admin.getUserById(candidateUserId);
+            const fn = ((u?.user?.user_metadata as Record<string, unknown> | undefined)?.full_name as string | undefined)?.trim();
+            name = fn || u?.user?.email || "this candidate";
+          } catch { name = "this candidate"; }
+        }
+        const label = FILE_KEY_LABELS[docKey]?.[0] ?? docKey;
+        return stagePending(scope, {
+          toolName: "storeCandidateDocument",
+          args: { candidateUserId, docKey, r2Key: pendingFile.r2Key, mime: pendingFile.mime, fileName: pendingFile.fileName, sha256: pendingFile.sha256 },
+          candidateUserId,
+          summary: `Store "${pendingFile.fileName}" as ${label} for ${name}`,
         });
       },
     }),

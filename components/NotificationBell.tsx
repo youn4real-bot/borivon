@@ -366,7 +366,7 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
     // dropped socket). 15s poll guarantees the bell — and the chime, now
     // driven by fetch_ — fires even with realtime down. Realtime just makes
     // it instant when it IS up.
-    const timer = setInterval(fetch_, 15_000);
+    const timer = setInterval(() => { if (!document.hidden) fetch_(); }, 15_000);
     const ch = supabase
       .channel(`notifs-${userId}`)
       .on("postgres_changes",
@@ -682,7 +682,7 @@ function AdminBell({ userId, accessToken }: { userId: string; accessToken: strin
     fetch_();
     // 15s poll backstop (was 60s) so the bell stays live even when the
     // realtime socket is down — the common case for admin_notifications.
-    const timer = setInterval(fetch_, 15_000);
+    const timer = setInterval(() => { if (!document.hidden) fetch_(); }, 15_000);
     const channel = supabase
       .channel("admin-notifs-bell")
       .on("postgres_changes",

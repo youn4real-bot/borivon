@@ -3,6 +3,7 @@ import { requireAdminRole, requireUser } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { resolveAcademyVisible } from "@/lib/academyVisibility";
 import { isPermanentTester } from "@/lib/classroomTesters";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 
 /**
  * Returns the caller's role for client-side routing.
@@ -23,6 +24,9 @@ export async function GET(req: NextRequest) {
   // 2. Verify user identity (needed for org_member and sub_admin checks)
   const user = await requireUser(req);
   if (!user.ok) return NextResponse.json({ error: user.error }, { status: user.status });
+
+  const rl = await enforceUserRateLimit("me-read", `u:${user.userId}`, { limit: 60, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const db = getServiceSupabase();
   const academyVisible = await resolveAcademyVisible(user.userId, user.email);

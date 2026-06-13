@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 
 /**
@@ -21,6 +22,9 @@ export async function GET(
   const { data: { user }, error: authErr } = await getAnonVerifyClient().auth.getUser(token);
   const db = getServiceSupabase();
   if (authErr || !user || isSoftDeletedAuthUser(user)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const rl = await enforceUserRateLimit("doc-read", `u:${user.id}`, { limit: 60, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const { id } = await ctx.params;
 

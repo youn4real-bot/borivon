@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 
 /**
  * GDPR consent ledger for the live classroom. A candidate must actively agree
@@ -27,6 +28,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const auth = await requireUser(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  const rl = await enforceUserRateLimit("consent", `u:${auth.userId}`, { limit: 5, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
   const db = getServiceSupabase();
   const ua = (req.headers.get("user-agent") ?? "").slice(0, 300);
   const { error } = await db.from("classroom_consent").upsert(
@@ -40,6 +43,8 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const auth = await requireUser(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  const rl = await enforceUserRateLimit("consent", `u:${auth.userId}`, { limit: 5, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
   const db = getServiceSupabase();
   // Withdrawal: keep the row for audit, stamp revoked_at. No hard delete.
   const { error } = await db.from("classroom_consent").update({ revoked_at: new Date().toISOString() }).eq("user_id", auth.userId);

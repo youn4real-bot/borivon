@@ -5,8 +5,12 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
+import dynamic from "next/dynamic";
 import { ArrowLeft, Hand, BookOpen, Video, BarChart3, RefreshCw, Camera, Mic, Clock, Users, Download, X, UserPlus } from "lucide-react";
-import ClassroomRoom from "@/components/ClassroomRoom";
+
+// Lazy-load the LiveKit stack (~23 MB) — only rendered once a host joins a room,
+// so the admin classroom dashboard/lobby loads without it.
+const ClassroomRoom = dynamic(() => import("@/components/ClassroomRoom"), { ssr: false, loading: () => <PageLoader /> });
 
 /* ───────────────────────── Engagement scorecard ───────────────────────── */
 type EngRow = {

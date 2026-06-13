@@ -1,0 +1,62 @@
+/**
+ * Proactive-automation on/off switches.
+ *
+ * The supreme admin controls these from the Telegram bot (listAutomations /
+ * setAutomation) so they can grow the automation set over time without a code
+ * change. Each automation's cron/hook calls isAutomationEnabled(key) before
+ * acting.
+ *
+ * FAIL-SAFE: if the automation_settings table doesn't exist yet (migration not
+ * run), every read returns the per-automation DEFAULT — so automations work
+ * out of the box and the table only adds persistent toggling. Never throws.
+ */
+import { getServiceSupabase } from "@/lib/supabase";
+
+export type AutomationKey = "daily_briefing" | "weekly_report" | "signup_ping" | "auto_chase";
+
+export const AUTOMATIONS: Record<AutomationKey, { label: string; default: boolean; desc: string }> = {
+  daily_briefing: { label: "Daily 6am briefing", default: true, desc: "Every morning: documents to review, passports expiring, B2 exams coming up, your due reminders." },
+  weekly_report:  { label: "Weekly business report", default: true, desc: "Every Monday: pipeline snapshot, new signups this week, and what needs your attention." },
+  signup_ping:    { label: "New-signup ping", default: true, desc: "An instant Telegram ping the moment a new candidate signs up." },
+  auto_chase:     { label: "Auto-chase stuck candidates", default: true, desc: "Each morning: surfaces candidates who went quiet or didn't re-submit a rejected document — you approve a nudge with one tap (never auto-sent)." },
+};
+
+export function isAutomationKey(k: string): k is AutomationKey {
+  return Object.prototype.hasOwnProperty.call(AUTOMATIONS, k);
+}
+
+/** All flags — DB rows merged over the defaults. Fail-safe to defaults. */
+export async function getAutomationFlags(): Promise<Record<AutomationKey, boolean>> {
+  const flags = Object.fromEntries(
+    (Object.keys(AUTOMATIONS) as AutomationKey[]).map((k) => [k, AUTOMATIONS[k].default]),
+  ) as Record<AutomationKey, boolean>;
+  try {
+    const db = getServiceSupabase();
+    const { data, error } = await db.from("automation_settings").select("key, enabled");
+    if (error || !data) return flags;
+    for (const row of data as { key: string; enabled: boolean }[]) {
+      if (isAutomationKey(row.key)) flags[row.key] = row.enabled === true;
+    }
+  } catch {
+    /* table missing / transient → defaults */
+  }
+  return flags;
+}
+
+export async function isAutomationEnabled(key: AutomationKey): Promise<boolean> {
+  const flags = await getAutomationFlags();
+  return flags[key];
+}
+
+/** Toggle one automation. Returns null on success, an error string otherwise. */
+export async function setAutomation(key: AutomationKey, enabled: boolean): Promise<string | null> {
+  const db = getServiceSupabase();
+  const { error } = await db
+    .from("automation_settings")
+    .upsert({ key, enabled, updated_at: new Date().toISOString() }, { onConflict: "key" });
+  if (error) {
+    if ((error as { code?: string }).code === "PGRST205") return "automation_settings_not_set_up";
+    return "write_failed";
+  }
+  return null;
+}

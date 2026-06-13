@@ -3200,9 +3200,10 @@ function CVBuilderInner() {
       if (!w.location.trim())  errors.add(`work_${w.id}_location`);
       if (!w.start.month || !w.start.year) errors.add(`work_${w.id}_start`);
       if (w.end !== null && (!w.end || !w.end.month || !w.end.year)) errors.add(`work_${w.id}_end`);
-      // Title + departments required only for position 1; optional for position 2+
+      // Title + departments required only for position 1; optional for position 2+.
+      // Departments: at least 3 (candidate can add their own via "Andere…").
       if (nonGapCount === 0 && !w.title?.trim()) errors.add(`work_${w.id}_title`);
-      if (nonGapCount === 0 && w.departments.length === 0) errors.add(`work_${w.id}_departments`);
+      if (nonGapCount === 0 && w.departments.length < 3) errors.add(`work_${w.id}_departments`);
       // Tätigkeiten — every non-gap entry must have at least 3 non-empty
       // bullets. Both candidate and admin sides see the same rule.
       const filledBullets = (w.taetigkeiten ?? []).filter(b => (b ?? "").trim().length > 0).length;
@@ -4226,6 +4227,15 @@ function CVBuilderInner() {
                       onPresentToggle={() => updateWork(entry.id, { end: entry.end ? null : { month: "", year: "" } })} lang={lang} required hasError={validationErrors.has(`work_${entry.id}_end`)} />
                     <div className="sm:col-span-2">
                       <Label required={jobNum === 1}>{t.cvb_deptLabel}</Label>
+                      {idx === 0 && (
+                        <p className="text-[11px] mt-1" style={{ color: validationErrors.has(`work_${entry.id}_departments`) ? "var(--danger)" : "var(--w3)" }}>
+                          {lang === "de"
+                            ? "Mindestens 3 auswählen (eigene über „Andere…“ hinzufügen)."
+                            : lang === "en"
+                            ? "Pick at least 3 (add your own via “Other…”)."
+                            : "Choisis-en au moins 3 (ajoute les tiens via « Autre… »)."}
+                        </p>
+                      )}
                       {idx === 0 ? (
                       <div className="flex flex-wrap gap-2 mt-2 rounded-xl p-1" style={validationErrors.has(`work_${entry.id}_departments`) ? { outline: "1px solid var(--danger)", outlineOffset: "2px" } : {}}>
                         {NURSING_DEPTS.map(dept => {

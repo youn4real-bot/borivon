@@ -13,6 +13,7 @@ import {
 } from "@/lib/passport-pdf";
 import { PassThrough } from "stream";
 import { r2Configured, r2Put, candidateKey } from "@/lib/r2";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 
 
 // ── GET — download passport PDF ───────────────────────────────────────────────
@@ -32,6 +33,14 @@ export async function GET(req: NextRequest) {
   // Sub-admins must be assigned to this candidate
   if (!(await canActOnCandidate(auth.role, auth.email, userId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const rl = await enforceUserRateLimit("generate", `e:${auth.email}`, { limit: 20, windowMs: 60_000 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Too many requests" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
   }
 
   const db = getServiceSupabase();

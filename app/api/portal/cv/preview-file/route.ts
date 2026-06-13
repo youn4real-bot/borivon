@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 import { dlTokenUserId } from "@/lib/dlToken";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 
 /**
  * Transient store for the CV-builder's just-generated PDF.
@@ -26,6 +27,9 @@ export async function POST(req: NextRequest) {
   if (!jwt) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { data: { user }, error } = await getAnonVerifyClient().auth.getUser(jwt);
   if (error || !user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const rl = await enforceUserRateLimit("upload", `u:${user.id}`, { limit: 30, windowMs: 60000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const buf = Buffer.from(await req.arrayBuffer());
   if (!buf.length || buf.length > 8 * 1024 * 1024) {
@@ -56,6 +60,9 @@ export async function GET(req: NextRequest) {
     actorId = dlTokenUserId(req);
   }
   if (!actorId) return new NextResponse("Unauthorized", { status: 401 });
+
+  const rl = await enforceUserRateLimit("download", `u:${actorId}`, { limit: 60, windowMs: 60000 });
+  if (!rl.ok) return new NextResponse("Too many requests", { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const db = getServiceSupabase();
   const { data: blob, error: dlErr } = await db.storage

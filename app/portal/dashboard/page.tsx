@@ -19,7 +19,8 @@ import {
   IdCard, User, Home, Eye, FilePen, Sparkles, Paperclip, CheckCircle2, XCircle,
   Stethoscope, Languages, FileText,
 } from "@/components/PortalIcons";
-import { X as XIcon, Download, Upload, RefreshCw, Info, ChevronDown } from "lucide-react";
+import { X as XIcon, Download, Upload, RefreshCw, Info, ChevronDown, MoreHorizontal } from "lucide-react";
+import { DropdownMenu } from "@/components/ui/DropdownMenu";
 import { IosPdfFrame } from "@/components/IosPdfFrame";
 import { EmbedPdfViewer } from "@/components/EmbedPdfViewer";
 import { isIOSDevice } from "@/lib/platform";
@@ -352,6 +353,15 @@ export default function DashboardPage() {
   const [phase, setPhase]         = useState(0);
   const [isReturn, setIsReturn]   = useState(false);
 
+  // Snappier clicks: once the dashboard has revealed, warm the heavy CV-builder
+  // + cover-letter chunks so opening them from a document row feels instant.
+  useEffect(() => {
+    if (loading) return;
+    for (const r of ["/portal/cv-builder", "/portal/cv-builder?variant=visa", "/portal/motivationsschreiben"]) {
+      try { router.prefetch(r); } catch { /* ignore */ }
+    }
+  }, [loading, router]);
+
   type MsgType = "success" | "errPdfOnly" | "errAllTypes" | "errSize" | "errUpload" | "errPages" | "errNetwork" | "errDownload";
   type SlotMsg = { key: string; ok: boolean; type: MsgType; label?: string; n?: number };
 
@@ -520,6 +530,8 @@ export default function DashboardPage() {
   }, []);
   const [exampleUrl, setExampleUrl]     = useState<string | null>(null);
   const [showWorkGuide, setShowWorkGuide] = useState(false);
+  // ⋯ menu for builder docs (CV / cover letter) — edit lives here, like the admin.
+  const [cvMenu, setCvMenu] = useState<{ key: string; el: HTMLElement; rect: { top: number; right: number } } | null>(null);
   const [tipPopup, setTipPopup]         = useState<{ itemKey: string; isWorkCert: boolean } | null>(null);
 
   // ── Nationality / country i18n helpers (uses shared @/lib/countries) ─────────
@@ -691,8 +703,12 @@ export default function DashboardPage() {
         })
         .catch(() => {});
     };
-    refresh(); // initial load — without this the first org list takes 30s
-    const t = setInterval(refresh, 30_000);
+    // NOTE: no eager refresh() here — the bootstrap Promise.allSettled already
+    // fetched /me/organizations + setLinkedOrgs on first paint, so calling it
+    // again on mount was a redundant double-fetch. The interval + focus/vis
+    // handlers own subsequent refreshes.
+    // Skip while the tab is hidden; the focus/visibility handler below refetches on return.
+    const t = setInterval(() => { if (!document.hidden) refresh(); }, 30_000);
     const onFocus = () => refresh();
     const onVis   = () => { if (document.visibilityState === "visible") refresh(); };
     window.addEventListener("focus", onFocus);
@@ -3125,11 +3141,21 @@ export default function DashboardPage() {
                               </p>
                             )}
                             <button
-                              onClick={(e) => { e.stopPropagation(); openPicker(item.key); }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                // Builder-backed docs (CV / cover letter) are EDITED in
+                                // their editor — never re-uploaded as a file. Open the
+                                // builder loaded with what the candidate already made.
+                                if (isBuilder) { router.push(builderPath); } else { openPicker(item.key); }
+                              }}
                               className="bv-glow-gold bv-press inline-flex items-center gap-1.5 px-3 py-1.5 text-[11.5px] font-semibold tracking-tight"
                               style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-sm)", boxShadow: "var(--shadow-gold-sm)" }}>
-                              <Upload size={12} strokeWidth={1.8} />
-                              {lang === "fr" ? "Renvoyer le document" : lang === "de" ? "Neu hochladen" : "Re-upload"}
+                              {isBuilder ? <FilePen size={12} strokeWidth={1.8} /> : <Upload size={12} strokeWidth={1.8} />}
+                              {isBuilder
+                                ? (isLetter || isVisaLetter
+                                    ? (lang === "fr" ? "Modifier ma lettre" : lang === "de" ? "Anschreiben bearbeiten" : "Edit my letter")
+                                    : (lang === "fr" ? "Modifier mon CV" : lang === "de" ? "Lebenslauf bearbeiten" : "Edit my CV"))
+                                : (lang === "fr" ? "Renvoyer le document" : lang === "de" ? "Neu hochladen" : "Re-upload")}
                             </button>
                           </div>
                         </div>
@@ -3211,20 +3237,45 @@ export default function DashboardPage() {
                             can clearly see which one is targeted. Click =
                             press-down (scale 0.92). Preview is the whole-row
                             click handler. */}
-                        {!isOther && uploaded && doc?.drive_file_id && doc.status !== "approved" && (
+                        {/* Builder docs (CV / cover letter): edit lives in a ⋯ menu,
+                            same pattern as the admin. Shown whenever a copy exists —
+                            INCLUDING once approved — so a wrong/mistaken CV is always
+                            fixable. HIDDEN when the doc is rejected: the red "Action
+                            needed" card already carries the single edit CTA, so the
+                            candidate never sees two. */}
+                        {!isOther && uploaded && isBuilder && doc?.status !== "rejected" && (
+                          <>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const r = e.currentTarget.getBoundingClientRect();
+                                setCvMenu({ key: item.key, el: e.currentTarget, rect: { top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) } });
+                              }}
+                              aria-label={lang === "fr" ? "Options" : lang === "de" ? "Optionen" : "Options"}
+                              title={lang === "fr" ? "Options" : lang === "de" ? "Optionen" : "Options"}
+                              className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full flex-shrink-0"
+                              style={{ color: "var(--w2)" }}>
+                              <MoreHorizontal size={15} strokeWidth={1.8} />
+                            </button>
+                            <DropdownMenu
+                              open={cvMenu?.key === item.key}
+                              onClose={() => setCvMenu(null)}
+                              anchor={cvMenu?.key === item.key ? cvMenu.el : null}
+                              anchorRect={cvMenu?.key === item.key ? cvMenu.rect : undefined}>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setCvMenu(null); router.push(builderPath); }}
+                                className="w-full text-left px-3.5 py-2.5 text-[13px] font-medium flex items-center gap-2 bv-row-hover"
+                                style={{ color: "var(--w)", background: "transparent", border: "none", cursor: "pointer" }}>
+                                <FilePen size={14} strokeWidth={1.8} style={{ color: "var(--gold)" }} />
+                                {lang === "fr" ? "Modifier" : lang === "de" ? "Bearbeiten" : "Edit"}
+                              </button>
+                            </DropdownMenu>
+                          </>
+                        )}
+                        {/* Non-builder docs: Replace (file picker), only while not approved. */}
+                        {!isOther && uploaded && doc?.drive_file_id && doc.status !== "approved" && !isBuilder && (
                           <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              // Builder docs (CV + Motivationsschreiben) must
-                              // be rebuilt via their editor — never replaced
-                              // with an arbitrary upload, so we route to the
-                              // builder instead of opening the file picker.
-                              if (isBuilder) {
-                                window.open(builderPath, "_blank");
-                              } else {
-                                openPicker(item.key);
-                              }
-                            }}
+                            onClick={(e) => { e.stopPropagation(); openPicker(item.key); }}
                             aria-label={t.pReplaceBtn}
                             title={t.pReplaceBtn}
                             className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"

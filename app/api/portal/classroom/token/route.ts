@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { livekitConfigured, livekitUrl, mintClassroomToken } from "@/lib/livekit";
 import { isPermanentTester } from "@/lib/classroomTesters";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 
 /**
  * Candidate-facing classroom join. Three gates, all server-side:
@@ -60,6 +61,9 @@ export async function POST(req: NextRequest) {
   const { data: consentRow } = await db.from("classroom_consent").select("revoked_at").eq("user_id", auth.userId).maybeSingle();
   const consented = !!consentRow && !(consentRow as { revoked_at: string | null }).revoked_at;
   if (!consented) return NextResponse.json({ error: "Consent required", needsConsent: true }, { status: 403 });
+
+  const rl = await enforceUserRateLimit("lk-token", `u:${auth.userId}`, { limit: 5, windowMs: 60000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const name = [p?.first_name, p?.last_name].filter(Boolean).join(" ").trim() || auth.email.split("@")[0] || "Teilnehmer";
   const token = await mintClassroomToken({ room, identity: auth.userId, name, canPublish: true });

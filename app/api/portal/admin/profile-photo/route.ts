@@ -3,6 +3,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { validateImageDataUrl } from "@/lib/validateDataUrl";
 import { UUID_RE } from "@/lib/uuid";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 
 const BUCKET = "profile-photos";
 
@@ -45,6 +46,17 @@ export async function POST(req: NextRequest) {
   // Sub-admins must have access to this candidate.
   if (!(await canActOnCandidate(auth.role, auth.email, candidateId))) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  // Anti-spam: photo uploads cost Storage writes + CDN bandwidth. Keyed per
+  // admin (after auth + scope) so a 401/403 never spends a bucket. 12/min
+  // covers the crop-retry workflow without leaving an abuse surface.
+  const rl = await enforceUserRateLimit("upload", `e:${auth.email}`, { limit: 12, windowMs: 60_000 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Too many requests" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
   }
 
   const body = await req.json().catch(() => ({}));

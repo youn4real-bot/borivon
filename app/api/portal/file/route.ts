@@ -8,6 +8,7 @@ import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 import { dlTokenUserId } from "@/lib/dlToken";
 import { isPassportFileType } from "@/lib/passportFile";
 import { r2GetObject } from "@/lib/r2";
+import { enforceRateLimitDistributed } from "@/lib/rateLimit";
 
 const BUCKET = "sign-documents";
 
@@ -204,6 +205,12 @@ export async function GET(req: NextRequest) {
   // ── Auth gate ─────────────────────────────────────────────────────────────
   const allowed = await isAuthorised(req, fileId, docId);
   if (!allowed) return new NextResponse("Forbidden", { status: 403 });
+
+  // isAuthorised resolves identity internally (admin email / sub-admin /
+  // candidate id / dl-token id) but doesn't surface it — too tangled to key by
+  // userId cleanly, so fall back to the IP-keyed distributed limiter per spec.
+  const rl = await enforceRateLimitDistributed(req, "download", { limit: 60, windowMs: 60000 });
+  if (!rl.ok) return new NextResponse("Too many requests", { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   // Resolve drive_file_id + rotation + signed_storage_path + file_type + sha256
   // in one shot. file_sha256 may not exist in older deployments — wrap the

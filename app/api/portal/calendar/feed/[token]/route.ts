@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { verifyFeedToken } from "@/lib/calendarFeed";
+import { enforceRateLimitDistributed } from "@/lib/rateLimit";
 
 /**
  * Per-user calendar subscription feed (the "Sync" button).
@@ -36,7 +37,15 @@ function fold(line: string): string {
   return out.join("\r\n");
 }
 
-export async function GET(_req: NextRequest, ctx: { params: Promise<{ token: string }> }) {
+export async function GET(req: NextRequest, ctx: { params: Promise<{ token: string }> }) {
+  const rl = await enforceRateLimitDistributed(req, "ical", { limit: 50, windowMs: 3_600_000 });
+  if (!rl.ok) {
+    return new NextResponse("Too many requests", {
+      status: 429,
+      headers: { "Retry-After": String(rl.retryAfterSec) },
+    });
+  }
+
   const { token } = await ctx.params;
   const userId = verifyFeedToken(token);
   if (!userId) return new NextResponse("Invalid or expired calendar link.", { status: 401 });

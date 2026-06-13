@@ -1,8 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomUUID } from "crypto";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
 import { validateImageDataUrl } from "@/lib/validateDataUrl";
-import { enforceRateLimit } from "@/lib/rateLimit";
+import { enforceRateLimit, enforceUserRateLimit } from "@/lib/rateLimit";
+import { r2Configured, r2Put } from "@/lib/r2";
+import { chatAttachmentKey } from "@/lib/chatAttachments";
+
+export const runtime = "nodejs";
 
 const MAX_BODY_CHARS = 5000;
 const MAX_ATTACHMENT_CHARS = 800_000; // ~600 KB raw image after base64
@@ -23,9 +28,13 @@ export async function GET(req: NextRequest) {
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const db = getServiceSupabase();
+  // NOTE: we deliberately do NOT select `attachment` — that base64 column is
+  // megabytes per thread and was re-shipped out of Supabase on every poll. The
+  // cheap generated `has_attachment` flag tells the client which messages carry
+  // an image; the bytes are fetched lazily, once, via the [id]/attachment route.
   const { data, error } = await db
     .from("messages")
-    .select("id, sender_role, body, attachment, kind, created_at, read_by_candidate")
+    .select("id, sender_role, body, kind, created_at, read_by_candidate, has_attachment")
     .eq("thread_user_id", auth.userId)
     .order("created_at", { ascending: true })
     .limit(200);
@@ -61,6 +70,13 @@ export async function POST(req: NextRequest) {
   if (text.length > MAX_BODY_CHARS) {
     return NextResponse.json({ error: "Message too long" }, { status: 400 });
   }
+
+  // Attachment: validate, then store the BYTES in Cloudflare R2 (free egress)
+  // and keep only an object key on the row — never inline base64 in Postgres
+  // (re-shipping that on every chat poll was the app's biggest Supabase egress).
+  let legacyInline: string | null = null; // only used when R2 isn't configured
+  let attachmentKey: string | null = null;
+  let attachmentMime: string | null = null;
   if (attachment) {
     if (attachment.length > MAX_ATTACHMENT_CHARS) {
       return NextResponse.json({ error: "Attachment too large" }, { status: 413 });
@@ -72,6 +88,21 @@ export async function POST(req: NextRequest) {
       console.warn("[messages POST] attachment rejected:", validated.reason);
       return NextResponse.json({ error: "Invalid attachment" }, { status: 400 });
     }
+    if (r2Configured()) {
+      const key = chatAttachmentKey(auth.userId, randomUUID(), validated.mime);
+      try {
+        await r2Put(key, validated.bytes, validated.mime);
+      } catch (e) {
+        console.error("[messages POST] R2 upload failed:", e instanceof Error ? e.message : e);
+        return NextResponse.json({ error: "Internal error" }, { status: 500 });
+      }
+      attachmentKey = key;
+      attachmentMime = validated.mime;
+    } else {
+      // R2 not configured → fall back to legacy inline storage so the feature
+      // still works (the generated has_attachment flag covers this case too).
+      legacyInline = attachment;
+    }
   }
 
   const db = getServiceSupabase();
@@ -82,12 +113,14 @@ export async function POST(req: NextRequest) {
       sender_user_id: auth.userId,
       sender_role: "candidate",
       body: text,
-      attachment,
+      attachment: legacyInline,
+      attachment_key: attachmentKey,
+      attachment_mime: attachmentMime,
       kind,
       read_by_candidate: true,
       read_by_admin: false,
     })
-    .select("id, sender_role, body, attachment, kind, created_at, read_by_candidate")
+    .select("id, sender_role, body, kind, created_at, read_by_candidate, has_attachment")
     .single();
 
   if (error) {
@@ -105,6 +138,9 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const auth = await requireUser(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  const rl = await enforceUserRateLimit("msg", `u:${auth.userId}`, { limit: 30, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   // Mark all admin replies in this candidate's thread as read.
   const db = getServiceSupabase();

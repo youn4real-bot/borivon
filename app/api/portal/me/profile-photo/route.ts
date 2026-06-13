@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
 import { validateImageDataUrl } from "@/lib/validateDataUrl";
-import { enforceRateLimit, enforceRateLimitDistributed } from "@/lib/rateLimit";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 
 const BUCKET = "profile-photos";
 
@@ -56,12 +56,12 @@ export async function POST(req: NextRequest) {
 
   // Anti-spam: photo uploads cost Storage writes + CDN bandwidth, and the
   // change-photo UI is one-click → no legitimate reason to fire more than
-  // a few per minute. Cap at 12/min per trusted IP (covers the typical
+  // a few per minute. Cap at 12/min per authenticated user (covers the typical
   // crop-retry workflow without leaving an abuse surface).
-  const rl = await enforceRateLimitDistributed(req, "me-profile-photo", { limit: 12, windowMs: 60_000 });
+  const rl = await enforceUserRateLimit("upload", `u:${auth.userId}`, { limit: 12, windowMs: 60_000 });
   if (!rl.ok) {
     return NextResponse.json(
-      { error: "Too many uploads — slow down a bit" },
+      { error: "Too many requests" },
       { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
     );
   }

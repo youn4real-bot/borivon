@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { UUID_RE } from "@/lib/uuid";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 
 // Bucket name MUST match the admin's slot-template POST route. The admin route
 // stores the template in the `slot-templates` bucket at object key
@@ -52,6 +53,9 @@ export async function GET(req: NextRequest) {
     }
     if (!allowed) return new NextResponse("Forbidden", { status: 403 });
   }
+
+  const rl = await enforceUserRateLimit("download", `u:${callerId}`, { limit: 30, windowMs: 60000 });
+  if (!rl.ok) return new NextResponse("Too many requests", { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const path = `slot-templates/${slotId}.pdf`;
 

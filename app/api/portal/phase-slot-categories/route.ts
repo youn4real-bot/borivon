@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { requireAdminRole } from "@/lib/admin-auth";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { UUID_RE } from "@/lib/uuid";
 
 const VALID_PHASES = ["bearbeitung", "visum"] as const;
@@ -27,6 +28,9 @@ export async function GET(req: NextRequest) {
   const { data: authData, error: authErr } = await getAnonVerifyClient().auth.getUser(m[1].trim());
   if (authErr || !authData?.user) return NextResponse.json({ error: "Invalid token" }, { status: 401 });
   const userId = authData.user.id;
+
+  const rl = await enforceUserRateLimit("slot-read", `u:${userId}`, { limit: 60, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const phase = req.nextUrl.searchParams.get("phase");
   if (!phase || !VALID_PHASES.includes(phase as Phase)) {

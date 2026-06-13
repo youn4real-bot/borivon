@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/admin-auth";
 import { signDlToken } from "@/lib/dlToken";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 
 /**
  * Mint a short-lived (3 min) signed DOWNLOAD token.
@@ -19,6 +20,9 @@ export const runtime = "nodejs";
 export async function GET(req: NextRequest) {
   const auth = await requireUser(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  const rl = await enforceUserRateLimit("dl-token", `u:${auth.userId}`, { limit: 30, windowMs: 60000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   let token: string;
   try {

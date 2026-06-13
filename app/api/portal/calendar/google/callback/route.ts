@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { verifyFeedToken } from "@/lib/calendarFeed";
 import { completeConnect } from "@/lib/googleCalendar";
 import { getServiceSupabase } from "@/lib/supabase";
+import { enforceRateLimitDistributed } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +11,14 @@ const SITE = (process.env.NEXT_PUBLIC_BASE_URL || "https://www.borivon.com").rep
 // Google redirects the browser here after consent (no Bearer header — the
 // signed `state` is the auth). Exchange the code, store the tokens, bounce back.
 export async function GET(req: NextRequest) {
+  const rl = await enforceRateLimitDistributed(req, "gcal-cb", { limit: 30, windowMs: 60_000 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Too many requests" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
+  }
+
   const url = new URL(req.url);
   const back = (q: string) => NextResponse.redirect(`${SITE}/portal/calendar?google=${q}`);
 

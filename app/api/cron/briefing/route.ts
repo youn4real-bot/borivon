@@ -9,6 +9,7 @@
 import { NextRequest } from "next/server";
 import { computeBriefing } from "@/lib/briefing";
 import { tgSend, getAdminUserId, telegramConfigured } from "@/lib/telegram";
+import { isAutomationEnabled } from "@/lib/automationSettings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,6 +24,9 @@ export async function GET(req: NextRequest) {
   const chatId = (process.env.TELEGRAM_CHAT_ID || "").trim();
   if (!telegramConfigured() || !chatId) {
     return Response.json({ skipped: "telegram_not_configured" });
+  }
+  if (!(await isAutomationEnabled("daily_briefing"))) {
+    return Response.json({ skipped: "disabled" });
   }
 
   const adminUserId = await getAdminUserId();

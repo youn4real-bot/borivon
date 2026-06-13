@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser, requireAdminRole, ciEmail } from "@/lib/admin-auth";
 import { canAccessPost } from "@/lib/feedAccess";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { UUID_RE } from "@/lib/uuid";
 
 
@@ -23,6 +24,14 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
   // passes for every channel; owner passes for their own channel.
   const access = await canAccessPost(db, id, auth.userId, auth.email);
   if (!access.ok) return NextResponse.json({ error: access.status === 404 ? "Not found" : "Forbidden" }, { status: access.status });
+
+  const rl = await enforceUserRateLimit("feed-del", `u:${auth.userId}`, { limit: 20, windowMs: 60_000 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Too many requests" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
+  }
 
   const { data: post } = await db
     .from("feed_posts")

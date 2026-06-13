@@ -16,6 +16,14 @@ export type AssistantScope = {
   visibleIds: string[] | null;
   /** True iff the caller may see this candidate (cheap pre-filter; canActOnCandidate is the per-action gate). */
   inScope: (candidateUserId: string) => boolean;
+  /**
+   * A per-inbound-message token (set by the webhook / in-app route once per
+   * request). The confirm-first machine stamps it onto a staged action and
+   * REFUSES to execute that action within the SAME request — so a model can
+   * never stage AND confirm a write in one turn (e.g. driven by injected text
+   * in a candidate's data). Confirmation must arrive in a later admin message.
+   */
+  requestId?: string;
 };
 
 export async function resolveAssistantScope(

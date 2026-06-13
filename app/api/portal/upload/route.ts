@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { canActOnCandidate } from "@/lib/admin-auth";
 import { createClient } from "@supabase/supabase-js";
-import { enforceRateLimit, enforceRateLimitDistributed } from "@/lib/rateLimit";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { google } from "googleapis";
 import { JWT } from "google-auth-library";
 import { makeDrivePublic } from "@/lib/passport-pdf";
@@ -859,20 +859,6 @@ async function runOCR(buffer: Buffer, mimeType: string): Promise<string> {
 }
 
 export async function POST(req: NextRequest) {
-  // ── Rate limit ───────────────────────────────────────────────────────────────
-  // Uploads hit Drive + DB + (sometimes) OCR — expensive and abuse-prone.
-  // A candidate filling Essentials + Qualifications (each orig + translated)
-  // back-to-back legitimately fires many uploads in a short burst, and the
-  // client now retries transients once — 30/min throttled that into a false
-  // "Fehler beim Hochladen.". 90/min per IP still stops bots/runaway clients.
-  const rl = await enforceRateLimitDistributed(req, "upload", { limit: 90, windowMs: 60_000 });
-  if (!rl.ok) {
-    return NextResponse.json(
-      { error: "Too many uploads. Please wait." },
-      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
-    );
-  }
-
   // ── Auth ─────────────────────────────────────────────────────────────────────
   const authHeader = req.headers.get("authorization");
   if (!authHeader?.startsWith("Bearer ")) {
@@ -885,6 +871,21 @@ export async function POST(req: NextRequest) {
   );
   const { data: { user }, error: authErr } = await supabase.auth.getUser(jwt);
   if (authErr || !user) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+
+  // ── Rate limit ───────────────────────────────────────────────────────────────
+  // Uploads hit Drive + DB + (sometimes) OCR — expensive and abuse-prone.
+  // Keyed per authenticated caller (not IP) so one user's burst can't throttle
+  // another behind the same NAT, and an unauthenticated request never spends a
+  // bucket. A candidate filling Essentials + Qualifications back-to-back fires
+  // several uploads in a short window — 20/min per user covers that while still
+  // stopping a runaway/abusive client.
+  const rl = await enforceUserRateLimit("upload", `u:${user.id}`, { limit: 20, windowMs: 60_000 });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Too many requests" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
+    );
+  }
 
   const formData = await req.formData();
   const file      = formData.get("file")     as File | null;

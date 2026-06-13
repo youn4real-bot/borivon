@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { isVerified } from "@/lib/verified";
-import { requireUser } from "@/lib/admin-auth";
+import { requireUser, resolveAuthNames } from "@/lib/admin-auth";
 import { getAccessibleOrgIds } from "@/lib/feedAccess";
-import { enforceRateLimit, enforceRateLimitDistributed } from "@/lib/rateLimit";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { validateImageDataUrl } from "@/lib/validateDataUrl";
 import { UUID_RE } from "@/lib/uuid";
 
@@ -25,18 +25,10 @@ async function ensureBucket() {
 async function resolveUserMeta(db: ReturnType<typeof getServiceSupabase>, userIds: string[]) {
   if (!userIds.length) return {};
 
-  const authInfo: Record<string, { name: string; email: string }> = {};
-  await Promise.all(userIds.map(async uid => {
-    try {
-      const { data } = await db.auth.admin.getUserById(uid);
-      if (data?.user) {
-        authInfo[uid] = {
-          name:  data.user.user_metadata?.full_name ?? data.user.email ?? uid,
-          email: data.user.email ?? "",
-        };
-      }
-    } catch { /* skip */ }
-  }));
+  // Batched name resolution: ONE bounded listUsers walk instead of one
+  // getUserById per author/commenter — this route is polled ~90s by every
+  // viewer, so this was the single most-repeated server cost.
+  const authInfo = await resolveAuthNames(userIds);
 
   const { data: profiles } = await db
     .from("candidate_profiles")
@@ -51,22 +43,34 @@ async function resolveUserMeta(db: ReturnType<typeof getServiceSupabase>, userId
   //   supreme admin + sub-admins → BLACK (official Borivon account)
   //   org admins                 → RED   (verified org member)
   //   candidates                 → GOLD only if manually_verified OR premium
-  // Sub-admins/org-members are few, and stored email casing varies — fetch
-  // all and compare LOWERCASED so a casing mismatch can't hide the tick.
-  const { data: subAdmins } = await db.from("sub_admins").select("email");
-  const borivonEmails = new Set(
-    ((subAdmins ?? []) as { email: string }[]).map(s => (s.email ?? "").trim().toLowerCase()).filter(Boolean)
-  );
+  // Casing varies in storage — compare LOWERCASED so a casing mismatch can't
+  // hide the tick. EGRESS: scope both lookups to ONLY this page's author
+  // emails (.in(...)) instead of full-table scans — the feed is polled ~90s
+  // by every viewer. Mirrors feed/[id]/comments/route.ts.
+  const pageEmails = [...new Set(
+    Object.values(authInfo).map(a => (a.email ?? "").trim().toLowerCase()).filter(Boolean)
+  )];
 
   const adminEmail = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
-  if (adminEmail) borivonEmails.add(adminEmail);
+  const borivonEmails = new Set<string>();
+  const orgMemberEmailSet = new Set<string>();
+  if (pageEmails.length) {
+    const { data: subAdmins } = await db.from("sub_admins").select("email").in("email", pageEmails);
+    for (const s of ((subAdmins ?? []) as { email: string }[])) {
+      const e = (s.email ?? "").trim().toLowerCase();
+      if (e) borivonEmails.add(e);
+    }
 
-  const { data: orgMemberRows } = await db
-    .from("organization_members")
-    .select("sub_admin_email");
-  const orgMemberEmailSet = new Set(
-    ((orgMemberRows ?? []) as { sub_admin_email: string }[]).map(r => (r.sub_admin_email ?? "").trim().toLowerCase()).filter(Boolean)
-  );
+    const { data: orgMemberRows } = await db
+      .from("organization_members")
+      .select("sub_admin_email")
+      .in("sub_admin_email", pageEmails);
+    for (const r of ((orgMemberRows ?? []) as { sub_admin_email: string }[])) {
+      const e = (r.sub_admin_email ?? "").trim().toLowerCase();
+      if (e) orgMemberEmailSet.add(e);
+    }
+  }
+  if (adminEmail) borivonEmails.add(adminEmail);
 
   // NOTE: `email` is deliberately NOT exposed here. The feed response is
   // readable by every authenticated candidate; the role/tick booleans below
@@ -256,8 +260,8 @@ export async function POST(req: NextRequest) {
   const auth = await requireUser(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-  // Anti-spam: cap post creation per trusted IP.
-  const rl = await enforceRateLimitDistributed(req, "feed-post", { limit: 10, windowMs: 60_000 });
+  // Anti-spam: cap post creation per user.
+  const rl = await enforceUserRateLimit("feed-post", `u:${auth.userId}`, { limit: 10, windowMs: 60_000 });
   if (!rl.ok) {
     return NextResponse.json(
       { error: "You're posting too fast — slow down a bit" },

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { UUID_RE } from "@/lib/uuid";
 
 // Must match the rest of the app (upload/route.ts, delete-user/route.ts).
@@ -71,6 +72,9 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
+  const rl = await enforceUserRateLimit("doc-mut", `u:${auth.userId}`, { limit: 20, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+
   // LAW #33: move to archive instead of permanently deleting
   if (d.drive_file_id && ROOT_FOLDER_ID) {
     try {
@@ -137,15 +141,21 @@ export async function PATCH(req: NextRequest, ctx: { params: Promise<{ id: strin
 
   // Auth: try admin first, fall back to candidate ownership.
   let authorised = false;
+  let actorId = "";
   const adminAuth = await requireAdminRole(req);
   if (adminAuth.ok) {
     authorised = adminAuth.role === "admin"
       || (await canActOnCandidate(adminAuth.role, adminAuth.email, ownerId));
+    actorId = adminAuth.userId;
   } else {
     const userAuth = await requireUser(req);
     authorised = userAuth.ok && userAuth.userId === ownerId;
+    if (userAuth.ok) actorId = userAuth.userId;
   }
   if (!authorised) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const rl = await enforceUserRateLimit("doc-mut", `u:${actorId}`, { limit: 60, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const next = (((docRow.rotation ?? 0) + delta) % 360 + 360) % 360;
   const { error } = await db.from("documents").update({ rotation: next }).eq("id", id);

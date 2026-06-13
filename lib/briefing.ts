@@ -11,6 +11,7 @@
  * in-app assistant's getTodayBriefing tool.
  */
 import { getServiceSupabase } from "@/lib/supabase";
+import { getStaffUserIdsAmong } from "@/lib/admin-auth";
 
 const DAY = 86_400_000;
 
@@ -38,7 +39,19 @@ export async function computeBriefing(adminUserId: string | null): Promise<Brief
   const { data: profs } = await db
     .from("candidate_profiles")
     .select("user_id, first_name, last_name, passport_expiry, b2_exam_date");
-  const profRows = (profs ?? []) as P[];
+  const profRowsAll = (profs ?? []) as P[];
+
+  // 👀 Documents pending YOUR review.
+  const { data: pend } = await db.from("documents").select("user_id, file_name").eq("status", "pending");
+  const pendRowsAll = (pend ?? []) as { user_id: string; file_name: string | null }[];
+
+  // STAFF ARE NOT CANDIDATES (admin/sub-admins/org members get profile rows when
+  // they open the dashboard) — strip them so the briefing only ever lists real
+  // candidates, exactly like /api/portal/journey/pipeline.
+  const allIds = [...new Set([...profRowsAll.map((p) => p.user_id), ...pendRowsAll.map((d) => d.user_id)])];
+  const staffIds = await getStaffUserIdsAmong(allIds);
+  const profRows = profRowsAll.filter((p) => !staffIds.has(p.user_id));
+  const pendRows = pendRowsAll.filter((d) => !staffIds.has(d.user_id));
   const nameById = new Map(profRows.map((p) => [p.user_id, nameOf(p)]));
 
   // 🛂 Passports expiring within 90 days (overdue first).
@@ -53,9 +66,6 @@ export async function computeBriefing(adminUserId: string | null): Promise<Brief
     .filter((x): x is { p: P; ms: number } => x.ms !== null && x.ms <= now + 30 * DAY && x.ms >= now - 7 * DAY)
     .sort((a, b) => a.ms - b.ms);
 
-  // 👀 Documents pending YOUR review.
-  const { data: pend } = await db.from("documents").select("user_id, file_name").eq("status", "pending");
-  const pendRows = (pend ?? []) as { user_id: string; file_name: string | null }[];
   const pendByUser = new Map<string, number>();
   for (const d of pendRows) pendByUser.set(d.user_id, (pendByUser.get(d.user_id) ?? 0) + 1);
 
