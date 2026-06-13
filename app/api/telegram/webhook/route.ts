@@ -15,7 +15,7 @@
  */
 import { NextRequest } from "next/server";
 import { generateText, stepCountIs } from "ai";
-import { vertexModel, chooseTier, looksWeak } from "@/lib/vertexModel";
+import { vertexModel, chooseTier, looksWeak, proConfigured } from "@/lib/vertexModel";
 import { buildAssistantTools } from "@/lib/assistantTools";
 import type { AssistantScope } from "@/lib/assistantScope";
 import { computeBriefing } from "@/lib/briefing";
@@ -53,6 +53,7 @@ const TG_SYSTEM = [
   "- READ / OVERVIEW tools (read-only, answer questions instantly): getPipelineBoard (every candidate's key milestones — interview/contract/visa/arrived — for 'who needs me / where is everyone'), listAssignedTasks (custom tasks you gave candidates, onlyOpen for the undone ones), listLeads (website/funnel leads, supreme-only), getCandidatePhone (their number + a wa.me link), listExpiringPassports (passport-expiry radar, within N days), getB2Overview (EVERYONE's B2 stage + exam + rich CV detail), getB2Status(candidates=[names]) (DETAILED B2 for SPECIFIC people). Use getB2Overview for 'how is EVERYONE on B2'; use getB2Status whenever the admin names people or says 'these candidates' / 'their B2 status' (e.g. right after pulling some CVs) — pass exactly those names, do NOT dump the whole roster. Use the others for 'who has a passport expiring soon', 'what leads do we have', 'where is everyone', 'what's X's number'.",
   "- CONTEXT (critical): this is a CONTINUING conversation — earlier turns are included. 'these candidates', 'them', 'their', 'those', 'all 4', 'the same ones' = the SPECIFIC people from the recent turns (e.g. the CVs you just pulled), NOT the roster. To answer about them you MUST identify their names from the conversation and call the by-name tool (getB2Status for B2, getCvLinks for CVs, etc.) with EXACTLY those names. NEVER call an 'everyone' tool (getB2Overview, listAllCandidates…) and then present its first few rows as 'these candidates' — that returns the WRONG people. If the admin's message itself lists names, use exactly those names. If you truly can't tell who 'these' means, ASK — do not guess.",
   "- CORRECTION: if the admin says you got it wrong ('not these', 'I meant X', 'wrong people', re-pastes names), DISCARD your previous answer entirely and redo it for the people they just specified — do not repeat or defend the earlier list.",
+  "- WORKED EXAMPLES (copy this behaviour exactly):\n   1) Admin: 'pull the CVs of Ismail Louali, Samira Irsani, Hajar El Kairaa and Lahcen Labzioui' → ONE call: getCvLinks({candidates:['Ismail Louali','Samira Irsani','Hajar El Kairaa','Lahcen Labzioui']}). Never loop searchCandidates+getDocumentDownloadLink per person.\n   2) Admin (next turn): 'now give me their B2 status' → 'their' = the SAME 4 people above (read their names from the conversation) → getB2Status({candidates:['Ismail Louali','Samira Irsani','Hajar El Kairaa','Lahcen Labzioui']}). Do NOT call getB2Overview; do NOT answer about anyone else.\n   3) Admin: 'B2 status of everyone' → getB2Overview (the whole-roster case).\n   4) Admin: 'no, I meant Sara Afroukh and Doha Zini' → getB2Status({candidates:['Sara Afroukh','Doha Zini']}) and ignore your previous list.\n   5) Admin: 'is Hajar passed B2?' but several Hajars exist → getB2Status({candidates:['Hajar']}); it returns ambiguous with the matches → show them and ask which Hajar.",
   "- INBOX: listConversations (all chat threads with last message + unread count), getCandidateThread(candidateUserId) (the full chat with one candidate), markThreadRead(candidateUserId) (clear the unread badge — immediate). To REPLY, use sendCandidateMessage.",
   "- EMPLOYERS/ORGS: listEmployers (the hospitals/clinics — id+name), listOrganizations (partner orgs + their invite code + branding, supreme-only), getAssignedEmployer(candidateUserId) (who they're placed at). assignEmployer(candidateUserId, employerId or '' to clear) STAGES setting a candidate's employer — this sets the visa-letter recipient AND (with agency branding) their CV logo. Two-step confirm-first. Use listEmployers first to get the id. upsertEmployer creates a NEW hospital/clinic (name + address) or edits one (id + fields; active:false retires) — supreme-only, confirm-first; create the employer first, then assignEmployer the candidate to it. linkCandidateToOrg(candidateUserId, orgId, op link/unlink, status?) links/unlinks a candidate to a partner ORGANIZATION (gives that org dossier access; placement is silent) — supreme-only, confirm-first; orgId from listOrganizations. getAgencyProfile reads YOUR employer/agency contact block (fills section C of German forms); setAgencyProfile updates it (firma/strasse/plz/ort/kontaktperson/telefon/email/betriebsnummer…) — supreme-only, confirm-first.",
   "- ORG PIPELINE (supreme-only, for managing partner organizations & matching): listOrgRequests shows the inbox of candidates waiting to be approved into an org; reviewOrgRequest(candidateUserId, orgId, decision approve/reject) clears one (approve = grant that org dossier access) — confirm-first. listSuggestedMatches shows system-proposed candidate↔org matches with the requirement; decideSuggestedMatch(matchId, action accepted/skipped) — 'accepted' SILENTLY links the candidate to that org — confirm-first. listOrgNeeds shows every org's open hiring needs; manageOrgRequirement(op add/edit/close, orgId for add | requirementId for edit/close, specialty/slots/location/startDate/notes) — confirm-first. manageOrganization(op create/edit, name/notes/inviteCode) creates a new partner org or renames one (DELETE stays web-only — it cascades to candidate links). setOrgBranding(orgId, footerText?, masern?, varizell?) sets an org's footer line + vaccine requirement (logo upload stays web-only) — confirm-first. listAgencies shows the tenancy containers + their admin/member/candidate counts (read-only). e.g. 'any pending org requests?' → listOrgRequests; 'approve Hajar into UKSH' → reviewOrgRequest → confirm.",
@@ -192,16 +193,18 @@ export async function POST(req: NextRequest) {
     // keep a generous ceiling so a per-person fallback path can still finish.
     stopWhen: stepCountIs(20),
   };
+  const proOn = proConfigured(); // Pro tier only exists when opted in via env
   try {
-    // Run on the chosen tier; if Flash throws, escalate to Pro instead of erroring.
+    // Run on the chosen tier; if Flash throws AND a Pro tier exists, escalate
+    // instead of erroring.
     let result = await generateText({ model: tier === "pro" ? proModel : flashModel, ...genArgs })
       .catch((genErr) => {
-        if (tier === "flash" && proModel !== flashModel) return generateText({ model: proModel, ...genArgs });
+        if (proOn && tier === "flash") return generateText({ model: proModel, ...genArgs });
         throw genErr;
       });
-    // Reactive escalation: Flash answered but punted ("which one?") or came back
-    // empty → redo the SAME turn on Pro and use that instead.
-    if (tier === "flash" && proModel !== flashModel && looksWeak(result.text)) {
+    // Reactive escalation (Pro tier only): Flash punted ("which one?") or came
+    // back empty → redo the SAME turn on Pro and use that instead.
+    if (proOn && tier === "flash" && looksWeak(result.text)) {
       try { result = await generateText({ model: proModel, ...genArgs }); } catch { /* keep the Flash result */ }
     }
 
