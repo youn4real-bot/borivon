@@ -495,15 +495,19 @@ export function buildAssistantTools(
         if (!scope.userId) return { error: "no_user" };
         const clean = text.trim();
         if (!clean) return { error: "empty" };
-        // Dedup: don't pile up the same rule each time the admin repeats/reinforces
-        // it (keeps the injected standing-instructions block lean).
+        // Dedup case-insensitively in memory (NOT via ilike — a rule containing
+        // '_' or '%' would be treated as a SQL wildcard and could falsely match a
+        // DIFFERENT rule, silently dropping the new teaching). Compare exact text,
+        // lowercased.
         const { data: existing } = await db
           .from("assistant_memory")
-          .select("id")
+          .select("text")
           .eq("owner_user_id", scope.userId)
-          .ilike("text", clean)
-          .limit(1);
-        if ((existing as { id: string }[] | null)?.length) return { remembered: true, alreadyKnew: true };
+          .limit(200);
+        const needle = clean.toLowerCase();
+        if (((existing as { text: string }[] | null) ?? []).some((r) => (r.text ?? "").trim().toLowerCase() === needle)) {
+          return { remembered: true, alreadyKnew: true };
+        }
         const { error } = await db.from("assistant_memory").insert({ owner_user_id: scope.userId, text: clean, kind });
         if (error) return { error: "save_failed" };
         return { remembered: true };

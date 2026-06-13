@@ -122,6 +122,12 @@ export async function POST(req: NextRequest) {
   if (text === "/today") {
     const { text: briefing } = await computeBriefing(scope.userId);
     await tgSend(chatId, briefing);
+    // Save it too, so a follow-up ("remind those candidates", "who's first?")
+    // has the briefing as context like any other turn.
+    await saveChatTurns(scope.userId, [
+      { role: "user", content: "/today" },
+      { role: "assistant", content: briefing },
+    ]);
     return ok();
   }
 
@@ -219,6 +225,9 @@ export async function POST(req: NextRequest) {
     // all 4 files, not just the first.
     const FILE_TOOLS = new Set(["getDocumentDownloadLink", "getCvLinks"]);
     let sentFile = false;
+    let wantedFiles = 0;
+    const failedFiles: string[] = [];
+    const seenUrls = new Set<string>();
     try {
       const steps = (result as { steps?: Array<{ toolResults?: unknown[] }> }).steps;
       const all = (steps?.flatMap((s) => s.toolResults ?? []) ?? (result.toolResults ?? [])) as Array<{
@@ -233,10 +242,22 @@ export async function POST(req: NextRequest) {
         if (out?.url) links.push({ url: out.url, fileName: out.fileName });
         for (const r of out?.results ?? []) if (r?.url) links.push({ url: r.url, fileName: r.fileName });
         for (const link of links) {
-          const f = await fetch(`${BASE_URL}${link.url}`);
-          if (f.ok) {
-            const bytes = new Uint8Array(await f.arrayBuffer());
-            if (await tgSendDocument(chatId, bytes, link.fileName || "document")) sentFile = true;
+          if (seenUrls.has(link.url)) continue; // never deliver the exact same link twice
+          seenUrls.add(link.url);
+          wantedFiles++;
+          const name = link.fileName || "document";
+          try {
+            // Bounded fetch — a single hung download can't eat the whole request.
+            const ctl = new AbortController();
+            const timer = setTimeout(() => ctl.abort(), 30_000);
+            const f = await fetch(`${BASE_URL}${link.url}`, { signal: ctl.signal }).finally(() => clearTimeout(timer));
+            if (f.ok) {
+              const bytes = new Uint8Array(await f.arrayBuffer());
+              if (await tgSendDocument(chatId, bytes, name)) { sentFile = true; continue; }
+            }
+            failedFiles.push(name);
+          } catch {
+            failedFiles.push(name);
           }
         }
       }
@@ -249,12 +270,17 @@ export async function POST(req: NextRequest) {
     reply = sentFile
       ? reply.replace(/\/api\/portal\/file\?[^\s)]+/g, "(sent above ⬆️)")
       : reply.replace(/\/api\/portal\/file/g, `${BASE_URL}/api/portal/file`);
+    // Be honest about partial delivery rather than letting the model claim "sent all".
+    if (failedFiles.length) {
+      reply = `${reply}\n\n⚠️ Couldn't deliver ${failedFiles.length} of ${wantedFiles} file(s): ${failedFiles.slice(0, 8).join(", ")}. Try again in a moment.`.trim();
+    }
     if (reply.trim()) await tgSend(chatId, reply);
     // Remember this turn so the NEXT message has context (e.g. "their B2 status"
-    // after pulling some CVs). The assistant turn keeps the names it just used.
+    // after pulling some CVs). Save the model's ORIGINAL text (not the link-
+    // stripped display copy) so the candidate names it used survive as a referent.
     await saveChatTurns(scope.userId, [
       { role: "user", content: userText },
-      { role: "assistant", content: reply.trim() || (sentFile ? "[delivered the requested file(s)]" : "") },
+      { role: "assistant", content: (result.text || "").trim() || (sentFile ? "[delivered the requested file(s)]" : "") },
     ]);
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
