@@ -140,6 +140,14 @@ export async function GET(req: NextRequest) {
 
   const category = req.nextUrl.searchParams.get("category") ?? "all";
 
+  // EGRESS: the client's 90s "any new posts?" poll passes ?after=<newest known
+  // created_at>. With it we filter to only-newer rows; the common case (nothing
+  // new) returns 0 rows and short-circuits BEFORE the likes/comments/author
+  // metadata queries below — turning a ~20-post enriched payload into one tiny
+  // indexed query. Validated as a real timestamp so it can't be injected.
+  const afterRaw = req.nextUrl.searchParams.get("after");
+  const after = afterRaw && Number.isFinite(Date.parse(afterRaw)) ? afterRaw : null;
+
   // Build the base query — try with org_id column, fall back gracefully.
   const buildQuery = (withOrg: boolean, withCategory: boolean) => {
     const cols = `id, user_id, content, image_url, gif_url, title, pinned, ${withCategory ? "category, " : ""}${withOrg ? "org_id, " : ""}created_at`;
@@ -147,6 +155,7 @@ export async function GET(req: NextRequest) {
     if (withOrg) {
       q = filterOrgId ? q.eq("org_id", filterOrgId) : q.is("org_id", null);
     }
+    if (after) q = q.gt("created_at", after);
     return q
       .order("pinned", { ascending: false })
       .order("created_at", { ascending: false })
@@ -340,7 +349,7 @@ export async function POST(req: NextRequest) {
         const mime = validated.mime;
         const ext  = mime === "image/png" ? "png" : mime === "image/webp" ? "webp" : mime === "image/gif" ? "gif" : "jpg";
         const fileName = `${p.id}.${ext}`;
-        const { error: uploadErr } = await db.storage.from(BUCKET).upload(fileName, validated.bytes, { contentType: mime, upsert: true });
+        const { error: uploadErr } = await db.storage.from(BUCKET).upload(fileName, validated.bytes, { contentType: mime, upsert: true, cacheControl: "31536000" });
         if (!uploadErr) {
           const { data: { publicUrl } } = db.storage.from(BUCKET).getPublicUrl(fileName);
           imageUrl = `${publicUrl}?t=${Date.now()}`;

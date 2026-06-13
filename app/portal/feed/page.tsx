@@ -770,6 +770,9 @@ export default function FeedPage() {
   // New posts banner
   const [pendingPosts, setPendingPosts] = useState<Post[]>([]);
   const postIdsRef = useRef<Set<string>>(new Set());
+  // Newest createdAt across loaded posts — the poll asks the server only for
+  // posts newer than this (egress short-circuit).
+  const newestAtRef = useRef<string | null>(null);
   // True once the bootstrap has loaded page 0. Gates the community-switch effect
   // so it never duplicates the initial load (it used to fire a 2nd identical
   // page-0 fetch on every open).
@@ -848,16 +851,24 @@ export default function FeedPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Keep postIds ref in sync for the new-posts banner
-  useEffect(() => { postIdsRef.current = new Set(posts.map(p => p.id)); }, [posts]);
+  // Keep postIds ref in sync for the new-posts banner + track the newest
+  // createdAt so the poll can ask only for posts newer than what we already have.
+  useEffect(() => {
+    postIdsRef.current = new Set(posts.map(p => p.id));
+    newestAtRef.current = posts.reduce<string | null>((mx, p) => (mx === null || p.createdAt > mx ? p.createdAt : mx), null);
+  }, [posts]);
 
-  // Poll for new posts every 90s
+  // Poll for new posts every 90s. EGRESS: skip entirely while the tab is hidden
+  // (this runs for every active viewer), and pass ?after=<newest known> so the
+  // server returns 0 rows + short-circuits when there's nothing new — instead of
+  // re-sending 20 enriched posts every 90s.
   useEffect(() => {
     if (!authToken) return;
     const timer = setInterval(async () => {
-      if (!authToken) return;
+      if (document.hidden || !authToken) return;
       const orgParam = activeOrgId ? `&orgId=${encodeURIComponent(activeOrgId)}` : "";
-      const res = await fetch(`/api/portal/feed?page=0${orgParam}`, { headers: { Authorization: `Bearer ${authToken}` } });
+      const afterParam = newestAtRef.current ? `&after=${encodeURIComponent(newestAtRef.current)}` : "";
+      const res = await fetch(`/api/portal/feed?page=0${orgParam}${afterParam}`, { headers: { Authorization: `Bearer ${authToken}` } });
       if (!res.ok) return;
       const j = await res.json();
       const fresh = ((j.posts ?? []) as Post[]).filter(p => !postIdsRef.current.has(p.id));

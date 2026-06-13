@@ -876,7 +876,9 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
     } catch { /* offline / hot-reload */ }
   }, [accessToken]);
 
-  useEffect(() => { fetchMsgs(); const t = setInterval(fetchMsgs, 30_000); return () => clearInterval(t); }, [fetchMsgs]);
+  // EGRESS: this background poll runs on EVERY portal page (GlobalChrome). Realtime
+  // (below) covers live updates; skip the poll while the tab is hidden.
+  useEffect(() => { fetchMsgs(); const t = setInterval(() => { if (!document.hidden) fetchMsgs(); }, 30_000); return () => clearInterval(t); }, [fetchMsgs]);
 
   // Live updates via Supabase Realtime (RLS lets candidate subscribe to own thread).
   useEffect(() => {
@@ -927,7 +929,7 @@ function CandidateChat({ accessToken, userId }: { accessToken: string; userId: s
   // While the modal is OPEN, fast-poll as a Realtime fallback.
   useEffect(() => {
     if (!threadOpen) return;
-    const t = setInterval(fetchMsgs, 2_000);
+    const t = setInterval(() => { if (!document.hidden) fetchMsgs(); }, 2_000);
     return () => clearInterval(t);
   }, [threadOpen, fetchMsgs]);
 
@@ -1211,7 +1213,9 @@ function AdminInbox({ accessToken }: { accessToken: string }) {
     } catch { /* offline / hot-reload */ }
   }, [accessToken]);
 
-  useEffect(() => { fetchConvs(); const t = setInterval(fetchConvs, 20_000); return () => clearInterval(t); }, [fetchConvs]);
+  // EGRESS: admin inbox background poll runs on every admin page (GlobalChrome);
+  // skip it while the tab is hidden (realtime + on-open polls still cover live use).
+  useEffect(() => { fetchConvs(); const t = setInterval(() => { if (!document.hidden) fetchConvs(); }, 20_000); return () => clearInterval(t); }, [fetchConvs]);
 
   // Candidate list for "Start a message" — the lightweight, admin-scoped roster
   // from the pipeline (id + name + photo), fetched lazily when compose opens.
@@ -1260,7 +1264,7 @@ function AdminInbox({ accessToken }: { accessToken: string }) {
   // Fast-poll the inbox list while it's open.
   useEffect(() => {
     if (!inboxOpen || activeThread) return;
-    const t = setInterval(fetchConvs, 3_000);
+    const t = setInterval(() => { if (!document.hidden) fetchConvs(); }, 3_000);
     return () => clearInterval(t);
   }, [inboxOpen, activeThread, fetchConvs]);
 
@@ -1294,7 +1298,7 @@ function AdminInbox({ accessToken }: { accessToken: string }) {
   useEffect(() => {
     if (!activeThread) return;
     const uid = activeThread.threadUserId;
-    const t = setInterval(() => { fetchThread(uid); fetchConvs(); }, 1_500);
+    const t = setInterval(() => { if (!document.hidden) { fetchThread(uid); fetchConvs(); } }, 1_500);
     return () => clearInterval(t);
   }, [activeThread, fetchThread, fetchConvs]);
 

@@ -99,7 +99,8 @@ export async function POST(req: NextRequest) {
     .upload(fileName, buffer, {
       contentType: mimeType,
       upsert: true,
-      cacheControl: "3600",
+      // EGRESS: URL is cache-busted per upload (?t=…), so cache the bytes a year.
+      cacheControl: "31536000",
     });
 
   if (uploadErr) {

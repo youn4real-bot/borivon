@@ -108,7 +108,11 @@ export async function POST(req: NextRequest) {
     .upload(fileName, buffer, {
       contentType: mimeType,
       upsert: true,            // overwrite any existing photo for this user
-      cacheControl: "3600",
+      // EGRESS: the stored URL is cache-busted per upload (?t=…), so a new photo
+      // gets a brand-new URL — the old one can be cached ~forever. 1 year means
+      // browsers fetch each avatar ONCE instead of re-validating hourly on the
+      // feed/admin hot paths.
+      cacheControl: "31536000",
     });
 
   if (uploadErr) {
