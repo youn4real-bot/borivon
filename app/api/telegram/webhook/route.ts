@@ -21,6 +21,8 @@ import type { AssistantScope } from "@/lib/assistantScope";
 import { computeBriefing } from "@/lib/briefing";
 import { loadMemory } from "@/lib/assistantMemory";
 import { loadChatHistory, saveChatTurns } from "@/lib/assistantChatHistory";
+import { executeLatestPending, cancelLatestPending } from "@/lib/assistantWrites";
+import { isConfirmText, isCancelText } from "@/lib/confirmIntent";
 import { stripMarkdown } from "@/lib/emailFormat";
 import { tgSend, tgSendDocument, tgGetFileBytes, getAdminUserId, telegramConfigured } from "@/lib/telegram";
 import { r2Configured, r2Put } from "@/lib/r2";
@@ -134,6 +136,34 @@ export async function POST(req: NextRequest) {
       { role: "assistant", content: briefing },
     ]);
     return ok();
+  }
+
+  // 3.5) CODE-ENFORCED CONFIRM — apply/cancel a pending action without the model.
+  // Only on a PLAIN text affirmation/negation (no file/voice attached). If there
+  // is nothing pending, fall through to the model (the "yes" wasn't a confirm).
+  if (text && !(msg.photo && msg.photo.length) && !msg.document && !msg.voice) {
+    if (isConfirmText(text)) {
+      const r = await executeLatestPending(scope);
+      if (!("error" in r && r.error === "nothing_pending")) {
+        const reply = "error" in r
+          ? (r.error === "confirm_in_new_message"
+              ? "That was just prepared this second — send \"yes\" once more and I'll apply it."
+              : `⚠️ I could NOT apply it: ${r.error}. Nothing was sent or changed.`)
+          : `✅ Done — ${r.summary}`;
+        await tgSend(chatId, reply);
+        await saveChatTurns(scope.userId, [{ role: "user", content: text }, { role: "assistant", content: reply }]);
+        return ok();
+      }
+      // nothing pending → not a confirm; let the model handle the "yes".
+    } else if (isCancelText(text)) {
+      const r = await cancelLatestPending(scope);
+      if (!("error" in r && r.error === "nothing_pending")) {
+        const reply = "error" in r ? "Okay." : `Okay, cancelled — ${r.summary}`;
+        await tgSend(chatId, reply);
+        await saveChatTurns(scope.userId, [{ role: "user", content: text }, { role: "assistant", content: reply }]);
+        return ok();
+      }
+    }
   }
 
   // 4) Build the user turn (attached file / voice / text).
