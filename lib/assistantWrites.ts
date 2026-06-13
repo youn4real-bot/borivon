@@ -434,7 +434,7 @@ async function writeEditCvDraft(userId: string, field: string, value: string): P
  *  (the tool already gate-checked at stage time). */
 async function writeExternalEmail(
   scope: AssistantScope,
-  opts: { to: string; toName?: string; subject: string; body: string; candidateIds: string[]; docIds: string[] },
+  opts: { to: string; toName?: string; cc?: string[]; subject: string; body: string; candidateIds: string[]; docIds: string[] },
 ): Promise<WriteResult> {
   const db = getServiceSupabase();
   const attachments: OutboundAttachment[] = [];
@@ -475,7 +475,7 @@ async function writeExternalEmail(
   // published CV on file yet) — DON'T send a partial email claiming success.
   if (missing.length) return { ok: false, error: `attachment_missing:${missing.slice(0, 8).join(",")}` };
 
-  const res = await sendOutboundEmail({ to: opts.to, toName: opts.toName, subject: opts.subject, body: opts.body, attachments });
+  const res = await sendOutboundEmail({ to: opts.to, toName: opts.toName, cc: opts.cc, subject: opts.subject, body: opts.body, attachments });
   if (!res.ok) return { ok: false, error: res.error };
   return { ok: true };
 }
@@ -1117,6 +1117,7 @@ export async function executeLatestPending(
     result = await writeExternalEmail(scope, {
       to: String(a.to ?? ""),
       toName: a.toName == null ? undefined : String(a.toName),
+      cc: splitIds(a.cc),
       subject: String(a.subject ?? ""),
       body: String(a.body ?? ""),
       candidateIds: splitIds(a.attachCandidateIds),

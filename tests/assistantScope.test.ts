@@ -600,13 +600,19 @@ describe("assistant tools allow the supreme admin", () => {
     expect(nudge).toEqual({ error: "none_stuck" });
   });
 
-  it("sendExternalEmail stages a draft, and rejects a bad email", async () => {
+  it("sendExternalEmail stages a draft (with CC), and rejects bad to/cc emails", async () => {
     const ok = (await run(buildAssistantTools(SUPREME), "sendExternalEmail", { to: "anna.gombert@klinikum.de", toName: "Anna Gombert", subject: "4 Pflegekraft-Profile", body: "Sehr geehrte Frau Gombert, anbei …" })) as { staged?: boolean; summary?: string };
     expect(ok.staged).toBe(true);
     expect(ok.summary).toContain("anna.gombert@klinikum.de");
     expect(ok.summary).toContain("Pflegekraft");
+    // CC: staged + shown in the confirm summary.
+    const cc = (await run(buildAssistantTools(SUPREME), "sendExternalEmail", { to: "a.gombert@calmaroi.de", cc: "o.musleh@calmaroi.de", subject: "B2-Status", body: "Hallo" })) as { staged?: boolean; summary?: string };
+    expect(cc.staged).toBe(true);
+    expect(cc.summary).toContain("CC: o.musleh@calmaroi.de");
     const bad = await run(buildAssistantTools(SUPREME), "sendExternalEmail", { to: "not-an-email", subject: "x", body: "y" });
     expect(bad).toEqual({ error: "bad_email" });
+    const badCc = await run(buildAssistantTools(SUPREME), "sendExternalEmail", { to: "a@b.com", cc: "nope", subject: "x", body: "y" });
+    expect(badCc).toEqual({ error: "bad_cc:nope" });
   });
 
   it("setAgencyProfile stages only changed fields, and rejects an empty patch", async () => {

@@ -486,10 +486,10 @@ export function buildAssistantTools(
     // ── Memory: how the admin likes to work (learned, applied every chat) ──
     rememberAboutMe: tool({
       description:
-        "Save a DURABLE rule about HOW you should WORK — a preference, a term, or a correction. Good: 'prefers short answers', 'always lead with passports', 'by batch they mean a monthly cohort', 'wants dates as DD.MM.YYYY', 'for B2 of named people use getB2Status, never getB2Overview'. Call it whenever the admin states a lasting preference, teaches a term, or corrects you for the future, then confirm briefly. Do NOT use it for: one-off requests/tasks (use saveReminder); candidate-specific facts or statuses (e.g. 'Hajar is on leave until June', 'Ali failed B2') — that's about a PERSON, not your behaviour; or anything tied to a date/deadline. If a 'from now on / always / never' instruction is really about ONE candidate or a temporary situation, it is NOT a standing rule — don't store it here.",
+        "Save DURABLE info so you never have to be told it again: (a) a rule about HOW you should WORK — 'prefers short answers', 'always lead with passports', 'wants dates as DD.MM.YYYY', 'for B2 of named people use getB2Status, never getB2Overview' (kind preference/term/correction); or (b) one of the admin's recurring EXTERNAL CONTACTS — a recruiter / employer / partner they email, stored as 'Name = email' e.g. 'Anna Gombert = a.gombert@calmaroi.de' (kind 'contact'), so next time they say 'email Anna' or 'CC Omar' you already have the address. Call it whenever the admin states a lasting preference, teaches a term, corrects you for the future, OR gives you a contact's name+email to keep — then confirm briefly. Do NOT store: one-off tasks (use saveReminder); a CANDIDATE's transient status (e.g. 'Hajar is on leave until June', 'Ali failed B2') — that's about a candidate, not durable; or anything tied to a one-time date/deadline.",
       inputSchema: z.object({
         text: z.string().min(1).max(300),
-        kind: z.enum(["preference", "fact", "term", "correction"]).default("preference"),
+        kind: z.enum(["preference", "fact", "term", "correction", "contact"]).default("preference"),
       }),
       execute: async ({ text, kind }) => {
         if (!scope.userId) return { error: "no_user" };
@@ -2088,19 +2088,24 @@ export function buildAssistantTools(
 
     sendExternalEmail: tool({
       description:
-        "STAGE an outbound EMAIL to an EXTERNAL person (an employer, recruiter, hospital contact — NOT a candidate; for candidates use sendCandidateMessage). e.g. 'send Hajar and Ali's CVs to anna.gombert@klinikum.de'. Provide to (their email), an optional toName, a subject, and a body (you write a clean, professional message). To attach candidate CVs, pass their candidateUserIds as a COMMA-SEPARATED string in attachCandidateIds — each candidate's latest German CV on file is attached. To attach specific documents, pass their docIds comma-separated in attachDocIds. Two-step: STAGE it, then SHOW the admin the full draft (recipient, subject, body, attachments) and ONLY after they confirm in a SEPARATE message call confirmPendingWrite (cancelPendingWrite on no). It sends from youness.taoufiq@borivon.com (through the founder's Gmail once set up, otherwise via Borivon mail).",
+        "STAGE an outbound EMAIL to an EXTERNAL person (an employer, recruiter, hospital contact — NOT a candidate; for candidates use sendCandidateMessage). e.g. 'send Hajar and Ali's CVs to anna.gombert@klinikum.de'. Provide to (ONE primary recipient's email), an optional toName, an optional cc (comma-separated extra recipients to copy — e.g. 'email Anna and CC Omar' → to=anna@…, cc='omar@…'), a subject, and a body (you write a clean, professional message). To attach candidate CVs, pass their candidateUserIds as a COMMA-SEPARATED string in attachCandidateIds — each candidate's latest German CV on file is attached. To attach specific documents, pass their docIds comma-separated in attachDocIds. Two-step: STAGE it, then SHOW the admin the full draft (recipient, cc, subject, body, attachments) and ONLY after they confirm in a SEPARATE message call confirmPendingWrite (cancelPendingWrite on no). It sends from youness.taoufiq@borivon.com (through the founder's Gmail once set up, otherwise via Borivon mail).",
       inputSchema: z.object({
-        to: z.string().min(3).max(254).describe("the recipient's email address"),
+        to: z.string().min(3).max(254).describe("the ONE primary recipient's email address"),
         toName: z.string().max(120).optional().describe("the recipient's name, if known"),
+        cc: z.string().max(1000).optional().describe("comma-separated additional recipients to CC (copy), e.g. 'omar@x.com, sara@x.com'"),
         subject: z.string().min(1).max(200),
         body: z.string().min(1).max(8000).describe("the email body — write it professionally"),
         attachCandidateIds: z.string().optional().describe("comma-separated candidateUserIds whose latest German CV to attach"),
         attachDocIds: z.string().optional().describe("comma-separated document ids to attach"),
       }),
-      execute: async ({ to, toName, subject, body, attachCandidateIds, attachDocIds }) => {
+      execute: async ({ to, toName, cc, subject, body, attachCandidateIds, attachDocIds }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
+        const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         const email = to.trim();
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { error: "bad_email" };
+        if (!emailRe.test(email)) return { error: "bad_email" };
+        const ccList = (cc ?? "").split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+        const badCc = ccList.find((c) => !emailRe.test(c));
+        if (badCc) return { error: `bad_cc:${badCc}` };
         const candIds = (attachCandidateIds ?? "").split(",").map((s) => s.trim()).filter(Boolean);
         const docIds = (attachDocIds ?? "").split(",").map((s) => s.trim()).filter(Boolean);
         // Must be allowed to send each attached candidate's CV.
@@ -2116,13 +2121,14 @@ export function buildAssistantTools(
           ].filter(Boolean).join(" + ") || "none";
         const args: Record<string, unknown> = { to: email, subject, body };
         if (toName !== undefined) args.toName = toName;
+        if (ccList.length) args.cc = ccList.join(",");
         if (attachCandidateIds !== undefined) args.attachCandidateIds = attachCandidateIds;
         if (attachDocIds !== undefined) args.attachDocIds = attachDocIds;
         return stagePending(scope, {
           toolName: "sendExternalEmail",
           args,
           candidateUserId: null,
-          summary: `📧 To: ${toName ? `${toName} <${email}>` : email}\nSubject: ${subject}\nAttachments: ${attachDesc}\n\n${body.slice(0, 600)}${body.length > 600 ? "…" : ""}`,
+          summary: `📧 To: ${toName ? `${toName} <${email}>` : email}${ccList.length ? `\nCC: ${ccList.join(", ")}` : ""}\nSubject: ${subject}\nAttachments: ${attachDesc}\n\n${body.slice(0, 600)}${body.length > 600 ? "…" : ""}`,
         });
       },
     }),
