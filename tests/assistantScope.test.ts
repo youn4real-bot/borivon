@@ -299,6 +299,37 @@ describe("assistant tools allow the supreme admin", () => {
     expect(r.url).toContain("dl=1");
   });
 
+  it("getCvLinks resolves many full names in ONE call (full name → one person; bare first name → ambiguous; unknown → not_found)", async () => {
+    h.tables.candidate_profiles = {
+      data: [
+        { user_id: "u-ismail", first_name: "Ismail", last_name: "Louali" },
+        { user_id: "u-hajar1", first_name: "Hajar", last_name: "El Kairaa" },
+        { user_id: "u-hajar2", first_name: "Hajar", last_name: "Bousfiha" },
+      ],
+      error: null,
+    };
+    h.authUsers = [
+      { id: "u-ismail", email: "ismail@x.com", user_metadata: { full_name: "Ismail Louali" } },
+      { id: "u-hajar1", email: "h1@x.com", user_metadata: { full_name: "Hajar El Kairaa" } },
+      { id: "u-hajar2", email: "h2@x.com", user_metadata: { full_name: "Hajar Bousfiha" } },
+    ];
+    // documents lookup (same stub for any candidate) — a German CV on file.
+    h.tables.documents = { data: [{ id: "cv-1", user_id: "u-ismail", file_name: "ismail_cv.pdf", file_type: "Lebenslauf (DE)", status: "approved", uploaded_at: "2026-01-01", drive_file_id: null, r2_key: "r2/x" }], error: null };
+
+    const r = (await run(buildAssistantTools(SUPREME), "getCvLinks", {
+      candidates: ["Ismail Louali", "Hajar", "Nour Eddine Zzz"],
+    })) as { results?: { query?: string; status?: string; name?: string; url?: string; matches?: unknown[] }[] };
+    const byQ = Object.fromEntries((r.results ?? []).map((x) => [x.query, x]));
+    // Full name pins exactly one person (not ambiguous) — the bug was it kept re-asking.
+    expect(byQ["Ismail Louali"]?.name).toBe("Ismail Louali");
+    expect(["ok", "no_cv"]).toContain(byQ["Ismail Louali"]?.status); // resolved a single candidate
+    // Bare first name shared by two people → ambiguous (ask which), not a wrong guess.
+    expect(byQ["Hajar"]?.status).toBe("ambiguous");
+    expect(byQ["Hajar"]?.matches?.length).toBe(2);
+    // Unknown → not_found.
+    expect(byQ["Nour Eddine Zzz"]?.status).toBe("not_found");
+  });
+
   it("getCandidateById returns the profile summary for the supreme admin", async () => {
     h.tables.candidate_profiles = {
       data: { user_id: "any-cand", first_name: "Any", last_name: "Body", b2_exam_date: "2026-09-01", passport_expiry: null, passport_status: null },

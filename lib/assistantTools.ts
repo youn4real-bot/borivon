@@ -15,6 +15,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { canActOnCandidate, getStaffEmailSet, resolveAuthNames } from "@/lib/admin-auth";
 import { resolveFileKey, translateDocLabel, FILE_KEY_LABELS } from "@/lib/fileKeys";
 import { signDlToken } from "@/lib/dlToken";
+import { UUID_RE } from "@/lib/uuid";
 import { computeBriefing } from "@/lib/briefing";
 import { stagePending, executeLatestPending, cancelLatestPending, MILESTONE_BOOL } from "@/lib/assistantWrites";
 import { AUTOMATIONS, getAutomationFlags, setAutomation as persistAutomation } from "@/lib/automationSettings";
@@ -323,6 +324,58 @@ export function buildAssistantTools(
           : `docId=${encodeURIComponent(d.id)}`;
         const url = `/api/portal/file?${idPart}&dlt=${encodeURIComponent(token)}&dl=1&name=${name}`;
         return { url, expiresInSec: 180, fileName: d.file_name ?? "document" };
+      },
+    }),
+
+    getCvLinks: tool({
+      description:
+        "Pull the CVs of MANY candidates AT ONCE — use this WHENEVER the admin asks for the CVs of two or more people (e.g. 'CVs of Ismail Louali, Samira Irsani, Hajar El Kairaa and Lahcen Labzioui'). Pass `candidates` = the FULL names exactly as the admin gave them (a candidateUserId also works). It resolves every name, finds each one's latest CV, and returns one entry per request — the bot delivers each found CV file straight into the chat. ALWAYS use this for multi-person CV requests instead of calling searchCandidates + getDocumentDownloadLink one person at a time. Per-entry status: 'ok' (link delivered), 'ambiguous' (name matched several people — show the matches and ask which), 'no_cv' (no CV on file), 'not_found'. Links expire in 3 minutes.",
+      inputSchema: z.object({
+        candidates: z.array(z.string().min(1).max(120)).min(1).max(15).describe("the candidates' full names (or candidateUserIds), one per person the admin asked for"),
+      }),
+      execute: async ({ candidates }) => {
+        if (lockedOut) return { results: [] };
+        const roster = await candidateRoster();
+        const results: Array<Record<string, unknown>> = [];
+        for (const raw of candidates) {
+          const q = (raw ?? "").trim();
+          if (!q) continue;
+          // Resolve: a UUID → direct; else by name. Prefer an exact full-name
+          // match; otherwise require EVERY token of the query to appear in the
+          // name — so "Hajar El Kairaa" pins one person while a bare "Hajar"
+          // (which matches several) comes back ambiguous instead of guessing.
+          let matches: { userId: string; name: string }[];
+          if (UUID_RE.test(q)) {
+            matches = roster.filter((c) => c.userId === q);
+          } else {
+            const needle = q.toLowerCase();
+            const exact = roster.filter((c) => c.name.toLowerCase() === needle);
+            const toks = needle.split(/\s+/).filter(Boolean);
+            matches = exact.length ? exact : roster.filter((c) => {
+              const n = c.name.toLowerCase();
+              return toks.every((tk) => n.includes(tk));
+            });
+          }
+          if (matches.length === 0) { results.push({ query: raw, status: "not_found" }); continue; }
+          if (matches.length > 1) {
+            results.push({ query: raw, status: "ambiguous", matches: matches.slice(0, 6).map((m) => ({ candidateUserId: m.userId, name: m.name })) });
+            continue;
+          }
+          const cand = matches[0];
+          const { data: docs } = await db
+            .from("documents")
+            .select("id, file_name, file_type, status, uploaded_at, drive_file_id, r2_key")
+            .eq("user_id", cand.userId)
+            .order("uploaded_at", { ascending: false });
+          const cv = ((docs ?? []) as DocRow[]).find((d) => CV_KINDS.has(resolveFileKey(d.file_type)));
+          if (!cv) { results.push({ query: raw, name: cand.name, status: "no_cv" }); continue; }
+          const token = signDlToken(scope.userId, 180);
+          const fname = encodeURIComponent((cv.file_name ?? `${cand.name} CV`).slice(0, 180));
+          const idPart = cv.drive_file_id ? `id=${encodeURIComponent(cv.drive_file_id)}` : `docId=${encodeURIComponent(cv.id)}`;
+          const url = `/api/portal/file?${idPart}&dlt=${encodeURIComponent(token)}&dl=1&name=${fname}`;
+          results.push({ query: raw, name: cand.name, status: "ok", url, fileName: cv.file_name ?? `${cand.name} CV`, kind: resolveFileKey(cv.file_type) });
+        }
+        return { results };
       },
     }),
 

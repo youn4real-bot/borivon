@@ -208,10 +208,18 @@ export default function AdminAssistantPanel({ accessToken }: { accessToken: stri
                 // Download links come from the TOOL's structured output (exact url +
                 // filename) — NOT the model's retyped text, which is what produced the
                 // broken ".pdf_" name. download={fileName} forces the clean save name.
+                type DlOut = { url?: string; fileName?: string; results?: { url?: string; fileName?: string }[] };
                 const downloads = m.parts
-                  .map((p) => p as { type?: string; output?: { url?: string; fileName?: string }; result?: { url?: string; fileName?: string } })
-                  .filter((p) => p.type === "tool-getDocumentDownloadLink")
-                  .map((p) => p.output ?? p.result)
+                  .map((p) => p as { type?: string; output?: DlOut; result?: DlOut })
+                  // Single-link tool (getDocumentDownloadLink) + batch tool
+                  // (getCvLinks → results[]), so "pull the CVs of A,B,C,D" shows
+                  // a download button per CV, not just the first.
+                  .filter((p) => p.type === "tool-getDocumentDownloadLink" || p.type === "tool-getCvLinks")
+                  .flatMap((p) => {
+                    const o = p.output ?? p.result;
+                    if (!o) return [] as { url?: string; fileName?: string }[];
+                    return o.url ? [o] : (o.results ?? []);
+                  })
                   .filter((o): o is { url?: string; fileName?: string } => !!o && typeof o.url === "string")
                   .map((o) => ({ url: o.url as string, fileName: o.fileName || "document" }));
                 const isUser = m.role === "user";

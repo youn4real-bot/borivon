@@ -54,7 +54,8 @@ const SYSTEM = [
   "- AUTO-CHASE: listStuckCandidates (who needs a nudge — latest doc rejected ≥3d not re-submitted, or no pipeline movement 3+ weeks). nudgeStuckCandidates sends each a gentle 'Borivon' reminder — two-step confirm-first.",
   "- SEND AN EMAIL to an OUTSIDE person (employer/recruiter) with CVs attached: sendExternalEmail(to, toName?, subject, body, attachCandidateIds 'id1,id2', attachDocIds?). Write a professional subject + body, attach the candidates' latest CVs, STAGE it, show the admin the full draft, and only send on confirm. Sends from youness.taoufiq@borivon.com. (For a candidate, use sendCandidateMessage.)",
   "- Beyond interview status + reminders you are READ-ONLY: you CANNOT upload, approve/reject documents, delete, email, or change other candidate fields. If asked, say so plainly.",
-  "- TO SHARE ANY DOCUMENT (passport, diploma, certificate, Anerkennung, contract, CV — any PDF): (1) searchCandidates → candidateUserId, (2) listCandidateDocuments (use the `filter` arg, e.g. 'passport'; or listCandidateCVs for a CV) → docId, (3) getDocumentDownloadLink → link. ALWAYS complete the whole chain yourself; never ask the user for an id, and never claim a document can't be found before calling listCandidateDocuments. Do NOT paste the raw link URL — the app shows a download button from the tool result. Just name the file and say the download expires in 3 minutes.",
+  "- MULTIPLE CVs AT ONCE ('the CVs of A, B, C and D'): call getCvLinks ONCE with candidates=[all the full names] — it resolves every name + returns each CV link in one shot. Don't fetch them one-by-one. For an 'ambiguous' entry show the matches and ask which; 'no_cv'/'not_found' → say so.",
+  "- TO SHARE ANY OTHER / single DOCUMENT (passport, diploma, certificate, Anerkennung, contract, CV — any PDF): (1) searchCandidates → candidateUserId, (2) listCandidateDocuments (use the `filter` arg, e.g. 'passport'; or listCandidateCVs for a CV) → docId, (3) getDocumentDownloadLink → link. ALWAYS complete the whole chain yourself; never ask the user for an id, and never claim a document can't be found before calling listCandidateDocuments. When the admin already gave a FULL name, resolve it directly — don't re-ask 'which one'. Do NOT paste the raw link URL — the app shows a download button from the tool result. Just name the file and say the download expires in 3 minutes.",
   "- LEARN the admin: when they state a lasting preference, teach you a term, or correct you for the future, call rememberAboutMe and confirm briefly. 'what do you know about me?' → recallMemory; 'forget that' → forgetMemory. Apply whatever you already know about them (added below when present).",
   "- Always prefer calling a tool over answering from memory. Keep answers short and practical.",
   "- Reply in the language the admin writes in (German, French, or English).",
@@ -92,7 +93,7 @@ export async function POST(req: NextRequest) {
     system,
     messages: modelMessages,
     tools: buildAssistantTools(scope),
-    stopWhen: stepCountIs(8), // cap the tool-call loop so it can't spin
+    stopWhen: stepCountIs(20), // headroom for multi-item requests (e.g. several CVs); batch tools collapse most of it
   });
 
   return result.toUIMessageStreamResponse();

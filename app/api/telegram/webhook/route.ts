@@ -63,7 +63,8 @@ const TG_SYSTEM = [
   "- If the admin ATTACHES a photo or document (e.g. 'replace Hajar's passport with this' + a photo), STORE it via storeCandidateDocument: identify the candidate, pick docKey ('id'=passport, 'cv_de'=CV, 'langcert'=B2 cert, 'diploma', 'workcert', 'impfung', or 'other'=Sonstiges when unsure), stage it, and ask the admin to confirm before confirmPendingWrite. It lands as a PENDING document in that candidate's portal. NEVER store a file for the wrong person — if you can't tell who, ASK. The file's BYTES are kept exactly as sent (never altered). NOTE for a passport (docKey 'id'): the bot stores the image as-is but does NOT auto-extract the passport DATA — tell the admin the extracted fields appear once they open that passport on the website.",
   "- To INVITE A NEW CANDIDATE / get a signup link: call createCandidateInviteLink (no arguments needed). It returns the same /join/candidate link the website's 'Invite candidate' button makes. Reply with the FULL link verbatim so the admin can copy and forward it. This is immediate — NO confirmation step. Each call makes a fresh single-use link (one per candidate).",
   "- Otherwise you are READ-ONLY on candidate data (no uploads, approvals, deletes, emails, or other field changes).",
-  "- TO SEND/SHARE/PULL ANY DOCUMENT (passport, diploma, certificate, Anerkennung, contract, CV — any PDF): (1) searchCandidates to get the candidateUserId, (2) listCandidateDocuments (use the `filter` arg, e.g. 'passport'; or listCandidateCVs for a CV) to find the docId, (3) getDocumentDownloadLink for that docId. ALWAYS run the whole chain yourself — the file is delivered straight into this chat. NEVER ask the admin for an id, and NEVER say you can't find a document before actually calling listCandidateDocuments. If a candidate has several matches, pick the best one or list them briefly. The link expires in 3 minutes.",
+  "- MULTIPLE CVs AT ONCE (the common case — 'pull the CVs of A, B, C and D'): call getCvLinks ONCE with candidates=[all the full names the admin gave], NOT one person at a time. It resolves every name, finds each CV, and the files are delivered straight into this chat in one go. For any entry that comes back 'ambiguous', show those matches and ask which; 'no_cv'/'not_found' → say so. NEVER fetch multi-person CVs by repeating searchCandidates+getDocumentDownloadLink per person (you'll run out of steps and only deliver some).",
+  "- TO SEND/SHARE/PULL ANY OTHER DOCUMENT, or a single person's doc (passport, diploma, certificate, Anerkennung, contract, CV — any PDF): (1) searchCandidates to get the candidateUserId, (2) listCandidateDocuments (use the `filter` arg, e.g. 'passport'; or listCandidateCVs for a CV) to find the docId, (3) getDocumentDownloadLink for that docId. ALWAYS run the whole chain yourself — the file is delivered straight into this chat. NEVER ask the admin for an id, and NEVER say you can't find a document before actually calling listCandidateDocuments. When the admin already gave a FULL name (first + last), resolve it directly — don't re-ask 'which one'. The link expires in 3 minutes.",
   "- LEARN the admin: when they state a lasting preference, teach you a term, or correct you for the future, call rememberAboutMe and confirm briefly. 'what do you know about me?' → recallMemory; 'forget that' → forgetMemory. Apply what you already know about them (added below when present).",
   "- Keep replies short and mobile-friendly (it's a chat). Reply in the admin's language (German/French/English).",
 ].join("\n");
@@ -173,24 +174,38 @@ export async function POST(req: NextRequest) {
       system: tgSystem,
       messages: [{ role: "user", content }],
       tools: buildAssistantTools(scope, pendingFile),
-      stopWhen: stepCountIs(8),
+      // Headroom for multi-item requests (e.g. "pull the CVs of these 4 people"):
+      // the batch tools (getCvLinks) collapse most of that into one call, but
+      // keep a generous ceiling so a per-person fallback path can still finish.
+      stopWhen: stepCountIs(20),
     });
 
     // PULL: if the model produced download link(s), deliver the actual file(s)
-    // INTO the chat (not just a link). Aggregate across all tool-call steps.
+    // INTO the chat (not just a link). Aggregate across all tool-call steps,
+    // and across BOTH single-link tools (getDocumentDownloadLink → {url}) and
+    // batch tools (getCvLinks → {results:[{url}]}), so a 4-CV request delivers
+    // all 4 files, not just the first.
+    const FILE_TOOLS = new Set(["getDocumentDownloadLink", "getCvLinks"]);
     let sentFile = false;
     try {
       const steps = (result as { steps?: Array<{ toolResults?: unknown[] }> }).steps;
       const all = (steps?.flatMap((s) => s.toolResults ?? []) ?? (result.toolResults ?? [])) as Array<{
-        toolName?: string; output?: { url?: string; fileName?: string }; result?: { url?: string; fileName?: string };
+        toolName?: string;
+        output?: { url?: string; fileName?: string; results?: { url?: string; fileName?: string }[] };
+        result?: { url?: string; fileName?: string; results?: { url?: string; fileName?: string }[] };
       }>;
       for (const t of all) {
+        if (!t.toolName || !FILE_TOOLS.has(t.toolName)) continue;
         const out = t.output ?? t.result;
-        if (t.toolName !== "getDocumentDownloadLink" || !out?.url) continue;
-        const f = await fetch(`${BASE_URL}${out.url}`);
-        if (f.ok) {
-          const bytes = new Uint8Array(await f.arrayBuffer());
-          if (await tgSendDocument(chatId, bytes, out.fileName || "document")) sentFile = true;
+        const links: { url: string; fileName?: string }[] = [];
+        if (out?.url) links.push({ url: out.url, fileName: out.fileName });
+        for (const r of out?.results ?? []) if (r?.url) links.push({ url: r.url, fileName: r.fileName });
+        for (const link of links) {
+          const f = await fetch(`${BASE_URL}${link.url}`);
+          if (f.ok) {
+            const bytes = new Uint8Array(await f.arrayBuffer());
+            if (await tgSendDocument(chatId, bytes, link.fileName || "document")) sentFile = true;
+          }
         }
       }
     } catch (e) {
