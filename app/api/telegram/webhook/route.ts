@@ -318,10 +318,12 @@ export async function POST(req: NextRequest) {
     // need an explicit "yes" (handled by the code-confirm intercept next message).
     if (!confirmOutcome) {
       try {
-        const applied = await autoApplyPending(scope);
-        if ("done" in applied) confirmOutcome = { done: applied.done, summary: applied.summary };
-        else if ("error" in applied) confirmOutcome = { error: applied.error };
-        // skipped (nothing pending / destructive) → leave confirmOutcome null
+        const res = await autoApplyPending(scope); // drains ALL non-destructive actions staged this turn
+        if ("applied" in res) {
+          if (res.failed.length) confirmOutcome = { error: `${res.failed.join("; ")}${res.applied.length ? ` (but did apply: ${res.applied.join("; ")})` : ""}` };
+          else if (res.applied.length) confirmOutcome = { done: true, summary: res.applied.join("; ") };
+        }
+        // skipped (nothing pending / only destructive awaiting yes) → leave null
       } catch (e) {
         console.error("[telegram] auto-apply failed:", e instanceof Error ? e.message : e);
       }

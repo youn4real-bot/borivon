@@ -1195,9 +1195,15 @@ export async function stagePending(
     return { staged: true, summary: opts.summary }; // identical re-stage → keep the existing pending untouched
   }
 
-  // Drop any older still-pending proposal for this admin so 'yes' is unambiguous.
-  await db.from("assistant_pending_actions").update({ status: "cancelled" })
-    .eq("owner_user_id", scope.userId).eq("status", "pending");
+  // For a DESTRUCTIVE action (needs an explicit 'yes'), drop older pending so the
+  // 'yes' is unambiguous. For NON-destructive actions, KEEP the siblings — the
+  // model often stages several in ONE turn (e.g. message 4 candidates, set B2 for
+  // a few) and autoApplyPending drains them ALL; cancelling siblings here silently
+  // dropped every one but the last (a real bug the audit caught).
+  if (DESTRUCTIVE_TOOLS.has(opts.toolName)) {
+    await db.from("assistant_pending_actions").update({ status: "cancelled" })
+      .eq("owner_user_id", scope.userId).eq("status", "pending");
+  }
   const { error } = await db.from("assistant_pending_actions").insert({
     owner_user_id: scope.userId,
     tool_name: opts.toolName,
@@ -1221,6 +1227,18 @@ export async function executeLatestPending(
 ): Promise<{ done: true; summary: string } | { error: string }> {
   const row = await getLatestPending(scope.userId);
   if (!row) return { error: "nothing_pending" };
+  return applyPendingRow(scope, row, opts);
+}
+
+/** Apply ONE specific staged row: anti-injection guard + serve-time scope recheck
+ *  + dispatch + mark confirmed. Shared by executeLatestPending (the human "yes"
+ *  path) and autoApplyPending (which drains ALL non-destructive actions staged
+ *  this turn, so a multi-action message — "message all 4" — applies every one). */
+async function applyPendingRow(
+  scope: AssistantScope,
+  row: PendingRow,
+  opts?: { allowSameTurn?: boolean },
+): Promise<{ done: true; summary: string } | { error: string }> {
   // Anti-injection: a write may NOT be confirmed in the same request that staged
   // it. The model loops up to ~8 tool calls per inbound message, so without this
   // it could stage AND call confirmPendingWrite in one turn — skipping the human
@@ -1471,10 +1489,31 @@ export const DESTRUCTIVE_TOOLS = new Set<string>(["deleteCandidateAccount", "del
  */
 export async function autoApplyPending(
   scope: AssistantScope,
-): Promise<{ done: true; summary: string } | { skipped: "nothing" | "destructive"; summary?: string } | { error: string }> {
-  const row = await getLatestPending(scope.userId);
-  if (!row) return { skipped: "nothing" };
-  if (DESTRUCTIVE_TOOLS.has(row.tool_name)) return { skipped: "destructive", summary: row.summary };
-  const r = await executeLatestPending(scope, { allowSameTurn: true });
-  return r;
+): Promise<{ applied: string[]; failed: string[] } | { skipped: "nothing" }> {
+  if (!scope.userId) return { skipped: "nothing" };
+  const db = getServiceSupabase();
+  const applied: string[] = [];
+  const failed: string[] = [];
+  // Drain EVERY pending non-destructive action staged this turn (oldest first),
+  // so "message all 4 of them" / "set B2 for these 3" applies them ALL — not just
+  // the last. Destructive actions are left pending for an explicit human "yes".
+  for (let i = 0; i < 20; i++) {
+    const { data } = await db.from("assistant_pending_actions")
+      .select("id, tool_name, args, candidate_user_id, summary, expires_at")
+      .eq("owner_user_id", scope.userId).eq("status", "pending")
+      .order("created_at", { ascending: true }).limit(20);
+    const rows = ((data ?? []) as PendingRow[]).filter((r) => new Date(r.expires_at).getTime() >= Date.now());
+    const next = rows.find((r) => !DESTRUCTIVE_TOOLS.has(r.tool_name));
+    if (!next) break; // only destructive left (awaiting 'yes'), or nothing pending
+    const r = await applyPendingRow(scope, next, { allowSameTurn: true });
+    if ("done" in r) {
+      applied.push(next.summary);
+    } else {
+      failed.push(r.error);
+      // Mark the failed row cancelled so the loop advances instead of spinning.
+      await db.from("assistant_pending_actions").update({ status: "cancelled" }).eq("id", next.id);
+    }
+  }
+  if (applied.length === 0 && failed.length === 0) return { skipped: "nothing" };
+  return { applied, failed };
 }
