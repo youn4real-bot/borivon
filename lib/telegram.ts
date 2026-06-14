@@ -81,6 +81,18 @@ export function splitIntoBubbles(text: string, maxLen = 800, maxBubbles = 4): st
   return bubbles;
 }
 
+/** When the model shows an email/message, it emits `info line ——— body`. Split on
+ *  the divider so the BODY can be sent ALONE in its own clean bubble (the founder
+ *  wants to see exactly what's going out, minus the metadata). Pure → tested.
+ *  Returns null when there's no divider (a normal reply). */
+export function splitOnDivider(text: string): { info: string; body: string } | null {
+  const m = (text || "").match(/\n[ \t]*[—–-]{3,}[ \t]*(?:\n|$)/);
+  if (!m || m.index === undefined) return null;
+  const body = text.slice(m.index + m[0].length).trim();
+  if (!body) return null; // a trailing divider with nothing after it isn't a draft
+  return { info: text.slice(0, m.index).trim(), body };
+}
+
 /** Send a reply the natural way: as a few digestible bubbles with a brief
  *  "typing…" pause between them (the single biggest "feels like ChatGPT" lever).
  *  Short replies go out as one message with no delay. */

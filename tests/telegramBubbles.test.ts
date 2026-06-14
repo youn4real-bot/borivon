@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { splitIntoBubbles } from "../lib/telegram";
+import { splitIntoBubbles, splitOnDivider } from "../lib/telegram";
 
 // splitIntoBubbles makes the bot reply in 1–4 chat-like bubbles instead of one
 // monolith — but a SHORT reply must stay a single bubble, and we must never
@@ -33,5 +33,29 @@ describe("splitIntoBubbles", () => {
 
   it("returns [] for empty/whitespace", () => {
     expect(splitIntoBubbles("   \n  ")).toEqual([]);
+  });
+});
+
+describe("splitOnDivider — email info box vs body-alone (em-dash or hyphen divider)", () => {
+  it("splits the info line from the body on a ——— divider", () => {
+    const text = "To: anna@klinik.de · Subject: Update · 📎 —\n———\nHallo Anna,\n\nhier das Update.\n\nLG";
+    const r = splitOnDivider(text);
+    expect(r).not.toBeNull();
+    expect(r!.info).toBe("To: anna@klinik.de · Subject: Update · 📎 —");
+    expect(r!.body).toBe("Hallo Anna,\n\nhier das Update.\n\nLG"); // body kept whole, paragraphs intact
+  });
+
+  it("also accepts a plain --- hyphen divider", () => {
+    const r = splitOnDivider("To: x · Subject: y\n---\nthe body");
+    expect(r?.body).toBe("the body");
+  });
+
+  it("returns null for a normal reply (no divider)", () => {
+    expect(splitOnDivider("Sent to Anna ✅")).toBeNull();
+    expect(splitOnDivider("Here are two\n\nparagraphs, no divider.")).toBeNull();
+  });
+
+  it("returns null for a trailing divider with nothing after it", () => {
+    expect(splitOnDivider("some text\n———\n   ")).toBeNull();
   });
 });
