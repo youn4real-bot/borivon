@@ -2268,17 +2268,18 @@ export function buildAssistantTools(
 
     sendExternalEmail: tool({
       description:
-        "STAGE an outbound EMAIL to an EXTERNAL person (an employer, recruiter, hospital contact — NOT a candidate; for candidates use sendCandidateMessage). e.g. 'send Hajar and Ali's CVs to anna.gombert@klinikum.de'. Provide to (ONE primary recipient's email), an optional toName, an optional cc (comma-separated extra recipients to copy — e.g. 'email Anna and CC Omar' → to=anna@…, cc='omar@…'), a subject, and a body (you write a clean, professional message). To attach candidate CVs, pass their candidateUserIds as a COMMA-SEPARATED string in attachCandidateIds — each candidate's latest German CV on file is attached. To attach specific documents, pass their docIds comma-separated in attachDocIds. Two-step: STAGE it, then SHOW the admin the full draft (recipient, cc, subject, body, attachments) and ONLY after they confirm in a SEPARATE message call confirmPendingWrite (cancelPendingWrite on no). It sends from youness.taoufiq@borivon.com (through the founder's Gmail once set up, otherwise via Borivon mail).",
+        "STAGE an outbound EMAIL to an EXTERNAL person (an employer, recruiter, hospital contact — NOT a candidate; for candidates use sendCandidateMessage). e.g. 'send Hajar and Ali's CVs to anna.gombert@klinikum.de'. Provide to (ONE primary recipient's email), an optional toName, an optional cc (comma-separated extra recipients to copy — e.g. 'email Anna and CC Omar' → to=anna@…, cc='omar@…'), a subject, and a body (you write a clean, professional message). To attach candidate CVs, pass their FULL NAMES (comma-separated, exactly as you'd give them to getCvLinks) in attachCandidateNames — e.g. 'Ismail Louali, Samira Irsani, Hajar El Kairaa, Lahcen Labzioui'. The bot resolves each name to that person's latest CV and attaches it. ALWAYS use names (attachCandidateNames) for CVs — do NOT try to pass ids you don't have. To attach specific documents by id, use attachDocIds. It sends from youness.taoufiq@borivon.com.",
       inputSchema: z.object({
         to: z.string().min(3).max(254).describe("the ONE primary recipient's email address"),
         toName: z.string().max(120).optional().describe("the recipient's name, if known"),
         cc: z.string().max(1000).optional().describe("comma-separated additional recipients to CC (copy), e.g. 'omar@x.com, sara@x.com'"),
         subject: z.string().min(1).max(200),
         body: z.string().min(1).max(8000).describe("the email body — write it professionally"),
-        attachCandidateIds: z.string().optional().describe("comma-separated candidateUserIds whose latest German CV to attach"),
+        attachCandidateNames: z.string().optional().describe("comma-separated candidate FULL NAMES whose latest CV to attach — e.g. 'Ismail Louali, Samira Irsani'. This is the reliable way; names always resolve."),
+        attachCandidateIds: z.string().optional().describe("(legacy) comma-separated candidate names OR candidateUserIds whose latest CV to attach — resolved the same way as attachCandidateNames"),
         attachDocIds: z.string().optional().describe("comma-separated document ids to attach"),
       }),
-      execute: async ({ to, toName, cc, subject, body, attachCandidateIds, attachDocIds }) => {
+      execute: async ({ to, toName, cc, subject, body, attachCandidateNames, attachCandidateIds, attachDocIds }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
         const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         // Tolerant: if several addresses get lumped into `to`, the FIRST is the
@@ -2292,7 +2293,23 @@ export function buildAssistantTools(
           .filter((c) => c.toLowerCase() !== email.toLowerCase()); // never CC the primary
         const badCc = ccList.find((c) => !emailRe.test(c));
         if (badCc) return { error: `bad_cc:${badCc}` };
-        const candIds = (attachCandidateIds ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+        // Resolve attachment candidates BY NAME (or id) through the SAME roster
+        // resolver getCvLinks uses — the model reliably knows names but routinely
+        // mangles ids (it was passing garbage ids → every CV "went missing"). So
+        // every reference, whether a name or a uuid, is resolved to a REAL id here.
+        const candRefs = [...(attachCandidateNames ?? "").split(","), ...(attachCandidateIds ?? "").split(",")]
+          .map((s) => s.trim()).filter(Boolean);
+        const candIds: string[] = [];
+        const unresolved: string[] = [];
+        if (candRefs.length) {
+          const roster = await candidateRoster();
+          for (const ref of candRefs) {
+            const m = pickCandidate(roster, ref);
+            if (m.status === "ok") { if (!candIds.includes(m.candidate.userId)) candIds.push(m.candidate.userId); }
+            else unresolved.push(ref);
+          }
+          if (unresolved.length) return { error: `couldnt_find_candidate: ${unresolved.join(", ")}` };
+        }
         const docIds = (attachDocIds ?? "").split(",").map((s) => s.trim()).filter(Boolean);
         // Must be allowed to send each attached candidate's CV.
         for (const cid of candIds) {
@@ -2312,7 +2329,7 @@ export function buildAssistantTools(
         const args: Record<string, unknown> = { to: email, subject: cleanSubject, body: cleanBody };
         if (toName !== undefined) args.toName = toName;
         if (ccList.length) args.cc = ccList.join(",");
-        if (attachCandidateIds !== undefined) args.attachCandidateIds = attachCandidateIds;
+        if (candIds.length) args.attachCandidateIds = candIds.join(","); // RESOLVED real ids, not the raw input
         if (attachDocIds !== undefined) args.attachDocIds = attachDocIds;
         return stagePending(scope, {
           toolName: "sendExternalEmail",

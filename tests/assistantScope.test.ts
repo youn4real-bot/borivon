@@ -874,6 +874,27 @@ describe("assistant tools allow the supreme admin", () => {
     expect(r.summary).toContain("DELETE");
   });
 
+  it("sendExternalEmail attaches CVs by NAME (resolves to real candidates; bad name → clear error, not a garbage id)", async () => {
+    h.tables.candidate_profiles = { data: [
+      { user_id: "11111111-1111-1111-1111-111111111111", first_name: "Ismail", last_name: "Louali" },
+      { user_id: "22222222-2222-2222-2222-222222222222", first_name: "Samira", last_name: "Irsani" },
+    ], error: null };
+    h.authUsers = [
+      { id: "11111111-1111-1111-1111-111111111111", email: "ismail@x.com", user_metadata: { full_name: "Ismail Louali" } },
+      { id: "22222222-2222-2222-2222-222222222222", email: "samira@x.com", user_metadata: { full_name: "Samira Irsani" } },
+    ];
+    const ok = (await run(buildAssistantTools(SUPREME), "sendExternalEmail", {
+      to: "anna@klinikum.de", subject: "Candidate CVs", body: "Hi Anna", attachCandidateNames: "Ismail Louali, Samira Irsani",
+    })) as { staged?: boolean; summary?: string };
+    expect(ok.staged).toBe(true);
+    expect(ok.summary).toContain("Ismail Louali");
+    expect(ok.summary).toContain("Samira Irsani");
+    // An unknown name fails loudly with the NAME — never a silent garbage id.
+    expect(await run(buildAssistantTools(SUPREME), "sendExternalEmail", {
+      to: "anna@klinikum.de", subject: "x", body: "y", attachCandidateNames: "Nobody Here",
+    })).toEqual({ error: "couldnt_find_candidate: Nobody Here" });
+  });
+
   it("setAcademyLevel stages a level change with the candidate name + level", async () => {
     h.tables.candidate_profiles = { data: { first_name: "Doha", last_name: "Zini" }, error: null };
     const r = (await run(buildAssistantTools(SUPREME), "setAcademyLevel", { candidateUserId: "11111111-1111-1111-1111-111111111111", level: "B1" })) as { staged?: boolean; summary?: string };

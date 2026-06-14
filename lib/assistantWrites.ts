@@ -20,7 +20,7 @@ import { FILE_KEY_LABELS } from "@/lib/fileKeys";
 import { applyDocReview, applyCandidateProfilePatch } from "@/lib/adminCandidateActions";
 import { backfillPassportFromCvDraft } from "@/lib/cvDraftBackfill";
 import { sendOutboundEmail, type OutboundAttachment } from "@/lib/outboundEmail";
-import { CV_DE_FILE_TYPES } from "@/lib/constants";
+import { resolveFileKey } from "@/lib/fileKeys";
 import { r2GetObject } from "@/lib/r2";
 import { validateImageDataUrl } from "@/lib/validateDataUrl";
 import { isFunnelStage } from "@/lib/batchBoard";
@@ -447,20 +447,26 @@ async function writeExternalEmail(
   // success). Any shortfall → refuse and tell the admin which ones are missing.
   const missing: string[] = [];
 
-  // Each candidate's latest German CV on file (with an R2 key).
+  // Each candidate's latest CV on file (with an R2 key). Find it EXACTLY like the
+  // getCvLinks tool does — by resolveFileKey(file_type) ∈ {cv_de, cv_visa}, NOT a
+  // narrow hardcoded file_type list — so any CV getCvLinks can deliver, this can
+  // attach too (the old narrow list silently dropped CVs whose stored type didn't
+  // match → "attachment_missing" even though the CV existed).
+  const CV_EMAIL_KINDS = new Set(["cv_de", "cv_visa"]);
   for (const cid of opts.candidateIds) {
     if (!(await canActOnCandidate(scope.role, scope.email, cid))) { missing.push(cid); continue; }
     const { data } = await db
       .from("documents")
-      .select("file_name, r2_key")
+      .select("file_name, file_type, r2_key")
       .eq("user_id", cid)
-      .in("file_type", CV_DE_FILE_TYPES as unknown as string[])
       .not("r2_key", "is", null)
-      .order("uploaded_at", { ascending: false })
-      .limit(1);
-    const doc = ((data ?? [])[0] ?? null) as { file_name: string | null; r2_key: string | null } | null;
-    const obj = doc?.r2_key ? await r2GetObject(doc.r2_key) : null;
-    if (obj?.body) attachments.push({ filename: doc!.file_name || `cv_${cid}.pdf`, content: obj.body });
+      .order("uploaded_at", { ascending: false });
+    const rows = (data ?? []) as { file_name: string | null; file_type: string | null; r2_key: string | null }[];
+    // Prefer the German CV (cv_de); fall back to any CV kind (cv_visa).
+    const cv = rows.find((d) => resolveFileKey(d.file_type) === "cv_de")
+      ?? rows.find((d) => CV_EMAIL_KINDS.has(resolveFileKey(d.file_type)));
+    const obj = cv?.r2_key ? await r2GetObject(cv.r2_key) : null;
+    if (obj?.body) attachments.push({ filename: cv!.file_name || `cv_${cid}.pdf`, content: obj.body });
     else missing.push(cid);
   }
 
