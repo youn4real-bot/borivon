@@ -358,7 +358,10 @@ export async function POST(req: NextRequest) {
     if (reply.trim()) {
       const draft = splitOnDivider(reply);
       if (draft) {
-        if (draft.info) await tgSend(chatId, draft.info);
+        // Info box (+ a note that the full signature & confidentiality footer are
+        // appended in code on send — so the body can stay clean yet nothing is "missing").
+        const info = [draft.info, "✍️ + your signature & confidentiality footer (\"Diese E-Mail … vertraulich …\") are auto-added on send"].filter(Boolean).join("\n");
+        await tgSend(chatId, info);
         void tgSendChatAction(chatId, "typing");
         await tgSend(chatId, draft.body); // the exact content that will be sent — alone
       } else {
