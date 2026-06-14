@@ -14,6 +14,7 @@
 import nodemailer from "nodemailer";
 import { Resend } from "resend";
 import { stripEmailFormatting } from "@/lib/emailFormat";
+import { getStoredSignatureHtml } from "@/lib/gmailSignature";
 
 /** Base URL for the logo image (the Playfair wordmark PNG — see app/email-logo). */
 const SITE = (process.env.NEXT_PUBLIC_BASE_URL || "https://www.borivon.com").replace(/\/+$/, "");
@@ -87,6 +88,17 @@ function textToHtml(text: string): string {
 const SIGNOFF_RE =
   /^(mit freundlichen gr[üu](ß|ss)en|mit besten gr[üu](ß|ss)en|beste gr[üu](ß|ss)e|herzliche gr[üu](ß|ss)e|viele gr[üu](ß|ss)e|liebe gr[üu](ß|ss)e|freundliche gr[üu](ß|ss)e|best regards|kind regards|warm regards|regards|sincerely|cordialement|bien (à|a) vous|best,|lg,?|vg,?)\b/i;
 
+/** Crude HTML→plain for the text/plain alternative when we use the real Gmail sig. */
+function htmlToPlain(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|tr|h[1-6]|li)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export function stripTrailingSignoff(text: string): string {
   const lines = text.split("\n");
   // Look only in the last 8 lines so we never cut into the real message body.
@@ -108,8 +120,13 @@ export async function sendOutboundEmail(opts: {
   // Plain-text body, with any model-written sign-off trimmed so the signature
   // replaces it (Gmail SMTP never adds the saved web signature itself).
   const cleanBody = stripTrailingSignoff(stripEmailFormatting(opts.body));
-  const text = `${cleanBody.trimEnd()}\n\n${OUTBOUND_SIGNATURE_TEXT}`;
-  const html = `${textToHtml(cleanBody)}<br/>${OUTBOUND_SIGNATURE_HTML}`;
+  // Prefer the founder's REAL Gmail signature (pulled live + cached once connected);
+  // fall back to the built-in Playfair-logo signature if not connected / it dropped.
+  const realSigHtml = await getStoredSignatureHtml().catch(() => null);
+  const sigHtml = realSigHtml || OUTBOUND_SIGNATURE_HTML;
+  const sigText = realSigHtml ? htmlToPlain(realSigHtml) : OUTBOUND_SIGNATURE_TEXT;
+  const text = `${cleanBody.trimEnd()}\n\n${sigText}`;
+  const html = `${textToHtml(cleanBody)}<br/>${sigHtml}`;
   const atts = opts.attachments ?? [];
   const cc = (opts.cc ?? []).map((c) => c.trim()).filter(Boolean);
 
