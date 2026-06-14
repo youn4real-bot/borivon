@@ -301,6 +301,12 @@ describe("assistant tools enforce LAW #25 scope (org-admin)", () => {
     expect(await run(t, "manageBatch", { op: "create", name: "UKSH — Q3 2026", seats: 10 })).toEqual({ error: "admin_only" });
     expect(await run(t, "setFunnelStage", { candidateUserId: "11111111-1111-1111-1111-111111111111", stage: "waiting_2nd" })).toEqual({ error: "admin_only" });
   });
+
+  it("sent-email memory tools (listRecentSentEmails, resendEmail) → admin_only for a sub-admin", async () => {
+    const t = buildAssistantTools(ORG_ADMIN);
+    expect(await run(t, "listRecentSentEmails", {})).toEqual({ error: "admin_only" });
+    expect(await run(t, "resendEmail", { emailId: "88888888-8888-8888-8888-888888888888" })).toEqual({ error: "admin_only" });
+  });
 });
 
 describe("assistant tools allow the supreme admin", () => {

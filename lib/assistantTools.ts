@@ -2340,6 +2340,65 @@ export function buildAssistantTools(
       },
     }),
 
+    listRecentSentEmails: tool({
+      description:
+        "List the recent emails you've SENT for the admin (recipient, subject, a body preview, which candidates' CVs were attached, and when). Read-only, supreme-only. Use this to RECALL or RESEND a past email — e.g. 'resend yesterday's email' / 'the same one as before' → call this, find the matching one, then resendEmail(emailId) to send it again exactly, OR sendExternalEmail (reusing its subject + body + attachCandidateNames) to send to a NEW recipient or with edits. NEVER ask the admin to retype an email you already sent — recall it here.",
+      inputSchema: z.object({ limit: z.number().int().min(1).max(20).optional() }),
+      execute: async ({ limit }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const { data, error } = await db
+          .from("assistant_sent_emails")
+          .select("id, to_email, cc, subject, body, candidate_ids, sent_at")
+          .eq("owner_user_id", scope.userId)
+          .order("sent_at", { ascending: false })
+          .limit(limit ?? 8);
+        if (error) return { error: "load_failed" };
+        const rows = (data ?? []) as { id: string; to_email: string; cc: string | null; subject: string; body: string; candidate_ids: string | null; sent_at: string }[];
+        const allIds = [...new Set(rows.flatMap((r) => (r.candidate_ids ?? "").split(",").map((s) => s.trim()).filter(Boolean)))];
+        let nameById = new Map<string, string>();
+        if (allIds.length) {
+          const roster = await candidateRoster();
+          nameById = new Map(roster.map((c) => [c.userId, c.name]));
+        }
+        return {
+          count: rows.length,
+          emails: rows.map((r) => ({
+            emailId: r.id,
+            to: r.to_email,
+            cc: r.cc || null,
+            subject: r.subject,
+            bodyPreview: r.body.slice(0, 400),
+            attachedCandidates: (r.candidate_ids ?? "").split(",").map((s) => s.trim()).filter(Boolean).map((id) => nameById.get(id) || id),
+            sentAt: r.sent_at,
+          })),
+        };
+      },
+    }),
+
+    resendEmail: tool({
+      description:
+        "Resend an email you previously sent, EXACTLY as before — same recipient, CC, subject, body, and the SAME CV attachments. emailId comes from listRecentSentEmails. Use for 'resend that' / 'send it again'. (To resend to a DIFFERENT recipient or with edits, use sendExternalEmail instead, reusing the subject + body from listRecentSentEmails.) Supreme-only; sends immediately when you call it.",
+      inputSchema: z.object({ emailId: z.string().uuid() }),
+      execute: async ({ emailId }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const { data } = await db.from("assistant_sent_emails")
+          .select("to_email, cc, subject, body, candidate_ids, doc_ids")
+          .eq("id", emailId).eq("owner_user_id", scope.userId).maybeSingle();
+        if (!data) return { error: "not_found" };
+        const e = data as { to_email: string; cc: string | null; subject: string; body: string; candidate_ids: string | null; doc_ids: string | null };
+        const args: Record<string, unknown> = { to: e.to_email, subject: e.subject, body: e.body };
+        if (e.cc) args.cc = e.cc;
+        if (e.candidate_ids) args.attachCandidateIds = e.candidate_ids; // stored REAL ids → writeExternalEmail re-attaches the CVs
+        if (e.doc_ids) args.attachDocIds = e.doc_ids;
+        return stagePending(scope, {
+          toolName: "sendExternalEmail",
+          args,
+          candidateUserId: null,
+          summary: `Resend email to ${e.to_email}: ${e.subject}`,
+        });
+      },
+    }),
+
     sendCandidateMessage: tool({
       description:
         "STAGE a message to a candidate — e.g. 'tell X to re-upload their CV in French', 'message X their interview is Monday 10:00', 'email X to send their passport scan'. channel: 'chat' = post into their portal chat as 'Borivon Support' (in-app, default); 'email' = send it as an email; 'both'. The message is sent immediately when you call it — do NOT ask the admin to confirm.",

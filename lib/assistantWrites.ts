@@ -486,6 +486,20 @@ async function writeExternalEmail(
 
   const res = await sendOutboundEmail({ to: opts.to, toName: opts.toName, cc: opts.cc, subject: opts.subject, body: opts.body, attachments });
   if (!res.ok) return { ok: false, error: res.error };
+  // Log it so the bot can recall / resend it later ("resend yesterday's email").
+  // Best-effort: if the table isn't migrated yet, the send still succeeds.
+  try {
+    await db.from("assistant_sent_emails").insert({
+      owner_user_id: scope.userId,
+      to_email: opts.to,
+      cc: (opts.cc ?? []).join(",") || null,
+      subject: opts.subject,
+      body: opts.body,
+      candidate_ids: opts.candidateIds.join(",") || null,
+      doc_ids: opts.docIds.join(",") || null,
+      channel: res.channel,
+    });
+  } catch { /* assistant_sent_emails not migrated yet → skip the log */ }
   return { ok: true };
 }
 
