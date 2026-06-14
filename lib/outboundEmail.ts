@@ -14,6 +14,7 @@
 import nodemailer from "nodemailer";
 import { Resend } from "resend";
 import { stripEmailFormatting } from "@/lib/emailFormat";
+import { getStoredSignatureHtml } from "@/lib/gmailSignature";
 
 /** From address (must be on the verified borivon.com domain to send via Resend). */
 export const OUTBOUND_FROM_EMAIL = (process.env.OUTBOUND_FROM_EMAIL || "youness.taoufiq@borivon.com").trim();
@@ -82,6 +83,17 @@ function textToHtml(text: string): string {
 // of the body, cut from there so the official signature below isn't duplicated.
 const SIGNOFF_RE =
   /^(mit freundlichen gr[üu](ß|ss)en|mit besten gr[üu](ß|ss)en|beste gr[üu](ß|ss)e|herzliche gr[üu](ß|ss)e|viele gr[üu](ß|ss)e|liebe gr[üu](ß|ss)e|freundliche gr[üu](ß|ss)e|best regards|kind regards|warm regards|regards|sincerely|cordialement|bien (à|a) vous|best,|lg,?|vg,?)\b/i;
+/** Crude HTML→plain for the text/plain alternative when we use a rich signature. */
+function htmlToPlain(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|tr|h[1-6]|li)>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 export function stripTrailingSignoff(text: string): string {
   const lines = text.split("\n");
   // Look only in the last 8 lines so we never cut into the real message body.
@@ -100,13 +112,17 @@ export async function sendOutboundEmail(opts: {
   attachments?: OutboundAttachment[];
 }): Promise<OutboundResult> {
   const subject = stripEmailFormatting(opts.subject).replace(/[\r\n]+/g, " ").trim().slice(0, 200);
-  // Plain-text body, with any model-written sign-off trimmed so the official
-  // signature replaces it (Gmail SMTP never adds the saved web signature itself).
+  // Plain-text body, with any model-written sign-off trimmed so the signature
+  // replaces it (Gmail SMTP never adds the saved web signature itself).
   const cleanBody = stripTrailingSignoff(stripEmailFormatting(opts.body));
-  // text/plain part = body + the plain-text signature twin.
-  const text = `${cleanBody.trimEnd()}\n\n${OUTBOUND_SIGNATURE_TEXT}`;
-  // text/html part = body rendered + the rich signature (Borivon wordmark + disclaimer).
-  const html = `${textToHtml(cleanBody)}<br/>${OUTBOUND_SIGNATURE_HTML}`;
+  // Prefer the founder's REAL Gmail signature (pulled live + cached via the
+  // read-only Gmail connection) — logo image + disclaimer, exactly as saved.
+  // Falls back to the built-in match when not connected / unmigrated.
+  const realSigHtml = await getStoredSignatureHtml().catch(() => null);
+  const sigHtml = realSigHtml || OUTBOUND_SIGNATURE_HTML;
+  const sigText = realSigHtml ? htmlToPlain(realSigHtml) : OUTBOUND_SIGNATURE_TEXT;
+  const text = `${cleanBody.trimEnd()}\n\n${sigText}`;
+  const html = `${textToHtml(cleanBody)}<br/>${sigHtml}`;
   const atts = opts.attachments ?? [];
   const cc = (opts.cc ?? []).map((c) => c.trim()).filter(Boolean);
 
