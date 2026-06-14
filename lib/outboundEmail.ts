@@ -14,7 +14,9 @@
 import nodemailer from "nodemailer";
 import { Resend } from "resend";
 import { stripEmailFormatting } from "@/lib/emailFormat";
-import { getStoredSignatureHtml } from "@/lib/gmailSignature";
+
+/** Base URL for the logo image (the Playfair wordmark PNG — see app/email-logo). */
+const SITE = (process.env.NEXT_PUBLIC_BASE_URL || "https://www.borivon.com").replace(/\/+$/, "");
 
 /** From address (must be on the verified borivon.com domain to send via Resend). */
 export const OUTBOUND_FROM_EMAIL = (process.env.OUTBOUND_FROM_EMAIL || "youness.taoufiq@borivon.com").trim();
@@ -23,11 +25,12 @@ export const OUTBOUND_FROM_NAME = (process.env.OUTBOUND_FROM_NAME || "Youness Ta
 
 // Email signature. Gmail's web/app signature is NOT applied to App-Password/SMTP
 // sends (it's only added when you compose in the Gmail UI) — so we reproduce the
-// founder's EXACT saved Gmail signature here: greeting, CEO line, address, the
-// italic "Borivon." wordmark (gold dot), and the German confidentiality
-// disclaimer. Rendered as styled HTML TEXT (no image → renders identically in
-// every client, never blocked). A plain-text twin rides along as the text/plain
-// part. Override either via the OUTBOUND_SIGNATURE / OUTBOUND_SIGNATURE_HTML env.
+// founder's signature here: greeting, CEO line, address, the "Borivon." wordmark,
+// and the German confidentiality disclaimer. The wordmark is the /email-logo PNG
+// (the EXACT site font — Playfair Display Italic 700 — rendered to an image,
+// because email clients strip custom fonts so text can never match the logo).
+// A plain-text twin rides along as the text/plain part. Override either via the
+// OUTBOUND_SIGNATURE / OUTBOUND_SIGNATURE_HTML env.
 export const OUTBOUND_SIGNATURE_TEXT = (process.env.OUTBOUND_SIGNATURE ?? [
   "Mit freundlichen Grüßen,",
   "Youness Taoufiq",
@@ -54,7 +57,7 @@ export const OUTBOUND_SIGNATURE_HTML = (process.env.OUTBOUND_SIGNATURE_HTML ?? `
   <div>77 Boulevard Mohamed Smiha</div>
   <div>20080 Casablanca, Marokko</div>
   <div style="height:18px;line-height:18px;">&nbsp;</div>
-  <div style="font-family:Georgia,'Times New Roman',serif;font-weight:bold;font-style:italic;font-size:30px;color:#3a3a38;letter-spacing:-0.5px;">Borivon<span style="color:#c9a240;">.</span></div>
+  <img src="${SITE}/email-logo" alt="Borivon" width="150" height="48" style="display:block;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;" />
   <div style="height:18px;line-height:18px;">&nbsp;</div>
   <div style="font-style:italic;font-size:12px;color:#8a8a85;line-height:1.5;">
     <div>Diese E-Mail und ihre Anhänge sind vertraulich und ausschließlich für den/die Empfänger/in bestimmt.</div>
@@ -83,16 +86,6 @@ function textToHtml(text: string): string {
 // of the body, cut from there so the official signature below isn't duplicated.
 const SIGNOFF_RE =
   /^(mit freundlichen gr[üu](ß|ss)en|mit besten gr[üu](ß|ss)en|beste gr[üu](ß|ss)e|herzliche gr[üu](ß|ss)e|viele gr[üu](ß|ss)e|liebe gr[üu](ß|ss)e|freundliche gr[üu](ß|ss)e|best regards|kind regards|warm regards|regards|sincerely|cordialement|bien (à|a) vous|best,|lg,?|vg,?)\b/i;
-/** Crude HTML→plain for the text/plain alternative when we use a rich signature. */
-function htmlToPlain(html: string): string {
-  return html
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|tr|h[1-6]|li)>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/gi, " ").replace(/&amp;/gi, "&").replace(/&lt;/gi, "<").replace(/&gt;/gi, ">")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
 
 export function stripTrailingSignoff(text: string): string {
   const lines = text.split("\n");
@@ -115,14 +108,8 @@ export async function sendOutboundEmail(opts: {
   // Plain-text body, with any model-written sign-off trimmed so the signature
   // replaces it (Gmail SMTP never adds the saved web signature itself).
   const cleanBody = stripTrailingSignoff(stripEmailFormatting(opts.body));
-  // Prefer the founder's REAL Gmail signature (pulled live + cached via the
-  // read-only Gmail connection) — logo image + disclaimer, exactly as saved.
-  // Falls back to the built-in match when not connected / unmigrated.
-  const realSigHtml = await getStoredSignatureHtml().catch(() => null);
-  const sigHtml = realSigHtml || OUTBOUND_SIGNATURE_HTML;
-  const sigText = realSigHtml ? htmlToPlain(realSigHtml) : OUTBOUND_SIGNATURE_TEXT;
-  const text = `${cleanBody.trimEnd()}\n\n${sigText}`;
-  const html = `${textToHtml(cleanBody)}<br/>${sigHtml}`;
+  const text = `${cleanBody.trimEnd()}\n\n${OUTBOUND_SIGNATURE_TEXT}`;
+  const html = `${textToHtml(cleanBody)}<br/>${OUTBOUND_SIGNATURE_HTML}`;
   const atts = opts.attachments ?? [];
   const cc = (opts.cc ?? []).map((c) => c.trim()).filter(Boolean);
 
