@@ -12,15 +12,20 @@
  * returns [] and save is a no-op — the bot just behaves statelessly as before.
  * Never throws.
  *
- * SESSION WINDOW: only turns from the last few hours are loaded, so a brand-new
- * question hours later doesn't drag in stale, unrelated context.
+ * MEMORY WINDOW: the admin treats this like an ongoing chat across the day and
+ * across days ("the 4 CVs we talked about", "resend yesterday's email"). A tiny
+ * few-hour window meant anything from earlier in the day — let alone yesterday —
+ * was gone, and the bot answered "I don't have the context of our previous
+ * conversations." So the window is generous: a rolling ~50 turns over the last
+ * ~21 days. Gemini's context is huge, so loading that is cheap, and the bot now
+ * actually remembers what you were doing.
  */
 import { getServiceSupabase } from "@/lib/supabase";
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
-const MAX_TURNS = 12; // ~6 exchanges of context — enough for "these candidates"
-const WINDOW_MS = 6 * 60 * 60 * 1000; // only consider the last 6 hours as one session
+const MAX_TURNS = 50; // ~25 exchanges — enough to remember the day's (and week's) work
+const WINDOW_MS = 21 * 24 * 60 * 60 * 1000; // remember the last ~3 weeks as one ongoing conversation
 
 /** Recent turns for this admin, oldest→newest, within the session window. */
 export async function loadChatHistory(ownerUserId: string, limit = MAX_TURNS): Promise<ChatTurn[]> {
