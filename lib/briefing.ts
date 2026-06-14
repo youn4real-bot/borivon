@@ -77,7 +77,8 @@ export async function computeBriefing(adminUserId: string | null): Promise<Brief
   const pendByUser = new Map<string, number>();
   for (const d of pendRows) pendByUser.set(d.user_id, (pendByUser.get(d.user_id) ?? 0) + 1);
 
-  // ⏰ Your reminders due within 2 days / overdue / undated.
+  // ⏰ The tasks YOU asked me to remember — undated ones ALWAYS show (they stay
+  // until you mark them done), dated ones surface within a week / when overdue.
   let reminders: { text: string; due: string | null; days: number | null }[] = [];
   if (adminUserId) {
     const { data: rem } = await db
@@ -87,7 +88,7 @@ export async function computeBriefing(adminUserId: string | null): Promise<Brief
       .eq("done", false);
     reminders = ((rem ?? []) as { text: string; due_date: string | null }[])
       .map((r) => ({ text: r.text, due: r.due_date, ms: parseDate(r.due_date) }))
-      .filter((r) => r.ms === null || r.ms <= now + 2 * DAY)
+      .filter((r) => r.ms === null || r.ms <= now + 7 * DAY)
       .sort((a, b) => (a.ms ?? Infinity) - (b.ms ?? Infinity))
       .map((r) => ({ text: r.text, due: r.due, days: r.ms === null ? null : Math.round((r.ms - now) / DAY) }));
   }
@@ -104,6 +105,21 @@ export async function computeBriefing(adminUserId: string | null): Promise<Brief
   const lines: string[] = ["🗓️ Borivon — what needs you today", ""];
   let count = 0;
 
+  // ── YOUR dictated tasks lead (these are the ones you care about most) ──
+  if (reminders.length) {
+    count += reminders.length;
+    lines.push(`⏰ ${reminders.length} thing(s) you asked me to keep on top of:`);
+    for (const r of reminders.slice(0, 12)) {
+      const tag = r.days === null ? "" : r.days < 0 ? " (overdue)" : r.days === 0 ? " (today)" : ` (in ${r.days}d)`;
+      lines.push(`   • ${r.text}${tag}`);
+    }
+    lines.push("");
+  }
+  if (batch && batch.tasks.length) {
+    count += batch.count;
+    lines.push(formatBatchTasks(batch.tasks), "");
+  }
+  // ── then the automatic signals (your review queue + deadlines) ──
   if (pendByUser.size) {
     count += pendByUser.size;
     lines.push(`👀 ${pendRows.length} document(s) waiting for your review (${pendByUser.size} candidate${pendByUser.size > 1 ? "s" : ""}):`);
@@ -124,19 +140,6 @@ export async function computeBriefing(adminUserId: string | null): Promise<Brief
     lines.push(`🎓 ${b2.length} B2 exam(s) coming up:`);
     for (const x of b2.slice(0, 10)) lines.push(`   • ${nameOf(x.p)} — ${x.p.b2_exam_date}`);
     lines.push("");
-  }
-  if (reminders.length) {
-    count += reminders.length;
-    lines.push(`⏰ ${reminders.length} reminder(s):`);
-    for (const r of reminders.slice(0, 10)) {
-      const tag = r.days === null ? "" : r.days < 0 ? " (overdue)" : r.days === 0 ? " (today)" : ` (in ${r.days}d)`;
-      lines.push(`   • ${r.text}${tag}`);
-    }
-    lines.push("");
-  }
-  if (batch && batch.tasks.length) {
-    count += batch.count;
-    lines.push(formatBatchTasks(batch.tasks), "");
   }
   if (stuck && stuck.candidates.length) {
     count += stuck.candidates.length;
