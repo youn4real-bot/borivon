@@ -28,14 +28,24 @@ function makeVertex() {
   return createVertex({ project, location, googleAuthOptions: { credentials } });
 }
 
-const flashId = () => process.env.ASSISTANT_MODEL_ID_FLASH || process.env.ASSISTANT_MODEL_ID || "gemini-2.5-flash";
-// Pro falls back to the Flash id, so without ASSISTANT_MODEL_ID_PRO there is NO
-// separate Pro tier and nothing ever costs more than Flash.
-const proId = () => process.env.ASSISTANT_MODEL_ID_PRO || flashId();
+// ────────────────────────────────────────────────────────────────────────────
+// HARD LOCK — FLASH ONLY. Founder's decision (2026-06-14), after the long
+// Flash↔Pro back-and-forth: the bot runs on gemini-2.5-flash and must NEVER
+// escalate to Pro — not through the hybrid router, not by anyone setting an env
+// var. `ALLOW_PRO` is the SINGLE switch; while it's false, nothing else can turn
+// Pro on. Flip it to `true` (and set ASSISTANT_MODEL_ID_PRO) ONLY if the founder
+// explicitly asks for the Pro / hybrid brain again.
+const ALLOW_PRO = false;
 
-/** True only when a DISTINCT, pricier Pro model has been opted into via env. */
+const flashId = () => process.env.ASSISTANT_MODEL_ID_FLASH || process.env.ASSISTANT_MODEL_ID || "gemini-2.5-flash";
+// Pro is hard-locked off: proId always resolves to the Flash id unless ALLOW_PRO
+// is explicitly enabled — so even a stray ASSISTANT_MODEL_ID_PRO can't take effect.
+const proId = () => (ALLOW_PRO && process.env.ASSISTANT_MODEL_ID_PRO) || flashId();
+
+/** True only when a DISTINCT, pricier Pro model has been opted into via env AND
+ *  the hard lock is open. Hard-locked to false → chooseTier() always stays Flash. */
 export function proConfigured(): boolean {
-  return !!process.env.ASSISTANT_MODEL_ID_PRO;
+  return ALLOW_PRO && !!process.env.ASSISTANT_MODEL_ID_PRO;
 }
 
 /** The model for a tier (default Flash). Returns null if Vertex isn't configured. */
