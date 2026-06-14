@@ -1490,44 +1490,65 @@ export async function cancelLatestPending(
   return { cancelled: true, summary: row.summary };
 }
 
-// IRREVERSIBLE actions that still require an explicit human "yes" before running
-// — a competent assistant double-checks before permanently deleting. Everything
-// else auto-applies (the founder wants a chat assistant, not a yes/no robot).
+// Actions that WAIT for an explicit human "yes" before running. Two groups:
+//  • DESTRUCTIVE — irreversible deletes (a competent assistant double-checks).
+//  • SEND — anything that transmits a message to a PERSON. This is the ONE
+//    guardrail the founder wants: confirm before it goes out ("send X to Y?").
+// EVERYTHING ELSE auto-applies instantly — no yes/no robot, just act.
 export const DESTRUCTIVE_TOOLS = new Set<string>(["deleteCandidateAccount", "deleteOrganization"]);
+export const SEND_TOOLS = new Set<string>([
+  "sendExternalEmail", "sendCandidateMessage", "sendFollowUpNudge", "nudgeStuckCandidates", "sendSlotRequest",
+]);
+const CONFIRM_TOOLS = new Set<string>([...DESTRUCTIVE_TOOLS, ...SEND_TOOLS]);
+
+export type AwaitingConfirm = { summary: string; isSend: boolean };
+export type AutoApplyResult =
+  | { applied: string[]; failed: string[]; awaitingConfirm: AwaitingConfirm | null }
+  | { skipped: "nothing"; awaitingConfirm: AwaitingConfirm | null };
+
+/** Is there a staged action still waiting for the human "yes"? (oldest first) */
+async function findAwaitingConfirm(userId: string): Promise<AwaitingConfirm | null> {
+  const db = getServiceSupabase();
+  const { data } = await db.from("assistant_pending_actions")
+    .select("tool_name, summary, expires_at")
+    .eq("owner_user_id", userId).eq("status", "pending")
+    .order("created_at", { ascending: true }).limit(20);
+  const rows = ((data ?? []) as { tool_name: string; summary: string; expires_at: string }[])
+    .filter((r) => new Date(r.expires_at).getTime() >= Date.now());
+  const c = rows.find((r) => CONFIRM_TOOLS.has(r.tool_name));
+  return c ? { summary: c.summary, isSend: SEND_TOOLS.has(c.tool_name) } : null;
+}
 
 /**
- * "Just do it" — apply the latest staged action immediately (same turn), UNLESS
- * it's irreversible/destructive (then leave it pending for an explicit "yes").
- * Called by the Telegram webhook right after the model runs, so the admin can
- * talk naturally ("email these to Anna") and it happens — no confirm dance.
+ * "Just do it" — apply every staged action immediately (same turn), EXCEPT a send
+ * to a person or an irreversible delete (those wait for an explicit "yes"). Called
+ * by the Telegram webhook right after the model runs, so the admin talks naturally
+ * and non-send actions just happen — while a send always pauses for confirmation.
  */
-export async function autoApplyPending(
-  scope: AssistantScope,
-): Promise<{ applied: string[]; failed: string[] } | { skipped: "nothing" }> {
-  if (!scope.userId) return { skipped: "nothing" };
+export async function autoApplyPending(scope: AssistantScope): Promise<AutoApplyResult> {
+  if (!scope.userId) return { skipped: "nothing", awaitingConfirm: null };
   const db = getServiceSupabase();
   const applied: string[] = [];
   const failed: string[] = [];
-  // Drain EVERY pending non-destructive action staged this turn (oldest first),
-  // so "message all 4 of them" / "set B2 for these 3" applies them ALL — not just
-  // the last. Destructive actions are left pending for an explicit human "yes".
+  // Drain EVERY pending NON-confirm action staged this turn (oldest first), so
+  // "set B2 for these 3" applies them ALL. Sends + deletes are left pending.
   for (let i = 0; i < 20; i++) {
     const { data } = await db.from("assistant_pending_actions")
       .select("id, tool_name, args, candidate_user_id, summary, expires_at")
       .eq("owner_user_id", scope.userId).eq("status", "pending")
       .order("created_at", { ascending: true }).limit(20);
     const rows = ((data ?? []) as PendingRow[]).filter((r) => new Date(r.expires_at).getTime() >= Date.now());
-    const next = rows.find((r) => !DESTRUCTIVE_TOOLS.has(r.tool_name));
-    if (!next) break; // only destructive left (awaiting 'yes'), or nothing pending
+    const next = rows.find((r) => !CONFIRM_TOOLS.has(r.tool_name));
+    if (!next) break; // only confirm-required left (awaiting 'yes'), or nothing pending
     const r = await applyPendingRow(scope, next, { allowSameTurn: true });
     if ("done" in r) {
       applied.push(next.summary);
     } else {
       failed.push(r.error);
-      // Mark the failed row cancelled so the loop advances instead of spinning.
       await db.from("assistant_pending_actions").update({ status: "cancelled" }).eq("id", next.id);
     }
   }
-  if (applied.length === 0 && failed.length === 0) return { skipped: "nothing" };
-  return { applied, failed };
+  const awaitingConfirm = await findAwaitingConfirm(scope.userId);
+  if (applied.length === 0 && failed.length === 0) return { skipped: "nothing", awaitingConfirm };
+  return { applied, failed, awaitingConfirm };
 }
