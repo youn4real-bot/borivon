@@ -85,6 +85,24 @@ export async function loadChatHistory(ownerUserId: string): Promise<ChatTurn[]> 
   return (await loadConversationContext(ownerUserId)).turns;
 }
 
+/** "New chat" — start the conversation context fresh. The raw turns are KEPT (not
+ *  deleted — recoverable, and the founder values the record): we just blank the
+ *  rolling summary and move the watermark to NOW, so loadConversationContext
+ *  returns nothing older and the next message begins on a clean slate. */
+export async function resetConversation(ownerUserId: string): Promise<boolean> {
+  if (!ownerUserId) return false;
+  try {
+    const db = getServiceSupabase();
+    const now = new Date().toISOString();
+    const { error } = await db
+      .from("assistant_chat_summary")
+      .upsert({ owner_user_id: ownerUserId, summary: "", summarized_through: now, updated_at: now }, { onConflict: "owner_user_id" });
+    return !error;
+  } catch {
+    return false; // table not migrated → best-effort no-op
+  }
+}
+
 /** Append the latest user + assistant turns. Best-effort; trims long content. */
 export async function saveChatTurns(ownerUserId: string, turns: ChatTurn[]): Promise<void> {
   if (!ownerUserId) return;

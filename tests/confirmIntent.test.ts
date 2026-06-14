@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isConfirmText, isCancelText } from "../lib/confirmIntent";
+import { isConfirmText, isCancelText, isResetText } from "../lib/confirmIntent";
 
 // The bot's CODE-ENFORCED confirm path keys off these. If they regress, the
 // "say yes → it just re-asks forever" bug comes back, so the behaviour is pinned.
@@ -19,5 +19,15 @@ describe("isCancelText — plain negations", () => {
   }
   for (const t of ["", "yes", "no wait actually send it to a different person entirely please"]) {
     it(`does NOT cancel: "${t}"`, () => expect(isCancelText(t)).toBe(false));
+  }
+});
+
+describe("isResetText — only a bare 'new chat' command (must NEVER wipe context by accident)", () => {
+  for (const t of ["reset", "Reset", "/reset", "/new", "/clear", "start over", "start over please", "fresh start", "new chat", "new topic", "new conversation", "clear context", "clear the chat", "forget everything", "vergiss alles", "von vorne", "neues thema", "nouveau sujet", "on recommence"]) {
+    it(`resets: "${t}"`, () => expect(isResetText(t)).toBe(true));
+  }
+  // CRITICAL: real commands that merely START with a reset-ish word must NOT reset.
+  for (const t of ["", "reset Hajar's password", "new candidate Sara Alami", "start the visa process for Omar", "clear his rejected document and re-request it", "forget about the Tuesday slot, use Wednesday", "yes", "send it"]) {
+    it(`does NOT reset: "${t}"`, () => expect(isResetText(t)).toBe(false));
   }
 });

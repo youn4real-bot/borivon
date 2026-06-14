@@ -14,33 +14,49 @@ export function telegramConfigured(): boolean {
 
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
-/** One sendMessage with a single 429 retry (respect Telegram's retry_after —
- *  load-bearing once we send several bubbles back-to-back). */
+/** One sendMessage with bounded retries: respect Telegram's 429 retry_after
+ *  (capped), and back off + retry on transient 5xx / network errors. A 4xx other
+ *  than 429 is our bug — don't loop on it. (This is the @grammyjs/auto-retry idea
+ *  inlined — no framework, since the bot owns its fetch helpers.) */
 async function postMessage(chatId: string | number, text: string): Promise<void> {
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const r = await fetch(`${API}/bot${token()}/sendMessage`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
       });
+      if (r.ok) return;
       if (r.status === 429) {
         const j = (await r.json().catch(() => null)) as { parameters?: { retry_after?: number } } | null;
         await delay(Math.min(10, Number(j?.parameters?.retry_after) || 1) * 1000);
-        continue; // retry once
+        continue;
       }
+      if (r.status >= 500 && attempt < 2) { await delay(500 * (attempt + 1)); continue; } // transient server error
+      console.error("[telegram] sendMessage HTTP", r.status); // 4xx (≠429) won't fix by retrying
       return;
     } catch (e) {
+      if (attempt < 2) { await delay(500 * (attempt + 1)); continue; } // network blip → backoff + retry
       console.error("[telegram] sendMessage failed:", e instanceof Error ? e.message : e);
       return;
     }
   }
 }
 
-/** Send a plain-text message (chunked to Telegram's 4096-char limit). */
+/** Send a plain-text message. Telegram caps a message at 4096 chars, so for long
+ *  text we split — but on a WORD/LINE boundary, never mid-word/number/URL. */
 export async function tgSend(chatId: string | number, text: string): Promise<void> {
   if (!token()) return;
-  for (let i = 0; i < text.length; i += 3900) await postMessage(chatId, text.slice(i, i + 3900));
+  let rest = text;
+  while (rest.length > 3900) {
+    // Back up to the last newline or space before the limit so a word/number/link
+    // is never sliced in half; only honor it if it isn't absurdly early.
+    const boundary = Math.max(rest.lastIndexOf("\n", 3900), rest.lastIndexOf(" ", 3900));
+    const cut = boundary > 3000 ? boundary : 3900;
+    await postMessage(chatId, rest.slice(0, cut));
+    rest = rest.slice(cut).replace(/^\s+/, "");
+  }
+  if (rest) await postMessage(chatId, rest);
 }
 
 /** Pack prose into 1–4 paragraph-boundary "bubbles" (never mid-sentence) so a

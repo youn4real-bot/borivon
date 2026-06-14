@@ -38,3 +38,15 @@ export function isCancelText(t: string): boolean {
   if (n.length <= 60 && CANCEL_SUBSTR.test(n)) return true;
   return false;
 }
+
+// "New chat / fresh start" — ANCHORED to the whole message so it can ONLY fire on
+// a bare reset command and NEVER on "reset Hajar's password" / "new candidate Sara".
+const RESET_RE =
+  /^(\/(reset|new|clear)|reset|start over( please)?|start fresh|fresh start|new (chat|topic|conversation)|clear (the )?(chat|context|history|memory)|forget (everything|all of (that|this)|this (chat|conversation|context))|von vorne|neues thema|neu anfangen|vergiss alles|on recommence|nouveau sujet|nouvelle conversation)$/i;
+
+/** True when the message is an explicit "start a fresh conversation" command. */
+export function isResetText(t: string): boolean {
+  const n = normShort(t);
+  if (!n || n.length > 40) return false; // must be essentially just the command
+  return RESET_RE.test(n);
+}

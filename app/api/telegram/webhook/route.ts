@@ -20,9 +20,9 @@ import { buildAssistantTools } from "@/lib/assistantTools";
 import type { AssistantScope } from "@/lib/assistantScope";
 import { computeBriefing } from "@/lib/briefing";
 import { loadMemory } from "@/lib/assistantMemory";
-import { loadConversationContext, saveChatTurns, maybeCompact } from "@/lib/assistantChatHistory";
+import { loadConversationContext, saveChatTurns, maybeCompact, resetConversation } from "@/lib/assistantChatHistory";
 import { executeLatestPending, cancelLatestPending, autoApplyPending } from "@/lib/assistantWrites";
-import { isConfirmText, isCancelText } from "@/lib/confirmIntent";
+import { isConfirmText, isCancelText, isResetText } from "@/lib/confirmIntent";
 import { stripMarkdown } from "@/lib/emailFormat";
 import { tgSend, tgSendNatural, tgSendDocument, tgGetFileBytes, tgTypingLoop, tgSendChatAction, getAdminUserId, telegramConfigured } from "@/lib/telegram";
 import { r2Configured, r2Put } from "@/lib/r2";
@@ -140,6 +140,15 @@ export async function POST(req: NextRequest) {
       { role: "assistant", content: briefing },
     ]);
     return ok();
+  }
+
+  // 3.4) "NEW CHAT" — an explicit reset clears the rolling context so a fresh
+  // topic doesn't drag in old conversation (history is kept, just not loaded).
+  // Detected in CODE (narrow, anchored) so it can't false-fire on "reset X's …".
+  if (text && !(msg.photo && msg.photo.length) && !msg.document && !msg.voice && isResetText(text)) {
+    await resetConversation(scope.userId);
+    await tgSend(chatId, "✨ Fresh start — I've cleared the earlier chat context. What do you need?");
+    return ok(); // don't save this turn → the next message begins truly clean
   }
 
   // 3.5) CODE-ENFORCED CONFIRM — apply/cancel a pending action without the model.
