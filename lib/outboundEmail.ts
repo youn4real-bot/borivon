@@ -21,10 +21,46 @@ export const OUTBOUND_FROM_EMAIL = (process.env.OUTBOUND_FROM_EMAIL || "youness.
 export const OUTBOUND_FROM_NAME = (process.env.OUTBOUND_FROM_NAME || "Youness Taoufiq").trim();
 
 // Email signature. Gmail's web/app signature is NOT applied to App-Password/SMTP
-// sends (it's only added when you compose in the Gmail UI), so we append it here.
-// Override the whole thing with the OUTBOUND_SIGNATURE env var (newlines kept).
-export const OUTBOUND_SIGNATURE = (process.env.OUTBOUND_SIGNATURE ??
-  "Youness Taoufiq\nBorivon\nyouness.taoufiq@borivon.com\nwww.borivon.com").trim();
+// sends (it's only added when you compose in the Gmail UI) — so we reproduce the
+// founder's EXACT saved Gmail signature here: greeting, CEO line, address, the
+// italic "Borivon." wordmark (gold dot), and the German confidentiality
+// disclaimer. Rendered as styled HTML TEXT (no image → renders identically in
+// every client, never blocked). A plain-text twin rides along as the text/plain
+// part. Override either via the OUTBOUND_SIGNATURE / OUTBOUND_SIGNATURE_HTML env.
+export const OUTBOUND_SIGNATURE_TEXT = (process.env.OUTBOUND_SIGNATURE ?? [
+  "Mit freundlichen Grüßen,",
+  "Youness Taoufiq",
+  "CEO @ Borivon.com",
+  "youness.taoufiq@borivon.com",
+  "",
+  "77 Boulevard Mohamed Smiha",
+  "20080 Casablanca, Marokko",
+  "",
+  "Borivon.",
+  "",
+  "Diese E-Mail und ihre Anhänge sind vertraulich und ausschließlich für den/die Empfänger/in bestimmt.",
+  "Ohne ausdrückliche Zustimmung darf der Inhalt weder weitergegeben noch veröffentlicht werden.",
+  "Sollten Sie diese Nachricht irrtümlich erhalten haben, löschen Sie sie bitte sofort und informieren Sie den Absender.",
+].join("\n")).trim();
+
+export const OUTBOUND_SIGNATURE_HTML = (process.env.OUTBOUND_SIGNATURE_HTML ?? `
+<div style="font-family:-apple-system,'Segoe UI',Arial,sans-serif;font-size:14px;color:#1a1a1a;line-height:1.5;">
+  <div>Mit freundlichen Grüßen,</div>
+  <div>Youness Taoufiq</div>
+  <div>CEO @ <a href="https://borivon.com" style="color:#1155cc;text-decoration:none;">Borivon.com</a></div>
+  <div><a href="mailto:youness.taoufiq@borivon.com" style="color:#1155cc;text-decoration:none;">youness.taoufiq@borivon.com</a></div>
+  <div style="height:14px;line-height:14px;">&nbsp;</div>
+  <div>77 Boulevard Mohamed Smiha</div>
+  <div>20080 Casablanca, Marokko</div>
+  <div style="height:18px;line-height:18px;">&nbsp;</div>
+  <div style="font-family:Georgia,'Times New Roman',serif;font-weight:bold;font-style:italic;font-size:30px;color:#3a3a38;letter-spacing:-0.5px;">Borivon<span style="color:#c9a240;">.</span></div>
+  <div style="height:18px;line-height:18px;">&nbsp;</div>
+  <div style="font-style:italic;font-size:12px;color:#8a8a85;line-height:1.5;">
+    <div>Diese E-Mail und ihre Anhänge sind vertraulich und ausschließlich für den/die Empfänger/in bestimmt.</div>
+    <div>Ohne ausdrückliche Zustimmung darf der Inhalt weder weitergegeben noch veröffentlicht werden.</div>
+    <div>Sollten Sie diese Nachricht irrtümlich erhalten haben, löschen Sie sie bitte sofort und informieren Sie den Absender.</div>
+  </div>
+</div>`).trim();
 
 export type OutboundAttachment = { filename: string; content: Buffer };
 export type OutboundResult =
@@ -42,6 +78,19 @@ function textToHtml(text: string): string {
   return `<div style="font-family:-apple-system,'Segoe UI',sans-serif;font-size:14px;color:#1a1a1a;line-height:1.6;">${escHtml(text).replace(/\n/g, "<br/>")}</div>`;
 }
 
+// Common e-mail closings (DE/EN/FR). If the model wrote one of these near the end
+// of the body, cut from there so the official signature below isn't duplicated.
+const SIGNOFF_RE =
+  /^(mit freundlichen gr[üu](ß|ss)en|mit besten gr[üu](ß|ss)en|beste gr[üu](ß|ss)e|herzliche gr[üu](ß|ss)e|viele gr[üu](ß|ss)e|liebe gr[üu](ß|ss)e|freundliche gr[üu](ß|ss)e|best regards|kind regards|warm regards|regards|sincerely|cordialement|bien (à|a) vous|best,|lg,?|vg,?)\b/i;
+export function stripTrailingSignoff(text: string): string {
+  const lines = text.split("\n");
+  // Look only in the last 8 lines so we never cut into the real message body.
+  for (let i = lines.length - 1; i >= Math.max(0, lines.length - 8); i--) {
+    if (SIGNOFF_RE.test(lines[i].trim())) return lines.slice(0, i).join("\n").trimEnd();
+  }
+  return text.trimEnd();
+}
+
 export async function sendOutboundEmail(opts: {
   to: string;
   toName?: string;
@@ -51,13 +100,13 @@ export async function sendOutboundEmail(opts: {
   attachments?: OutboundAttachment[];
 }): Promise<OutboundResult> {
   const subject = stripEmailFormatting(opts.subject).replace(/[\r\n]+/g, " ").trim().slice(0, 200);
-  const bodyText = stripEmailFormatting(opts.body); // guarantee plain text — no stray **/*/`/# ever
-  // Append the signature (Gmail SMTP won't add it). Skip if the body already ends
-  // with it, so re-sends / a model that pasted it don't double it up.
-  const text = OUTBOUND_SIGNATURE && !bodyText.trimEnd().endsWith(OUTBOUND_SIGNATURE)
-    ? `${bodyText.trimEnd()}\n\n${OUTBOUND_SIGNATURE}`
-    : bodyText;
-  const html = textToHtml(text);
+  // Plain-text body, with any model-written sign-off trimmed so the official
+  // signature replaces it (Gmail SMTP never adds the saved web signature itself).
+  const cleanBody = stripTrailingSignoff(stripEmailFormatting(opts.body));
+  // text/plain part = body + the plain-text signature twin.
+  const text = `${cleanBody.trimEnd()}\n\n${OUTBOUND_SIGNATURE_TEXT}`;
+  // text/html part = body rendered + the rich signature (Borivon wordmark + disclaimer).
+  const html = `${textToHtml(cleanBody)}<br/>${OUTBOUND_SIGNATURE_HTML}`;
   const atts = opts.attachments ?? [];
   const cc = (opts.cc ?? []).map((c) => c.trim()).filter(Boolean);
 
