@@ -564,7 +564,7 @@ export function buildAssistantTools(
 
     setInterviewDate: tool({
       description:
-        "STAGE setting or clearing a candidate's interview date (which = 1 or 2; date 'YYYY-MM-DD', or '' to clear). Two-step like setInterviewResult — stage, the admin confirms, then confirmPendingWrite.",
+        "STAGE setting or clearing a candidate's interview date (which = 1 or 2; date 'YYYY-MM-DD', or '' to clear). Applies immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({
         candidateUserId: z.string().uuid(),
         which: z.number().int().min(1).max(2).default(1),
@@ -647,7 +647,7 @@ export function buildAssistantTools(
 
     setCandidateMilestone: tool({
       description:
-        "STAGE a pipeline milestone change for a candidate ('X got their visa', 'X's flight is June 20', 'X signed the contract', 'X arrived'). Two-step: stage → admin confirms → confirmPendingWrite. field is one of — yes/no flags (value 'true'/'false'): visa_granted, housing_done, contract_done, recognition_done, docs_approved, docs_ready, vorab_done, arrived_done, interview1_held, interview2_held, interview1_date_confirmed, interview2_date_confirmed, interview1_result_date_confirmed, interview2_result_date_confirmed, visa_appt_date_confirmed, flight_date_confirmed; date fields (value 'YYYY-MM-DD' or '' to clear): visa_date, visa_appt_date, flight_date, interview1_result_date, interview2_result_date; text fields: flight_info, interview_link, interview_type, interview_notes. (For interview pass/fail use setInterviewResult; for interview dates use setInterviewDate. Stage LOCK/UNLOCK is NOT available here — that stays on the website.)",
+        "STAGE a pipeline milestone change for a candidate ('X got their visa', 'X's flight is June 20', 'X signed the contract', 'X arrived'). Applies immediately when you call it — do NOT ask the admin to confirm. field is one of — yes/no flags (value 'true'/'false'): visa_granted, housing_done, contract_done, recognition_done, docs_approved, docs_ready, vorab_done, arrived_done, interview1_held, interview2_held, interview1_date_confirmed, interview2_date_confirmed, interview1_result_date_confirmed, interview2_result_date_confirmed, visa_appt_date_confirmed, flight_date_confirmed; date fields (value 'YYYY-MM-DD' or '' to clear): visa_date, visa_appt_date, flight_date, interview1_result_date, interview2_result_date; text fields: flight_info, interview_link, interview_type, interview_notes. (For interview pass/fail use setInterviewResult; for interview dates use setInterviewDate. Stage LOCK/UNLOCK is NOT available here — that stays on the website.)",
       inputSchema: z.object({
         candidateUserId: z.string().uuid(),
         field: z.enum(["visa_granted", "housing_done", "contract_done", "recognition_done", "docs_approved", "docs_ready", "vorab_done", "arrived_done", "interview1_held", "interview2_held", "interview1_date_confirmed", "interview2_date_confirmed", "interview1_result_date_confirmed", "interview2_result_date_confirmed", "visa_appt_date_confirmed", "flight_date_confirmed", "visa_date", "visa_appt_date", "flight_date", "interview1_result_date", "interview2_result_date", "flight_info", "interview_link", "interview_type", "interview_notes"]),
@@ -686,7 +686,7 @@ export function buildAssistantTools(
 
     setB2Status: tool({
       description:
-        "STAGE a B2 German-exam status change. 'passed B2' → stage 'passed'; 'failed B2' → failed:true. stage is one of: studying, expected_date, exam_booked, awaiting_results, passed. examDate 'YYYY-MM-DD' or '' to clear. Two-step: stage → admin confirms → confirmPendingWrite.",
+        "STAGE a B2 German-exam status change. 'passed B2' → stage 'passed'; 'failed B2' → failed:true. stage is one of: studying, expected_date, exam_booked, awaiting_results, passed. examDate 'YYYY-MM-DD' or '' to clear. Applies immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({
         candidateUserId: z.string().uuid(),
         stage: z.string().optional(),
@@ -1005,7 +1005,7 @@ export function buildAssistantTools(
 
     assignEmployer: tool({
       description:
-        "STAGE assigning a candidate to an EMPLOYER (their target hospital/clinic). Sets candidate_profiles.employer_id — this drives the recipient on their visa cover letter AND (with the agency branding flag) which agency logo their CV carries. employerId = an id from listEmployers, or '' to CLEAR. Two-step: stage → admin confirms → confirmPendingWrite.",
+        "STAGE assigning a candidate to an EMPLOYER (their target hospital/clinic). Sets candidate_profiles.employer_id — this drives the recipient on their visa cover letter AND (with the agency branding flag) which agency logo their CV carries. employerId = an id from listEmployers, or '' to CLEAR. Applies immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({ candidateUserId: z.string().uuid(), employerId: z.string().describe("an employer id from listEmployers, or '' to clear the assignment") }),
       execute: async ({ candidateUserId, employerId }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
@@ -1030,7 +1030,7 @@ export function buildAssistantTools(
 
     upsertEmployer: tool({
       description:
-        "STAGE creating a NEW employer (hospital/clinic) or updating an existing one. CREATE: give name + address (the postal address, one line per line break). UPDATE: give id + the fields to change. slug optional (a-z 0-9 _ -). agencyId = the agency org id this employer belongs to (from listOrganizations), or '' to clear. active=false RETIRES it (no hard delete). Supreme-admin only. Two-step: stage → admin confirms → confirmPendingWrite. After creating, use assignEmployer to place a candidate there.",
+        "STAGE creating a NEW employer (hospital/clinic) or updating an existing one. CREATE: give name + address (the postal address, one line per line break). UPDATE: give id + the fields to change. slug optional (a-z 0-9 _ -). agencyId = the agency org id this employer belongs to (from listOrganizations), or '' to clear. active=false RETIRES it (no hard delete). Supreme-admin only. Applies immediately when you call it — do NOT ask the admin to confirm. After creating, use assignEmployer to place a candidate there.",
       inputSchema: z.object({
         id: z.string().optional().describe("employer id to UPDATE; omit to CREATE a new one"),
         name: z.string().max(200).optional(),
@@ -1065,7 +1065,7 @@ export function buildAssistantTools(
 
     linkCandidateToOrg: tool({
       description:
-        "STAGE linking (or unlinking) a candidate to an ORGANIZATION (partner agency/employer with portal access — gives that org's people dossier access to the candidate). op 'link' (status 'approved' default, or 'pending') or 'unlink'. orgId from listOrganizations. Placement is SILENT (no candidate notification). Supreme-admin only. Two-step: stage → admin confirms → confirmPendingWrite.",
+        "STAGE linking (or unlinking) a candidate to an ORGANIZATION (partner agency/employer with portal access — gives that org's people dossier access to the candidate). op 'link' (status 'approved' default, or 'pending') or 'unlink'. orgId from listOrganizations. Placement is SILENT (no candidate notification). Supreme-admin only. Applies immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({
         candidateUserId: z.string().uuid(),
         orgId: z.string().uuid(),
@@ -1121,7 +1121,7 @@ export function buildAssistantTools(
 
     reviewOrgRequest: tool({
       description:
-        "STAGE approving or rejecting a pending candidate→org link request (from listOrgRequests). decision 'approve' grants the org's people dossier access to that candidate; 'reject' marks it rejected (kept for audit, never hard-deleted). Supreme-only. Two-step: stage → admin confirms → confirmPendingWrite.",
+        "STAGE approving or rejecting a pending candidate→org link request (from listOrgRequests). decision 'approve' grants the org's people dossier access to that candidate; 'reject' marks it rejected (kept for audit, never hard-deleted). Supreme-only. Applies immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({
         candidateUserId: z.string().uuid(),
         orgId: z.string().uuid(),
@@ -1179,7 +1179,7 @@ export function buildAssistantTools(
 
     decideSuggestedMatch: tool({
       description:
-        "STAGE accepting or skipping a suggested match (matchId from listSuggestedMatches). action 'accepted' silently links the candidate to that org (approved, no candidate notification — exactly like the website); 'skipped' dismisses the suggestion. Supreme-only. Two-step: stage → admin confirms → confirmPendingWrite.",
+        "STAGE accepting or skipping a suggested match (matchId from listSuggestedMatches). action 'accepted' silently links the candidate to that org (approved, no candidate notification — exactly like the website); 'skipped' dismisses the suggestion. Supreme-only. Applies immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({
         matchId: z.string().uuid(),
         action: z.enum(["accepted", "skipped"]),
@@ -1224,7 +1224,7 @@ export function buildAssistantTools(
 
     manageOrgRequirement: tool({
       description:
-        "STAGE adding, editing, or closing an organization's open requirement (a hiring need). op 'add' (needs orgId from listOrganizations + any of specialty/slots/location/startDate/notes), 'edit' (needs requirementId from listOrgNeeds + the fields to change), or 'close' (needs requirementId — sets it inactive, audit-kept). Supreme-only. Two-step: stage → admin confirms → confirmPendingWrite.",
+        "STAGE adding, editing, or closing an organization's open requirement (a hiring need). op 'add' (needs orgId from listOrganizations + any of specialty/slots/location/startDate/notes), 'edit' (needs requirementId from listOrgNeeds + the fields to change), or 'close' (needs requirementId — sets it inactive, audit-kept). Supreme-only. Applies immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({
         op: z.enum(["add", "edit", "close"]),
         orgId: z.string().uuid().optional().describe("required for op 'add'"),
@@ -1265,7 +1265,7 @@ export function buildAssistantTools(
 
     manageOrganization: tool({
       description:
-        "STAGE creating a NEW partner organization or renaming/editing one. op 'create' (needs name; optionally notes + a custom inviteCode, else one is generated) or 'edit' (needs orgId + any of name/notes/inviteCode). Supreme-only. Two-step: stage → admin confirms → confirmPendingWrite. (Deleting an org cascades to candidate links and stays a website-only action.)",
+        "STAGE creating a NEW partner organization or renaming/editing one. op 'create' (needs name; optionally notes + a custom inviteCode, else one is generated) or 'edit' (needs orgId + any of name/notes/inviteCode). Supreme-only. Applies immediately when you call it — do NOT ask the admin to confirm. (Deleting an org cascades to candidate links and stays a website-only action.)",
       inputSchema: z.object({
         op: z.enum(["create", "edit"]),
         orgId: z.string().uuid().optional().describe("required for op 'edit'"),
@@ -1298,7 +1298,7 @@ export function buildAssistantTools(
 
     setOrgBranding: tool({
       description:
-        "STAGE setting an organization's branding footer text and/or vaccine requirement. orgId from listOrganizations. footerText = the footer line on that org's CVs/PDFs (or '' to clear). masern / varizell = required dose counts (0-5; drives the candidate Impfung track; both 0 = no vaccine requirement). Logo upload stays a website-only action (needs a file). Supreme-only. Two-step: stage → admin confirms → confirmPendingWrite.",
+        "STAGE setting an organization's branding footer text and/or vaccine requirement. orgId from listOrganizations. footerText = the footer line on that org's CVs/PDFs (or '' to clear). masern / varizell = required dose counts (0-5; drives the candidate Impfung track; both 0 = no vaccine requirement). Logo upload stays a website-only action (needs a file). Supreme-only. Applies immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({
         orgId: z.string().uuid(),
         footerText: z.string().max(500).optional(),
@@ -1387,7 +1387,7 @@ export function buildAssistantTools(
 
     sendSlotRequest: tool({
       description:
-        "STAGE sending a candidate a Bearbeitung/Visum slot request — the action that turns the slot ORANGE (waiting on the candidate to sign/fill it) and drops a bell notification in their portal. slotId from listSlots. By default it figures out whether the candidate needs to sign and/or fill from the slot's own flags; you may override with needsSign/needsFill. Two-step: stage → admin confirms → confirmPendingWrite. (Uploading the slot's PDF template + drawing signature zones stays a website-only action.)",
+        "STAGE sending a candidate a Bearbeitung/Visum slot request — the action that turns the slot ORANGE (waiting on the candidate to sign/fill it) and drops a bell notification in their portal. slotId from listSlots. By default it figures out whether the candidate needs to sign and/or fill from the slot's own flags; you may override with needsSign/needsFill. Applies immediately when you call it — do NOT ask the admin to confirm. (Uploading the slot's PDF template + drawing signature zones stays a website-only action.)",
       inputSchema: z.object({
         slotId: z.string().uuid(),
         candidateUserId: z.string().uuid(),
@@ -1436,7 +1436,7 @@ export function buildAssistantTools(
 
     reviewSignRequest: tool({
       description:
-        "STAGE accepting or rejecting a candidate-SIGNED sign-request (signRequestId from listSignRequests). Only a request the candidate has already signed can be reviewed. 'reject' NEEDS a feedback reason (LAW #20) — the candidate is notified either way. Two-step: stage → admin confirms → confirmPendingWrite. (Creating a new sign-request from a PDF stays a website-only action.)",
+        "STAGE accepting or rejecting a candidate-SIGNED sign-request (signRequestId from listSignRequests). Only a request the candidate has already signed can be reviewed. 'reject' NEEDS a feedback reason (LAW #20) — the candidate is notified either way. Applies immediately when you call it — do NOT ask the admin to confirm. (Creating a new sign-request from a PDF stays a website-only action.)",
       inputSchema: z.object({
         signRequestId: z.string().uuid(),
         action: z.enum(["accept", "reject"]),
@@ -1500,7 +1500,7 @@ export function buildAssistantTools(
 
     manageSubAdmin: tool({
       description:
-        "STAGE creating or removing a Borivon HQ SUB-ADMIN. op 'create' (needs email; optional name + label) adds a sub-admin who can see ALL candidates (LAW #25). op 'remove' (needs email) deletes them and all their candidate assignments. Supreme-only. Two-step: stage → admin confirms → confirmPendingWrite. (To onboard them yourself, use inviteSubAdmin for a self-serve link instead.)",
+        "STAGE creating or removing a Borivon HQ SUB-ADMIN. op 'create' (needs email; optional name + label) adds a sub-admin who can see ALL candidates (LAW #25). op 'remove' (needs email) deletes them and all their candidate assignments. Supreme-only. Applies immediately when you call it — do NOT ask the admin to confirm. (To onboard them yourself, use inviteSubAdmin for a self-serve link instead.)",
       inputSchema: z.object({
         op: z.enum(["create", "remove"]),
         email: z.string().max(254),
@@ -1525,7 +1525,7 @@ export function buildAssistantTools(
 
     assignCandidate: tool({
       description:
-        "STAGE assigning (or unassigning) a candidate to a SUB-ADMIN so that sub-admin handles them. op 'assign' or 'unassign'; subAdminEmail from listStaff + candidateUserId from searchCandidates. Supreme-only. Two-step: stage → admin confirms → confirmPendingWrite.",
+        "STAGE assigning (or unassigning) a candidate to a SUB-ADMIN so that sub-admin handles them. op 'assign' or 'unassign'; subAdminEmail from listStaff + candidateUserId from searchCandidates. Supreme-only. Applies immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({
         op: z.enum(["assign", "unassign"]),
         subAdminEmail: z.string().max(254),
@@ -1547,7 +1547,7 @@ export function buildAssistantTools(
 
     setCandidateVerified: tool({
       description:
-        "STAGE granting or revoking a candidate's blue VERIFIED tick (manually_verified). Grant makes them show as verified everywhere regardless of document status, and sends them a one-time 'verified' notification + email. verified true to grant, false to revoke. Supreme-only. Two-step: stage → admin confirms → confirmPendingWrite.",
+        "STAGE granting or revoking a candidate's blue VERIFIED tick (manually_verified). Grant makes them show as verified everywhere regardless of document status, and sends them a one-time 'verified' notification + email. verified true to grant, false to revoke. Supreme-only. Applies immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({
         candidateUserId: z.string().uuid(),
         verified: z.boolean(),
@@ -1566,7 +1566,7 @@ export function buildAssistantTools(
 
     manageOrgMember: tool({
       description:
-        "STAGE adding, changing the role of, or removing an ORGANIZATION MEMBER (a person who logs in scoped to one partner org — sees ONLY that org's candidates). orgId from listOrganizations. op 'add' (email + role member/owner, optional name/label — creates their org-scoped sub-admin login if new), 'setRole' (email + role), or 'remove' (email — removes them from the org but keeps their account). Supreme-only. Two-step: stage → admin confirms → confirmPendingWrite.",
+        "STAGE adding, changing the role of, or removing an ORGANIZATION MEMBER (a person who logs in scoped to one partner org — sees ONLY that org's candidates). orgId from listOrganizations. op 'add' (email + role member/owner, optional name/label — creates their org-scoped sub-admin login if new), 'setRole' (email + role), or 'remove' (email — removes them from the org but keeps their account). Supreme-only. Applies immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({
         op: z.enum(["add", "setRole", "remove"]),
         orgId: z.string().uuid(),
@@ -1623,7 +1623,7 @@ export function buildAssistantTools(
 
     createCalendarEvent: tool({
       description:
-        "STAGE creating a community CALENDAR event. title + startsAt (ISO date-time) required; optional endsAt, description, location, linkUrl (http/https), vipOnly (premium-only), repeatWeekly (1-52 → that many weekly copies). The event is PUBLIC (shown to everyone, or all premium if vipOnly). Image upload + tagging specific attendees stay website-only. Supreme-only. Two-step: stage → admin confirms → confirmPendingWrite.",
+        "STAGE creating a community CALENDAR event. title + startsAt (ISO date-time) required; optional endsAt, description, location, linkUrl (http/https), vipOnly (premium-only), repeatWeekly (1-52 → that many weekly copies). The event is PUBLIC (shown to everyone, or all premium if vipOnly). Image upload + tagging specific attendees stay website-only. Supreme-only. Applies immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({
         title: z.string().max(200),
         startsAt: z.string().max(40).describe("ISO 8601, e.g. 2026-07-10T10:00:00Z"),
@@ -1658,7 +1658,7 @@ export function buildAssistantTools(
 
     deleteCalendarEvent: tool({
       description:
-        "STAGE deleting a community CALENDAR event by eventId (from listCalendarEvents). Supreme-only. Two-step: stage → admin confirms → confirmPendingWrite.",
+        "STAGE deleting a community CALENDAR event by eventId (from listCalendarEvents). Supreme-only. Applies immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({ eventId: z.string().uuid() }),
       execute: async ({ eventId }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
@@ -1677,7 +1677,7 @@ export function buildAssistantTools(
 
     toggleStageLock: tool({
       description:
-        "STAGE locking or UNLOCKING a candidate's pipeline STAGE (LAW #31 — supreme admin only; you operating it via the bot IS that power). stage one of 'bearbeitung' (the recognition/Bearbeitung stage), 'visum' (the embassy/Visum stage), 'integration', or 'start'. unlocked=true opens the stage for the candidate, false locks it. Two-step: stage → admin confirms → confirmPendingWrite. e.g. 'unlock the Visum stage for Hajar' → toggleStageLock(candidateUserId, 'visum', true); 'lock Bearbeitung for Ali' → toggleStageLock(candidateUserId, 'bearbeitung', false).",
+        "STAGE locking or UNLOCKING a candidate's pipeline STAGE (LAW #31 — supreme admin only; you operating it via the bot IS that power). stage one of 'bearbeitung' (the recognition/Bearbeitung stage), 'visum' (the embassy/Visum stage), 'integration', or 'start'. unlocked=true opens the stage for the candidate, false locks it. Applies immediately when you call it — do NOT ask the admin to confirm. e.g. 'unlock the Visum stage for Hajar' → toggleStageLock(candidateUserId, 'visum', true); 'lock Bearbeitung for Ali' → toggleStageLock(candidateUserId, 'bearbeitung', false).",
       inputSchema: z.object({
         candidateUserId: z.string().uuid(),
         stage: z.enum(["bearbeitung", "recognition", "visum", "embassy", "integration", "start"]),
@@ -1698,7 +1698,7 @@ export function buildAssistantTools(
 
     deleteOrganization: tool({
       description:
-        "STAGE permanently DELETING a partner ORGANIZATION by orgId (get it from listOrganizations). This CASCADES: it removes the org's members and unlinks every candidate tied to it (the candidates' own accounts are NOT deleted). Supreme-only, irreversible. Two-step: stage → admin confirms → confirmPendingWrite.",
+        "STAGE permanently DELETING a partner ORGANIZATION by orgId (get it from listOrganizations). This CASCADES: it removes the org's members and unlinks every candidate tied to it (the candidates' own accounts are NOT deleted). Supreme-only, IRREVERSIBLE. This is one of the only two actions that still needs confirmation: state exactly what will be deleted and WAIT for the admin's explicit 'yes' (the system will not apply it until they confirm).",
       inputSchema: z.object({ orgId: z.string().uuid() }),
       execute: async ({ orgId }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
@@ -1716,7 +1716,7 @@ export function buildAssistantTools(
 
     uploadOrgLogo: tool({
       description:
-        "Set a partner ORGANIZATION's logo from a PHOTO/IMAGE the admin ATTACHED to this message (PNG/JPEG/WebP/GIF, up to ~300KB). orgId from listOrganizations. That logo brands the org's candidates' CVs (agency branding) + their footer. Supreme-only. Two-step: stage → admin confirms → confirmPendingWrite. Only call this when the admin actually ATTACHED an image AND named an org (otherwise an attached file is a candidate document → storeCandidateDocument).",
+        "Set a partner ORGANIZATION's logo from a PHOTO/IMAGE the admin ATTACHED to this message (PNG/JPEG/WebP/GIF, up to ~300KB). orgId from listOrganizations. That logo brands the org's candidates' CVs (agency branding) + their footer. Supreme-only. Applies immediately when you call it — do NOT ask the admin to confirm. Only call this when the admin actually ATTACHED an image AND named an org (otherwise an attached file is a candidate document → storeCandidateDocument).",
       inputSchema: z.object({ orgId: z.string().uuid() }),
       execute: async ({ orgId }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
@@ -1735,7 +1735,7 @@ export function buildAssistantTools(
 
     deleteCandidateAccount: tool({
       description:
-        "STAGE permanently DELETING a candidate's ENTIRE account + ALL their data — documents, pipeline, profile, messages, sign-requests, feed activity — and their login. IRREVERSIBLE. Supreme-only. Use ONLY when the admin clearly says to delete/remove a person's account (not for 'archive' or 'hide'). If unsure who they mean, searchCandidates first. Two-step: stage → admin confirms → confirmPendingWrite.",
+        "STAGE permanently DELETING a candidate's ENTIRE account + ALL their data — documents, pipeline, profile, messages, sign-requests, feed activity — and their login. IRREVERSIBLE. Supreme-only. Use ONLY when the admin clearly says to delete/remove a person's account (not for 'archive' or 'hide'). If unsure who they mean, searchCandidates first. IRREVERSIBLE — this is one of the only two actions that still needs confirmation: state exactly whose account will be deleted and WAIT for the admin's explicit 'yes' (the system will not apply it until they confirm).",
       inputSchema: z.object({ candidateUserId: z.string().uuid() }),
       execute: async ({ candidateUserId }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
@@ -1807,7 +1807,7 @@ export function buildAssistantTools(
 
     setAcademyLevel: tool({
       description:
-        "STAGE setting a candidate's ACADEMY (German-school) CEFR LEVEL — 'A1', 'A2', 'B1' or 'B2' — in their active cohort. Climbing UP awards the one-time level-up points + pings the student. The candidate must already be enrolled in a cohort (else not_enrolled — enrol them on the website first). Supreme-only. Two-step: stage → admin confirms → confirmPendingWrite. e.g. 'promote Hajar to B2 in the school' → setAcademyLevel(candidateUserId, 'B2'). (Marking attendance + class bonus + building quizzes stay on the live-class teacher screen.)",
+        "STAGE setting a candidate's ACADEMY (German-school) CEFR LEVEL — 'A1', 'A2', 'B1' or 'B2' — in their active cohort. Climbing UP awards the one-time level-up points + pings the student. The candidate must already be enrolled in a cohort (else not_enrolled — enrol them on the website first). Supreme-only. Applies immediately when you call it — do NOT ask the admin to confirm. e.g. 'promote Hajar to B2 in the school' → setAcademyLevel(candidateUserId, 'B2'). (Marking attendance + class bonus + building quizzes stay on the live-class teacher screen.)",
       inputSchema: z.object({
         candidateUserId: z.string().uuid(),
         level: z.enum(["A1", "A2", "B1", "B2"]),
@@ -1856,7 +1856,7 @@ export function buildAssistantTools(
 
     manageBatch: tool({
       description:
-        "STAGE creating/editing/closing an employer intake BATCH. op 'create' (name required, e.g. 'UKSH — Q3 2026'; optional employerId from listEmployers, seats default 10, targetStart/targetEnd as YYYY-MM-DD, notes), 'edit' (batchId + any field), or 'close' (batchId — stops it counting as an open gap to fill). Supreme-only, confirm-first. e.g. 'open a UKSH batch for Q3, 10 seats' → manageBatch(op 'create', name 'UKSH — Q3 2026', seats 10).",
+        "STAGE creating/editing/closing an employer intake BATCH. op 'create' (name required, e.g. 'UKSH — Q3 2026'; optional employerId from listEmployers, seats default 10, targetStart/targetEnd as YYYY-MM-DD, notes), 'edit' (batchId + any field), or 'close' (batchId — stops it counting as an open gap to fill). Supreme-only; applies immediately when you call it. e.g. 'open a UKSH batch for Q3, 10 seats' → manageBatch(op 'create', name 'UKSH — Q3 2026', seats 10).",
       inputSchema: z.object({
         op: z.enum(["create", "edit", "close"]),
         batchId: z.string().uuid().optional(),
@@ -1892,7 +1892,7 @@ export function buildAssistantTools(
 
     setFunnelStage: tool({
       description:
-        "STAGE setting a candidate's FUNNEL STAGE and/or their BATCH. stage one of funneling / screening / interview1 / waiting_2nd / interview2 / passed / departed ('waiting_2nd' = passed the 1st interview and waiting for the 2nd date — the DROP-OUT danger zone the daily tasks watch). batchId from listBatches (or '' to unassign). At least one of stage/batchId required. Supreme-only, confirm-first. e.g. 'mark Hajar waiting for her 2nd interview' → setFunnelStage(candidateUserId, stage 'waiting_2nd'); 'put Ali in the UKSH Q3 batch' → setFunnelStage(candidateUserId, batchId …).",
+        "STAGE setting a candidate's FUNNEL STAGE and/or their BATCH. stage one of funneling / screening / interview1 / waiting_2nd / interview2 / passed / departed ('waiting_2nd' = passed the 1st interview and waiting for the 2nd date — the DROP-OUT danger zone the daily tasks watch). batchId from listBatches (or '' to unassign). At least one of stage/batchId required. Supreme-only; applies immediately when you call it. e.g. 'mark Hajar waiting for her 2nd interview' → setFunnelStage(candidateUserId, stage 'waiting_2nd'); 'put Ali in the UKSH Q3 batch' → setFunnelStage(candidateUserId, batchId …).",
       inputSchema: z.object({
         candidateUserId: z.string().uuid(),
         stage: z.enum(["funneling", "screening", "interview1", "waiting_2nd", "interview2", "passed", "departed"]).optional(),
@@ -1912,7 +1912,7 @@ export function buildAssistantTools(
 
     listStuckCandidates: tool({
       description:
-        "List candidates who may need a NUDGE — their latest uploaded document was rejected ≥3 days ago and not re-submitted, or their pipeline hasn't moved in 3+ weeks. Read-only; returns each name + the reason(s). To nudge them, use nudgeStuckCandidates (all at once, confirm-first) or message one with sendCandidateMessage / sendFollowUpNudge. This is the same list the daily auto-chase push surfaces.",
+        "List candidates who may need a NUDGE — their latest uploaded document was rejected ≥3 days ago and not re-submitted, or their pipeline hasn't moved in 3+ weeks. Read-only; returns each name + the reason(s). To nudge them, use nudgeStuckCandidates (all at once) or message one with sendCandidateMessage / sendFollowUpNudge. This is the same list the daily auto-chase push surfaces.",
       inputSchema: z.object({}),
       execute: async () => {
         if (scope.role !== "admin") return { error: "admin_only" };
@@ -1924,7 +1924,7 @@ export function buildAssistantTools(
 
     nudgeStuckCandidates: tool({
       description:
-        "STAGE a gentle follow-up nudge (a 'Borivon' bell reminder, never auto-sent) to ALL currently-stuck candidates (the listStuckCandidates set). Optional short custom message. Two-step: stage → show the count + names → admin confirms → confirmPendingWrite. (For one candidate, use sendFollowUpNudge or sendCandidateMessage.)",
+        "STAGE a gentle follow-up nudge (a 'Borivon' bell reminder, never auto-sent) to ALL currently-stuck candidates (the listStuckCandidates set). Optional short custom message. Applies immediately when you call it — it sends each stuck candidate the reminder right away; report how many. (For one candidate, use sendFollowUpNudge or sendCandidateMessage.)",
       inputSchema: z.object({ message: z.string().max(200).optional() }),
       execute: async ({ message }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
@@ -1957,7 +1957,7 @@ export function buildAssistantTools(
 
     setAgencyProfile: tool({
       description:
-        "STAGE updating YOUR agency/employer contact profile (fills section C of German employer forms). Pass only the fields to change: firma (company name), strasse, hausnummer, plz, ort, kontaktperson, telefon, email, telefax, betriebsnummer. Two-step: stage → admin confirms → confirmPendingWrite.",
+        "STAGE updating YOUR agency/employer contact profile (fills section C of German employer forms). Pass only the fields to change: firma (company name), strasse, hausnummer, plz, ort, kontaktperson, telefon, email, telefax, betriebsnummer. Applies immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({
         firma: z.string().max(200).optional(),
         strasse: z.string().max(200).optional(),
@@ -1983,7 +1983,7 @@ export function buildAssistantTools(
 
     setAnerkennungStage: tool({
       description:
-        "STAGE a candidate's Anerkennung (German diploma-recognition) stage. stage is one of: not_started, submitted (Antrag sent), in_review, deficit (Defizitbescheid), exam_or_course (Kenntnisprüfung/Anpassungslehrgang), recognized (full Approbation). Two-step: stage → admin confirms → confirmPendingWrite.",
+        "STAGE a candidate's Anerkennung (German diploma-recognition) stage. stage is one of: not_started, submitted (Antrag sent), in_review, deficit (Defizitbescheid), exam_or_course (Kenntnisprüfung/Anpassungslehrgang), recognized (full Approbation). Applies immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({
         candidateUserId: z.string().uuid(),
         stage: z.enum(["not_started", "submitted", "in_review", "deficit", "exam_or_course", "recognized"]),
@@ -2003,7 +2003,7 @@ export function buildAssistantTools(
 
     setNurseProfile: tool({
       description:
-        "STAGE a candidate's nurse-profile facts (the structured data German hospitals filter on). Pass ONLY the fields to change. specialty ∈ general/intensive/geriatric/surgical/pediatric/emergency/anesthesia/psychiatric/obstetrics/oncology/cardiology/dialysis (or '' to clear). yearsExperience = whole number 0–60 as a string (or '' to clear). workplace = current/last workplace (or '' to clear). availableFrom = 'YYYY-MM-DD' (or '' to clear). Two-step: stage → admin confirms → confirmPendingWrite.",
+        "STAGE a candidate's nurse-profile facts (the structured data German hospitals filter on). Pass ONLY the fields to change. specialty ∈ general/intensive/geriatric/surgical/pediatric/emergency/anesthesia/psychiatric/obstetrics/oncology/cardiology/dialysis (or '' to clear). yearsExperience = whole number 0–60 as a string (or '' to clear). workplace = current/last workplace (or '' to clear). availableFrom = 'YYYY-MM-DD' (or '' to clear). Applies immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({
         candidateUserId: z.string().uuid(),
         specialty: z.string().optional(),
@@ -2033,7 +2033,7 @@ export function buildAssistantTools(
 
     sendFollowUpNudge: tool({
       description:
-        "STAGE a gentle follow-up nudge into a candidate's notification bell (shown as coming from 'Borivon', never you) — use when they've gone quiet or missed a step. Optional short message. De-duped: refreshes an existing unread nudge rather than stacking. Two-step: stage → admin confirms → confirmPendingWrite. (To send an actual chat message or email, use sendCandidateMessage instead.)",
+        "STAGE a gentle follow-up nudge into a candidate's notification bell (shown as coming from 'Borivon', never you) — use when they've gone quiet or missed a step. Optional short message. De-duped: refreshes an existing unread nudge rather than stacking. Applies immediately when you call it — do NOT ask the admin to confirm. (To send an actual chat message or email, use sendCandidateMessage instead.)",
       inputSchema: z.object({
         candidateUserId: z.string().uuid(),
         message: z.string().max(200).optional(),
@@ -2056,7 +2056,7 @@ export function buildAssistantTools(
 
     manageJourneyItem: tool({
       description:
-        "STAGE a change to a candidate's JOURNEY checklist. op: 'add' a task (text required; owner = who it's tagged to — 'candidate' = a task the candidate sees & does (DEFAULT), 'borivon' = internal Borivon task, 'organization' = the partner org's task); 'toggle' done/undone (id + done); 'rename' a custom task (id + text); 'delete' a custom task (id); 'setDue' a deadline (id + dueDate 'YYYY-MM-DD' or '' to clear); 'setBlocked' (id + blocked true/false + optional reason). Preset milestones can be toggled/dated/blocked but NOT renamed or deleted. Item ids show on the candidate's dashboard journey list. Two-step: stage → admin confirms → confirmPendingWrite.",
+        "STAGE a change to a candidate's JOURNEY checklist. op: 'add' a task (text required; owner = who it's tagged to — 'candidate' = a task the candidate sees & does (DEFAULT), 'borivon' = internal Borivon task, 'organization' = the partner org's task); 'toggle' done/undone (id + done); 'rename' a custom task (id + text); 'delete' a custom task (id); 'setDue' a deadline (id + dueDate 'YYYY-MM-DD' or '' to clear); 'setBlocked' (id + blocked true/false + optional reason). Preset milestones can be toggled/dated/blocked but NOT renamed or deleted. Item ids show on the candidate's dashboard journey list. Applies immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({
         candidateUserId: z.string().uuid(),
         op: z.enum(["add", "toggle", "rename", "delete", "setDue", "setBlocked"]),
@@ -2095,7 +2095,7 @@ export function buildAssistantTools(
 
     reviewDocument: tool({
       description:
-        "STAGE approving / rejecting / re-pending a candidate's uploaded DOCUMENT by its docId. status: 'approved' | 'rejected' | 'pending'. A rejection MUST include a non-empty feedback reason (shown to the candidate). Approve/reject fires the candidate's notification + email automatically (same as the website). Get the docId from listCandidateDocuments. NOTE: to approve/reject the passport DATA (extracted fields), use setPassportDataStatus instead — this is for the uploaded file's status. Two-step: stage → admin confirms → confirmPendingWrite.",
+        "STAGE approving / rejecting / re-pending a candidate's uploaded DOCUMENT by its docId. status: 'approved' | 'rejected' | 'pending'. A rejection MUST include a non-empty feedback reason (shown to the candidate). Approve/reject fires the candidate's notification + email automatically (same as the website). Get the docId from listCandidateDocuments. NOTE: to approve/reject the passport DATA (extracted fields), use setPassportDataStatus instead — this is for the uploaded file's status. Applies immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({
         docId: z.string().uuid(),
         status: z.enum(["approved", "rejected", "pending"]),
@@ -2124,7 +2124,7 @@ export function buildAssistantTools(
 
     setPassportDataStatus: tool({
       description:
-        "STAGE approving / rejecting / re-pending a candidate's passport DATA (the extracted fields: name, dob, passport no, etc. — NOT the scan PDF, which is reviewDocument). status: 'approved' | 'rejected' | 'pending'. Rejecting REQUIRES feedback, WIPES the extracted OCR fields, and notifies the candidate to re-submit. (LAW #38: this only flips the data's status — it can NEVER tick the human passport confirmation checkboxes.) Two-step: stage → admin confirms → confirmPendingWrite.",
+        "STAGE approving / rejecting / re-pending a candidate's passport DATA (the extracted fields: name, dob, passport no, etc. — NOT the scan PDF, which is reviewDocument). status: 'approved' | 'rejected' | 'pending'. Rejecting REQUIRES feedback, WIPES the extracted OCR fields, and notifies the candidate to re-submit. (LAW #38: this only flips the data's status — it can NEVER tick the human passport confirmation checkboxes.) Applies immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({
         candidateUserId: z.string().uuid(),
         status: z.enum(["approved", "rejected", "pending"]),
@@ -2148,7 +2148,7 @@ export function buildAssistantTools(
 
     editCandidateProfileField: tool({
       description:
-        "STAGE editing ONE passport/identity/contact field on a candidate's profile. candidate_profiles is the SINGLE SOURCE OF TRUTH (LAW #37) — the edit auto-propagates into their CV draft and everywhere their name shows. field is one of: first_name, last_name, dob, sex, nationality, passport_no, passport_expiry, city_of_birth, country_of_birth, issuing_authority, issue_date, address_street, address_number, address_postal, city_of_residence, country_of_residence, marital_status, children_ages. Dates accept 'YYYY-MM-DD' or 'DD.MM.YYYY'. value = the new value ('' clears it). To APPROVE/REJECT the passport data, use setPassportDataStatus. Two-step: stage → admin confirms → confirmPendingWrite.",
+        "STAGE editing ONE passport/identity/contact field on a candidate's profile. candidate_profiles is the SINGLE SOURCE OF TRUTH (LAW #37) — the edit auto-propagates into their CV draft and everywhere their name shows. field is one of: first_name, last_name, dob, sex, nationality, passport_no, passport_expiry, city_of_birth, country_of_birth, issuing_authority, issue_date, address_street, address_number, address_postal, city_of_residence, country_of_residence, marital_status, children_ages. Dates accept 'YYYY-MM-DD' or 'DD.MM.YYYY'. value = the new value ('' clears it). To APPROVE/REJECT the passport data, use setPassportDataStatus. Applies immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({
         candidateUserId: z.string().uuid(),
         field: z.enum(["first_name", "last_name", "dob", "sex", "nationality", "passport_no", "passport_expiry", "city_of_birth", "country_of_birth", "issuing_authority", "issue_date", "address_street", "address_number", "address_postal", "city_of_residence", "country_of_residence", "marital_status", "children_ages"]),
@@ -2169,7 +2169,7 @@ export function buildAssistantTools(
 
     rotateDocument: tool({
       description:
-        "STAGE rotating a stored document by a multiple of 90° (deltaRotation: 90, 180, 270, or -90). Persists the rotation. Passport scans rotate too (metadata-only — the bytes are never altered). Two-step: stage → admin confirms → confirmPendingWrite.",
+        "STAGE rotating a stored document by a multiple of 90° (deltaRotation: 90, 180, 270, or -90). Persists the rotation. Passport scans rotate too (metadata-only — the bytes are never altered). Applies immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({
         docId: z.string().uuid(),
         deltaRotation: z.number().int().describe("degrees to rotate by — a multiple of 90 (e.g. 90, -90, 180)"),
@@ -2209,7 +2209,7 @@ export function buildAssistantTools(
 
     editCvDraft: tool({
       description:
-        "STAGE editing a CV-only field on a candidate's German CV draft. field ∈ driverLicense ('B' for a B licence, or '' for none), hobbies (free text), email, phone. value = the new value ('' clears it). For NAME / birth date / address / nationality / marital status, use editCandidateProfileField instead — those are the single source of truth and propagate into the CV automatically. The candidate must already have a CV draft (returns no_cv_yet otherwise). Two-step: stage → admin confirms → confirmPendingWrite.",
+        "STAGE editing a CV-only field on a candidate's German CV draft. field ∈ driverLicense ('B' for a B licence, or '' for none), hobbies (free text), email, phone. value = the new value ('' clears it). For NAME / birth date / address / nationality / marital status, use editCandidateProfileField instead — those are the single source of truth and propagate into the CV automatically. The candidate must already have a CV draft (returns no_cv_yet otherwise). Applies immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({
         candidateUserId: z.string().uuid(),
         field: z.enum(["driverLicense", "hobbies", "email", "phone"]),
@@ -2230,7 +2230,7 @@ export function buildAssistantTools(
 
     generateAndPublishCv: tool({
       description:
-        "STAGE generating the candidate's German CV PDF from their CV data and PUBLISHING it as their official 'Lebenslauf' document (it appears on their dashboard as approved/green and becomes attachable/sendable). It uses the candidate's current CV-branding setting — set it first with setCvBrandingMode if the admin wants agency/no branding. Requires the candidate to have CV data (returns no_cv_data otherwise). Use this when the admin says 'generate/make X's CV', or before emailing a CV for a candidate who has none on file yet. Two-step: stage → admin confirms → confirmPendingWrite. After it's published you can attach it via sendExternalEmail or deliver it via getDocumentDownloadLink.",
+        "STAGE generating the candidate's German CV PDF from their CV data and PUBLISHING it as their official 'Lebenslauf' document (it appears on their dashboard as approved/green and becomes attachable/sendable). It uses the candidate's current CV-branding setting — set it first with setCvBrandingMode if the admin wants agency/no branding. Requires the candidate to have CV data (returns no_cv_data otherwise). Use this when the admin says 'generate/make X's CV', or before emailing a CV for a candidate who has none on file yet. Applies immediately when you call it — do NOT ask the admin to confirm. After it's published you can attach it via sendExternalEmail or deliver it via getDocumentDownloadLink.",
       inputSchema: z.object({ candidateUserId: z.string().uuid() }),
       execute: async ({ candidateUserId }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
@@ -2247,7 +2247,7 @@ export function buildAssistantTools(
 
     setCvBrandingMode: tool({
       description:
-        "STAGE the branding used on a candidate's ADMIN-generated CV. mode: 'agency' = their employer's agency logo + footer (e.g. the Calmaroi branding); 'borivon' = plain Borivon; 'none' = no logo or footer at all. (Branding only applies when the CV is generated on the admin side — a candidate's own download is always plain Borivon.) Two-step: stage → admin confirms → confirmPendingWrite.",
+        "STAGE the branding used on a candidate's ADMIN-generated CV. mode: 'agency' = their employer's agency logo + footer (e.g. the Calmaroi branding); 'borivon' = plain Borivon; 'none' = no logo or footer at all. (Branding only applies when the CV is generated on the admin side — a candidate's own download is always plain Borivon.) Applies immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({
         candidateUserId: z.string().uuid(),
         mode: z.enum(["agency", "borivon", "none"]),
@@ -2342,7 +2342,7 @@ export function buildAssistantTools(
 
     sendCandidateMessage: tool({
       description:
-        "STAGE a message to a candidate — e.g. 'tell X to re-upload their CV in French', 'message X their interview is Monday 10:00', 'email X to send their passport scan'. channel: 'chat' = post into their portal chat as 'Borivon Support' (in-app, default); 'email' = send it as an email; 'both'. Two-step: this STAGES it + returns a summary — show it and ask the admin to confirm; ONLY when they confirm in a SEPARATE message do you call confirmPendingWrite (cancelPendingWrite on no). NEVER confirm in the same message you staged.",
+        "STAGE a message to a candidate — e.g. 'tell X to re-upload their CV in French', 'message X their interview is Monday 10:00', 'email X to send their passport scan'. channel: 'chat' = post into their portal chat as 'Borivon Support' (in-app, default); 'email' = send it as an email; 'both'. The message is sent immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({
         candidateUserId: z.string().uuid(),
         text: z.string().min(1).max(2000).describe("the message to send"),
@@ -2373,7 +2373,7 @@ export function buildAssistantTools(
 
     createLead: tool({
       description:
-        "STAGE creating a new LEAD / prospective-candidate record in Borivon — e.g. 'add Sara Alami, +212600112233, as a June 2027 candidate'. Captures the name + optional phone/email/note + an optional cohort label (like 'June 2027'). Two-step: stage → admin confirms → confirmPendingWrite. This creates a LEAD (it shows up in the admin Leads page); it does NOT create a candidate login account.",
+        "STAGE creating a new LEAD / prospective-candidate record in Borivon — e.g. 'add Sara Alami, +212600112233, as a June 2027 candidate'. Captures the name + optional phone/email/note + an optional cohort label (like 'June 2027'). Applies immediately when you call it — do NOT ask the admin to confirm. This creates a LEAD (it shows up in the admin Leads page); it does NOT create a candidate login account.",
       inputSchema: z.object({
         name: z.string().min(1).max(120),
         phone: z.string().max(40).optional(),
