@@ -13,7 +13,8 @@ describe("isConfirmText — plain 'apply the pending action' affirmations", () =
 });
 
 describe("isCancelText — plain negations", () => {
-  for (const t of ["no", "No", "nope", "nah", "cancel", "stop", "don't", "never mind", "nvm", "nein", "abbrechen", "non", "annuler"]) {
+  for (const t of ["no", "No", "nope", "nah", "cancel", "stop", "don't", "never mind", "nvm", "nein", "abbrechen", "non", "annuler",
+    "nö", "nee", "vergiss es", "lass es", "macht nichts", "stopp", "actually cancel that", "ne lass es", "actually cancel that, I think we should wait"]) {
     it(`cancels: "${t}"`, () => expect(isCancelText(t)).toBe(true));
   }
   for (const t of ["", "yes", "no wait actually send it to a different person entirely please"]) {

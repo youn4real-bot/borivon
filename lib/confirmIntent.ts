@@ -7,7 +7,10 @@
  * this critical path can't silently regress.
  */
 const CONFIRM_RE = /^(y|ye|yes+|yep|yeah|yup|ok|okay|kk?|sure|fine|do it|send|send it|send it now|send the e?mail|send the mail|go|go ahead|confirm|confirmed|approve|approved|yes please|please do|ja|jaa+|jawohl|senden|abschicken|schick(e|s)?( es| ihn| sie)?( ab)?|mach(e|s)?( es)?|los( gehts)?|bestätigen|bestaetigen|oui|envoie|envoie[- ]le|envoyer|confirme[rz]?|vas[- ]?y|d.?accord)$/i;
-const CANCEL_RE = /^(n|no+|nope|nah|cancel|stop|don.?t|dont|never ?mind|nvm|forget it|nein|abbrechen|nicht senden|nicht|non|annule[rz]?)$/i;
+const CANCEL_RE = /^(n|no+|nope|nah|nope|cancel|stop|don.?t|dont|never ?mind|nvm|forget it|nein|nee|noe|n[oö]+|abbrechen|nicht senden|nicht|vergiss( es)?|lass( es)?|macht nichts|non|annule[rz]?|laisse tomber|stopp?)$/i;
+// Also treat a SHORT message that clearly says cancel/stop as a cancel, even with
+// a few extra words ("actually cancel that", "ne lass es", "nope don't send it").
+const CANCEL_SUBSTR = /\b(cancel|stop|abbrechen|nicht senden|never ?mind|forget it|vergiss|lass es|annule|laisse tomber)\b/i;
 
 /** Lowercase, trim, strip surrounding quotes + trailing punctuation. */
 export function normShort(s: string): string {
@@ -29,5 +32,9 @@ export function isConfirmText(t: string): boolean {
 /** True when the message is a plain "cancel the pending action" negation. */
 export function isCancelText(t: string): boolean {
   const n = normShort(t);
-  return !!n && n.length <= 30 && CANCEL_RE.test(n);
+  if (!n) return false;
+  if (n.length <= 30 && CANCEL_RE.test(n)) return true;
+  // A short message that explicitly says cancel/stop (with a little extra wording).
+  if (n.length <= 60 && CANCEL_SUBSTR.test(n)) return true;
+  return false;
 }
