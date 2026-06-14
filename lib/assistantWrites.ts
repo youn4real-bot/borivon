@@ -533,9 +533,15 @@ async function writeUpsertEmployer(opts: { id?: string; name?: string; address?:
   if (opts.notes !== undefined) row.notes = opts.notes ? opts.notes.slice(0, 2000) : null;
   if (isCreate && !("active" in row)) row.active = true;
   if (!isCreate && Object.keys(row).length === 0) return { ok: false, error: "nothing_to_update" };
-  const q = isCreate ? db.from("employers").insert(row) : db.from("employers").update(row).eq("id", opts.id);
-  const { error } = await q;
+  if (isCreate) {
+    const { error } = await db.from("employers").insert(row);
+    return error ? { ok: false, error: "write_failed" } : { ok: true };
+  }
+  // Edit: .select() so a zero-match (bad/invented id) is caught as not_found
+  // instead of silently returning ok:true with nothing changed.
+  const { data: updated, error } = await db.from("employers").update(row).eq("id", opts.id).select("id");
   if (error) return { ok: false, error: "write_failed" };
+  if (!updated || updated.length === 0) return { ok: false, error: "employer_not_found" };
   return { ok: true };
 }
 
@@ -708,8 +714,11 @@ async function writeOrgBranding(orgId: string, opts: { footerText?: string; mase
   }
   if (Object.keys(updates).length === 0) return { ok: false, error: "nothing_to_update" };
   const db = getServiceSupabase();
-  const { error } = await db.from("organizations").update(updates).eq("id", orgId);
+  // .select() so a bad/invented orgId is caught (zero rows) instead of silently
+  // returning ok:true having changed nothing.
+  const { data: updated, error } = await db.from("organizations").update(updates).eq("id", orgId).select("id");
   if (error) return { ok: false, error: "write_failed" };
+  if (!updated || updated.length === 0) return { ok: false, error: "org_not_found" };
   return { ok: true };
 }
 
@@ -826,7 +835,8 @@ async function writeManageSubAdmin(op: string, email: string, name: string, labe
   if (!EMAIL_RE.test(e)) return { ok: false, error: "bad_email" };
   const db = getServiceSupabase();
   if (op === "create") {
-    await db.from("sub_admins").delete().ilike("email", ciEmail(e));
+    const { error: dErr } = await db.from("sub_admins").delete().ilike("email", ciEmail(e));
+    if (dErr) return { ok: false, error: "write_failed" }; // don't insert + claim success if the de-dupe delete failed
     let { error } = await db.from("sub_admins").insert({ email: e, name: name.slice(0, 200), label: label.slice(0, 200), is_agency_admin: false });
     if (error && /is_agency_admin|column .* does not exist|schema cache/i.test(error.message)) {
       ({ error } = await db.from("sub_admins").insert({ email: e, name: name.slice(0, 200), label: label.slice(0, 200) }));
@@ -905,7 +915,8 @@ async function writeManageOrgMember(op: string, orgId: string, email: string, ro
   const db = getServiceSupabase();
   if (op === "add") {
     const r = role === "owner" ? "owner" : "member";
-    await db.from("sub_admins").delete().ilike("email", ciEmail(e));
+    const { error: dErr } = await db.from("sub_admins").delete().ilike("email", ciEmail(e));
+    if (dErr) return { ok: false, error: "write_failed" }; // don't proceed + claim success if the de-dupe delete failed
     let { error: subErr } = await db.from("sub_admins").insert({ email: e, name: name.slice(0, 200), label: label.slice(0, 200), is_agency_admin: true });
     if (subErr && /is_agency_admin|column .* does not exist|schema cache/i.test(subErr.message)) {
       ({ error: subErr } = await db.from("sub_admins").insert({ email: e, name: name.slice(0, 200), label: label.slice(0, 200) }));
