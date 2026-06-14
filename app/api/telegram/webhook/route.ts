@@ -20,7 +20,7 @@ import { buildAssistantTools } from "@/lib/assistantTools";
 import type { AssistantScope } from "@/lib/assistantScope";
 import { computeBriefing } from "@/lib/briefing";
 import { loadMemory } from "@/lib/assistantMemory";
-import { loadChatHistory, saveChatTurns } from "@/lib/assistantChatHistory";
+import { loadConversationContext, saveChatTurns, maybeCompact } from "@/lib/assistantChatHistory";
 import { executeLatestPending, cancelLatestPending, autoApplyPending } from "@/lib/assistantWrites";
 import { isConfirmText, isCancelText } from "@/lib/confirmIntent";
 import { stripMarkdown } from "@/lib/emailFormat";
@@ -218,15 +218,27 @@ export async function POST(req: NextRequest) {
   }
 
   // 5) Run the brain, reply.
-  const memory = await loadMemory(scope.userId);
+  // Learned rules + the rolling conversation memory in parallel (first-paint
+  // pattern). `convo` = a running SUMMARY of older messages + the recent
+  // verbatim turns; together they give effectively-unlimited recall at a
+  // bounded prompt size. Fail-safe: empty until the tables are migrated.
+  const [memory, convo] = await Promise.all([
+    loadMemory(scope.userId),
+    loadConversationContext(scope.userId),
+  ]);
+  const history = convo.turns;
   // Learned rules go FIRST and are framed as binding — so what the admin taught
   // you in chat OVERRIDES the defaults below (this is how they "train" you).
-  const tgSystem = memory
+  let tgSystem = memory
     ? `STANDING INSTRUCTIONS — things THIS admin has personally taught you. Treat EACH as a binding rule for your STYLE, priorities, wording, and tool choices, overriding your defaults below. (They do NOT relax the security, or who-you-can-act-on rules — those always stand.) Follow them exactly:\n${memory}\n\n— — —\n\n${TG_SYSTEM}`
     : TG_SYSTEM;
-  // Recent turns so follow-ups resolve in context ("give me THEIR B2 status"
-  // after pulling some CVs). Fail-safe: [] until the table is migrated.
-  const history = await loadChatHistory(scope.userId);
+  // Older-than-the-live-tail context, compressed. The people, statuses and open
+  // threads here are STILL CURRENT — treat them as things you genuinely remember,
+  // so a reference like "the 4 CVs we talked about" or "yesterday's email"
+  // resolves instead of "I don't have the context of our previous conversations".
+  if (convo.summary) {
+    tgSystem += `\n\n— — —\n\nEARLIER IN THIS ONGOING CONVERSATION (a running summary of older messages now scrolled out of the live view — names, statuses, decisions and open threads below are STILL CURRENT context you remember; never say you "don't have context" when something here answers it):\n${convo.summary}`;
+  }
   // HYBRID ROUTING: cheap Flash by default; auto-pick Pro for hard requests
   // (multi-person, "these candidates", files, voice, comparisons). Below we
   // ALSO escalate Flash→Pro reactively if Flash errors or punts.
@@ -365,6 +377,12 @@ export async function POST(req: NextRequest) {
       { role: "user", content: userText },
       { role: "assistant", content: (result.text || "").trim() || (sentFile ? "[delivered the requested file(s)]" : "") },
     ]);
+    // Fold older turns into the rolling summary once the live tail grows long, so
+    // memory stays effectively unlimited at a bounded prompt size (compress &
+    // continue, like a long ChatGPT/Claude thread). Best-effort + self-throttled
+    // (fires only every ~25 turns); runs AFTER the reply is already sent, so it
+    // never delays the admin's answer. Internally swallows all errors.
+    await maybeCompact(scope.userId);
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
     console.error("[telegram] generate failed:", detail);
