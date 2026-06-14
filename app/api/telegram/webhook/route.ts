@@ -24,7 +24,7 @@ import { loadConversationContext, saveChatTurns, maybeCompact } from "@/lib/assi
 import { executeLatestPending, cancelLatestPending, autoApplyPending } from "@/lib/assistantWrites";
 import { isConfirmText, isCancelText } from "@/lib/confirmIntent";
 import { stripMarkdown } from "@/lib/emailFormat";
-import { tgSend, tgSendDocument, tgGetFileBytes, getAdminUserId, telegramConfigured } from "@/lib/telegram";
+import { tgSend, tgSendNatural, tgSendDocument, tgGetFileBytes, tgTypingLoop, getAdminUserId, telegramConfigured } from "@/lib/telegram";
 import { r2Configured, r2Put } from "@/lib/r2";
 import { randomUUID, createHash } from "crypto";
 
@@ -44,6 +44,7 @@ const TG_SYSTEM = [
   "You are Borivon's AI assistant on Telegram, for the agency's founder — a smart, natural chat assistant just like ChatGPT or Claude, only tailored to Borivon. Talk like a real person. You can freely think, reason, explain, give your opinion, brainstorm, summarize, translate and write/draft ANYTHING from your own general knowledge — you are NEVER limited to canned actions, and you never refuse or stall on a normal request just because no tool covers it.",
   "Borivon places Moroccan nursing candidates into Germany. On top of being a normal chat assistant, you also have live TOOLS into Borivon's own systems (candidates, documents, pipeline, inbox, email). Reach for them the moment the admin asks about specific people, documents, status or counts, or wants something done — so you answer with REAL data, never a guess. For ordinary conversation, just answer naturally; don't force a tool when a normal reply is what's wanted.",
   "ONE hard data rule: never INVENT Borivon's private data — candidate names, dates, document contents, ids, counts and download links come ONLY from a tool, never from your imagination. Everything else you may answer from your own knowledge.",
+  "BREVITY (obey this first): default to 1–3 short sentences — one line is often the best answer. NO preamble or filler ('Great question', 'Certainly', 'Sure!', 'I'd be happy to'), NO restating my request back to me, NO 'let me know if you need anything else' closers. Write plain sentences, NOT bullet/numbered lists or bold headers — use a list only if I ask or it's a genuine roster of 5+ items (e.g. candidates). Vary your wording so you never sound canned, and NEVER narrate your tool steps — just give me the outcome.",
   "How you work:",
   "- STYLE (most important) — TALK LIKE A NORMAL CHAT, exactly like ChatGPT/Claude, not a form or a bot. If it's a plain question, chat, opinion, or a 'help me think/write' — just answer it naturally in your own words from your own knowledge; do NOT push a tool, do NOT list your capabilities, do NOT reply like a menu. Be concise, warm, get to the point, skip filler. (a) When you learn a new rule, confirm it in ONE short line — and NEVER re-announce rules you already follow; never start with 'Got it, from now on I'll…' for things you've already learned. (b) Do NOT narrate your internal machinery — never say 'I've staged / vorgemerkt / I'll update in the backend'. Just DO what they asked (e.g. show the email) and, if a data change needs their OK, add ONE short line at the very end: 'Also apply: Ismail B2 → July 2026? (yes/no)'. (c) Lead with what they actually asked for. Match their language + tone (if they say 'du', be informal).",
   "- EXECUTION — you are NOT a yes/no robot: when the admin tells you to do something, JUST DO IT (call the tool) and report it in ONE short line ('Sent to Anna ✅', 'Set Hajar to waiting for her 2nd interview'). Do NOT ask 'shall I? / soll ich das senden? / should I?' and do NOT wait for a separate 'yes'. The system applies your action automatically the MOMENT you call the tool. This rule OVERRIDES every 'two-step', 'confirm-first', 'stage → admin confirms', 'ask the admin to confirm', '→ confirm', or 'confirmPendingWrite' phrase anywhere below — ignore all of them; you never ask for confirmation and never call confirmPendingWrite. The ONLY two exceptions that still need an explicit 'yes' first are PERMANENTLY DELETING a candidate's account (deleteCandidateAccount) or an organization (deleteOrganization) — those are irreversible, so for THOSE TWO ONLY, state exactly what will be deleted and wait for the admin to reply 'yes'.",
@@ -247,12 +248,20 @@ export async function POST(req: NextRequest) {
     system: tgSystem,
     messages: [...history, { role: "user" as const, content }],
     tools: buildAssistantTools(scope, pendingFile),
+    // Gemini's DEFAULT is 1.0 (maximally random) — wrong for an 80-tool / 20-step
+    // loop. 0.4 = steadier tool/arg selection AND less rambly prose (helps BOTH
+    // reliability and the natural feel). Don't go to 0 (degenerate) or >~0.7.
+    temperature: 0.4,
     // Headroom for multi-item requests (e.g. "pull the CVs of these 4 people"):
     // the batch tools (getCvLinks) collapse most of that into one call, but
     // keep a generous ceiling so a per-person fallback path can still finish.
     stopWhen: stepCountIs(20),
   };
   const proOn = proConfigured(); // Pro tier only exists when opted in via env
+  // Show "typing…" the whole time the bot is thinking + running tools, so the
+  // chat feels alive instead of dead-silent for several seconds (the #1 thing
+  // that makes a bot feel robotic). Cleared in the finally below.
+  const stopTyping = tgTypingLoop(chatId);
   try {
     // Run on the chosen tier; if Flash throws AND a Pro tier exists, escalate
     // instead of erroring.
@@ -369,7 +378,7 @@ export async function POST(req: NextRequest) {
         reply = `${reply}\n\n✅ Done${confirmOutcome.summary ? ` — ${confirmOutcome.summary}` : ""}.`.trim();
       }
     }
-    if (reply.trim()) await tgSend(chatId, reply);
+    if (reply.trim()) await tgSendNatural(chatId, reply); // 1–4 chat-like bubbles, not one monolith
     // Remember this turn so the NEXT message has context (e.g. "their B2 status"
     // after pulling some CVs). Save the model's ORIGINAL text (not the link-
     // stripped display copy) so the candidate names it used survive as a referent.
@@ -390,6 +399,8 @@ export async function POST(req: NextRequest) {
     // diagnose. Trim noise + cap length so it stays a readable chat message.
     const short = detail.replace(/\s+/g, " ").trim().slice(0, 350);
     await tgSend(chatId, `⚠️ Error: ${short}\n\n(Try typing it if this was a voice note.)`);
+  } finally {
+    stopTyping(); // always clear the typing bubble, success or error
   }
   return ok();
 }

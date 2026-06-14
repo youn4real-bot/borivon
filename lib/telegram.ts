@@ -12,21 +12,96 @@ export function telegramConfigured(): boolean {
   return !!process.env.TELEGRAM_BOT_TOKEN;
 }
 
+const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/** One sendMessage with a single 429 retry (respect Telegram's retry_after —
+ *  load-bearing once we send several bubbles back-to-back). */
+async function postMessage(chatId: string | number, text: string): Promise<void> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const r = await fetch(`${API}/bot${token()}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
+      });
+      if (r.status === 429) {
+        const j = (await r.json().catch(() => null)) as { parameters?: { retry_after?: number } } | null;
+        await delay(Math.min(10, Number(j?.parameters?.retry_after) || 1) * 1000);
+        continue; // retry once
+      }
+      return;
+    } catch (e) {
+      console.error("[telegram] sendMessage failed:", e instanceof Error ? e.message : e);
+      return;
+    }
+  }
+}
+
 /** Send a plain-text message (chunked to Telegram's 4096-char limit). */
 export async function tgSend(chatId: string | number, text: string): Promise<void> {
   if (!token()) return;
-  for (let i = 0; i < text.length; i += 3900) {
-    const chunk = text.slice(i, i + 3900);
-    try {
-      await fetch(`${API}/bot${token()}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: chatId, text: chunk, disable_web_page_preview: true }),
-      });
-    } catch (e) {
-      console.error("[telegram] sendMessage failed:", e instanceof Error ? e.message : e);
-    }
+  for (let i = 0; i < text.length; i += 3900) await postMessage(chatId, text.slice(i, i + 3900));
+}
+
+/** Pack prose into 1–4 paragraph-boundary "bubbles" (never mid-sentence) so a
+ *  reply arrives like a person typing in chat, not one monolith. A short reply
+ *  stays ONE bubble. Pure → exported for tests. */
+export function splitIntoBubbles(text: string, maxLen = 800, maxBubbles = 4): string[] {
+  const clean = (text ?? "").trim();
+  if (!clean) return [];
+  const paras = clean.split(/\n{2,}/).map((p) => p.trim()).filter(Boolean);
+  if (paras.length <= 1) return [clean]; // single block → one bubble (tgSend handles >4096)
+  const bubbles: string[] = [];
+  let cur = "";
+  for (const p of paras) {
+    if (cur && cur.length + 2 + p.length > maxLen) { bubbles.push(cur); cur = p; }
+    else cur = cur ? `${cur}\n\n${p}` : p;
   }
+  if (cur) bubbles.push(cur);
+  if (bubbles.length > maxBubbles) {
+    // Merge the overflow into the last allowed bubble so we never spam >maxBubbles.
+    return [...bubbles.slice(0, maxBubbles - 1), bubbles.slice(maxBubbles - 1).join("\n\n")];
+  }
+  return bubbles;
+}
+
+/** Send a reply the natural way: as a few digestible bubbles with a brief
+ *  "typing…" pause between them (the single biggest "feels like ChatGPT" lever).
+ *  Short replies go out as one message with no delay. */
+export async function tgSendNatural(chatId: string | number, text: string): Promise<void> {
+  if (!token()) return;
+  const bubbles = splitIntoBubbles(text);
+  for (let i = 0; i < bubbles.length; i++) {
+    if (i > 0) {
+      void tgSendChatAction(chatId, "typing");
+      await delay(Math.min(1400, 350 + bubbles[i].length * 5)); // human-ish pause, capped
+    }
+    await tgSend(chatId, bubbles[i]);
+  }
+}
+
+/** Show the "Borivon Assistant is typing…" bubble once. Telegram clears it after
+ *  ~5s or when the next message arrives. Best-effort. */
+export async function tgSendChatAction(chatId: string | number, action: "typing" | "upload_document" = "typing"): Promise<void> {
+  if (!token()) return;
+  try {
+    await fetch(`${API}/bot${token()}/sendChatAction`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, action }),
+    });
+  } catch { /* best-effort — never block on the typing bubble */ }
+}
+
+/** Keep the "typing…" bubble alive while the bot thinks. Telegram's action lasts
+ *  ~5s, so we re-send every 4s until the returned stop() is called. Makes the bot
+ *  feel alive (a real chat) instead of dead-silent for several seconds. */
+export function tgTypingLoop(chatId: string | number, action: "typing" | "upload_document" = "typing"): () => void {
+  if (!token()) return () => {};
+  let stopped = false;
+  void tgSendChatAction(chatId, action); // immediate
+  const timer = setInterval(() => { if (!stopped) void tgSendChatAction(chatId, action); }, 4000);
+  return () => { stopped = true; clearInterval(timer); };
 }
 
 /** Send an actual file INTO the chat (multipart). Used to "pull" a candidate's
