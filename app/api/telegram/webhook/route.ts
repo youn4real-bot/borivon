@@ -24,7 +24,7 @@ import { loadConversationContext, saveChatTurns, maybeCompact } from "@/lib/assi
 import { executeLatestPending, cancelLatestPending, autoApplyPending } from "@/lib/assistantWrites";
 import { isConfirmText, isCancelText } from "@/lib/confirmIntent";
 import { stripMarkdown } from "@/lib/emailFormat";
-import { tgSend, tgSendNatural, tgSendDocument, tgGetFileBytes, tgTypingLoop, getAdminUserId, telegramConfigured } from "@/lib/telegram";
+import { tgSend, tgSendNatural, tgSendDocument, tgGetFileBytes, tgTypingLoop, tgSendChatAction, getAdminUserId, telegramConfigured } from "@/lib/telegram";
 import { r2Configured, r2Put } from "@/lib/r2";
 import { randomUUID, createHash } from "crypto";
 
@@ -276,20 +276,17 @@ export async function POST(req: NextRequest) {
       try { result = await generateText({ model: proModel, ...genArgs }); } catch { /* keep the Flash result */ }
     }
 
-    // PULL: if the model produced download link(s), deliver the actual file(s)
-    // INTO the chat (not just a link). Aggregate across all tool-call steps,
-    // and across BOTH single-link tools (getDocumentDownloadLink → {url}) and
-    // batch tools (getCvLinks → {results:[{url}]}), so a 4-CV request delivers
-    // all 4 files, not just the first.
+    // COLLECT the file links the model produced (we deliver the ACTUAL files into
+    // the chat, not just a link) — but DON'T download yet. We send the ANSWER TEXT
+    // first so "pull the 4 CVs" feels instant instead of waiting on PDF downloads,
+    // THEN stream the files in behind it. Aggregates single-link (getDocumentDownloadLink
+    // → {url}) and batch (getCvLinks → {results:[{url}]}) tools, deduped.
     const FILE_TOOLS = new Set(["getDocumentDownloadLink", "getCvLinks"]);
-    let sentFile = false;
-    let wantedFiles = 0;
-    const failedFiles: string[] = [];
+    const fileLinks: { url: string; fileName?: string }[] = [];
     const seenUrls = new Set<string>();
     // Truthful confirm status — the model sometimes claims "done/versendet" even
-    // when confirmPendingWrite was refused or errored. We read the ACTUAL result
-    // and append the real outcome below so the bot can never falsely claim a write
-    // (e.g. an email send) happened.
+    // when the write was refused/errored. We read the ACTUAL result and append the
+    // real outcome so the bot can never falsely claim a write (e.g. an email) happened.
     let confirmOutcome: { done?: boolean; summary?: string; error?: string } | null = null;
     try {
       const steps = (result as { steps?: Array<{ toolResults?: unknown[] }> }).steps;
@@ -301,28 +298,8 @@ export async function POST(req: NextRequest) {
       for (const t of all) {
         if (!t.toolName || !FILE_TOOLS.has(t.toolName)) continue;
         const out = t.output ?? t.result;
-        const links: { url: string; fileName?: string }[] = [];
-        if (out?.url) links.push({ url: out.url, fileName: out.fileName });
-        for (const r of out?.results ?? []) if (r?.url) links.push({ url: r.url, fileName: r.fileName });
-        for (const link of links) {
-          if (seenUrls.has(link.url)) continue; // never deliver the exact same link twice
-          seenUrls.add(link.url);
-          wantedFiles++;
-          const name = link.fileName || "document";
-          try {
-            // Bounded fetch — a single hung download can't eat the whole request.
-            const ctl = new AbortController();
-            const timer = setTimeout(() => ctl.abort(), 30_000);
-            const f = await fetch(`${BASE_URL}${link.url}`, { signal: ctl.signal }).finally(() => clearTimeout(timer));
-            if (f.ok) {
-              const bytes = new Uint8Array(await f.arrayBuffer());
-              if (await tgSendDocument(chatId, bytes, name)) { sentFile = true; continue; }
-            }
-            failedFiles.push(name);
-          } catch {
-            failedFiles.push(name);
-          }
-        }
+        if (out?.url && !seenUrls.has(out.url)) { seenUrls.add(out.url); fileLinks.push({ url: out.url, fileName: out.fileName }); }
+        for (const r of out?.results ?? []) if (r?.url && !seenUrls.has(r.url)) { seenUrls.add(r.url); fileLinks.push({ url: r.url, fileName: r.fileName }); }
       }
       // Capture the real confirmPendingWrite outcome (last one wins).
       for (const t of all as Array<{ toolName?: string; output?: unknown; result?: unknown }>) {
@@ -331,13 +308,11 @@ export async function POST(req: NextRequest) {
         if (out && (out.done !== undefined || out.error !== undefined)) confirmOutcome = out;
       }
     } catch (e) {
-      console.error("[telegram] file pull failed:", e instanceof Error ? e.message : e);
+      console.error("[telegram] tool-result parse failed:", e instanceof Error ? e.message : e);
     }
 
-    // JUST-DO-IT: if the model staged a NON-destructive action this turn, apply it
-    // right now — no "shall I? yes/no" dance (the founder wants a chat assistant,
-    // not a robot). Destructive actions (delete account/org) are left pending and
-    // need an explicit "yes" (handled by the code-confirm intercept next message).
+    // JUST-DO-IT: apply any NON-destructive action staged this turn right now — no
+    // "shall I? yes/no" dance. Destructive deletes stay pending for an explicit "yes".
     if (!confirmOutcome) {
       try {
         const res = await autoApplyPending(scope); // drains ALL non-destructive actions staged this turn
@@ -345,43 +320,59 @@ export async function POST(req: NextRequest) {
           if (res.failed.length) confirmOutcome = { error: `${res.failed.join("; ")}${res.applied.length ? ` (but did apply: ${res.applied.join("; ")})` : ""}` };
           else if (res.applied.length) confirmOutcome = { done: true, summary: res.applied.join("; ") };
         }
-        // skipped (nothing pending / only destructive awaiting yes) → leave null
       } catch (e) {
         console.error("[telegram] auto-apply failed:", e instanceof Error ? e.message : e);
       }
     }
 
-    // Text reply: if we delivered the file, strip the raw link; else make links tappable.
-    let reply = result.text || (sentFile ? "" : "Done.");
-    // ROOT FIX for the "** stars everywhere" complaint: Telegram doesn't render
-    // Markdown, so the model's habitual **bold**/`code`/* bullets show up as ugly
-    // literal characters no matter how many times we tell it "no stars". Strip it
-    // in CODE on EVERY reply (not just emails) so it can never reach the chat.
-    reply = stripMarkdown(reply);
-    reply = sentFile
-      ? reply.replace(/\/api\/portal\/file\?[^\s)]+/g, "(sent above ⬆️)")
+    const willSendFiles = fileLinks.length > 0;
+    // Build the ANSWER text. Strip markdown (Telegram won't render it). If files are
+    // coming, swap raw links for "(sending below ⬇️)"; otherwise make them tappable.
+    let reply = stripMarkdown(result.text || "");
+    reply = willSendFiles
+      ? reply.replace(/\/api\/portal\/file\?[^\s)]+/g, "(sending below ⬇️)")
       : reply.replace(/\/api\/portal\/file/g, `${BASE_URL}/api/portal/file`);
-    // Be honest about partial delivery rather than letting the model claim "sent all".
-    if (failedFiles.length) {
-      reply = `${reply}\n\n⚠️ Couldn't deliver ${failedFiles.length} of ${wantedFiles} file(s): ${failedFiles.slice(0, 8).join(", ")}. Try again in a moment.`.trim();
-    }
-    // Code-enforced TRUTH about the confirm: never let the model claim a write
-    // happened when it didn't (e.g. it said "versendet" but the send was refused).
+    // Code-enforced TRUTH about a staged write (email send etc.) — known now.
     if (confirmOutcome) {
-      if (confirmOutcome.error === "confirm_in_new_message") {
-        reply = `${reply}\n\n⚠️ Not done yet — send "yes" (or "senden") as a separate message and I'll apply it.`.trim();
-      } else if (confirmOutcome.error === "nothing_pending") {
-        reply = `${reply}\n\n⚠️ There was nothing pending to confirm — ask me again and I'll re-prepare it.`.trim();
-      } else if (confirmOutcome.error) {
-        reply = `${reply}\n\n⚠️ I could NOT apply that: ${confirmOutcome.error}. Nothing was sent/changed.`.trim();
-      } else if (confirmOutcome.done && !/✅/.test(reply)) {
-        reply = `${reply}\n\n✅ Done${confirmOutcome.summary ? ` — ${confirmOutcome.summary}` : ""}.`.trim();
+      if (confirmOutcome.error === "confirm_in_new_message") reply = `${reply}\n\n⚠️ Not done yet — send "yes" (or "senden") as a separate message and I'll apply it.`.trim();
+      else if (confirmOutcome.error === "nothing_pending") reply = `${reply}\n\n⚠️ There was nothing pending to confirm — ask me again and I'll re-prepare it.`.trim();
+      else if (confirmOutcome.error) reply = `${reply}\n\n⚠️ I could NOT apply that: ${confirmOutcome.error}. Nothing was sent/changed.`.trim();
+      else if (confirmOutcome.done && !/✅/.test(reply)) reply = `${reply}\n\n✅ Done${confirmOutcome.summary ? ` — ${confirmOutcome.summary}` : ""}.`.trim();
+    }
+    if (!reply.trim() && !willSendFiles) reply = "Done.";
+    // SEND THE TEXT FIRST (snappy) — the files stream in right after.
+    if (reply.trim()) await tgSendNatural(chatId, reply);
+
+    // Now deliver the actual files behind the text (bounded per-file fetch).
+    let sentFile = false;
+    const failedFiles: string[] = [];
+    if (willSendFiles) {
+      stopTyping(); // swap the "typing…" bubble for "uploading a document…"
+      for (const link of fileLinks) {
+        const name = link.fileName || "document";
+        void tgSendChatAction(chatId, "upload_document");
+        try {
+          // Bounded fetch — a single hung download can't eat the whole request.
+          const ctl = new AbortController();
+          const timer = setTimeout(() => ctl.abort(), 30_000);
+          const f = await fetch(`${BASE_URL}${link.url}`, { signal: ctl.signal }).finally(() => clearTimeout(timer));
+          if (f.ok) {
+            const bytes = new Uint8Array(await f.arrayBuffer());
+            if (await tgSendDocument(chatId, bytes, name)) { sentFile = true; continue; }
+          }
+          failedFiles.push(name);
+        } catch {
+          failedFiles.push(name);
+        }
+      }
+      // Honest partial-delivery note as a FINAL short bubble.
+      if (failedFiles.length) {
+        await tgSend(chatId, `⚠️ Couldn't deliver ${failedFiles.length} of ${fileLinks.length} file(s): ${failedFiles.slice(0, 8).join(", ")}. Try again in a moment.`);
       }
     }
-    if (reply.trim()) await tgSendNatural(chatId, reply); // 1–4 chat-like bubbles, not one monolith
-    // Remember this turn so the NEXT message has context (e.g. "their B2 status"
-    // after pulling some CVs). Save the model's ORIGINAL text (not the link-
-    // stripped display copy) so the candidate names it used survive as a referent.
+
+    // Remember this turn so the NEXT message has context. Save the model's ORIGINAL
+    // text (not the display copy) so the candidate names it used survive as a referent.
     await saveChatTurns(scope.userId, [
       { role: "user", content: userText },
       { role: "assistant", content: (result.text || "").trim() || (sentFile ? "[delivered the requested file(s)]" : "") },
