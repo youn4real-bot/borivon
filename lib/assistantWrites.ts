@@ -21,7 +21,7 @@ import { applyDocReview, applyCandidateProfilePatch } from "@/lib/adminCandidate
 import { backfillPassportFromCvDraft } from "@/lib/cvDraftBackfill";
 import { sendOutboundEmail, OUTBOUND_FROM_NAME, OUTBOUND_FROM_EMAIL, OUTBOUND_SIGNATURE_HTML, OUTBOUND_SIGNATURE_TEXT, type OutboundAttachment } from "@/lib/outboundEmail";
 import { buildInviteIcs } from "@/lib/calendarInvite";
-import { gmailGet, gmailSendRaw } from "@/lib/gmailApi";
+import { gmailGet, gmailSendRaw, listEmailAttachments, getEmailAttachmentBytes } from "@/lib/gmailApi";
 import { bookWorkspaceEvent } from "@/lib/workspaceCalendar";
 import { reportError } from "@/lib/reportError";
 import { stripMarkdown } from "@/lib/emailFormat";
@@ -442,7 +442,7 @@ async function writeEditCvDraft(userId: string, field: string, value: string): P
  *  (the tool already gate-checked at stage time). */
 async function writeExternalEmail(
   scope: AssistantScope,
-  opts: { to: string; toName?: string; cc?: string[]; subject: string; body: string; candidateIds: string[]; docIds: string[] },
+  opts: { to: string; toName?: string; cc?: string[]; subject: string; body: string; candidateIds: string[]; docIds: string[]; attachFromEmailIds?: string[] },
 ): Promise<WriteResult> {
   const db = getServiceSupabase();
   const attachments: OutboundAttachment[] = [];
@@ -490,6 +490,21 @@ async function writeExternalEmail(
     const obj = await r2GetObject(d.r2_key);
     if (obj?.body) attachments.push({ filename: d.file_name || "document.pdf", content: obj.body });
     else missing.push(did);
+  }
+
+  // FORWARD attachments pulled from the founder's Gmail (e.g. "send Anna the
+  // Defizitbescheid Abdelhak attached"). For each source email, fetch every file
+  // attachment natively and enclose it. A message that yields no bytes is a
+  // shortfall → refuse (never send claiming files that aren't actually attached).
+  for (const mid of opts.attachFromEmailIds ?? []) {
+    const atts = await listEmailAttachments(mid);
+    if (!atts || atts.length === 0) { missing.push(`email:${mid}`); continue; }
+    let got = 0;
+    for (const a of atts.slice(0, 20)) {
+      const bytes = await getEmailAttachmentBytes(mid, a.attachmentId);
+      if (bytes?.length) { attachments.push({ filename: a.filename || "attachment", content: bytes }); got++; }
+    }
+    if (got === 0) missing.push(`email:${mid}`);
   }
 
   // A requested attachment couldn't be produced (e.g. the candidate has no
@@ -1467,6 +1482,7 @@ async function applyPendingRow(
       body: String(a.body ?? ""),
       candidateIds: splitIds(a.attachCandidateIds),
       docIds: splitIds(a.attachDocIds),
+      attachFromEmailIds: splitIds(a.attachFromEmailIds),
     });
   } else if (row.tool_name === "replyToEmail") {
     result = await writeReplyEmail(scope, { messageId: String(a.messageId ?? ""), body: String(a.body ?? ""), replyAll: a.replyAll === true });
