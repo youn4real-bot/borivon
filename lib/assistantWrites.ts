@@ -21,7 +21,7 @@ import { applyDocReview, applyCandidateProfilePatch } from "@/lib/adminCandidate
 import { backfillPassportFromCvDraft } from "@/lib/cvDraftBackfill";
 import { sendOutboundEmail, OUTBOUND_FROM_NAME, OUTBOUND_FROM_EMAIL, OUTBOUND_SIGNATURE_HTML, OUTBOUND_SIGNATURE_TEXT, type OutboundAttachment } from "@/lib/outboundEmail";
 import { buildInviteIcs } from "@/lib/calendarInvite";
-import { gmailGet, gmailSendRaw, listEmailAttachments, getEmailAttachmentBytes } from "@/lib/gmailApi";
+import { gmailGet, gmailSendRaw, listEmailAttachments, getEmailAttachmentBytes, buildForwardQuote } from "@/lib/gmailApi";
 import { bookWorkspaceEvent } from "@/lib/workspaceCalendar";
 import { reportError } from "@/lib/reportError";
 import { recordSentForFollowup } from "@/lib/followups";
@@ -622,6 +622,37 @@ async function writeReplyEmail(scope: AssistantScope, opts: { messageId: string;
   try {
     await getServiceSupabase().from("assistant_sent_emails").insert({
       owner_user_id: scope.userId, to_email: orig.from, cc: cc || null, subject, body: cleanBody, channel: "gmail-api",
+    });
+  } catch { /* sent-email log not migrated → skip */ }
+  return { ok: true };
+}
+
+/** FORWARD a received email to someone else (its body + attachments) with an
+ *  optional note on top. A fresh send to the new recipient (not threaded with the
+ *  original sender) — mirrors Gmail's Forward. */
+async function writeForwardEmail(scope: AssistantScope, opts: { messageId: string; to: string; note?: string }): Promise<WriteResult> {
+  const to = (opts.to || "").trim();
+  if (!to.includes("@")) return { ok: false, error: "bad_email" };
+  const orig = await gmailGet(opts.messageId);
+  if (!orig) return { ok: false, error: "original_not_found" };
+  const subject = /^fwd:/i.test(orig.subject.trim()) ? orig.subject : `Fwd: ${orig.subject}`;
+  const note = opts.note ? stripMarkdown(opts.note).trim() : "";
+  const quote = buildForwardQuote({ fromName: orig.fromName, from: orig.from, date: orig.date, subject: orig.subject, to: orig.to, body: orig.body });
+  const cleanBody = `${note ? note + "\n\n" : ""}${quote}`;
+  const text = `${cleanBody}\n\n${OUTBOUND_SIGNATURE_TEXT}`;
+  const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const html = `<div style="font-family:-apple-system,'Segoe UI',sans-serif;font-size:14px;color:#1a1a1a;line-height:1.6;">${escHtml(cleanBody).replace(/\n/g, "<br/>")}</div><br/>${OUTBOUND_SIGNATURE_HTML}`;
+  // Re-attach the original's files (true forward includes the attachments).
+  const { attachments } = await resolveOutboundAttachments(scope, { attachFromEmailIds: [opts.messageId] });
+  const res = await gmailSendRaw({
+    to, subject, html, text, fromName: OUTBOUND_FROM_NAME, fromEmail: OUTBOUND_FROM_EMAIL,
+    attachments: attachments.length ? attachments : undefined,
+  });
+  if (!res.ok) return { ok: false, error: res.error || "forward_failed" };
+  void recordSentForFollowup(scope.userId, to, subject);
+  try {
+    await getServiceSupabase().from("assistant_sent_emails").insert({
+      owner_user_id: scope.userId, to_email: to, cc: null, subject, body: cleanBody.slice(0, 4000), channel: "gmail-api",
     });
   } catch { /* sent-email log not migrated → skip */ }
   return { ok: true };
@@ -1505,6 +1536,8 @@ async function applyPendingRow(
       messageId: String(a.messageId ?? ""), body: String(a.body ?? ""), replyAll: a.replyAll === true,
       candidateIds: splitR(a.attachCandidateIds), docIds: splitR(a.attachDocIds), attachFromEmailIds: splitR(a.attachFromEmailIds),
     });
+  } else if (row.tool_name === "forwardEmail") {
+    result = await writeForwardEmail(scope, { messageId: String(a.messageId ?? ""), to: String(a.to ?? ""), note: a.note == null ? undefined : String(a.note) });
   } else if (row.tool_name === "sendCalendarInvite") {
     const emails = String(a.attendees ?? "").split(",").map((s) => s.trim()).filter(Boolean);
     result = await writeCalendarInvite({
@@ -1679,7 +1712,7 @@ export async function cancelLatestPending(
 export const DESTRUCTIVE_TOOLS = new Set<string>(["deleteCandidateAccount", "deleteOrganization"]);
 export const SEND_TOOLS = new Set<string>([
   "sendExternalEmail", "sendCandidateMessage", "sendFollowUpNudge", "nudgeStuckCandidates", "sendSlotRequest",
-  "sendCalendarInvite", "replyToEmail",
+  "sendCalendarInvite", "replyToEmail", "forwardEmail",
 ]);
 const CONFIRM_TOOLS = new Set<string>([...DESTRUCTIVE_TOOLS, ...SEND_TOOLS]);
 

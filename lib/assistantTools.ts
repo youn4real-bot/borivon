@@ -22,7 +22,7 @@ import { computeBriefing } from "@/lib/briefing";
 import { stagePending, executeLatestPending, cancelLatestPending, MILESTONE_BOOL } from "@/lib/assistantWrites";
 import { AUTOMATIONS, getAutomationFlags, setAutomation as persistAutomation } from "@/lib/automationSettings";
 import { workspaceConfigured, workspaceServiceAccount, testWorkspace, WORKSPACE_SCOPES } from "@/lib/googleWorkspace";
-import { gmailSearch, gmailGet, gmailApiReady, listEmailAttachments } from "@/lib/gmailApi";
+import { gmailSearch, gmailGet, gmailApiReady, listEmailAttachments, gmailGetThread, gmailModify, gmailTrash } from "@/lib/gmailApi";
 import { getUsageSummary } from "@/lib/usage";
 import { stopFollowupsFor } from "@/lib/followups";
 import type { AssistantScope } from "@/lib/assistantScope";
@@ -651,6 +651,64 @@ export function buildAssistantTools(
           candidateUserId: null,
           summary: `↩️ Reply${replyAll ? " (all)" : ""} to ${who} — Re: ${subj}\nAttachments: ${attachDesc}\n\n${cleanBody.slice(0, 600)}${cleanBody.length > 600 ? "…" : ""}`,
         });
+      },
+    }),
+
+    forwardEmail: tool({
+      description:
+        "FORWARD a received email to someone else — keeps the original message + its attachments, with an optional note you add on top. messageId from searchInbox/readEmail; to = recipient email; note = optional line above the forwarded content. e.g. 'forward Abdelhak's email to Anna', 'forward this to the embassy with a note'. It's a SEND — goes out after your one confirm. Supreme-only.",
+      inputSchema: z.object({ messageId: z.string().min(5), to: z.string().min(3).max(254), note: z.string().max(4000).optional() }),
+      execute: async ({ messageId, to, note }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!gmailApiReady()) return { error: "workspace_not_connected" };
+        const dest = to.trim();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(dest)) return { error: "bad_email" };
+        const orig = await gmailGet(messageId);
+        if (!orig) return { error: "original_not_found" };
+        const cleanNote = note ? stripEmailFormatting(note) : "";
+        const args: Record<string, unknown> = { messageId, to: dest };
+        if (cleanNote) args.note = cleanNote;
+        return stagePending(scope, {
+          toolName: "forwardEmail", args, candidateUserId: null,
+          summary: `↪️ Forward to ${dest} — Fwd: ${orig.subject}${cleanNote ? `\nNote: ${cleanNote.slice(0, 200)}` : ""}`,
+        });
+      },
+    }),
+
+    readThread: tool({
+      description:
+        "Read the WHOLE email conversation (every message back-and-forth) for a thread, given any messageId in it (from searchInbox). Use for 'show me the full conversation with Anna', 'what's the whole thread say', or to get full context before replying. Read-only. Supreme-only.",
+      inputSchema: z.object({ messageId: z.string().min(5) }),
+      execute: async ({ messageId }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!gmailApiReady()) return { error: "workspace_not_connected" };
+        const t = await gmailGetThread(messageId);
+        if (!t) return { error: "not_found" };
+        return { subject: t.subject, count: t.messages.length, messages: t.messages };
+      },
+    }),
+
+    manageEmail: tool({
+      description:
+        "Organize an inbox email — the housekeeping you'd do by hand in Gmail. messageId from searchInbox. action: 'archive' (remove from inbox), 'unarchive', 'read' (mark read), 'unread', 'star', 'unstar', 'trash' (move to Trash — reversible ~30 days), 'untrash', or 'spam' (mark as spam). Applies immediately (your own mailbox + reversible) — no confirm. I NEVER permanently delete email. e.g. 'archive that', 'mark the embassy email unread', 'star Anna's email'. Supreme-only.",
+      inputSchema: z.object({ messageId: z.string().min(5), action: z.enum(["archive", "unarchive", "read", "unread", "star", "unstar", "trash", "untrash", "spam"]) }),
+      execute: async ({ messageId, action }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!gmailApiReady()) return { error: "workspace_not_connected" };
+        let ok: boolean;
+        if (action === "trash") ok = await gmailTrash(messageId, false);
+        else if (action === "untrash") ok = await gmailTrash(messageId, true);
+        else {
+          const map: Record<string, [string[], string[]]> = {
+            archive: [[], ["INBOX"]], unarchive: [["INBOX"], []],
+            read: [[], ["UNREAD"]], unread: [["UNREAD"], []],
+            star: [["STARRED"], []], unstar: [[], ["STARRED"]],
+            spam: [["SPAM"], ["INBOX"]],
+          };
+          const [add, rem] = map[action] ?? [[], []];
+          ok = await gmailModify(messageId, add, rem);
+        }
+        return ok ? { done: true, action } : { error: "failed" };
       },
     }),
 

@@ -215,3 +215,69 @@ export async function gmailSendRaw(opts: RawMessageOpts & { threadId?: string })
     return { ok: false, error: e instanceof Error ? e.message : "send_failed" };
   }
 }
+
+/** The quoted "---------- Forwarded message ----------" block (pure → testable). */
+export function buildForwardQuote(orig: { fromName: string; from: string; date: string; subject: string; to: string; body: string }): string {
+  return [
+    "---------- Forwarded message ----------",
+    `From: ${orig.fromName} <${orig.from}>`,
+    `Date: ${orig.date}`,
+    `Subject: ${orig.subject}`,
+    `To: ${orig.to}`,
+    "",
+    orig.body,
+  ].join("\n");
+}
+
+export type ThreadView = { subject: string; messages: { from: string; fromName: string; date: string; body: string }[] };
+
+/** Read a WHOLE conversation — every message in the thread that `messageId` is in. */
+export async function gmailGetThread(messageId: string): Promise<ThreadView | null> {
+  const gmail = gmailClient();
+  if (!gmail) return null;
+  try {
+    const head = await gmail.users.messages.get({ userId: "me", id: messageId, format: "metadata", metadataHeaders: ["Subject"] });
+    const threadId = head.data.threadId;
+    if (!threadId) return null;
+    const t = await gmail.users.threads.get({ userId: "me", id: threadId, format: "full" });
+    const messages = (t.data.messages ?? []).map((m) => {
+      const headers = m.payload?.headers as Hdr[] | undefined;
+      const fromRaw = hdr(headers, "From");
+      return { from: emailOf(fromRaw), fromName: nameOf(fromRaw), date: hdr(headers, "Date"), body: extractBody(m.payload).slice(0, 4000) };
+    });
+    const subject = hdr(head.data.payload?.headers as Hdr[] | undefined, "Subject") || "(conversation)";
+    return { subject, messages };
+  } catch (e) {
+    console.error("[gmailApi] getThread failed:", e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+/** Add/remove labels on a message — archive (remove INBOX), mark read (remove
+ *  UNREAD), star (add STARRED), spam (add SPAM + remove INBOX), etc. */
+export async function gmailModify(messageId: string, addLabelIds: string[], removeLabelIds: string[]): Promise<boolean> {
+  const gmail = gmailClient();
+  if (!gmail) return false;
+  try {
+    await gmail.users.messages.modify({ userId: "me", id: messageId, requestBody: { addLabelIds, removeLabelIds } });
+    return true;
+  } catch (e) {
+    console.error("[gmailApi] modify failed:", e instanceof Error ? e.message : e);
+    return false;
+  }
+}
+
+/** Move a message to Trash (reversible ~30 days) or restore it. NOT a permanent
+ *  delete — we never hard-delete mail. */
+export async function gmailTrash(messageId: string, restore = false): Promise<boolean> {
+  const gmail = gmailClient();
+  if (!gmail) return false;
+  try {
+    if (restore) await gmail.users.messages.untrash({ userId: "me", id: messageId });
+    else await gmail.users.messages.trash({ userId: "me", id: messageId });
+    return true;
+  } catch (e) {
+    console.error("[gmailApi] trash failed:", e instanceof Error ? e.message : e);
+    return false;
+  }
+}
