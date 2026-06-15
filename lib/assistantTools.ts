@@ -700,11 +700,13 @@ export function buildAssistantTools(
             candidateIds: candIds, docIds, attachFromEmailIds: emailFwdIds, chatFiles: attachChatFiles === true,
           });
           if (!d.ok) return { error: d.error };
+          const back = await listDraftAttachments(d.draftId);
+          const realNames = back ? back.attachments.map((a) => a.filename) : d.names;
           return stagePending(scope, {
             toolName: "sendDraft",
             args: { draftId: d.draftId, draftMessageId: d.draftMessageId, to: orig.from, subject: d.subject },
             candidateUserId: null,
-            summary: `↩️ Reply${replyAll ? " (all)" : ""} to ${who} — ${d.subject}\n📎 Attached (on the draft): ${d.names.length ? d.names.join(", ") : "none"}\n(say "show me the attached files" to pull them from the draft and double-check)\n\n${cleanBody.slice(0, 600)}${cleanBody.length > 600 ? "…" : ""}`,
+            summary: `↩️ Reply${replyAll ? " (all)" : ""} to ${who} — ${d.subject}\n📎 Attached (verified on the draft): ${realNames.length ? realNames.join(", ") : "none"}\n(say "show me the attached files" to pull them off the draft and double-check before you send)\n\n${cleanBody.slice(0, 600)}${cleanBody.length > 600 ? "…" : ""}`,
           });
         }
         const args: Record<string, unknown> = { messageId, body: cleanBody, replyAll: replyAll === true };
@@ -2777,11 +2779,16 @@ export function buildAssistantTools(
             candidateIds: candIds, docIds, attachFromEmailIds: emailFwdIds, chatFiles: attachChatFiles === true,
           });
           if (!d.ok) return { error: d.error };
+          // Read the attachments BACK off the real draft — the names shown are
+          // PROVEN on the draft, not claimed. (If Gmail silently dropped one, the
+          // read-back reveals it.)
+          const back = await listDraftAttachments(d.draftId);
+          const realNames = back ? back.attachments.map((a) => a.filename) : d.names;
           return stagePending(scope, {
             toolName: "sendDraft",
             args: { draftId: d.draftId, draftMessageId: d.draftMessageId, to: email, subject: cleanSubject },
             candidateUserId: null,
-            summary: `📧 To: ${toName ? `${toName} <${email}>` : email}${ccList.length ? `\nCC: ${ccList.join(", ")}` : ""}${bccList.length ? `\nBCC: ${bccList.join(", ")}` : ""}\nSubject: ${cleanSubject}\n📎 Attached (on the draft): ${d.names.length ? d.names.join(", ") : "none"}\n(say "show me the attached files" to pull them from the draft and double-check)\n\n${cleanBody.slice(0, 600)}${cleanBody.length > 600 ? "…" : ""}`,
+            summary: `📧 To: ${toName ? `${toName} <${email}>` : email}${ccList.length ? `\nCC: ${ccList.join(", ")}` : ""}${bccList.length ? `\nBCC: ${bccList.join(", ")}` : ""}\nSubject: ${cleanSubject}\n📎 Attached (verified on the draft): ${realNames.length ? realNames.join(", ") : "none"}\n(say "show me the attached files" to pull them off the draft and double-check before you send)\n\n${cleanBody.slice(0, 600)}${cleanBody.length > 600 ? "…" : ""}`,
           });
         }
         const args: Record<string, unknown> = { to: email, subject: cleanSubject, body: cleanBody };
