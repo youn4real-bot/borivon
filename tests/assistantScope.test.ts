@@ -662,6 +662,15 @@ describe("assistant tools allow the supreme admin", () => {
     expect(await run(buildAssistantTools(ORG_ADMIN), "sendCalendarInvite", { attendees: "a@b.com", title: "x", startsAt: "2026-07-10T10:00:00Z" })).toEqual({ error: "admin_only" });
   });
 
+  it("native Gmail (searchInbox/replyToEmail) is supreme-only + needs Workspace connected", async () => {
+    // sub-admin blocked outright.
+    expect(await run(buildAssistantTools(ORG_ADMIN), "searchInbox", { query: "from:anna" })).toEqual({ error: "admin_only" });
+    expect(await run(buildAssistantTools(ORG_ADMIN), "replyToEmail", { messageId: "abc123", body: "ok" })).toEqual({ error: "admin_only" });
+    // supreme, but Workspace not connected in the test env → clear not_connected (not a crash).
+    expect(await run(buildAssistantTools(SUPREME), "searchInbox", { query: "from:anna" })).toEqual({ error: "workspace_not_connected", hint: expect.any(String) });
+    expect(await run(buildAssistantTools(SUPREME), "replyToEmail", { messageId: "abc123", body: "ok" })).toEqual({ error: "workspace_not_connected" });
+  });
+
   it("setAgencyProfile stages only changed fields, and rejects an empty patch", async () => {
     const ok = (await run(buildAssistantTools(SUPREME), "setAgencyProfile", { firma: "Borivon GmbH", betriebsnummer: "12345678" })) as { staged?: boolean; summary?: string };
     expect(ok.staged).toBe(true);

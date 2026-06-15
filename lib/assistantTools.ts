@@ -24,6 +24,7 @@ import { AUTOMATIONS, getAutomationFlags, setAutomation as persistAutomation } f
 import { buildGmailAuthUrl, refreshGmailSignature as pullGmailSignature, gmailSignatureStatus, gmailSignatureConfigured } from "@/lib/gmailSignature";
 import { signFeedToken } from "@/lib/calendarFeed";
 import { workspaceConfigured, workspaceServiceAccount, testWorkspace, WORKSPACE_SCOPES } from "@/lib/googleWorkspace";
+import { gmailSearch, gmailGet, gmailApiReady } from "@/lib/gmailApi";
 import type { AssistantScope } from "@/lib/assistantScope";
 
 type ProfileRow = {
@@ -574,6 +575,50 @@ export function buildAssistantTools(
         if (scope.role !== "admin") return { error: "admin_only" };
         if (!workspaceConfigured()) return { ok: false, error: "not_configured", hint: "Service-account key or impersonation subject missing." };
         return await testWorkspace();
+      },
+    }),
+
+    // ── Native Gmail: search / read / reply-in-thread (Workspace) ──
+    searchInbox: tool({
+      description:
+        "Search the founder's Gmail inbox (native Google). query = Gmail search syntax — e.g. 'from:anna newer_than:30d', 'subject:interview', 'is:unread', or just a name/email. Returns recent matches (id, from, subject, date, snippet). Use the id with readEmail or replyToEmail. Use this for 'find the email from X', 'what did Anna send', 'unread from this week'. Read-only. Supreme-admin only.",
+      inputSchema: z.object({ query: z.string().max(200).default("in:inbox"), max: z.number().int().min(1).max(25).default(12) }),
+      execute: async ({ query, max }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!gmailApiReady()) return { error: "workspace_not_connected", hint: "Connect Google Workspace (domain-wide delegation) first." };
+        const r = await gmailSearch(query, max);
+        if (r === null) return { error: "gmail_read_failed" };
+        return { emails: r };
+      },
+    }),
+    readEmail: tool({
+      description:
+        "Read ONE email in full — the decoded body plus sender/recipients/subject/date — by its id (from searchInbox). Use before replying or to answer 'what does that email say'. Read-only. Supreme-admin only.",
+      inputSchema: z.object({ messageId: z.string().min(5) }),
+      execute: async ({ messageId }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!gmailApiReady()) return { error: "workspace_not_connected" };
+        const m = await gmailGet(messageId);
+        if (!m) return { error: "not_found" };
+        return { email: { id: m.id, from: m.from, fromName: m.fromName, to: m.to, cc: m.cc, subject: m.subject, date: m.date, body: m.body } };
+      },
+    }),
+    replyToEmail: tool({
+      description:
+        "Reply to an email IN-THREAD by its id (from searchInbox/readEmail). Replies to the original sender; replyAll=true also CCs everyone else on it. It threads correctly in Gmail and lands in the founder's Sent. It's a SEND — goes out after the founder's one confirm. Show the reply body in the SHOWING-AN-EMAIL shape. Supreme-admin only.",
+      inputSchema: z.object({ messageId: z.string().min(5), body: z.string().min(1).max(8000), replyAll: z.boolean().default(false) }),
+      execute: async (args) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!gmailApiReady()) return { error: "workspace_not_connected" };
+        const orig = await gmailGet(args.messageId);
+        const who = orig ? (orig.fromName || orig.from) : args.messageId;
+        const subj = orig ? orig.subject : "";
+        return stagePending(scope, {
+          toolName: "replyToEmail",
+          args,
+          candidateUserId: null,
+          summary: `Reply${args.replyAll ? " (all)" : ""} to ${who}${subj ? ` — Re: ${subj}` : ""}`,
+        });
       },
     }),
 

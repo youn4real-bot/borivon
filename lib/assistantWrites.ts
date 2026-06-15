@@ -19,8 +19,10 @@ import { sendCandidateMessageEmail, sendVerifiedEmail } from "@/lib/email";
 import { FILE_KEY_LABELS } from "@/lib/fileKeys";
 import { applyDocReview, applyCandidateProfilePatch } from "@/lib/adminCandidateActions";
 import { backfillPassportFromCvDraft } from "@/lib/cvDraftBackfill";
-import { sendOutboundEmail, OUTBOUND_FROM_NAME, OUTBOUND_FROM_EMAIL, type OutboundAttachment } from "@/lib/outboundEmail";
+import { sendOutboundEmail, OUTBOUND_FROM_NAME, OUTBOUND_FROM_EMAIL, OUTBOUND_SIGNATURE_HTML, OUTBOUND_SIGNATURE_TEXT, type OutboundAttachment } from "@/lib/outboundEmail";
 import { buildInviteIcs } from "@/lib/calendarInvite";
+import { gmailGet, gmailSendRaw } from "@/lib/gmailApi";
+import { stripMarkdown } from "@/lib/emailFormat";
 import { resolveFileKey } from "@/lib/fileKeys";
 import { r2GetObject } from "@/lib/r2";
 import { validateImageDataUrl } from "@/lib/validateDataUrl";
@@ -557,6 +559,40 @@ async function writeCalendarInvite(opts: {
     icalEvent: { method, content: ics },
   });
   return res.ok ? { ok: true } : { ok: false, error: res.error };
+}
+
+/** Reply to an email IN-THREAD via the native Gmail API — reads the original for
+ *  its threadId + Message-ID + From/Subject, then sends a properly-threaded reply
+ *  (In-Reply-To/References + threadId) from the founder's mailbox. */
+async function writeReplyEmail(scope: AssistantScope, opts: { messageId: string; body: string; replyAll?: boolean }): Promise<WriteResult> {
+  if (!opts.messageId) return { ok: false, error: "no_message" };
+  const orig = await gmailGet(opts.messageId);
+  if (!orig) return { ok: false, error: "original_not_found_or_not_connected" };
+  const subject = /^re:/i.test(orig.subject.trim()) ? orig.subject : `Re: ${orig.subject}`;
+  const self = OUTBOUND_FROM_EMAIL.toLowerCase();
+  let cc = "";
+  if (opts.replyAll) {
+    const extra = [orig.to, orig.cc].join(",").split(",").map((s) => s.trim()).filter(Boolean)
+      .filter((a) => { const e = (a.match(/<([^>]+)>/)?.[1] || a).toLowerCase(); return !e.includes(self) && e !== orig.from; });
+    cc = [...new Set(extra)].join(", ");
+  }
+  const references = [orig.references, orig.messageIdHeader].filter(Boolean).join(" ").trim();
+  const cleanBody = stripMarkdown(opts.body).trimEnd();
+  const text = `${cleanBody}\n\n${OUTBOUND_SIGNATURE_TEXT}`;
+  const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const html = `<div style="font-family:-apple-system,'Segoe UI',sans-serif;font-size:14px;color:#1a1a1a;line-height:1.6;">${escHtml(cleanBody).replace(/\n/g, "<br/>")}</div><br/>${OUTBOUND_SIGNATURE_HTML}`;
+  const res = await gmailSendRaw({
+    to: orig.from, cc: cc || undefined, subject, html, text,
+    fromName: OUTBOUND_FROM_NAME, fromEmail: OUTBOUND_FROM_EMAIL,
+    inReplyTo: orig.messageIdHeader || undefined, references: references || undefined, threadId: orig.threadId || undefined,
+  });
+  if (!res.ok) return { ok: false, error: res.error || "reply_failed" };
+  try {
+    await getServiceSupabase().from("assistant_sent_emails").insert({
+      owner_user_id: scope.userId, to_email: orig.from, cc: cc || null, subject, body: cleanBody, channel: "gmail-api",
+    });
+  } catch { /* sent-email log not migrated → skip */ }
+  return { ok: true };
 }
 
 /** Assign (or clear) a candidate's employer — mirrors POST /api/portal/admin/assign-employer
@@ -1413,6 +1449,8 @@ async function applyPendingRow(
       candidateIds: splitIds(a.attachCandidateIds),
       docIds: splitIds(a.attachDocIds),
     });
+  } else if (row.tool_name === "replyToEmail") {
+    result = await writeReplyEmail(scope, { messageId: String(a.messageId ?? ""), body: String(a.body ?? ""), replyAll: a.replyAll === true });
   } else if (row.tool_name === "sendCalendarInvite") {
     const emails = String(a.attendees ?? "").split(",").map((s) => s.trim()).filter(Boolean);
     result = await writeCalendarInvite({
@@ -1566,7 +1604,7 @@ export async function cancelLatestPending(
 export const DESTRUCTIVE_TOOLS = new Set<string>(["deleteCandidateAccount", "deleteOrganization"]);
 export const SEND_TOOLS = new Set<string>([
   "sendExternalEmail", "sendCandidateMessage", "sendFollowUpNudge", "nudgeStuckCandidates", "sendSlotRequest",
-  "sendCalendarInvite",
+  "sendCalendarInvite", "replyToEmail",
 ]);
 const CONFIRM_TOOLS = new Set<string>([...DESTRUCTIVE_TOOLS, ...SEND_TOOLS]);
 
