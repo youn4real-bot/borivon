@@ -667,9 +667,11 @@ describe("assistant tools allow the supreme admin", () => {
     // sub-admin blocked outright.
     expect(await run(buildAssistantTools(ORG_ADMIN), "searchInbox", { query: "from:anna" })).toEqual({ error: "admin_only" });
     expect(await run(buildAssistantTools(ORG_ADMIN), "replyToEmail", { messageId: "abc123", body: "ok" })).toEqual({ error: "admin_only" });
+    expect(await run(buildAssistantTools(ORG_ADMIN), "getEmailAttachments", { messageId: "abc123" })).toEqual({ error: "admin_only" });
     // supreme, but Workspace not connected in the test env → clear not_connected (not a crash).
     expect(await run(buildAssistantTools(SUPREME), "searchInbox", { query: "from:anna" })).toEqual({ error: "workspace_not_connected", hint: expect.any(String) });
     expect(await run(buildAssistantTools(SUPREME), "replyToEmail", { messageId: "abc123", body: "ok" })).toEqual({ error: "workspace_not_connected" });
+    expect(await run(buildAssistantTools(SUPREME), "getEmailAttachments", { messageId: "abc123" })).toEqual({ error: "workspace_not_connected" });
   });
 
   it("setAgencyProfile stages only changed fields, and rejects an empty patch", async () => {

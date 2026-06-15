@@ -101,6 +101,51 @@ export async function gmailGet(id: string): Promise<FullEmail | null> {
   }
 }
 
+export type EmailAttachmentMeta = { attachmentId: string; filename: string; mimeType: string; size: number };
+
+/** List the real file attachments on a message (skips inline body parts). Walks
+ *  the MIME tree for parts that have a filename + an attachmentId. */
+export async function listEmailAttachments(messageId: string): Promise<EmailAttachmentMeta[] | null> {
+  const gmail = gmailClient();
+  if (!gmail) return null;
+  try {
+    const m = await gmail.users.messages.get({ userId: "me", id: messageId, format: "full" });
+    const out: EmailAttachmentMeta[] = [];
+    const walk = (p: any): void => {
+      if (!p) return;
+      if (p.filename && p.body?.attachmentId) {
+        out.push({
+          attachmentId: p.body.attachmentId,
+          filename: String(p.filename).slice(0, 200),
+          mimeType: p.mimeType || "application/octet-stream",
+          size: typeof p.body.size === "number" ? p.body.size : 0,
+        });
+      }
+      for (const part of p.parts ?? []) walk(part);
+    };
+    walk(m.data.payload);
+    return out;
+  } catch (e) {
+    console.error("[gmailApi] listEmailAttachments failed:", e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+/** Fetch one attachment's bytes by (messageId, attachmentId). */
+export async function getEmailAttachmentBytes(messageId: string, attachmentId: string): Promise<Buffer | null> {
+  const gmail = gmailClient();
+  if (!gmail) return null;
+  try {
+    const a = await gmail.users.messages.attachments.get({ userId: "me", messageId, id: attachmentId });
+    const data = a.data.data;
+    if (!data) return null;
+    return Buffer.from(data.replace(/-/g, "+").replace(/_/g, "/"), "base64");
+  } catch (e) {
+    console.error("[gmailApi] getEmailAttachmentBytes failed:", e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
 // The founder's REAL Gmail signature, read natively via the API (gmail.modify
 // scope covers settings.sendAs) and cached per warm instance for an hour so it's
 // not an API call on every send. Replaces the old OAuth-based signature feature.

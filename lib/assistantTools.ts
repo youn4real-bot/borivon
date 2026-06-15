@@ -22,7 +22,7 @@ import { computeBriefing } from "@/lib/briefing";
 import { stagePending, executeLatestPending, cancelLatestPending, MILESTONE_BOOL } from "@/lib/assistantWrites";
 import { AUTOMATIONS, getAutomationFlags, setAutomation as persistAutomation } from "@/lib/automationSettings";
 import { workspaceConfigured, workspaceServiceAccount, testWorkspace, WORKSPACE_SCOPES } from "@/lib/googleWorkspace";
-import { gmailSearch, gmailGet, gmailApiReady } from "@/lib/gmailApi";
+import { gmailSearch, gmailGet, gmailApiReady, listEmailAttachments } from "@/lib/gmailApi";
 import type { AssistantScope } from "@/lib/assistantScope";
 
 type ProfileRow = {
@@ -572,6 +572,27 @@ export function buildAssistantTools(
         const m = await gmailGet(messageId);
         if (!m) return { error: "not_found" };
         return { email: { id: m.id, from: m.from, fromName: m.fromName, to: m.to, cc: m.cc, subject: m.subject, date: m.date, body: m.body } };
+      },
+    }),
+    getEmailAttachments: tool({
+      description:
+        "Pull the FILE ATTACHMENTS off an email and deliver them in the chat (the documents themselves, not links). messageId = the email's id (from searchInbox/readEmail). Use for 'pull the attached files', 'send me what they attached', 'download the Defizitbescheid he sent'. Returns the files (they're delivered as documents right after). If the email has no attachments it says so. Read-only. Supreme-admin only.",
+      inputSchema: z.object({ messageId: z.string().min(5) }),
+      execute: async ({ messageId }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!gmailApiReady()) return { error: "workspace_not_connected" };
+        const atts = await listEmailAttachments(messageId);
+        if (atts === null) return { error: "read_failed" };
+        if (atts.length === 0) return { results: [], note: "no_attachments" };
+        // Mint a short-lived (3-min) token and hand back URLs the webhook fetches
+        // + delivers as documents (same path as getDocumentDownloadLink/getCvLinks).
+        const token = signDlToken(scope.userId, 180);
+        const results = atts.slice(0, 20).map((a) => ({
+          url: `/api/portal/admin/email-attachment?mid=${encodeURIComponent(messageId)}&aid=${encodeURIComponent(a.attachmentId)}&dlt=${encodeURIComponent(token)}&name=${encodeURIComponent(a.filename)}`,
+          fileName: a.filename,
+          mimeType: a.mimeType,
+        }));
+        return { results, count: results.length };
       },
     }),
     replyToEmail: tool({
