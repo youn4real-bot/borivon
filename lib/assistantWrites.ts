@@ -25,6 +25,7 @@ import { gmailGet, gmailSendRaw, gmailCreateDraft, listEmailAttachments, getEmai
 import { bookWorkspaceEvent } from "@/lib/workspaceCalendar";
 import { reportError } from "@/lib/reportError";
 import { recordSentForFollowup } from "@/lib/followups";
+import { recentChatUploadAttachments } from "@/lib/chatUploads";
 import { stripMarkdown } from "@/lib/emailFormat";
 import { resolveFileKey } from "@/lib/fileKeys";
 import { r2GetObject } from "@/lib/r2";
@@ -450,7 +451,7 @@ async function writeEditCvDraft(userId: string, field: string, value: string): P
  *  caller can refuse rather than send a package that's silently missing files. */
 async function resolveOutboundAttachments(
   scope: AssistantScope,
-  opts: { candidateIds?: string[]; docIds?: string[]; attachFromEmailIds?: string[] },
+  opts: { candidateIds?: string[]; docIds?: string[]; attachFromEmailIds?: string[]; chatFiles?: boolean },
 ): Promise<{ attachments: OutboundAttachment[]; missing: string[] }> {
   const db = getServiceSupabase();
   const attachments: OutboundAttachment[] = [];
@@ -498,17 +499,25 @@ async function resolveOutboundAttachments(
     }
     if (got === 0) missing.push(`email:${mid}`);
   }
+  // Files the founder uploaded to the Telegram CHAT (photos, PDFs, …) — attach the
+  // recent ones from R2. If asked for them but none exist → shortfall (refuse).
+  if (opts.chatFiles) {
+    const chat = await recentChatUploadAttachments(scope.userId || "", { limit: 8 });
+    if (chat.length === 0) missing.push("chat_uploads");
+    else attachments.push(...chat);
+  }
   return { attachments, missing };
 }
 
 async function writeExternalEmail(
   scope: AssistantScope,
-  opts: { to: string; toName?: string; cc?: string[]; bcc?: string[]; subject: string; body: string; candidateIds: string[]; docIds: string[]; attachFromEmailIds?: string[] },
+  opts: { to: string; toName?: string; cc?: string[]; bcc?: string[]; subject: string; body: string; candidateIds: string[]; docIds: string[]; attachFromEmailIds?: string[]; chatFiles?: boolean },
 ): Promise<WriteResult> {
   const { attachments, missing } = await resolveOutboundAttachments(scope, {
     candidateIds: opts.candidateIds,
     docIds: opts.docIds,
     attachFromEmailIds: opts.attachFromEmailIds,
+    chatFiles: opts.chatFiles,
   });
   // A requested attachment couldn't be produced (e.g. the candidate has no
   // published CV on file yet) — DON'T send a partial email claiming success.
@@ -587,7 +596,7 @@ async function writeCalendarInvite(opts: {
 /** Reply to an email IN-THREAD via the native Gmail API — reads the original for
  *  its threadId + Message-ID + From/Subject, then sends a properly-threaded reply
  *  (In-Reply-To/References + threadId) from the founder's mailbox. */
-async function writeReplyEmail(scope: AssistantScope, opts: { messageId: string; body: string; replyAll?: boolean; candidateIds?: string[]; docIds?: string[]; attachFromEmailIds?: string[] }): Promise<WriteResult> {
+async function writeReplyEmail(scope: AssistantScope, opts: { messageId: string; body: string; replyAll?: boolean; candidateIds?: string[]; docIds?: string[]; attachFromEmailIds?: string[]; chatFiles?: boolean }): Promise<WriteResult> {
   if (!opts.messageId) return { ok: false, error: "no_message" };
   const orig = await gmailGet(opts.messageId);
   if (!orig) return { ok: false, error: "original_not_found_or_not_connected" };
@@ -607,7 +616,7 @@ async function writeReplyEmail(scope: AssistantScope, opts: { messageId: string;
   // Resolve any attachments (candidate CVs, docs, or files forwarded from another
   // email) — so a reply can carry files, in-thread, exactly like a fresh email.
   const { attachments, missing } = await resolveOutboundAttachments(scope, {
-    candidateIds: opts.candidateIds, docIds: opts.docIds, attachFromEmailIds: opts.attachFromEmailIds,
+    candidateIds: opts.candidateIds, docIds: opts.docIds, attachFromEmailIds: opts.attachFromEmailIds, chatFiles: opts.chatFiles,
   });
   if (missing.length) return { ok: false, error: `attachment_missing:${missing.slice(0, 8).join(",")}` };
   const res = await gmailSendRaw({
@@ -630,8 +639,8 @@ async function writeReplyEmail(scope: AssistantScope, opts: { messageId: string;
 /** Save a Gmail DRAFT (composed, with signature + attachments) WITHOUT sending —
  *  it lands in the founder's Drafts to finish + send from Gmail. Not a send, so it
  *  applies immediately (no confirm). */
-async function writeSaveDraft(scope: AssistantScope, opts: { to: string; cc?: string[]; subject: string; body: string; candidateIds?: string[]; docIds?: string[]; attachFromEmailIds?: string[] }): Promise<WriteResult> {
-  const { attachments, missing } = await resolveOutboundAttachments(scope, { candidateIds: opts.candidateIds, docIds: opts.docIds, attachFromEmailIds: opts.attachFromEmailIds });
+async function writeSaveDraft(scope: AssistantScope, opts: { to: string; cc?: string[]; subject: string; body: string; candidateIds?: string[]; docIds?: string[]; attachFromEmailIds?: string[]; chatFiles?: boolean }): Promise<WriteResult> {
+  const { attachments, missing } = await resolveOutboundAttachments(scope, { candidateIds: opts.candidateIds, docIds: opts.docIds, attachFromEmailIds: opts.attachFromEmailIds, chatFiles: opts.chatFiles });
   if (missing.length) return { ok: false, error: `attachment_missing:${missing.slice(0, 8).join(",")}` };
   const cleanBody = stripMarkdown(opts.body).trimEnd();
   const text = `${cleanBody}\n\n${OUTBOUND_SIGNATURE_TEXT}`;
@@ -1550,12 +1559,14 @@ async function applyPendingRow(
       candidateIds: splitIds(a.attachCandidateIds),
       docIds: splitIds(a.attachDocIds),
       attachFromEmailIds: splitIds(a.attachFromEmailIds),
+      chatFiles: a.attachChatFiles === true,
     });
   } else if (row.tool_name === "replyToEmail") {
     const splitR = (v: unknown) => String(v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
     result = await writeReplyEmail(scope, {
       messageId: String(a.messageId ?? ""), body: String(a.body ?? ""), replyAll: a.replyAll === true,
       candidateIds: splitR(a.attachCandidateIds), docIds: splitR(a.attachDocIds), attachFromEmailIds: splitR(a.attachFromEmailIds),
+      chatFiles: a.attachChatFiles === true,
     });
   } else if (row.tool_name === "forwardEmail") {
     result = await writeForwardEmail(scope, { messageId: String(a.messageId ?? ""), to: String(a.to ?? ""), note: a.note == null ? undefined : String(a.note) });
@@ -1564,6 +1575,7 @@ async function applyPendingRow(
     result = await writeSaveDraft(scope, {
       to: String(a.to ?? ""), cc: splitD(a.cc), subject: String(a.subject ?? ""), body: String(a.body ?? ""),
       candidateIds: splitD(a.attachCandidateIds), docIds: splitD(a.attachDocIds), attachFromEmailIds: splitD(a.attachFromEmailIds),
+      chatFiles: a.attachChatFiles === true,
     });
   } else if (row.tool_name === "sendCalendarInvite") {
     const emails = String(a.attendees ?? "").split(",").map((s) => s.trim()).filter(Boolean);

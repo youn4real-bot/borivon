@@ -627,8 +627,9 @@ export function buildAssistantTools(
         attachCandidateNames: z.string().optional().describe("comma-sep candidate FULL NAMES whose latest CV to attach to the reply"),
         attachDocIds: z.string().optional().describe("comma-sep document ids to attach"),
         attachFromEmailIds: z.string().optional().describe("comma-sep Gmail message ids whose file attachments to forward on the reply"),
+        attachChatFiles: z.boolean().optional().describe("attach the files I recently sent the bot in THIS Telegram chat (photos/PDFs I uploaded)"),
       }),
-      execute: async ({ messageId, body, replyAll, attachCandidateNames, attachDocIds, attachFromEmailIds }) => {
+      execute: async ({ messageId, body, replyAll, attachCandidateNames, attachDocIds, attachFromEmailIds, attachChatFiles }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
         if (!gmailApiReady()) return { error: "workspace_not_connected" };
         const orig = await gmailGet(messageId);
@@ -660,11 +661,13 @@ export function buildAssistantTools(
           candIds.length ? `${candIds.length} CV${candIds.length > 1 ? "s" : ""}${names.length ? ` (${names.join(", ")})` : ""}` : null,
           docIds.length ? `${docIds.length} document${docIds.length > 1 ? "s" : ""}` : null,
           emailFwdIds.length ? `files from ${emailFwdIds.length} email${emailFwdIds.length > 1 ? "s" : ""}` : null,
+          attachChatFiles ? "files you sent in chat" : null,
         ].filter(Boolean).join(" + ") || "none";
         const args: Record<string, unknown> = { messageId, body: cleanBody, replyAll: replyAll === true };
         if (candIds.length) args.attachCandidateIds = candIds.join(",");
         if (docIds.length) args.attachDocIds = docIds.join(",");
         if (emailFwdIds.length) args.attachFromEmailIds = emailFwdIds.join(",");
+        if (attachChatFiles) args.attachChatFiles = true;
         return stagePending(scope, {
           toolName: "replyToEmail",
           args,
@@ -706,8 +709,9 @@ export function buildAssistantTools(
         attachCandidateNames: z.string().optional(),
         attachDocIds: z.string().optional(),
         attachFromEmailIds: z.string().optional(),
+        attachChatFiles: z.boolean().optional().describe("attach the files I recently sent the bot in THIS Telegram chat"),
       }),
-      execute: async ({ to, cc, subject, body, attachCandidateNames, attachDocIds, attachFromEmailIds }) => {
+      execute: async ({ to, cc, subject, body, attachCandidateNames, attachDocIds, attachFromEmailIds, attachChatFiles }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
         if (!gmailApiReady()) return { error: "workspace_not_connected" };
         const dest = to.trim();
@@ -737,6 +741,7 @@ export function buildAssistantTools(
         if (candIds.length) args.attachCandidateIds = candIds.join(",");
         if (docIds.length) args.attachDocIds = docIds.join(",");
         if (emailFwdIds.length) args.attachFromEmailIds = emailFwdIds.join(",");
+        if (attachChatFiles) args.attachChatFiles = true;
         return stagePending(scope, { toolName: "saveDraft", args, candidateUserId: null, summary: `📝 Draft → ${dest} · ${cleanSubject}` });
       },
     }),
@@ -2658,8 +2663,9 @@ export function buildAssistantTools(
         attachCandidateIds: z.string().optional().describe("(legacy) comma-separated candidate names OR candidateUserIds whose latest CV to attach — resolved the same way as attachCandidateNames"),
         attachDocIds: z.string().optional().describe("comma-separated document ids to attach"),
         attachFromEmailIds: z.string().optional().describe("comma-separated Gmail message ids (from searchInbox/readEmail) whose FILE ATTACHMENTS to forward on this email — use to send along files someone emailed you"),
+        attachChatFiles: z.boolean().optional().describe("attach the files I recently sent the bot in THIS Telegram chat (photos/PDFs I uploaded) — for 'attach the photos/files I sent'"),
       }),
-      execute: async ({ to, toName, cc, bcc, subject, body, attachCandidateNames, attachCandidateIds, attachDocIds, attachFromEmailIds }) => {
+      execute: async ({ to, toName, cc, bcc, subject, body, attachCandidateNames, attachCandidateIds, attachDocIds, attachFromEmailIds, attachChatFiles }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
         const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         // Tolerant: if several addresses get lumped into `to`, the FIRST is the
@@ -2707,6 +2713,7 @@ export function buildAssistantTools(
             candIds.length ? `${candIds.length} CV${candIds.length > 1 ? "s" : ""}${names.length ? ` (${names.join(", ")})` : ""}` : null,
             docIds.length ? `${docIds.length} document${docIds.length > 1 ? "s" : ""}` : null,
             emailFwdIds.length ? `files from ${emailFwdIds.length} email${emailFwdIds.length > 1 ? "s" : ""}` : null,
+            attachChatFiles ? "files you sent in chat" : null,
           ].filter(Boolean).join(" + ") || "none";
         // Strip any markdown the model added so the preview AND the sent email
         // are plain text — no relying on it to "remember" the no-stars rule.
@@ -2719,6 +2726,7 @@ export function buildAssistantTools(
         if (candIds.length) args.attachCandidateIds = candIds.join(","); // RESOLVED real ids, not the raw input
         if (attachDocIds !== undefined) args.attachDocIds = attachDocIds;
         if (emailFwdIds.length) args.attachFromEmailIds = emailFwdIds.join(",");
+        if (attachChatFiles) args.attachChatFiles = true;
         return stagePending(scope, {
           toolName: "sendExternalEmail",
           args,

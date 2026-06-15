@@ -105,17 +105,17 @@ export async function r2Exists(key: string): Promise<boolean> {
   }
 }
 
-/** List every object under a key prefix (paginated). Returns key + size.
- *  Used by the r2_key recovery to match orphaned documents rows to the bytes
- *  that are already sitting in R2. */
-export async function r2List(prefix: string): Promise<{ key: string; size: number }[]> {
-  const out: { key: string; size: number }[] = [];
+/** List every object under a key prefix (paginated). Returns key + size +
+ *  lastModified. Used by the r2_key recovery and by the chat-upload attach
+ *  feature (most-recent-first). */
+export async function r2List(prefix: string): Promise<{ key: string; size: number; lastModified?: Date }[]> {
+  const out: { key: string; size: number; lastModified?: Date }[] = [];
   let token: string | undefined;
   do {
     const res = await client().send(new ListObjectsV2Command({
       Bucket: R2_BUCKET, Prefix: prefix, ContinuationToken: token,
     }));
-    for (const o of res.Contents ?? []) out.push({ key: o.Key ?? "", size: o.Size ?? 0 });
+    for (const o of res.Contents ?? []) out.push({ key: o.Key ?? "", size: o.Size ?? 0, lastModified: o.LastModified });
     token = res.IsTruncated ? res.NextContinuationToken : undefined;
   } while (token);
   return out;
