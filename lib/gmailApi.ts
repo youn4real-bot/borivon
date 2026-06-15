@@ -6,6 +6,7 @@
  * return null / {ok:false} when Workspace isn't connected, so callers can fall back.
  */
 import { gmailClient, workspaceConfigured } from "@/lib/googleWorkspace";
+import nodemailer from "nodemailer";
 
 export function gmailApiReady(): boolean {
   return workspaceConfigured() && !!gmailClient();
@@ -17,9 +18,6 @@ function hdr(headers: Hdr[] | undefined, name: string): string {
 }
 function b64urlDecode(s: string): string {
   return Buffer.from((s || "").replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8");
-}
-function b64url(s: string): string {
-  return Buffer.from(s, "utf8").toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 function emailOf(raw: string): string {
   return (raw.match(/<([^>]+)>/)?.[1] || raw).trim().toLowerCase();
@@ -124,41 +122,48 @@ export async function getNativeGmailSignature(): Promise<string | null> {
   }
 }
 
-/** Low-level send via the Gmail API (lands in the founder's Sent natively). Pass
- *  threadId + inReplyTo/references to thread a reply. Builds a multipart/alternative
- *  (text + html) RFC-822 message. */
-export async function gmailSendRaw(opts: {
+export type RawMessageOpts = {
   to: string; cc?: string; subject: string; html: string; text: string;
-  fromName: string; fromEmail: string; inReplyTo?: string; references?: string; threadId?: string;
-}): Promise<{ ok: boolean; id?: string; error?: string }> {
+  fromName: string; fromEmail: string;
+  inReplyTo?: string; references?: string;
+  attachments?: { filename: string; content: Buffer }[];
+};
+
+/** Build a complete, correctly-encoded RFC-822 message as base64url — using
+ *  nodemailer's battle-tested MIME composer instead of hand-concatenating headers
+ *  and boundaries. The hand-rolled version was the #1 source of subtle email bugs
+ *  (encoding, threading headers, no attachment support). This is PURE and
+ *  Google-free, so it's unit-testable without a live mailbox. */
+export async function buildRawMessage(opts: RawMessageOpts): Promise<string> {
+  // streamTransport + buffer:true makes sendMail BUILD the message and hand it
+  // back as a Buffer WITHOUT sending — the documented way to extract raw MIME
+  // from nodemailer. CRLF newlines per RFC-822. nodemailer sets In-Reply-To /
+  // References / encodes the (possibly non-ASCII) subject / lays out multipart.
+  const transport = nodemailer.createTransport({ streamTransport: true, buffer: true, newline: "\r\n" });
+  const info = await transport.sendMail({
+    from: `"${opts.fromName}" <${opts.fromEmail}>`,
+    to: opts.to,
+    ...(opts.cc ? { cc: opts.cc } : {}),
+    subject: opts.subject.replace(/[\r\n]+/g, " ").trim(),
+    text: opts.text,
+    html: opts.html,
+    ...(opts.inReplyTo ? { inReplyTo: opts.inReplyTo } : {}),
+    ...(opts.references ? { references: opts.references } : {}),
+    ...(opts.attachments?.length ? { attachments: opts.attachments.map((a) => ({ filename: a.filename, content: a.content })) } : {}),
+  });
+  const msg = (info as unknown as { message?: Buffer }).message;
+  const raw = Buffer.isBuffer(msg) ? msg : Buffer.from(String(msg ?? ""));
+  return raw.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/** Low-level send via the Gmail API (lands in the founder's Sent natively). Pass
+ *  threadId + inReplyTo/references to thread a reply; attachments to enclose files. */
+export async function gmailSendRaw(opts: RawMessageOpts & { threadId?: string }): Promise<{ ok: boolean; id?: string; error?: string }> {
   const gmail = gmailClient();
   if (!gmail) return { ok: false, error: "workspace_not_connected" };
   try {
-    const boundary = "bnd_" + Math.abs([...opts.subject].reduce((h, c) => (h * 31 + c.charCodeAt(0)) | 0, 7)).toString(36);
-    const mime = [
-      `From: "${opts.fromName}" <${opts.fromEmail}>`,
-      `To: ${opts.to}`,
-      opts.cc ? `Cc: ${opts.cc}` : null,
-      `Subject: ${opts.subject.replace(/[\r\n]+/g, " ").trim()}`,
-      opts.inReplyTo ? `In-Reply-To: ${opts.inReplyTo}` : null,
-      opts.references ? `References: ${opts.references}` : null,
-      "MIME-Version: 1.0",
-      `Content-Type: multipart/alternative; boundary="${boundary}"`,
-      "",
-      `--${boundary}`,
-      "Content-Type: text/plain; charset=UTF-8",
-      "Content-Transfer-Encoding: base64",
-      "",
-      Buffer.from(opts.text, "utf8").toString("base64"),
-      `--${boundary}`,
-      "Content-Type: text/html; charset=UTF-8",
-      "Content-Transfer-Encoding: base64",
-      "",
-      Buffer.from(opts.html, "utf8").toString("base64"),
-      `--${boundary}--`,
-      "",
-    ].filter((l) => l !== null).join("\r\n");
-    const res = await gmail.users.messages.send({ userId: "me", requestBody: { raw: b64url(mime), ...(opts.threadId ? { threadId: opts.threadId } : {}) } });
+    const raw = await buildRawMessage(opts);
+    const res = await gmail.users.messages.send({ userId: "me", requestBody: { raw, ...(opts.threadId ? { threadId: opts.threadId } : {}) } });
     return { ok: true, id: res.data.id ?? undefined };
   } catch (e) {
     console.error("[gmailApi] send failed:", e instanceof Error ? e.message : e);
