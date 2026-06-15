@@ -1058,14 +1058,18 @@ async function writeCalendarEvent(scope: AssistantScope, opts: { title: string; 
   if (!Number.isFinite(startMs)) return { ok: false, error: "bad_start" };
   let endMs: number | null = null;
   if (opts.endsAt) { const p = Date.parse(opts.endsAt); if (Number.isFinite(p) && p >= startMs) endMs = p; }
-  let link: string | null = null;
+  let link = "";
   if (opts.linkUrl) { const u = opts.linkUrl.trim(); if (/^https?:\/\//i.test(u)) link = u.slice(0, 1000); }
+  // calendar_events.{description,image_url,link_url,location} are all `text NOT NULL
+  // default ''` — so these MUST be empty strings, never null (a null insert is a
+  // NOT NULL violation → the whole create fails). The website API inserts ''
+  // for the same reason; mirror it exactly.
   const baseRow = {
     title,
-    description: (opts.description ?? "").slice(0, 4000) || null,
-    image_url: null,
+    description: (opts.description ?? "").slice(0, 4000),
+    image_url: "",
     link_url: link,
-    location: (opts.location ?? "").slice(0, 200) || null,
+    location: (opts.location ?? "").slice(0, 200),
     vip_only: opts.vipOnly === true,
     attendee_ids: [] as string[],
     created_by: scope.userId,
@@ -1079,7 +1083,7 @@ async function writeCalendarEvent(scope: AssistantScope, opts: { title: string; 
   }));
   const db = getServiceSupabase();
   const { error } = await db.from("calendar_events").insert(rows);
-  if (error) return { ok: false, error: "write_failed" };
+  if (error) { console.error("[assistantWrites] createCalendarEvent insert failed:", error.message); return { ok: false, error: "write_failed" }; }
   return { ok: true };
 }
 
