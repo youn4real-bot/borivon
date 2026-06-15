@@ -168,7 +168,7 @@ export async function getNativeGmailSignature(): Promise<string | null> {
 }
 
 export type RawMessageOpts = {
-  to: string; cc?: string; subject: string; html: string; text: string;
+  to: string; cc?: string; bcc?: string; subject: string; html: string; text: string;
   fromName: string; fromEmail: string;
   inReplyTo?: string; references?: string;
   attachments?: { filename: string; content: Buffer }[];
@@ -189,6 +189,7 @@ export async function buildRawMessage(opts: RawMessageOpts): Promise<string> {
     from: `"${opts.fromName}" <${opts.fromEmail}>`,
     to: opts.to,
     ...(opts.cc ? { cc: opts.cc } : {}),
+    ...(opts.bcc ? { bcc: opts.bcc } : {}),
     subject: opts.subject.replace(/[\r\n]+/g, " ").trim(),
     text: opts.text,
     html: opts.html,
@@ -219,16 +220,56 @@ export async function gmailSendRaw(opts: RawMessageOpts & { threadId?: string })
 /** Create a Gmail DRAFT (saved in the founder's Drafts, NOT sent) — they finish
  *  + send it from Gmail. Same RawMessageOpts as a send; pass threadId for a
  *  reply-draft. */
-export async function gmailCreateDraft(opts: RawMessageOpts & { threadId?: string }): Promise<{ ok: boolean; id?: string; error?: string }> {
+export async function gmailCreateDraft(opts: RawMessageOpts & { threadId?: string }): Promise<{ ok: boolean; id?: string; messageId?: string; error?: string }> {
   const gmail = gmailClient();
   if (!gmail) return { ok: false, error: "workspace_not_connected" };
   try {
     const raw = await buildRawMessage(opts);
     const res = await gmail.users.drafts.create({ userId: "me", requestBody: { message: { raw, ...(opts.threadId ? { threadId: opts.threadId } : {}) } } });
-    return { ok: true, id: res.data.id ?? undefined };
+    // draftId (for send) + the draft's message id (for reading its attachments back).
+    return { ok: true, id: res.data.id ?? undefined, messageId: res.data.message?.id ?? undefined };
   } catch (e) {
     console.error("[gmailApi] draft create failed:", e instanceof Error ? e.message : e);
     return { ok: false, error: e instanceof Error ? e.message : "draft_failed" };
+  }
+}
+
+/** SEND an existing draft exactly as-is (its attachments are whatever's on it —
+ *  the single source of truth). Lands in the founder's Sent natively. */
+export async function gmailSendDraft(draftId: string): Promise<{ ok: boolean; id?: string; error?: string }> {
+  const gmail = gmailClient();
+  if (!gmail) return { ok: false, error: "workspace_not_connected" };
+  try {
+    const res = await gmail.users.drafts.send({ userId: "me", requestBody: { id: draftId } });
+    return { ok: true, id: res.data.id ?? undefined };
+  } catch (e) {
+    console.error("[gmailApi] draft send failed:", e instanceof Error ? e.message : e);
+    return { ok: false, error: e instanceof Error ? e.message : "draft_send_failed" };
+  }
+}
+
+/** Read a draft's REAL attachments (so the founder can verify exactly what's on
+ *  the draft before sending). Returns the draft's message id (to fetch the bytes
+ *  via getEmailAttachmentBytes) + the attachment list. */
+export async function listDraftAttachments(draftId: string): Promise<{ messageId: string; attachments: EmailAttachmentMeta[] } | null> {
+  const gmail = gmailClient();
+  if (!gmail) return null;
+  try {
+    const d = await gmail.users.drafts.get({ userId: "me", id: draftId, format: "full" });
+    const messageId = d.data.message?.id ?? "";
+    const out: EmailAttachmentMeta[] = [];
+    const walk = (p: any): void => {
+      if (!p) return;
+      if (p.filename && p.body?.attachmentId) {
+        out.push({ attachmentId: p.body.attachmentId, filename: String(p.filename).slice(0, 200), mimeType: p.mimeType || "application/octet-stream", size: typeof p.body.size === "number" ? p.body.size : 0 });
+      }
+      for (const part of p.parts ?? []) walk(part);
+    };
+    walk(d.data.message?.payload);
+    return { messageId, attachments: out };
+  } catch (e) {
+    console.error("[gmailApi] listDraftAttachments failed:", e instanceof Error ? e.message : e);
+    return null;
   }
 }
 

@@ -672,6 +672,7 @@ describe("assistant tools allow the supreme admin", () => {
     expect(await run(buildAssistantTools(ORG_ADMIN), "readThread", { messageId: "abc123" })).toEqual({ error: "admin_only" });
     expect(await run(buildAssistantTools(ORG_ADMIN), "manageEmail", { messageId: "abc123", action: "archive" })).toEqual({ error: "admin_only" });
     expect(await run(buildAssistantTools(ORG_ADMIN), "saveDraft", { to: "x@y.de", subject: "Hi", body: "hi" })).toEqual({ error: "admin_only" });
+    expect(await run(buildAssistantTools(ORG_ADMIN), "showPendingAttachments", {})).toEqual({ error: "admin_only" });
     // supreme, but Workspace not connected in the test env → clear not_connected (not a crash).
     expect(await run(buildAssistantTools(SUPREME), "searchInbox", { query: "from:anna" })).toEqual({ error: "workspace_not_connected", hint: expect.any(String) });
     expect(await run(buildAssistantTools(SUPREME), "replyToEmail", { messageId: "abc123", body: "ok" })).toEqual({ error: "workspace_not_connected" });

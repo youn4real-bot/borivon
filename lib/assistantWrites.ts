@@ -21,7 +21,7 @@ import { applyDocReview, applyCandidateProfilePatch } from "@/lib/adminCandidate
 import { backfillPassportFromCvDraft } from "@/lib/cvDraftBackfill";
 import { sendOutboundEmail, OUTBOUND_FROM_NAME, OUTBOUND_FROM_EMAIL, OUTBOUND_SIGNATURE_HTML, OUTBOUND_SIGNATURE_TEXT, type OutboundAttachment } from "@/lib/outboundEmail";
 import { buildInviteIcs } from "@/lib/calendarInvite";
-import { gmailGet, gmailSearch, gmailSendRaw, gmailCreateDraft, listEmailAttachments, getEmailAttachmentBytes, buildForwardQuote } from "@/lib/gmailApi";
+import { gmailGet, gmailSearch, gmailSendRaw, gmailCreateDraft, gmailSendDraft, listEmailAttachments, getEmailAttachmentBytes, buildForwardQuote } from "@/lib/gmailApi";
 import { bookWorkspaceEvent } from "@/lib/workspaceCalendar";
 import { reportError } from "@/lib/reportError";
 import { recordSentForFollowup } from "@/lib/followups";
@@ -521,6 +521,58 @@ async function resolveOutboundAttachments(
     else attachments.push(...chat);
   }
   return { attachments, missing };
+}
+
+/** Compose an email as a Gmail DRAFT with its attachments resolved ONCE and
+ *  baked in — the draft is the SINGLE source of truth. The confirm step sends
+ *  THIS draft as-is (writeSendDraft); "show me the attached files" reads THIS
+ *  draft. So what's verified is byte-for-byte what goes out — the attachment set
+ *  can never silently differ between the preview and the send (the bug that sent
+ *  the wrong documents). Used for ANY email that carries attachments (fresh or
+ *  reply). Returns the draft id + the REAL attachment filenames. */
+export async function prepareEmailDraft(
+  scope: AssistantScope,
+  opts: { to: string; cc?: string[]; bcc?: string[]; subject: string; body: string; candidateIds?: string[]; docIds?: string[]; attachFromEmailIds?: string[]; chatFiles?: boolean; replyToMessageId?: string },
+): Promise<{ ok: true; draftId: string; draftMessageId: string; names: string[]; subject: string } | { ok: false; error: string }> {
+  const { attachments, missing } = await resolveOutboundAttachments(scope, {
+    candidateIds: opts.candidateIds, docIds: opts.docIds, attachFromEmailIds: opts.attachFromEmailIds, chatFiles: opts.chatFiles,
+  });
+  if (missing.length) return { ok: false, error: `attachment_missing:${missing.slice(0, 8).join(",")}` };
+
+  // Reply-draft threading (so a reply stays in its Gmail thread).
+  let inReplyTo: string | undefined; let references: string | undefined; let threadId: string | undefined; let subject = opts.subject;
+  if (opts.replyToMessageId) {
+    const orig = await gmailGet(opts.replyToMessageId);
+    if (orig) {
+      subject = /^re:/i.test(orig.subject.trim()) ? orig.subject : `Re: ${orig.subject}`;
+      inReplyTo = orig.messageIdHeader || undefined;
+      references = [orig.references, orig.messageIdHeader].filter(Boolean).join(" ").trim() || undefined;
+      threadId = orig.threadId || undefined;
+    }
+  }
+
+  const cleanBody = stripMarkdown(opts.body).trimEnd();
+  const text = `${cleanBody}\n\n${OUTBOUND_SIGNATURE_TEXT}`;
+  const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const html = `<div style="font-family:-apple-system,'Segoe UI',sans-serif;font-size:14px;color:#1a1a1a;line-height:1.6;">${escHtml(cleanBody).replace(/\n/g, "<br/>")}</div><br/>${OUTBOUND_SIGNATURE_HTML}`;
+  const cc = (opts.cc ?? []).map((c) => c.trim()).filter(Boolean).join(", ");
+  const bcc = (opts.bcc ?? []).map((c) => c.trim()).filter(Boolean).join(", ");
+
+  const r = await gmailCreateDraft({
+    to: opts.to, cc: cc || undefined, bcc: bcc || undefined, subject, text, html,
+    fromName: OUTBOUND_FROM_NAME, fromEmail: OUTBOUND_FROM_EMAIL,
+    inReplyTo, references, threadId,
+    attachments: attachments.length ? attachments : undefined,
+  });
+  if (!r.ok || !r.id) return { ok: false, error: r.error === "workspace_not_connected" ? "workspace_not_connected" : "draft_failed" };
+  return { ok: true, draftId: r.id, draftMessageId: r.messageId || "", names: attachments.map((a) => a.filename), subject };
+}
+
+/** SEND a prepared draft EXACTLY as-is (the confirm step for an attachment email). */
+async function writeSendDraft(draftId: string): Promise<WriteResult> {
+  if (!draftId) return { ok: false, error: "no_draft" };
+  const r = await gmailSendDraft(draftId);
+  return r.ok ? { ok: true } : { ok: false, error: r.error || "draft_send_failed" };
 }
 
 async function writeExternalEmail(
@@ -1393,6 +1445,16 @@ async function getLatestPending(ownerId: string): Promise<PendingRow | null> {
   return row;
 }
 
+/** If the latest pending action is a prepared email DRAFT (sendDraft), return its
+ *  draft id + message id — so "show me the attached files" reads the REAL draft. */
+export async function getPendingDraft(ownerId: string): Promise<{ draftId: string; draftMessageId: string } | null> {
+  const row = await getLatestPending(ownerId);
+  if (!row || row.tool_name !== "sendDraft") return null;
+  const a = (row.args ?? {}) as Record<string, unknown>;
+  const draftId = String(a.draftId ?? "");
+  return draftId ? { draftId, draftMessageId: String(a.draftMessageId ?? "") } : null;
+}
+
 /** Stage a proposed write for confirmation. Returns the summary to show the admin. */
 export async function stagePending(
   scope: AssistantScope,
@@ -1591,6 +1653,10 @@ async function applyPendingRow(
       candidateIds: splitD(a.attachCandidateIds), docIds: splitD(a.attachDocIds), attachFromEmailIds: splitD(a.attachFromEmailIds),
       chatFiles: a.attachChatFiles === true,
     });
+  } else if (row.tool_name === "sendDraft") {
+    // Send the already-prepared Gmail draft EXACTLY as-is (attachments baked in).
+    result = await writeSendDraft(String(a.draftId ?? ""));
+    if (result.ok && a.to) void recordSentForFollowup(scope.userId, String(a.to), String(a.subject ?? ""));
   } else if (row.tool_name === "sendCalendarInvite") {
     const emails = String(a.attendees ?? "").split(",").map((s) => s.trim()).filter(Boolean);
     result = await writeCalendarInvite({
@@ -1765,7 +1831,7 @@ export async function cancelLatestPending(
 export const DESTRUCTIVE_TOOLS = new Set<string>(["deleteCandidateAccount", "deleteOrganization"]);
 export const SEND_TOOLS = new Set<string>([
   "sendExternalEmail", "sendCandidateMessage", "sendFollowUpNudge", "nudgeStuckCandidates", "sendSlotRequest",
-  "sendCalendarInvite", "replyToEmail", "forwardEmail",
+  "sendCalendarInvite", "replyToEmail", "forwardEmail", "sendDraft",
 ]);
 const CONFIRM_TOOLS = new Set<string>([...DESTRUCTIVE_TOOLS, ...SEND_TOOLS]);
 

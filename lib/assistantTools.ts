@@ -19,10 +19,10 @@ import { UUID_RE } from "@/lib/uuid";
 import { germanSummary } from "@/lib/b2Detail";
 import { stripEmailFormatting } from "@/lib/emailFormat";
 import { computeBriefing } from "@/lib/briefing";
-import { stagePending, executeLatestPending, cancelLatestPending, MILESTONE_BOOL } from "@/lib/assistantWrites";
+import { stagePending, executeLatestPending, cancelLatestPending, prepareEmailDraft, getPendingDraft, MILESTONE_BOOL } from "@/lib/assistantWrites";
 import { AUTOMATIONS, getAutomationFlags, setAutomation as persistAutomation } from "@/lib/automationSettings";
 import { workspaceConfigured, workspaceServiceAccount, testWorkspace, WORKSPACE_SCOPES } from "@/lib/googleWorkspace";
-import { gmailSearch, gmailGet, gmailApiReady, listEmailAttachments, gmailGetThread, gmailModify, gmailTrash } from "@/lib/gmailApi";
+import { gmailSearch, gmailGet, gmailApiReady, listEmailAttachments, listDraftAttachments, gmailGetThread, gmailModify, gmailTrash } from "@/lib/gmailApi";
 import { getUsageSummary } from "@/lib/usage";
 import { stopFollowupsFor } from "@/lib/followups";
 import type { AssistantScope } from "@/lib/assistantScope";
@@ -617,6 +617,27 @@ export function buildAssistantTools(
         return { results, count: results.length };
       },
     }),
+    showPendingAttachments: tool({
+      description:
+        "Pull the ACTUAL files attached to the email DRAFT I'm about to send, and deliver them here so I can eyeball them BEFORE sending. Use whenever I say 'show me the attached files', 'what's attached', 'let me see the files', 'show me what you'll send' while an email with attachments is waiting for my yes. Reads the REAL draft — never your guess of what's attached. Supreme-admin only.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!gmailApiReady()) return { error: "workspace_not_connected" };
+        const pend = await getPendingDraft(scope.userId);
+        if (!pend) return { error: "no_pending_draft", note: "No email draft is waiting — ask me to compose one first." };
+        const got = await listDraftAttachments(pend.draftId);
+        if (!got) return { error: "read_failed" };
+        if (got.attachments.length === 0) return { results: [], note: "no_attachments" };
+        const token = signDlToken(scope.userId, 180);
+        const results = got.attachments.slice(0, 25).map((a) => ({
+          url: `/api/portal/admin/email-attachment?mid=${encodeURIComponent(got.messageId)}&aid=${encodeURIComponent(a.attachmentId)}&dlt=${encodeURIComponent(token)}&name=${encodeURIComponent(a.filename)}`,
+          fileName: a.filename,
+          mimeType: a.mimeType,
+        }));
+        return { results, count: results.length };
+      },
+    }),
     replyToEmail: tool({
       description:
         "Reply to an email IN-THREAD by its id (from searchInbox/readEmail). This KEEPS the conversation in the SAME Gmail thread (correct In-Reply-To/References + same subject) and lands in the founder's Sent — use it whenever you're CONTINUING an existing email conversation; do NOT start a fresh email for a reply. Replies to the original sender; replyAll=true also CCs everyone else on it. You can ATTACH files on the reply: attachCandidateNames (comma-sep candidate FULL NAMES → their latest CV), attachDocIds (document ids), attachFromEmailIds (Gmail message ids whose attachments to forward — e.g. reply to Anna WITH the Defizitbescheid someone sent you). It's a SEND — goes out after the founder's one confirm; show the reply in the SHOWING-AN-EMAIL shape. Supreme-admin only.",
@@ -663,6 +684,29 @@ export function buildAssistantTools(
           emailFwdIds.length ? `files from ${emailFwdIds.length} email${emailFwdIds.length > 1 ? "s" : ""}` : null,
           attachChatFiles ? "files you sent in chat" : null,
         ].filter(Boolean).join(" + ") || "none";
+        // FUZZY attachments (chat uploads / email-search) → reply via a real Gmail
+        // DRAFT (resolve + attach ONCE, in-thread), confirm SENDS that draft.
+        // Verify-from-draft = sent. CV/doc stay on the proven path.
+        const useDraft = emailFwdIds.length > 0 || attachChatFiles === true;
+        if (useDraft) {
+          let cc: string[] = [];
+          if (replyAll) {
+            const self = (scope.email || "").toLowerCase();
+            cc = [...new Set([orig.to, orig.cc].join(",").split(",").map((s) => s.trim()).filter(Boolean)
+              .filter((aa) => { const e = (aa.match(/<([^>]+)>/)?.[1] || aa).toLowerCase(); return e && (!self || !e.includes(self)) && e !== orig.from.toLowerCase(); }))];
+          }
+          const d = await prepareEmailDraft(scope, {
+            to: orig.from, cc, replyToMessageId: messageId, subject: subj, body: cleanBody,
+            candidateIds: candIds, docIds, attachFromEmailIds: emailFwdIds, chatFiles: attachChatFiles === true,
+          });
+          if (!d.ok) return { error: d.error };
+          return stagePending(scope, {
+            toolName: "sendDraft",
+            args: { draftId: d.draftId, draftMessageId: d.draftMessageId, to: orig.from, subject: d.subject },
+            candidateUserId: null,
+            summary: `↩️ Reply${replyAll ? " (all)" : ""} to ${who} — ${d.subject}\n📎 Attached (on the draft): ${d.names.length ? d.names.join(", ") : "none"}\n(say "show me the attached files" to pull them from the draft and double-check)\n\n${cleanBody.slice(0, 600)}${cleanBody.length > 600 ? "…" : ""}`,
+          });
+        }
         const args: Record<string, unknown> = { messageId, body: cleanBody, replyAll: replyAll === true };
         if (candIds.length) args.attachCandidateIds = candIds.join(",");
         if (docIds.length) args.attachDocIds = docIds.join(",");
@@ -2719,6 +2763,27 @@ export function buildAssistantTools(
         // are plain text — no relying on it to "remember" the no-stars rule.
         const cleanBody = stripEmailFormatting(body);
         const cleanSubject = stripEmailFormatting(subject);
+        // ── FUZZY attachments (chat uploads / email-search files) → build a real
+        // Gmail DRAFT now (resolve + attach ONCE), and the confirm step SENDS THAT
+        // DRAFT. The draft is the single source of truth: "show me the files" reads
+        // it, send sends it — so what you verify is byte-for-byte what goes out
+        // (kills the "claimed X, sent Y" bug). CV/doc attachments are id-exact (no
+        // drift), so they stay on the proven path. The draft still includes any
+        // CVs/docs requested alongside the fuzzy files. ──
+        const useDraft = emailFwdIds.length > 0 || attachChatFiles === true;
+        if (useDraft) {
+          const d = await prepareEmailDraft(scope, {
+            to: email, cc: ccList, bcc: bccList, subject: cleanSubject, body: cleanBody,
+            candidateIds: candIds, docIds, attachFromEmailIds: emailFwdIds, chatFiles: attachChatFiles === true,
+          });
+          if (!d.ok) return { error: d.error };
+          return stagePending(scope, {
+            toolName: "sendDraft",
+            args: { draftId: d.draftId, draftMessageId: d.draftMessageId, to: email, subject: cleanSubject },
+            candidateUserId: null,
+            summary: `📧 To: ${toName ? `${toName} <${email}>` : email}${ccList.length ? `\nCC: ${ccList.join(", ")}` : ""}${bccList.length ? `\nBCC: ${bccList.join(", ")}` : ""}\nSubject: ${cleanSubject}\n📎 Attached (on the draft): ${d.names.length ? d.names.join(", ") : "none"}\n(say "show me the attached files" to pull them from the draft and double-check)\n\n${cleanBody.slice(0, 600)}${cleanBody.length > 600 ? "…" : ""}`,
+          });
+        }
         const args: Record<string, unknown> = { to: email, subject: cleanSubject, body: cleanBody };
         if (toName !== undefined) args.toName = toName;
         if (ccList.length) args.cc = ccList.join(",");
