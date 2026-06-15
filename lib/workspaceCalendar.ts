@@ -13,6 +13,8 @@
  * can tell the admin instead of silently dropping it.
  */
 import { calendarClient } from "@/lib/googleWorkspace";
+import type { calendar_v3 } from "googleapis";
+import { randomUUID } from "node:crypto";
 
 /** The founder's timezone (Morocco). Override with CALENDAR_TZ if they relocate. */
 export const BORIVON_TZ = (process.env.CALENDAR_TZ || "Africa/Casablanca").trim();
@@ -30,17 +32,19 @@ function calTime(iso: string): { dateTime: string; timeZone?: string } {
 }
 
 export type BookEventResult =
-  | { ok: true; id: string; htmlLink?: string }
+  | { ok: true; id: string; htmlLink?: string; meetLink?: string }
   | { ok: false; error: string };
 
 /** Create an event in the founder's own Google Calendar (calendarId "primary").
- *  startsAt required (ISO); endsAt optional (defaults to +60 min). */
+ *  startsAt required (ISO); endsAt optional (defaults to +60 min). When addMeet
+ *  is set, Google provisions a Google Meet video link and we return it. */
 export async function bookWorkspaceEvent(opts: {
   title: string;
   startsAt: string;
   endsAt?: string;
   description?: string;
   location?: string;
+  addMeet?: boolean;
 }): Promise<BookEventResult> {
   const cal = calendarClient();
   if (!cal) return { ok: false, error: "workspace_not_connected" };
@@ -60,18 +64,32 @@ export async function bookWorkspaceEvent(opts: {
     const endIso = new Date(startMs + 60 * 60 * 1000).toISOString().slice(0, 19);
     end = start.timeZone ? { dateTime: endIso, timeZone: start.timeZone } : { dateTime: endIso + "Z" };
   }
+  const requestBody: calendar_v3.Schema$Event = {
+    summary: title,
+    description: (opts.description ?? "").slice(0, 4000) || undefined,
+    location: (opts.location ?? "").slice(0, 300) || undefined,
+    start,
+    end,
+  };
+  // Attach a Google Meet video link. requestId MUST be unique per attempt;
+  // conferenceDataVersion:1 is required or Google ignores the request. Google
+  // returns hangoutLink (sometimes provisioned async → may be empty on the
+  // immediate response; the event still gets the link shortly after).
+  if (opts.addMeet) {
+    requestBody.conferenceData = {
+      createRequest: { requestId: randomUUID(), conferenceSolutionKey: { type: "hangoutsMeet" } },
+    };
+  }
   try {
     const res = await cal.events.insert({
       calendarId: "primary",
-      requestBody: {
-        summary: title,
-        description: (opts.description ?? "").slice(0, 4000) || undefined,
-        location: (opts.location ?? "").slice(0, 300) || undefined,
-        start,
-        end,
-      },
+      ...(opts.addMeet ? { conferenceDataVersion: 1 } : {}),
+      requestBody,
     });
-    return { ok: true, id: res.data.id ?? "", htmlLink: res.data.htmlLink ?? undefined };
+    const meetLink = res.data.hangoutLink
+      || res.data.conferenceData?.entryPoints?.find((e) => e.entryPointType === "video")?.uri
+      || undefined;
+    return { ok: true, id: res.data.id ?? "", htmlLink: res.data.htmlLink ?? undefined, meetLink };
   } catch (e) {
     console.error("[workspaceCalendar] book failed:", e instanceof Error ? e.message : e);
     return { ok: false, error: e instanceof Error ? e.message : "book_failed" };

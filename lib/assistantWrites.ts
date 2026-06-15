@@ -40,7 +40,7 @@ const MIME_EXT: Record<string, string> = {
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
 };
 
-type WriteResult = { ok: true } | { ok: false; error: string };
+type WriteResult = { ok: true; info?: string } | { ok: false; error: string };
 
 const VALID_INTERVIEW_STATUS = new Set(["pending", "passed", "failed"]);
 // Pipeline milestones the AI may set — the full non-supreme allowlist that the
@@ -1102,13 +1102,14 @@ async function writeDeleteCalendarEvent(eventId: string): Promise<WriteResult> {
 /** Book an event in the FOUNDER'S OWN Google Calendar (native, via domain-wide
  *  delegation) — the calendar they actually look at. Distinct from the portal
  *  community calendar above. */
-async function writeBookCalendarEvent(opts: { title: string; startsAt: string; endsAt?: string; description?: string; location?: string }): Promise<WriteResult> {
+async function writeBookCalendarEvent(opts: { title: string; startsAt: string; endsAt?: string; description?: string; location?: string; addMeet?: boolean }): Promise<WriteResult> {
   const r = await bookWorkspaceEvent(opts);
   if (!r.ok) {
     // Surface the real reason: not connected vs a genuine API failure.
     return { ok: false, error: r.error === "workspace_not_connected" ? "calendar_not_connected" : "write_failed" };
   }
-  return { ok: true };
+  // Surface the Meet link so the founder can paste it to the candidate.
+  return { ok: true, info: r.meetLink ? `📹 Google Meet: ${r.meetLink}` : undefined };
 }
 
 // LAW #31 — supreme-admin stage lock/unlock. Maps the spoken stage name to the
@@ -1383,7 +1384,7 @@ async function applyPendingRow(
     return { error: "out_of_scope" };
   }
   const a = row.args;
-  let result: { ok: true } | { ok: false; error: string } = { ok: false, error: "unknown_tool" };
+  let result: WriteResult = { ok: false, error: "unknown_tool" };
   if (row.tool_name === "setInterviewResult") {
     result = await writeInterview(String(a.candidateUserId), Number(a.which) === 2 ? 2 : 1, String(a.result), undefined);
   } else if (row.tool_name === "setInterviewDate") {
@@ -1566,6 +1567,7 @@ async function applyPendingRow(
       endsAt: a.endsAt == null ? undefined : String(a.endsAt),
       description: a.description == null ? undefined : String(a.description),
       location: a.location == null ? undefined : String(a.location),
+      addMeet: a.addMeet === true,
     });
   } else if (row.tool_name === "deleteCalendarEvent") {
     result = await writeDeleteCalendarEvent(String(a.eventId ?? ""));
@@ -1618,7 +1620,9 @@ async function applyPendingRow(
   }
   const db = getServiceSupabase();
   await db.from("assistant_pending_actions").update({ status: "confirmed" }).eq("id", row.id);
-  return { done: true, summary: row.summary };
+  // Append any extra info the write produced (e.g. a freshly-minted Meet link).
+  const summary = result.info ? `${row.summary}\n${result.info}` : row.summary;
+  return { done: true, summary };
 }
 
 /** Discard the most recent staged write. */

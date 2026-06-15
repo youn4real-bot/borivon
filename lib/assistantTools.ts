@@ -1732,15 +1732,16 @@ export function buildAssistantTools(
 
     bookCalendarEvent: tool({
       description:
-        "Put an event on the founder's OWN Google Calendar (the real calendar they look at) — for 'book / schedule / block X', meetings, interviews, calls, personal appointments. title + startsAt required; optional endsAt (else +60 min), description, location. Times are the founder's LOCAL time (Africa/Casablanca): emit startsAt as a local wall-clock ISO with NO Z and NO offset, e.g. 2026-06-15T15:00:00 (the system tells you TODAY's date — resolve 'today / Monday / tomorrow / 15h' against it, never guess the year). Writes straight to their Google Calendar and applies immediately — do NOT ask to confirm. To invite OTHER people by email with Yes/Maybe/No, use sendCalendarInvite instead. For a PUBLIC candidate-facing community event (the portal Calendar tab), use createCalendarEvent. Supreme-only.",
+        "Put an event on the founder's OWN Google Calendar (the real calendar they look at) — for 'book / schedule / block X', meetings, interviews, calls, personal appointments. title + startsAt required; optional endsAt (else +60 min), description, location, addMeet. Times are the founder's LOCAL time (Africa/Casablanca): emit startsAt as a local wall-clock ISO with NO Z and NO offset, e.g. 2026-06-15T15:00:00 (the system tells you TODAY's date — resolve 'today / Monday / tomorrow / 15h' against it, never guess the year). Set addMeet:true when it's a video call / online interview / 'with a Meet link' — Google attaches a Google Meet link and you'll get the link back to share. Writes straight to their Google Calendar and applies immediately — do NOT ask to confirm. To invite OTHER people by email with Yes/Maybe/No, use sendCalendarInvite instead. For a PUBLIC candidate-facing community event (the portal Calendar tab), use createCalendarEvent. Supreme-only.",
       inputSchema: z.object({
         title: z.string().min(1).max(300),
         startsAt: z.string().min(10).describe("LOCAL wall-clock ISO, no Z/offset, e.g. 2026-06-15T15:00:00"),
         endsAt: z.string().max(40).optional(),
         description: z.string().max(4000).optional(),
         location: z.string().max(300).optional(),
+        addMeet: z.boolean().optional().describe("true → attach a Google Meet video link (for online meetings/interviews)"),
       }),
-      execute: async ({ title, startsAt, endsAt, description, location }) => {
+      execute: async ({ title, startsAt, endsAt, description, location, addMeet }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
         if (!title.trim()) return { error: "title_required" };
         if (!Number.isFinite(Date.parse(startsAt))) return { error: "bad_start" };
@@ -1748,12 +1749,13 @@ export function buildAssistantTools(
         if (endsAt !== undefined) args.endsAt = endsAt;
         if (description !== undefined) args.description = description;
         if (location !== undefined) args.location = location;
+        if (addMeet !== undefined) args.addMeet = addMeet;
         const when = startsAt.replace("T", " ").slice(0, 16);
         return stagePending(scope, {
           toolName: "bookCalendarEvent",
           args,
           candidateUserId: null,
-          summary: `Book on your calendar: "${title.trim().slice(0, 80)}" @ ${when}${location ? ` · ${location}` : ""}`,
+          summary: `Book on your calendar: "${title.trim().slice(0, 80)}" @ ${when}${location ? ` · ${location}` : ""}${addMeet ? " · 📹 Meet" : ""}`,
         });
       },
     }),
