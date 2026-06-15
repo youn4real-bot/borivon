@@ -13,6 +13,10 @@
  *  3. OPTIONAL — Sentry (rich backend: grouping, full stack traces, a searchable
  *     dashboard, client-side errors). No-op unless SENTRY_DSN is set and init ran
  *     (see sentry.*.config.ts). Adds nothing to the bundle's behavior until then.
+ *  4. OPTIONAL — Telegram ping straight to the founder's own chat (reuses the bot
+ *     token + the locked TELEGRAM_CHAT_ID — ZERO extra setup). So the founder is
+ *     alerted in the chat he already lives in the instant something breaks, with
+ *     no Slack/Sentry signup. Throttled so a hot error can't spam the chat.
  *
  * Never throws, never blocks the response. Reporting must not be able to break
  * the app, so every path swallows its own errors.
@@ -26,6 +30,20 @@ type ErrCtx = {
   renderSource?: string;
   [k: string]: unknown;
 };
+
+// In-memory throttle so one hot error can't flood the chat: the same message
+// alerts at most once per 60s per warm instance. Best-effort (resets on cold
+// start) — that's fine, the goal is anti-spam, not exactly-once.
+const _lastAlert = new Map<string, number>();
+function shouldAlert(key: string): boolean {
+  const now = Date.now();
+  if (now - (_lastAlert.get(key) ?? 0) < 60_000) return false;
+  _lastAlert.set(key, now);
+  if (_lastAlert.size > 200) {
+    for (const k of _lastAlert.keys()) { _lastAlert.delete(k); if (_lastAlert.size <= 100) break; }
+  }
+  return true;
+}
 
 export function reportError(err: unknown, ctx: ErrCtx = {}): void {
   const message = err instanceof Error ? err.message : String(err);
@@ -48,23 +66,38 @@ export function reportError(err: unknown, ctx: ErrCtx = {}): void {
     /* reporting must never throw */
   }
 
-  // Sink 2 — optional webhook alert. Fire-and-forget, timeout-bounded.
+  const where = `${ctx.method ?? ""} ${ctx.route ?? ""}`.trim();
+  const summary = `🔴 Borivon error\n${message}${where ? `\n${where}` : ""}${ctx.tool ? `\ntool: ${ctx.tool}` : ""}`;
+
+  // Sink 2 — optional webhook alert (Slack / Discord). Fire-and-forget.
   const hook = process.env.ERROR_WEBHOOK_URL;
-  if (!hook) return;
-  const text = `🔴 Borivon server error\n${message}\n${`${ctx.method ?? ""} ${ctx.route ?? ""}`.trim()}`;
-  try {
-    // Slack expects {text}; Discord expects {content}; send both — each ignores
-    // the field it doesn't use, so one URL works for either provider.
-    void fetch(hook, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, content: text }),
-      signal: AbortSignal.timeout(2500),
-      cache: "no-store",
-    }).catch(() => {
-      /* swallow — reporting failure must never surface */
-    });
-  } catch {
-    /* swallow */
+  if (hook) {
+    try {
+      // Slack expects {text}; Discord expects {content}; send both — each ignores
+      // the field it doesn't use, so one URL works for either provider.
+      void fetch(hook, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: summary, content: summary }),
+        signal: AbortSignal.timeout(2500),
+        cache: "no-store",
+      }).catch(() => { /* swallow — reporting failure must never surface */ });
+    } catch { /* swallow */ }
+  }
+
+  // Sink 4 — Telegram ping to the founder's own chat. Zero setup: reuses the bot
+  // token + locked chat id. Throttled per-message so it can't spam.
+  const tgToken = process.env.TELEGRAM_BOT_TOKEN;
+  const tgChat = process.env.TELEGRAM_CHAT_ID;
+  if (tgToken && tgChat && shouldAlert(message)) {
+    try {
+      void fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: tgChat, text: summary.slice(0, 3500), disable_web_page_preview: true }),
+        signal: AbortSignal.timeout(2500),
+        cache: "no-store",
+      }).catch(() => { /* swallow */ });
+    } catch { /* swallow */ }
   }
 }
