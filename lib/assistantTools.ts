@@ -23,6 +23,7 @@ import { stagePending, executeLatestPending, cancelLatestPending, MILESTONE_BOOL
 import { AUTOMATIONS, getAutomationFlags, setAutomation as persistAutomation } from "@/lib/automationSettings";
 import { buildGmailAuthUrl, refreshGmailSignature as pullGmailSignature, gmailSignatureStatus, gmailSignatureConfigured } from "@/lib/gmailSignature";
 import { signFeedToken } from "@/lib/calendarFeed";
+import { workspaceConfigured, workspaceServiceAccount, testWorkspace, WORKSPACE_SCOPES } from "@/lib/googleWorkspace";
 import type { AssistantScope } from "@/lib/assistantScope";
 
 type ProfileRow = {
@@ -544,6 +545,35 @@ export function buildAssistantTools(
         if (!st.connected) return { connected: false, hint: "Not connected yet — call connectGmailSignature first." };
         const r = await pullGmailSignature(scope.userId);
         return { connected: true, refreshed: r.ok, hasSignature: r.hasSignature, email: st.email, ...(r.error ? { error: r.error } : {}) };
+      },
+    }),
+
+    // ── Native Google Workspace (service-account domain-wide delegation) setup ──
+    getGoogleServiceAccountId: tool({
+      description:
+        "For SETTING UP native Google Workspace access: returns the service account's email + client ID + the scopes the admin must paste into the Google Workspace Admin console (Security → API controls → Domain-wide delegation). Use when the admin asks to set up / connect native Google / Workspace. Supreme-admin only.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const sa = workspaceServiceAccount();
+        if (!sa) return { error: "no_service_account_key", hint: "GOOGLE_VERTEX_CREDENTIALS / GOOGLE_WORKSPACE_CREDENTIALS is not set." };
+        return {
+          clientId: sa.clientId,
+          serviceAccountEmail: sa.clientEmail,
+          impersonates: sa.subject,
+          scopes: WORKSPACE_SCOPES.join(","),
+          where: "admin.google.com → Security → Access and data control → API controls → Domain-wide delegation → Add new: paste the Client ID + the scopes (comma-separated).",
+        };
+      },
+    }),
+    testGoogleWorkspace: tool({
+      description:
+        "Verify the native Google Workspace connection is live (after the admin set up domain-wide delegation). Reads the Gmail profile + checks Calendar. Returns the connected email or a clear error if delegation isn't granted yet. Supreme-admin only.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!workspaceConfigured()) return { ok: false, error: "not_configured", hint: "Service-account key or impersonation subject missing." };
+        return await testWorkspace();
       },
     }),
 
