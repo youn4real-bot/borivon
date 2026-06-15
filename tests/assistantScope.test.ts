@@ -274,6 +274,7 @@ describe("assistant tools enforce LAW #25 scope (org-admin)", () => {
     const evUuid = "66666666-6666-6666-6666-666666666666";
     expect(await run(t, "listCalendarEvents", {})).toEqual({ error: "admin_only" });
     expect(await run(t, "createCalendarEvent", { title: "Networking", startsAt: "2026-07-10T10:00:00Z" })).toEqual({ error: "admin_only" });
+    expect(await run(t, "bookCalendarEvent", { title: "Erstgespräch", startsAt: "2026-06-15T15:00:00" })).toEqual({ error: "admin_only" });
     expect(await run(t, "deleteCalendarEvent", { eventId: evUuid })).toEqual({ error: "admin_only" });
     expect(await run(t, "listCohorts", {})).toEqual({ error: "admin_only" });
   });
@@ -866,6 +867,14 @@ describe("assistant tools allow the supreme admin", () => {
     expect(ok.summary).toContain("Berlin");
     expect(ok.summary).toContain("×3 weekly");
     expect(await run(buildAssistantTools(SUPREME), "createCalendarEvent", { title: "X", startsAt: "not-a-date" })).toEqual({ error: "bad_start" });
+  });
+
+  it("bookCalendarEvent (founder's own Google Calendar) stages a local-time event and rejects a bad start", async () => {
+    const ok = (await run(buildAssistantTools(SUPREME), "bookCalendarEvent", { title: "Erstgespräch", startsAt: "2026-06-15T15:00:00", location: "Büro" })) as { staged?: boolean; summary?: string };
+    expect(ok.staged).toBe(true);
+    expect(ok.summary).toContain("Erstgespräch");
+    expect(ok.summary).toContain("Büro");
+    expect(await run(buildAssistantTools(SUPREME), "bookCalendarEvent", { title: "X", startsAt: "not-a-date" })).toEqual({ error: "bad_start" });
   });
 
   it("deleteCalendarEvent stages with the event title, 404s a missing one", async () => {

@@ -22,6 +22,7 @@ import { backfillPassportFromCvDraft } from "@/lib/cvDraftBackfill";
 import { sendOutboundEmail, OUTBOUND_FROM_NAME, OUTBOUND_FROM_EMAIL, OUTBOUND_SIGNATURE_HTML, OUTBOUND_SIGNATURE_TEXT, type OutboundAttachment } from "@/lib/outboundEmail";
 import { buildInviteIcs } from "@/lib/calendarInvite";
 import { gmailGet, gmailSendRaw } from "@/lib/gmailApi";
+import { bookWorkspaceEvent } from "@/lib/workspaceCalendar";
 import { stripMarkdown } from "@/lib/emailFormat";
 import { resolveFileKey } from "@/lib/fileKeys";
 import { r2GetObject } from "@/lib/r2";
@@ -1097,6 +1098,18 @@ async function writeDeleteCalendarEvent(eventId: string): Promise<WriteResult> {
   return { ok: true };
 }
 
+/** Book an event in the FOUNDER'S OWN Google Calendar (native, via domain-wide
+ *  delegation) — the calendar they actually look at. Distinct from the portal
+ *  community calendar above. */
+async function writeBookCalendarEvent(opts: { title: string; startsAt: string; endsAt?: string; description?: string; location?: string }): Promise<WriteResult> {
+  const r = await bookWorkspaceEvent(opts);
+  if (!r.ok) {
+    // Surface the real reason: not connected vs a genuine API failure.
+    return { ok: false, error: r.error === "workspace_not_connected" ? "calendar_not_connected" : "write_failed" };
+  }
+  return { ok: true };
+}
+
 // LAW #31 — supreme-admin stage lock/unlock. Maps the spoken stage name to the
 // candidate_pipeline boolean column. `unlocked=true` opens the stage for the
 // candidate; `false` locks it. (The generic milestone tool deliberately can't
@@ -1544,6 +1557,14 @@ async function applyPendingRow(
       linkUrl: a.linkUrl == null ? undefined : String(a.linkUrl),
       vipOnly: a.vipOnly === true,
       repeatWeekly: a.repeatWeekly == null ? undefined : Number(a.repeatWeekly),
+    });
+  } else if (row.tool_name === "bookCalendarEvent") {
+    result = await writeBookCalendarEvent({
+      title: String(a.title ?? ""),
+      startsAt: String(a.startsAt ?? ""),
+      endsAt: a.endsAt == null ? undefined : String(a.endsAt),
+      description: a.description == null ? undefined : String(a.description),
+      location: a.location == null ? undefined : String(a.location),
     });
   } else if (row.tool_name === "deleteCalendarEvent") {
     result = await writeDeleteCalendarEvent(String(a.eventId ?? ""));

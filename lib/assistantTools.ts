@@ -1730,6 +1730,34 @@ export function buildAssistantTools(
       },
     }),
 
+    bookCalendarEvent: tool({
+      description:
+        "Put an event on the founder's OWN Google Calendar (the real calendar they look at) — for 'book / schedule / block X', meetings, interviews, calls, personal appointments. title + startsAt required; optional endsAt (else +60 min), description, location. Times are the founder's LOCAL time (Africa/Casablanca): emit startsAt as a local wall-clock ISO with NO Z and NO offset, e.g. 2026-06-15T15:00:00 (the system tells you TODAY's date — resolve 'today / Monday / tomorrow / 15h' against it, never guess the year). Writes straight to their Google Calendar and applies immediately — do NOT ask to confirm. To invite OTHER people by email with Yes/Maybe/No, use sendCalendarInvite instead. For a PUBLIC candidate-facing community event (the portal Calendar tab), use createCalendarEvent. Supreme-only.",
+      inputSchema: z.object({
+        title: z.string().min(1).max(300),
+        startsAt: z.string().min(10).describe("LOCAL wall-clock ISO, no Z/offset, e.g. 2026-06-15T15:00:00"),
+        endsAt: z.string().max(40).optional(),
+        description: z.string().max(4000).optional(),
+        location: z.string().max(300).optional(),
+      }),
+      execute: async ({ title, startsAt, endsAt, description, location }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!title.trim()) return { error: "title_required" };
+        if (!Number.isFinite(Date.parse(startsAt))) return { error: "bad_start" };
+        const args: Record<string, unknown> = { title, startsAt };
+        if (endsAt !== undefined) args.endsAt = endsAt;
+        if (description !== undefined) args.description = description;
+        if (location !== undefined) args.location = location;
+        const when = startsAt.replace("T", " ").slice(0, 16);
+        return stagePending(scope, {
+          toolName: "bookCalendarEvent",
+          args,
+          candidateUserId: null,
+          summary: `Book on your calendar: "${title.trim().slice(0, 80)}" @ ${when}${location ? ` · ${location}` : ""}`,
+        });
+      },
+    }),
+
     createCalendarEvent: tool({
       description:
         "STAGE creating a community CALENDAR event. title + startsAt (ISO date-time) required; optional endsAt, description, location, linkUrl (http/https), vipOnly (premium-only), repeatWeekly (1-52 → that many weekly copies). The event is PUBLIC (shown to everyone, or all premium if vipOnly). Image upload + tagging specific attendees stay website-only. Supreme-only. Applies immediately when you call it — do NOT ask the admin to confirm.",
