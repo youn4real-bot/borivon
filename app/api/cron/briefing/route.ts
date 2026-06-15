@@ -10,6 +10,7 @@ import { NextRequest } from "next/server";
 import { computeBriefing } from "@/lib/briefing";
 import { tgSend, getAdminUserId, telegramConfigured } from "@/lib/telegram";
 import { isAutomationEnabled } from "@/lib/automationSettings";
+import { runFollowupChase } from "@/lib/followupsRun";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,12 +26,17 @@ export async function GET(req: NextRequest) {
   if (!telegramConfigured() || !chatId) {
     return Response.json({ skipped: "telegram_not_configured" });
   }
+
+  // Outbound follow-up chase rides this morning pass (≈12h from the evening nudge
+  // run), independent of the briefing toggle — gated by its own followup_chase switch.
+  const followups = await runFollowupChase(chatId).catch(() => ({ sent: false, nudged: 0, resolved: 0, skipped: "error" as const }));
+
   if (!(await isAutomationEnabled("daily_briefing"))) {
-    return Response.json({ skipped: "disabled" });
+    return Response.json({ skipped: "disabled", followups });
   }
 
   const adminUserId = await getAdminUserId();
   const { text, count } = await computeBriefing(adminUserId);
   await tgSend(chatId, text);
-  return Response.json({ sent: true, count });
+  return Response.json({ sent: true, count, followups });
 }

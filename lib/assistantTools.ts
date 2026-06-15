@@ -24,6 +24,7 @@ import { AUTOMATIONS, getAutomationFlags, setAutomation as persistAutomation } f
 import { workspaceConfigured, workspaceServiceAccount, testWorkspace, WORKSPACE_SCOPES } from "@/lib/googleWorkspace";
 import { gmailSearch, gmailGet, gmailApiReady, listEmailAttachments } from "@/lib/gmailApi";
 import { getUsageSummary } from "@/lib/usage";
+import { stopFollowupsFor } from "@/lib/followups";
 import type { AssistantScope } from "@/lib/assistantScope";
 
 type ProfileRow = {
@@ -662,6 +663,18 @@ export function buildAssistantTools(
         const s = await getUsageSummary(period);
         if (!s.ok) return { error: "usage_not_set_up", hint: "Run supabase/assistant_token_usage.sql once, then usage tracks automatically." };
         return s;
+      },
+    }),
+
+    stopFollowup: tool({
+      description:
+        "Stop the follow-up reminders for a recipient — use when I say 'stop chasing X', 'I handled X', 'X already replied', or 'no need to follow up with X'. Pass their EMAIL (resolve the name from a saved contact or our recent conversation). Marks their open follow-ups done so I'm not reminded again. Applies immediately. Supreme-only.",
+      inputSchema: z.object({ toEmail: z.string().min(3).max(254) }),
+      execute: async ({ toEmail }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!scope.userId) return { error: "no_user" };
+        const stopped = await stopFollowupsFor(scope.userId, toEmail);
+        return { stopped };
       },
     }),
 

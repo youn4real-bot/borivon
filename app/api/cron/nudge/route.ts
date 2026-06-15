@@ -14,6 +14,7 @@ import { computeBriefing } from "@/lib/briefing";
 import { tgSend, getAdminUserId, telegramConfigured } from "@/lib/telegram";
 import { isAutomationEnabled } from "@/lib/automationSettings";
 import { runInboxSlaNudge } from "@/lib/inboxSlaRun";
+import { runFollowupChase } from "@/lib/followupsRun";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -32,20 +33,22 @@ export async function GET(req: NextRequest) {
   // (Hobby caps crons at once/day, so the SLA rides the midday + evening nudge
   // runs). Gated by its own inbox_sla switch; nudges each email once.
   const sla = await runInboxSlaNudge(chatId).catch(() => ({ sent: false, count: 0, skipped: "error" as const }));
+  // Outbound follow-up chase — also rides this pass (its own ~12h gate + toggle).
+  const followups = await runFollowupChase(chatId).catch(() => ({ sent: false, nudged: 0, resolved: 0, skipped: "error" as const }));
 
   // The all-day nudge is the same "what needs you today" list re-pinged — it
   // rides on the briefing switch, so turning the briefing off silences it too.
-  if (!(await isAutomationEnabled("daily_briefing"))) return Response.json({ skipped: "disabled", sla });
+  if (!(await isAutomationEnabled("daily_briefing"))) return Response.json({ skipped: "disabled", sla, followups });
 
   const slot = (req.nextUrl.searchParams.get("slot") || "").toLowerCase();
   const adminUserId = await getAdminUserId();
   const { text, count } = await computeBriefing(adminUserId);
   // Silence = you cleared it. Only re-ping while something's still open.
-  if (count === 0) return Response.json({ sent: false, count: 0, slot, sla });
+  if (count === 0) return Response.json({ sent: false, count: 0, slot, sla, followups });
 
   const prefix = slot === "evening"
     ? "🌙 End of day — still open. Clear these before you log off:\n\n"
     : "⏳ Midday check — still on your plate:\n\n";
   await tgSend(chatId, prefix + text);
-  return Response.json({ sent: true, count, slot, sla });
+  return Response.json({ sent: true, count, slot, sla, followups });
 }

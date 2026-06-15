@@ -24,6 +24,7 @@ import { buildInviteIcs } from "@/lib/calendarInvite";
 import { gmailGet, gmailSendRaw, listEmailAttachments, getEmailAttachmentBytes } from "@/lib/gmailApi";
 import { bookWorkspaceEvent } from "@/lib/workspaceCalendar";
 import { reportError } from "@/lib/reportError";
+import { recordSentForFollowup } from "@/lib/followups";
 import { stripMarkdown } from "@/lib/emailFormat";
 import { resolveFileKey } from "@/lib/fileKeys";
 import { r2GetObject } from "@/lib/r2";
@@ -516,6 +517,8 @@ async function writeExternalEmail(
 
   const res = await sendOutboundEmail({ to: opts.to, toName: opts.toName, cc: opts.cc, subject: opts.subject, body: opts.body, attachments });
   if (!res.ok) return { ok: false, error: res.error };
+  // Track for the follow-up chase — if they don't reply, the bot will remind me.
+  void recordSentForFollowup(scope.userId, opts.to, opts.subject);
   // Log it so the bot can recall / resend it later ("resend yesterday's email").
   // Best-effort: if the table isn't migrated yet, the send still succeeds.
   try {
@@ -614,6 +617,8 @@ async function writeReplyEmail(scope: AssistantScope, opts: { messageId: string;
     attachments: attachments.length ? attachments : undefined,
   });
   if (!res.ok) return { ok: false, error: res.error || "reply_failed" };
+  // Track for the follow-up chase — if they don't reply, the bot will remind me.
+  void recordSentForFollowup(scope.userId, orig.from, subject);
   try {
     await getServiceSupabase().from("assistant_sent_emails").insert({
       owner_user_id: scope.userId, to_email: orig.from, cc: cc || null, subject, body: cleanBody, channel: "gmail-api",
