@@ -24,3 +24,27 @@ export function stripMarkdown(s: string): string {
 
 /** Alias kept for the email call sites — emails must be plain text too. */
 export const stripEmailFormatting = stripMarkdown;
+
+/**
+ * When the bot is DELIVERING files into the chat, the files ARE the answer — the
+ * founder wants them WITHOUT chatter. The model habitually wraps file delivery in
+ * noise: "Here are the attachments:", "the link(s) expire in 3 minutes" (we send
+ * the actual files, not links), and a redundant filename list (the delivered docs
+ * already show their names). Strip those at the boundary so a "pull them up"
+ * request yields just the files. Substantive text (a summary the founder asked
+ * for) doesn't match these patterns and survives. If nothing's left, the caller
+ * sends no text bubble at all.
+ */
+export function stripFileDeliveryNoise(s: string): string {
+  return (s || "")
+    // "the link/links expire(s) in 3 minutes" — always wrong, we deliver files.
+    .replace(/^.*\blinks?\b[^.\n]*\bexpires?\b.*$/gim, "")
+    // Lead-ins: "Here are the attachments:", "Here's the file Abdelhak sent:", etc.
+    .replace(/^\s*here(?:'s| is| are)\b[^.\n]*\b(?:attachment|file|document|pdf|photo|image)s?\b[^.\n]*:?\s*$/gim, "")
+    .replace(/^\s*(?:the|those|these)\s+(?:attachment|file|document|photo|image)s?\b[^.\n]*:?\s*$/gim, "")
+    // Redundant filename bullets (the delivered documents already show the names).
+    .replace(/^\s*[-•*]\s*\S.*\.(?:pdf|jpe?g|png|docx?|xlsx?|pptx?|zip|txt|csv)\b.*$/gim, "")
+    .replace(/[ \t]+$/gm, "")
+    .replace(/\n{2,}/g, "\n")
+    .trim();
+}

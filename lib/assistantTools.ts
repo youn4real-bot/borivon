@@ -336,7 +336,7 @@ export function buildAssistantTools(
 
     getDocumentDownloadLink: tool({
       description:
-        "Get a temporary (3-minute) download link for one document by its docId. Always tell the user the link expires in 3 minutes. Returns { error: 'out_of_scope' } if you are not allowed to access that candidate's document.",
+        "Deliver one document (by its docId) to the chat as the ACTUAL file — the system sends it right below your message. Do NOT mention a 'link' or that anything 'expires' (there is no link to share — the file itself arrives). Returns { error: 'out_of_scope' } if you are not allowed to access that candidate's document.",
       inputSchema: z.object({ docId: z.string().uuid() }),
       execute: async ({ docId }) => {
         const { data: doc, error } = await db
@@ -578,22 +578,42 @@ export function buildAssistantTools(
     }),
     getEmailAttachments: tool({
       description:
-        "Pull the FILE ATTACHMENTS off an email and deliver them in the chat (the documents themselves, not links). messageId = the email's id (from searchInbox/readEmail). Use for 'pull the attached files', 'send me what they attached', 'download the Defizitbescheid he sent'. Returns the files (they're delivered as documents right after). If the email has no attachments it says so. Read-only. Supreme-admin only.",
-      inputSchema: z.object({ messageId: z.string().min(5) }),
-      execute: async ({ messageId }) => {
+        "Pull the FILE ATTACHMENTS off email(s) and deliver them in the chat as the ACTUAL documents (the files themselves — never links/text). Give EITHER: messageId (ONE email's id from searchInbox), OR query (a Gmail search to pull attachments from ALL matching emails — e.g. 'from:abdelhak' for everything Abdelhak attached across every email). For 'pull ALL the attachments X sent me' / 'all his emails', ALWAYS use query, not a single messageId — it gathers every attachment across all matching emails. The files are delivered right below; do NOT mention 'link' or 'expires' (there is none). Read-only. Supreme-admin only.",
+      inputSchema: z.object({
+        messageId: z.string().optional().describe("one email's id (from searchInbox)"),
+        query: z.string().optional().describe("Gmail search to pull attachments from ALL matching emails, e.g. 'from:abdelhak newer_than:1y'"),
+      }),
+      execute: async ({ messageId, query }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
         if (!gmailApiReady()) return { error: "workspace_not_connected" };
-        const atts = await listEmailAttachments(messageId);
-        if (atts === null) return { error: "read_failed" };
-        if (atts.length === 0) return { results: [], note: "no_attachments" };
-        // Mint a short-lived (3-min) token and hand back URLs the webhook fetches
-        // + delivers as documents (same path as getDocumentDownloadLink/getCvLinks).
+        // Resolve which emails to pull from: one id, or every email matching a search.
+        let ids: string[] = [];
+        if (messageId && messageId.trim()) {
+          ids = [messageId.trim()];
+        } else if (query && query.trim()) {
+          const found = await gmailSearch(query.trim(), 25);
+          if (found === null) return { error: "read_failed" };
+          ids = found.map((m) => m.id).filter(Boolean);
+          if (ids.length === 0) return { results: [], note: "no_emails_found" };
+        } else {
+          return { error: "need_messageId_or_query" };
+        }
         const token = signDlToken(scope.userId, 180);
-        const results = atts.slice(0, 20).map((a) => ({
-          url: `/api/portal/admin/email-attachment?mid=${encodeURIComponent(messageId)}&aid=${encodeURIComponent(a.attachmentId)}&dlt=${encodeURIComponent(token)}&name=${encodeURIComponent(a.filename)}`,
-          fileName: a.filename,
-          mimeType: a.mimeType,
-        }));
+        const results: { url: string; fileName: string; mimeType: string }[] = [];
+        for (const mid of ids) {
+          const atts = await listEmailAttachments(mid);
+          if (!atts) continue;
+          for (const a of atts) {
+            results.push({
+              url: `/api/portal/admin/email-attachment?mid=${encodeURIComponent(mid)}&aid=${encodeURIComponent(a.attachmentId)}&dlt=${encodeURIComponent(token)}&name=${encodeURIComponent(a.filename)}`,
+              fileName: a.filename,
+              mimeType: a.mimeType,
+            });
+            if (results.length >= 25) break;
+          }
+          if (results.length >= 25) break;
+        }
+        if (results.length === 0) return { results: [], note: "no_attachments" };
         return { results, count: results.length };
       },
     }),
