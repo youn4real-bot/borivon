@@ -21,7 +21,7 @@ import { applyDocReview, applyCandidateProfilePatch } from "@/lib/adminCandidate
 import { backfillPassportFromCvDraft } from "@/lib/cvDraftBackfill";
 import { sendOutboundEmail, OUTBOUND_FROM_NAME, OUTBOUND_FROM_EMAIL, OUTBOUND_SIGNATURE_HTML, OUTBOUND_SIGNATURE_TEXT, type OutboundAttachment } from "@/lib/outboundEmail";
 import { buildInviteIcs } from "@/lib/calendarInvite";
-import { gmailGet, gmailSendRaw, listEmailAttachments, getEmailAttachmentBytes, buildForwardQuote } from "@/lib/gmailApi";
+import { gmailGet, gmailSendRaw, gmailCreateDraft, listEmailAttachments, getEmailAttachmentBytes, buildForwardQuote } from "@/lib/gmailApi";
 import { bookWorkspaceEvent } from "@/lib/workspaceCalendar";
 import { reportError } from "@/lib/reportError";
 import { recordSentForFollowup } from "@/lib/followups";
@@ -503,7 +503,7 @@ async function resolveOutboundAttachments(
 
 async function writeExternalEmail(
   scope: AssistantScope,
-  opts: { to: string; toName?: string; cc?: string[]; subject: string; body: string; candidateIds: string[]; docIds: string[]; attachFromEmailIds?: string[] },
+  opts: { to: string; toName?: string; cc?: string[]; bcc?: string[]; subject: string; body: string; candidateIds: string[]; docIds: string[]; attachFromEmailIds?: string[] },
 ): Promise<WriteResult> {
   const { attachments, missing } = await resolveOutboundAttachments(scope, {
     candidateIds: opts.candidateIds,
@@ -515,7 +515,7 @@ async function writeExternalEmail(
   if (missing.length) return { ok: false, error: `attachment_missing:${missing.slice(0, 8).join(",")}` };
   const db = getServiceSupabase();
 
-  const res = await sendOutboundEmail({ to: opts.to, toName: opts.toName, cc: opts.cc, subject: opts.subject, body: opts.body, attachments });
+  const res = await sendOutboundEmail({ to: opts.to, toName: opts.toName, cc: opts.cc, bcc: opts.bcc, subject: opts.subject, body: opts.body, attachments });
   if (!res.ok) return { ok: false, error: res.error };
   // Track for the follow-up chase — if they don't reply, the bot will remind me.
   void recordSentForFollowup(scope.userId, opts.to, opts.subject);
@@ -625,6 +625,26 @@ async function writeReplyEmail(scope: AssistantScope, opts: { messageId: string;
     });
   } catch { /* sent-email log not migrated → skip */ }
   return { ok: true };
+}
+
+/** Save a Gmail DRAFT (composed, with signature + attachments) WITHOUT sending —
+ *  it lands in the founder's Drafts to finish + send from Gmail. Not a send, so it
+ *  applies immediately (no confirm). */
+async function writeSaveDraft(scope: AssistantScope, opts: { to: string; cc?: string[]; subject: string; body: string; candidateIds?: string[]; docIds?: string[]; attachFromEmailIds?: string[] }): Promise<WriteResult> {
+  const { attachments, missing } = await resolveOutboundAttachments(scope, { candidateIds: opts.candidateIds, docIds: opts.docIds, attachFromEmailIds: opts.attachFromEmailIds });
+  if (missing.length) return { ok: false, error: `attachment_missing:${missing.slice(0, 8).join(",")}` };
+  const cleanBody = stripMarkdown(opts.body).trimEnd();
+  const text = `${cleanBody}\n\n${OUTBOUND_SIGNATURE_TEXT}`;
+  const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const html = `<div style="font-family:-apple-system,'Segoe UI',sans-serif;font-size:14px;color:#1a1a1a;line-height:1.6;">${escHtml(cleanBody).replace(/\n/g, "<br/>")}</div><br/>${OUTBOUND_SIGNATURE_HTML}`;
+  const cc = (opts.cc ?? []).map((c) => c.trim()).filter(Boolean).join(", ");
+  const r = await gmailCreateDraft({
+    to: opts.to, cc: cc || undefined, subject: opts.subject, html, text,
+    fromName: OUTBOUND_FROM_NAME, fromEmail: OUTBOUND_FROM_EMAIL,
+    attachments: attachments.length ? attachments : undefined,
+  });
+  if (!r.ok) return { ok: false, error: r.error === "workspace_not_connected" ? "workspace_not_connected" : "draft_failed" };
+  return { ok: true, info: "📝 Saved to your Gmail Drafts — open Gmail to review & send." };
 }
 
 /** FORWARD a received email to someone else (its body + attachments) with an
@@ -1524,6 +1544,7 @@ async function applyPendingRow(
       to: String(a.to ?? ""),
       toName: a.toName == null ? undefined : String(a.toName),
       cc: splitIds(a.cc),
+      bcc: splitIds(a.bcc),
       subject: String(a.subject ?? ""),
       body: String(a.body ?? ""),
       candidateIds: splitIds(a.attachCandidateIds),
@@ -1538,6 +1559,12 @@ async function applyPendingRow(
     });
   } else if (row.tool_name === "forwardEmail") {
     result = await writeForwardEmail(scope, { messageId: String(a.messageId ?? ""), to: String(a.to ?? ""), note: a.note == null ? undefined : String(a.note) });
+  } else if (row.tool_name === "saveDraft") {
+    const splitD = (v: unknown) => String(v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    result = await writeSaveDraft(scope, {
+      to: String(a.to ?? ""), cc: splitD(a.cc), subject: String(a.subject ?? ""), body: String(a.body ?? ""),
+      candidateIds: splitD(a.attachCandidateIds), docIds: splitD(a.attachDocIds), attachFromEmailIds: splitD(a.attachFromEmailIds),
+    });
   } else if (row.tool_name === "sendCalendarInvite") {
     const emails = String(a.attendees ?? "").split(",").map((s) => s.trim()).filter(Boolean);
     result = await writeCalendarInvite({

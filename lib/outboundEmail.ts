@@ -112,6 +112,7 @@ export async function sendOutboundEmail(opts: {
   to: string;
   toName?: string;
   cc?: string[]; // optional CC recipients
+  bcc?: string[]; // optional BCC recipients (hidden from other recipients)
   subject: string;
   body: string; // plain text (newlines preserved)
   attachments?: OutboundAttachment[];
@@ -130,6 +131,7 @@ export async function sendOutboundEmail(opts: {
   const html = `${textToHtml(cleanBody)}<br/>${sigHtml}`;
   const atts = opts.attachments ?? [];
   const cc = (opts.cc ?? []).map((c) => c.trim()).filter(Boolean);
+  const bcc = (opts.bcc ?? []).map((c) => c.trim()).filter(Boolean);
 
   // 1) Gmail (App Password) — true Sent-folder send as the founder.
   if (gmailConfigured()) {
@@ -146,6 +148,7 @@ export async function sendOutboundEmail(opts: {
         from: `"${OUTBOUND_FROM_NAME}" <${process.env.GMAIL_USER}>`,
         to: opts.toName ? `"${opts.toName}" <${opts.to}>` : opts.to,
         ...(cc.length ? { cc } : {}),
+        ...(bcc.length ? { bcc } : {}),
         subject,
         text,
         html,
@@ -178,6 +181,7 @@ export async function sendOutboundEmail(opts: {
       from: `${OUTBOUND_FROM_NAME} <${OUTBOUND_FROM_EMAIL}>`,
       to: opts.to,
       ...(cc.length ? { cc } : {}),
+      ...(bcc.length ? { bcc } : {}),
       replyTo: OUTBOUND_FROM_EMAIL,
       subject,
       text,

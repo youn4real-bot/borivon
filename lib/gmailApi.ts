@@ -216,6 +216,22 @@ export async function gmailSendRaw(opts: RawMessageOpts & { threadId?: string })
   }
 }
 
+/** Create a Gmail DRAFT (saved in the founder's Drafts, NOT sent) — they finish
+ *  + send it from Gmail. Same RawMessageOpts as a send; pass threadId for a
+ *  reply-draft. */
+export async function gmailCreateDraft(opts: RawMessageOpts & { threadId?: string }): Promise<{ ok: boolean; id?: string; error?: string }> {
+  const gmail = gmailClient();
+  if (!gmail) return { ok: false, error: "workspace_not_connected" };
+  try {
+    const raw = await buildRawMessage(opts);
+    const res = await gmail.users.drafts.create({ userId: "me", requestBody: { message: { raw, ...(opts.threadId ? { threadId: opts.threadId } : {}) } } });
+    return { ok: true, id: res.data.id ?? undefined };
+  } catch (e) {
+    console.error("[gmailApi] draft create failed:", e instanceof Error ? e.message : e);
+    return { ok: false, error: e instanceof Error ? e.message : "draft_failed" };
+  }
+}
+
 /** The quoted "---------- Forwarded message ----------" block (pure → testable). */
 export function buildForwardQuote(orig: { fromName: string; from: string; date: string; subject: string; to: string; body: string }): string {
   return [

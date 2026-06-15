@@ -675,6 +675,52 @@ export function buildAssistantTools(
       },
     }),
 
+    saveDraft: tool({
+      description:
+        "Save an email as a Gmail DRAFT (composed but NOT sent) — it lands in MY Gmail Drafts to review/finish/send myself. Use when I say 'draft an email to X', 'write up a draft', 'prepare it but don't send yet'. Same options as sendExternalEmail: to, cc, subject, body, and attachCandidateNames / attachDocIds / attachFromEmailIds for attachments. Applies immediately (a draft is never sent, so no confirm). Supreme-only.",
+      inputSchema: z.object({
+        to: z.string().min(3).max(254),
+        cc: z.string().max(1000).optional(),
+        subject: z.string().min(1).max(200),
+        body: z.string().min(1).max(8000),
+        attachCandidateNames: z.string().optional(),
+        attachDocIds: z.string().optional(),
+        attachFromEmailIds: z.string().optional(),
+      }),
+      execute: async ({ to, cc, subject, body, attachCandidateNames, attachDocIds, attachFromEmailIds }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!gmailApiReady()) return { error: "workspace_not_connected" };
+        const dest = to.trim();
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(dest)) return { error: "bad_email" };
+        const candRefs = (attachCandidateNames ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+        const candIds: string[] = [];
+        const unresolved: string[] = [];
+        if (candRefs.length) {
+          const roster = await candidateRoster();
+          for (const ref of candRefs) {
+            const m = pickCandidate(roster, ref);
+            if (m.status === "ok") { if (!candIds.includes(m.candidate.userId)) candIds.push(m.candidate.userId); }
+            else unresolved.push(ref);
+          }
+          if (unresolved.length) return { error: `couldnt_find_candidate: ${unresolved.join(", ")}` };
+        }
+        for (const cid of candIds) {
+          if (!(await canActOnCandidate(scope.role, scope.email, cid))) return { error: "out_of_scope" };
+        }
+        const ccList = (cc ?? "").split(/[,;]/).map((s) => s.trim()).filter(Boolean);
+        const docIds = (attachDocIds ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+        const emailFwdIds = (attachFromEmailIds ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+        const cleanBody = stripEmailFormatting(body);
+        const cleanSubject = stripEmailFormatting(subject);
+        const args: Record<string, unknown> = { to: dest, subject: cleanSubject, body: cleanBody };
+        if (ccList.length) args.cc = ccList.join(",");
+        if (candIds.length) args.attachCandidateIds = candIds.join(",");
+        if (docIds.length) args.attachDocIds = docIds.join(",");
+        if (emailFwdIds.length) args.attachFromEmailIds = emailFwdIds.join(",");
+        return stagePending(scope, { toolName: "saveDraft", args, candidateUserId: null, summary: `📝 Draft → ${dest} · ${cleanSubject}` });
+      },
+    }),
+
     readThread: tool({
       description:
         "Read the WHOLE email conversation (every message back-and-forth) for a thread, given any messageId in it (from searchInbox). Use for 'show me the full conversation with Anna', 'what's the whole thread say', or to get full context before replying. Read-only. Supreme-only.",
@@ -2585,6 +2631,7 @@ export function buildAssistantTools(
         to: z.string().min(3).max(254).describe("the ONE primary recipient's email address"),
         toName: z.string().max(120).optional().describe("the recipient's name, if known"),
         cc: z.string().max(1000).optional().describe("comma-separated additional recipients to CC (copy), e.g. 'omar@x.com, sara@x.com'"),
+        bcc: z.string().max(1000).optional().describe("comma-separated BCC recipients (blind copy — hidden from the other recipients)"),
         subject: z.string().min(1).max(200),
         body: z.string().min(1).max(8000).describe("the email body — write it professionally"),
         attachCandidateNames: z.string().optional().describe("comma-separated candidate FULL NAMES whose latest CV to attach — e.g. 'Ismail Louali, Samira Irsani'. This is the reliable way; names always resolve."),
@@ -2592,7 +2639,7 @@ export function buildAssistantTools(
         attachDocIds: z.string().optional().describe("comma-separated document ids to attach"),
         attachFromEmailIds: z.string().optional().describe("comma-separated Gmail message ids (from searchInbox/readEmail) whose FILE ATTACHMENTS to forward on this email — use to send along files someone emailed you"),
       }),
-      execute: async ({ to, toName, cc, subject, body, attachCandidateNames, attachCandidateIds, attachDocIds, attachFromEmailIds }) => {
+      execute: async ({ to, toName, cc, bcc, subject, body, attachCandidateNames, attachCandidateIds, attachDocIds, attachFromEmailIds }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
         const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         // Tolerant: if several addresses get lumped into `to`, the FIRST is the
@@ -2606,6 +2653,10 @@ export function buildAssistantTools(
           .filter((c) => c.toLowerCase() !== email.toLowerCase()); // never CC the primary
         const badCc = ccList.find((c) => !emailRe.test(c));
         if (badCc) return { error: `bad_cc:${badCc}` };
+        const bccList = (bcc ?? "").split(/[,;]/).map((s) => s.trim()).filter(Boolean)
+          .filter((c) => c.toLowerCase() !== email.toLowerCase());
+        const badBcc = bccList.find((c) => !emailRe.test(c));
+        if (badBcc) return { error: `bad_bcc:${badBcc}` };
         // Resolve attachment candidates BY NAME (or id) through the SAME roster
         // resolver getCvLinks uses — the model reliably knows names but routinely
         // mangles ids (it was passing garbage ids → every CV "went missing"). So
@@ -2644,6 +2695,7 @@ export function buildAssistantTools(
         const args: Record<string, unknown> = { to: email, subject: cleanSubject, body: cleanBody };
         if (toName !== undefined) args.toName = toName;
         if (ccList.length) args.cc = ccList.join(",");
+        if (bccList.length) args.bcc = bccList.join(",");
         if (candIds.length) args.attachCandidateIds = candIds.join(","); // RESOLVED real ids, not the raw input
         if (attachDocIds !== undefined) args.attachDocIds = attachDocIds;
         if (emailFwdIds.length) args.attachFromEmailIds = emailFwdIds.join(",");
@@ -2651,7 +2703,7 @@ export function buildAssistantTools(
           toolName: "sendExternalEmail",
           args,
           candidateUserId: null,
-          summary: `📧 To: ${toName ? `${toName} <${email}>` : email}${ccList.length ? `\nCC: ${ccList.join(", ")}` : ""}\nSubject: ${cleanSubject}\nAttachments: ${attachDesc}\n\n${cleanBody.slice(0, 600)}${cleanBody.length > 600 ? "…" : ""}`,
+          summary: `📧 To: ${toName ? `${toName} <${email}>` : email}${ccList.length ? `\nCC: ${ccList.join(", ")}` : ""}${bccList.length ? `\nBCC: ${bccList.join(", ")}` : ""}\nSubject: ${cleanSubject}\nAttachments: ${attachDesc}\n\n${cleanBody.slice(0, 600)}${cleanBody.length > 600 ? "…" : ""}`,
         });
       },
     }),
