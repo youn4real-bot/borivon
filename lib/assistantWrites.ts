@@ -19,7 +19,8 @@ import { sendCandidateMessageEmail, sendVerifiedEmail } from "@/lib/email";
 import { FILE_KEY_LABELS } from "@/lib/fileKeys";
 import { applyDocReview, applyCandidateProfilePatch } from "@/lib/adminCandidateActions";
 import { backfillPassportFromCvDraft } from "@/lib/cvDraftBackfill";
-import { sendOutboundEmail, type OutboundAttachment } from "@/lib/outboundEmail";
+import { sendOutboundEmail, OUTBOUND_FROM_NAME, OUTBOUND_FROM_EMAIL, type OutboundAttachment } from "@/lib/outboundEmail";
+import { buildInviteIcs } from "@/lib/calendarInvite";
 import { resolveFileKey } from "@/lib/fileKeys";
 import { r2GetObject } from "@/lib/r2";
 import { validateImageDataUrl } from "@/lib/validateDataUrl";
@@ -508,6 +509,54 @@ async function writeExternalEmail(
     });
   } catch { /* assistant_sent_emails not migrated yet → skip the log */ }
   return { ok: true };
+}
+
+/** Send a real CALENDAR INVITATION — an .ics (METHOD:REQUEST) emailed to the
+ *  attendees so they get Yes/Maybe/No and it lands in their calendar. Organizer
+ *  is the founder; rides the existing Gmail App Password (no Google OAuth). */
+async function writeCalendarInvite(opts: {
+  attendees: string[]; title: string; startsAt: string; endsAt?: string;
+  durationMinutes?: number; location?: string; description?: string; method?: "REQUEST" | "CANCEL";
+}): Promise<WriteResult> {
+  const emails = opts.attendees.map((e) => e.trim()).filter(Boolean);
+  const bad = emails.find((e) => !EMAIL_RE.test(e));
+  if (bad) return { ok: false, error: `bad_attendee:${bad}` };
+  if (emails.length === 0) return { ok: false, error: "no_attendees" };
+  if (!opts.title.trim()) return { ok: false, error: "no_title" };
+
+  const start = new Date(opts.startsAt);
+  if (Number.isNaN(start.getTime())) return { ok: false, error: "bad_start_time" };
+  let end = opts.endsAt ? new Date(opts.endsAt) : null;
+  if (end && Number.isNaN(end.getTime())) end = null;
+  if (!end) end = new Date(start.getTime() + (opts.durationMinutes && opts.durationMinutes > 0 ? opts.durationMinutes : 60) * 60_000);
+
+  const { ics, method } = buildInviteIcs({
+    organizerName: OUTBOUND_FROM_NAME,
+    organizerEmail: OUTBOUND_FROM_EMAIL,
+    attendees: emails.map((email) => ({ email })),
+    title: opts.title.trim(),
+    start, end,
+    location: opts.location?.trim() || undefined,
+    description: opts.description?.trim() || undefined,
+    method: opts.method,
+  });
+
+  const when = start.toLocaleString("en-GB", { dateStyle: "full", timeStyle: "short", timeZone: "UTC" }) + " UTC";
+  const body = [
+    method === "CANCEL" ? `This meeting has been cancelled: ${opts.title}` : `You're invited: ${opts.title}`,
+    `When: ${when}`,
+    opts.location ? `Where: ${opts.location}` : "",
+    opts.description ? `\n${opts.description}` : "",
+    method === "CANCEL" ? "" : "\nPlease accept or decline using your calendar.",
+  ].filter(Boolean).join("\n");
+
+  const res = await sendOutboundEmail({
+    to: emails.join(", "),
+    subject: (method === "CANCEL" ? "Cancelled: " : "Invitation: ") + opts.title.trim(),
+    body,
+    icalEvent: { method, content: ics },
+  });
+  return res.ok ? { ok: true } : { ok: false, error: res.error };
 }
 
 /** Assign (or clear) a candidate's employer — mirrors POST /api/portal/admin/assign-employer
@@ -1364,6 +1413,18 @@ async function applyPendingRow(
       candidateIds: splitIds(a.attachCandidateIds),
       docIds: splitIds(a.attachDocIds),
     });
+  } else if (row.tool_name === "sendCalendarInvite") {
+    const emails = String(a.attendees ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    result = await writeCalendarInvite({
+      attendees: emails,
+      title: String(a.title ?? ""),
+      startsAt: String(a.startsAt ?? ""),
+      endsAt: a.endsAt == null ? undefined : String(a.endsAt),
+      durationMinutes: typeof a.durationMinutes === "number" ? a.durationMinutes : undefined,
+      location: a.location == null ? undefined : String(a.location),
+      description: a.description == null ? undefined : String(a.description),
+      method: a.method === "cancel" ? "CANCEL" : "REQUEST",
+    });
   } else if (row.tool_name === "generateAndPublishCv") {
     // Lazy import: @react-pdf/renderer is heavy — only load it when a CV is
     // actually being published, not on every assistant turn.
@@ -1505,6 +1566,7 @@ export async function cancelLatestPending(
 export const DESTRUCTIVE_TOOLS = new Set<string>(["deleteCandidateAccount", "deleteOrganization"]);
 export const SEND_TOOLS = new Set<string>([
   "sendExternalEmail", "sendCandidateMessage", "sendFollowUpNudge", "nudgeStuckCandidates", "sendSlotRequest",
+  "sendCalendarInvite",
 ]);
 const CONFIRM_TOOLS = new Set<string>([...DESTRUCTIVE_TOOLS, ...SEND_TOOLS]);
 

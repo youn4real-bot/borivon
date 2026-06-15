@@ -115,6 +115,7 @@ export async function sendOutboundEmail(opts: {
   subject: string;
   body: string; // plain text (newlines preserved)
   attachments?: OutboundAttachment[];
+  icalEvent?: { method: "REQUEST" | "CANCEL"; content: string }; // a calendar invitation (.ics)
 }): Promise<OutboundResult> {
   const subject = stripEmailFormatting(opts.subject).replace(/[\r\n]+/g, " ").trim().slice(0, 200);
   // Plain-text body, with any model-written sign-off trimmed so the signature
@@ -149,6 +150,9 @@ export async function sendOutboundEmail(opts: {
         text,
         html,
         attachments: atts.map((a) => ({ filename: a.filename, content: a.content })),
+        // A real calendar invitation: nodemailer emits the proper text/calendar
+        // alternative so recipients get Yes/Maybe/No + it lands in their calendar.
+        ...(opts.icalEvent ? { icalEvent: { method: opts.icalEvent.method, filename: "invite.ics", content: opts.icalEvent.content } } : {}),
       });
       return { ok: true, channel: "gmail" };
     } catch (e) {
@@ -162,6 +166,14 @@ export async function sendOutboundEmail(opts: {
   if (!key) return { ok: false, error: gmailConfigured() ? "gmail_send_failed" : "no_email_channel" };
   try {
     const resend = new Resend(key);
+    // Carry the invite as a text/calendar attachment on the Resend fallback (the
+    // .ics already has METHOD inside, so clients still treat it as an invitation).
+    const resendAtts = atts.map((a) => ({ filename: a.filename, content: a.content.toString("base64") }));
+    if (opts.icalEvent) {
+      // The .ics carries METHOD:REQUEST/CANCEL inside, so a plain attachment still
+      // opens as an invitation; filename .ics → text/calendar in the client.
+      resendAtts.push({ filename: "invite.ics", content: Buffer.from(opts.icalEvent.content, "utf8").toString("base64") });
+    }
     const { error } = await resend.emails.send({
       from: `${OUTBOUND_FROM_NAME} <${OUTBOUND_FROM_EMAIL}>`,
       to: opts.to,
@@ -170,7 +182,7 @@ export async function sendOutboundEmail(opts: {
       subject,
       text,
       html,
-      attachments: atts.map((a) => ({ filename: a.filename, content: a.content.toString("base64") })),
+      attachments: resendAtts,
     });
     if (error) {
       console.error("[outboundEmail] resend error:", error);

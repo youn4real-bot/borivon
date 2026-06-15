@@ -649,6 +649,19 @@ describe("assistant tools allow the supreme admin", () => {
     expect(md.summary).toContain("Hallo Anna");
   });
 
+  it("sendCalendarInvite stages an invite (confirm-first) + rejects bad attendee / time; sub-admin blocked", async () => {
+    const ok = (await run(buildAssistantTools(SUPREME), "sendCalendarInvite", { attendees: "anna@klinik.de, omar@calmaroi.de", title: "Interview Ismail", startsAt: "2026-07-10T10:00:00Z", durationMinutes: 45, location: "https://meet.example/x" })) as { staged?: boolean; summary?: string };
+    expect(ok.staged).toBe(true);
+    expect(ok.summary).toContain("Interview Ismail");
+    expect(ok.summary).toContain("anna@klinik.de");
+    // bad attendee email → clear error, nothing staged.
+    expect(await run(buildAssistantTools(SUPREME), "sendCalendarInvite", { attendees: "not-an-email", title: "x", startsAt: "2026-07-10T10:00:00Z" })).toEqual({ error: "bad_attendee:not-an-email" });
+    // bad start time → error.
+    expect(await run(buildAssistantTools(SUPREME), "sendCalendarInvite", { attendees: "a@b.com", title: "x", startsAt: "not-a-date" })).toEqual({ error: "bad_start_time" });
+    // a sub-admin can't send invites (supreme-only).
+    expect(await run(buildAssistantTools(ORG_ADMIN), "sendCalendarInvite", { attendees: "a@b.com", title: "x", startsAt: "2026-07-10T10:00:00Z" })).toEqual({ error: "admin_only" });
+  });
+
   it("setAgencyProfile stages only changed fields, and rejects an empty patch", async () => {
     const ok = (await run(buildAssistantTools(SUPREME), "setAgencyProfile", { firma: "Borivon GmbH", betriebsnummer: "12345678" })) as { staged?: boolean; summary?: string };
     expect(ok.staged).toBe(true);

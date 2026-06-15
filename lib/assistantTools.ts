@@ -1738,6 +1738,36 @@ export function buildAssistantTools(
       },
     }),
 
+    sendCalendarInvite: tool({
+      description:
+        "Send a REAL CALENDAR INVITATION to people — an email carrying an .ics so each attendee gets Yes/Maybe/No (RSVP) and it lands in their calendar (Gmail, Outlook, Apple). Use for 'invite Anna to a meeting', 'send a calendar invite for the interview Thursday 3pm', 'set up a call with X'. attendees = comma-separated EMAIL addresses. startsAt = ISO datetime (e.g. 2026-07-10T10:00:00Z); give endsAt (ISO) OR durationMinutes (defaults to 60). Optional location (a place OR a video-call link) and description. You (the founder) are the organizer. It goes out AFTER you confirm (it's a send). Supreme-admin only. (For a public community event with no attendees, use createCalendarEvent instead.)",
+      inputSchema: z.object({
+        attendees: z.string().min(3).describe("comma-separated email addresses of the people to invite"),
+        title: z.string().min(1).max(200),
+        startsAt: z.string().min(10).describe("ISO datetime, e.g. 2026-07-10T10:00:00Z"),
+        endsAt: z.string().optional().describe("ISO datetime; omit to use durationMinutes (or 60 min)"),
+        durationMinutes: z.number().int().min(5).max(1440).optional(),
+        location: z.string().max(300).optional().describe("a place or a video-call link"),
+        description: z.string().max(2000).optional(),
+        method: z.enum(["request", "cancel"]).default("request").describe("'cancel' to call off a meeting you invited earlier"),
+      }),
+      execute: async (args) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const emails = args.attendees.split(",").map((s) => s.trim()).filter(Boolean);
+        const bad = emails.find((e) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
+        if (bad) return { error: `bad_attendee:${bad}` };
+        if (!emails.length) return { error: "no_attendees" };
+        if (Number.isNaN(new Date(args.startsAt).getTime())) return { error: "bad_start_time" };
+        const verb = args.method === "cancel" ? "Cancel meeting" : "Calendar invite";
+        return stagePending(scope, {
+          toolName: "sendCalendarInvite",
+          args,
+          candidateUserId: null,
+          summary: `${verb}: "${args.title.slice(0, 80)}" → ${emails.join(", ")} (${args.startsAt})`,
+        });
+      },
+    }),
+
     toggleStageLock: tool({
       description:
         "STAGE locking or UNLOCKING a candidate's pipeline STAGE (LAW #31 — supreme admin only; you operating it via the bot IS that power). stage one of 'bearbeitung' (the recognition/Bearbeitung stage), 'visum' (the embassy/Visum stage), 'integration', or 'start'. unlocked=true opens the stage for the candidate, false locks it. Applies immediately when you call it — do NOT ask the admin to confirm. e.g. 'unlock the Visum stage for Hajar' → toggleStageLock(candidateUserId, 'visum', true); 'lock Bearbeitung for Ali' → toggleStageLock(candidateUserId, 'bearbeitung', false).",
