@@ -9,7 +9,8 @@
     { "path": "/api/cron/nudge?slot=evening", "schedule": "0 17 * * *" },
     { "path": "/api/cron/weekly-report", "schedule": "0 7 * * 1" },
     { "path": "/api/cron/auto-chase", "schedule": "0 8 * * *" },
-    { "path": "/api/cron/inbox-reminder", "schedule": "30 8 * * *" }
+    { "path": "/api/cron/inbox-reminder", "schedule": "30 8 * * *" },
+    { "path": "/api/cron/inbox-sla", "schedule": "0 8-20/3 * * *" }
   ],
   "headers": [
     {

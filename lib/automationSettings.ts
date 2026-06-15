@@ -12,7 +12,7 @@
  */
 import { getServiceSupabase } from "@/lib/supabase";
 
-export type AutomationKey = "daily_briefing" | "weekly_report" | "signup_ping" | "auto_chase" | "inbox_reminder";
+export type AutomationKey = "daily_briefing" | "weekly_report" | "signup_ping" | "auto_chase" | "inbox_reminder" | "inbox_sla";
 
 export const AUTOMATIONS: Record<AutomationKey, { label: string; default: boolean; desc: string }> = {
   daily_briefing: { label: "Daily morning briefing — \"what needs you today\"", default: true, desc: "Every morning, ONE message with everything that needs you: documents to review, passports expiring, B2 exams coming up, your due reminders, candidates who may need a nudge, and unanswered emails. The complete daily triage." },
@@ -20,6 +20,7 @@ export const AUTOMATIONS: Record<AutomationKey, { label: string; default: boolea
   signup_ping:    { label: "New-signup ping", default: true, desc: "An instant Telegram ping the moment a new candidate signs up." },
   auto_chase:     { label: "Auto-chase stuck candidates", default: true, desc: "Candidates who went quiet or didn't re-submit a rejected document. NOW FOLDED INTO the morning briefing — this only sends as a separate ping if you turn the briefing off." },
   inbox_reminder: { label: "Unanswered-email reminder", default: true, desc: "Unread emails from real people in your inbox still needing a reply (no-reply/automated senders skipped). NOW FOLDED INTO the morning briefing — only sends separately if you turn the briefing off." },
+  inbox_sla:      { label: "6-hour reply SLA", default: true, desc: "Through the day, pings you about any email left unanswered for 6h+ — so a same-day email gets surfaced while there's still time to reply. Each email is nudged once. (Needs the inbox_sla_nudges migration run.)" },
 };
 
 export function isAutomationKey(k: string): k is AutomationKey {
