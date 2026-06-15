@@ -339,17 +339,34 @@ export function buildAssistantTools(
       execute: async ({ docId }) => {
         const { data: doc, error } = await db
           .from("documents")
-          .select("id, user_id, file_name, drive_file_id")
+          .select("id, user_id, file_name, file_type, drive_file_id")
           .eq("id", docId)
           .maybeSingle();
         if (error) return { error: "load_failed" };
         if (!doc) return { error: "not_found" };
-        const d = doc as { id: string; user_id: string; file_name: string | null; drive_file_id: string | null };
+        const d = doc as { id: string; user_id: string; file_name: string | null; file_type: string | null; drive_file_id: string | null };
         if (!(await canActOnCandidate(scope.role, scope.email, d.user_id))) return { error: "out_of_scope" };
         // Token carries the ADMIN's id (not the candidate's). /api/portal/file
         // re-runs roleByUserId + canActOnCandidate, so scope is re-enforced at
         // serve time and the link grants no API authority on its own (lib/dlToken).
         const token = signDlToken(scope.userId, 180);
+        // If this doc is a CV, serve the LIVE render from cv_draft (matches the
+        // website now) instead of the stored snapshot — same freshness guarantee
+        // as getCvLinks. Other docs (passport, diploma, certs) are uploaded files,
+        // so the stored one IS the current version.
+        const kind = resolveFileKey(d.file_type);
+        if (CV_KINDS.has(kind)) {
+          const { data: prof } = await db.from("candidate_profiles").select("cv_draft").eq("user_id", d.user_id).maybeSingle();
+          let draft = (prof as { cv_draft?: unknown } | null)?.cv_draft as unknown;
+          if (typeof draft === "string") { try { draft = JSON.parse(draft); } catch { draft = null; } }
+          const cd = (draft && typeof draft === "object" ? draft : null) as { firstName?: string; lastName?: string } | null;
+          if (cd && (cd.firstName || cd.lastName)) {
+            const name = encodeURIComponent((d.file_name ?? "lebenslauf.pdf").slice(0, 180));
+            const plain = kind === "cv_visa" ? "&plain=1" : "";
+            const url = `/api/portal/cv/live-file?cand=${encodeURIComponent(d.user_id)}&dlt=${encodeURIComponent(token)}&dl=1${plain}&name=${name}`;
+            return { url, expiresInSec: 180, fileName: d.file_name ?? "lebenslauf.pdf", live: true };
+          }
+        }
         const name = encodeURIComponent((d.file_name ?? "document").slice(0, 180));
         const idPart = d.drive_file_id
           ? `id=${encodeURIComponent(d.drive_file_id)}`
