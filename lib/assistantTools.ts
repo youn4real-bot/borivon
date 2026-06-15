@@ -23,6 +23,7 @@ import { stagePending, executeLatestPending, cancelLatestPending, MILESTONE_BOOL
 import { AUTOMATIONS, getAutomationFlags, setAutomation as persistAutomation } from "@/lib/automationSettings";
 import { workspaceConfigured, workspaceServiceAccount, testWorkspace, WORKSPACE_SCOPES } from "@/lib/googleWorkspace";
 import { gmailSearch, gmailGet, gmailApiReady, listEmailAttachments } from "@/lib/gmailApi";
+import { getUsageSummary } from "@/lib/usage";
 import type { AssistantScope } from "@/lib/assistantScope";
 
 type ProfileRow = {
@@ -649,6 +650,18 @@ export function buildAssistantTools(
           candidateUserId: null,
           summary: `↩️ Reply${replyAll ? " (all)" : ""} to ${who} — Re: ${subj}\nAttachments: ${attachDesc}\n\n${cleanBody.slice(0, 600)}${cleanBody.length > 600 ? "…" : ""}`,
         });
+      },
+    }),
+
+    getApiUsage: tool({
+      description:
+        "Report the bot's own AI token consumption (Gemini) — total input/output tokens, number of chats, and a rough $ estimate. period: 'today' (since midnight), 'week' (last 7 days), or 'month' (last 30 days). Use for 'how many tokens did I use this week', 'my API usage', 'how much is the bot costing me'. Supreme-only. Tracks from when usage logging was switched on; Google's exact billing is in the Cloud console.",
+      inputSchema: z.object({ period: z.enum(["today", "week", "month"]).default("today") }),
+      execute: async ({ period }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const s = await getUsageSummary(period);
+        if (!s.ok) return { error: "usage_not_set_up", hint: "Run supabase/assistant_token_usage.sql once, then usage tracks automatically." };
+        return s;
       },
     }),
 

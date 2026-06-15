@@ -15,6 +15,7 @@
  */
 import { NextRequest } from "next/server";
 import { generateText, stepCountIs } from "ai";
+import { logUsage } from "@/lib/usage";
 import { vertexModel, chooseTier, looksWeak, proConfigured } from "@/lib/vertexModel";
 import { buildAssistantTools } from "@/lib/assistantTools";
 import type { AssistantScope } from "@/lib/assistantScope";
@@ -296,6 +297,10 @@ export async function POST(req: NextRequest) {
     if (proOn && tier === "flash" && looksWeak(result.text)) {
       try { result = await generateText({ model: proModel, ...genArgs }); } catch { /* keep the Flash result */ }
     }
+
+    // Track token consumption for getApiUsage (best-effort, fail-safe, non-blocking).
+    // Prefer the multi-step total — the agent loop can take several steps per turn.
+    void logUsage((result as { totalUsage?: unknown }).totalUsage ?? result.usage, tier === "pro" ? "pro" : "flash", "telegram");
 
     // COLLECT the file links the model produced (we deliver the ACTUAL files into
     // the chat, not just a link) — but DON'T download yet. We send the ANSWER TEXT
