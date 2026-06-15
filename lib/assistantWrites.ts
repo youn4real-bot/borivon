@@ -447,14 +447,22 @@ async function writeExternalEmail(
   // success). Any shortfall → refuse and tell the admin which ones are missing.
   const missing: string[] = [];
 
-  // Each candidate's latest CV on file (with an R2 key). Find it EXACTLY like the
-  // getCvLinks tool does — by resolveFileKey(file_type) ∈ {cv_de, cv_visa}, NOT a
-  // narrow hardcoded file_type list — so any CV getCvLinks can deliver, this can
-  // attach too (the old narrow list silently dropped CVs whose stored type didn't
-  // match → "attachment_missing" even though the CV existed).
+  // Attach each candidate's CURRENT CV — rendered FRESH from cv_draft (exactly
+  // what's on the website now) so an employer never gets a stale pre-edit PDF.
+  // Falls back to the latest stored CV document only if there's no cv_draft.
   const CV_EMAIL_KINDS = new Set(["cv_de", "cv_visa"]);
   for (const cid of opts.candidateIds) {
     if (!(await canActOnCandidate(scope.role, scope.email, cid))) { missing.push(cid); continue; }
+    let attached = false;
+    try {
+      const { renderCandidateCvPdf } = await import("@/lib/cvRender"); // lazy — heavy react-pdf
+      const fresh = await renderCandidateCvPdf(cid, { plain: false }); // current German CV, branded
+      if (fresh?.bytes?.length) { attachments.push({ filename: fresh.fileName, content: fresh.bytes }); attached = true; }
+    } catch (e) {
+      console.error("[writeExternalEmail] live CV render failed, falling back to stored:", e instanceof Error ? e.message : e);
+    }
+    if (attached) continue;
+    // Fallback: the latest stored CV document (no cv_draft to render from).
     const { data } = await db
       .from("documents")
       .select("file_name, file_type, r2_key")
@@ -462,7 +470,6 @@ async function writeExternalEmail(
       .not("r2_key", "is", null)
       .order("uploaded_at", { ascending: false });
     const rows = (data ?? []) as { file_name: string | null; file_type: string | null; r2_key: string | null }[];
-    // Prefer the German CV (cv_de); fall back to any CV kind (cv_visa).
     const cv = rows.find((d) => resolveFileKey(d.file_type) === "cv_de")
       ?? rows.find((d) => CV_EMAIL_KINDS.has(resolveFileKey(d.file_type)));
     const obj = cv?.r2_key ? await r2GetObject(cv.r2_key) : null;

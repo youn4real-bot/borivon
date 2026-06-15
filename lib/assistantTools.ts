@@ -378,12 +378,29 @@ export function buildAssistantTools(
             continue;
           }
           const cand = m.candidate;
+          // PREFER the LIVE CV — rendered fresh from cv_draft (exactly what's on the
+          // website right now), so a recent edit that wasn't re-published is still
+          // reflected. Fall back to the stored CV document only if there's no draft.
+          const { data: prof } = await db
+            .from("candidate_profiles").select("cv_draft").eq("user_id", cand.userId).maybeSingle();
+          let draft = (prof as { cv_draft?: unknown } | null)?.cv_draft as unknown;
+          if (typeof draft === "string") { try { draft = JSON.parse(draft); } catch { draft = null; } }
+          const d = (draft && typeof draft === "object" ? draft : null) as { firstName?: string; lastName?: string } | null;
+          if (d && (d.firstName || d.lastName)) {
+            const fn = String(d.firstName ?? "").trim().toLowerCase().replace(/\s+/g, "_") || "kandidat";
+            const ln = String(d.lastName ?? "").trim().toLowerCase().replace(/\s+/g, "_") || "unbekannt";
+            const fileName = `${fn}_${ln}_pflegekraft_lebenslauf.pdf`;
+            const token = signDlToken(scope.userId, 180);
+            const url = `/api/portal/cv/live-file?cand=${encodeURIComponent(cand.userId)}&dlt=${encodeURIComponent(token)}&dl=1&name=${encodeURIComponent(fileName)}`;
+            results.push({ query: raw, name: cand.name, status: "ok", url, fileName, kind: "cv_de", live: true });
+            continue;
+          }
           const { data: docs } = await db
             .from("documents")
             .select("id, file_name, file_type, status, uploaded_at, drive_file_id, r2_key")
             .eq("user_id", cand.userId)
             .order("uploaded_at", { ascending: false });
-          const cv = ((docs ?? []) as DocRow[]).find((d) => CV_KINDS.has(resolveFileKey(d.file_type)));
+          const cv = ((docs ?? []) as DocRow[]).find((d2) => CV_KINDS.has(resolveFileKey(d2.file_type)));
           if (!cv) { results.push({ query: raw, name: cand.name, status: "no_cv" }); continue; }
           const token = signDlToken(scope.userId, 180);
           const fname = encodeURIComponent((cv.file_name ?? `${cand.name} CV`).slice(0, 180));
