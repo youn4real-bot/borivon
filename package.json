@@ -44,6 +44,7 @@
     "@livekit/track-processors": "^0.7.2",
     "@marsidev/react-turnstile": "^1.5.0",
     "@react-pdf/renderer": "^4.5.1",
+    "@sentry/nextjs": "^10.57.0",
     "@supabase/supabase-js": "^2.104.0",
     "@tailwindcss/postcss": "^4.2.2",
     "@tanstack/react-table": "^8.21.3",

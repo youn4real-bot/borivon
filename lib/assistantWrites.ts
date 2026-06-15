@@ -23,6 +23,7 @@ import { sendOutboundEmail, OUTBOUND_FROM_NAME, OUTBOUND_FROM_EMAIL, OUTBOUND_SI
 import { buildInviteIcs } from "@/lib/calendarInvite";
 import { gmailGet, gmailSendRaw } from "@/lib/gmailApi";
 import { bookWorkspaceEvent } from "@/lib/workspaceCalendar";
+import { reportError } from "@/lib/reportError";
 import { stripMarkdown } from "@/lib/emailFormat";
 import { resolveFileKey } from "@/lib/fileKeys";
 import { r2GetObject } from "@/lib/r2";
@@ -1597,7 +1598,17 @@ async function applyPendingRow(
       a.batchId === undefined ? undefined : a.batchId == null ? null : String(a.batchId),
     );
   }
-  if (!result.ok) return { error: result.error };
+  if (!result.ok) {
+    // Surface SILENT write failures (e.g. the calendar NOT-NULL bug) to the alarm.
+    // These are CAUGHT and returned, not thrown — so onRequestError never sees
+    // them. Routing them here means the founder gets pinged the moment one of his
+    // actions silently fails, instead of discovering it days later by accident.
+    reportError(new Error(`assistant write failed: ${row.tool_name} → ${result.error}`), {
+      route: "assistant/applyPendingRow",
+      tool: row.tool_name,
+    });
+    return { error: result.error };
+  }
   // Retention: warming a candidate (nudge/message) stamps last_touch_at so the
   // all-day nudger won't re-nag you about someone you just contacted today.
   if (row.tool_name === "sendFollowUpNudge" || row.tool_name === "sendCandidateMessage") {

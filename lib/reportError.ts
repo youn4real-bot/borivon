@@ -10,9 +10,14 @@
  *     env var is absent, so this ships safely before any webhook exists and
  *     "turns on" the moment the URL is added — no code change.
  *
+ *  3. OPTIONAL — Sentry (rich backend: grouping, full stack traces, a searchable
+ *     dashboard, client-side errors). No-op unless SENTRY_DSN is set and init ran
+ *     (see sentry.*.config.ts). Adds nothing to the bundle's behavior until then.
+ *
  * Never throws, never blocks the response. Reporting must not be able to break
  * the app, so every path swallows its own errors.
  */
+import * as Sentry from "@sentry/nextjs";
 
 type ErrCtx = {
   route?: string;
@@ -34,6 +39,13 @@ export function reportError(err: unknown, ctx: ErrCtx = {}): void {
     );
   } catch {
     /* logging must never throw */
+  }
+
+  // Sink 3 — Sentry (rich backend). No-op unless SENTRY_DSN was set + init ran.
+  try {
+    Sentry.captureException(err instanceof Error ? err : new Error(message), { extra: { ...ctx } });
+  } catch {
+    /* reporting must never throw */
   }
 
   // Sink 2 — optional webhook alert. Fire-and-forget, timeout-bounded.

@@ -11,9 +11,13 @@
  * `register()` is required by the instrumentation contract — nothing to boot.
  */
 import { reportError } from "@/lib/reportError";
+import * as Sentry from "@sentry/nextjs";
 
-export function register(): void {
-  // Reserved for future server-boot init (tracing, etc.). Intentionally empty.
+export async function register(): Promise<void> {
+  // Boot Sentry for the active server runtime. INERT without SENTRY_DSN — the
+  // config files no-op when the DSN is absent, so this is safe before signup.
+  if (process.env.NEXT_RUNTIME === "nodejs") await import("./sentry.server.config");
+  else if (process.env.NEXT_RUNTIME === "edge") await import("./sentry.edge.config");
 }
 
 // Permissive param types: Next calls this structurally with a richer object;
@@ -29,4 +33,14 @@ export async function onRequestError(
     routerKind: context?.routerKind,
     renderSource: context?.renderSource,
   });
+  // Also forward to Sentry's request-error capture (no-op unless DSN configured).
+  try {
+    Sentry.captureRequestError(
+      err,
+      request as Parameters<typeof Sentry.captureRequestError>[1],
+      context as Parameters<typeof Sentry.captureRequestError>[2],
+    );
+  } catch {
+    /* reporting must never throw */
+  }
 }
