@@ -440,23 +440,22 @@ async function writeEditCvDraft(userId: string, field: string, value: string): P
  *  documents pulled from R2. Sends as the founder (Gmail App Password → Sent
  *  folder) with a Resend fallback. Out-of-scope candidates are silently skipped
  *  (the tool already gate-checked at stage time). */
-async function writeExternalEmail(
+
+/** Resolve requested attachments to real bytes — shared by fresh emails
+ *  (writeExternalEmail) AND in-thread replies (writeReplyEmail) so both attach
+ *  identically. Each candidate → their CURRENT CV (rendered fresh from cv_draft,
+ *  falling back to the stored CV); explicit docs by id; and files FORWARDED from
+ *  the founder's Gmail. Returns the bytes + any that couldn't be produced, so the
+ *  caller can refuse rather than send a package that's silently missing files. */
+async function resolveOutboundAttachments(
   scope: AssistantScope,
-  opts: { to: string; toName?: string; cc?: string[]; subject: string; body: string; candidateIds: string[]; docIds: string[]; attachFromEmailIds?: string[] },
-): Promise<WriteResult> {
+  opts: { candidateIds?: string[]; docIds?: string[]; attachFromEmailIds?: string[] },
+): Promise<{ attachments: OutboundAttachment[]; missing: string[] }> {
   const db = getServiceSupabase();
   const attachments: OutboundAttachment[] = [];
-  // Track every requested attachment that we COULDN'T resolve to bytes, so we
-  // never send an external email whose attachments are fewer than the admin
-  // confirmed (silent CV drop = the employer gets an empty package + we'd report
-  // success). Any shortfall → refuse and tell the admin which ones are missing.
   const missing: string[] = [];
-
-  // Attach each candidate's CURRENT CV — rendered FRESH from cv_draft (exactly
-  // what's on the website now) so an employer never gets a stale pre-edit PDF.
-  // Falls back to the latest stored CV document only if there's no cv_draft.
   const CV_EMAIL_KINDS = new Set(["cv_de", "cv_visa"]);
-  for (const cid of opts.candidateIds) {
+  for (const cid of opts.candidateIds ?? []) {
     if (!(await canActOnCandidate(scope.role, scope.email, cid))) { missing.push(cid); continue; }
     let attached = false;
     try {
@@ -464,10 +463,9 @@ async function writeExternalEmail(
       const fresh = await renderCandidateCvPdf(cid, { plain: false }); // current German CV, branded
       if (fresh?.bytes?.length) { attachments.push({ filename: fresh.fileName, content: fresh.bytes }); attached = true; }
     } catch (e) {
-      console.error("[writeExternalEmail] live CV render failed, falling back to stored:", e instanceof Error ? e.message : e);
+      console.error("[resolveOutboundAttachments] live CV render failed, falling back to stored:", e instanceof Error ? e.message : e);
     }
     if (attached) continue;
-    // Fallback: the latest stored CV document (no cv_draft to render from).
     const { data } = await db
       .from("documents")
       .select("file_name, file_type, r2_key")
@@ -481,9 +479,7 @@ async function writeExternalEmail(
     if (obj?.body) attachments.push({ filename: cv!.file_name || `cv_${cid}.pdf`, content: obj.body });
     else missing.push(cid);
   }
-
-  // Explicit documents by id.
-  for (const did of opts.docIds) {
+  for (const did of opts.docIds ?? []) {
     const { data: doc } = await db.from("documents").select("user_id, file_name, r2_key").eq("id", did).maybeSingle();
     const d = doc as { user_id: string; file_name: string | null; r2_key: string | null } | null;
     if (!d?.r2_key || !(await canActOnCandidate(scope.role, scope.email, d.user_id))) { missing.push(did); continue; }
@@ -491,11 +487,6 @@ async function writeExternalEmail(
     if (obj?.body) attachments.push({ filename: d.file_name || "document.pdf", content: obj.body });
     else missing.push(did);
   }
-
-  // FORWARD attachments pulled from the founder's Gmail (e.g. "send Anna the
-  // Defizitbescheid Abdelhak attached"). For each source email, fetch every file
-  // attachment natively and enclose it. A message that yields no bytes is a
-  // shortfall → refuse (never send claiming files that aren't actually attached).
   for (const mid of opts.attachFromEmailIds ?? []) {
     const atts = await listEmailAttachments(mid);
     if (!atts || atts.length === 0) { missing.push(`email:${mid}`); continue; }
@@ -506,10 +497,22 @@ async function writeExternalEmail(
     }
     if (got === 0) missing.push(`email:${mid}`);
   }
+  return { attachments, missing };
+}
 
+async function writeExternalEmail(
+  scope: AssistantScope,
+  opts: { to: string; toName?: string; cc?: string[]; subject: string; body: string; candidateIds: string[]; docIds: string[]; attachFromEmailIds?: string[] },
+): Promise<WriteResult> {
+  const { attachments, missing } = await resolveOutboundAttachments(scope, {
+    candidateIds: opts.candidateIds,
+    docIds: opts.docIds,
+    attachFromEmailIds: opts.attachFromEmailIds,
+  });
   // A requested attachment couldn't be produced (e.g. the candidate has no
   // published CV on file yet) — DON'T send a partial email claiming success.
   if (missing.length) return { ok: false, error: `attachment_missing:${missing.slice(0, 8).join(",")}` };
+  const db = getServiceSupabase();
 
   const res = await sendOutboundEmail({ to: opts.to, toName: opts.toName, cc: opts.cc, subject: opts.subject, body: opts.body, attachments });
   if (!res.ok) return { ok: false, error: res.error };
@@ -581,7 +584,7 @@ async function writeCalendarInvite(opts: {
 /** Reply to an email IN-THREAD via the native Gmail API — reads the original for
  *  its threadId + Message-ID + From/Subject, then sends a properly-threaded reply
  *  (In-Reply-To/References + threadId) from the founder's mailbox. */
-async function writeReplyEmail(scope: AssistantScope, opts: { messageId: string; body: string; replyAll?: boolean }): Promise<WriteResult> {
+async function writeReplyEmail(scope: AssistantScope, opts: { messageId: string; body: string; replyAll?: boolean; candidateIds?: string[]; docIds?: string[]; attachFromEmailIds?: string[] }): Promise<WriteResult> {
   if (!opts.messageId) return { ok: false, error: "no_message" };
   const orig = await gmailGet(opts.messageId);
   if (!orig) return { ok: false, error: "original_not_found_or_not_connected" };
@@ -598,10 +601,17 @@ async function writeReplyEmail(scope: AssistantScope, opts: { messageId: string;
   const text = `${cleanBody}\n\n${OUTBOUND_SIGNATURE_TEXT}`;
   const escHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const html = `<div style="font-family:-apple-system,'Segoe UI',sans-serif;font-size:14px;color:#1a1a1a;line-height:1.6;">${escHtml(cleanBody).replace(/\n/g, "<br/>")}</div><br/>${OUTBOUND_SIGNATURE_HTML}`;
+  // Resolve any attachments (candidate CVs, docs, or files forwarded from another
+  // email) — so a reply can carry files, in-thread, exactly like a fresh email.
+  const { attachments, missing } = await resolveOutboundAttachments(scope, {
+    candidateIds: opts.candidateIds, docIds: opts.docIds, attachFromEmailIds: opts.attachFromEmailIds,
+  });
+  if (missing.length) return { ok: false, error: `attachment_missing:${missing.slice(0, 8).join(",")}` };
   const res = await gmailSendRaw({
     to: orig.from, cc: cc || undefined, subject, html, text,
     fromName: OUTBOUND_FROM_NAME, fromEmail: OUTBOUND_FROM_EMAIL,
     inReplyTo: orig.messageIdHeader || undefined, references: references || undefined, threadId: orig.threadId || undefined,
+    attachments: attachments.length ? attachments : undefined,
   });
   if (!res.ok) return { ok: false, error: res.error || "reply_failed" };
   try {
@@ -1485,7 +1495,11 @@ async function applyPendingRow(
       attachFromEmailIds: splitIds(a.attachFromEmailIds),
     });
   } else if (row.tool_name === "replyToEmail") {
-    result = await writeReplyEmail(scope, { messageId: String(a.messageId ?? ""), body: String(a.body ?? ""), replyAll: a.replyAll === true });
+    const splitR = (v: unknown) => String(v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    result = await writeReplyEmail(scope, {
+      messageId: String(a.messageId ?? ""), body: String(a.body ?? ""), replyAll: a.replyAll === true,
+      candidateIds: splitR(a.attachCandidateIds), docIds: splitR(a.attachDocIds), attachFromEmailIds: splitR(a.attachFromEmailIds),
+    });
   } else if (row.tool_name === "sendCalendarInvite") {
     const emails = String(a.attendees ?? "").split(",").map((s) => s.trim()).filter(Boolean);
     result = await writeCalendarInvite({

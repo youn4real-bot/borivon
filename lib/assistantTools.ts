@@ -597,19 +597,57 @@ export function buildAssistantTools(
     }),
     replyToEmail: tool({
       description:
-        "Reply to an email IN-THREAD by its id (from searchInbox/readEmail). Replies to the original sender; replyAll=true also CCs everyone else on it. It threads correctly in Gmail and lands in the founder's Sent. It's a SEND — goes out after the founder's one confirm. Show the reply body in the SHOWING-AN-EMAIL shape. Supreme-admin only.",
-      inputSchema: z.object({ messageId: z.string().min(5), body: z.string().min(1).max(8000), replyAll: z.boolean().default(false) }),
-      execute: async (args) => {
+        "Reply to an email IN-THREAD by its id (from searchInbox/readEmail). This KEEPS the conversation in the SAME Gmail thread (correct In-Reply-To/References + same subject) and lands in the founder's Sent — use it whenever you're CONTINUING an existing email conversation; do NOT start a fresh email for a reply. Replies to the original sender; replyAll=true also CCs everyone else on it. You can ATTACH files on the reply: attachCandidateNames (comma-sep candidate FULL NAMES → their latest CV), attachDocIds (document ids), attachFromEmailIds (Gmail message ids whose attachments to forward — e.g. reply to Anna WITH the Defizitbescheid someone sent you). It's a SEND — goes out after the founder's one confirm; show the reply in the SHOWING-AN-EMAIL shape. Supreme-admin only.",
+      inputSchema: z.object({
+        messageId: z.string().min(5),
+        body: z.string().min(1).max(8000),
+        replyAll: z.boolean().default(false),
+        attachCandidateNames: z.string().optional().describe("comma-sep candidate FULL NAMES whose latest CV to attach to the reply"),
+        attachDocIds: z.string().optional().describe("comma-sep document ids to attach"),
+        attachFromEmailIds: z.string().optional().describe("comma-sep Gmail message ids whose file attachments to forward on the reply"),
+      }),
+      execute: async ({ messageId, body, replyAll, attachCandidateNames, attachDocIds, attachFromEmailIds }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
         if (!gmailApiReady()) return { error: "workspace_not_connected" };
-        const orig = await gmailGet(args.messageId);
-        const who = orig ? (orig.fromName || orig.from) : args.messageId;
-        const subj = orig ? orig.subject : "";
+        const orig = await gmailGet(messageId);
+        if (!orig) return { error: "original_not_found" };
+        // Resolve candidate names → real ids (same resolver as getCvLinks/sendExternalEmail).
+        const candRefs = (attachCandidateNames ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+        const candIds: string[] = [];
+        const unresolved: string[] = [];
+        if (candRefs.length) {
+          const roster = await candidateRoster();
+          for (const ref of candRefs) {
+            const m = pickCandidate(roster, ref);
+            if (m.status === "ok") { if (!candIds.includes(m.candidate.userId)) candIds.push(m.candidate.userId); }
+            else unresolved.push(ref);
+          }
+          if (unresolved.length) return { error: `couldnt_find_candidate: ${unresolved.join(", ")}` };
+        }
+        for (const cid of candIds) {
+          if (!(await canActOnCandidate(scope.role, scope.email, cid))) return { error: "out_of_scope" };
+        }
+        const docIds = (attachDocIds ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+        const emailFwdIds = (attachFromEmailIds ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+        const cleanBody = stripEmailFormatting(body);
+        const who = orig.fromName || orig.from;
+        const subj = orig.subject || "";
+        const names: string[] = [];
+        for (const cid of candIds.slice(0, 10)) names.push(await displayName(cid));
+        const attachDesc = [
+          candIds.length ? `${candIds.length} CV${candIds.length > 1 ? "s" : ""}${names.length ? ` (${names.join(", ")})` : ""}` : null,
+          docIds.length ? `${docIds.length} document${docIds.length > 1 ? "s" : ""}` : null,
+          emailFwdIds.length ? `files from ${emailFwdIds.length} email${emailFwdIds.length > 1 ? "s" : ""}` : null,
+        ].filter(Boolean).join(" + ") || "none";
+        const args: Record<string, unknown> = { messageId, body: cleanBody, replyAll: replyAll === true };
+        if (candIds.length) args.attachCandidateIds = candIds.join(",");
+        if (docIds.length) args.attachDocIds = docIds.join(",");
+        if (emailFwdIds.length) args.attachFromEmailIds = emailFwdIds.join(",");
         return stagePending(scope, {
           toolName: "replyToEmail",
           args,
           candidateUserId: null,
-          summary: `Reply${args.replyAll ? " (all)" : ""} to ${who}${subj ? ` — Re: ${subj}` : ""}`,
+          summary: `↩️ Reply${replyAll ? " (all)" : ""} to ${who} — Re: ${subj}\nAttachments: ${attachDesc}\n\n${cleanBody.slice(0, 600)}${cleanBody.length > 600 ? "…" : ""}`,
         });
       },
     }),
