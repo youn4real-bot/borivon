@@ -173,12 +173,15 @@ export async function tgGetFileBytes(fileId: string): Promise<{ bytes: Uint8Arra
   }
 }
 
-/** Resolve the supreme admin's user id (for owner-scoped tools), cached per warm instance. */
-let _adminId: string | null | undefined;
+/** Resolve the supreme admin's user id (for owner-scoped tools). Cached ONLY on
+ *  success — a transient lookup failure must NOT be memoized as null forever
+ *  (that would silently break the bot's owner-scoped tools until the instance
+ *  recycles); we just retry next call. */
+let _adminId: string | null = null;
 export async function getAdminUserId(): Promise<string | null> {
-  if (_adminId !== undefined) return _adminId;
+  if (_adminId) return _adminId;
   const email = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
-  if (!email) { _adminId = null; return null; }
+  if (!email) return null;
   const db = getServiceSupabase();
   for (let page = 1; page <= 20; page++) {
     const { data, error } = await db.auth.admin.listUsers({ page, perPage: 1000 });
@@ -187,6 +190,5 @@ export async function getAdminUserId(): Promise<string | null> {
     if (u) { _adminId = u.id; return u.id; }
     if (data.users.length < 1000) break;
   }
-  _adminId = null;
-  return null;
+  return null; // unresolved this time → retry next call (don't cache the miss)
 }

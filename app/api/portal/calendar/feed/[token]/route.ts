@@ -122,7 +122,9 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ token: stri
     headers: {
       "Content-Type": "text/calendar; charset=utf-8",
       "Content-Disposition": 'inline; filename="borivon.ics"',
-      "Cache-Control": "public, max-age=300",
+      // private (it's a per-user token URL — never shared-cache it) + no-store so a
+      // calendar app's next poll always gets current events, not a stale proxy copy.
+      "Cache-Control": "private, no-store",
     },
   });
 }

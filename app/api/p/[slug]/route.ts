@@ -174,9 +174,10 @@ export async function GET(
       isAdmin: isAdminUser,
     },
     {
-      // Short edge cache so a bot scraping random slugs can't fan out
-      // every hit into a fresh DB scan + admin-API call.
-      headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=60" },
+      // Tiny edge cache: keeps a slug-scraping bot from fanning every hit into a
+      // fresh DB scan + admin-API call, but short enough that a profile edit shows
+      // up within ~30s (the founder wants what's published to be current).
+      headers: { "Cache-Control": "public, s-maxage=30, stale-while-revalidate=30" },
     },
   );
 }
