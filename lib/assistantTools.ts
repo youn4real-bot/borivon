@@ -626,7 +626,7 @@ export function buildAssistantTools(
         replyAll: z.boolean().default(false),
         attachCandidateNames: z.string().optional().describe("comma-sep candidate FULL NAMES whose latest CV to attach to the reply"),
         attachDocIds: z.string().optional().describe("comma-sep document ids to attach"),
-        attachFromEmailIds: z.string().optional().describe("comma-sep Gmail message ids whose file attachments to forward on the reply"),
+        attachFromEmailIds: z.string().optional().describe("attach files from an email — best a Gmail SEARCH like 'from:abdelhak' (robust, the bot finds it), or a message id"),
         attachChatFiles: z.boolean().optional().describe("attach the files I recently sent the bot in THIS Telegram chat (photos/PDFs I uploaded)"),
       }),
       execute: async ({ messageId, body, replyAll, attachCandidateNames, attachDocIds, attachFromEmailIds, attachChatFiles }) => {
@@ -2662,7 +2662,7 @@ export function buildAssistantTools(
         attachCandidateNames: z.string().optional().describe("comma-separated candidate FULL NAMES whose latest CV to attach — e.g. 'Ismail Louali, Samira Irsani'. This is the reliable way; names always resolve."),
         attachCandidateIds: z.string().optional().describe("(legacy) comma-separated candidate names OR candidateUserIds whose latest CV to attach — resolved the same way as attachCandidateNames"),
         attachDocIds: z.string().optional().describe("comma-separated document ids to attach"),
-        attachFromEmailIds: z.string().optional().describe("comma-separated Gmail message ids (from searchInbox/readEmail) whose FILE ATTACHMENTS to forward on this email — use to send along files someone emailed you"),
+        attachFromEmailIds: z.string().optional().describe("attach files that came IN an email. Best: a Gmail SEARCH like 'from:abdelhak' (the bot finds the email + pulls its attachments — robust, no id needed). A message id also works, but PREFER the search so you never guess a wrong id."),
         attachChatFiles: z.boolean().optional().describe("attach the files I recently sent the bot in THIS Telegram chat (photos/PDFs I uploaded) — for 'attach the photos/files I sent'"),
       }),
       execute: async ({ to, toName, cc, bcc, subject, body, attachCandidateNames, attachCandidateIds, attachDocIds, attachFromEmailIds, attachChatFiles }) => {

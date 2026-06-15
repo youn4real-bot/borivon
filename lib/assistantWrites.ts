@@ -21,7 +21,7 @@ import { applyDocReview, applyCandidateProfilePatch } from "@/lib/adminCandidate
 import { backfillPassportFromCvDraft } from "@/lib/cvDraftBackfill";
 import { sendOutboundEmail, OUTBOUND_FROM_NAME, OUTBOUND_FROM_EMAIL, OUTBOUND_SIGNATURE_HTML, OUTBOUND_SIGNATURE_TEXT, type OutboundAttachment } from "@/lib/outboundEmail";
 import { buildInviteIcs } from "@/lib/calendarInvite";
-import { gmailGet, gmailSendRaw, gmailCreateDraft, listEmailAttachments, getEmailAttachmentBytes, buildForwardQuote } from "@/lib/gmailApi";
+import { gmailGet, gmailSearch, gmailSendRaw, gmailCreateDraft, listEmailAttachments, getEmailAttachmentBytes, buildForwardQuote } from "@/lib/gmailApi";
 import { bookWorkspaceEvent } from "@/lib/workspaceCalendar";
 import { reportError } from "@/lib/reportError";
 import { recordSentForFollowup } from "@/lib/followups";
@@ -489,15 +489,29 @@ async function resolveOutboundAttachments(
     if (obj?.body) attachments.push({ filename: d.file_name || "document.pdf", content: obj.body });
     else missing.push(did);
   }
-  for (const mid of opts.attachFromEmailIds ?? []) {
-    const atts = await listEmailAttachments(mid);
-    if (!atts || atts.length === 0) { missing.push(`email:${mid}`); continue; }
-    let got = 0;
-    for (const a of atts.slice(0, 20)) {
-      const bytes = await getEmailAttachmentBytes(mid, a.attachmentId);
-      if (bytes?.length) { attachments.push({ filename: a.filename || "attachment", content: bytes }); got++; }
+  for (const ref of opts.attachFromEmailIds ?? []) {
+    // `ref` is EITHER a Gmail message id OR a search query ("from:abdelhak").
+    // A query is ROBUST — the model never has to guess/remember an exact id (a
+    // stale/wrong id was silently nuking the whole send). A bare 8–24 hex string
+    // is treated as an id; anything else is searched.
+    let ids: string[];
+    if (/^[0-9a-fA-F]{8,24}$/.test(ref.trim())) {
+      ids = [ref.trim()];
+    } else {
+      const found = await gmailSearch(ref.trim(), 10);
+      ids = (found ?? []).map((m) => m.id).filter(Boolean);
     }
-    if (got === 0) missing.push(`email:${mid}`);
+    let got = 0;
+    for (const mid of ids) {
+      const atts = await listEmailAttachments(mid);
+      for (const a of (atts ?? []).slice(0, 20)) {
+        const bytes = await getEmailAttachmentBytes(mid, a.attachmentId);
+        if (bytes?.length) { attachments.push({ filename: a.filename || "attachment", content: bytes }); got++; }
+        if (got >= 25) break;
+      }
+      if (got >= 25) break;
+    }
+    if (got === 0) missing.push(`email:${ref}`);
   }
   // Files the founder uploaded to the Telegram CHAT (photos, PDFs, …) — attach the
   // recent ones from R2. If asked for them but none exist → shortfall (refuse).
