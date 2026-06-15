@@ -21,8 +21,6 @@ import { stripEmailFormatting } from "@/lib/emailFormat";
 import { computeBriefing } from "@/lib/briefing";
 import { stagePending, executeLatestPending, cancelLatestPending, MILESTONE_BOOL } from "@/lib/assistantWrites";
 import { AUTOMATIONS, getAutomationFlags, setAutomation as persistAutomation } from "@/lib/automationSettings";
-import { buildGmailAuthUrl, refreshGmailSignature as pullGmailSignature, gmailSignatureStatus, gmailSignatureConfigured } from "@/lib/gmailSignature";
-import { signFeedToken } from "@/lib/calendarFeed";
 import { workspaceConfigured, workspaceServiceAccount, testWorkspace, WORKSPACE_SCOPES } from "@/lib/googleWorkspace";
 import { gmailSearch, gmailGet, gmailApiReady } from "@/lib/gmailApi";
 import type { AssistantScope } from "@/lib/assistantScope";
@@ -522,33 +520,6 @@ export function buildAssistantTools(
       },
     }),
 
-    // ── Use the admin's REAL Gmail signature (read-only Gmail connection) ──
-    connectGmailSignature: tool({
-      description:
-        "Give the admin a one-time link to connect their Gmail so the bot uses their EXACT saved Gmail signature on outbound emails. Use when they ask to use/connect/make-native their Gmail signature. Reply with the FULL link verbatim — they tap it, grant read-only access, done. Supreme-admin only.",
-      inputSchema: z.object({}),
-      execute: async () => {
-        if (scope.role !== "admin") return { error: "admin_only" };
-        if (!gmailSignatureConfigured()) return { error: "google_oauth_not_configured" };
-        if (!scope.userId) return { error: "no_admin_user" };
-        return { url: buildGmailAuthUrl(signFeedToken(scope.userId)), note: "Tap this link, sign in as youness.taoufiq@borivon.com, and allow read-only access to your signature. Then your real Gmail signature is used on every email." };
-      },
-    }),
-
-    refreshGmailSignature: tool({
-      description:
-        "Re-pull the admin's signature from Gmail settings (use after they EDIT it in Gmail, or to check/repair the connection). Applies immediately. Supreme-admin only.",
-      inputSchema: z.object({}),
-      execute: async () => {
-        if (scope.role !== "admin") return { error: "admin_only" };
-        if (!scope.userId) return { error: "no_admin_user" };
-        const st = await gmailSignatureStatus(scope.userId);
-        if (!st.connected) return { connected: false, hint: "Not connected yet — call connectGmailSignature first." };
-        const r = await pullGmailSignature(scope.userId);
-        return { connected: true, refreshed: r.ok, hasSignature: r.hasSignature, email: st.email, ...(r.error ? { error: r.error } : {}) };
-      },
-    }),
-
     // ── Native Google Workspace (service-account domain-wide delegation) setup ──
     getGoogleServiceAccountId: tool({
       description:
@@ -582,7 +553,7 @@ export function buildAssistantTools(
     searchInbox: tool({
       description:
         "Search the founder's Gmail inbox (native Google). query = Gmail search syntax — e.g. 'from:anna newer_than:30d', 'subject:interview', 'is:unread', or just a name/email. Returns recent matches (id, from, subject, date, snippet). Use the id with readEmail or replyToEmail. Use this for 'find the email from X', 'what did Anna send', 'unread from this week'. Read-only. Supreme-admin only.",
-      inputSchema: z.object({ query: z.string().max(200).default("in:inbox"), max: z.number().int().min(1).max(25).default(12) }),
+      inputSchema: z.object({ query: z.string().max(200).default("in:inbox"), max: z.number().int().min(1).max(25).default(8) }),
       execute: async ({ query, max }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
         if (!gmailApiReady()) return { error: "workspace_not_connected", hint: "Connect Google Workspace (domain-wide delegation) first." };

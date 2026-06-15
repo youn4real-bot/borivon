@@ -14,7 +14,7 @@
 import nodemailer from "nodemailer";
 import { Resend } from "resend";
 import { stripEmailFormatting } from "@/lib/emailFormat";
-import { getStoredSignatureHtml } from "@/lib/gmailSignature";
+import { getNativeGmailSignature } from "@/lib/gmailApi";
 
 /** Base URL for the logo image (the Playfair wordmark PNG — see app/email-logo). */
 const SITE = (process.env.NEXT_PUBLIC_BASE_URL || "https://www.borivon.com").replace(/\/+$/, "");
@@ -121,9 +121,9 @@ export async function sendOutboundEmail(opts: {
   // Plain-text body, with any model-written sign-off trimmed so the signature
   // replaces it (Gmail SMTP never adds the saved web signature itself).
   const cleanBody = stripTrailingSignoff(stripEmailFormatting(opts.body));
-  // Prefer the founder's REAL Gmail signature (pulled live + cached once connected);
-  // fall back to the built-in Playfair-logo signature if not connected / it dropped.
-  const realSigHtml = await getStoredSignatureHtml().catch(() => null);
+  // Prefer the founder's REAL Gmail signature (read natively via the Workspace
+  // connection, cached); fall back to the built-in Playfair-logo signature.
+  const realSigHtml = await getNativeGmailSignature().catch(() => null);
   const sigHtml = realSigHtml || OUTBOUND_SIGNATURE_HTML;
   const sigText = realSigHtml ? htmlToPlain(realSigHtml) : OUTBOUND_SIGNATURE_TEXT;
   const text = `${cleanBody.trimEnd()}\n\n${sigText}`;

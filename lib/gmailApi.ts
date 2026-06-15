@@ -103,6 +103,27 @@ export async function gmailGet(id: string): Promise<FullEmail | null> {
   }
 }
 
+// The founder's REAL Gmail signature, read natively via the API (gmail.modify
+// scope covers settings.sendAs) and cached per warm instance for an hour so it's
+// not an API call on every send. Replaces the old OAuth-based signature feature.
+let _sigCache: { html: string | null; at: number } | null = null;
+export async function getNativeGmailSignature(): Promise<string | null> {
+  if (_sigCache && Date.now() - _sigCache.at < 3_600_000) return _sigCache.html;
+  const gmail = gmailClient();
+  if (!gmail) return null;
+  try {
+    const r = await gmail.users.settings.sendAs.list({ userId: "me" });
+    const list = r.data.sendAs ?? [];
+    const primary = list.find((s) => s.isPrimary) ?? list.find((s) => s.isDefault) ?? list[0];
+    const html = (primary?.signature ?? "").trim() || null;
+    _sigCache = { html, at: Date.now() };
+    return html;
+  } catch (e) {
+    console.error("[gmailApi] signature read failed:", e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
 /** Low-level send via the Gmail API (lands in the founder's Sent natively). Pass
  *  threadId + inReplyTo/references to thread a reply. Builds a multipart/alternative
  *  (text + html) RFC-822 message. */
