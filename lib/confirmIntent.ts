@@ -50,3 +50,23 @@ export function isResetText(t: string): boolean {
   if (!n || n.length > 40) return false; // must be essentially just the command
   return RESET_RE.test(n);
 }
+
+// "Show me the files that are about to be sent" — so the CODE (not the model) can
+// pull the REAL attachments off the pending draft and deliver them. Detected here
+// so the model can NEVER fake/narrate the file list: the bytes come straight from
+// the draft. Must NOT fire on an actual send command ("send the files to Anna").
+const SHOW_FILES_OBJ = /\b(file|files|attachment|attachments|attached|content|document|documents|photo|photos|pic|pics|image|images|pdf|anhang|anh[aä]nge|datei|dateien|fichiers?|pi[eè]ces?)\b/i;
+const SHOW_FILES_VERB = /\b(show|see|view|display|pull|give me|gimme|let me (see|check)|double[- ]?check|verify|zeig|montre)\b/i;
+const SHOW_FILES_QWORD = /^(what|which|welche|quel|quels|quelles)\b/i;
+// A real send/address command — exclude so we don't intercept "send the files to X".
+const LOOKS_LIKE_SEND = /@|\bemail\b|\bcc\b|\bbcc\b|\b(send|attach|forward|schick|envoie)\b.{0,20}\bto\b|\bto\s+[a-z]/i;
+
+/** True when the message is asking to SEE the files of the email about to be sent
+ *  (a verification request), not a command to send/attach them somewhere. */
+export function isShowFilesText(t: string): boolean {
+  const n = (t || "").trim().toLowerCase();
+  if (!n || n.length > 90) return false;
+  if (LOOKS_LIKE_SEND.test(n)) return false;
+  if (!SHOW_FILES_OBJ.test(n)) return false;
+  return SHOW_FILES_VERB.test(n) || SHOW_FILES_QWORD.test(n);
+}

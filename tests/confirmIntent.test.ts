@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isConfirmText, isCancelText, isResetText } from "../lib/confirmIntent";
+import { isConfirmText, isCancelText, isResetText, isShowFilesText } from "../lib/confirmIntent";
 
 // The bot's CODE-ENFORCED confirm path keys off these. If they regress, the
 // "say yes → it just re-asks forever" bug comes back, so the behaviour is pinned.
@@ -29,5 +29,15 @@ describe("isResetText — only a bare 'new chat' command (must NEVER wipe contex
   // CRITICAL: real commands that merely START with a reset-ish word must NOT reset.
   for (const t of ["", "reset Hajar's password", "new candidate Sara Alami", "start the visa process for Omar", "clear his rejected document and re-request it", "forget about the Tuesday slot, use Wednesday", "yes", "send it"]) {
     it(`does NOT reset: "${t}"`, () => expect(isResetText(t)).toBe(false));
+  }
+});
+
+describe("isShowFilesText — 'show me the files on the draft' (code pulls the REAL bytes, model can't lie)", () => {
+  for (const t of ["show me the files", "show me the attached files", "show me the attachments", "what's attached?", "what are the attached files", "let me see the files", "give me the content", "give me the files", "pull the attachments", "show me the documents you'll send", "double-check the files", "zeig mir die dateien", "which files are attached"]) {
+    it(`shows: "${t}"`, () => expect(isShowFilesText(t)).toBe(true));
+  }
+  // Must NOT fire on an actual send/attach command, or unrelated chat.
+  for (const t of ["", "send the files to Anna", "email the attachments to a.gombert@calmaroi.de", "attach the photos and send to Omar", "forward the file to the embassy", "how is Hajar doing?", "yes send it"]) {
+    it(`does NOT show: "${t}"`, () => expect(isShowFilesText(t)).toBe(false));
   }
 });

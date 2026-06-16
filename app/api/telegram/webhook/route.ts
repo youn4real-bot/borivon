@@ -22,8 +22,10 @@ import type { AssistantScope } from "@/lib/assistantScope";
 import { computeBriefing } from "@/lib/briefing";
 import { loadMemory } from "@/lib/assistantMemory";
 import { loadConversationContext, saveChatTurns, maybeCompact, resetConversation } from "@/lib/assistantChatHistory";
-import { executeLatestPending, cancelLatestPending, autoApplyPending } from "@/lib/assistantWrites";
-import { isConfirmText, isCancelText, isResetText } from "@/lib/confirmIntent";
+import { executeLatestPending, cancelLatestPending, autoApplyPending, getPendingDraft } from "@/lib/assistantWrites";
+import { isConfirmText, isCancelText, isResetText, isShowFilesText } from "@/lib/confirmIntent";
+import { listDraftAttachments } from "@/lib/gmailApi";
+import { signDlToken } from "@/lib/dlToken";
 import { stripMarkdown, stripFileDeliveryNoise } from "@/lib/emailFormat";
 import { tgSend, tgSendNatural, tgSendDocument, tgGetFileBytes, tgTypingLoop, tgSendChatAction, splitOnDivider, getAdminUserId, telegramConfigured } from "@/lib/telegram";
 import { r2Configured, r2Put } from "@/lib/r2";
@@ -182,6 +184,49 @@ export async function POST(req: NextRequest) {
         return ok();
       }
     }
+  }
+
+  // 3.6) CODE-ENFORCED "SHOW ME THE FILES" — when asked to see the files that are
+  // about to be sent, the CODE reads the REAL pending draft and streams the actual
+  // bytes. The model is NEVER involved, so it cannot fake / narrate / lie about
+  // what's attached — what you get is exactly what's on the draft = what will send.
+  if (text && !(msg.photo && msg.photo.length) && !msg.document && !msg.voice && isShowFilesText(text)) {
+    const pend = await getPendingDraft(scope.userId);
+    if (pend) {
+      const got = await listDraftAttachments(pend.draftId);
+      if (got && got.attachments.length > 0) {
+        const token = signDlToken(scope.userId, 180);
+        let sent = 0;
+        const failed: string[] = [];
+        for (const a of got.attachments.slice(0, 25)) {
+          void tgSendChatAction(chatId, "upload_document");
+          try {
+            const url = `${BASE_URL}/api/portal/admin/email-attachment?mid=${encodeURIComponent(got.messageId)}&aid=${encodeURIComponent(a.attachmentId)}&dlt=${encodeURIComponent(token)}&name=${encodeURIComponent(a.filename)}`;
+            const ctl = new AbortController();
+            const timer = setTimeout(() => ctl.abort(), 30_000);
+            const f = await fetch(url, { signal: ctl.signal }).finally(() => clearTimeout(timer));
+            if (f.ok) {
+              const bytes = new Uint8Array(await f.arrayBuffer());
+              if (await tgSendDocument(chatId, bytes, a.filename || "attachment")) { sent++; continue; }
+            }
+            failed.push(a.filename || "attachment");
+          } catch {
+            failed.push(a.filename || "attachment");
+          }
+        }
+        const note = `📎 These are the EXACT files on the draft (${sent}/${got.attachments.length} delivered${failed.length ? ` — couldn't pull: ${failed.slice(0, 6).join(", ")}` : ""}). This is precisely what gets sent. Reply "yes" to send the draft as-is, or "no" to cancel.`;
+        await tgSend(chatId, note);
+        await saveChatTurns(scope.userId, [{ role: "user", content: text }, { role: "assistant", content: "[delivered the pending draft's real attachments from the draft; awaiting yes/no]" }]);
+        return ok();
+      }
+      if (got && got.attachments.length === 0) {
+        await tgSend(chatId, "📎 The draft has NO files attached. Reply \"yes\" to send it anyway, or tell me which files to attach.");
+        await saveChatTurns(scope.userId, [{ role: "user", content: text }, { role: "assistant", content: "[draft has no attachments; awaiting instruction]" }]);
+        return ok();
+      }
+      // read failed → fall through to the model.
+    }
+    // no pending draft → fall through to the model (they may mean candidate docs).
   }
 
   // 4) Build the user turn (attached file / voice / text).
