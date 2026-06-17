@@ -70,3 +70,27 @@ export function isShowFilesText(t: string): boolean {
   if (!SHOW_FILES_OBJ.test(n)) return false;
   return SHOW_FILES_VERB.test(n) || SHOW_FILES_QWORD.test(n);
 }
+
+// MUTE / UNMUTE the "documents waiting for review" nag in the briefing + nudges.
+// Detected in CODE because the model repeatedly mis-handled "stop the doc
+// reminders" — it saved a useless "preference" the cron ignored. Here we flip the
+// real doc_reminders switch so it ACTUALLY stops.
+const MUTE_VERB = /\b(stop|no more|don.?t|do not|quit|cut|kill|disable|turn off|shut off|mute|silence|pause|ne plus|arr[eê]tes?|h[oö]r auf|stopp?|keine? mehr)\b/i;
+const REMINDISH = /\b(remind|reminder|reminders|reminding|nudg\w*|telling me|tell me|showing me|show me|list\w*|mention\w*|notif\w*|spam\w*|bug\w*)\b/i;
+const DOCISH = /\b(doc|docs|document|documents|missing|pending|review\w*|paper\w*|unterlag\w*|dokument\w*|dossier\w*)\b/i;
+
+/** True when the founder is telling the bot to STOP nagging about documents. */
+export function isMuteDocReminders(t: string): boolean {
+  const n = (t || "").toLowerCase();
+  if (!n || n.length > 220) return false;
+  return MUTE_VERB.test(n) && REMINDISH.test(n) && DOCISH.test(n);
+}
+
+const UNMUTE_VERB = /\b(resume|again|back|re-?enable|re-?activate|turn (it )?(back )?on|switch (it )?on|bring back|start (again|reminding|showing))\b/i;
+
+/** True when the founder wants the document-review reminders BACK. */
+export function isUnmuteDocReminders(t: string): boolean {
+  const n = (t || "").toLowerCase();
+  if (!n || n.length > 140) return false;
+  return DOCISH.test(n) && UNMUTE_VERB.test(n);
+}

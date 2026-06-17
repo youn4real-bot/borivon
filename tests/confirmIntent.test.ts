@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isConfirmText, isCancelText, isResetText, isShowFilesText } from "../lib/confirmIntent";
+import { isConfirmText, isCancelText, isResetText, isShowFilesText, isMuteDocReminders, isUnmuteDocReminders } from "../lib/confirmIntent";
 
 // The bot's CODE-ENFORCED confirm path keys off these. If they regress, the
 // "say yes → it just re-asks forever" bug comes back, so the behaviour is pinned.
@@ -39,5 +39,31 @@ describe("isShowFilesText — 'show me the files on the draft' (code pulls the R
   // Must NOT fire on an actual send/attach command, or unrelated chat.
   for (const t of ["", "send the files to Anna", "email the attachments to a.gombert@calmaroi.de", "attach the photos and send to Omar", "forward the file to the embassy", "how is Hajar doing?", "yes send it"]) {
     it(`does NOT show: "${t}"`, () => expect(isShowFilesText(t)).toBe(false));
+  }
+});
+
+describe("isMuteDocReminders — 'stop nagging me about documents' (must actually mute the briefing)", () => {
+  for (const t of [
+    "stop reminding me about missing docs",
+    "I told you stop giving me these fucking reminders of missing docs permanently",
+    "stop reminding me of any documents",
+    "no more document reminders",
+    "turn off the doc reminders",
+    "quit telling me about pending documents",
+    "stop the documents to review reminder",
+  ]) {
+    it(`mutes: "${t}"`, () => expect(isMuteDocReminders(t)).toBe(true));
+  }
+  for (const t of ["", "stop chasing my sent emails", "remind me to call the embassy", "approve the diploma", "how many docs are pending?"]) {
+    it(`does NOT mute: "${t}"`, () => expect(isMuteDocReminders(t)).toBe(false));
+  }
+});
+
+describe("isUnmuteDocReminders — bring the doc reminders back", () => {
+  for (const t of ["remind me about docs again", "turn the document reminders back on", "start reminding me about documents again", "re-enable doc reminders"]) {
+    it(`unmutes: "${t}"`, () => expect(isUnmuteDocReminders(t)).toBe(true));
+  }
+  for (const t of ["", "stop the doc reminders", "how is Hajar"]) {
+    it(`does NOT unmute: "${t}"`, () => expect(isUnmuteDocReminders(t)).toBe(false));
   }
 });

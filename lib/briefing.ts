@@ -20,6 +20,7 @@ import { getStaffUserIdsAmong } from "@/lib/admin-auth";
 import { computeStuckCandidates } from "@/lib/autoChase";
 import { getUnansweredEmails } from "@/lib/gmailInbox";
 import { computeBatchTasks, formatBatchTasks } from "@/lib/batchBoard";
+import { isAutomationEnabled } from "@/lib/automationSettings";
 
 const DAY = 86_400_000;
 
@@ -120,7 +121,11 @@ export async function computeBriefing(adminUserId: string | null): Promise<Brief
     lines.push(formatBatchTasks(batch.tasks), "");
   }
   // ── then the automatic signals (your review queue + deadlines) ──
-  if (pendByUser.size) {
+  // The document-review nag is mutable: when the founder says "stop reminding me
+  // about docs" we flip doc_reminders OFF and this section vanishes entirely (the
+  // OLD code always showed it, which is why "stop" never worked). Fail-safe to ON.
+  const docRemindersOn = await isAutomationEnabled("doc_reminders").catch(() => true);
+  if (docRemindersOn && pendByUser.size) {
     count += pendByUser.size;
     lines.push(`👀 ${pendRows.length} document(s) waiting for your review (${pendByUser.size} candidate${pendByUser.size > 1 ? "s" : ""}):`);
     for (const [uid, n] of [...pendByUser].slice(0, 10)) lines.push(`   • ${nameById.get(uid) ?? uid}${n > 1 ? ` ×${n}` : ""}`);

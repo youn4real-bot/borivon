@@ -12,7 +12,7 @@
  */
 import { getServiceSupabase } from "@/lib/supabase";
 
-export type AutomationKey = "daily_briefing" | "weekly_report" | "signup_ping" | "auto_chase" | "inbox_reminder" | "inbox_sla" | "followup_chase";
+export type AutomationKey = "daily_briefing" | "weekly_report" | "signup_ping" | "auto_chase" | "inbox_reminder" | "inbox_sla" | "followup_chase" | "doc_reminders";
 
 export const AUTOMATIONS: Record<AutomationKey, { label: string; default: boolean; desc: string }> = {
   daily_briefing: { label: "Daily morning briefing — \"what needs you today\"", default: true, desc: "Every morning, ONE message with everything that needs you: documents to review, passports expiring, B2 exams coming up, your due reminders, candidates who may need a nudge, and unanswered emails. The complete daily triage." },
@@ -22,6 +22,7 @@ export const AUTOMATIONS: Record<AutomationKey, { label: string; default: boolea
   inbox_reminder: { label: "Unanswered-email reminder", default: true, desc: "Unread emails from real people in your inbox still needing a reply (no-reply/automated senders skipped). NOW FOLDED INTO the morning briefing — only sends separately if you turn the briefing off." },
   inbox_sla:      { label: "6-hour reply SLA", default: true, desc: "At the midday + evening check, pings you about any email left unanswered for 6h+ — so a same-day email gets surfaced while there's still time to reply. Each email is nudged once. (Needs the inbox_sla_nudges migration run.)" },
   followup_chase: { label: "Outbound follow-up chase", default: true, desc: "When you send an external email, the bot watches for a reply — if none, it reminds you to follow up (morning + evening, ~every 12h, up to 8 times) and auto-stops the moment they reply. (Needs the email_followup_chase migration run.)" },
+  doc_reminders:  { label: "Document-review reminders in the briefing", default: true, desc: "The '👀 N documents waiting for your review' section of the daily briefing + the midday/evening nudges. Turn OFF to silence the document/review nag entirely until you turn it back on; your own dictated tasks still show." },
 };
 
 export function isAutomationKey(k: string): k is AutomationKey {
