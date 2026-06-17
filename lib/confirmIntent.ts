@@ -94,3 +94,44 @@ export function isUnmuteDocReminders(t: string): boolean {
   if (!n || n.length > 140) return false;
   return DOCISH.test(n) && UNMUTE_VERB.test(n);
 }
+
+// "Remind me about / to X" — a STANDING personal reminder. Enforced in code
+// because Flash often didn't call the saveReminder tool, so the thing the founder
+// asked to be reminded of (e.g. the Mercury bank task) just vanished. The lead
+// phrase is consumed so the remainder is the task text.
+const REMIND_LEAD =
+  /^(?:please\s+|pls\s+|hey,?\s+)?(?:can you\s+|could you\s+|can u\s+)?(?:remind me (?:to|about|of|that)|don.?t let me forget(?:\s+(?:to|about))?|note to self|remember to|erinnere mich(?:\s+(?:an|daran))?|rappelle[- ]?moi(?:\s+(?:de|d['’]|que))?)\b/i;
+// "remind me WHAT Anna said" is a question (tell me now), NOT a task to store.
+const REMIND_QWORD = /\bremind me\s+(what|who|when|where|why|how|whether|if|which)\b/i;
+
+/** True when the founder is asking to STORE a standing reminder (not a question). */
+export function isSetReminder(t: string): boolean {
+  const n = (t || "").trim();
+  if (!n || n.length > 300) return false;
+  if (REMIND_QWORD.test(n)) return false;
+  return REMIND_LEAD.test(n);
+}
+
+/** Extract just the task text from a "remind me to/about X" message. "" if none. */
+export function parseReminderText(t: string): string {
+  const n = (t || "").trim();
+  const m = n.match(REMIND_LEAD);
+  if (!m) return "";
+  let rest = n.slice(m[0].length).replace(/^[\s:,–—-]+/, "").trim();
+  rest = rest.replace(/^(?:to|about|of|that|an|daran|de|d['’]|que)\s+/i, "").trim(); // leftover connector
+  return rest;
+}
+
+// Cheap pre-filter for the auto-close pass: does the message sound like the
+// founder finished/handled something? Biased to fire readily (a missed signal =
+// no auto-close; the strict LLM match then picks WHICH reminder, if any, and
+// returns NONE on a false alarm — so over-firing is cheap, under-firing is not).
+const DONE_RE =
+  /\b(done|finished|complete[d]?|handled|sorted|dealt with|took care|taken care|sent it|paid (it|that|them|the)|cross(ed)? (it|that|them) off|no longer need|cancel that reminder|that.?s (done|handled|sorted)|it.?s done|its done|already (did|sent|called|paid|booked|emailed|answered|replied|handled|done)|i (just )?(called|emailed|e-?mailed|messaged|texted|sent|paid|booked|submitted|uploaded|signed|finished|completed|handled|did|spoke to|talked to|met)\b|erledigt|fertig|gemacht|c.?est fait|c.?est r[ée]gl[ée]|fait)\b/i;
+
+/** True when the message plausibly says a task is finished (gates the auto-close). */
+export function looksLikeDone(t: string): boolean {
+  const n = (t || "").trim();
+  if (n.length < 3 || n.length > 240) return false;
+  return DONE_RE.test(n);
+}

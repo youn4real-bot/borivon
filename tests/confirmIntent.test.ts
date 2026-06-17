@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isConfirmText, isCancelText, isResetText, isShowFilesText, isMuteDocReminders, isUnmuteDocReminders } from "../lib/confirmIntent";
+import { isConfirmText, isCancelText, isResetText, isShowFilesText, isMuteDocReminders, isUnmuteDocReminders, isSetReminder, parseReminderText, looksLikeDone } from "../lib/confirmIntent";
 
 // The bot's CODE-ENFORCED confirm path keys off these. If they regress, the
 // "say yes → it just re-asks forever" bug comes back, so the behaviour is pinned.
@@ -65,5 +65,76 @@ describe("isUnmuteDocReminders — bring the doc reminders back", () => {
   }
   for (const t of ["", "stop the doc reminders", "how is Hajar"]) {
     it(`does NOT unmute: "${t}"`, () => expect(isUnmuteDocReminders(t)).toBe(false));
+  }
+});
+
+// "remind me about X" — code-enforced because Flash kept NOT calling saveReminder,
+// so the thing the founder wanted to be reminded of (e.g. Mercury bank) vanished.
+describe("isSetReminder — store a standing personal reminder", () => {
+  for (const t of [
+    "remind me about the mercury bank thing",
+    "remind me to call the embassy Monday",
+    "remind me of the deposit deadline",
+    "don't let me forget the Mercury bank account",
+    "dont let me forget to renew the lease",
+    "note to self: book the flights",
+    "remember to send Aya the contract",
+    "erinnere mich an den Mercury Termin",
+    "rappelle-moi d'appeler l'ambassade",
+    "please remind me to follow up with the lawyer",
+  ]) {
+    it(`is a reminder: "${t}"`, () => expect(isSetReminder(t)).toBe(true));
+  }
+  // Questions ("tell me now") and unrelated chat must NOT be stored as reminders.
+  for (const t of [
+    "",
+    "remind me what Anna said",
+    "remind me who is in the UKSH batch",
+    "what do I need to do today",
+    "how is Hajar doing?",
+    "approve the diploma",
+  ]) {
+    it(`is NOT a reminder: "${t}"`, () => expect(isSetReminder(t)).toBe(false));
+  }
+});
+
+describe("parseReminderText — pull just the task out of the phrasing", () => {
+  const cases: [string, string][] = [
+    ["remind me to call the embassy Monday", "call the embassy Monday"],
+    ["remind me about the mercury bank thing", "the mercury bank thing"],
+    ["don't let me forget the Mercury bank account", "the Mercury bank account"],
+    ["note to self: book the flights", "book the flights"],
+    ["remember to send Aya the contract", "send Aya the contract"],
+  ];
+  for (const [input, want] of cases) {
+    it(`"${input}" -> "${want}"`, () => expect(parseReminderText(input)).toBe(want));
+  }
+  it("returns '' when there's no task after the lead-in", () => expect(parseReminderText("remind me to")).toBe(""));
+});
+
+// Gate for the post-turn auto-close. Biased to fire on completion-ish messages.
+describe("looksLikeDone — founder signalling a task is handled", () => {
+  for (const t of [
+    "done",
+    "it's done",
+    "the mercury thing is handled",
+    "I already paid the Mercury invoice",
+    "I called the embassy",
+    "I just sent it",
+    "mark that done",
+    "no longer need that reminder",
+    "erledigt",
+    "c'est fait",
+  ]) {
+    it(`looks done: "${t}"`, () => expect(looksLikeDone(t)).toBe(true));
+  }
+  for (const t of [
+    "",
+    "how is Hajar doing?",
+    "what should I do today",
+    "remind me to call the embassy",
+    "send the email to Anna",
+  ]) {
+    it(`does NOT look done: "${t}"`, () => expect(looksLikeDone(t)).toBe(false));
   }
 });

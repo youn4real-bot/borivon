@@ -24,7 +24,8 @@ import { loadMemory } from "@/lib/assistantMemory";
 import { looksLikeCorrection, reflectAndLearn } from "@/lib/selfLearn";
 import { loadConversationContext, saveChatTurns, maybeCompact, resetConversation } from "@/lib/assistantChatHistory";
 import { executeLatestPending, cancelLatestPending, autoApplyPending, getPendingDraft } from "@/lib/assistantWrites";
-import { isConfirmText, isCancelText, isResetText, isShowFilesText, isMuteDocReminders, isUnmuteDocReminders } from "@/lib/confirmIntent";
+import { isConfirmText, isCancelText, isResetText, isShowFilesText, isMuteDocReminders, isUnmuteDocReminders, isSetReminder, parseReminderText, looksLikeDone } from "@/lib/confirmIntent";
+import { createReminder, resolveDoneReminders } from "@/lib/reminderAuto";
 import { listDraftAttachments } from "@/lib/gmailApi";
 import { signDlToken } from "@/lib/dlToken";
 import { setAutomation } from "@/lib/automationSettings";
@@ -238,20 +239,48 @@ export async function POST(req: NextRequest) {
   if (text && !(msg.photo && msg.photo.length) && !msg.document && !msg.voice) {
     if (isMuteDocReminders(text)) {
       const err = await setAutomation("doc_reminders", false);
-      const reply = err
+      // doc_reminders DEFAULTS to off, so even with no settings table the briefing,
+      // weekly report and nudges already won't show docs — "table not set up" IS the
+      // muted state, so report success; only a real write error is a problem.
+      const hardFail = !!err && err !== "automation_settings_not_set_up";
+      const reply = hardFail
         ? "⚠️ Couldn't save that just now — say it once more."
-        : "Done — document reminders are OFF. The \"documents waiting for review\" list will NOT show in your briefing or nudges until you say \"remind me about docs again\". Your own dictated tasks still show.";
+        : "Done — document reminders are OFF. The \"documents waiting for review\" list will NOT show in your briefing, weekly report, or nudges until you say \"remind me about docs again\". Your own dictated tasks still show.";
       await tgSend(chatId, reply);
       await saveChatTurns(scope.userId, [{ role: "user", content: text }, { role: "assistant", content: reply }]);
       return ok();
     }
     if (isUnmuteDocReminders(text)) {
       const err = await setAutomation("doc_reminders", true);
-      const reply = err ? "⚠️ Couldn't save that just now — say it once more." : "Done — document-review reminders are back on.";
+      // Turning them BACK ON must persist (default is off) — so "table not set up"
+      // here is a real blocker, not a no-op. Tell the founder what's needed.
+      const reply = err === "automation_settings_not_set_up"
+        ? "⚠️ I can't switch document reminders back on yet — that needs the one-time automation_settings table set up in the database. Tell me to set it up and I'll give you the exact step."
+        : err ? "⚠️ Couldn't save that just now — say it once more."
+        : "Done — document-review reminders are back on.";
       await tgSend(chatId, reply);
       await saveChatTurns(scope.userId, [{ role: "user", content: text }, { role: "assistant", content: reply }]);
       return ok();
     }
+  }
+
+  // 3.8) CODE-ENFORCED "remind me about X". Flash often DIDN'T call the saveReminder
+  // tool, so a thing the founder asked to be reminded of (e.g. the Mercury bank task)
+  // just vanished. Detect it here and write the reminder ourselves so it ALWAYS lands
+  // and shows in the briefing until he says it's done. (Runs AFTER unmute so "remind
+  // me about docs again" still re-enables the doc nag instead of saving a task.)
+  if (text && !(msg.photo && msg.photo.length) && !msg.document && !msg.voice && isSetReminder(text)) {
+    const task = parseReminderText(text);
+    if (task) {
+      const id = await createReminder(scope.userId, task);
+      const reply = id
+        ? `✓ Got it — I'll keep reminding you: "${task}". It'll show in your daily briefing until you tell me it's done.`
+        : "⚠️ Couldn't save that reminder just now — say it once more.";
+      await tgSend(chatId, reply);
+      await saveChatTurns(scope.userId, [{ role: "user", content: text }, { role: "assistant", content: reply }]);
+      return ok();
+    }
+    // empty task ("remind me …" with nothing after) → fall through; the model asks what.
   }
 
   // 4) Build the user turn (attached file / voice / text).
@@ -534,6 +563,18 @@ export async function POST(req: NextRequest) {
       if (learned) {
         await tgSend(chatId, `📝 Got it — I'll remember this from now on: ${learned}\n(if that's wrong, say "forget that")`);
         await saveChatTurns(scope.userId, [{ role: "assistant", content: `[learned a lasting rule: ${learned}]` }]);
+      }
+    }
+
+    // AUTO-CLEAR a reminder the moment the founder says he handled it — in CODE, so
+    // "I already paid the Mercury invoice" closes the "Mercury bank" reminder without
+    // the model having to chain listReminders→completeReminder (which it often didn't,
+    // so resolved items kept nagging in every briefing). Cheap pre-filter, strict match.
+    if (looksLikeDone(userText)) {
+      const closed = await resolveDoneReminders(scope.userId, userText, flashModel).catch(() => []);
+      if (closed.length) {
+        await tgSend(chatId, `✓ Marked done — won't remind you again: ${closed.map((t) => `"${t}"`).join(", ")}`);
+        await saveChatTurns(scope.userId, [{ role: "assistant", content: `[auto-closed reminder(s): ${closed.join("; ")}]` }]);
       }
     }
   } catch (e) {

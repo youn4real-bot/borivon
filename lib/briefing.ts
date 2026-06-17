@@ -121,10 +121,10 @@ export async function computeBriefing(adminUserId: string | null): Promise<Brief
     lines.push(formatBatchTasks(batch.tasks), "");
   }
   // ── then the automatic signals (your review queue + deadlines) ──
-  // The document-review nag is mutable: when the founder says "stop reminding me
-  // about docs" we flip doc_reminders OFF and this section vanishes entirely (the
-  // OLD code always showed it, which is why "stop" never worked). Fail-safe to ON.
-  const docRemindersOn = await isAutomationEnabled("doc_reminders").catch(() => true);
+  // The document-review nag is mutable and DEFAULTS OFF (the founder asked to
+  // silence it many times). Fail-safe CLOSED: on any read error stay silent, never
+  // resurrect the nag. Say "remind me about docs again" to turn it back on.
+  const docRemindersOn = await isAutomationEnabled("doc_reminders").catch(() => false);
   if (docRemindersOn && pendByUser.size) {
     count += pendByUser.size;
     lines.push(`👀 ${pendRows.length} document(s) waiting for your review (${pendByUser.size} candidate${pendByUser.size > 1 ? "s" : ""}):`);

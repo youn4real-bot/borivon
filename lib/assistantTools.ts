@@ -2346,7 +2346,7 @@ export function buildAssistantTools(
       execute: async () => {
         if (scope.role !== "admin") return { error: "admin_only" };
         const { computeStuckCandidates } = await import("@/lib/autoChase");
-        const { candidates, count } = await computeStuckCandidates();
+        const { candidates, count } = await computeStuckCandidates({ includeRejectedDocs: true });
         return { count, candidates };
       },
     }),
@@ -2358,7 +2358,7 @@ export function buildAssistantTools(
       execute: async ({ message }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
         const { computeStuckCandidates } = await import("@/lib/autoChase");
-        const { candidates } = await computeStuckCandidates();
+        const { candidates } = await computeStuckCandidates({ includeRejectedDocs: true });
         if (candidates.length === 0) return { error: "none_stuck" };
         const ids = candidates.map((c) => c.userId);
         const names = candidates.slice(0, 12).map((c) => c.name).join(", ");

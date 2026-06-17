@@ -13,6 +13,7 @@
  */
 import { getServiceSupabase } from "@/lib/supabase";
 import { getStaffUserIdsAmong, getStaffEmailSet } from "@/lib/admin-auth";
+import { isAutomationEnabled } from "@/lib/automationSettings";
 
 const DAY = 86_400_000;
 
@@ -118,7 +119,21 @@ export async function computeWeeklyReport(): Promise<WeeklyReport> {
     }
   } catch { /* best-effort */ }
 
-  const count = pending + passportsSoon + b2Soon + stalled;
+  // The "documents pending review" line is the same nag the founder muted in the
+  // briefing — honor that mute here too (DEFAULT OFF, fail-safe closed) so the
+  // weekly report doesn't sneak it back in. The neutral "documents uploaded" volume
+  // stat stays (it's a business pulse, not a to-do nag).
+  const docRemindersOn = await isAutomationEnabled("doc_reminders").catch(() => false);
+  const count = (docRemindersOn ? pending : 0) + passportsSoon + b2Soon + stalled;
+
+  const attention: string[] = ["⚠️ Needs attention"];
+  if (docRemindersOn) attention.push(`   • Documents pending review: ${pending}`);
+  attention.push(
+    `   • Passports expiring ≤90d: ${passportsSoon}`,
+    `   • B2 exams ≤30d: ${b2Soon}`,
+    `   • Stalled (no movement 21d+): ${stalled}`,
+  );
+
   const lines: string[] = [
     "📊 Borivon — weekly report",
     "",
@@ -133,11 +148,7 @@ export async function computeWeeklyReport(): Promise<WeeklyReport> {
     `   • New leads: ${newLeads}`,
     `   • Documents uploaded: ${uploaded7d}`,
     "",
-    "⚠️ Needs attention",
-    `   • Documents pending review: ${pending}`,
-    `   • Passports expiring ≤90d: ${passportsSoon}`,
-    `   • B2 exams ≤30d: ${b2Soon}`,
-    `   • Stalled (no movement 21d+): ${stalled}`,
+    ...attention,
   ];
   if (count === 0) lines.push("", "✅ Nothing urgent on the attention list — clean week.");
   else lines.push("", `That's ${count} item${count === 1 ? "" : "s"} on the attention list. Ask me for details on any of them.`);

@@ -12,6 +12,7 @@
  */
 import { getServiceSupabase } from "@/lib/supabase";
 import { getStaffUserIdsAmong, resolveAuthNames } from "@/lib/admin-auth";
+import { isAutomationEnabled } from "@/lib/automationSettings";
 
 const DAY = 86_400_000;
 const REJECT_GRACE_DAYS = 3;
@@ -19,9 +20,17 @@ const STALL_DAYS = 21;
 
 export type StuckCandidate = { userId: string; name: string; reasons: string[] };
 
-export async function computeStuckCandidates(): Promise<{ candidates: StuckCandidate[]; text: string; count: number }> {
+export async function computeStuckCandidates(
+  opts?: { includeRejectedDocs?: boolean },
+): Promise<{ candidates: StuckCandidate[]; text: string; count: number }> {
   const db = getServiceSupabase();
   const now = Date.now();
+  // The "rejected document not re-submitted" reason is a document nag. On PROACTIVE
+  // pushes (briefing fold-in, auto-chase cron) honor the founder's doc-reminder mute
+  // (default OFF, fail-safe closed). Explicit "who's stuck?" queries pass true to
+  // keep the full picture.
+  const includeRejectedDocs =
+    opts?.includeRejectedDocs ?? (await isAutomationEnabled("doc_reminders").catch(() => false));
 
   const { data: profs } = await db.from("candidate_profiles").select("user_id, first_name, last_name");
   const profRows = (profs ?? []) as { user_id: string; first_name: string | null; last_name: string | null }[];
@@ -40,7 +49,7 @@ export async function computeStuckCandidates(): Promise<{ candidates: StuckCandi
   };
 
   // 1) Latest document is rejected, ≥ grace days old (saw it, didn't re-submit).
-  if (candIds.length) {
+  if (candIds.length && includeRejectedDocs) {
     const { data: docs } = await db
       .from("documents")
       .select("user_id, status, uploaded_at")
