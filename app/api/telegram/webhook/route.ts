@@ -21,6 +21,7 @@ import { buildAssistantTools } from "@/lib/assistantTools";
 import type { AssistantScope } from "@/lib/assistantScope";
 import { computeBriefing } from "@/lib/briefing";
 import { loadMemory } from "@/lib/assistantMemory";
+import { looksLikeCorrection, reflectAndLearn } from "@/lib/selfLearn";
 import { loadConversationContext, saveChatTurns, maybeCompact, resetConversation } from "@/lib/assistantChatHistory";
 import { executeLatestPending, cancelLatestPending, autoApplyPending, getPendingDraft } from "@/lib/assistantWrites";
 import { isConfirmText, isCancelText, isResetText, isShowFilesText, isMuteDocReminders, isUnmuteDocReminders } from "@/lib/confirmIntent";
@@ -523,6 +524,18 @@ export async function POST(req: NextRequest) {
     // (fires only every ~25 turns); runs AFTER the reply is already sent, so it
     // never delays the admin's answer. Internally swallows all errors.
     await maybeCompact(scope.userId);
+
+    // SELF-LEARN: if this turn was a correction / teaching / frustration, reflect
+    // on it and save a durable RULE — in CODE, so a lesson sticks even when Flash
+    // wouldn't have called rememberAboutMe. Runs AFTER the reply is sent (no delay
+    // to the answer); tells the founder what it learned so they can catch a bad one.
+    if (looksLikeCorrection(userText)) {
+      const learned = await reflectAndLearn(scope.userId, userText, result.text || "", flashModel).catch(() => null);
+      if (learned) {
+        await tgSend(chatId, `📝 Got it — I'll remember this from now on: ${learned}\n(if that's wrong, say "forget that")`);
+        await saveChatTurns(scope.userId, [{ role: "assistant", content: `[learned a lasting rule: ${learned}]` }]);
+      }
+    }
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
     console.error("[telegram] generate failed:", detail);

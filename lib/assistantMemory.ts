@@ -23,3 +23,25 @@ export async function loadMemory(adminUserId: string | null): Promise<string> {
   if (!rows.length) return "";
   return rows.reverse().map((r) => `- ${r.text}`).join("\n");
 }
+
+/** Save a durable rule the bot LEARNED (from rememberAboutMe OR auto-reflection),
+ *  deduped case-insensitively so the same lesson isn't stored twice. Best-effort:
+ *  returns true if a NEW row was written, false if it was a dup / failed. */
+export async function saveMemory(adminUserId: string | null, text: string, kind = "correction"): Promise<boolean> {
+  const clean = (text || "").trim();
+  if (!adminUserId || clean.length < 4) return false;
+  try {
+    const db = getServiceSupabase();
+    const { data: existing } = await db
+      .from("assistant_memory")
+      .select("text")
+      .eq("owner_user_id", adminUserId)
+      .limit(300);
+    const needle = clean.toLowerCase();
+    if (((existing as { text: string }[] | null) ?? []).some((r) => (r.text ?? "").trim().toLowerCase() === needle)) return false;
+    const { error } = await db.from("assistant_memory").insert({ owner_user_id: adminUserId, text: clean.slice(0, 300), kind });
+    return !error;
+  } catch {
+    return false;
+  }
+}
