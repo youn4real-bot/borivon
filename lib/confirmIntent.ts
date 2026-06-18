@@ -135,3 +135,27 @@ export function looksLikeDone(t: string): boolean {
   if (n.length < 3 || n.length > 240) return false;
   return DONE_RE.test(n);
 }
+
+// "rule: X" / "new rule: X" / "règle: X" — the founder PROGRAMMING the bot from chat
+// with an explicit standing rule. Detected + saved VERBATIM in code so it's captured
+// identically on ANY model (a weak model might paraphrase or skip the rememberAboutMe
+// tool). Requires the explicit "rule:" lead (with : or –) so it can NEVER misfire on
+// a normal sentence that merely contains the word "rule". The fuzzy "from now
+// on/always/never …" phrasings are still caught separately by selfLearn.
+const RULE_LEAD = /^(?:\/rule\s+|rule\s*[:\-–—]\s*|new rule\s*[:\-–—]\s*|set (?:a )?rule\s*[:\-–—]\s*|add (?:a )?rule\s*[:\-–—]\s*|make (?:it )?a rule\s*[:\-–—]\s*|r[eè]gle\s*[:\-–—]\s*|regel\s*[:\-–—]\s*)/i;
+
+/** Extract the rule text from a "rule: X" message. "" if it isn't one. */
+export function parseRuleText(t: string): string {
+  const n = (t || "").trim();
+  const m = n.match(RULE_LEAD);
+  if (!m) return "";
+  return n.slice(m[0].length).replace(/^[\s:\-–—]+/, "").trim().slice(0, 300);
+}
+
+/** True when the founder is explicitly setting a standing rule ("rule: …"). */
+export function isSetRule(t: string): boolean {
+  const n = (t || "").trim();
+  if (!n || n.length > 400) return false;
+  if (!RULE_LEAD.test(n)) return false;
+  return parseRuleText(n).length >= 3;
+}

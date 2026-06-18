@@ -984,10 +984,10 @@ export function buildAssistantTools(
     // ── Memory: how the admin likes to work (learned, applied every chat) ──
     rememberAboutMe: tool({
       description:
-        "Save DURABLE info so you never have to be told it again: (a) a rule about HOW you should WORK — 'prefers short answers', 'always lead with passports', 'wants dates as DD.MM.YYYY', 'for B2 of named people use getB2Status, never getB2Overview' (kind preference/term/correction); or (b) one of the admin's recurring EXTERNAL CONTACTS — a recruiter / employer / partner they email, stored as 'Name = email' e.g. 'Anna Gombert = a.gombert@calmaroi.de' (kind 'contact'), so next time they say 'email Anna' or 'CC Omar' you already have the address. Call it whenever the admin states a lasting preference, teaches a term, corrects you for the future, OR gives you a contact's name+email to keep — then confirm briefly. Do NOT store: one-off tasks (use saveReminder); a CANDIDATE's transient status (e.g. 'Hajar is on leave until June', 'Ali failed B2') — that's about a candidate, not durable; or anything tied to a one-time date/deadline.",
+        "Save DURABLE info / a STANDING RULE so you never have to be told it again. For a HARD RULE the founder programs ('from now on…', 'always…', 'never…', 'going forward…') pass kind 'rule' — it's injected into EVERY future turn and you MUST follow it. Otherwise: (a) a rule about HOW you should WORK — 'prefers short answers', 'always lead with passports', 'wants dates as DD.MM.YYYY', 'for B2 of named people use getB2Status, never getB2Overview' (kind preference/term/correction); or (b) one of the admin's recurring EXTERNAL CONTACTS — a recruiter / employer / partner they email, stored as 'Name = email' e.g. 'Anna Gombert = a.gombert@calmaroi.de' (kind 'contact'), so next time they say 'email Anna' or 'CC Omar' you already have the address. Call it whenever the admin states a lasting preference, teaches a term, corrects you for the future, OR gives you a contact's name+email to keep — then confirm briefly. Do NOT store: one-off tasks (use saveReminder); a CANDIDATE's transient status (e.g. 'Hajar is on leave until June', 'Ali failed B2') — that's about a candidate, not durable; or anything tied to a one-time date/deadline.",
       inputSchema: z.object({
         text: z.string().min(1).max(300),
-        kind: z.enum(["preference", "fact", "term", "correction", "contact"]).default("preference"),
+        kind: z.enum(["preference", "fact", "term", "correction", "contact", "rule"]).default("preference"),
       }),
       execute: async ({ text, kind }) => {
         if (!scope.userId) return { error: "no_user" };
@@ -1013,21 +1013,43 @@ export function buildAssistantTools(
     }),
 
     recallMemory: tool({
-      description: "List everything you currently remember about the admin (their preferences/terms/facts). Use when they ask 'what do you know about me?' or 'what do you remember'.",
+      description: "List the founder's STANDING RULES + everything you remember about them (preferences/terms/facts/contacts). Use for 'what do you know about me', 'what do you remember', 'show my rules', 'what rules do you follow'. Present rules as a clean NUMBERED list so the founder can say 'change rule 3' / 'delete rule 2' — map the number back to its memoryId for editRule/forgetMemory.",
       inputSchema: z.object({}),
       execute: async () => {
         const { data, error } = await db
           .from("assistant_memory")
-          .select("id, kind, text")
+          .select("id, kind, text, created_at")
           .eq("owner_user_id", scope.userId)
           .order("created_at", { ascending: true });
         if (error) return { error: "load_failed" };
-        return { memory: ((data ?? []) as { id: string; kind: string; text: string }[]).map((r) => ({ memoryId: r.id, kind: r.kind, text: r.text })) };
+        // Rules first (so the numbered list leads with what the founder programmed).
+        const rows = ((data ?? []) as { id: string; kind: string; text: string }[])
+          .sort((a, b) => (a.kind === "rule" ? 0 : 1) - (b.kind === "rule" ? 0 : 1));
+        return { memory: rows.map((r) => ({ memoryId: r.id, kind: r.kind, text: r.text })) };
+      },
+    }),
+
+    editRule: tool({
+      description: "Change/replace the text of ONE existing rule or remembered item by its memoryId (get ids from recallMemory). Use when the founder says 'change that rule', 'update the rule about X', 'make it … instead', 'tweak rule 3'. Keeps it as a single rule (no duplicate).",
+      inputSchema: z.object({ memoryId: z.string().uuid(), newText: z.string().min(1).max(300) }),
+      execute: async ({ memoryId, newText }) => {
+        const clean = newText.trim();
+        if (!clean) return { error: "empty" };
+        const { data, error } = await db
+          .from("assistant_memory")
+          .update({ text: clean.slice(0, 300) })
+          .eq("id", memoryId)
+          .eq("owner_user_id", scope.userId) // can only edit your OWN rules
+          .select("id")
+          .maybeSingle();
+        if (error) return { error: "update_failed" };
+        if (!data) return { error: "not_found" };
+        return { updated: true, text: clean.slice(0, 300) };
       },
     }),
 
     forgetMemory: tool({
-      description: "Delete one remembered item by its memoryId (get ids from recallMemory). Use when the admin says 'forget that', 'that's wrong', or 'stop doing that'.",
+      description: "Delete one rule/remembered item by its memoryId (get ids from recallMemory). Use when the founder says 'forget that', 'that's wrong', 'stop doing that', 'delete rule 2', 'drop the rule about X'.",
       inputSchema: z.object({ memoryId: z.string().uuid() }),
       execute: async ({ memoryId }) => {
         const { error } = await db.from("assistant_memory").delete().eq("id", memoryId).eq("owner_user_id", scope.userId);

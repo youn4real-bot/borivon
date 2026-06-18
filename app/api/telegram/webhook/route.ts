@@ -20,11 +20,11 @@ import { vertexModel, chooseTier, looksWeak, proConfigured } from "@/lib/vertexM
 import { buildAssistantTools } from "@/lib/assistantTools";
 import type { AssistantScope } from "@/lib/assistantScope";
 import { computeBriefing } from "@/lib/briefing";
-import { loadMemory } from "@/lib/assistantMemory";
+import { loadMemory, saveMemory } from "@/lib/assistantMemory";
 import { looksLikeCorrection, reflectAndLearn } from "@/lib/selfLearn";
 import { loadConversationContext, saveChatTurns, maybeCompact, resetConversation } from "@/lib/assistantChatHistory";
 import { executeLatestPending, cancelLatestPending, autoApplyPending, getPendingDraft } from "@/lib/assistantWrites";
-import { isConfirmText, isCancelText, isResetText, isShowFilesText, isMuteDocReminders, isUnmuteDocReminders, isSetReminder, parseReminderText, looksLikeDone } from "@/lib/confirmIntent";
+import { isConfirmText, isCancelText, isResetText, isShowFilesText, isMuteDocReminders, isUnmuteDocReminders, isSetReminder, parseReminderText, looksLikeDone, isSetRule, parseRuleText } from "@/lib/confirmIntent";
 import { createReminder, resolveDoneReminders } from "@/lib/reminderAuto";
 import { listDraftAttachments } from "@/lib/gmailApi";
 import { signDlToken } from "@/lib/dlToken";
@@ -94,6 +94,7 @@ const TG_SYSTEM = [
   "- ALL DOCS AT ONCE: for 'send me ALL of X's documents / everything on X / her whole file / all his papers', call getAllCandidateDocuments(candidateUserId) ONCE — it delivers EVERY file in one go (optional filter like 'passport' or 'diploma'). Never loop getDocumentDownloadLink one doc at a time, and never say you can't find their docs before calling it.",
   "- FULL CANDIDATE INFO / IDENTITY: for ANY identity or passport field — passport number, date of birth, sex, nationality, full address, city/country of birth, marital status, children, issuing authority, passport issue/expiry dates, or their EMAIL — call getCandidateById (it returns ALL of these in one shot). NEVER say you can't find a field before calling it.",
   "- LEARN FROM ME — this is how I train you, so I never have to re-explain (don't make me repeat myself): the MOMENT I state a standing preference, teach a term, or correct you for the future, immediately call rememberAboutMe(text, kind) with the lesson written as a clear STANDING RULE, then confirm in one line ('Got it — from now on I'll …'). Trigger words: 'from now on', 'always', 'never', 'stop doing/saying', 'I prefer', 'remember (that)', 'note that', 'in future', 'next time', 'going forward', 'when I say X I mean Y', 'you should have', 'that's wrong', 'don't do that again'. If I CORRECT a mistake, store the GENERAL rule that prevents it next time — e.g. after the B2 mix-up: rememberAboutMe('When asked for the B2 status of specific/named people, call getB2Status with their exact names — never getB2Overview.', 'correction'). 'what do you know about me?' → recallMemory; 'forget that' / 'that's no longer true' → forgetMemory (ids from recallMemory). Do NOT store one-off tasks (use saveReminder) or candidate data — only durable rules about how I WORK. IMPORTANT: a 'from now on / always / never' that's about ONE candidate or a temporary situation is NOT a standing rule — e.g. 'never tell candidates it takes 3 months' is a behaviour rule (store it ✓), but 'Hajar is on leave until June' is a fact about a person (do NOT store as a rule — that's saveReminder/candidate info). DO remember the admin's recurring EXTERNAL CONTACTS — a recruiter/employer/partner's name + email — via rememberAboutMe(kind 'contact'), e.g. 'Anna Gombert = a.gombert@calmaroi.de', so next time they say 'email Anna' or 'CC Omar' you already have the address (and can put it in sendExternalEmail's to/cc). Everything you've learned is in the STANDING INSTRUCTIONS section — obey it.",
+  "- PROGRAM ME WITH RULES (the founder customizes me entirely from this chat — never through code): when he sets a HARD RULE — 'from now on…', 'always…', 'never…', 'going forward…', 'make it a rule…' — call rememberAboutMe with kind:'rule' and confirm in one line. (He can also type 'rule: <X>' and the system saves it verbatim before you even run — if that already happened this turn, don't re-save.) To MANAGE rules, all from chat: 'show my rules' / 'what rules do you follow' → recallMemory, present them as a clean NUMBERED list; 'change rule N' / 'update the rule about X' → editRule(memoryId, newText); 'delete/forget rule N' → forgetMemory(memoryId) (map the number to its memoryId from recallMemory). Every saved rule appears in THE FOUNDER'S STANDING RULES block and you OBEY it every turn. These rules are NOT tied to any model — they carry across Claude, Gemini, or any future brain.",
   "- Keep replies short and mobile-friendly (it's a chat). Reply in the admin's language (German/French/English).",
 ].join("\n");
 
@@ -309,6 +310,24 @@ export async function POST(req: NextRequest) {
     // empty task ("remind me …" with nothing after) → fall through; the model asks what.
   }
 
+  // 3.9) CODE-ENFORCED "rule: X" — the founder PROGRAMMING the bot from chat. Saved
+  // verbatim as a standing RULE here so it lands IDENTICALLY on any model (a weak
+  // model might paraphrase or skip rememberAboutMe). It's then injected into EVERY
+  // future turn (THE FOUNDER'S STANDING RULES block) and obeyed. This is the core of
+  // "customize the bot from Telegram, never touch the code" — model-independent.
+  if (text && !(msg.photo && msg.photo.length) && !msg.document && !msg.voice && isSetRule(text)) {
+    const ruleText = parseRuleText(text);
+    if (ruleText) {
+      const saved = await saveMemory(scope.userId, ruleText, "rule").catch(() => false);
+      const reply = saved
+        ? `✅ Rule saved — I'll follow it from now on, every time, no matter which AI is running:\n"${ruleText}"\n(Say "show my rules" to see them all, or "delete that rule" to remove it.)`
+        : `✅ I already have that exact rule — it's active. (If it didn't save, send it once more.)`;
+      await tgSend(chatId, reply);
+      await saveChatTurns(scope.userId, [{ role: "user", content: text }, { role: "assistant", content: reply }]);
+      return ok();
+    }
+  }
+
   // 4) Build the user turn (attached file / voice / text).
   const caption = (msg.caption || "").trim();
   const photo = msg.photo && msg.photo.length ? msg.photo[msg.photo.length - 1] : null; // largest size
@@ -392,15 +411,20 @@ export async function POST(req: NextRequest) {
   // `dynamicContext` = the fresh per-turn context (uncached, cheap — ~600 tokens).
   // Learned rules are framed as binding and OVERRIDE the defaults above (TG_SYSTEM).
   let dynamicContext = nowLine;
-  if (memory) {
-    dynamicContext += `\n\n— — —\n\nSTANDING INSTRUCTIONS — things THIS admin has personally taught you. Treat EACH as a binding rule for your STYLE, priorities, wording, and tool choices, overriding the defaults stated above. (They do NOT relax the security, or who-you-can-act-on rules — those always stand.) Follow them exactly:\n${memory}`;
-  }
   // Older-than-the-live-tail context, compressed. The people, statuses and open
   // threads here are STILL CURRENT — treat them as things you genuinely remember,
   // so a reference like "the 4 CVs we talked about" or "yesterday's email"
   // resolves instead of "I don't have the context of our previous conversations".
   if (convo.summary) {
     dynamicContext += `\n\n— — —\n\nEARLIER IN THIS ONGOING CONVERSATION (a running summary of older messages now scrolled out of the live view — names, statuses, decisions and open threads below are STILL CURRENT context you remember; never say you "don't have context" when something here answers it):\n${convo.summary}`;
+  }
+  // The founder's STANDING RULES go LAST — closest to the conversation (recency =
+  // best adherence on ANY model, weak or strong) — and framed as non-negotiable so
+  // a rule he programmed in chat ALWAYS wins over a default. This is what makes the
+  // bot self-programmable: these are plain text injected every turn, so they apply
+  // identically whether the brain is Claude, Gemini, or anything future.
+  if (memory) {
+    dynamicContext += `\n\n— — —\n\n⚠️ THE FOUNDER'S STANDING RULES — HARD rules he programmed himself, by chat. They are NON-NEGOTIABLE and OVERRIDE every default in your instructions above: wording, tone, priorities, tool choices, who to CC, defaults — everything. Follow EVERY one, EVERY time, with NO exceptions. If a rule conflicts with a default, the RULE WINS. (They do NOT relax security or who-you-can-act-on — those always stand.) Obey:\n${memory}`;
   }
   // HYBRID ROUTING: cheap Flash by default; auto-pick Pro for hard requests
   // (multi-person, "these candidates", files, voice, comparisons). Below we
