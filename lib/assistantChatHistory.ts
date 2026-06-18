@@ -181,6 +181,7 @@ export async function maybeCompact(ownerUserId: string): Promise<void> {
         `EXISTING RUNNING SUMMARY (may be empty):\n${prevSummary || "(none yet)"}\n\n` +
         `OLDER MESSAGES TO FOLD IN (oldest first):\n${transcript}\n\n` +
         `Return the UPDATED running summary only.`,
+      maxOutputTokens: 2048, // a running summary, not an essay — and Claude REQUIRES max_tokens
     });
     const next = (text || "").trim().slice(0, SUMMARY_MAX);
     if (!next) return;

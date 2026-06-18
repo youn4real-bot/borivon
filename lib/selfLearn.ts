@@ -47,6 +47,7 @@ export async function reflectAndLearn(
         content: `Founder said:\n"${(userMsg || "").slice(0, 900)}"\n\nThe bot's last reply / action was:\n"${(botReply || "").slice(0, 500)}"\n\nThe lasting rule (or NONE):`,
       }],
       temperature: 0.2,
+      maxOutputTokens: 200, // one short rule (<220 chars) — and Claude REQUIRES max_tokens
     });
     const rule = (res.text || "").trim().replace(/^["'`]+|["'`]+$/g, "").trim();
     if (!rule || /^none\b/i.test(rule) || rule.length < 8 || rule.length > 220) return null;

@@ -1,13 +1,17 @@
 /**
- * Shared Gemini-on-Vertex model factory (EU/Frankfurt region) — used by BOTH the
- * in-app assistant route and the Telegram bot, so they run the same brain with
- * the same EU data-residency posture. Returns null when the Vertex key isn't
- * configured, so callers can degrade gracefully (the feature stays inert).
+ * Shared model factory — used by BOTH the in-app assistant route and the Telegram
+ * bot, so they run the same brain. Returns null when no model key is configured,
+ * so callers can degrade gracefully (the feature stays inert).
  *
- * FLASH BY DEFAULT (cost): everything runs on cheap gemini-2.5-flash. Flash is
- * made reliable through the WIRING, not a bigger model — batch tools (getCvLinks
- * / getB2Status) collapse multi-step work into one call, conversation history
- * resolves "these candidates", and worked examples in the prompts pin the
+ * CLAUDE FIRST (the founder's chosen brain, 2026-06-18): when ANTHROPIC_API_KEY is
+ * set, the WHOLE bot runs on Claude — Haiku 4.5 by default. Delete the key and it
+ * falls straight back to Gemini-on-Vertex (everything below) with zero other
+ * changes. See makeAnthropic() for the why + the one-line escape hatch to Sonnet.
+ *
+ * GEMINI FALLBACK — FLASH BY DEFAULT (cost): with no Anthropic key, everything runs
+ * on cheap gemini-2.5-flash, made reliable through the WIRING, not a bigger model —
+ * batch tools (getCvLinks / getB2Status) collapse multi-step work into one call,
+ * conversation history resolves "these candidates", and worked examples pin the
  * behaviour that used to fumble.
  *
  * OPTIONAL PRO: a pricier brain is only used when ASSISTANT_MODEL_ID_PRO is set
@@ -15,6 +19,7 @@
  * get escalated on a weak reply. Unset (the default) ⇒ pure Flash, zero Pro spend.
  */
 import { createVertex } from "@ai-sdk/google-vertex";
+import { createAnthropic } from "@ai-sdk/anthropic";
 
 export type ModelTier = "flash" | "pro";
 
@@ -27,6 +32,24 @@ function makeVertex() {
   try { credentials = JSON.parse(credsRaw); } catch { return null; }
   return createVertex({ project, location, googleAuthOptions: { credentials } });
 }
+
+// ── CLAUDE — the founder's chosen brain (2026-06-18) ─────────────────────────
+// When ANTHROPIC_API_KEY is set, the WHOLE bot runs on Claude instead of Gemini:
+// Haiku 4.5 for the default tier (cheap, 200K context, and — unlike Flash — it
+// actually OBEYS the remembered standing-instructions every turn, which was the
+// real reason Flash felt "dumb"). This is the ONLY switch: delete the key and the
+// entire bot falls straight back to Gemini-on-Vertex with zero other changes.
+//
+// ONE-LINE ESCAPE HATCH to a smarter brain — NO code edit, NO new deploy logic:
+// set the Vercel env var ASSISTANT_CLAUDE_FLASH=claude-sonnet-4-6 and redeploy.
+// Everything keeps working; only the model string changes.
+function makeAnthropic() {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) return null;
+  return createAnthropic({ apiKey: key });
+}
+const claudeFlashId = () => process.env.ASSISTANT_CLAUDE_FLASH || "claude-haiku-4-5";
+const claudeProId = () => process.env.ASSISTANT_CLAUDE_PRO || "claude-sonnet-4-6";
 
 // ────────────────────────────────────────────────────────────────────────────
 // HARD LOCK — FLASH ONLY. Founder's decision (2026-06-14), after the long
@@ -48,8 +71,14 @@ export function proConfigured(): boolean {
   return ALLOW_PRO && !!process.env.ASSISTANT_MODEL_ID_PRO;
 }
 
-/** The model for a tier (default Flash). Returns null if Vertex isn't configured. */
+/** The model for a tier. Claude when ANTHROPIC_API_KEY is set (Haiku default),
+ *  else Gemini-on-Vertex (Flash). Returns null only when NEITHER is configured. */
 export function vertexModel(tier: ModelTier = "flash") {
+  // Claude first — the founder's chosen brain. Pro tier only resolves to a
+  // distinct (pricier) model when the hard lock is open; otherwise stays Haiku.
+  const anthropic = makeAnthropic();
+  if (anthropic) return anthropic(tier === "pro" && ALLOW_PRO ? claudeProId() : claudeFlashId());
+  // Gemini-on-Vertex fallback.
   const vertex = makeVertex();
   if (!vertex) return null;
   return vertex(tier === "pro" ? proId() : flashId());

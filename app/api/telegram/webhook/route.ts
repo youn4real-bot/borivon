@@ -128,7 +128,7 @@ export async function POST(req: NextRequest) {
   }
 
   const flashModel = vertexModel("flash");
-  if (!flashModel) { await tgSend(chatId, "The assistant isn't connected yet (missing the Google Vertex key)."); return ok(); }
+  if (!flashModel) { await tgSend(chatId, "The assistant isn't connected yet (no model key configured — set ANTHROPIC_API_KEY or the Google Vertex keys)."); return ok(); }
   const proModel = vertexModel("pro") ?? flashModel;
 
   const adminUserId = await getAdminUserId();
@@ -374,10 +374,16 @@ export async function POST(req: NextRequest) {
     system: tgSystem,
     messages: [...history, { role: "user" as const, content }],
     tools: buildAssistantTools(scope, pendingFile),
-    // Gemini's DEFAULT is 1.0 (maximally random) — wrong for an 80-tool / 20-step
-    // loop. 0.4 = steadier tool/arg selection AND less rambly prose (helps BOTH
-    // reliability and the natural feel). Don't go to 0 (degenerate) or >~0.7.
+    // 0.4 = steadier tool/arg selection AND less rambly prose (helps BOTH
+    // reliability and the natural feel) for a 90-tool / 20-step loop. Don't go to
+    // 0 (degenerate) or >~0.7. Valid on both Claude (temp alone, no top_p) and
+    // Gemini (whose untamed default is 1.0).
     temperature: 0.4,
+    // Anthropic REQUIRES max_tokens — without it the Claude path errors. 8192 is a
+    // generous ceiling for the longest replies (full morning briefing, multi-item
+    // lists) without risking truncation; you only pay for tokens actually emitted.
+    // Gemini accepts the same field, so this is safe on both brains.
+    maxOutputTokens: 8192,
     // Headroom for multi-item requests (e.g. "pull the CVs of these 4 people"):
     // the batch tools (getCvLinks) collapse most of that into one call, but
     // keep a generous ceiling so a per-person fallback path can still finish.

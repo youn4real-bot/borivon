@@ -22,10 +22,21 @@ export function extractTokens(usage: unknown): { input: number; output: number }
   };
 }
 
-/** Rough USD estimate for Gemini 2.5 Flash (input ~$0.30 / output ~$2.50 per 1M
- *  tokens). Deliberately approximate — for "am I burning money?" not invoicing. */
+/** Rough USD estimate, priced to whatever brain the bot is actually running.
+ *  Deliberately approximate — for "am I burning money?" not invoicing. Tracks the
+ *  same env switch as vertexModel: Claude (Haiku $1/$5, or Sonnet/Opus if the
+ *  escape-hatch env points there) when ANTHROPIC_API_KEY is set, else Gemini 2.5
+ *  Flash ($0.30/$2.50). NOTE: once prompt caching is on, the real input bill is
+ *  lower than this (cache reads bill ~0.1×) — this stays a safe upper bound. */
 export function estimateCostUsd(input: number, output: number): number {
-  const usd = (input / 1_000_000) * 0.30 + (output / 1_000_000) * 2.50;
+  let inRate = 0.30, outRate = 2.50; // Gemini 2.5 Flash, per 1M tokens
+  if (process.env.ANTHROPIC_API_KEY) {
+    const m = (process.env.ASSISTANT_CLAUDE_FLASH || "claude-haiku-4-5").toLowerCase();
+    if (m.includes("opus")) { inRate = 5.00; outRate = 25.00; }
+    else if (m.includes("sonnet")) { inRate = 3.00; outRate = 15.00; }
+    else { inRate = 1.00; outRate = 5.00; } // Haiku 4.5 (the default)
+  }
+  const usd = (input / 1_000_000) * inRate + (output / 1_000_000) * outRate;
   return Math.round(usd * 100) / 100;
 }
 
