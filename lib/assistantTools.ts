@@ -1110,15 +1110,19 @@ export function buildAssistantTools(
 
     getCandidatePhone: tool({
       description:
-        "Get a candidate's phone number (for a WhatsApp / call reminder) by candidateUserId. Read-only. Returns the number + a ready wa.me link.",
+        "Get a candidate's CONTACT details — phone AND email — by candidateUserId. Read-only. Returns their phone, a ready wa.me link, and their account email. USE THIS for 'what's X's email', 'what's their number', 'how do I reach X', or to grab a recipient address before emailing.",
       inputSchema: z.object({ candidateUserId: z.string().uuid() }),
       execute: async ({ candidateUserId }) => {
         if (lockedOut) return { error: "out_of_scope" };
         if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
         const { data } = await db.from("candidate_profiles").select("phone").eq("user_id", candidateUserId).maybeSingle();
         const phone = (data as { phone?: string | null } | null)?.phone ?? null;
+        // Email = the candidate's account (auth) email — the authoritative address
+        // sendCandidateMessage uses. Best-effort: never fail the whole tool over it.
+        let email: string | null = null;
+        try { const { data: u } = await db.auth.admin.getUserById(candidateUserId); email = u?.user?.email ?? null; } catch { /* leave null */ }
         const name = await displayName(candidateUserId);
-        return { name, phone, wa: phone ? `https://wa.me/${phone.replace(/[^0-9]/g, "")}` : null };
+        return { name, phone, email, wa: phone ? `https://wa.me/${phone.replace(/[^0-9]/g, "")}` : null };
       },
     }),
 

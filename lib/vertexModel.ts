@@ -20,7 +20,7 @@ export type ModelTier = "flash" | "pro";
 export type Brain = "gemini" | "claude";
 
 // ⇩⇩⇩ THE switch. One line flips the bot's main brain. ⇩⇩⇩
-export const PRIMARY_BRAIN: Brain = "gemini";
+export const PRIMARY_BRAIN: Brain = "claude";
 
 // ── Gemini on Vertex (EU/Frankfurt) ──────────────────────────────────────────
 function makeVertex() {
