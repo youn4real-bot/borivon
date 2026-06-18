@@ -157,5 +157,5 @@ export function isSetRule(t: string): boolean {
   const n = (t || "").trim();
   if (!n || n.length > 400) return false;
   if (!RULE_LEAD.test(n)) return false;
-  return parseRuleText(n).length >= 3;
+  return parseRuleText(n).length >= 4; // align with saveMemory's >=4 floor (B14)
 }

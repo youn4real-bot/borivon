@@ -311,14 +311,15 @@ describe("assistant tools enforce LAW #25 scope (org-admin)", () => {
 });
 
 describe("assistant tools allow the supreme admin", () => {
-  it("getDocumentDownloadLink mints a 3-minute link (admin token) for any candidate", async () => {
+  it("getDocumentDownloadLink mints a 10-minute link (admin token) for any candidate", async () => {
     h.tables.documents = { data: { id: "doc1", user_id: "any-cand", file_name: "cv.pdf", drive_file_id: "drive1" }, error: null };
     const r = (await run(buildAssistantTools(SUPREME), "getDocumentDownloadLink", { docId: "doc1" })) as {
       url: string;
       expiresInSec: number;
     };
-    expect(h.signDlToken).toHaveBeenCalledWith("admin-id", 180);
-    expect(r.expiresInSec).toBe(180);
+    // 600s (was 180) — the webhook delivers files AFTER the model run; 180 expired the tail of big batches (B7).
+    expect(h.signDlToken).toHaveBeenCalledWith("admin-id", 600);
+    expect(r.expiresInSec).toBe(600);
     expect(r.url).toContain("/api/portal/file?id=drive1");
     expect(r.url).toContain("dlt=");
     expect(r.url).toContain("dl=1");

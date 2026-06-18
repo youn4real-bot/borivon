@@ -384,7 +384,7 @@ export function buildAssistantTools(
         // Token carries the ADMIN's id (not the candidate's). /api/portal/file
         // re-runs roleByUserId + canActOnCandidate, so scope is re-enforced at
         // serve time and the link grants no API authority on its own (lib/dlToken).
-        const token = signDlToken(scope.userId, 180);
+        const token = signDlToken(scope.userId, 600); // 10 min — webhook delivers files AFTER the model run; 180s expired the tail of big batches (B7)
         // If this doc is a CV, serve the LIVE render from cv_draft (matches the
         // website now) instead of the stored snapshot — same freshness guarantee
         // as getCvLinks. Other docs (passport, diploma, certs) are uploaded files,
@@ -399,7 +399,7 @@ export function buildAssistantTools(
             const name = encodeURIComponent((d.file_name ?? "lebenslauf.pdf").slice(0, 180));
             const plain = kind === "cv_visa" ? "&plain=1" : "";
             const url = `/api/portal/cv/live-file?cand=${encodeURIComponent(d.user_id)}&dlt=${encodeURIComponent(token)}&dl=1${plain}&name=${name}`;
-            return { url, expiresInSec: 180, fileName: d.file_name ?? "lebenslauf.pdf", live: true };
+            return { url, expiresInSec: 600, fileName: d.file_name ?? "lebenslauf.pdf", live: true };
           }
         }
         const name = encodeURIComponent((d.file_name ?? "document").slice(0, 180));
@@ -407,7 +407,7 @@ export function buildAssistantTools(
           ? `id=${encodeURIComponent(d.drive_file_id)}`
           : `docId=${encodeURIComponent(d.id)}`;
         const url = `/api/portal/file?${idPart}&dlt=${encodeURIComponent(token)}&dl=1&name=${name}`;
-        return { url, expiresInSec: 180, fileName: d.file_name ?? "document" };
+        return { url, expiresInSec: 600, fileName: d.file_name ?? "document" };
       },
     }),
 
@@ -442,7 +442,7 @@ export function buildAssistantTools(
             const fn = String(d.firstName ?? "").trim().toLowerCase().replace(/\s+/g, "_") || "kandidat";
             const ln = String(d.lastName ?? "").trim().toLowerCase().replace(/\s+/g, "_") || "unbekannt";
             const fileName = `${fn}_${ln}_pflegekraft_lebenslauf.pdf`;
-            const token = signDlToken(scope.userId, 180);
+            const token = signDlToken(scope.userId, 600); // 10 min — webhook delivers files AFTER the model run; 180s expired the tail of big batches (B7)
             const url = `/api/portal/cv/live-file?cand=${encodeURIComponent(cand.userId)}&dlt=${encodeURIComponent(token)}&dl=1&name=${encodeURIComponent(fileName)}`;
             results.push({ query: raw, name: cand.name, status: "ok", url, fileName, kind: "cv_de", live: true });
             continue;
@@ -454,7 +454,7 @@ export function buildAssistantTools(
             .order("uploaded_at", { ascending: false });
           const cv = ((docs ?? []) as DocRow[]).find((d2) => CV_KINDS.has(resolveFileKey(d2.file_type)));
           if (!cv) { results.push({ query: raw, name: cand.name, status: "no_cv" }); continue; }
-          const token = signDlToken(scope.userId, 180);
+          const token = signDlToken(scope.userId, 600); // 10 min — webhook delivers files AFTER the model run; 180s expired the tail of big batches (B7)
           const fname = encodeURIComponent((cv.file_name ?? `${cand.name} CV`).slice(0, 180));
           const idPart = cv.drive_file_id ? `id=${encodeURIComponent(cv.drive_file_id)}` : `docId=${encodeURIComponent(cv.id)}`;
           const url = `/api/portal/file?${idPart}&dlt=${encodeURIComponent(token)}&dl=1&name=${fname}`;
@@ -486,7 +486,7 @@ export function buildAssistantTools(
         rows = rows.slice(0, 25); // generous cap; the webhook streams each file in
         if (rows.length === 0) return { results: [] };
         // One admin token serves every file (re-checked at /api/portal/file serve time).
-        const token = signDlToken(scope.userId, 180);
+        const token = signDlToken(scope.userId, 600); // 10 min — webhook delivers files AFTER the model run; 180s expired the tail of big batches (B7)
         // CVs render LIVE from cv_draft (same freshness as getCvLinks) — read the draft once.
         const { data: prof } = await db.from("candidate_profiles").select("cv_draft").eq("user_id", candidateUserId).maybeSingle();
         let draft = (prof as { cv_draft?: unknown } | null)?.cv_draft as unknown;
@@ -607,7 +607,7 @@ export function buildAssistantTools(
 
     findContactEmail: tool({
       description:
-        "Find a PERSON's email by name — for 'what's Anna's email', 'what's the recruiter's address', or to grab a recipient before emailing. Checks the contacts you've been taught (rememberAboutMe kind 'contact') AND the candidate roster (their account email). Returns { contacts:[{name,email,source}] } — empty if none found, in which case say you don't have it on file and offer to search the inbox (searchInbox) or ask for it. Supreme-only.",
+        "Find a PERSON's email by name — for 'what's Anna's email', 'what's the recruiter's address', or to grab a recipient before emailing. Checks THREE sources in order: (1) contacts you've been taught (rememberAboutMe kind 'contact'), (2) the candidate roster (their account email), (3) your Gmail inbox (someone who has emailed you — pulled off the sender header). Returns { contacts:[{name,email,source}] } — empty only if truly nowhere, in which case ask the founder for it; never invent one. Supreme-only.",
       inputSchema: z.object({ name: z.string().min(2).max(120) }),
       execute: async ({ name }) => {
         if (scope.role !== "admin" || !scope.userId) return { error: "admin_only" };
@@ -638,6 +638,19 @@ export function buildAssistantTools(
             try { const { data: u } = await db.auth.admin.getUserById(c.userId); if (u?.user?.email) add(c.name, u.user.email, "candidate"); } catch { /* skip */ }
           }
         } catch { /* best-effort */ }
+        // 3) Gmail inbox fallback — an EXTERNAL person (recruiter, employer) who has
+        // emailed the founder but was never saved as a contact. Only when nothing else
+        // matched, to keep it cheap. Pull their address off the sender header.
+        if (out.length === 0 && gmailApiReady()) {
+          try {
+            const hits = await gmailSearch(`from:(${name})`, 15);
+            for (const h of (hits ?? [])) {
+              if (!h.from) continue;
+              const hay = `${h.fromName ?? ""} ${h.from}`.toLowerCase();
+              if (toks.every((tk) => hay.includes(tk))) add(h.fromName || h.from, h.from, "inbox");
+            }
+          } catch { /* best-effort */ }
+        }
         return { contacts: out };
       },
     }),
@@ -807,7 +820,15 @@ export function buildAssistantTools(
       execute: async ({ candidateUserId }) => {
         if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
         const { data, error } = await db.from("candidate_status").select("vaccines").eq("user_id", candidateUserId).maybeSingle();
-        if (error) return { error: (error as { code?: string }).code === "PGRST205" ? "vaccines_not_set_up" : "load_failed" };
+        if (error) {
+          // `vaccines` is a hand-run COLUMN migration on an always-present table, so a
+          // missing column is 42703 / PGRST204 (NOT PGRST205 table-not-found). Treat all
+          // of those as "not set up yet" so the bot says that, not a generic error (B4).
+          const code = (error as { code?: string }).code ?? "";
+          const msg = (error as { message?: string }).message ?? "";
+          const missing = code === "42703" || code === "PGRST204" || code === "PGRST205" || /column .* does not exist|schema cache/i.test(msg);
+          return { error: missing ? "vaccines_not_set_up" : "load_failed" };
+        }
         const vaccines = (data as { vaccines?: unknown } | null)?.vaccines as Record<string, { doses?: { got?: boolean | null }[] }> | null | undefined;
         const got = (key: string) => ((vaccines?.[key]?.doses ?? []) as { got?: boolean | null }[]).filter((d) => d.got === true).length;
         const masernHave = got("masern"), varizellHave = got("varizell");
@@ -1024,7 +1045,7 @@ export function buildAssistantTools(
         } else {
           return { error: "need_messageId_or_query" };
         }
-        const token = signDlToken(scope.userId, 180);
+        const token = signDlToken(scope.userId, 600); // 10 min — webhook delivers files AFTER the model run; 180s expired the tail of big batches (B7)
         const results: { url: string; fileName: string; mimeType: string }[] = [];
         for (const mid of ids) {
           const atts = await listEmailAttachments(mid);
@@ -1055,7 +1076,7 @@ export function buildAssistantTools(
         const got = await listDraftAttachments(pend.draftId);
         if (!got) return { error: "read_failed" };
         if (got.attachments.length === 0) return { results: [], note: "no_attachments" };
-        const token = signDlToken(scope.userId, 180);
+        const token = signDlToken(scope.userId, 600); // 10 min — webhook delivers files AFTER the model run; 180s expired the tail of big batches (B7)
         const results = got.attachments.slice(0, 25).map((a) => ({
           url: `/api/portal/admin/email-attachment?mid=${encodeURIComponent(got.messageId)}&aid=${encodeURIComponent(a.attachmentId)}&dlt=${encodeURIComponent(token)}&name=${encodeURIComponent(a.filename)}`,
           fileName: a.filename,
@@ -1314,6 +1335,7 @@ export function buildAssistantTools(
       description: "List the founder's STANDING RULES + everything you remember about them (preferences/terms/facts/contacts). Use for 'what do you know about me', 'what do you remember', 'show my rules', 'what rules do you follow'. Present rules as a clean NUMBERED list so the founder can say 'change rule 3' / 'delete rule 2' — map the number back to its memoryId for editRule/forgetMemory.",
       inputSchema: z.object({}),
       execute: async () => {
+        if (!scope.userId) return { error: "no_user" };
         const { data, error } = await db
           .from("assistant_memory")
           .select("id, kind, text, created_at")
@@ -1331,6 +1353,7 @@ export function buildAssistantTools(
       description: "Change/replace the text of ONE existing rule or remembered item by its memoryId (get ids from recallMemory). Use when the founder says 'change that rule', 'update the rule about X', 'make it … instead', 'tweak rule 3'. Keeps it as a single rule (no duplicate).",
       inputSchema: z.object({ memoryId: z.string().uuid(), newText: z.string().min(1).max(300) }),
       execute: async ({ memoryId, newText }) => {
+        if (!scope.userId) return { error: "no_user" };
         const clean = newText.trim();
         if (!clean) return { error: "empty" };
         const { data, error } = await db
@@ -1350,6 +1373,7 @@ export function buildAssistantTools(
       description: "Delete one rule/remembered item by its memoryId (get ids from recallMemory). Use when the founder says 'forget that', 'that's wrong', 'stop doing that', 'delete rule 2', 'drop the rule about X'.",
       inputSchema: z.object({ memoryId: z.string().uuid() }),
       execute: async ({ memoryId }) => {
+        if (!scope.userId) return { error: "no_user" };
         const { error } = await db.from("assistant_memory").delete().eq("id", memoryId).eq("owner_user_id", scope.userId);
         if (error) return { error: "delete_failed" };
         return { forgotten: true };
@@ -2275,11 +2299,11 @@ export function buildAssistantTools(
         if (!path) return { error: which === "signed" ? "not_signed_yet" : "no_original_file" };
         // The signed/original PDFs live in the "sign-documents" Storage bucket — mint a
         // short-lived Supabase signed URL (absolute; the webhook fetches it as-is).
-        const { data: urlData, error: urlErr } = await db.storage.from("sign-documents").createSignedUrl(path, 180);
+        const { data: urlData, error: urlErr } = await db.storage.from("sign-documents").createSignedUrl(path, 600);
         if (urlErr || !urlData?.signedUrl) return { error: "serve_failed" };
         const base = (r.document_name ?? "dokument").replace(/[^\w.\-]+/g, "_") || "dokument";
         const fileName = base.toLowerCase().endsWith(".pdf") ? base : `${base}${which === "signed" ? "_signed" : ""}.pdf`;
-        return { url: urlData.signedUrl, fileName, expiresInSec: 180 };
+        return { url: urlData.signedUrl, fileName, expiresInSec: 600 };
       },
     }),
 

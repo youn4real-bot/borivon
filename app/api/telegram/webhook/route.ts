@@ -270,7 +270,7 @@ export async function POST(req: NextRequest) {
   // 3.7) CODE-ENFORCED MUTE/UNMUTE of the document-review nag. The model kept
   // "saving a preference" that the briefing cron never read, so the docs reminders
   // kept coming after the founder said stop (many times). Flip the REAL switch here.
-  if (text && !(msg.photo && msg.photo.length) && !msg.document && !msg.voice) {
+  if (text && !(msg.photo && msg.photo.length) && !msg.document && !msg.voice && !isSetRule(text)) {
     if (isMuteDocReminders(text)) {
       const err = await setAutomation("doc_reminders", false);
       // doc_reminders DEFAULTS to off, so even with no settings table the briefing,
@@ -303,7 +303,7 @@ export async function POST(req: NextRequest) {
   // just vanished. Detect it here and write the reminder ourselves so it ALWAYS lands
   // and shows in the briefing until he says it's done. (Runs AFTER unmute so "remind
   // me about docs again" still re-enables the doc nag instead of saving a task.)
-  if (text && !(msg.photo && msg.photo.length) && !msg.document && !msg.voice && isSetReminder(text)) {
+  if (text && !(msg.photo && msg.photo.length) && !msg.document && !msg.voice && !isSetRule(text) && isSetReminder(text)) {
     const task = parseReminderText(text);
     if (task) {
       const id = await createReminder(scope.userId, task);
@@ -325,10 +325,12 @@ export async function POST(req: NextRequest) {
   if (text && !(msg.photo && msg.photo.length) && !msg.document && !msg.voice && isSetRule(text)) {
     const ruleText = parseRuleText(text);
     if (ruleText) {
-      const saved = await saveMemory(scope.userId, ruleText, "rule").catch(() => false);
-      const reply = saved
+      const saved = await saveMemory(scope.userId, ruleText, "rule").catch(() => "failed" as const);
+      const reply = saved === "saved"
         ? `✅ Rule saved — I'll follow it from now on, every time, no matter which AI is running:\n"${ruleText}"\n(Say "show my rules" to see them all, or "delete that rule" to remove it.)`
-        : `✅ I already have that exact rule — it's active. (If it didn't save, send it once more.)`;
+        : saved === "duplicate"
+          ? `✅ I already have that exact rule — it's active. (Say "show my rules" to see them all.)`
+          : `⚠️ Couldn't save that rule just now — send it once more. (If it keeps failing, the assistant_memory table may need setting up.)`;
       await tgSend(chatId, reply);
       await saveChatTurns(scope.userId, [{ role: "user", content: text }, { role: "assistant", content: reply }]);
       return ok();
@@ -536,6 +538,10 @@ export async function POST(req: NextRequest) {
     // as a "link" (e.g. generativelanguage.googleapis.com/…), then tidy empty "()".
     reply = reply
       .replace(/https?:\/\/[a-z0-9.-]*generativelanguage\.googleapis\.com[^\s)]*/gi, "")
+      // Also strip any absolute Supabase Storage signed URL (getSignRequestFile mints
+      // these for delivery; the file is sent directly — the link must never leak into
+      // the chat text, where it would be a live ~10-min link). B11.
+      .replace(/https?:\/\/[a-z0-9.-]*supabase\.(?:co|in|net)\/storage[^\s)]*/gi, "")
       .replace(/\(\s*\)/g, "")
       .replace(/[ \t]{2,}/g, " ")
       .trim();

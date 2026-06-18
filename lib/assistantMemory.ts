@@ -9,39 +9,48 @@ import { getServiceSupabase } from "@/lib/supabase";
 export async function loadMemory(adminUserId: string | null): Promise<string> {
   if (!adminUserId) return "";
   const db = getServiceSupabase();
-  // Newest first + cap, so once the founder has taught >100 rules it's the most
-  // RECENT teachings that survive (not the oldest) — then re-order chronologically
-  // for a natural read. (Loading oldest-first silently dropped new lessons.)
-  const { data, error } = await db
-    .from("assistant_memory")
-    .select("text")
-    .eq("owner_user_id", adminUserId)
-    .order("created_at", { ascending: false })
-    .limit(100);
-  if (error) return ""; // memory is best-effort — never block the chat on it
-  const rows = (data ?? []) as { text: string }[];
-  if (!rows.length) return "";
-  return rows.reverse().map((r) => `- ${r.text}`).join("\n");
+  // Founder-programmed RULES must NEVER be evicted — that's the model-independent
+  // guarantee ("a rule sticks forever"). Auto-learned corrections (selfLearn) and
+  // other rows pile up, so load ALL kind='rule' rows unconditionally, then fill the
+  // rest of the budget with the newest non-rule rows. (Was: newest-100 of ANY kind,
+  // which silently evicted an old rule once 100 newer rows accumulated — B1.)
+  const [rulesRes, recentRes] = await Promise.all([
+    db.from("assistant_memory").select("text").eq("owner_user_id", adminUserId).eq("kind", "rule").order("created_at", { ascending: true }),
+    db.from("assistant_memory").select("text, kind").eq("owner_user_id", adminUserId).order("created_at", { ascending: false }).limit(150),
+  ]);
+  const rules = ((rulesRes.data ?? []) as { text: string }[]).map((r) => r.text);
+  const others = ((recentRes.data ?? []) as { text: string; kind: string | null }[])
+    .filter((r) => r.kind !== "rule")
+    .slice(0, 100)
+    .map((r) => r.text)
+    .reverse(); // chronological
+  const lines = [...rules, ...others];
+  if (!lines.length) return "";
+  return lines.map((t) => `- ${t}`).join("\n");
 }
 
+export type SaveMemoryResult = "saved" | "duplicate" | "failed";
+
 /** Save a durable rule the bot LEARNED (from rememberAboutMe OR auto-reflection),
- *  deduped case-insensitively so the same lesson isn't stored twice. Best-effort:
- *  returns true if a NEW row was written, false if it was a dup / failed. */
-export async function saveMemory(adminUserId: string | null, text: string, kind = "correction"): Promise<boolean> {
+ *  deduped case-insensitively. Returns a DISCRIMINATED result so callers can tell a
+ *  genuine write failure (report honestly) from a duplicate (already active) — the
+ *  webhook used to show "✅ already have it" on a real failure (B2). */
+export async function saveMemory(adminUserId: string | null, text: string, kind = "correction"): Promise<SaveMemoryResult> {
   const clean = (text || "").trim();
-  if (!adminUserId || clean.length < 4) return false;
+  if (!adminUserId || clean.length < 4) return "failed";
   try {
     const db = getServiceSupabase();
     const { data: existing } = await db
       .from("assistant_memory")
       .select("text")
       .eq("owner_user_id", adminUserId)
-      .limit(300);
+      .order("created_at", { ascending: false }) // deterministic dedupe window (B12)
+      .limit(400);
     const needle = clean.toLowerCase();
-    if (((existing as { text: string }[] | null) ?? []).some((r) => (r.text ?? "").trim().toLowerCase() === needle)) return false;
+    if (((existing as { text: string }[] | null) ?? []).some((r) => (r.text ?? "").trim().toLowerCase() === needle)) return "duplicate";
     const { error } = await db.from("assistant_memory").insert({ owner_user_id: adminUserId, text: clean.slice(0, 300), kind });
-    return !error;
+    return error ? "failed" : "saved";
   } catch {
-    return false;
+    return "failed";
   }
 }

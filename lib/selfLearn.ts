@@ -52,7 +52,7 @@ export async function reflectAndLearn(
     const rule = (res.text || "").trim().replace(/^["'`]+|["'`]+$/g, "").trim();
     if (!rule || /^none\b/i.test(rule) || rule.length < 8 || rule.length > 220) return null;
     const saved = await saveMemory(adminUserId, rule, "correction");
-    return saved ? rule : null; // null if it was already known (don't re-announce)
+    return saved === "saved" ? rule : null; // null if dup/failed (don't re-announce)
   } catch {
     return null;
   }

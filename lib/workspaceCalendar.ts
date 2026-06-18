@@ -31,6 +31,33 @@ function calTime(iso: string): { dateTime: string; timeZone?: string } {
   return HAS_TZ.test(t) ? { dateTime: t } : { dateTime: t, timeZone: BORIVON_TZ };
 }
 
+/** ms offset of `tz` from UTC at a given instant (handles DST / Morocco's Ramadan shift). */
+function tzOffsetMs(date: Date, tz: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz, hourCycle: "h23",
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(date).reduce((a, p) => { if (p.type !== "literal") a[p.type] = p.value; return a; }, {} as Record<string, string>);
+  const asUTC = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second);
+  return asUTC - date.getTime();
+}
+
+/** A bare local wall-clock ("2026-06-18T00:00:00"), interpreted in BORIVON_TZ, as a
+ *  true UTC instant. If it already carries Z/offset, it's absolute → parse as-is.
+ *  Used for calendar WINDOW bounds + duration math so they mean Casablanca time, not
+ *  the server's UTC (B5/B15). */
+function localToInstant(iso: string): Date {
+  const t = (iso ?? "").trim();
+  if (HAS_TZ.test(t)) return new Date(Date.parse(t));
+  const provisional = new Date(t + "Z");            // treat the wall-clock as if UTC
+  return new Date(provisional.getTime() - tzOffsetMs(provisional, BORIVON_TZ)); // shift to true UTC
+}
+
+/** Start of "today" in BORIVON_TZ, as a UTC instant (B16 default window floor). */
+function startOfTodayTz(): Date {
+  const todayIso = new Intl.DateTimeFormat("en-CA", { timeZone: BORIVON_TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  return localToInstant(`${todayIso}T00:00:00`);
+}
+
 export type BookEventResult =
   | { ok: true; id: string; htmlLink?: string; meetLink?: string }
   | { ok: false; error: string };
@@ -60,9 +87,10 @@ export async function bookWorkspaceEvent(opts: {
   if (opts.endsAt && !Number.isNaN(Date.parse(opts.endsAt))) {
     end = calTime(opts.endsAt);
   } else {
-    const startMs = Date.parse(start.dateTime.replace(HAS_TZ, "") + (HAS_TZ.test(start.dateTime) ? "" : "Z"));
-    const endIso = new Date(startMs + 60 * 60 * 1000).toISOString().slice(0, 19);
-    end = start.timeZone ? { dateTime: endIso, timeZone: start.timeZone } : { dateTime: endIso + "Z" };
+    // +1h on a DEFINITIVELY-absolute instant (B15): the old code stripped the Z then
+    // re-parsed as server-local, giving a wrong (or zero-length) end on a non-UTC host.
+    const endInstant = new Date(localToInstant(opts.startsAt).getTime() + 60 * 60 * 1000);
+    end = { dateTime: endInstant.toISOString() };
   }
   const requestBody: calendar_v3.Schema$Event = {
     summary: title,
@@ -114,8 +142,10 @@ export async function readWorkspaceCalendar(opts: { from?: string; to?: string; 
   const cal = calendarClient();
   if (!cal) return { ok: false, error: "workspace_not_connected" };
   const nowMs = Date.now();
-  const timeMin = (opts.from && !Number.isNaN(Date.parse(opts.from))) ? new Date(Date.parse(opts.from)).toISOString() : new Date(nowMs).toISOString();
-  const timeMax = (opts.to && !Number.isNaN(Date.parse(opts.to))) ? new Date(Date.parse(opts.to)).toISOString() : new Date(nowMs + 7 * 24 * 60 * 60 * 1000).toISOString();
+  // Interpret a bare-local from/to in BORIVON_TZ (B5 — was server-UTC). Default floor =
+  // start of TODAY in Casablanca (B16 — was `now`, which hid earlier-today events).
+  const timeMin = (opts.from && !Number.isNaN(Date.parse(opts.from))) ? localToInstant(opts.from).toISOString() : startOfTodayTz().toISOString();
+  const timeMax = (opts.to && !Number.isNaN(Date.parse(opts.to))) ? localToInstant(opts.to).toISOString() : new Date(nowMs + 7 * 24 * 60 * 60 * 1000).toISOString();
   try {
     const res = await cal.events.list({
       calendarId: "primary",
@@ -160,10 +190,18 @@ export async function updateWorkspaceEvent(opts: {
   if (opts.title && opts.title.trim()) requestBody.summary = opts.title.trim().slice(0, 300);
   if (opts.startsAt && !Number.isNaN(Date.parse(opts.startsAt.replace(HAS_TZ, "")))) requestBody.start = calTime(opts.startsAt);
   if (opts.endsAt && !Number.isNaN(Date.parse(opts.endsAt))) requestBody.end = calTime(opts.endsAt);
+  // Preserve the event's ORIGINAL duration when only the start moves (B6) — don't
+  // silently shrink a 2h meeting to 1h. GET the current event to read its span.
   if (requestBody.start && !requestBody.end && opts.startsAt) {
-    const startMs = Date.parse(opts.startsAt.replace(HAS_TZ, "") + (HAS_TZ.test(opts.startsAt) ? "" : "Z"));
-    const endIso = new Date(startMs + 60 * 60 * 1000).toISOString().slice(0, 19);
-    requestBody.end = requestBody.start.timeZone ? { dateTime: endIso, timeZone: requestBody.start.timeZone } : { dateTime: endIso + "Z" };
+    let durMs = 60 * 60 * 1000; // fallback: 1h
+    try {
+      const cur = await cal.events.get({ calendarId: "primary", eventId: opts.eventId });
+      const os = cur.data.start?.dateTime ?? cur.data.start?.date;
+      const oe = cur.data.end?.dateTime ?? cur.data.end?.date;
+      if (os && oe) { const d = Date.parse(oe) - Date.parse(os); if (Number.isFinite(d) && d > 0) durMs = d; }
+    } catch { /* keep the 1h fallback */ }
+    const endInstant = new Date(localToInstant(opts.startsAt).getTime() + durMs);
+    requestBody.end = { dateTime: endInstant.toISOString() };
   }
   if (opts.addMeet) {
     requestBody.conferenceData = { createRequest: { requestId: randomUUID(), conferenceSolutionKey: { type: "hangoutsMeet" } } };
