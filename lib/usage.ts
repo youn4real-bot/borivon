@@ -8,27 +8,37 @@
  */
 import { getServiceSupabase } from "@/lib/supabase";
 
-/** Pull input/output token counts out of whatever shape the AI SDK returned
- *  (v6: inputTokens/outputTokens; older: promptTokens/completionTokens). */
-export function extractTokens(usage: unknown): { input: number; output: number } {
+/** Pull token counts out of whatever shape the AI SDK returned.
+ *  - input/output: v6 inputTokens/outputTokens; older promptTokens/completionTokens.
+ *  - cacheRead/cacheWrite: the prompt-caching split (ai v6 usage.inputTokenDetails).
+ *    `input` is the TOTAL prompt input (= noCache + cacheRead + cacheWrite), so the
+ *    full-price portion is input − cacheRead − cacheWrite. cacheRead bills ~0.1×,
+ *    cacheWrite ~1.25×. Zeros when caching is off or the field is absent. */
+export function extractTokens(usage: unknown): { input: number; output: number; cacheRead: number; cacheWrite: number } {
   const u = (usage ?? {}) as Record<string, unknown>;
-  const num = (...keys: string[]): number => {
-    for (const k of keys) { const v = u[k]; if (typeof v === "number" && Number.isFinite(v)) return v; }
+  const num = (obj: Record<string, unknown>, ...keys: string[]): number => {
+    for (const k of keys) { const v = obj[k]; if (typeof v === "number" && Number.isFinite(v)) return v; }
     return 0;
   };
+  const details = (u.inputTokenDetails ?? {}) as Record<string, unknown>;
   return {
-    input: Math.max(0, Math.round(num("inputTokens", "promptTokens"))),
-    output: Math.max(0, Math.round(num("outputTokens", "completionTokens"))),
+    input: Math.max(0, Math.round(num(u, "inputTokens", "promptTokens"))),
+    output: Math.max(0, Math.round(num(u, "outputTokens", "completionTokens"))),
+    // cacheReadTokens is the standardized field; cachedInputTokens is the deprecated alias.
+    cacheRead: Math.max(0, Math.round(num(details, "cacheReadTokens") || num(u, "cachedInputTokens"))),
+    cacheWrite: Math.max(0, Math.round(num(details, "cacheWriteTokens"))),
   };
 }
 
-/** Rough USD estimate, priced to whatever brain the bot is actually running.
- *  Deliberately approximate — for "am I burning money?" not invoicing. Tracks the
- *  same env switch as vertexModel: Claude (Haiku $1/$5, or Sonnet/Opus if the
- *  escape-hatch env points there) when ANTHROPIC_API_KEY is set, else Gemini 2.5
- *  Flash ($0.30/$2.50). NOTE: once prompt caching is on, the real input bill is
- *  lower than this (cache reads bill ~0.1×) — this stays a safe upper bound. */
-export function estimateCostUsd(input: number, output: number): number {
+/** Rough USD estimate, priced to whatever brain the bot is actually running AND to
+ *  the prompt-cache split. Deliberately approximate — for "am I burning money?" not
+ *  invoicing. Tracks the same env switch as vertexModel: Claude (Haiku $1/$5, or
+ *  Sonnet/Opus if the escape-hatch env points there) when ANTHROPIC_API_KEY is set,
+ *  else Gemini 2.5 Flash ($0.30/$2.50). Caching multipliers (Anthropic-wide): fresh
+ *  input 1×, cache WRITE 1.25×, cache READ 0.1×. `input` is the TOTAL prompt input,
+ *  so fresh = input − cacheRead − cacheWrite. cacheRead/cacheWrite default 0 (caching
+ *  off / Gemini) → the old full-rate behaviour. */
+export function estimateCostUsd(input: number, output: number, cacheRead = 0, cacheWrite = 0): number {
   let inRate = 0.30, outRate = 2.50; // Gemini 2.5 Flash, per 1M tokens
   if (process.env.ANTHROPIC_API_KEY) {
     const m = (process.env.ASSISTANT_CLAUDE_FLASH || "claude-haiku-4-5").toLowerCase();
@@ -36,7 +46,12 @@ export function estimateCostUsd(input: number, output: number): number {
     else if (m.includes("sonnet")) { inRate = 3.00; outRate = 15.00; }
     else { inRate = 1.00; outRate = 5.00; } // Haiku 4.5 (the default)
   }
-  const usd = (input / 1_000_000) * inRate + (output / 1_000_000) * outRate;
+  const fresh = Math.max(0, input - cacheRead - cacheWrite);
+  const inputUsd =
+    (fresh / 1_000_000) * inRate +
+    (cacheWrite / 1_000_000) * inRate * 1.25 +
+    (cacheRead / 1_000_000) * inRate * 0.1;
+  const usd = inputUsd + (output / 1_000_000) * outRate;
   return Math.round(usd * 100) / 100;
 }
 
@@ -50,36 +65,64 @@ export function periodStartMs(period: UsagePeriod, now: number): number {
   return now - days * 86_400_000;
 }
 
-/** Log one turn's token usage. Best-effort; never throws, never blocks. */
+/** Log one turn's token usage. Best-effort; never throws, never blocks.
+ *  Forward-compatible: tries to store the cache split, and if the cache columns
+ *  aren't migrated yet (assistant_token_usage_cache.sql), retries WITHOUT them so
+ *  base usage logging keeps working — cost just reverts to a safe full-rate upper
+ *  bound until the column migration is run. */
 export async function logUsage(usage: unknown, model: string, source: string): Promise<void> {
-  const { input, output } = extractTokens(usage);
+  const { input, output, cacheRead, cacheWrite } = extractTokens(usage);
   if (!input && !output) return;
+  const base = {
+    input_tokens: input, output_tokens: output,
+    model: (model || "").slice(0, 60), source: (source || "").slice(0, 40),
+  };
   try {
-    await getServiceSupabase().from("assistant_token_usage").insert({
-      input_tokens: input, output_tokens: output, model: (model || "").slice(0, 60), source: (source || "").slice(0, 40),
-    });
+    const db = getServiceSupabase();
+    const { error } = await db.from("assistant_token_usage")
+      .insert({ ...base, cache_read_tokens: cacheRead, cache_write_tokens: cacheWrite });
+    if (error) await db.from("assistant_token_usage").insert(base); // pre-migration fallback
   } catch {
     /* table not migrated yet / transient → drop silently */
   }
 }
 
 export type UsageSummary =
-  | { ok: true; period: UsagePeriod; calls: number; input: number; output: number; total: number; estCostUsd: number }
+  | { ok: true; period: UsagePeriod; calls: number; input: number; output: number; total: number;
+      cacheRead: number; cacheWrite: number; cacheHitPct: number; estCostUsd: number }
   | { ok: false; error: string };
 
-/** Sum token usage over the period. */
+/** Sum token usage over the period. Reports the cache split + a cache-hit % so the
+ *  founder can SEE prompt caching working (and the $ reflects the ~0.1× cache reads).
+ *  Falls back gracefully if the cache columns aren't migrated yet. */
 export async function getUsageSummary(period: UsagePeriod, now: number = Date.now()): Promise<UsageSummary> {
   try {
     const since = new Date(periodStartMs(period, now)).toISOString();
-    const { data, error } = await getServiceSupabase()
-      .from("assistant_token_usage")
-      .select("input_tokens, output_tokens")
+    const db = getServiceSupabase();
+    // Try the cache-aware select; if those columns don't exist yet, fall back to base.
+    let data: unknown[] | null = null;
+    const withCache = await db.from("assistant_token_usage")
+      .select("input_tokens, output_tokens, cache_read_tokens, cache_write_tokens")
       .gte("created_at", since);
-    if (error) return { ok: false, error: "not_set_up" };
-    const rows = (data ?? []) as { input_tokens: number; output_tokens: number }[];
+    if (withCache.error) {
+      const baseOnly = await db.from("assistant_token_usage")
+        .select("input_tokens, output_tokens")
+        .gte("created_at", since);
+      if (baseOnly.error) return { ok: false, error: "not_set_up" };
+      data = baseOnly.data;
+    } else {
+      data = withCache.data;
+    }
+    const rows = (data ?? []) as { input_tokens: number; output_tokens: number; cache_read_tokens?: number; cache_write_tokens?: number }[];
     const input = rows.reduce((s, r) => s + (r.input_tokens || 0), 0);
     const output = rows.reduce((s, r) => s + (r.output_tokens || 0), 0);
-    return { ok: true, period, calls: rows.length, input, output, total: input + output, estCostUsd: estimateCostUsd(input, output) };
+    const cacheRead = rows.reduce((s, r) => s + (r.cache_read_tokens || 0), 0);
+    const cacheWrite = rows.reduce((s, r) => s + (r.cache_write_tokens || 0), 0);
+    const cacheHitPct = input > 0 ? Math.round((cacheRead / input) * 100) : 0;
+    return {
+      ok: true, period, calls: rows.length, input, output, total: input + output,
+      cacheRead, cacheWrite, cacheHitPct, estCostUsd: estimateCostUsd(input, output, cacheRead, cacheWrite),
+    };
   } catch {
     return { ok: false, error: "not_set_up" };
   }

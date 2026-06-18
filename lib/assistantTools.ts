@@ -831,7 +831,7 @@ export function buildAssistantTools(
 
     getApiUsage: tool({
       description:
-        "Report the bot's own AI token consumption (Gemini) — total input/output tokens, number of chats, and a rough $ estimate. period: 'today' (since midnight), 'week' (last 7 days), or 'month' (last 30 days). Use for 'how many tokens did I use this week', 'my API usage', 'how much is the bot costing me'. Supreme-only. Tracks from when usage logging was switched on; Google's exact billing is in the Cloud console.",
+        "Report the bot's own AI token consumption (Claude) — total input/output tokens, number of chats, how many input tokens were served from the prompt CACHE (cacheRead) + the cache-hit % (cacheHitPct), and a rough $ estimate that already prices cache reads at ~0.1×. period: 'today' (since midnight), 'week' (last 7 days), or 'month' (last 30 days). Use for 'how many tokens did I use this week', 'my API usage', 'how much is the bot costing me', 'is caching working'. A high cacheHitPct means caching is doing its job. Supreme-only. Tracks from when usage logging was switched on.",
       inputSchema: z.object({ period: z.enum(["today", "week", "month"]).default("today") }),
       execute: async ({ period }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
