@@ -144,6 +144,47 @@ export async function readWorkspaceCalendar(opts: { from?: string; to?: string; 
   }
 }
 
+/** Patch an existing event on the founder's own Google Calendar (reschedule / rename
+ *  / add a Meet link). Only the provided fields change. If start moves with no new
+ *  end, the end shifts to keep a 1h duration. */
+export async function updateWorkspaceEvent(opts: {
+  eventId: string;
+  startsAt?: string;
+  endsAt?: string;
+  title?: string;
+  addMeet?: boolean;
+}): Promise<BookEventResult> {
+  const cal = calendarClient();
+  if (!cal) return { ok: false, error: "workspace_not_connected" };
+  const requestBody: calendar_v3.Schema$Event = {};
+  if (opts.title && opts.title.trim()) requestBody.summary = opts.title.trim().slice(0, 300);
+  if (opts.startsAt && !Number.isNaN(Date.parse(opts.startsAt.replace(HAS_TZ, "")))) requestBody.start = calTime(opts.startsAt);
+  if (opts.endsAt && !Number.isNaN(Date.parse(opts.endsAt))) requestBody.end = calTime(opts.endsAt);
+  if (requestBody.start && !requestBody.end && opts.startsAt) {
+    const startMs = Date.parse(opts.startsAt.replace(HAS_TZ, "") + (HAS_TZ.test(opts.startsAt) ? "" : "Z"));
+    const endIso = new Date(startMs + 60 * 60 * 1000).toISOString().slice(0, 19);
+    requestBody.end = requestBody.start.timeZone ? { dateTime: endIso, timeZone: requestBody.start.timeZone } : { dateTime: endIso + "Z" };
+  }
+  if (opts.addMeet) {
+    requestBody.conferenceData = { createRequest: { requestId: randomUUID(), conferenceSolutionKey: { type: "hangoutsMeet" } } };
+  }
+  try {
+    const res = await cal.events.patch({
+      calendarId: "primary",
+      eventId: opts.eventId,
+      ...(opts.addMeet ? { conferenceDataVersion: 1 } : {}),
+      requestBody,
+    });
+    const meetLink = res.data.hangoutLink || res.data.conferenceData?.entryPoints?.find((e) => e.entryPointType === "video")?.uri || undefined;
+    return { ok: true, id: res.data.id ?? opts.eventId, htmlLink: res.data.htmlLink ?? undefined, meetLink };
+  } catch (e) {
+    const code = (e as { code?: number })?.code;
+    if (code === 404 || code === 410) return { ok: false, error: "event_not_found" };
+    console.error("[workspaceCalendar] update failed:", e instanceof Error ? e.message : e);
+    return { ok: false, error: e instanceof Error ? e.message : "update_failed" };
+  }
+}
+
 /** Delete an event from the founder's own Google Calendar by its Google event id. */
 export async function cancelWorkspaceEvent(eventId: string): Promise<{ ok: boolean; error?: string }> {
   const cal = calendarClient();

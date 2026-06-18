@@ -14,7 +14,7 @@ import { randomUUID } from "crypto";
 import { getServiceSupabase } from "@/lib/supabase";
 import { canActOnCandidate, getStaffEmailSet, resolveAuthNames } from "@/lib/admin-auth";
 import { resolveFileKey, translateDocLabel, FILE_KEY_LABELS } from "@/lib/fileKeys";
-import { readWorkspaceCalendar } from "@/lib/workspaceCalendar";
+import { readWorkspaceCalendar, updateWorkspaceEvent, cancelWorkspaceEvent } from "@/lib/workspaceCalendar";
 import { computeWeeklyReport } from "@/lib/weeklyReport";
 import { specialtyLabel } from "@/lib/nurseSpecialties";
 import { signDlToken } from "@/lib/dlToken";
@@ -819,6 +819,36 @@ export function buildAssistantTools(
           meetsRequirement: masernHave >= need.masern && varizellHave >= need.varizell,
           note: "Target shown is the UKSH requirement (2× Masern + 2× Varizell); other employers may require fewer or none.",
         };
+      },
+    }),
+
+    rescheduleCalendarEvent: tool({
+      description:
+        "Move / edit an event on the founder's OWN Google Calendar by its eventId (get it from listMyCalendar). Change start (startsAt = local ISO, no Z), end, title, and/or add a Meet link. USE for 'move my 3pm to 5pm', 'push the Erstgespräch to Thursday', 'rename that event', 'add a Meet link to it'. Applies immediately. Supreme-only.",
+      inputSchema: z.object({
+        eventId: z.string().min(1).max(1024),
+        startsAt: z.string().max(40).optional().describe("new start, local ISO e.g. 2026-06-19T17:00:00"),
+        endsAt: z.string().max(40).optional(),
+        title: z.string().max(300).optional(),
+        addMeet: z.boolean().optional(),
+      }),
+      execute: async ({ eventId, startsAt, endsAt, title, addMeet }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const r = await updateWorkspaceEvent({ eventId, startsAt, endsAt, title, addMeet });
+        if (!r.ok) return { error: r.error === "workspace_not_connected" ? "calendar_not_connected" : r.error };
+        return { updated: true, eventId: r.id, meetLink: r.meetLink, htmlLink: r.htmlLink };
+      },
+    }),
+
+    cancelMyCalendarEvent: tool({
+      description:
+        "Cancel / delete an event from the founder's OWN Google Calendar by its eventId (get it from listMyCalendar). USE for 'cancel my call with Anna Thursday', 'delete that meeting', 'remove the 3pm'. Applies immediately. Supreme-only. NOTE: this is the founder's PERSONAL Google Calendar — NOT deleteCalendarEvent (which removes a portal community event for candidates).",
+      inputSchema: z.object({ eventId: z.string().min(1).max(1024) }),
+      execute: async ({ eventId }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const r = await cancelWorkspaceEvent(eventId);
+        if (!r.ok) return { error: r.error === "workspace_not_connected" ? "calendar_not_connected" : (r.error ?? "cancel_failed") };
+        return { cancelled: true };
       },
     }),
 
