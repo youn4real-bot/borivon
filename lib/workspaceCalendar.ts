@@ -96,6 +96,54 @@ export async function bookWorkspaceEvent(opts: {
   }
 }
 
+export type CalEvent = {
+  eventId: string;
+  title: string;
+  start: string | null;
+  end: string | null;
+  allDay: boolean;
+  location?: string;
+  meetLink?: string;
+  attendees: { email: string; responseStatus?: string }[];
+};
+
+/** READ the founder's own Google Calendar (primary). Defaults to now → +7 days.
+ *  Pure read — used by listMyCalendar ("what's on my calendar") + the briefing.
+ *  Returns {ok:false} when Workspace isn't connected so the bot can say so. */
+export async function readWorkspaceCalendar(opts: { from?: string; to?: string; max?: number; query?: string } = {}): Promise<{ ok: true; events: CalEvent[] } | { ok: false; error: string }> {
+  const cal = calendarClient();
+  if (!cal) return { ok: false, error: "workspace_not_connected" };
+  const nowMs = Date.now();
+  const timeMin = (opts.from && !Number.isNaN(Date.parse(opts.from))) ? new Date(Date.parse(opts.from)).toISOString() : new Date(nowMs).toISOString();
+  const timeMax = (opts.to && !Number.isNaN(Date.parse(opts.to))) ? new Date(Date.parse(opts.to)).toISOString() : new Date(nowMs + 7 * 24 * 60 * 60 * 1000).toISOString();
+  try {
+    const res = await cal.events.list({
+      calendarId: "primary",
+      timeMin,
+      timeMax,
+      singleEvents: true,
+      orderBy: "startTime",
+      maxResults: Math.min(Math.max(opts.max ?? 25, 1), 50),
+      q: (opts.query ?? "").trim() || undefined,
+      timeZone: BORIVON_TZ,
+    });
+    const events: CalEvent[] = (res.data.items ?? []).map((e) => ({
+      eventId: e.id ?? "",
+      title: e.summary ?? "(no title)",
+      start: e.start?.dateTime ?? e.start?.date ?? null,
+      end: e.end?.dateTime ?? e.end?.date ?? null,
+      allDay: !e.start?.dateTime,
+      location: e.location ?? undefined,
+      meetLink: e.hangoutLink ?? e.conferenceData?.entryPoints?.find((p) => p.entryPointType === "video")?.uri ?? undefined,
+      attendees: (e.attendees ?? []).map((a) => ({ email: a.email ?? "", responseStatus: a.responseStatus ?? undefined })).filter((a) => a.email),
+    }));
+    return { ok: true, events };
+  } catch (e) {
+    console.error("[workspaceCalendar] list failed:", e instanceof Error ? e.message : e);
+    return { ok: false, error: e instanceof Error ? e.message : "list_failed" };
+  }
+}
+
 /** Delete an event from the founder's own Google Calendar by its Google event id. */
 export async function cancelWorkspaceEvent(eventId: string): Promise<{ ok: boolean; error?: string }> {
   const cal = calendarClient();

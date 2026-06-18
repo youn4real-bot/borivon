@@ -14,6 +14,7 @@ import { randomUUID } from "crypto";
 import { getServiceSupabase } from "@/lib/supabase";
 import { canActOnCandidate, getStaffEmailSet, resolveAuthNames } from "@/lib/admin-auth";
 import { resolveFileKey, translateDocLabel, FILE_KEY_LABELS } from "@/lib/fileKeys";
+import { readWorkspaceCalendar } from "@/lib/workspaceCalendar";
 import { signDlToken } from "@/lib/dlToken";
 import { UUID_RE } from "@/lib/uuid";
 import { germanSummary } from "@/lib/b2Detail";
@@ -551,6 +552,108 @@ export function buildAssistantTools(
           uploadedAt: d.uploaded_at,
         }));
         return { results, count: results.length };
+      },
+    }),
+
+    getCandidateDossier: tool({
+      description:
+        "ONE call = the WHOLE file on a candidate. USE for 'tell me everything about X', 'brief me on X', 'her full status', 'X's whole file', 'give me everything on X'. Accepts a NAME or a candidateUserId. Returns identity + email + B2 + the full pipeline (milestones, funnel stage, interview dates) + document counts — so you NEVER chain 8 separate calls. Per-result: 'ambiguous' (show the matches and ask which) or 'not_found', like getB2Status. out_of_scope if you can't see them.",
+      inputSchema: z.object({ candidate: z.string().min(1).max(120).describe("the candidate's full name or candidateUserId") }),
+      execute: async ({ candidate }) => {
+        if (lockedOut) return { error: "out_of_scope" };
+        const roster = await candidateRoster();
+        const m = pickCandidate(roster, candidate);
+        if (m.status === "not_found") return { status: "not_found" };
+        if (m.status === "ambiguous") return { status: "ambiguous", matches: m.matches.map((x) => ({ candidateUserId: x.userId, name: x.name })) };
+        const id = m.candidate.userId;
+        if (!(await canActOnCandidate(scope.role, scope.email, id))) return { error: "out_of_scope" };
+        const [profRes, pipeRes, docRes, authRes] = await Promise.all([
+          db.from("candidate_profiles").select("b2_exam_date, passport_status, passport_expiry, passport_no, dob, sex, nationality, issue_date, issuing_authority, address_street, address_number, address_postal, city_of_residence, country_of_residence, city_of_birth, country_of_birth, marital_status, children_ages").eq("user_id", id).maybeSingle(),
+          db.from("candidate_pipeline").select("*").eq("user_id", id).maybeSingle(),
+          db.from("documents").select("status").eq("user_id", id),
+          db.auth.admin.getUserById(id).catch(() => null),
+        ]);
+        const p = (profRes.data ?? {}) as Record<string, string | null>;
+        const email = (authRes && "data" in authRes ? authRes.data?.user?.email : null) ?? null;
+        const docs = (docRes.data ?? []) as { status: string | null }[];
+        return {
+          candidate: {
+            candidateUserId: id,
+            name: m.candidate.name,
+            email,
+            b2ExamDate: p.b2_exam_date ?? null,
+            passportStatus: p.passport_status ?? null,
+            identity: {
+              dob: p.dob ?? null, sex: p.sex ?? null, nationality: p.nationality ?? null,
+              passportNo: p.passport_no ?? null, passportIssueDate: p.issue_date ?? null, passportExpiry: p.passport_expiry ?? null,
+              issuingAuthority: p.issuing_authority ?? null,
+              address: [p.address_street, p.address_number, p.address_postal, p.city_of_residence, p.country_of_residence].filter(Boolean).join(" ") || null,
+              cityOfBirth: p.city_of_birth ?? null, countryOfBirth: p.country_of_birth ?? null,
+              maritalStatus: p.marital_status ?? null, childrenAges: p.children_ages ?? null,
+            },
+            pipeline: pipeRes.data ?? null,
+            documents: {
+              total: docs.length,
+              pending: docs.filter((d) => d.status === "pending").length,
+              approved: docs.filter((d) => d.status === "approved").length,
+              rejected: docs.filter((d) => d.status === "rejected").length,
+            },
+          },
+        };
+      },
+    }),
+
+    findContactEmail: tool({
+      description:
+        "Find a PERSON's email by name — for 'what's Anna's email', 'what's the recruiter's address', or to grab a recipient before emailing. Checks the contacts you've been taught (rememberAboutMe kind 'contact') AND the candidate roster (their account email). Returns { contacts:[{name,email,source}] } — empty if none found, in which case say you don't have it on file and offer to search the inbox (searchInbox) or ask for it. Supreme-only.",
+      inputSchema: z.object({ name: z.string().min(2).max(120) }),
+      execute: async ({ name }) => {
+        if (scope.role !== "admin" || !scope.userId) return { error: "admin_only" };
+        const toks = name.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        const EMAIL_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
+        const out: { name: string; email: string; source: string }[] = [];
+        const seen = new Set<string>();
+        const add = (nm: string, em: string, src: string) => {
+          const e = em.trim().toLowerCase();
+          if (e && !seen.has(e)) { seen.add(e); out.push({ name: nm.trim() || name, email: em.trim(), source: src }); }
+        };
+        // 1) Taught contacts (assistant_memory kind 'contact', e.g. "Anna Gombert = a@x.de").
+        try {
+          const { data } = await db.from("assistant_memory").select("text").eq("owner_user_id", scope.userId).eq("kind", "contact").limit(300);
+          for (const r of ((data ?? []) as { text: string }[])) {
+            const t = r.text ?? "";
+            if (toks.every((tk) => t.toLowerCase().includes(tk))) {
+              const em = t.match(EMAIL_RE);
+              if (em) add(t.split(/[=:]/)[0], em[0], "saved contact");
+            }
+          }
+        } catch { /* best-effort */ }
+        // 2) Candidates (their account email).
+        try {
+          const matches = await candidateRoster();
+          const hits = matches.filter((c) => { const n = c.name.toLowerCase(); return toks.every((tk) => n.includes(tk)); }).slice(0, 5);
+          for (const c of hits) {
+            try { const { data: u } = await db.auth.admin.getUserById(c.userId); if (u?.user?.email) add(c.name, u.user.email, "candidate"); } catch { /* skip */ }
+          }
+        } catch { /* best-effort */ }
+        return { contacts: out };
+      },
+    }),
+
+    listMyCalendar: tool({
+      description:
+        "Read the FOUNDER'S OWN Google Calendar (the one he actually looks at). USE for 'what's on my calendar', 'what do I have today/tomorrow/this week', 'any meetings Thursday', 'my schedule'. Optional from/to (local ISO) — default is today → +7 days. Optional query to filter by text. Returns upcoming events with times, location, Meet link, and attendees. Read-only, supreme-only. NOTE: this is the founder's PERSONAL Google Calendar — NOT listCalendarEvents (which is the portal's candidate-facing community events).",
+      inputSchema: z.object({
+        from: z.string().max(40).optional().describe("start of window, local ISO e.g. 2026-06-18T00:00:00 (default: now)"),
+        to: z.string().max(40).optional().describe("end of window (default: +7 days)"),
+        query: z.string().max(120).optional(),
+        max: z.number().int().min(1).max(50).default(25),
+      }),
+      execute: async ({ from, to, query, max }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const res = await readWorkspaceCalendar({ from, to, query, max });
+        if (!res.ok) return { error: res.error === "workspace_not_connected" ? "calendar_not_connected" : "calendar_read_failed" };
+        return { events: res.events };
       },
     }),
 
