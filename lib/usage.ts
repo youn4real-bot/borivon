@@ -7,6 +7,7 @@
  * never logged); Google's authoritative billing is in the Cloud console.
  */
 import { getServiceSupabase } from "@/lib/supabase";
+import { PRIMARY_BRAIN } from "@/lib/vertexModel";
 
 /** Pull token counts out of whatever shape the AI SDK returned.
  *  - input/output: v6 inputTokens/outputTokens; older promptTokens/completionTokens.
@@ -30,21 +31,24 @@ export function extractTokens(usage: unknown): { input: number; output: number; 
   };
 }
 
-/** Rough USD estimate, priced to whatever brain the bot is actually running AND to
- *  the prompt-cache split. Deliberately approximate — for "am I burning money?" not
- *  invoicing. Tracks the same env switch as vertexModel: Claude (Haiku $1/$5, or
- *  Sonnet/Opus if the escape-hatch env points there) when ANTHROPIC_API_KEY is set,
- *  else Gemini 2.5 Flash ($0.30/$2.50). Caching multipliers (Anthropic-wide): fresh
- *  input 1×, cache WRITE 1.25×, cache READ 0.1×. `input` is the TOTAL prompt input,
- *  so fresh = input − cacheRead − cacheWrite. cacheRead/cacheWrite default 0 (caching
- *  off / Gemini) → the old full-rate behaviour. */
+/** Rough USD estimate, priced to the PRIMARY brain the bot runs (PRIMARY_BRAIN) AND
+ *  to the prompt-cache split. Deliberately approximate — for "am I burning money?"
+ *  not invoicing. Rates per 1M tokens: Gemini Pro $1.25/$10 (or Flash $0.30/$2.50 if
+ *  the model id says flash); Claude Haiku $1/$5, Sonnet $3/$15, Opus $5/$25.
+ *  Caching multipliers (Anthropic-wide): fresh input 1×, cache WRITE 1.25×, cache
+ *  READ 0.1×. `input` is the TOTAL prompt input, so fresh = input − cacheRead −
+ *  cacheWrite. cacheRead/cacheWrite default 0 (Gemini / caching off) → full rate. */
 export function estimateCostUsd(input: number, output: number, cacheRead = 0, cacheWrite = 0): number {
-  let inRate = 0.30, outRate = 2.50; // Gemini 2.5 Flash, per 1M tokens
-  if (process.env.ANTHROPIC_API_KEY) {
+  let inRate: number, outRate: number;
+  if (PRIMARY_BRAIN === "claude") {
     const m = (process.env.ASSISTANT_CLAUDE_FLASH || "claude-haiku-4-5").toLowerCase();
     if (m.includes("opus")) { inRate = 5.00; outRate = 25.00; }
     else if (m.includes("sonnet")) { inRate = 3.00; outRate = 15.00; }
     else { inRate = 1.00; outRate = 5.00; } // Haiku 4.5 (the default)
+  } else {
+    const m = (process.env.ASSISTANT_GEMINI_PRO || "gemini-2.5-pro").toLowerCase();
+    if (m.includes("flash")) { inRate = 0.30; outRate = 2.50; }
+    else { inRate = 1.25; outRate = 10.00; } // Gemini Pro (the default brain now)
   }
   const fresh = Math.max(0, input - cacheRead - cacheWrite);
   const inputUsd =

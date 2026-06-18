@@ -18,16 +18,16 @@ describe("usage helpers", () => {
       extractTokens({ inputTokens: 18000, outputTokens: 200, inputTokenDetails: { cacheReadTokens: 16000, cacheWriteTokens: 0, noCacheTokens: 2000 } }),
     ).toEqual({ input: 18000, output: 200, cacheRead: 16000, cacheWrite: 0 });
   });
-  it("estimateCostUsd uses Flash input/output rates", () => {
-    // 1M input + 1M output = $0.30 + $2.50 = $2.80
-    expect(estimateCostUsd(1_000_000, 1_000_000)).toBe(2.8);
+  it("estimateCostUsd prices at the primary brain (Gemini Pro $1.25/$10)", () => {
+    // 1M input + 1M output = $1.25 + $10.00 = $11.25 (update if PRIMARY_BRAIN changes)
+    expect(estimateCostUsd(1_000_000, 1_000_000)).toBe(11.25);
     expect(estimateCostUsd(0, 0)).toBe(0);
   });
   it("estimateCostUsd prices cache reads ~0.1x and writes 1.25x", () => {
-    // 1M input all served from cache → 1M * $0.30 * 0.1 = $0.03
-    expect(estimateCostUsd(1_000_000, 0, 1_000_000, 0)).toBe(0.03);
-    // 1M input all cache-write → 1M * $0.30 * 1.25 = $0.375 ≈ $0.38
-    expect(estimateCostUsd(1_000_000, 0, 0, 1_000_000)).toBe(0.38);
+    // 1M input all served from cache → 1M * $1.25 * 0.1 = $0.125 ≈ $0.13
+    expect(estimateCostUsd(1_000_000, 0, 1_000_000, 0)).toBe(0.13);
+    // 1M input all cache-write → 1M * $1.25 * 1.25 = $1.5625 ≈ $1.56
+    expect(estimateCostUsd(1_000_000, 0, 0, 1_000_000)).toBe(1.56);
   });
   it("periodStartMs: today = UTC midnight, week/month roll back", () => {
     const now = Date.parse("2026-06-15T18:30:00.000Z");

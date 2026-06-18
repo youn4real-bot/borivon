@@ -16,7 +16,7 @@
 import { NextRequest } from "next/server";
 import { generateText, stepCountIs } from "ai";
 import { logUsage } from "@/lib/usage";
-import { vertexModel, geminiFallbackModel, isOnClaude, chooseTier, looksWeak, proConfigured } from "@/lib/vertexModel";
+import { vertexModel, fallbackModel, primaryBrain, chooseTier, looksWeak, proConfigured } from "@/lib/vertexModel";
 import { buildAssistantTools } from "@/lib/assistantTools";
 import type { AssistantScope } from "@/lib/assistantScope";
 import { computeBriefing } from "@/lib/briefing";
@@ -406,77 +406,71 @@ export async function POST(req: NextRequest) {
   const tier = chooseTier(userText, { hasHistory: history.length > 0, hasFile: !!pendingFile, isVoice: !!msg.voice });
   // The Anthropic cache breakpoint marker (5-min ephemeral). Harmless on Gemini.
   const cacheBreak = { providerOptions: { anthropic: { cacheControl: { type: "ephemeral" as const } } } };
-  const genArgs = {
-    // No top-level `system` — the Anthropic SDK can't cache the top-level system
-    // STRING, so the big static block goes into messages[] as a role:'system' message
-    // carrying the cache breakpoint, with the dynamic context as a second system
-    // block right after it (uncached). Both render as one system field on the wire.
-    messages: [
-      { role: "system" as const, content: TG_SYSTEM, ...cacheBreak }, // cached (~17K prefix w/ tools)
-      { role: "system" as const, content: dynamicContext },           // fresh each turn
-      ...history,
-      { role: "user" as const, content },
-    ],
-    tools: withToolCacheBreakpoint(buildAssistantTools(scope, pendingFile)),
-    // 0.4 = steadier tool/arg selection AND less rambly prose (helps BOTH
-    // reliability and the natural feel) for a 90-tool / 20-step loop. Don't go to
-    // 0 (degenerate) or >~0.7. Valid on both Claude (temp alone, no top_p) and
-    // Gemini (whose untamed default is 1.0).
-    temperature: 0.4,
-    // Anthropic REQUIRES max_tokens — without it the Claude path errors. 8192 is a
-    // generous ceiling for the longest replies (full morning briefing, multi-item
-    // lists) without risking truncation; you only pay for tokens actually emitted.
-    // Gemini accepts the same field, so this is safe on both brains.
-    maxOutputTokens: 8192,
-    // Headroom for multi-item requests (e.g. "pull the CVs of these 4 people"):
-    // the batch tools (getCvLinks) collapse most of that into one call, but
-    // keep a generous ceiling so a per-person fallback path can still finish.
-    stopWhen: stepCountIs(20),
-  };
-  const proOn = proConfigured(); // Pro tier only exists when opted in via env
+  // ── Build the model args for a given brain ──────────────────────────────────
+  // CLAUDE: cache-optimized — the static TG_SYSTEM as a CACHED system block, the
+  //   dynamic context as a second (uncached) block, plus a cache breakpoint on the
+  //   tools (Anthropic can't cache the top-level system STRING).
+  // GEMINI: the classic single combined system + plain tools — the shape the bot ran
+  //   on for months (Anthropic cache breakpoints don't apply to Gemini; this also
+  //   sidesteps any provider-specific multi-system-message quirk).
+  // Same temperature / token ceilings / step cap either way.
+  const argsForBrain = (brain: "gemini" | "claude") =>
+    brain === "claude"
+      ? {
+          messages: [
+            { role: "system" as const, content: TG_SYSTEM, ...cacheBreak }, // cached (~17K prefix w/ tools)
+            { role: "system" as const, content: dynamicContext },           // fresh each turn
+            ...history,
+            { role: "user" as const, content },
+          ],
+          tools: withToolCacheBreakpoint(buildAssistantTools(scope, pendingFile)),
+          temperature: 0.4,
+          maxOutputTokens: 8192,
+          stopWhen: stepCountIs(20),
+        }
+      : {
+          system: `${TG_SYSTEM}\n\n— — —\n\n${dynamicContext}`,
+          messages: [...history, { role: "user" as const, content }],
+          tools: buildAssistantTools(scope, pendingFile),
+          temperature: 0.4,
+          maxOutputTokens: 8192,
+          stopWhen: stepCountIs(20),
+        };
+  const proOn = proConfigured(); // Claude Pro tier only exists when opted in (off now)
   // Show "typing…" the whole time the bot is thinking + running tools, so the
   // chat feels alive instead of dead-silent for several seconds (the #1 thing
   // that makes a bot feel robotic). Cleared in the finally below.
   const stopTyping = tgTypingLoop(chatId);
   try {
-    // PRIMARY brain (Claude when configured). maxRetries:0 on purpose — the AI SDK's
-    // default fast re-tries on a 429 would just pile MORE tokens onto the same
-    // exhausted per-minute budget (the Tier-1 Anthropic cap). Instead, fail fast and
-    // fall back to GEMINI (far higher quota) so a simple task — pull a file, answer a
-    // question — STILL gets done. Gemini doesn't use the Anthropic cache breakpoints,
-    // so the fallback gets the classic single combined system + plain tools (also
-    // sidesteps any provider-specific multi-system-message quirk).
-    const primaryModel = tier === "pro" ? proModel : flashModel;
+    // PRIMARY brain = the founder's current choice (Gemini Pro). maxRetries:0 on
+    // purpose — a 429 retry just piles MORE tokens onto the same exhausted minute.
+    // Instead, fail fast and fall back to the OTHER brain (Claude), which still gets
+    // the task done. Each brain gets the arg shape it wants (above).
+    const primary = primaryBrain();
+    const primaryModel = vertexModel(tier) ?? flashModel;
     let result;
-    let usedFallback = false;
+    let brainUsed: string = primary;
     try {
-      result = await generateText({ model: primaryModel, maxRetries: 0, ...genArgs });
-      // Reactive escalation (Pro tier only): a weak/empty Flash reply → redo on Pro.
+      result = await generateText({ model: primaryModel, maxRetries: 0, ...argsForBrain(primary) });
+      // Reactive escalation (Claude Pro tier only; dormant while ALLOW_PRO is off).
       if (proOn && tier === "flash" && looksWeak(result.text)) {
-        try { result = await generateText({ model: proModel, maxRetries: 0, ...genArgs }); } catch { /* keep the first result */ }
+        try { result = await generateText({ model: proModel, maxRetries: 0, ...argsForBrain(primary) }); } catch { /* keep the first result */ }
       }
     } catch (primaryErr) {
-      const fb = isOnClaude() ? geminiFallbackModel(tier) : null;
+      const other = primary === "claude" ? "gemini" : "claude";
+      const fb = fallbackModel(tier);
       if (!fb) throw primaryErr;
-      const geminiArgs = {
-        system: `${TG_SYSTEM}\n\n— — —\n\n${dynamicContext}`,
-        messages: [...history, { role: "user" as const, content }],
-        tools: buildAssistantTools(scope, pendingFile),
-        temperature: 0.4,
-        maxOutputTokens: 8192,
-        stopWhen: stepCountIs(20),
-      };
       try {
-        result = await generateText({ model: fb, maxRetries: 1, ...geminiArgs });
-        usedFallback = true;
+        result = await generateText({ model: fb, maxRetries: 1, ...argsForBrain(other) });
+        brainUsed = `${other}-fallback`;
       } catch {
-        throw primaryErr; // both brains failed → surface the ORIGINAL (Claude) error
+        throw primaryErr; // both brains failed → surface the ORIGINAL error
       }
     }
 
     // Track token consumption for getApiUsage (best-effort, fail-safe, non-blocking).
     // Prefer the multi-step total — the agent loop can take several steps per turn.
-    void logUsage((result as { totalUsage?: unknown }).totalUsage ?? result.usage, usedFallback ? "gemini-fallback" : "claude", "telegram");
+    void logUsage((result as { totalUsage?: unknown }).totalUsage ?? result.usage, brainUsed, "telegram");
 
     // COLLECT the file links the model produced (we deliver the ACTUAL files into
     // the chat, not just a link) — but DON'T download yet. We send the ANSWER TEXT
