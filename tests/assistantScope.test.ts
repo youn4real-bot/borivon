@@ -1036,6 +1036,40 @@ describe("assistant tools allow the supreme admin", () => {
     }
   });
 
+  // ── Wave: leads lifecycle + academy enrol + signature roster ────────────────
+  it("setLeadStatus writes the status (supreme); sub-admin is blocked", async () => {
+    h.tables.leads = { data: { id: "lead1" }, error: null };
+    const ok = (await run(buildAssistantTools(SUPREME), "setLeadStatus", { leadId: "11111111-1111-1111-1111-111111111111", status: "contacted" })) as { ok?: boolean; status?: string };
+    expect(ok.ok).toBe(true);
+    expect(ok.status).toBe("contacted");
+    expect(await run(buildAssistantTools(ORG_ADMIN), "setLeadStatus", { leadId: "11111111-1111-1111-1111-111111111111", status: "dead" })).toEqual({ error: "admin_only" });
+  });
+
+  it("listLeads filters by status in code (tolerates missing column)", async () => {
+    h.tables.leads = { data: [{ id: "a", status: "new" }, { id: "b", status: "contacted" }, { id: "c" }], error: null };
+    const r = (await run(buildAssistantTools(SUPREME), "listLeads", { status: "new" })) as { leads: { id: string }[] };
+    // 'a' (new) + 'c' (no column → treated as 'new'); 'b' (contacted) excluded.
+    expect(r.leads.map((l) => l.id).sort()).toEqual(["a", "c"]);
+  });
+
+  it("manageCohortMember enrolls (supreme) and 404s an unknown cohort", async () => {
+    h.tables.academy_cohorts = { data: { id: "c1", name: "June B2" }, error: null };
+    h.tables.academy_cohort_members = { data: null, error: null }; // no existing membership → insert path
+    const ok = (await run(buildAssistantTools(SUPREME), "manageCohortMember", { candidateUserId: "22222222-2222-2222-2222-222222222222", cohortId: "33333333-3333-3333-3333-333333333333", op: "enroll" })) as { ok?: boolean; cohortName?: string };
+    expect(ok.ok).toBe(true);
+    expect(ok.cohortName).toBe("June B2");
+    h.tables.academy_cohorts = { data: null, error: null };
+    expect(await run(buildAssistantTools(SUPREME), "manageCohortMember", { candidateUserId: "22222222-2222-2222-2222-222222222222", cohortId: "33333333-3333-3333-3333-333333333333", op: "enroll" })).toEqual({ error: "cohort_not_found" });
+  });
+
+  it("the new supreme-only tools reject a sub-admin", async () => {
+    const t = buildAssistantTools(ORG_ADMIN);
+    expect(await run(t, "getAcademyOverview", {})).toEqual({ error: "admin_only" });
+    expect(await run(t, "listPendingSignatures", {})).toEqual({ error: "admin_only" });
+    expect(await run(t, "getFunnelStageCounts", {})).toEqual({ error: "admin_only" });
+    expect(await run(t, "editLead", { leadId: "44444444-4444-4444-4444-444444444444", name: "x" })).toEqual({ error: "admin_only" });
+  });
+
   // ── Audit fixes (2026-06-12) ────────────────────────────────────────────────
 
   it("setCandidateMilestone NORMALIZES a truthy boolean and rejects ambiguous (no silent FALSE)", async () => {

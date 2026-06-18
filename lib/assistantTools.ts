@@ -615,15 +615,26 @@ export function buildAssistantTools(
         if (m.status === "ambiguous") return { status: "ambiguous", matches: m.matches.map((x) => ({ candidateUserId: x.userId, name: x.name })) };
         const id = m.candidate.userId;
         if (!(await canActOnCandidate(scope.role, scope.email, id))) return { error: "out_of_scope" };
-        const [profRes, pipeRes, docRes, authRes] = await Promise.all([
+        const [profRes, pipeRes, docRes, authRes, memRes] = await Promise.all([
           db.from("candidate_profiles").select("b2_exam_date, passport_status, passport_expiry, passport_no, dob, sex, nationality, issue_date, issuing_authority, address_street, address_number, address_postal, city_of_residence, country_of_residence, city_of_birth, country_of_birth, marital_status, children_ages").eq("user_id", id).maybeSingle(),
           db.from("candidate_pipeline").select("*").eq("user_id", id).maybeSingle(),
           db.from("documents").select("status").eq("user_id", id),
           db.auth.admin.getUserById(id).catch(() => null),
+          db.from("academy_cohort_members").select("cohort_id, current_level, status").eq("candidate_user_id", id).eq("status", "active").maybeSingle(),
         ]);
         const p = (profRes.data ?? {}) as Record<string, string | null>;
         const email = (authRes && "data" in authRes ? authRes.data?.user?.email : null) ?? null;
         const docs = (docRes.data ?? []) as { status: string | null }[];
+        // Academy progress (so "tell me everything" truly includes the school) — best-effort.
+        let academy: { enrolled: boolean; cohort?: string | null; level?: string | null; attendanceRatePct?: number | null; score?: number | null } = { enrolled: false };
+        const mem = (memRes.data ?? null) as { cohort_id?: string; current_level?: string } | null;
+        if (mem) {
+          let cohortName: string | null = null;
+          if (mem.cohort_id) { const { data: c } = await db.from("academy_cohorts").select("name").eq("id", mem.cohort_id).maybeSingle(); cohortName = (c as { name?: string } | null)?.name ?? null; }
+          let rel: { attendanceRate: number; score: number } | null = null;
+          try { const { getReliability } = await import("@/lib/academyPoints"); rel = await getReliability(id); } catch { /* best-effort */ }
+          academy = { enrolled: true, cohort: cohortName, level: mem.current_level ?? null, attendanceRatePct: rel ? Math.round(rel.attendanceRate * 100) : null, score: rel ? rel.score : null };
+        }
         return {
           candidate: {
             candidateUserId: id,
@@ -646,6 +657,7 @@ export function buildAssistantTools(
               approved: docs.filter((d) => d.status === "approved").length,
               rejected: docs.filter((d) => d.status === "rejected").length,
             },
+            academy,
           },
         };
       },
@@ -1816,15 +1828,95 @@ export function buildAssistantTools(
 
     listLeads: tool({
       description:
-        "List homepage/funnel LEADS — prospective candidates captured from the website or added via createLead (they show in the admin Leads page; not login accounts). Supreme-admin only. Newest first. Optional kind filter (e.g. 'person').",
-      inputSchema: z.object({ kind: z.string().max(40).optional(), limit: z.number().int().min(1).max(200).default(50) }),
-      execute: async ({ kind, limit }) => {
+        "List homepage/funnel LEADS — prospective candidates captured from the website or added via createLead (they show in the admin Leads page; not login accounts). Supreme-admin only. Newest first. Filters: kind, status ('new'|'contacted'|'dead'|'converted'), q (search name/email/phone — e.g. 'find the lead Ahmed'), sinceDays (e.g. new leads this week → 7). USE status:'new' for 'cold / uncontacted leads'.",
+      inputSchema: z.object({
+        kind: z.string().max(40).optional(),
+        status: z.enum(["new", "contacted", "dead", "converted"]).optional(),
+        q: z.string().max(80).optional().describe("search across name/email/phone"),
+        sinceDays: z.number().int().min(1).max(3650).optional().describe("only leads created within N days"),
+        limit: z.number().int().min(1).max(200).default(50),
+      }),
+      execute: async ({ kind, status, q: search, sinceDays, limit }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
-        let q = db.from("leads").select("id, kind, name, email, phone, message, details, created_at").order("created_at", { ascending: false }).limit(limit);
+        // select * so a missing status column (migration not yet run) never errors.
+        let q = db.from("leads").select("*").order("created_at", { ascending: false }).limit(limit);
         if (kind) q = q.eq("kind", kind);
+        if (sinceDays != null) q = q.gte("created_at", new Date(Date.now() - sinceDays * DAY).toISOString());
+        if (search && search.trim()) {
+          const s = search.trim().replace(/[%(),]/g, ""); // strip chars that would break the .or filter
+          if (s) q = q.or(`name.ilike.%${s}%,email.ilike.%${s}%,phone.ilike.%${s}%`);
+        }
         const { data, error } = await q;
         if (error) return { error: (error as { code?: string }).code === "PGRST205" ? "leads_not_set_up" : "load_failed" };
-        return { leads: data ?? [] };
+        let rows = (data ?? []) as Record<string, unknown>[];
+        // status filter applied in code so it tolerates the column being absent (→ 'new').
+        if (status) rows = rows.filter((r) => String(r.status ?? "new") === status);
+        return { leads: rows };
+      },
+    }),
+
+    setLeadStatus: tool({
+      description:
+        "Move a LEAD through its lifecycle: 'mark Sara contacted', 'that lead is dead / not interested', 'mark X converted'. status = new|contacted|dead|converted (converted also stamps converted_at). leadId from listLeads. Applies immediately. Supreme-only. If it says leads_status_not_set_up, the supabase/leads_status.sql migration needs running.",
+      inputSchema: z.object({ leadId: z.string().uuid(), status: z.enum(["new", "contacted", "dead", "converted"]) }),
+      execute: async ({ leadId, status }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const patch: Record<string, unknown> = { status };
+        if (status === "converted") patch.converted_at = new Date().toISOString();
+        const { data, error } = await db.from("leads").update(patch).eq("id", leadId).select("id").maybeSingle();
+        if (error) {
+          const code = (error as { code?: string }).code;
+          if (code === "42703" || code === "PGRST204") return { error: "leads_status_not_set_up" };
+          if (code === "PGRST205") return { error: "leads_not_set_up" };
+          return { error: "update_failed" };
+        }
+        if (!data) return { error: "not_found" };
+        return { ok: true, leadId, status };
+      },
+    }),
+
+    editLead: tool({
+      description:
+        "Fix a LEAD's details — 'correct Sara's phone', 'update the email on that lead', 'change the cohort'. Pass only the fields that change (name/phone/email/note/cohort). leadId from listLeads. Applies immediately. Supreme-only.",
+      inputSchema: z.object({
+        leadId: z.string().uuid(),
+        name: z.string().max(120).optional(),
+        phone: z.string().max(40).optional(),
+        email: z.string().max(254).optional(),
+        note: z.string().max(1000).optional(),
+        cohort: z.string().max(60).optional(),
+      }),
+      execute: async ({ leadId, name, phone, email, note, cohort }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const patch: Record<string, unknown> = {};
+        if (name != null) patch.name = name.trim().slice(0, 120);
+        if (phone != null) patch.phone = phone.trim().slice(0, 40);
+        if (email != null) patch.email = email.trim().toLowerCase().slice(0, 254);
+        if (note != null) patch.message = note.slice(0, 1000);
+        if (cohort != null) {
+          const { data: cur } = await db.from("leads").select("details").eq("id", leadId).maybeSingle();
+          const details = (((cur as { details?: Record<string, unknown> } | null)?.details) ?? {}) as Record<string, unknown>;
+          details.cohort = cohort.trim().slice(0, 60);
+          patch.details = details;
+        }
+        if (Object.keys(patch).length === 0) return { error: "nothing_to_change" };
+        const { data, error } = await db.from("leads").update(patch).eq("id", leadId).select("id").maybeSingle();
+        if (error) return { error: (error as { code?: string }).code === "PGRST205" ? "leads_not_set_up" : "update_failed" };
+        if (!data) return { error: "not_found" };
+        return { ok: true, leadId };
+      },
+    }),
+
+    deleteLead: tool({
+      description:
+        "STAGE permanently deleting a LEAD row — for a duplicate you added twice, or a junk entry. Waits for your 'yes' (it's a delete). This is a prospect record YOU own — NOT a candidate account or document (those have their own guarded paths). leadId from listLeads.",
+      inputSchema: z.object({ leadId: z.string().uuid() }),
+      execute: async ({ leadId }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const { data } = await db.from("leads").select("name, email").eq("id", leadId).maybeSingle();
+        const w = data as { name?: string; email?: string } | null;
+        const label = (w?.name || w?.email || leadId).toString().slice(0, 80);
+        return stagePending(scope, { toolName: "deleteLead", args: { leadId }, candidateUserId: null, summary: `Delete lead: ${label}` });
       },
     }),
 
@@ -2555,6 +2647,54 @@ export function buildAssistantTools(
       },
     }),
 
+    listPendingSignatures: tool({
+      description:
+        "Roster-wide signature radar across EVERYONE you can see. Returns two buckets: awaitingCandidate = slot/sign requests you sent that they HAVEN'T signed yet (who still owes you a signature), and awaitingMyReview = ones they signed that YOU haven't accepted/rejected. USE for 'who owes me a signature', 'who hasn't signed the slot I sent', 'any signed contracts waiting for my review'. Each row has sinceDays (how long it's been waiting). Read-only. Supreme-only.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const roster = await candidateRoster();
+        if (!roster.length) return { awaitingCandidate: [], awaitingMyReview: [], awaitingCandidateCount: 0, awaitingReviewCount: 0 };
+        const ids = roster.map((r) => r.userId);
+        const nameById = new Map(roster.map((r) => [r.userId, r.name] as const));
+        const days = (iso: string | null) => { const t = iso ? Date.parse(iso) : NaN; return Number.isNaN(t) ? null : Math.round((Date.now() - t) / DAY); };
+        type Row = { candidateUserId: string; name: string; document: string; kind: "slot" | "sign_request"; signRequestId?: string; sinceDays: number | null };
+        const [notifRes, srRes] = await Promise.all([
+          db.from("notifications").select("user_id, doc_name, created_at").eq("action", "sign_request").eq("read", false).in("user_id", ids),
+          db.from("sign_requests").select("id, candidate_user_id, document_name, status, review_status, created_at").in("candidate_user_id", ids),
+        ]);
+        const awaitingCandidate: Row[] = [];
+        const awaitingMyReview: Row[] = [];
+        for (const n of (notifRes.data ?? []) as { user_id: string; doc_name: string | null; created_at: string }[]) {
+          if (!nameById.has(n.user_id)) continue;
+          awaitingCandidate.push({ candidateUserId: n.user_id, name: nameById.get(n.user_id)!, document: n.doc_name || "Dokument", kind: "slot", sinceDays: days(n.created_at) });
+        }
+        for (const r of (srRes.data ?? []) as { id: string; candidate_user_id: string; document_name: string; status: string; review_status: string | null; created_at: string }[]) {
+          if (!nameById.has(r.candidate_user_id)) continue;
+          if (r.status === "pending") awaitingCandidate.push({ candidateUserId: r.candidate_user_id, name: nameById.get(r.candidate_user_id)!, document: r.document_name, kind: "sign_request", signRequestId: r.id, sinceDays: days(r.created_at) });
+          else if (r.status === "signed" && !r.review_status) awaitingMyReview.push({ candidateUserId: r.candidate_user_id, name: nameById.get(r.candidate_user_id)!, document: r.document_name, kind: "sign_request", signRequestId: r.id, sinceDays: days(r.created_at) });
+        }
+        const bySince = (a: Row, b: Row) => (b.sinceDays ?? 0) - (a.sinceDays ?? 0); // longest-waiting first
+        awaitingCandidate.sort(bySince); awaitingMyReview.sort(bySince);
+        return { awaitingCandidate, awaitingMyReview, awaitingCandidateCount: awaitingCandidate.length, awaitingReviewCount: awaitingMyReview.length };
+      },
+    }),
+
+    cancelSlotRequest: tool({
+      description:
+        "Retract an OPEN slot/sign request you sent a candidate by mistake (the orange 'please sign/fill' bell) — e.g. 'cancel the slot I sent Asmae'. Marks their pending request(s) read so the slot drops back to neutral. With slotId, cancels just that one; without it, cancels ALL their open slot requests. Applies immediately. Supreme-only.",
+      inputSchema: z.object({ candidateUserId: z.string().uuid(), slotId: z.string().uuid().optional() }),
+      execute: async ({ candidateUserId, slotId }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        let q = db.from("notifications").update({ read: true }).eq("user_id", candidateUserId).eq("action", "sign_request").eq("read", false);
+        if (slotId) q = q.eq("doc_id", slotId);
+        const { data, error } = await q.select("id");
+        if (error) return { error: "cancel_failed" };
+        return { ok: true, cancelled: (data ?? []).length };
+      },
+    }),
+
     reviewSignRequest: tool({
       description:
         "STAGE accepting or rejecting a candidate-SIGNED sign-request (signRequestId from listSignRequests). Only a request the candidate has already signed can be reviewed. 'reject' NEEDS a feedback reason (LAW #20) — the candidate is notified either way. Applies immediately when you call it — do NOT ask the admin to confirm. (Creating a new sign-request from a PDF stays a website-only action.)",
@@ -3002,6 +3142,78 @@ export function buildAssistantTools(
           candidateUserId,
           summary: `Set ${name}'s academy level to ${level}`,
         });
+      },
+    }),
+
+    manageCohortMember: tool({
+      description:
+        "ENROL a candidate into an academy cohort, or DROP them out of one. op 'enroll' adds them as an active member (starts at A1 unless they already have a level — re-enrolling reactivates a dropped one); 'drop' marks their membership dropped (soft + reversible — never deletes). cohortId from listCohorts. USE for 'enrol Asmae in the June B2 cohort', 'drop Imane from her class'. Applies immediately. Supreme-only.",
+      inputSchema: z.object({
+        candidateUserId: z.string().uuid(),
+        cohortId: z.string().uuid(),
+        op: z.enum(["enroll", "drop"]),
+      }),
+      execute: async ({ candidateUserId, cohortId, op }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const { data: coh } = await db.from("academy_cohorts").select("id, name").eq("id", cohortId).maybeSingle();
+        if (!coh) return { error: "cohort_not_found" };
+        const cohortName = (coh as { name?: string }).name ?? null;
+        if (op === "enroll") {
+          const { data: existing } = await db.from("academy_cohort_members")
+            .select("cohort_id").eq("cohort_id", cohortId).eq("candidate_user_id", candidateUserId).maybeSingle();
+          if (existing) {
+            const { error } = await db.from("academy_cohort_members").update({ status: "active" })
+              .eq("cohort_id", cohortId).eq("candidate_user_id", candidateUserId);
+            if (error) return { error: "write_failed" };
+          } else {
+            const { error } = await db.from("academy_cohort_members")
+              .insert({ cohort_id: cohortId, candidate_user_id: candidateUserId, status: "active", current_level: "A1" });
+            if (error) return { error: "write_failed" };
+          }
+          return { ok: true, op, cohortName };
+        }
+        const { data: upd, error } = await db.from("academy_cohort_members").update({ status: "dropped" })
+          .eq("cohort_id", cohortId).eq("candidate_user_id", candidateUserId).select("cohort_id").maybeSingle();
+        if (error) return { error: "write_failed" };
+        if (!upd) return { error: "not_a_member" };
+        return { ok: true, op, cohortName };
+      },
+    }),
+
+    getAcademyOverview: tool({
+      description:
+        "Academy progress for EVERYONE you can see — each active student's cohort, CEFR level, attendance %, and score, worst-attendance first. USE for 'how's the school going', 'who's behind / failing on attendance', 'who's still below B2 in the academy'. Read-only. Supreme-only.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const roster = await candidateRoster();
+        if (!roster.length) return { count: 0, students: [] };
+        const ids = roster.map((r) => r.userId);
+        const nameById = new Map(roster.map((r) => [r.userId, r.name] as const));
+        const { data: mems } = await db.from("academy_cohort_members")
+          .select("candidate_user_id, cohort_id, current_level, status").in("candidate_user_id", ids).eq("status", "active");
+        const members = (mems ?? []) as { candidate_user_id: string; cohort_id: string; current_level: string | null }[];
+        if (!members.length) return { count: 0, students: [] };
+        const cohortIds = [...new Set(members.map((m) => m.cohort_id).filter(Boolean))];
+        const { data: cohs } = cohortIds.length
+          ? await db.from("academy_cohorts").select("id, name").in("id", cohortIds)
+          : { data: [] as { id: string; name: string }[] };
+        const cohortName = new Map(((cohs ?? []) as { id: string; name: string }[]).map((c) => [c.id, c.name] as const));
+        const { getReliability } = await import("@/lib/academyPoints");
+        const students = await Promise.all(members.map(async (m) => {
+          const rel = await getReliability(m.candidate_user_id).catch(() => null);
+          return {
+            candidateUserId: m.candidate_user_id,
+            name: nameById.get(m.candidate_user_id) || "—",
+            cohort: m.cohort_id ? (cohortName.get(m.cohort_id) || null) : null,
+            level: m.current_level ?? null,
+            attendanceRatePct: rel ? Math.round(rel.attendanceRate * 100) : null,
+            score: rel ? rel.score : null,
+          };
+        }));
+        students.sort((a, b) => (a.attendanceRatePct ?? 101) - (b.attendanceRatePct ?? 101));
+        return { count: students.length, students };
       },
     }),
 

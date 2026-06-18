@@ -347,6 +347,19 @@ async function writeLead(opts: { name: string; email?: string; phone?: string; n
   return { ok: true };
 }
 
+/** Permanently delete a LEAD row (a founder-owned prospect record — NOT a candidate
+ *  account or document). Confirm-first (staged) since it's a delete. */
+async function writeDeleteLead(leadId: string): Promise<WriteResult> {
+  if (!UUID_RE.test(leadId)) return { ok: false, error: "bad_id" };
+  const db = getServiceSupabase();
+  const { error } = await db.from("leads").delete().eq("id", leadId);
+  if (error) {
+    if ((error as { code?: string }).code === "PGRST205") return { ok: false, error: "leads_not_set_up" };
+    return { ok: false, error: "delete_failed" };
+  }
+  return { ok: true };
+}
+
 /** Store a Telegram-attached file as a candidate document — mirrors an admin
  *  upload (R2-backed row, uploaded_by_admin, status 'pending' for review). The
  *  bytes are ALREADY in R2 (the webhook staged them); we only create the row.
@@ -1574,6 +1587,8 @@ async function applyPendingRow(
       note: a.note == null ? undefined : String(a.note),
       cohort: a.cohort == null ? undefined : String(a.cohort),
     });
+  } else if (row.tool_name === "deleteLead") {
+    result = await writeDeleteLead(String(a.leadId ?? ""));
   } else if (row.tool_name === "storeCandidateDocument") {
     result = await writeStoreDocument({
       candidateUserId: String(a.candidateUserId),
@@ -1828,7 +1843,7 @@ export async function cancelLatestPending(
 //  • SEND — anything that transmits a message to a PERSON. This is the ONE
 //    guardrail the founder wants: confirm before it goes out ("send X to Y?").
 // EVERYTHING ELSE auto-applies instantly — no yes/no robot, just act.
-export const DESTRUCTIVE_TOOLS = new Set<string>(["deleteCandidateAccount", "deleteOrganization"]);
+export const DESTRUCTIVE_TOOLS = new Set<string>(["deleteCandidateAccount", "deleteOrganization", "deleteLead"]);
 export const SEND_TOOLS = new Set<string>([
   "sendExternalEmail", "sendCandidateMessage", "sendFollowUpNudge", "nudgeStuckCandidates", "sendSlotRequest",
   "sendCalendarInvite", "replyToEmail", "forwardEmail", "sendDraft",
