@@ -49,6 +49,36 @@ type DocRow = {
 };
 
 const CV_KINDS = new Set(["cv_de", "cv_visa"]);
+
+// Map a founder's free-text doc keyword → the canonical fileKey(s). Document
+// file_types/filenames use GERMAN tokens (a passport is kind 'id', label "Reisepass"),
+// so a raw substring filter for "passport" silently missed it — the "pull worked but
+// I can't find the passport" inconsistency. With this, "passport"/"diploma"/"cv"/
+// "contract"/"vaccine"/"B2" resolve to the right doc regardless of stored language.
+const DOC_KIND_SYNONYMS: Record<string, string[]> = {
+  passport: ["id"], reisepass: ["id"], passeport: ["id"], "passport id": ["id"],
+  diploma: ["diploma", "diploma_de"], diplom: ["diploma", "diploma_de"], pflegediplom: ["diploma", "diploma_de"],
+  cv: ["cv_de", "cv_visa"], lebenslauf: ["cv_de", "cv_visa"], resume: ["cv_de", "cv_visa"],
+  b2: ["langcert"], language: ["langcert"], sprachzertifikat: ["langcert"], langcert: ["langcert"], "language certificate": ["langcert"],
+  contract: ["arbeitsvertrag"], arbeitsvertrag: ["arbeitsvertrag"], vertrag: ["arbeitsvertrag"], "employment contract": ["arbeitsvertrag"],
+  vaccine: ["impfung", "impfung_de"], vaccination: ["impfung", "impfung_de"], impfung: ["impfung", "impfung_de"], impfnachweis: ["impfung", "impfung_de"],
+  transcript: ["transcript", "transcript_de"], notenblatt: ["transcript", "transcript_de"],
+  workcert: ["workcert", "workcert_de"], arbeitszeugnis: ["workcert", "workcert_de"], "work certificate": ["workcert", "workcert_de"],
+  anerkennung: ["defizitbescheid", "ezb", "vorabzustimmung"], recognition: ["defizitbescheid", "ezb", "vorabzustimmung"], defizitbescheid: ["defizitbescheid"],
+};
+
+/** Does a document match the founder's free-text filter — a direct substring hit on
+ *  its label/filename/kind, OR a keyword→fileKey synonym (so "passport" finds the
+ *  German-labelled 'id' doc). Empty needle ⇒ matches everything. */
+function docMatchesFilter(label: string, fileName: string | null | undefined, kind: string, needle: string): boolean {
+  const n = (needle ?? "").trim().toLowerCase();
+  if (!n) return true;
+  if (`${label} ${fileName ?? ""} ${kind}`.toLowerCase().includes(n)) return true;
+  for (const [syn, keys] of Object.entries(DOC_KIND_SYNONYMS)) {
+    if (n.includes(syn) && keys.includes(kind)) return true;
+  }
+  return false;
+}
 const DAY = 86_400_000;
 
 const nameOf = (r: { first_name: string | null; last_name: string | null }): string =>
@@ -117,11 +147,24 @@ export function buildAssistantTools(
   // This is the SAME candidate set the pipeline board uses, but with working names.
   async function candidateRoster(): Promise<{ userId: string; name: string }[]> {
     if (lockedOut) return [];
-    let q = db.from("candidate_profiles").select("user_id, first_name, last_name");
+    // Try selecting is_test_account so we can hide TEST accounts from EVERY roster-based
+    // tool (search, list-all, counts, funnel, dossier, doc/profile finders). If the
+    // column isn't migrated yet, fall back to the base select so the bot still works.
+    type Prof = { user_id: string; first_name: string | null; last_name: string | null; is_test_account?: boolean | null };
+    let rows: Prof[] = [];
+    let q = db.from("candidate_profiles").select("user_id, first_name, last_name, is_test_account");
     if (scope.visibleIds !== null) q = q.in("user_id", scope.visibleIds);
-    const { data, error } = await q;
-    if (error) return [];
-    const profs = (data ?? []) as { user_id: string; first_name: string | null; last_name: string | null }[];
+    const r1 = await q;
+    if (r1.error) {
+      let q2 = db.from("candidate_profiles").select("user_id, first_name, last_name");
+      if (scope.visibleIds !== null) q2 = q2.in("user_id", scope.visibleIds);
+      const r2 = await q2;
+      if (r2.error) return [];
+      rows = (r2.data ?? []) as Prof[];
+    } else {
+      rows = (r1.data ?? []) as Prof[];
+    }
+    const profs = rows.filter((p) => p.is_test_account !== true); // drop test accounts
     if (profs.length === 0) return [];
     const profById = new Map(profs.map((p) => [p.user_id, p] as const));
     const want = new Set(profs.map((p) => p.user_id));
@@ -362,7 +405,7 @@ export function buildAssistantTools(
               uploadedAt: d.uploaded_at,
             };
           })
-          .filter((d) => !needle || `${d.name} ${d.fileName} ${d.kind}`.toLowerCase().includes(needle));
+          .filter((d) => docMatchesFilter(d.name, d.fileName, d.kind, needle));
         return { documents };
       },
     }),
@@ -482,7 +525,7 @@ export function buildAssistantTools(
         if (error) return { error: "load_failed" };
         const needle = (filter ?? "").trim().toLowerCase();
         let rows = (data ?? []) as DocRow[];
-        if (needle) rows = rows.filter((d) => `${d.file_name ?? ""} ${d.file_type ?? ""} ${resolveFileKey(d.file_type)}`.toLowerCase().includes(needle));
+        if (needle) rows = rows.filter((d) => docMatchesFilter(d.file_type ?? "", d.file_name, resolveFileKey(d.file_type), needle));
         rows = rows.slice(0, 25); // generous cap; the webhook streams each file in
         if (rows.length === 0) return { results: [] };
         // One admin token serves every file (re-checked at /api/portal/file serve time).
@@ -534,7 +577,7 @@ export function buildAssistantTools(
         const needle = (kind ?? "").trim().toLowerCase();
         type Row = { id: string; user_id: string; file_name: string | null; file_type: string | null; status: string | null; uploaded_at: string | null };
         let docs = (data ?? []) as Row[];
-        if (needle) docs = docs.filter((d) => `${d.file_name ?? ""} ${d.file_type ?? ""} ${resolveFileKey(d.file_type)}`.toLowerCase().includes(needle));
+        if (needle) docs = docs.filter((d) => docMatchesFilter(d.file_type ?? "", d.file_name, resolveFileKey(d.file_type), needle));
         if (status === "missing") {
           const have = new Set(docs.map((d) => d.user_id)); // user_ids WITH a (kind-matching) doc
           const results = roster
@@ -870,6 +913,25 @@ export function buildAssistantTools(
         const r = await cancelWorkspaceEvent(eventId);
         if (!r.ok) return { error: r.error === "workspace_not_connected" ? "calendar_not_connected" : (r.error ?? "cancel_failed") };
         return { cancelled: true };
+      },
+    }),
+
+    setTestAccount: tool({
+      description:
+        "Flag a candidate account as a TEST account (or unflag it). A test account is HIDDEN from ALL candidate counts, lists, search, rosters, matching and reports — so it never pollutes your real numbers. USE for 'mark X as a test account', 'X is just a test account we test features with', 'unmark X as test'. Resolve the name with searchCandidates first. Supreme-only, applies immediately.",
+      inputSchema: z.object({ candidateUserId: z.string().uuid(), isTest: z.boolean().default(true) }),
+      execute: async ({ candidateUserId, isTest }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const name = await displayName(candidateUserId);
+        const { error } = await db.from("candidate_profiles").update({ is_test_account: isTest }).eq("user_id", candidateUserId);
+        if (error) {
+          const code = (error as { code?: string }).code ?? "";
+          const msg = (error as { message?: string }).message ?? "";
+          const missing = code === "42703" || code === "PGRST204" || /column .* does not exist|schema cache/i.test(msg);
+          return { error: missing ? "test_flag_not_set_up" : "update_failed" };
+        }
+        return { ok: true, name, isTest };
       },
     }),
 
