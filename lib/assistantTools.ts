@@ -15,6 +15,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { canActOnCandidate, getStaffEmailSet, resolveAuthNames } from "@/lib/admin-auth";
 import { resolveFileKey, translateDocLabel, FILE_KEY_LABELS } from "@/lib/fileKeys";
 import { readWorkspaceCalendar } from "@/lib/workspaceCalendar";
+import { computeWeeklyReport } from "@/lib/weeklyReport";
 import { signDlToken } from "@/lib/dlToken";
 import { UUID_RE } from "@/lib/uuid";
 import { germanSummary } from "@/lib/b2Detail";
@@ -654,6 +655,80 @@ export function buildAssistantTools(
         const res = await readWorkspaceCalendar({ from, to, query, max });
         if (!res.ok) return { error: res.error === "workspace_not_connected" ? "calendar_not_connected" : "calendar_read_failed" };
         return { events: res.events };
+      },
+    }),
+
+    getBusinessReport: tool({
+      description:
+        "On-demand 'state of the business' report — pipeline snapshot (total + interview-passed / contract / visa / arrived), the period's new signups + leads + documents uploaded, and the attention list (passports ≤90d, B2 exams ≤30d, stalled candidates). USE for 'state of the business', 'how's the business', 'weekly report', 'monthly report', 'give me the numbers'. period: 'week' (default) or 'month'. Supreme-only.",
+      inputSchema: z.object({ period: z.enum(["week", "month"]).default("week") }),
+      execute: async ({ period }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const { text, count } = await computeWeeklyReport(period === "month" ? 30 : 7);
+        return { report: text, attentionCount: count, period };
+      },
+    }),
+
+    getFunnelSnapshot: tool({
+      description:
+        "Aggregate pipeline/funnel counts as structured numbers — total candidates + how many at each milestone (interviewPassed, contract, visa, arrived) + stalled (no movement 21d+). USE for 'funnel snapshot', 'how many at each stage', 'how many active vs arrived', 'pipeline numbers', 'conversion'. Scoped to the candidates you can see. Supreme-only.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const roster = await candidateRoster();
+        const ids = roster.map((r) => r.userId);
+        if (ids.length === 0) return { snapshot: { total: 0, interviewPassed: 0, contract: 0, visa: 0, arrived: 0, stalled: 0 } };
+        const { data } = await db
+          .from("candidate_pipeline")
+          .select("interview1_status, interview2_status, contract_done, visa_granted, arrived_done, updated_at")
+          .in("user_id", ids);
+        const rows = (data ?? []) as { interview1_status: string | null; interview2_status: string | null; contract_done: boolean | null; visa_granted: boolean | null; arrived_done: boolean | null; updated_at: string | null }[];
+        const now = Date.now();
+        let interviewPassed = 0, contract = 0, visa = 0, arrived = 0, stalled = 0;
+        for (const p of rows) {
+          if (p.interview1_status === "passed" || p.interview2_status === "passed") interviewPassed++;
+          if (p.contract_done) contract++;
+          if (p.visa_granted) visa++;
+          if (p.arrived_done) arrived++;
+          if (!p.arrived_done) { const t = Date.parse(p.updated_at ?? ""); if (Number.isFinite(t) && t < now - 21 * DAY) stalled++; }
+        }
+        return { snapshot: { total: roster.length, interviewPassed, contract, visa, arrived, stalled } };
+      },
+    }),
+
+    listCandidatesIn: tool({
+      description:
+        "List the NAMES of candidates in a group (the list tools give counts/ids but not the people). by: 'subAdmin' (value = their email, from listStaff), 'batch' (value = batchId, from listBatches), 'org' (value = orgId, from listOrganizations — approved members), or 'employer' (value = employerId, from listEmployers). USE for 'who's in the UKSH batch', 'show me Calmaroi's candidates', 'who's assigned to Khalid', 'everyone placed at UKSH'. Resolve the name→id with the matching list tool FIRST, then call this. Supreme-only.",
+      inputSchema: z.object({
+        by: z.enum(["subAdmin", "batch", "org", "employer"]),
+        value: z.string().min(1).max(254).describe("the email (subAdmin) or id (batch/org/employer)"),
+      }),
+      execute: async ({ by, value }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const v = value.trim();
+        let ids: string[] = [];
+        try {
+          if (by === "subAdmin") {
+            const { data } = await db.from("sub_admin_assignments").select("candidate_user_id").eq("sub_admin_email", v.toLowerCase());
+            ids = ((data ?? []) as { candidate_user_id: string }[]).map((r) => r.candidate_user_id);
+          } else if (by === "batch") {
+            const { data } = await db.from("candidate_pipeline").select("user_id").eq("batch_id", v);
+            ids = ((data ?? []) as { user_id: string }[]).map((r) => r.user_id);
+          } else if (by === "org") {
+            const { data } = await db.from("candidate_organizations").select("candidate_user_id").eq("org_id", v).eq("status", "approved");
+            ids = ((data ?? []) as { candidate_user_id: string }[]).map((r) => r.candidate_user_id);
+          } else {
+            const { data } = await db.from("candidate_profiles").select("user_id").eq("employer_id", v);
+            ids = ((data ?? []) as { user_id: string }[]).map((r) => r.user_id);
+          }
+        } catch { return { error: "load_failed" }; }
+        if (ids.length === 0) return { candidates: [], count: 0 };
+        // Resolve names AND enforce scope (LAW #25): only candidates in the caller's
+        // scoped roster survive — out-of-scope ids are silently dropped.
+        const roster = await candidateRoster();
+        const nameById = new Map(roster.map((r) => [r.userId, r.name] as const));
+        const candidates = [...new Set(ids)].filter((id) => nameById.has(id)).map((id) => ({ candidateUserId: id, name: nameById.get(id)! }));
+        return { candidates, count: candidates.length };
       },
     }),
 

@@ -30,10 +30,12 @@ function parseDate(raw: string | null): number | null {
 
 export type WeeklyReport = { text: string; count: number };
 
-export async function computeWeeklyReport(): Promise<WeeklyReport> {
+export async function computeWeeklyReport(windowDays = 7): Promise<WeeklyReport> {
   const db = getServiceSupabase();
   const now = Date.now();
-  const weekAgo = now - 7 * DAY;
+  const weekAgo = now - windowDays * DAY;
+  const periodLabel = windowDays === 7 ? "weekly report" : `last ${windowDays} days`;
+  const thisLabel = windowDays === 7 ? "This week" : `Last ${windowDays} days`;
 
   // Candidates (profiles) — totals + passport/B2 signals.
   type P = { user_id: string; passport_expiry: string | null; b2_exam_date: string | null };
@@ -135,7 +137,7 @@ export async function computeWeeklyReport(): Promise<WeeklyReport> {
   );
 
   const lines: string[] = [
-    "📊 Borivon — weekly report",
+    `📊 Borivon — ${periodLabel}`,
     "",
     `👥 Pipeline (${total} candidate${total === 1 ? "" : "s"})`,
     `   • Interview passed: ${interviewPassed}`,
@@ -143,7 +145,7 @@ export async function computeWeeklyReport(): Promise<WeeklyReport> {
     `   • Visa granted: ${visa}`,
     `   • Arrived in Germany: ${arrived}`,
     "",
-    "🆕 This week",
+    `🆕 ${thisLabel}`,
     `   • New signups: ${newSignups}`,
     `   • New leads: ${newLeads}`,
     `   • Documents uploaded: ${uploaded7d}`,
