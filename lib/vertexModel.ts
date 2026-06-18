@@ -84,6 +84,22 @@ export function vertexModel(tier: ModelTier = "flash") {
   return vertex(tier === "pro" ? proId() : flashId());
 }
 
+/** Gemini-on-Vertex ALWAYS — ignoring the Anthropic key. The resilience net: when
+ *  the Claude call fails (most importantly the Anthropic Tier-1 rate limit), the bot
+ *  retries the same request on Gemini, which has far higher quota, so a simple task
+ *  (pull a file, answer a question) still GETS DONE instead of hard-failing. Returns
+ *  null if Vertex isn't configured (then there's nothing to fall back to). */
+export function geminiFallbackModel(tier: ModelTier = "flash") {
+  const vertex = makeVertex();
+  if (!vertex) return null;
+  return vertex(tier === "pro" ? proId() : flashId());
+}
+
+/** Is the bot currently running on Claude? (Drives the rate-limit→Gemini fallback.) */
+export function isOnClaude(): boolean {
+  return !!process.env.ANTHROPIC_API_KEY;
+}
+
 /**
  * Which brain to use — only consulted when a Pro tier is configured. Flash by
  * default; Pro for the hard, multi-step / multi-person / context-dependent

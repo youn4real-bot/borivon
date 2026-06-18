@@ -16,7 +16,7 @@
 import { NextRequest } from "next/server";
 import { generateText, stepCountIs } from "ai";
 import { logUsage } from "@/lib/usage";
-import { vertexModel, chooseTier, looksWeak, proConfigured } from "@/lib/vertexModel";
+import { vertexModel, geminiFallbackModel, isOnClaude, chooseTier, looksWeak, proConfigured } from "@/lib/vertexModel";
 import { buildAssistantTools } from "@/lib/assistantTools";
 import type { AssistantScope } from "@/lib/assistantScope";
 import { computeBriefing } from "@/lib/briefing";
@@ -439,22 +439,44 @@ export async function POST(req: NextRequest) {
   // that makes a bot feel robotic). Cleared in the finally below.
   const stopTyping = tgTypingLoop(chatId);
   try {
-    // Run on the chosen tier; if Flash throws AND a Pro tier exists, escalate
-    // instead of erroring.
-    let result = await generateText({ model: tier === "pro" ? proModel : flashModel, ...genArgs })
-      .catch((genErr) => {
-        if (proOn && tier === "flash") return generateText({ model: proModel, ...genArgs });
-        throw genErr;
-      });
-    // Reactive escalation (Pro tier only): Flash punted ("which one?") or came
-    // back empty → redo the SAME turn on Pro and use that instead.
-    if (proOn && tier === "flash" && looksWeak(result.text)) {
-      try { result = await generateText({ model: proModel, ...genArgs }); } catch { /* keep the Flash result */ }
+    // PRIMARY brain (Claude when configured). maxRetries:0 on purpose — the AI SDK's
+    // default fast re-tries on a 429 would just pile MORE tokens onto the same
+    // exhausted per-minute budget (the Tier-1 Anthropic cap). Instead, fail fast and
+    // fall back to GEMINI (far higher quota) so a simple task — pull a file, answer a
+    // question — STILL gets done. Gemini doesn't use the Anthropic cache breakpoints,
+    // so the fallback gets the classic single combined system + plain tools (also
+    // sidesteps any provider-specific multi-system-message quirk).
+    const primaryModel = tier === "pro" ? proModel : flashModel;
+    let result;
+    let usedFallback = false;
+    try {
+      result = await generateText({ model: primaryModel, maxRetries: 0, ...genArgs });
+      // Reactive escalation (Pro tier only): a weak/empty Flash reply → redo on Pro.
+      if (proOn && tier === "flash" && looksWeak(result.text)) {
+        try { result = await generateText({ model: proModel, maxRetries: 0, ...genArgs }); } catch { /* keep the first result */ }
+      }
+    } catch (primaryErr) {
+      const fb = isOnClaude() ? geminiFallbackModel(tier) : null;
+      if (!fb) throw primaryErr;
+      const geminiArgs = {
+        system: `${TG_SYSTEM}\n\n— — —\n\n${dynamicContext}`,
+        messages: [...history, { role: "user" as const, content }],
+        tools: buildAssistantTools(scope, pendingFile),
+        temperature: 0.4,
+        maxOutputTokens: 8192,
+        stopWhen: stepCountIs(20),
+      };
+      try {
+        result = await generateText({ model: fb, maxRetries: 1, ...geminiArgs });
+        usedFallback = true;
+      } catch {
+        throw primaryErr; // both brains failed → surface the ORIGINAL (Claude) error
+      }
     }
 
     // Track token consumption for getApiUsage (best-effort, fail-safe, non-blocking).
     // Prefer the multi-step total — the agent loop can take several steps per turn.
-    void logUsage((result as { totalUsage?: unknown }).totalUsage ?? result.usage, tier === "pro" ? "pro" : "flash", "telegram");
+    void logUsage((result as { totalUsage?: unknown }).totalUsage ?? result.usage, usedFallback ? "gemini-fallback" : "claude", "telegram");
 
     // COLLECT the file links the model produced (we deliver the ACTUAL files into
     // the chat, not just a link) — but DON'T download yet. We send the ANSWER TEXT
@@ -630,10 +652,15 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
     console.error("[telegram] generate failed:", detail);
-    // Temporary: surface the real error to the admin (supreme-only chat) so we can
-    // diagnose. Trim noise + cap length so it stays a readable chat message.
-    const short = detail.replace(/\s+/g, " ").trim().slice(0, 350);
-    await tgSend(chatId, `⚠️ Error: ${short}\n\n(Try typing it if this was a voice note.)`);
+    // A rate-limit (Anthropic Tier-1 cap) gets a plain, actionable message instead of
+    // the raw API error — and only reaches here if the Gemini fallback ALSO failed.
+    if (/rate.?limit|429|rate_limit/i.test(detail)) {
+      await tgSend(chatId, "⏳ Hit the per-minute rate limit for a moment. Give it ~30 seconds and send that again. (If this keeps happening, the Anthropic account needs a higher tier — a $40 credit top-up unlocks 9× the limit.)");
+    } else {
+      // Surface the real error to the admin (supreme-only chat) so we can diagnose.
+      const short = detail.replace(/\s+/g, " ").trim().slice(0, 350);
+      await tgSend(chatId, `⚠️ Error: ${short}\n\n(Try typing it if this was a voice note.)`);
+    }
   } finally {
     stopTyping(); // always clear the typing bubble, success or error
   }
