@@ -244,34 +244,64 @@ export function buildAssistantTools(
 
     getCandidateById: tool({
       description:
-        "Get a summary for ONE candidate by their candidateUserId: name, B2 exam date, passport status and expiry. Returns { error: 'out_of_scope' } if you are not allowed to see them — do not guess in that case.",
+        "Get the FULL profile for ONE candidate by candidateUserId: name, EMAIL, phone-less core + B2 exam date + passport status, PLUS every identity/passport field — passport number, date of birth, sex, nationality, full address, city & country of birth, marital status, children, issuing authority, passport issue & expiry dates. USE THIS for 'what's X's passport number / date of birth / nationality / address / email / marital status' — the answer is here, never say you can't find it. Returns { error: 'out_of_scope' } if you are not allowed to see them.",
       inputSchema: z.object({ candidateUserId: z.string().uuid() }),
       execute: async ({ candidateUserId }) => {
         if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
         const { data, error } = await db
           .from("candidate_profiles")
-          .select("user_id, first_name, last_name, b2_exam_date, passport_expiry, passport_status")
+          .select("user_id, first_name, last_name, b2_exam_date, passport_expiry, passport_status, dob, sex, nationality, passport_no, issue_date, issuing_authority, city_of_birth, country_of_birth, address_street, address_number, address_postal, city_of_residence, country_of_residence, marital_status, children_ages")
           .eq("user_id", candidateUserId)
           .maybeSingle();
         if (error) return { error: "load_failed" };
         if (!data) return { error: "not_found" };
-        const r = data as ProfileRow;
+        const r = data as {
+          user_id: string; first_name: string | null; last_name: string | null;
+          b2_exam_date: string | null; passport_expiry: string | null; passport_status: string | null;
+          dob: string | null; sex: string | null; nationality: string | null; passport_no: string | null;
+          issue_date: string | null; issuing_authority: string | null;
+          city_of_birth: string | null; country_of_birth: string | null;
+          address_street: string | null; address_number: string | null; address_postal: string | null;
+          city_of_residence: string | null; country_of_residence: string | null;
+          marital_status: string | null; children_ages: string | null;
+        };
         let name = nameOf(r);
-        if (name === "—") {
-          // Profile name empty → fall back to the account's registration name.
-          try {
-            const { data: u } = await db.auth.admin.getUserById(candidateUserId);
+        // Always resolve the account email; also use it (or the auth full_name) as the
+        // name fallback when the profile name is empty.
+        let email: string | null = null;
+        try {
+          const { data: u } = await db.auth.admin.getUserById(candidateUserId);
+          email = u?.user?.email ?? null;
+          if (name === "—") {
             const fn = ((u?.user?.user_metadata as Record<string, unknown> | undefined)?.full_name as string | undefined)?.trim();
-            name = fn || u?.user?.email || "—";
-          } catch { /* keep — */ }
-        }
+            name = fn || email || "—";
+          }
+        } catch { /* email/name best-effort */ }
         return {
           candidate: {
             candidateUserId: r.user_id,
             name,
+            email,
             b2ExamDate: r.b2_exam_date,
-            passportExpiry: r.passport_expiry,
             passportStatus: r.passport_status,
+            identity: {
+              dob: r.dob,
+              sex: r.sex,
+              nationality: r.nationality,
+              passportNo: r.passport_no,
+              passportIssueDate: r.issue_date,
+              passportExpiry: r.passport_expiry,
+              issuingAuthority: r.issuing_authority,
+              cityOfBirth: r.city_of_birth,
+              countryOfBirth: r.country_of_birth,
+              addressStreet: r.address_street,
+              addressNumber: r.address_number,
+              addressPostal: r.address_postal,
+              cityOfResidence: r.city_of_residence,
+              countryOfResidence: r.country_of_residence,
+              maritalStatus: r.marital_status,
+              childrenAges: r.children_ages,
+            },
           },
         };
       },
@@ -431,6 +461,99 @@ export function buildAssistantTools(
       },
     }),
 
+    getAllCandidateDocuments: tool({
+      description:
+        "Deliver EVERY document a candidate has, all at once, by candidateUserId — passport, diploma, nursing cert, Anerkennung paperwork, contract, CVs, B2 cert, Impfung, anything. USE THIS for 'send me ALL of X's documents', 'everything on X', 'her whole file', 'all his papers'. The files are delivered straight into the chat — do NOT call getDocumentDownloadLink one at a time. Optional `filter` (e.g. 'passport', 'diploma') narrows it. Returns { results:[{docId,url,fileName,kind,status,uploadedAt}] }. out_of_scope if you can't see this candidate.",
+      inputSchema: z.object({
+        candidateUserId: z.string().uuid(),
+        filter: z.string().max(60).optional().describe("optional keyword to narrow, e.g. 'passport' or 'diploma'"),
+      }),
+      execute: async ({ candidateUserId, filter }) => {
+        if (lockedOut) return { results: [] };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const { data, error } = await db
+          .from("documents")
+          .select("id, file_name, file_type, status, uploaded_at, drive_file_id, r2_key")
+          .eq("user_id", candidateUserId)
+          .order("uploaded_at", { ascending: false });
+        if (error) return { error: "load_failed" };
+        const needle = (filter ?? "").trim().toLowerCase();
+        let rows = (data ?? []) as DocRow[];
+        if (needle) rows = rows.filter((d) => `${d.file_name ?? ""} ${d.file_type ?? ""} ${resolveFileKey(d.file_type)}`.toLowerCase().includes(needle));
+        rows = rows.slice(0, 25); // generous cap; the webhook streams each file in
+        if (rows.length === 0) return { results: [] };
+        // One admin token serves every file (re-checked at /api/portal/file serve time).
+        const token = signDlToken(scope.userId, 180);
+        // CVs render LIVE from cv_draft (same freshness as getCvLinks) — read the draft once.
+        const { data: prof } = await db.from("candidate_profiles").select("cv_draft").eq("user_id", candidateUserId).maybeSingle();
+        let draft = (prof as { cv_draft?: unknown } | null)?.cv_draft as unknown;
+        if (typeof draft === "string") { try { draft = JSON.parse(draft); } catch { draft = null; } }
+        const cd = (draft && typeof draft === "object" ? draft : null) as { firstName?: string; lastName?: string } | null;
+        const hasDraftName = !!(cd && (cd.firstName || cd.lastName));
+        const results = rows.map((d) => {
+          const kind = resolveFileKey(d.file_type);
+          const fileName = d.file_name ?? `${kind || "dokument"}.pdf`;
+          const nm = encodeURIComponent(fileName.slice(0, 180));
+          let url: string;
+          if (CV_KINDS.has(kind) && hasDraftName) {
+            const plain = kind === "cv_visa" ? "&plain=1" : "";
+            url = `/api/portal/cv/live-file?cand=${encodeURIComponent(candidateUserId)}&dlt=${encodeURIComponent(token)}&dl=1${plain}&name=${nm}`;
+          } else {
+            const idPart = d.drive_file_id ? `id=${encodeURIComponent(d.drive_file_id)}` : `docId=${encodeURIComponent(d.id)}`;
+            url = `/api/portal/file?${idPart}&dlt=${encodeURIComponent(token)}&dl=1&name=${nm}`;
+          }
+          return { docId: d.id, url, fileName, kind, status: d.status, uploadedAt: d.uploaded_at };
+        });
+        return { results };
+      },
+    }),
+
+    findDocumentsAcrossCandidates: tool({
+      description:
+        "Roster-wide document query (NOT one candidate). USE for 'who's missing a diploma', 'every pending passport waiting for review', 'how many docs are waiting for review', 'which candidates haven't uploaded their B2 cert'. status: 'pending'|'approved'|'rejected' filters uploaded docs; 'missing' returns candidates who have NO document of that kind (or no docs at all if kind omitted). Optional kind keyword (e.g. 'passport','diploma','langcert','contract'). Read-only, scoped to the candidates you can see. For a 'pending' hit, returns docId so you can chain reviewDocument.",
+      inputSchema: z.object({
+        kind: z.string().max(60).optional().describe("doc kind/keyword, e.g. 'passport' or 'diploma'"),
+        status: z.enum(["pending", "approved", "rejected", "missing"]).optional(),
+        limit: z.number().int().min(1).max(200).default(60),
+      }),
+      execute: async ({ kind, status, limit }) => {
+        if (lockedOut) return { results: [] };
+        const roster = await candidateRoster();
+        if (roster.length === 0) return { results: [] };
+        const nameById = new Map(roster.map((r) => [r.userId, r.name] as const));
+        const ids = roster.map((r) => r.userId);
+        const { data, error } = await db
+          .from("documents")
+          .select("id, user_id, file_name, file_type, status, uploaded_at")
+          .in("user_id", ids)
+          .order("uploaded_at", { ascending: false });
+        if (error) return { error: "load_failed" };
+        const needle = (kind ?? "").trim().toLowerCase();
+        type Row = { id: string; user_id: string; file_name: string | null; file_type: string | null; status: string | null; uploaded_at: string | null };
+        let docs = (data ?? []) as Row[];
+        if (needle) docs = docs.filter((d) => `${d.file_name ?? ""} ${d.file_type ?? ""} ${resolveFileKey(d.file_type)}`.toLowerCase().includes(needle));
+        if (status === "missing") {
+          const have = new Set(docs.map((d) => d.user_id)); // user_ids WITH a (kind-matching) doc
+          const results = roster
+            .filter((c) => !have.has(c.userId))
+            .slice(0, limit)
+            .map((c) => ({ candidateUserId: c.userId, name: c.name, status: "missing" as const, kind: needle || "any" }));
+          return { results, count: results.length };
+        }
+        if (status) docs = docs.filter((d) => (d.status ?? "") === status);
+        const results = docs.slice(0, limit).map((d) => ({
+          candidateUserId: d.user_id,
+          name: nameById.get(d.user_id) ?? "—",
+          docId: d.id,
+          fileName: d.file_name ?? "Dokument",
+          kind: resolveFileKey(d.file_type),
+          status: d.status,
+          uploadedAt: d.uploaded_at,
+        }));
+        return { results, count: results.length };
+      },
+    }),
+
     // ── Personal task memory (the admin's OWN reminders — not candidate data) ──
     saveReminder: tool({
       description:
@@ -482,6 +605,10 @@ export function buildAssistantTools(
           if (mb === null) return -1;
           return ma - mb;
         });
+        // Resolve the tied-to candidate id → a real NAME so "what's on my plate"
+        // reads "chase Hajar's passport", never a raw UUID. One auth lookup for all.
+        const candIds = [...new Set(rows.map((r) => r.candidate_user_id).filter((x): x is string => !!x))];
+        const nameById = candIds.length ? await authNameMap(candIds) : new Map<string, string>();
         return {
           reminders: rows.map((r) => ({
             reminderId: r.id,
@@ -489,6 +616,7 @@ export function buildAssistantTools(
             dueDate: r.due_date,
             daysUntil: r.due_date && parseDate(r.due_date) !== null ? Math.round((parseDate(r.due_date)! - now) / DAY) : null,
             candidateUserId: r.candidate_user_id,
+            candidateName: r.candidate_user_id ? (nameById.get(r.candidate_user_id) || null) : null,
             done: r.done,
           })),
         };
