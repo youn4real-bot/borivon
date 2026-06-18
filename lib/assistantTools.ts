@@ -16,6 +16,7 @@ import { canActOnCandidate, getStaffEmailSet, resolveAuthNames } from "@/lib/adm
 import { resolveFileKey, translateDocLabel, FILE_KEY_LABELS } from "@/lib/fileKeys";
 import { readWorkspaceCalendar } from "@/lib/workspaceCalendar";
 import { computeWeeklyReport } from "@/lib/weeklyReport";
+import { specialtyLabel } from "@/lib/nurseSpecialties";
 import { signDlToken } from "@/lib/dlToken";
 import { UUID_RE } from "@/lib/uuid";
 import { germanSummary } from "@/lib/b2Detail";
@@ -729,6 +730,95 @@ export function buildAssistantTools(
         const nameById = new Map(roster.map((r) => [r.userId, r.name] as const));
         const candidates = [...new Set(ids)].filter((id) => nameById.has(id)).map((id) => ({ candidateUserId: id, name: nameById.get(id)! }));
         return { candidates, count: candidates.length };
+      },
+    }),
+
+    getNurseProfile: tool({
+      description:
+        "Read a candidate's NURSE profile — specialty, years of experience, current workplace, when they can start (available_from), and recognition (Anerkennung) stage. USE for 'what specialty is X', 'how many years experience does X have', 'when can X start', 'where does X work now'. out_of_scope if you can't see them.",
+      inputSchema: z.object({ candidateUserId: z.string().uuid() }),
+      execute: async ({ candidateUserId }) => {
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const { data, error } = await db.from("candidate_profiles")
+          .select("nursing_specialty, years_experience, current_workplace, available_from, anerkennung_stage")
+          .eq("user_id", candidateUserId).maybeSingle();
+        if (error) return { error: "load_failed" };
+        const p = (data ?? {}) as { nursing_specialty: string | null; years_experience: number | null; current_workplace: string | null; available_from: string | null; anerkennung_stage: string | null };
+        return {
+          name: await displayName(candidateUserId),
+          specialty: p.nursing_specialty,
+          specialtyLabel: specialtyLabel(p.nursing_specialty, "en"),
+          yearsExperience: p.years_experience,
+          currentWorkplace: p.current_workplace,
+          availableFrom: p.available_from,
+          anerkennungStage: p.anerkennung_stage,
+        };
+      },
+    }),
+
+    listCandidatesByProfile: tool({
+      description:
+        "Find candidates by NURSE criteria — for matching to a hospital's need. Filters (all optional, combine them): specialty (a key — general, intensive (ICU), geriatric, surgical, pediatric, emergency, anesthesia, psychiatric, obstetrics, oncology, cardiology, dialysis; pass the closest), minYearsExperience, availableBy (ISO date — only those who can start on/before it). Returns [{candidateUserId,name,specialty,specialtyLabel,yearsExperience,availableFrom}], scoped to candidates you can see. USE for 'who are our ICU nurses', 'list candidates with 5+ years', 'who's available by September'.",
+      inputSchema: z.object({
+        specialty: z.string().max(40).optional(),
+        minYearsExperience: z.number().int().min(0).max(60).optional(),
+        availableBy: z.string().max(20).optional().describe("ISO date; only candidates available on/before this"),
+      }),
+      execute: async ({ specialty, minYearsExperience, availableBy }) => {
+        if (lockedOut) return { candidates: [] };
+        const roster = await candidateRoster();
+        if (roster.length === 0) return { candidates: [] };
+        const nameById = new Map(roster.map((r) => [r.userId, r.name] as const));
+        const { data, error } = await db.from("candidate_profiles")
+          .select("user_id, nursing_specialty, years_experience, available_from")
+          .in("user_id", roster.map((r) => r.userId));
+        if (error) return { error: "load_failed" };
+        type Row = { user_id: string; nursing_specialty: string | null; years_experience: number | null; available_from: string | null };
+        let rows = (data ?? []) as Row[];
+        if (specialty && specialty.trim()) {
+          const s = specialty.trim().toLowerCase();
+          rows = rows.filter((r) => {
+            const key = (r.nursing_specialty ?? "").toLowerCase();
+            if (!key) return false;
+            return key === s || key.includes(s) || specialtyLabel(r.nursing_specialty, "en").toLowerCase().includes(s);
+          });
+        }
+        if (minYearsExperience != null) rows = rows.filter((r) => (r.years_experience ?? -1) >= minYearsExperience);
+        if (availableBy && !Number.isNaN(Date.parse(availableBy))) {
+          const by = Date.parse(availableBy);
+          rows = rows.filter((r) => { const t = Date.parse(r.available_from ?? ""); return Number.isFinite(t) && t <= by; });
+        }
+        const candidates = rows.slice(0, 100).map((r) => ({
+          candidateUserId: r.user_id,
+          name: nameById.get(r.user_id) ?? "—",
+          specialty: r.nursing_specialty,
+          specialtyLabel: specialtyLabel(r.nursing_specialty, "en"),
+          yearsExperience: r.years_experience,
+          availableFrom: r.available_from,
+        }));
+        return { candidates, count: candidates.length };
+      },
+    }),
+
+    getVaccineStatus: tool({
+      description:
+        "Vaccine / Impfung status for a candidate — how many Masern + Varizell doses they have vs needed, and whether they meet the requirement. Reference target = UKSH (2× Masern + 2× Varizell). USE for 'does X have her 2x Masern + 2x Varizellen', 'vaccine status for X', 'is X's Impfung done'. Reads the admin-only vaccine data. out_of_scope if you can't see them; 'vaccines_not_set_up' if the table isn't migrated.",
+      inputSchema: z.object({ candidateUserId: z.string().uuid() }),
+      execute: async ({ candidateUserId }) => {
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const { data, error } = await db.from("candidate_status").select("vaccines").eq("user_id", candidateUserId).maybeSingle();
+        if (error) return { error: (error as { code?: string }).code === "PGRST205" ? "vaccines_not_set_up" : "load_failed" };
+        const vaccines = (data as { vaccines?: unknown } | null)?.vaccines as Record<string, { doses?: { got?: boolean | null }[] }> | null | undefined;
+        const got = (key: string) => ((vaccines?.[key]?.doses ?? []) as { got?: boolean | null }[]).filter((d) => d.got === true).length;
+        const masernHave = got("masern"), varizellHave = got("varizell");
+        const need = { masern: 2, varizell: 2 }; // UKSH baseline (some employers need fewer/none)
+        return {
+          name: await displayName(candidateUserId),
+          masern: { have: masernHave, need: need.masern },
+          varizell: { have: varizellHave, need: need.varizell },
+          meetsRequirement: masernHave >= need.masern && varizellHave >= need.varizell,
+          note: "Target shown is the UKSH requirement (2× Masern + 2× Varizell); other employers may require fewer or none.",
+        };
       },
     }),
 
