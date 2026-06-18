@@ -80,18 +80,29 @@ export async function computeBriefing(adminUserId: string | null): Promise<Brief
 
   // ⏰ The tasks YOU asked me to remember — undated ones ALWAYS show (they stay
   // until you mark them done), dated ones surface within a week / when overdue.
-  let reminders: { text: string; due: string | null; days: number | null }[] = [];
+  let reminders: { text: string; due: string | null; days: number | null; when: string | null }[] = [];
   if (adminUserId) {
-    const { data: rem } = await db
+    // Prefer the precise due_at + notified_at columns; fall back to date-only if the
+    // due_at migration hasn't run yet (so reminders never silently vanish).
+    const sel = (withNew: boolean) => db
       .from("assistant_reminders")
-      .select("text, due_date")
+      .select(withNew ? "text, due_date, due_at, notified_at" : "text, due_date")
       .eq("owner_user_id", adminUserId)
       .eq("done", false);
-    reminders = ((rem ?? []) as { text: string; due_date: string | null }[])
-      .map((r) => ({ text: r.text, due: r.due_date, ms: parseDate(r.due_date) }))
-      .filter((r) => r.ms === null || r.ms <= now + 7 * DAY)
+    let r = await sel(true);
+    if (r.error) r = await sel(false);
+    type Rem = { text: string; due_date: string | null; due_at?: string | null; notified_at?: string | null };
+    reminders = ((r.data ?? []) as unknown as Rem[])
+      // A TIMED reminder that already fired (notified_at set) has done its job — drop it
+      // so it doesn't re-nag every briefing. Undated tasks keep showing until done.
+      .filter((x) => !(x.due_at && x.notified_at))
+      .map((x) => {
+        const ms = x.due_at ? (Number.isNaN(Date.parse(x.due_at)) ? null : Date.parse(x.due_at)) : parseDate(x.due_date);
+        return { text: x.text, due: x.due_date, when: x.due_at ?? null, ms };
+      })
+      .filter((x) => x.ms === null || x.ms <= now + 7 * DAY)
       .sort((a, b) => (a.ms ?? Infinity) - (b.ms ?? Infinity))
-      .map((r) => ({ text: r.text, due: r.due, days: r.ms === null ? null : Math.round((r.ms - now) / DAY) }));
+      .map((x) => ({ text: x.text, due: x.due, when: x.when, days: x.ms === null ? null : Math.round((x.ms - now) / DAY) }));
   }
 
   // 🔔 stuck candidates + 📧 unanswered emails — folded in (best-effort, each

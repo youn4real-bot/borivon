@@ -103,12 +103,17 @@ const REMIND_LEAD =
   /^(?:please\s+|pls\s+|hey,?\s+)?(?:can you\s+|could you\s+|can u\s+)?(?:remind me (?:to|about|of|that)|don.?t let me forget(?:\s+(?:to|about))?|note to self|remember to|erinnere mich(?:\s+(?:an|daran))?|rappelle[- ]?moi(?:\s+(?:de|d['’]|que))?)\b/i;
 // "remind me WHAT Anna said" is a question (tell me now), NOT a task to store.
 const REMIND_QWORD = /\bremind me\s+(what|who|when|where|why|how|whether|if|which)\b/i;
+// RECURRING reminders ("every Monday", "each month", "daily") have richer handling on
+// the model path (saveReminder's recurrence param) than the deterministic intercept,
+// so let those fall through to the model instead of saving a one-shot here.
+const RECURRING = /\b(every|each|daily|weekly|monthly|chaque|jeden|jede[nrs]?|t[äa]glich|w[öo]chentlich|monatlich)\b/i;
 
 /** True when the founder is asking to STORE a standing reminder (not a question). */
 export function isSetReminder(t: string): boolean {
   const n = (t || "").trim();
   if (!n || n.length > 300) return false;
   if (REMIND_QWORD.test(n)) return false;
+  if (RECURRING.test(n)) return false; // recurring → model path (deterministic one is one-shot)
   return REMIND_LEAD.test(n);
 }
 

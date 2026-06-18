@@ -7,8 +7,9 @@
  */
 import { NextRequest } from "next/server";
 import { computeStuckCandidates } from "@/lib/autoChase";
-import { tgSend, telegramConfigured } from "@/lib/telegram";
+import { tgSend, getAdminUserId, telegramConfigured } from "@/lib/telegram";
 import { isAutomationEnabled } from "@/lib/automationSettings";
+import { fireDueReminders } from "@/lib/reminderFire";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -24,19 +25,23 @@ export async function GET(req: NextRequest) {
   if (!telegramConfigured() || !chatId) {
     return Response.json({ skipped: "telegram_not_configured" });
   }
+
+  // Fire any now-due personal reminders first — independent of the auto_chase toggle.
+  const reminders = await fireDueReminders(chatId, await getAdminUserId()).catch(() => ({ fired: 0 }));
+
   if (!(await isAutomationEnabled("auto_chase"))) {
-    return Response.json({ skipped: "disabled" });
+    return Response.json({ skipped: "disabled", reminders });
   }
   // The morning briefing now FOLDS IN the stuck-candidate list, so when it's on
   // this separate push would just be a duplicate — skip it. It only fires
   // standalone if the briefing is turned off but auto_chase is left on.
   if (await isAutomationEnabled("daily_briefing")) {
-    return Response.json({ skipped: "covered_by_briefing" });
+    return Response.json({ skipped: "covered_by_briefing", reminders });
   }
 
   const { text, count } = await computeStuckCandidates();
   // Only ping when there's actually someone to chase — no daily "nobody's stuck" noise.
-  if (count === 0) return Response.json({ sent: false, count: 0 });
+  if (count === 0) return Response.json({ sent: false, count: 0, reminders });
   await tgSend(chatId, text);
-  return Response.json({ sent: true, count });
+  return Response.json({ sent: true, count, reminders });
 }

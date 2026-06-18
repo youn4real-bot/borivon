@@ -11,6 +11,7 @@ import { computeBriefing } from "@/lib/briefing";
 import { tgSend, getAdminUserId, telegramConfigured } from "@/lib/telegram";
 import { isAutomationEnabled } from "@/lib/automationSettings";
 import { runFollowupChase } from "@/lib/followupsRun";
+import { fireDueReminders } from "@/lib/reminderFire";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,16 +28,20 @@ export async function GET(req: NextRequest) {
     return Response.json({ skipped: "telegram_not_configured" });
   }
 
+  // Fire any now-due personal reminders FIRST — independent of the briefing toggle
+  // (a reminder isn't the briefing; it should ping even if the briefing is muted).
+  const adminUserId = await getAdminUserId();
+  const reminders = await fireDueReminders(chatId, adminUserId).catch(() => ({ fired: 0 }));
+
   // Outbound follow-up chase rides this morning pass (≈12h from the evening nudge
   // run), independent of the briefing toggle — gated by its own followup_chase switch.
   const followups = await runFollowupChase(chatId).catch(() => ({ sent: false, nudged: 0, resolved: 0, skipped: "error" as const }));
 
   if (!(await isAutomationEnabled("daily_briefing"))) {
-    return Response.json({ skipped: "disabled", followups });
+    return Response.json({ skipped: "disabled", followups, reminders });
   }
 
-  const adminUserId = await getAdminUserId();
   const { text, count } = await computeBriefing(adminUserId);
   await tgSend(chatId, text);
-  return Response.json({ sent: true, count, followups });
+  return Response.json({ sent: true, count, followups, reminders });
 }

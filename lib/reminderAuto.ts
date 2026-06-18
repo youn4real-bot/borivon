@@ -14,23 +14,41 @@
 import { generateText } from "ai";
 import { getServiceSupabase } from "@/lib/supabase";
 
-/** Create a personal reminder for the admin. Returns the new id, or null on failure. */
+/** Create a personal reminder for the admin. `dueAt` is the exact instant it should
+ *  fire (with time-of-day) — null for an undated "keep nagging me" task. Returns the
+ *  new id, or null on failure. Stores both due_at (the precise firing instant, source
+ *  of truth) and the legacy due_date (so the existing briefing date-surfacing still
+ *  works). Falls back to a date-only insert if the due_at column isn't migrated yet. */
 export async function createReminder(
   adminUserId: string | null,
   text: string,
-  dueDate?: string | null,
+  dueAt?: Date | null,
+  recurrence?: "daily" | "weekly" | "monthly" | null,
 ): Promise<string | null> {
   const clean = (text || "").trim();
   if (!adminUserId || clean.length < 2) return null;
   try {
     const db = getServiceSupabase();
-    const due = dueDate && /^\d{4}-\d{2}-\d{2}$/.test(dueDate) ? dueDate : null;
-    const { data, error } = await db
-      .from("assistant_reminders")
-      .insert({ owner_user_id: adminUserId, text: clean.slice(0, 500), due_date: due })
-      .select("id")
-      .maybeSingle();
-    if (error) return null;
+    const dueAtIso = dueAt instanceof Date && !Number.isNaN(dueAt.getTime()) ? dueAt.toISOString() : null;
+    const dueDate = dueAtIso ? dueAtIso.slice(0, 10) : null;
+    const row: Record<string, unknown> = { owner_user_id: adminUserId, text: clean.slice(0, 500), due_date: dueDate };
+    if (dueAtIso) row.due_at = dueAtIso;
+    if (recurrence) row.recurrence = recurrence;
+    const { data, error } = await db.from("assistant_reminders").insert(row).select("id").maybeSingle();
+    if (error) {
+      // due_at column may not exist yet (migration not run) → retry date-only so the
+      // task still lands and surfaces in the briefing.
+      if (dueAtIso) {
+        const { data: d2, error: e2 } = await db
+          .from("assistant_reminders")
+          .insert({ owner_user_id: adminUserId, text: clean.slice(0, 500), due_date: dueDate })
+          .select("id")
+          .maybeSingle();
+        if (e2) return null;
+        return (d2 as { id: string } | null)?.id ?? null;
+      }
+      return null;
+    }
     return (data as { id: string } | null)?.id ?? null;
   } catch {
     return null;

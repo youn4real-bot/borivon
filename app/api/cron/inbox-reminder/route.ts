@@ -11,8 +11,9 @@
  */
 import { NextRequest } from "next/server";
 import { getUnansweredEmails, formatUnansweredEmails } from "@/lib/gmailInbox";
-import { tgSend, telegramConfigured } from "@/lib/telegram";
+import { tgSend, getAdminUserId, telegramConfigured } from "@/lib/telegram";
 import { isAutomationEnabled } from "@/lib/automationSettings";
+import { fireDueReminders } from "@/lib/reminderFire";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,21 +29,25 @@ export async function GET(req: NextRequest) {
   if (!telegramConfigured() || !chatId) {
     return Response.json({ skipped: "telegram_not_configured" });
   }
+
+  // Fire any now-due personal reminders first — independent of the inbox_reminder toggle.
+  const reminders = await fireDueReminders(chatId, await getAdminUserId()).catch(() => ({ fired: 0 }));
+
   if (!(await isAutomationEnabled("inbox_reminder"))) {
-    return Response.json({ skipped: "disabled" });
+    return Response.json({ skipped: "disabled", reminders });
   }
   // The morning briefing now FOLDS IN the unanswered-email list, so when it's on
   // this separate push would just be a duplicate — skip it. It only fires
   // standalone if the briefing is turned off but inbox_reminder is left on.
   if (await isAutomationEnabled("daily_briefing")) {
-    return Response.json({ skipped: "covered_by_briefing" });
+    return Response.json({ skipped: "covered_by_briefing", reminders });
   }
 
   const emails = await getUnansweredEmails(20);
-  if (emails === null) return Response.json({ skipped: "gmail_read_unavailable" });
+  if (emails === null) return Response.json({ skipped: "gmail_read_unavailable", reminders });
   // Only ping when there's actually something waiting — no daily "inbox clear" noise.
-  if (emails.length === 0) return Response.json({ sent: false, count: 0 });
+  if (emails.length === 0) return Response.json({ sent: false, count: 0, reminders });
 
   await tgSend(chatId, formatUnansweredEmails(emails));
-  return Response.json({ sent: true, count: emails.length });
+  return Response.json({ sent: true, count: emails.length, reminders });
 }

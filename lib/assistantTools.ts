@@ -22,8 +22,11 @@ import { UUID_RE } from "@/lib/uuid";
 import { germanSummary } from "@/lib/b2Detail";
 import { stripEmailFormatting } from "@/lib/emailFormat";
 import { computeBriefing } from "@/lib/briefing";
+import { localIsoToInstant, fmtWhen } from "@/lib/reminderTime";
+import { computeChecklist } from "@/lib/candidateChecklist";
+import { FUNNEL_STAGES, funnelLabel, type FunnelStageKey } from "@/lib/batchBoard";
 import { stagePending, executeLatestPending, cancelLatestPending, prepareEmailDraft, getPendingDraft, MILESTONE_BOOL } from "@/lib/assistantWrites";
-import { AUTOMATIONS, getAutomationFlags, setAutomation as persistAutomation } from "@/lib/automationSettings";
+import { AUTOMATIONS, getAutomationFlags, setAutomation as persistAutomation, type AutomationKey } from "@/lib/automationSettings";
 import { workspaceConfigured, workspaceServiceAccount, testWorkspace, WORKSPACE_SCOPES } from "@/lib/googleWorkspace";
 import { gmailSearch, gmailGet, gmailApiReady, listEmailAttachments, listDraftAttachments, gmailGetThread, gmailModify, gmailTrash } from "@/lib/gmailApi";
 import { getUsageSummary } from "@/lib/usage";
@@ -753,6 +756,84 @@ export function buildAssistantTools(
       },
     }),
 
+    getCandidateChecklist: tool({
+      description:
+        "What documents a candidate is STILL MISSING / pending / rejected for their file (Essentials + Qualifications, incl. each original + German translation). USE for 'what does Fatima still need', 'what's missing for the visa', 'is Asmae's file complete', 'what's left for X'. Returns each item's state (complete/pending/rejected/missing) + a completion percentage. Returns { error: 'out_of_scope' } if you can't see this candidate.",
+      inputSchema: z.object({ candidateUserId: z.string().uuid() }),
+      execute: async ({ candidateUserId }) => {
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        const { data, error } = await db
+          .from("documents")
+          .select("file_type, status")
+          .eq("user_id", candidateUserId);
+        if (error) return { error: "load_failed" };
+        const cl = computeChecklist((data ?? []) as { file_type: string | null; status: string | null }[]);
+        // Surface the actionable items by name so the bot can say exactly what's left.
+        const label = (key: string) => translateDocLabel(key, "de") || key;
+        const missing = cl.items.filter((i) => !i.optional && i.state === "missing").map((i) => label(i.key));
+        const pending = cl.items.filter((i) => !i.optional && i.state === "pending").map((i) => label(i.key));
+        const rejected = cl.items.filter((i) => i.state === "rejected").map((i) => label(i.key));
+        return {
+          pct: cl.pct,
+          requiredComplete: cl.requiredComplete,
+          requiredTotal: cl.requiredTotal,
+          counts: cl.counts,
+          missing, pending, rejected,
+        };
+      },
+    }),
+
+    getFunnelStageCounts: tool({
+      description:
+        "How many candidates sit at EACH recruitment funnel stage (funneling, screening call, interview 1, waiting for 2nd interview, interview 2, passed, departed). USE for 'break it down by stage', 'how many at each stage', 'how many in screening'. Returns {stage,label,count}[]. Scoped to candidates you can see. Supreme-only.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const roster = await candidateRoster();
+        const ids = roster.map((r) => r.userId);
+        const counts = new Map<string, number>(FUNNEL_STAGES.map((s) => [s.key, 0]));
+        let unset = 0;
+        if (ids.length) {
+          const { data } = await db.from("candidate_pipeline").select("user_id, funnel_stage").in("user_id", ids);
+          const seen = new Set<string>();
+          for (const r of (data ?? []) as { user_id: string; funnel_stage: string | null }[]) {
+            seen.add(r.user_id);
+            const k = r.funnel_stage;
+            if (k && counts.has(k)) counts.set(k, counts.get(k)! + 1);
+            else unset++;
+          }
+          // Candidates with no pipeline row at all = not yet started → count as unset.
+          unset += ids.filter((id) => !seen.has(id)).length;
+        }
+        return {
+          total: roster.length,
+          stages: FUNNEL_STAGES.map((s) => ({ stage: s.key, label: s.label, count: counts.get(s.key) ?? 0 })),
+          notStarted: unset,
+        };
+      },
+    }),
+
+    listCandidatesByFunnelStage: tool({
+      description:
+        "List the NAMES of candidates currently at one funnel stage. stage is one of: funneling, screening, interview1, waiting_2nd, interview2, passed, departed. USE for 'who's waiting for their 2nd interview', 'who's in screening', 'who's in the danger zone' (waiting_2nd). Scoped to candidates you can see. Supreme-only.",
+      inputSchema: z.object({
+        stage: z.enum(FUNNEL_STAGES.map((s) => s.key) as [FunnelStageKey, ...FunnelStageKey[]]),
+      }),
+      execute: async ({ stage }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const roster = await candidateRoster();
+        const ids = roster.map((r) => r.userId);
+        if (!ids.length) return { stage, label: funnelLabel(stage), candidates: [], count: 0 };
+        const { data, error } = await db.from("candidate_pipeline").select("user_id").eq("funnel_stage", stage).in("user_id", ids);
+        if (error) return { error: "load_failed" };
+        const nameById = new Map(roster.map((r) => [r.userId, r.name] as const));
+        const candidates = ((data ?? []) as { user_id: string }[])
+          .filter((r) => nameById.has(r.user_id))
+          .map((r) => ({ candidateUserId: r.user_id, name: nameById.get(r.user_id)! }));
+        return { stage, label: funnelLabel(stage), candidates, count: candidates.length };
+      },
+    }),
+
     listCandidatesIn: tool({
       description:
         "List the NAMES of candidates in a group (the list tools give counts/ids but not the people). by: 'subAdmin' (value = their email, from listStaff), 'batch' (value = batchId, from listBatches), 'org' (value = orgId, from listOrganizations — approved members), or 'employer' (value = employerId, from listEmployers). USE for 'who's in the UKSH batch', 'show me Calmaroi's candidates', 'who's assigned to Khalid', 'everyone placed at UKSH'. Resolve the name→id with the matching list tool FIRST, then call this. Supreme-only.",
@@ -938,22 +1019,32 @@ export function buildAssistantTools(
     // ── Personal task memory (the admin's OWN reminders — not candidate data) ──
     saveReminder: tool({
       description:
-        "Save a personal reminder/task for the admin (e.g. 'chase Youssef's passport', 'call the embassy Monday'). Use this whenever the admin tells you to remember something or notes a task to do later. Optionally tie it to a candidate and/or a due date.",
+        "Save a personal reminder/task for the admin (e.g. 'chase Youssef's passport', 'call the embassy Monday'). Use this whenever the admin tells you to remember something or notes a task to do later. If a TIME or date was mentioned (\"tomorrow at 3pm\", \"Monday 9am\", \"tonight\", \"in 2 hours\"), pass dueAt as a LOCAL wall-clock ISO with NO Z (e.g. 2026-06-19T15:00:00), resolved against the RIGHT NOW moment in the system context — the bot will PING the admin at exactly that instant. For a REPEATING reminder ('every Monday', 'every month', 'each day'), set recurrence and a dueAt for the FIRST occurrence — it then re-fires each period until marked done. Omit dueAt for an open-ended task (it just nags in the briefing). Optionally tie it to a candidate.",
       inputSchema: z.object({
         text: z.string().min(1).max(500).describe("the task / thing to remember"),
-        dueDate: z.string().optional().describe("ISO date YYYY-MM-DD if a deadline was mentioned"),
+        dueAt: z.string().optional().describe("LOCAL wall-clock ISO with time, e.g. 2026-06-19T15:00:00 (no Z) — when to PING. A date-only value defaults to 09:00 local."),
+        recurrence: z.enum(["daily", "weekly", "monthly"]).optional().describe("set for a repeating reminder; the firing re-arms the next occurrence each period"),
         candidateUserId: z.string().uuid().optional().describe("if the reminder is about a specific candidate"),
       }),
-      execute: async ({ text, dueDate, candidateUserId }) => {
+      execute: async ({ text, dueAt, recurrence, candidateUserId }) => {
         if (candidateUserId && !(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
-        const due = dueDate && /^\d{4}-\d{2}-\d{2}$/.test(dueDate) ? dueDate : null; // ignore non-ISO the model might emit
-        const { data, error } = await db
-          .from("assistant_reminders")
-          .insert({ owner_user_id: scope.userId, text, due_date: due, candidate_user_id: candidateUserId ?? null })
-          .select("id")
-          .maybeSingle();
+        const due = dueAt ? localIsoToInstant(dueAt) : null;
+        const dueAtIso = due ? due.toISOString() : null;
+        const dueDate = dueAtIso ? dueAtIso.slice(0, 10) : null;
+        const row: Record<string, unknown> = { owner_user_id: scope.userId, text, due_date: dueDate, candidate_user_id: candidateUserId ?? null };
+        if (dueAtIso) row.due_at = dueAtIso;
+        if (recurrence) row.recurrence = recurrence;
+        let { data, error } = await db.from("assistant_reminders").insert(row).select("id").maybeSingle();
+        if (error && (dueAtIso || recurrence)) {
+          // due_at/recurrence columns not migrated yet → retry date-only so the task still lands.
+          ({ data, error } = await db
+            .from("assistant_reminders")
+            .insert({ owner_user_id: scope.userId, text, due_date: dueDate, candidate_user_id: candidateUserId ?? null })
+            .select("id")
+            .maybeSingle());
+        }
         if (error) return { error: "save_failed" };
-        return { saved: true, reminderId: (data as { id: string } | null)?.id ?? null };
+        return { saved: true, reminderId: (data as { id: string } | null)?.id ?? null, willFireAt: due ? fmtWhen(due) : null, recurrence: recurrence ?? null };
       },
     }),
 
@@ -965,22 +1056,31 @@ export function buildAssistantTools(
         dueWithinDays: z.number().int().min(1).max(365).optional().describe("only reminders due within N days"),
       }),
       execute: async ({ includeDone, dueWithinDays }) => {
-        let qb = db
-          .from("assistant_reminders")
-          .select("id, text, due_date, candidate_user_id, done, created_at")
-          .eq("owner_user_id", scope.userId);
-        if (!includeDone) qb = qb.eq("done", false);
-        const { data, error } = await qb;
+        type R = { id: string; text: string; due_date: string | null; due_at?: string | null; candidate_user_id: string | null; done: boolean; created_at: string };
+        const run = async (withDueAt: boolean) => {
+          let qb = db
+            .from("assistant_reminders")
+            .select(withDueAt ? "id, text, due_date, due_at, candidate_user_id, done, created_at" : "id, text, due_date, candidate_user_id, done, created_at")
+            .eq("owner_user_id", scope.userId);
+          if (!includeDone) qb = qb.eq("done", false);
+          return qb;
+        };
+        let { data, error } = await run(true);
+        if (error) ({ data, error } = await run(false)); // due_at not migrated yet → fall back
         if (error) return { error: "load_failed" };
-        type R = { id: string; text: string; due_date: string | null; candidate_user_id: string | null; done: boolean; created_at: string };
-        let rows = (data ?? []) as R[];
+        let rows = (data ?? []) as unknown as R[];
         const now = Date.now();
+        // Effective due instant: the precise due_at if set, else the legacy date.
+        const dueMs = (r: R): number | null => {
+          if (r.due_at) { const ms = Date.parse(r.due_at); if (!Number.isNaN(ms)) return ms; }
+          return parseDate(r.due_date);
+        };
         if (dueWithinDays != null) {
           const horizon = now + dueWithinDays * DAY;
-          rows = rows.filter((r) => { const ms = parseDate(r.due_date); return ms !== null && ms <= horizon; });
+          rows = rows.filter((r) => { const ms = dueMs(r); return ms !== null && ms <= horizon; });
         }
         rows.sort((a, b) => {
-          const ma = parseDate(a.due_date), mb = parseDate(b.due_date);
+          const ma = dueMs(a), mb = dueMs(b);
           if (ma === null && mb === null) return 0;
           if (ma === null) return 1;
           if (mb === null) return -1;
@@ -991,15 +1091,20 @@ export function buildAssistantTools(
         const candIds = [...new Set(rows.map((r) => r.candidate_user_id).filter((x): x is string => !!x))];
         const nameById = candIds.length ? await authNameMap(candIds) : new Map<string, string>();
         return {
-          reminders: rows.map((r) => ({
-            reminderId: r.id,
-            text: r.text,
-            dueDate: r.due_date,
-            daysUntil: r.due_date && parseDate(r.due_date) !== null ? Math.round((parseDate(r.due_date)! - now) / DAY) : null,
-            candidateUserId: r.candidate_user_id,
-            candidateName: r.candidate_user_id ? (nameById.get(r.candidate_user_id) || null) : null,
-            done: r.done,
-          })),
+          reminders: rows.map((r) => {
+            const ms = dueMs(r);
+            return {
+              reminderId: r.id,
+              text: r.text,
+              dueDate: r.due_date,
+              // The exact time it pings (when one was set), in the founder's tz.
+              when: r.due_at ? fmtWhen(new Date(r.due_at)) : null,
+              daysUntil: ms !== null ? Math.round((ms - now) / DAY) : null,
+              candidateUserId: r.candidate_user_id,
+              candidateName: r.candidate_user_id ? (nameById.get(r.candidate_user_id) || null) : null,
+              done: r.done,
+            };
+          }),
         };
       },
     }),
@@ -1018,6 +1123,87 @@ export function buildAssistantTools(
         if (error) return { error: "update_failed" };
         if (!data) return { error: "not_found" };
         return { completed: true };
+      },
+    }),
+
+    updateReminder: tool({
+      description:
+        "Edit an EXISTING reminder by its reminderId (from listReminders) — to SNOOZE/reschedule it ('snooze that to tomorrow', 'push the embassy reminder to next Friday', 'change it to 5pm'), ADD a deadline to an undated task, change its TEXT, or set/clear a repeat. Pass only the fields that change. dueAt = LOCAL wall-clock ISO with no Z (e.g. 2026-06-20T17:00:00), resolved against RIGHT NOW. Clears the fired flag so a moved-forward reminder fires again at the new time.",
+      inputSchema: z.object({
+        reminderId: z.string().uuid(),
+        text: z.string().min(1).max(500).optional().describe("new task text"),
+        dueAt: z.string().optional().describe("new LOCAL wall-clock ISO with time (no Z) to reschedule/snooze to"),
+        recurrence: z.enum(["daily", "weekly", "monthly", "none"]).optional().describe("set a repeat, or 'none' to make it one-shot"),
+      }),
+      execute: async ({ reminderId, text, dueAt, recurrence }) => {
+        const patch: Record<string, unknown> = {};
+        if (text != null) patch.text = text.slice(0, 500);
+        if (dueAt != null) {
+          const due = localIsoToInstant(dueAt);
+          if (!due) return { error: "bad_dueAt" };
+          patch.due_at = due.toISOString();
+          patch.due_date = due.toISOString().slice(0, 10);
+          patch.notified_at = null; // re-arm: a rescheduled reminder should fire again
+        }
+        if (recurrence != null) patch.recurrence = recurrence === "none" ? null : recurrence;
+        if (Object.keys(patch).length === 0) return { error: "nothing_to_change" };
+        let { data, error } = await db
+          .from("assistant_reminders")
+          .update(patch)
+          .eq("id", reminderId)
+          .eq("owner_user_id", scope.userId)
+          .select("id, text, due_at")
+          .maybeSingle();
+        if (error && ("due_at" in patch || "notified_at" in patch || "recurrence" in patch)) {
+          // columns not migrated yet → retry with only the always-present fields.
+          const safe: Record<string, unknown> = {};
+          if ("text" in patch) safe.text = patch.text;
+          if ("due_date" in patch) safe.due_date = patch.due_date;
+          if (Object.keys(safe).length === 0) return { error: "needs_migration" };
+          ({ data, error } = await db
+            .from("assistant_reminders").update(safe).eq("id", reminderId).eq("owner_user_id", scope.userId)
+            .select("id, text, due_at").maybeSingle());
+        }
+        if (error) return { error: "update_failed" };
+        if (!data) return { error: "not_found" };
+        const row = data as { id: string; text: string; due_at: string | null };
+        return { updated: true, reminderId: row.id, text: row.text, when: row.due_at ? fmtWhen(new Date(row.due_at)) : null };
+      },
+    }),
+
+    clearReminders: tool({
+      description:
+        "Mark MANY of the admin's reminders done at once. scope: 'all' clears every open reminder ('clear all my reminders / wipe my to-do list'); 'overdue' clears only ones already past due. By design this is a soft close (done=true), never a hard delete. Returns how many were cleared.",
+      inputSchema: z.object({ scope: z.enum(["all", "overdue"]).default("all") }),
+      execute: async ({ scope: which }) => {
+        // Load open ids first so we can both apply the 'overdue' filter (which needs
+        // due_at/due_date math) and report an exact count.
+        const sel = async (withDueAt: boolean) => db
+          .from("assistant_reminders")
+          .select(withDueAt ? "id, due_date, due_at" : "id, due_date")
+          .eq("owner_user_id", scope.userId)
+          .eq("done", false);
+        let { data, error } = await sel(true);
+        if (error) ({ data, error } = await sel(false));
+        if (error) return { error: "load_failed" };
+        type R = { id: string; due_date: string | null; due_at?: string | null };
+        let rows = (data ?? []) as unknown as R[];
+        const now = Date.now();
+        if (which === "overdue") {
+          rows = rows.filter((r) => {
+            const ms = r.due_at ? Date.parse(r.due_at) : parseDate(r.due_date);
+            return ms !== null && !Number.isNaN(ms) && ms <= now;
+          });
+        }
+        const ids = rows.map((r) => r.id);
+        if (!ids.length) return { cleared: 0 };
+        const { error: uErr } = await db
+          .from("assistant_reminders")
+          .update({ done: true })
+          .in("id", ids)
+          .eq("owner_user_id", scope.userId);
+        if (uErr) return { error: "clear_failed" };
+        return { cleared: ids.length };
       },
     }),
 
@@ -1520,9 +1706,9 @@ export function buildAssistantTools(
 
     setAutomation: tool({
       description:
-        "Turn a proactive automation ON or OFF — immediate, no confirmation needed. key is one of: daily_briefing (the 6am 'what needs you today'), weekly_report (Monday business report), signup_ping (instant ping when a candidate signs up), auto_chase (morning stuck-candidate surface), inbox_reminder (morning unanswered-email reminder). enabled true = on, false = off. e.g. 'turn off the weekly report' → setAutomation('weekly_report', false); 'stop the email reminders' → setAutomation('inbox_reminder', false).",
+        "Turn a proactive automation ON or OFF — immediate, no confirmation needed. key is one of: daily_briefing (the 6am 'what needs you today'), weekly_report (Monday business report), signup_ping (instant ping when a candidate signs up), auto_chase (morning stuck-candidate surface), inbox_reminder (morning unanswered-email reminder), inbox_sla (the 6-hour reply SLA pings at midday+evening), followup_chase (the outbound follow-up chase that reminds you to chase an unanswered email you sent), doc_reminders (the '👀 N documents waiting for review' section). enabled true = on, false = off. e.g. 'turn off the weekly report' → setAutomation('weekly_report', false); 'stop the 6-hour reply pings' → setAutomation('inbox_sla', false); 'stop the follow-up chase' → setAutomation('followup_chase', false).",
       inputSchema: z.object({
-        key: z.enum(["daily_briefing", "weekly_report", "signup_ping", "auto_chase", "inbox_reminder"]),
+        key: z.enum(Object.keys(AUTOMATIONS) as [AutomationKey, ...AutomationKey[]]),
         enabled: z.boolean(),
       }),
       execute: async ({ key, enabled }) => {

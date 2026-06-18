@@ -429,7 +429,15 @@ describe("assistant tools allow the supreme admin", () => {
   it("saveReminder stores the admin's own task", async () => {
     h.tables.assistant_reminders = { data: { id: "r1" }, error: null };
     const r = await run(buildAssistantTools(SUPREME), "saveReminder", { text: "call the embassy Monday" });
-    expect(r).toEqual({ saved: true, reminderId: "r1" });
+    // willFireAt/recurrence are null for an undated, one-shot task.
+    expect(r).toEqual({ saved: true, reminderId: "r1", willFireAt: null, recurrence: null });
+  });
+
+  it("saveReminder captures a TIME → willFireAt is set (the reminder will actually fire)", async () => {
+    h.tables.assistant_reminders = { data: { id: "r2" }, error: null };
+    const r = (await run(buildAssistantTools(SUPREME), "saveReminder", { text: "call the embassy", dueAt: "2026-06-19T15:00:00" })) as { saved?: boolean; willFireAt?: string | null };
+    expect(r.saved).toBe(true);
+    expect(typeof r.willFireAt).toBe("string"); // a real firing instant was captured (was silently dropped before)
   });
 
   it("setInterviewResult STAGES a confirm-first write (does not apply immediately)", async () => {
@@ -1015,6 +1023,17 @@ describe("assistant tools allow the supreme admin", () => {
     expect(set.ok).toBe(true);
     expect(set.key).toBe("weekly_report");
     expect(set.enabled).toBe(false);
+  });
+
+  // Regression: the setAutomation enum used to omit these 3 keys, so the founder
+  // could NOT turn off the SLA pings / follow-up chase / doc reminders from chat.
+  it("setAutomation accepts inbox_sla, followup_chase and doc_reminders (enum no longer drifts)", async () => {
+    for (const key of ["inbox_sla", "followup_chase", "doc_reminders"] as const) {
+      const set = (await run(buildAssistantTools(SUPREME), "setAutomation", { key, enabled: false })) as { ok?: boolean; key?: string; error?: string };
+      expect(set.error).toBeUndefined();
+      expect(set.ok).toBe(true);
+      expect(set.key).toBe(key);
+    }
   });
 
   // ── Audit fixes (2026-06-12) ────────────────────────────────────────────────
