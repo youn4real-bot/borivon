@@ -19,7 +19,7 @@ describe("usage helpers", () => {
     ).toEqual({ input: 18000, output: 200, cacheRead: 16000, cacheWrite: 0 });
   });
   it("estimateCostUsd prices at the primary brain (Claude Haiku $1/$5)", () => {
-    // 1M input + 1M output = $1.00 + $5.00 = $6.00 (update if PRIMARY_BRAIN changes)
+    // 1M input + 1M output = $1.00 + $5.00 = $6.00 (Claude Haiku, the default model)
     expect(estimateCostUsd(1_000_000, 1_000_000)).toBe(6.0);
     expect(estimateCostUsd(0, 0)).toBe(0);
   });

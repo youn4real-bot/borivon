@@ -7,7 +7,6 @@
  * never logged); Google's authoritative billing is in the Cloud console.
  */
 import { getServiceSupabase } from "@/lib/supabase";
-import { PRIMARY_BRAIN } from "@/lib/vertexModel";
 
 /** Pull token counts out of whatever shape the AI SDK returned.
  *  - input/output: v6 inputTokens/outputTokens; older promptTokens/completionTokens.
@@ -31,25 +30,17 @@ export function extractTokens(usage: unknown): { input: number; output: number; 
   };
 }
 
-/** Rough USD estimate, priced to the PRIMARY brain the bot runs (PRIMARY_BRAIN) AND
- *  to the prompt-cache split. Deliberately approximate — for "am I burning money?"
- *  not invoicing. Rates per 1M tokens: Gemini Pro $1.25/$10 (or Flash $0.30/$2.50 if
- *  the model id says flash); Claude Haiku $1/$5, Sonnet $3/$15, Opus $5/$25.
- *  Caching multipliers (Anthropic-wide): fresh input 1×, cache WRITE 1.25×, cache
- *  READ 0.1×. `input` is the TOTAL prompt input, so fresh = input − cacheRead −
- *  cacheWrite. cacheRead/cacheWrite default 0 (Gemini / caching off) → full rate. */
+/** Rough USD estimate for Claude (the only brain now) + the prompt-cache split.
+ *  Deliberately approximate — for "am I burning money?" not invoicing. Rates per 1M
+ *  tokens, keyed to the configured model id: Haiku $1/$5 (default), Sonnet $3/$15,
+ *  Opus $5/$25. Caching multipliers (Anthropic): fresh input 1×, cache WRITE 1.25×,
+ *  cache READ 0.1×. `input` is the TOTAL prompt input, so fresh = input − cacheRead −
+ *  cacheWrite. cacheRead/cacheWrite default 0 (caching off) → full rate. */
 export function estimateCostUsd(input: number, output: number, cacheRead = 0, cacheWrite = 0): number {
-  let inRate: number, outRate: number;
-  if (PRIMARY_BRAIN === "claude") {
-    const m = (process.env.ASSISTANT_CLAUDE_FLASH || "claude-haiku-4-5").toLowerCase();
-    if (m.includes("opus")) { inRate = 5.00; outRate = 25.00; }
-    else if (m.includes("sonnet")) { inRate = 3.00; outRate = 15.00; }
-    else { inRate = 1.00; outRate = 5.00; } // Haiku 4.5 (the default)
-  } else {
-    const m = (process.env.ASSISTANT_GEMINI_PRO || "gemini-2.5-pro").toLowerCase();
-    if (m.includes("flash")) { inRate = 0.30; outRate = 2.50; }
-    else { inRate = 1.25; outRate = 10.00; } // Gemini Pro (the default brain now)
-  }
+  const m = (process.env.ASSISTANT_CLAUDE_FLASH || "claude-haiku-4-5").toLowerCase();
+  let inRate = 1.00, outRate = 5.00; // Haiku 4.5 (the default)
+  if (m.includes("opus")) { inRate = 5.00; outRate = 25.00; }
+  else if (m.includes("sonnet")) { inRate = 3.00; outRate = 15.00; }
   const fresh = Math.max(0, input - cacheRead - cacheWrite);
   const inputUsd =
     (fresh / 1_000_000) * inRate +

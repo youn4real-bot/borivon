@@ -16,7 +16,7 @@
 import { NextRequest } from "next/server";
 import { generateText, stepCountIs } from "ai";
 import { logUsage } from "@/lib/usage";
-import { vertexModel, fallbackModel, primaryBrain, chooseTier, looksWeak, proConfigured } from "@/lib/vertexModel";
+import { vertexModel, chooseTier, looksWeak, proConfigured } from "@/lib/vertexModel";
 import { buildAssistantTools } from "@/lib/assistantTools";
 import type { AssistantScope } from "@/lib/assistantScope";
 import { computeBriefing } from "@/lib/briefing";
@@ -404,73 +404,43 @@ export async function POST(req: NextRequest) {
   // (multi-person, "these candidates", files, voice, comparisons). Below we
   // ALSO escalate Flash→Pro reactively if Flash errors or punts.
   const tier = chooseTier(userText, { hasHistory: history.length > 0, hasFile: !!pendingFile, isVoice: !!msg.voice });
-  // The Anthropic cache breakpoint marker (5-min ephemeral). Harmless on Gemini.
+  // The Anthropic prompt-cache breakpoint marker (5-min ephemeral).
   const cacheBreak = { providerOptions: { anthropic: { cacheControl: { type: "ephemeral" as const } } } };
-  // ── Build the model args for a given brain ──────────────────────────────────
-  // CLAUDE: cache-optimized — the static TG_SYSTEM as a CACHED system block, the
-  //   dynamic context as a second (uncached) block, plus a cache breakpoint on the
-  //   tools (Anthropic can't cache the top-level system STRING).
-  // GEMINI: the classic single combined system + plain tools — the shape the bot ran
-  //   on for months (Anthropic cache breakpoints don't apply to Gemini; this also
-  //   sidesteps any provider-specific multi-system-message quirk).
-  // Same temperature / token ceilings / step cap either way.
-  const argsForBrain = (brain: "gemini" | "claude") =>
-    brain === "claude"
-      ? {
-          messages: [
-            { role: "system" as const, content: TG_SYSTEM, ...cacheBreak }, // cached (~17K prefix w/ tools)
-            { role: "system" as const, content: dynamicContext },           // fresh each turn
-            ...history,
-            { role: "user" as const, content },
-          ],
-          tools: withToolCacheBreakpoint(buildAssistantTools(scope, pendingFile)),
-          temperature: 0.4,
-          maxOutputTokens: 8192,
-          stopWhen: stepCountIs(20),
-        }
-      : {
-          system: `${TG_SYSTEM}\n\n— — —\n\n${dynamicContext}`,
-          messages: [...history, { role: "user" as const, content }],
-          tools: buildAssistantTools(scope, pendingFile),
-          temperature: 0.4,
-          maxOutputTokens: 8192,
-          stopWhen: stepCountIs(20),
-        };
+  // CLAUDE-ONLY args (Gemini removed, no fallback). Cache-optimized: the static
+  // TG_SYSTEM as a CACHED system block, the dynamic context (date + learned rules +
+  // summary) as a second uncached block, plus a cache breakpoint on the tools.
+  // (Anthropic can't cache the top-level system STRING — hence the message blocks.)
+  const genArgs = {
+    messages: [
+      { role: "system" as const, content: TG_SYSTEM, ...cacheBreak }, // cached (~17K prefix w/ tools)
+      { role: "system" as const, content: dynamicContext },           // fresh each turn
+      ...history,
+      { role: "user" as const, content },
+    ],
+    tools: withToolCacheBreakpoint(buildAssistantTools(scope, pendingFile)),
+    temperature: 0.4,
+    maxOutputTokens: 8192,
+    stopWhen: stepCountIs(20),
+  };
   const proOn = proConfigured(); // Claude Pro tier only exists when opted in (off now)
   // Show "typing…" the whole time the bot is thinking + running tools, so the
   // chat feels alive instead of dead-silent for several seconds (the #1 thing
   // that makes a bot feel robotic). Cleared in the finally below.
   const stopTyping = tgTypingLoop(chatId);
   try {
-    // PRIMARY brain = the founder's current choice (Gemini Pro). maxRetries:0 on
-    // purpose — a 429 retry just piles MORE tokens onto the same exhausted minute.
-    // Instead, fail fast and fall back to the OTHER brain (Claude), which still gets
-    // the task done. Each brain gets the arg shape it wants (above).
-    const primary = primaryBrain();
-    const primaryModel = vertexModel(tier) ?? flashModel;
-    let result;
-    let brainUsed: string = primary;
-    try {
-      result = await generateText({ model: primaryModel, maxRetries: 0, ...argsForBrain(primary) });
-      // Reactive escalation (Claude Pro tier only; dormant while ALLOW_PRO is off).
-      if (proOn && tier === "flash" && looksWeak(result.text)) {
-        try { result = await generateText({ model: proModel, maxRetries: 0, ...argsForBrain(primary) }); } catch { /* keep the first result */ }
-      }
-    } catch (primaryErr) {
-      const other = primary === "claude" ? "gemini" : "claude";
-      const fb = fallbackModel(tier);
-      if (!fb) throw primaryErr;
-      try {
-        result = await generateText({ model: fb, maxRetries: 1, ...argsForBrain(other) });
-        brainUsed = `${other}-fallback`;
-      } catch {
-        throw primaryErr; // both brains failed → surface the ORIGINAL error
-      }
+    // CLAUDE ONLY — Gemini removed, no fallback (founder's call: a clean week-long
+    // Claude evaluation). maxRetries:1 recovers from a brief transient/rate blip
+    // without risking a long multi-retry wait (Vercel function timeout). A hard rate
+    // limit surfaces the friendly "wait / raise tier" message via the outer catch.
+    let result = await generateText({ model: flashModel, maxRetries: 1, ...genArgs });
+    // Reactive escalation (Claude Pro tier only; dormant while ALLOW_PRO is off).
+    if (proOn && tier === "flash" && looksWeak(result.text)) {
+      try { result = await generateText({ model: proModel, maxRetries: 1, ...genArgs }); } catch { /* keep the first result */ }
     }
 
     // Track token consumption for getApiUsage (best-effort, fail-safe, non-blocking).
     // Prefer the multi-step total — the agent loop can take several steps per turn.
-    void logUsage((result as { totalUsage?: unknown }).totalUsage ?? result.usage, brainUsed, "telegram");
+    void logUsage((result as { totalUsage?: unknown }).totalUsage ?? result.usage, "claude", "telegram");
 
     // COLLECT the file links the model produced (we deliver the ACTUAL files into
     // the chat, not just a link) — but DON'T download yet. We send the ANSWER TEXT
