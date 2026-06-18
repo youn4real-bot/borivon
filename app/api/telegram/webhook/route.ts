@@ -21,6 +21,7 @@ import { buildAssistantTools } from "@/lib/assistantTools";
 import type { AssistantScope } from "@/lib/assistantScope";
 import { computeBriefing } from "@/lib/briefing";
 import { loadMemory, saveMemory } from "@/lib/assistantMemory";
+import { transcribeVoice } from "@/lib/transcribeVoice";
 import { looksLikeCorrection, reflectAndLearn } from "@/lib/selfLearn";
 import { loadConversationContext, saveChatTurns, maybeCompact, resetConversation } from "@/lib/assistantChatHistory";
 import { executeLatestPending, cancelLatestPending, autoApplyPending, getPendingDraft } from "@/lib/assistantWrites";
@@ -379,11 +380,13 @@ export async function POST(req: NextRequest) {
   } else if (msg.voice) {
     const audio = await tgGetFileBytes(msg.voice.file_id);
     if (!audio) { await tgSend(chatId, "Couldn't fetch that voice note — please try again or type."); return ok(); }
-    content = [
-      { type: "file", data: audio.bytes, mediaType: audio.mime },
-      { type: "text", text: "This is a voice message from the admin. Understand it and act using your tools." },
-    ];
-    userText = "[voice message]";
+    // Claude (the brain) can't ingest audio — transcribe with Gemini first, then run on
+    // the TEXT. (Sending audio straight to Claude is what broke voice on the brain swap.)
+    void tgSendChatAction(chatId, "typing");
+    const transcript = await transcribeVoice(audio.bytes, audio.mime);
+    if (!transcript) { await tgSend(chatId, "I couldn't make out that voice note — please type it instead."); return ok(); }
+    content = transcript;
+    userText = transcript;
   } else if (text) {
     content = text;
     userText = text;
