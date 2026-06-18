@@ -2130,8 +2130,36 @@ export function buildAssistantTools(
           status: r.status, reviewStatus: r.review_status, reviewFeedback: r.review_feedback,
           signedAt: r.signed_at, createdAt: r.created_at,
           awaitingReview: r.status === "signed" && !r.review_status,
+          signedPdfAvailable: r.status === "signed", // deliver with getSignRequestFile
         }));
         return { count: requests.length, requests };
+      },
+    }),
+
+    getSignRequestFile: tool({
+      description:
+        "Deliver a candidate's SIGNED sign-request PDF (e.g. the signed Arbeitsvertrag / contract they returned) straight into the chat — or the ORIGINAL unsigned version. The signed PDF lives in storage, NOT in the documents list, so getDocumentDownloadLink can't reach it — use THIS. Get the signRequestId from listSignRequests (a request with status 'signed' / signedPdfAvailable). which: 'signed' (default) or 'original'. out_of_scope if you can't see the candidate; 'not_signed_yet' if they haven't signed it.",
+      inputSchema: z.object({
+        signRequestId: z.string().uuid(),
+        which: z.enum(["signed", "original"]).default("signed"),
+      }),
+      execute: async ({ signRequestId, which }) => {
+        const { data, error } = await db.from("sign_requests")
+          .select("id, candidate_user_id, document_name, signed_pdf_path, pdf_storage_path")
+          .eq("id", signRequestId).maybeSingle();
+        if (error) return { error: "load_failed" };
+        if (!data) return { error: "not_found" };
+        const r = data as { id: string; candidate_user_id: string; document_name: string | null; signed_pdf_path: string | null; pdf_storage_path: string | null };
+        if (!(await canActOnCandidate(scope.role, scope.email, r.candidate_user_id))) return { error: "out_of_scope" };
+        const path = which === "original" ? r.pdf_storage_path : (r.signed_pdf_path ?? null);
+        if (!path) return { error: which === "signed" ? "not_signed_yet" : "no_original_file" };
+        // The signed/original PDFs live in the "sign-documents" Storage bucket — mint a
+        // short-lived Supabase signed URL (absolute; the webhook fetches it as-is).
+        const { data: urlData, error: urlErr } = await db.storage.from("sign-documents").createSignedUrl(path, 180);
+        if (urlErr || !urlData?.signedUrl) return { error: "serve_failed" };
+        const base = (r.document_name ?? "dokument").replace(/[^\w.\-]+/g, "_") || "dokument";
+        const fileName = base.toLowerCase().endsWith(".pdf") ? base : `${base}${which === "signed" ? "_signed" : ""}.pdf`;
+        return { url: urlData.signedUrl, fileName, expiresInSec: 180 };
       },
     }),
 
