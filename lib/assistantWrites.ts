@@ -132,6 +132,9 @@ async function writeAnerkennung(userId: string, stage: string): Promise<WriteRes
   const db = getServiceSupabase();
   const { error } = await db.from("candidate_profiles").update({ anerkennung_stage: stage }).eq("user_id", userId);
   if (error) return { ok: false, error: "write_failed" };
+  // Keep the pipeline milestone in sync: full recognition flips recognition_done so
+  // "recognition is done for X" single-shots both the stage AND the pipeline boolean.
+  if (stage === "recognized") { try { await applyPipelinePatch(userId, { recognition_done: true }); } catch { /* best-effort sync */ } }
   return { ok: true };
 }
 
@@ -322,6 +325,21 @@ async function writeCandidateMessage(
   }
 
   return didSomething ? { ok: true } : { ok: false, error: "nothing_sent" };
+}
+
+/** Send ONE message to MANY candidates (broadcast). Loops writeCandidateMessage per
+ *  recipient (capped). The tool resolves the segment → ids + enforces scope BEFORE
+ *  staging, so by apply time `candidateIds` is already the scoped recipient set. */
+async function writeBroadcast(adminUserId: string, candidateIds: string[], text: string, channel: "chat" | "email" | "both"): Promise<WriteResult> {
+  const ids = [...new Set(candidateIds)].filter((x) => UUID_RE.test(x)).slice(0, 200);
+  if (!ids.length) return { ok: false, error: "no_recipients" };
+  let sent = 0;
+  for (const id of ids) {
+    const r = await writeCandidateMessage(adminUserId, id, text, channel);
+    if (r.ok) sent++;
+  }
+  if (sent === 0) return { ok: false, error: "all_failed" };
+  return { ok: true };
 }
 
 /** Create a LEAD / prospective-candidate record (mirrors POST /api/leads). Not
@@ -1589,6 +1607,10 @@ async function applyPendingRow(
     });
   } else if (row.tool_name === "deleteLead") {
     result = await writeDeleteLead(String(a.leadId ?? ""));
+  } else if (row.tool_name === "broadcastMessage") {
+    const ch = a.channel === "email" ? "email" : a.channel === "both" ? "both" : "chat";
+    const ids = Array.isArray(a.candidateIds) ? (a.candidateIds as unknown[]).map(String) : [];
+    result = await writeBroadcast(scope.userId, ids, String(a.text ?? ""), ch);
   } else if (row.tool_name === "storeCandidateDocument") {
     result = await writeStoreDocument({
       candidateUserId: String(a.candidateUserId),
@@ -1848,7 +1870,7 @@ export async function cancelLatestPending(
 export const DESTRUCTIVE_TOOLS = new Set<string>(["deleteCandidateAccount", "deleteOrganization", "deleteLead"]);
 export const SEND_TOOLS = new Set<string>([
   "sendExternalEmail", "sendCandidateMessage", "sendFollowUpNudge", "nudgeStuckCandidates", "sendSlotRequest",
-  "sendCalendarInvite", "replyToEmail", "forwardEmail", "sendDraft",
+  "sendCalendarInvite", "replyToEmail", "forwardEmail", "sendDraft", "broadcastMessage",
 ]);
 const CONFIRM_TOOLS = new Set<string>([...DESTRUCTIVE_TOOLS, ...SEND_TOOLS]);
 

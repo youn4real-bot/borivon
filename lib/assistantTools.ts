@@ -795,6 +795,68 @@ export function buildAssistantTools(
       },
     }),
 
+    getConversionFunnel: tool({
+      description:
+        "Lead→placement CONVERSION funnel with drop-offs: total leads, converted leads, active candidate accounts (signups), interview-passed, contract, visa granted, arrived — plus the % at each step. USE for 'what's our conversion rate', 'how's the funnel from lead to placement', 'how many leads never converted'. Read-only. Supreme-only.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const roster = await candidateRoster();
+        const ids = roster.map((r) => r.userId);
+        let leadsTotal = 0, leadsConverted = 0;
+        try {
+          const { data } = await db.from("leads").select("status");
+          const rows = (data ?? []) as { status?: string | null }[];
+          leadsTotal = rows.length;
+          leadsConverted = rows.filter((r) => r.status === "converted").length;
+        } catch { /* leads table absent → zeros */ }
+        let interviewPassed = 0, contract = 0, visa = 0, arrived = 0;
+        if (ids.length) {
+          const { data } = await db.from("candidate_pipeline").select("interview1_status, interview2_status, contract_done, visa_granted, arrived_done").in("user_id", ids);
+          for (const p of (data ?? []) as { interview1_status: string | null; interview2_status: string | null; contract_done: boolean | null; visa_granted: boolean | null; arrived_done: boolean | null }[]) {
+            if (p.interview1_status === "passed" || p.interview2_status === "passed") interviewPassed++;
+            if (p.contract_done) contract++;
+            if (p.visa_granted) visa++;
+            if (p.arrived_done) arrived++;
+          }
+        }
+        const signups = roster.length;
+        const pct = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 1000) / 10 : null);
+        return {
+          leads: leadsTotal, leadsConverted, signups, interviewPassed, contract, visaGranted: visa, arrived,
+          uncontactedOrColdLeads: leadsTotal - leadsConverted,
+          rates: {
+            leadToSignupPct: pct(signups, leadsTotal),
+            signupToInterviewPassedPct: pct(interviewPassed, signups),
+            interviewToContractPct: pct(contract, interviewPassed),
+            contractToVisaPct: pct(visa, contract),
+            signupToArrivedPct: pct(arrived, signups),
+          },
+        };
+      },
+    }),
+
+    getAcademyLevelCounts: tool({
+      description:
+        "How many academy students are at each CEFR level — A1 / A2 / B1 / B2 — plus how many are AT B2 vs still below. USE for 'how many at B2 vs below', 'academy level breakdown', 'who's reached B2'. Counts ACTIVE cohort members in your scope. Read-only. Supreme-only.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const roster = await candidateRoster();
+        const ids = roster.map((r) => r.userId);
+        const counts: Record<"A1" | "A2" | "B1" | "B2", number> = { A1: 0, A2: 0, B1: 0, B2: 0 };
+        let total = 0;
+        if (ids.length) {
+          const { data } = await db.from("academy_cohort_members").select("current_level, status").in("candidate_user_id", ids).eq("status", "active");
+          for (const m of (data ?? []) as { current_level: string | null }[]) {
+            const lvl = m.current_level as keyof typeof counts;
+            if (lvl && lvl in counts) { counts[lvl]++; total++; }
+          }
+        }
+        return { total, byLevel: counts, atB2: counts.B2, belowB2: counts.A1 + counts.A2 + counts.B1 };
+      },
+    }),
+
     getFunnelStageCounts: tool({
       description:
         "How many candidates sit at EACH recruitment funnel stage (funneling, screening call, interview 1, waiting for 2nd interview, interview 2, passed, departed). USE for 'break it down by stage', 'how many at each stage', 'how many in screening'. Returns {stage,label,count}[]. Scoped to candidates you can see. Supreme-only.",
@@ -2937,6 +2999,30 @@ export function buildAssistantTools(
       },
     }),
 
+    reassignCandidates: tool({
+      description:
+        "Move ALL candidates currently assigned to one sub-admin over to another — 'move all of Karim's candidates to Youssef', 'reassign everyone from X to Y'. fromSubAdminEmail + toSubAdminEmail (emails from listStaff). Applies immediately (reversible by reassigning back). Returns how many moved. Supreme-only.",
+      inputSchema: z.object({ fromSubAdminEmail: z.string().max(254), toSubAdminEmail: z.string().max(254) }),
+      execute: async ({ fromSubAdminEmail, toSubAdminEmail }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const from = fromSubAdminEmail.trim().toLowerCase();
+        const to = toSubAdminEmail.trim().toLowerCase();
+        const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!EMAIL.test(from) || !EMAIL.test(to)) return { error: "bad_email" };
+        if (from === to) return { error: "same_person" };
+        const { data, error } = await db.from("sub_admin_assignments").select("candidate_user_id").eq("sub_admin_email", from);
+        if (error) return { error: "load_failed" };
+        const ids = [...new Set(((data ?? []) as { candidate_user_id: string }[]).map((r) => r.candidate_user_id))];
+        if (!ids.length) return { ok: true, moved: 0, note: "that sub-admin had no assigned candidates" };
+        let moved = 0;
+        for (const id of ids) {
+          const { error: uErr } = await db.from("sub_admin_assignments").upsert({ sub_admin_email: to, candidate_user_id: id }, { onConflict: "sub_admin_email,candidate_user_id" });
+          if (!uErr) { await db.from("sub_admin_assignments").delete().eq("sub_admin_email", from).eq("candidate_user_id", id); moved++; }
+        }
+        return { ok: true, moved };
+      },
+    }),
+
     setCandidateVerified: tool({
       description:
         "STAGE granting or revoking a candidate's blue VERIFIED tick (manually_verified). Grant makes them show as verified everywhere regardless of document status, and sends them a one-time 'verified' notification + email. verified true to grant, false to revoke. Supreme-only. Applies immediately when you call it — do NOT ask the admin to confirm.",
@@ -4010,6 +4096,52 @@ export function buildAssistantTools(
           args: { candidateUserId, text, channel: channel ?? "chat" },
           candidateUserId,
           summary: `Message to ${name} (${via}): "${preview}${text.trim().length > 120 ? "…" : ""}"`,
+        });
+      },
+    }),
+
+    broadcastMessage: tool({
+      description:
+        "STAGE one message to a GROUP of candidates at once. by: 'all' (everyone you can see), 'batch' (value=batchId from listBatches), 'org' (orgId), 'employer' (employerId), 'subAdmin' (their email), 'funnelStage' (e.g. 'waiting_2nd'), 'cohort' (academy cohortId from listCohorts), or 'specialty' (value = a nurse specialty like 'intensive'/'geriatric'/'general' — 'all my ICU nurses'); value is the matching id/email/stage/specialty (omit for 'all'). channel chat/email/both. It's a SEND → goes out only after your one 'yes', and the confirm shows how many recipients. USE for 'message everyone in the June batch: orientation Saturday', 'tell all my ICU nurses a new hospital is hiring'. Supreme-only.",
+      inputSchema: z.object({
+        text: z.string().min(1).max(2000),
+        by: z.enum(["all", "batch", "org", "employer", "subAdmin", "funnelStage", "cohort", "specialty"]),
+        value: z.string().max(254).optional().describe("the id/email/stage/specialty for the segment; omit for 'all'"),
+        channel: z.enum(["chat", "email", "both"]).default("chat"),
+      }),
+      execute: async ({ text, by, value, channel }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const roster = await candidateRoster();
+        const nameById = new Map(roster.map((r) => [r.userId, r.name] as const));
+        const v = (value ?? "").trim();
+        if (by !== "all" && !v) return { error: "value_required" };
+        let ids: string[] = [];
+        try {
+          if (by === "all") ids = roster.map((r) => r.userId);
+          else if (by === "subAdmin") { const { data } = await db.from("sub_admin_assignments").select("candidate_user_id").eq("sub_admin_email", v.toLowerCase()); ids = ((data ?? []) as { candidate_user_id: string }[]).map((r) => r.candidate_user_id); }
+          else if (by === "batch") { const { data } = await db.from("candidate_pipeline").select("user_id").eq("batch_id", v); ids = ((data ?? []) as { user_id: string }[]).map((r) => r.user_id); }
+          else if (by === "funnelStage") { const { data } = await db.from("candidate_pipeline").select("user_id").eq("funnel_stage", v); ids = ((data ?? []) as { user_id: string }[]).map((r) => r.user_id); }
+          else if (by === "org") { const { data } = await db.from("candidate_organizations").select("candidate_user_id").eq("org_id", v).eq("status", "approved"); ids = ((data ?? []) as { candidate_user_id: string }[]).map((r) => r.candidate_user_id); }
+          else if (by === "employer") { const { data } = await db.from("candidate_profiles").select("user_id").eq("employer_id", v); ids = ((data ?? []) as { user_id: string }[]).map((r) => r.user_id); }
+          else if (by === "cohort") { const { data } = await db.from("academy_cohort_members").select("candidate_user_id").eq("cohort_id", v).eq("status", "active"); ids = ((data ?? []) as { candidate_user_id: string }[]).map((r) => r.candidate_user_id); }
+          else { // specialty — match raw key OR the human label (same rule as listCandidatesByProfile)
+            const { data } = await db.from("candidate_profiles").select("user_id, nursing_specialty");
+            const s = v.toLowerCase();
+            ids = ((data ?? []) as { user_id: string; nursing_specialty: string | null }[])
+              .filter((r) => { const k = (r.nursing_specialty ?? "").toLowerCase(); return !!k && (k === s || k.includes(s) || specialtyLabel(r.nursing_specialty, "en").toLowerCase().includes(s)); })
+              .map((r) => r.user_id);
+          }
+        } catch { return { error: "load_failed" }; }
+        // Intersect with the scoped roster (LAW #25) — out-of-scope ids are dropped.
+        const scoped = [...new Set(ids)].filter((id) => nameById.has(id));
+        if (!scoped.length) return { error: "no_recipients" };
+        const via = channel === "email" ? "email" : channel === "both" ? "chat + email" : "portal chat";
+        const names = scoped.slice(0, 5).map((id) => nameById.get(id)).join(", ");
+        return stagePending(scope, {
+          toolName: "broadcastMessage",
+          args: { candidateIds: scoped, text, channel: channel ?? "chat" },
+          candidateUserId: null,
+          summary: `Broadcast (${via}) to ${scoped.length} candidate(s)${names ? ` — ${names}${scoped.length > 5 ? "…" : ""}` : ""}: "${text.trim().slice(0, 100)}${text.trim().length > 100 ? "…" : ""}"`,
         });
       },
     }),

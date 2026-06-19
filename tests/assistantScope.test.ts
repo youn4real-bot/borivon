@@ -1105,6 +1105,39 @@ describe("assistant tools allow the supreme admin", () => {
     expect(r.summary ?? "").toMatch(/allemand|german|deutsch|übersetz|uebersetz|translat|traduit/i);
   });
 
+  // ── Wave 4: broadcast + funnel/academy reports + reassign + anerkennung sync ──
+  it("wave-4 supreme-only tools reject a sub-admin", async () => {
+    const t = buildAssistantTools(ORG_ADMIN);
+    expect(await run(t, "broadcastMessage", { text: "hi", by: "all" })).toEqual({ error: "admin_only" });
+    expect(await run(t, "getConversionFunnel", {})).toEqual({ error: "admin_only" });
+    expect(await run(t, "getAcademyLevelCounts", {})).toEqual({ error: "admin_only" });
+    expect(await run(t, "reassignCandidates", { fromSubAdminEmail: "a@x.com", toSubAdminEmail: "b@x.com" })).toEqual({ error: "admin_only" });
+  });
+
+  it("reassignCandidates rejects same-person and bad emails", async () => {
+    const t = buildAssistantTools(SUPREME);
+    expect(await run(t, "reassignCandidates", { fromSubAdminEmail: "a@x.com", toSubAdminEmail: "a@x.com" })).toEqual({ error: "same_person" });
+    expect(await run(t, "reassignCandidates", { fromSubAdminEmail: "nope", toSubAdminEmail: "b@x.com" })).toEqual({ error: "bad_email" });
+  });
+
+  it("broadcastMessage requires a value for a non-'all' segment", async () => {
+    expect(await run(buildAssistantTools(SUPREME), "broadcastMessage", { text: "hi", by: "batch" })).toEqual({ error: "value_required" });
+  });
+
+  it("getAcademyLevelCounts tallies active members by level over the scoped roster", async () => {
+    // SUPREME roster is built from authUsers; seed two candidates + their active levels.
+    h.authUsers = [
+      { id: "cand-a", email: "a@cand.com", user_metadata: { full_name: "Cand A" } },
+      { id: "cand-b", email: "b@cand.com", user_metadata: { full_name: "Cand B" } },
+    ];
+    h.tables.candidate_profiles = { data: [{ user_id: "cand-a", first_name: "Cand", last_name: "A" }, { user_id: "cand-b", first_name: "Cand", last_name: "B" }], error: null };
+    h.tables.academy_cohort_members = { data: [{ current_level: "B2", status: "active" }, { current_level: "A2", status: "active" }], error: null };
+    const r = (await run(buildAssistantTools(SUPREME), "getAcademyLevelCounts", {})) as { atB2: number; belowB2: number; total: number };
+    expect(r.atB2).toBe(1);
+    expect(r.belowB2).toBe(1);
+    expect(r.total).toBe(2);
+  });
+
   // ── Audit fixes (2026-06-12) ────────────────────────────────────────────────
 
   it("setCandidateMilestone NORMALIZES a truthy boolean and rejects ambiguous (no silent FALSE)", async () => {
