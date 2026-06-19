@@ -843,6 +843,41 @@ export function buildAssistantTools(
       },
     }),
 
+    getPeriodComparison: tool({
+      description:
+        "Growth: THIS period vs the PREVIOUS one — new leads + documents uploaded this week/month vs last, with the change. USE for 'how's this month vs last', 'are we growing', 'month-over-month'. Read-only. Supreme-only.",
+      inputSchema: z.object({ period: z.enum(["week", "month"]).default("week") }),
+      execute: async ({ period }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const now = Date.now();
+        const span = period === "month" ? 30 * DAY : 7 * DAY;
+        const curFrom = now - span;       // current window: [curFrom, now]
+        const prevFrom = now - 2 * span;  // previous window: [prevFrom, curFrom)
+        const bucket = (iso: string | null): "cur" | "prev" | null => {
+          const t = iso ? Date.parse(iso) : NaN;
+          if (Number.isNaN(t)) return null;
+          if (t >= curFrom) return "cur";
+          if (t >= prevFrom) return "prev";
+          return null;
+        };
+        let leadsCur = 0, leadsPrev = 0;
+        try {
+          const { data } = await db.from("leads").select("created_at").gte("created_at", new Date(prevFrom).toISOString());
+          for (const r of (data ?? []) as { created_at: string | null }[]) { const b = bucket(r.created_at); if (b === "cur") leadsCur++; else if (b === "prev") leadsPrev++; }
+        } catch { /* leads table absent → zeros */ }
+        let docsCur = 0, docsPrev = 0;
+        {
+          const { data } = await db.from("documents").select("*").gte("uploaded_at", new Date(prevFrom).toISOString());
+          for (const r of (data ?? []) as { uploaded_at: string | null; superseded_at?: string | null }[]) {
+            if (r.superseded_at) continue;
+            const b = bucket(r.uploaded_at); if (b === "cur") docsCur++; else if (b === "prev") docsPrev++;
+          }
+        }
+        const delta = (cur: number, prev: number) => ({ current: cur, previous: prev, change: cur - prev, changePct: prev > 0 ? Math.round(((cur - prev) / prev) * 1000) / 10 : null });
+        return { period, newLeads: delta(leadsCur, leadsPrev), documentsUploaded: delta(docsCur, docsPrev) };
+      },
+    }),
+
     getAcademyLevelCounts: tool({
       description:
         "How many academy students are at each CEFR level — A1 / A2 / B1 / B2 — plus how many are AT B2 vs still below. USE for 'how many at B2 vs below', 'academy level breakdown', 'who's reached B2'. Counts ACTIVE cohort members in your scope. Read-only. Supreme-only.",
@@ -1989,6 +2024,53 @@ export function buildAssistantTools(
       },
     }),
 
+    convertLead: tool({
+      description:
+        "Convert a LEAD into a candidate signup — mints a single-use /join/candidate invite link AND marks the lead 'converted'. USE for 'convert Sara from a lead into a candidate', 'turn that lead into an account'. Returns the URL — include it VERBATIM in your reply so it can be sent to them. (The account itself is created when THEY sign up via the link — that's a guardrail; this hands them the link.) leadId from listLeads. Immediate. Supreme-only.",
+      inputSchema: z.object({ leadId: z.string().uuid() }),
+      execute: async ({ leadId }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const { data: lead } = await db.from("leads").select("name, email").eq("id", leadId).maybeSingle();
+        if (!lead) return { error: "not_found" };
+        const code = randomUUID().replace(/-/g, "") + randomUUID().replace(/-/g, "").slice(0, 8);
+        const { error: tErr } = await db.from("invite_tokens").insert({ org_id: null, type: "candidate", code, agency_id: null });
+        if (tErr) return { error: "invite_failed" };
+        // Best-effort mark converted (columns from leads_status.sql) — never fail the link over it.
+        try { await db.from("leads").update({ status: "converted", converted_at: new Date().toISOString() }).eq("id", leadId); } catch { /* ignore */ }
+        const base = (process.env.PUBLIC_BASE_URL || process.env.NEXT_PUBLIC_BASE_URL || "https://www.borivon.com").replace(/\/+$/, "");
+        const w = lead as { name?: string; email?: string };
+        return { url: `${base}/join/candidate/${code}`, code, leadName: w.name || w.email || null, note: "lead marked converted — send them this single-use signup link" };
+      },
+    }),
+
+    createLeadsBatch: tool({
+      description:
+        "Add MANY leads at once — 'add these 3 from my spreadsheet: name + phone each', a pasted list of prospects. leads = array of { name, phone?, email?, note?, cohort? }. Applies immediately (founder-owned records). Supreme-only.",
+      inputSchema: z.object({
+        leads: z.array(z.object({
+          name: z.string().min(1).max(120),
+          phone: z.string().max(40).optional(),
+          email: z.string().max(254).optional(),
+          note: z.string().max(1000).optional(),
+          cohort: z.string().max(60).optional(),
+        })).min(1).max(50),
+      }),
+      execute: async ({ leads }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const rows = leads.map((l) => ({
+          kind: "person",
+          name: l.name.trim().slice(0, 120),
+          email: (l.email ?? "").trim().toLowerCase().slice(0, 254),
+          phone: (l.phone ?? "").trim().slice(0, 40),
+          message: (l.note ?? "").trim().slice(0, 1000),
+          details: l.cohort && l.cohort.trim() ? { cohort: l.cohort.trim().slice(0, 60) } : {},
+        }));
+        const { data, error } = await db.from("leads").insert(rows).select("id");
+        if (error) return { error: (error as { code?: string }).code === "PGRST205" ? "leads_not_set_up" : "insert_failed" };
+        return { ok: true, added: (data ?? []).length };
+      },
+    }),
+
     getCandidatePhone: tool({
       description:
         "Get a candidate's CONTACT details — phone AND email — by candidateUserId. Read-only. Returns their phone, a ready wa.me link, and their account email. USE THIS for 'what's X's email', 'what's their number', 'how do I reach X', or to grab a recipient address before emailing.",
@@ -2892,6 +2974,50 @@ export function buildAssistantTools(
         const { data, error } = await q.select("id");
         if (error) return { error: "cancel_failed" };
         return { ok: true, cancelled: (data ?? []).length };
+      },
+    }),
+
+    getCandidateSlotStatus: tool({
+      description:
+        "Where a candidate stands in the Bearbeitung/Visum WIZARD — each slot with its LAW#15 colour: green=done, orange=waiting (sent to them, or submitted & awaiting your review), red=rejected, neutral=not sent yet. USE for 'where is Asmae in the bearbeitung wizard', 'which slots has she done / are still open', 'which slots are red for Hajar'. phase optional ('bearbeitung' | 'visum'); omit for both. Read-only. out_of_scope if you can't see them.",
+      inputSchema: z.object({
+        candidateUserId: z.string().uuid(),
+        phase: z.enum(["bearbeitung", "visum"]).optional(),
+      }),
+      execute: async ({ candidateUserId, phase }) => {
+        if (lockedOut) return { error: "out_of_scope" };
+        if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        // The candidate sees GLOBAL slots (org_id null) + slots for any org they're linked to.
+        const { data: orgRows } = await db.from("candidate_organizations").select("org_id").eq("candidate_user_id", candidateUserId).eq("status", "approved");
+        const orgIds = [...new Set(((orgRows ?? []) as { org_id: string }[]).map((r) => r.org_id))];
+        let slotQ = db.from("phase_slots").select("id, label, phase, org_id, position").order("phase", { ascending: true }).order("position", { ascending: true });
+        if (phase) slotQ = slotQ.eq("phase", phase);
+        slotQ = orgIds.length ? slotQ.or(`org_id.is.null,org_id.in.(${orgIds.join(",")})`) : slotQ.is("org_id", null);
+        const { data: slotData, error: slotErr } = await slotQ;
+        if (slotErr) return { error: "load_failed" };
+        const slots = (slotData ?? []) as { id: string; label: string | null; phase: string; org_id: string | null; position: number | null }[];
+        if (!slots.length) return { slots: [] };
+        const slotIds = slots.map((s) => s.id);
+        // Submitted docs for those slots (file_type = slot UUID) + open requests (notifications).
+        const [{ data: docData }, { data: notifData }] = await Promise.all([
+          db.from("documents").select("file_type, status").eq("user_id", candidateUserId).in("file_type", slotIds),
+          db.from("notifications").select("doc_id").eq("user_id", candidateUserId).eq("action", "sign_request").eq("read", false).in("doc_id", slotIds),
+        ]);
+        const docBySlot = new Map<string, string | null>(); // slotId → status (latest wins; query order irrelevant for our mapping)
+        for (const d of (docData ?? []) as { file_type: string; status: string | null }[]) docBySlot.set(d.file_type, d.status);
+        const openReq = new Set(((notifData ?? []) as { doc_id: string }[]).map((n) => n.doc_id));
+        const out = slots.map((s) => {
+          const docStatus = docBySlot.get(s.id);
+          let color: "green" | "orange" | "red" | "neutral";
+          let state: string;
+          if (docStatus === "approved") { color = "green"; state = "done"; }
+          else if (docStatus === "rejected") { color = "red"; state = "rejected"; }
+          else if (docStatus) { color = "orange"; state = "submitted — awaiting your review"; }
+          else if (openReq.has(s.id)) { color = "orange"; state = "sent — waiting on the candidate"; }
+          else { color = "neutral"; state = "not sent yet"; }
+          return { slotId: s.id, label: s.label || "Dokument", phase: s.phase, color, state };
+        });
+        return { slots: out };
       },
     }),
 

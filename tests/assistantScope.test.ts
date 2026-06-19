@@ -1077,6 +1077,28 @@ describe("assistant tools allow the supreme admin", () => {
     expect(await run(t, "getSubscriptionSummary", {})).toEqual({ error: "admin_only" });
   });
 
+  it("wave-5 supreme-only tools reject a sub-admin", async () => {
+    const t = buildAssistantTools(ORG_ADMIN);
+    expect(await run(t, "convertLead", { leadId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa" })).toEqual({ error: "admin_only" });
+    expect(await run(t, "createLeadsBatch", { leads: [{ name: "X" }] })).toEqual({ error: "admin_only" });
+    expect(await run(t, "getPeriodComparison", { period: "week" })).toEqual({ error: "admin_only" });
+  });
+
+  it("convertLead mints an invite link and reports the lead", async () => {
+    h.tables.leads = { data: { name: "Sara Alami", email: "sara@x.com" }, error: null };
+    h.tables.invite_tokens = { data: null, error: null };
+    const r = (await run(buildAssistantTools(SUPREME), "convertLead", { leadId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb" })) as { url?: string; leadName?: string };
+    expect(r.url).toMatch(/\/join\/candidate\//);
+    expect(r.leadName).toBe("Sara Alami");
+  });
+
+  it("createLeadsBatch bulk-inserts (supreme)", async () => {
+    h.tables.leads = { data: [{ id: "L1" }, { id: "L2" }], error: null };
+    const r = (await run(buildAssistantTools(SUPREME), "createLeadsBatch", { leads: [{ name: "A" }, { name: "B", phone: "+212600" }] })) as { ok?: boolean; added?: number };
+    expect(r.ok).toBe(true);
+    expect(r.added).toBe(2);
+  });
+
   it("getSubscriptionSummary reports stripe_not_configured without a key", async () => {
     const prev = process.env.STRIPE_SECRET_KEY;
     delete process.env.STRIPE_SECRET_KEY;
