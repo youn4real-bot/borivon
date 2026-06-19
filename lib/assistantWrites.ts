@@ -1271,7 +1271,7 @@ async function writeDeleteCalendarEvent(eventId: string): Promise<WriteResult> {
 /** Book an event in the FOUNDER'S OWN Google Calendar (native, via domain-wide
  *  delegation) — the calendar they actually look at. Distinct from the portal
  *  community calendar above. */
-async function writeBookCalendarEvent(opts: { title: string; startsAt: string; endsAt?: string; description?: string; location?: string; addMeet?: boolean }): Promise<WriteResult> {
+async function writeBookCalendarEvent(opts: { title: string; startsAt: string; endsAt?: string; description?: string; location?: string; addMeet?: boolean; recurrence?: "daily" | "weekly" | "monthly" }): Promise<WriteResult> {
   const r = await bookWorkspaceEvent(opts);
   if (!r.ok) {
     // Surface the real reason: not connected vs a genuine API failure.
@@ -1763,6 +1763,7 @@ async function applyPendingRow(
       repeatWeekly: a.repeatWeekly == null ? undefined : Number(a.repeatWeekly),
     });
   } else if (row.tool_name === "bookCalendarEvent") {
+    const rec = a.recurrence === "daily" || a.recurrence === "weekly" || a.recurrence === "monthly" ? a.recurrence : undefined;
     result = await writeBookCalendarEvent({
       title: String(a.title ?? ""),
       startsAt: String(a.startsAt ?? ""),
@@ -1770,6 +1771,7 @@ async function applyPendingRow(
       description: a.description == null ? undefined : String(a.description),
       location: a.location == null ? undefined : String(a.location),
       addMeet: a.addMeet === true,
+      recurrence: rec,
     });
   } else if (row.tool_name === "deleteCalendarEvent") {
     result = await writeDeleteCalendarEvent(String(a.eventId ?? ""));

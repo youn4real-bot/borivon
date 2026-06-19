@@ -2085,9 +2085,9 @@ export function buildAssistantTools(
 
     listConversations: tool({
       description:
-        "List message conversations (candidate ↔ Borivon) — each thread's candidate name, last-message preview, who sent it last, time, and unread count (candidate messages you haven't read). Read-only, newest activity first. For one thread's full messages use getCandidateThread; to reply use sendCandidateMessage.",
-      inputSchema: z.object({ limit: z.number().int().min(1).max(100).default(40) }),
-      execute: async ({ limit }) => {
+        "List message conversations (candidate ↔ Borivon) — each thread's candidate name, last-message preview, who sent it last, time, and unread count (candidate messages you haven't read). Read-only, newest activity first. Set unreadOnly:true for 'any unread candidate messages / who's waiting on me'. For one thread's full messages use getCandidateThread; to reply use sendCandidateMessage.",
+      inputSchema: z.object({ limit: z.number().int().min(1).max(100).default(40), unreadOnly: z.boolean().optional().describe("only threads with unread candidate messages") }),
+      execute: async ({ limit, unreadOnly }) => {
         if (lockedOut) return { error: "out_of_scope" };
         let q = db
           .from("messages")
@@ -2099,18 +2099,20 @@ export function buildAssistantTools(
         if (error) return { error: "load_failed" };
         type Row = { id: string; thread_user_id: string; sender_role: "candidate" | "admin"; body: string; kind: string; has_attachment: boolean; read_by_admin: boolean; created_at: string };
         const rows = (data ?? []) as Row[];
-        const threads = new Map<string, { threadUserId: string; lastBody: string; lastSender: string; lastAt: string; hasAttachment: boolean; unread: number }>();
+        const threads = new Map<string, { threadUserId: string; lastBody: string; lastSender: string; lastAt: string; hasAttachment: boolean; unread: number; oldestUnreadAt: string | null }>();
         for (const r of rows) { // newest-first → first row per thread is the latest message
           let t = threads.get(r.thread_user_id);
-          if (!t) { t = { threadUserId: r.thread_user_id, lastBody: r.body ?? "", lastSender: r.sender_role, lastAt: r.created_at, hasAttachment: r.has_attachment === true, unread: 0 }; threads.set(r.thread_user_id, t); }
-          if (r.sender_role === "candidate" && !r.read_by_admin) t.unread++;
+          if (!t) { t = { threadUserId: r.thread_user_id, lastBody: r.body ?? "", lastSender: r.sender_role, lastAt: r.created_at, hasAttachment: r.has_attachment === true, unread: 0, oldestUnreadAt: null }; threads.set(r.thread_user_id, t); }
+          if (r.sender_role === "candidate" && !r.read_by_admin) { t.unread++; t.oldestUnreadAt = r.created_at; } // rows are newest-first → last seen unread = oldest
         }
-        const names = await resolveAuthNames([...threads.keys()]);
-        const conversations = [...threads.values()]
+        let list = [...threads.values()];
+        if (unreadOnly) list = list.filter((t) => t.unread > 0);
+        const names = await resolveAuthNames(list.map((t) => t.threadUserId));
+        const conversations = list
           .sort((a, b) => Date.parse(b.lastAt) - Date.parse(a.lastAt))
           .slice(0, limit)
-          .map((t) => ({ candidateUserId: t.threadUserId, name: names[t.threadUserId]?.name ?? t.threadUserId, lastBody: (t.lastBody || "").slice(0, 140), lastSender: t.lastSender, lastAt: t.lastAt, hasAttachment: t.hasAttachment, unread: t.unread }));
-        return { conversations };
+          .map((t) => ({ candidateUserId: t.threadUserId, name: names[t.threadUserId]?.name ?? t.threadUserId, lastBody: (t.lastBody || "").slice(0, 140), lastSender: t.lastSender, lastAt: t.lastAt, hasAttachment: t.hasAttachment, unread: t.unread, oldestUnreadAt: t.oldestUnreadAt }));
+        return { conversations, totalUnreadThreads: [...threads.values()].filter((t) => t.unread > 0).length };
       },
     }),
 
@@ -2150,6 +2152,46 @@ export function buildAssistantTools(
       },
     }),
 
+    markAllThreadsRead: tool({
+      description:
+        "Clear EVERY unread candidate chat at once — 'mark all my chats read', 'clear all unread messages'. Marks all unread candidate messages (within your scope) read. Immediate. Supreme-only.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        let q = db.from("messages").update({ read_by_admin: true }).eq("sender_role", "candidate").eq("read_by_admin", false);
+        if (scope.visibleIds !== null) q = q.in("thread_user_id", scope.visibleIds);
+        const { data, error } = await q.select("id");
+        if (error) return { error: "write_failed" };
+        return { ok: true, cleared: (data ?? []).length };
+      },
+    }),
+
+    searchMessages: tool({
+      description:
+        "Search the candidate CHAT messages for a word/phrase — 'search my chats for flight', 'who mentioned visa appointment', 'find the message about housing'. Returns matching messages with the candidate name + snippet + who sent it. Read-only. Supreme-only.",
+      inputSchema: z.object({ q: z.string().min(2).max(80), limit: z.number().int().min(1).max(50).default(20) }),
+      execute: async ({ q: search, limit }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const s = search.trim().replace(/[%(),]/g, "");
+        if (!s) return { matches: [] };
+        let q = db.from("messages").select("thread_user_id, sender_role, body, created_at").ilike("body", `%${s}%`).order("created_at", { ascending: false }).limit(limit);
+        if (scope.visibleIds !== null) q = q.in("thread_user_id", scope.visibleIds);
+        const { data, error } = await q;
+        if (error) return { error: "load_failed" };
+        const rows = (data ?? []) as { thread_user_id: string; sender_role: string; body: string; created_at: string }[];
+        const names = await resolveAuthNames([...new Set(rows.map((r) => r.thread_user_id))]);
+        return {
+          matches: rows.map((r) => ({
+            candidateUserId: r.thread_user_id,
+            name: names[r.thread_user_id]?.name ?? r.thread_user_id,
+            sender: r.sender_role,
+            snippet: (r.body || "").slice(0, 160),
+            at: r.created_at,
+          })),
+        };
+      },
+    }),
+
     listEmployers: tool({
       description:
         "List active EMPLOYERS (the hospitals/clinics candidates get placed at) — id, name, agencyId. Read-only. Use to find an employer's id before assignEmployer.",
@@ -2170,6 +2212,95 @@ export function buildAssistantTools(
         const { data, error } = await db.from("organizations").select("id, name, invite_code, logo_filename, footer_text").order("name", { ascending: true });
         if (error) return { error: "load_failed" };
         return { organizations: data ?? [] };
+      },
+    }),
+
+    listOrgMembers: tool({
+      description:
+        "List the people who can log into a partner ORGANIZATION (its scoped sub-admins) — name, email, role (owner/member). USE for 'who's in the Calmaroi org', 'who can log into X', 'list that org's members'. orgId from listOrganizations. Read-only. Supreme-only.",
+      inputSchema: z.object({ orgId: z.string().uuid() }),
+      execute: async ({ orgId }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const { data, error } = await db.from("organization_members").select("sub_admin_email, role, created_at").eq("org_id", orgId);
+        if (error) return { error: "load_failed" };
+        const rows = (data ?? []) as { sub_admin_email: string; role: string; created_at: string }[];
+        const emails = rows.map((r) => r.sub_admin_email.toLowerCase());
+        const nameByEmail = new Map<string, string>();
+        if (emails.length) {
+          const { data: sa } = await db.from("sub_admins").select("email, name, label").in("email", emails);
+          for (const s of (sa ?? []) as { email: string; name: string | null; label: string | null }[]) {
+            nameByEmail.set(s.email.toLowerCase(), [s.name, s.label].filter(Boolean).join(" · ") || s.email);
+          }
+        }
+        const adminEmail = (process.env.ADMIN_EMAIL ?? "").trim().toLowerCase();
+        const members = rows
+          .filter((r) => r.sub_admin_email.toLowerCase() !== adminEmail) // the supreme admin isn't an "org member"
+          .map((r) => ({ email: r.sub_admin_email, name: nameByEmail.get(r.sub_admin_email.toLowerCase()) ?? r.sub_admin_email, role: r.role }));
+        return { count: members.length, members };
+      },
+    }),
+
+    getCandidateAccess: tool({
+      description:
+        "Who can SEE a candidate's dossier right now — 'who can see Omar', 'who has access to X'. Returns the sub-admins directly ASSIGNED to them + the partner ORGS they're linked to (whose members get dossier access), and flags that every Borivon HQ sub-admin sees everyone (LAW #25). Read-only. Supreme-only.",
+      inputSchema: z.object({ candidateUserId: z.string().uuid() }),
+      execute: async ({ candidateUserId }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const [asgRes, orgRes] = await Promise.all([
+          db.from("sub_admin_assignments").select("sub_admin_email").eq("candidate_user_id", candidateUserId),
+          db.from("candidate_organizations").select("org_id, status").eq("candidate_user_id", candidateUserId).eq("status", "approved"),
+        ]);
+        const assignedSubAdmins = [...new Set(((asgRes.data ?? []) as { sub_admin_email: string }[]).map((r) => r.sub_admin_email))];
+        const orgIds = [...new Set(((orgRes.data ?? []) as { org_id: string }[]).map((r) => r.org_id))];
+        let orgs: { orgId: string; name: string }[] = [];
+        if (orgIds.length) {
+          const { data: o } = await db.from("organizations").select("id, name").in("id", orgIds);
+          orgs = ((o ?? []) as { id: string; name: string }[]).map((x) => ({ orgId: x.id, name: x.name }));
+        }
+        return {
+          assignedSubAdmins,
+          linkedOrgs: orgs,
+          note: "Plus every Borivon HQ sub-admin (non-org-scoped) and the supreme admin can see all candidates (LAW #25).",
+        };
+      },
+    }),
+
+    getSubscriptionSummary: tool({
+      description:
+        "Premium SUBSCRIPTION numbers (read-only, no money moves) — 'how many premium subscribers', 'what's our MRR', 'subscription revenue'. Reads active subscriptions from Stripe and returns the active count + summed monthly amount. Supreme-only. Returns stripe_not_configured if the key isn't set.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!process.env.STRIPE_SECRET_KEY) return { error: "stripe_not_configured" };
+        try {
+          const { stripe } = await import("@/lib/stripe");
+          let active = 0;
+          let monthlyCents = 0;
+          const currencies = new Set<string>();
+          // Page through active subscriptions (low volume — cap a few pages defensively).
+          let startingAfter: string | undefined;
+          for (let page = 0; page < 10; page++) {
+            const res = await stripe.subscriptions.list({ status: "active", limit: 100, ...(startingAfter ? { starting_after: startingAfter } : {}) });
+            for (const sub of res.data) {
+              active++;
+              for (const item of sub.items.data) {
+                const price = item.price;
+                const qty = item.quantity ?? 1;
+                if (price?.unit_amount && price.recurring) {
+                  if (price.currency) currencies.add(price.currency.toUpperCase());
+                  const perMonth = price.recurring.interval === "year" ? price.unit_amount / 12 : price.recurring.interval === "week" ? price.unit_amount * 4.345 : price.recurring.interval === "day" ? price.unit_amount * 30 : price.unit_amount;
+                  monthlyCents += perMonth * qty / (price.recurring.interval_count || 1);
+                }
+              }
+            }
+            if (!res.has_more || !res.data.length) break;
+            startingAfter = res.data[res.data.length - 1].id;
+          }
+          return { activeSubscribers: active, estimatedMrr: Math.round(monthlyCents) / 100, currency: [...currencies][0] ?? "EUR" };
+        } catch (e) {
+          console.error("[getSubscriptionSummary]", e instanceof Error ? e.message : e);
+          return { error: "stripe_read_failed" };
+        }
       },
     }),
 
@@ -2892,8 +3023,9 @@ export function buildAssistantTools(
         description: z.string().max(4000).optional(),
         location: z.string().max(300).optional(),
         addMeet: z.boolean().optional().describe("true → attach a Google Meet video link (for online meetings/interviews)"),
+        recurrence: z.enum(["daily", "weekly", "monthly"]).optional().describe("make it a REPEATING series, e.g. 'weekly office-hours every Monday' → 'weekly' (startsAt = the first occurrence)"),
       }),
-      execute: async ({ title, startsAt, endsAt, description, location, addMeet }) => {
+      execute: async ({ title, startsAt, endsAt, description, location, addMeet, recurrence }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
         if (!title.trim()) return { error: "title_required" };
         if (!Number.isFinite(Date.parse(startsAt))) return { error: "bad_start" };
@@ -2902,13 +3034,33 @@ export function buildAssistantTools(
         if (description !== undefined) args.description = description;
         if (location !== undefined) args.location = location;
         if (addMeet !== undefined) args.addMeet = addMeet;
+        if (recurrence !== undefined) args.recurrence = recurrence;
         const when = startsAt.replace("T", " ").slice(0, 16);
         return stagePending(scope, {
           toolName: "bookCalendarEvent",
           args,
           candidateUserId: null,
-          summary: `Book on your calendar: "${title.trim().slice(0, 80)}" @ ${when}${location ? ` · ${location}` : ""}${addMeet ? " · 📹 Meet" : ""}`,
+          summary: `Book on your calendar: "${title.trim().slice(0, 80)}" @ ${when}${recurrence ? ` (${recurrence})` : ""}${location ? ` · ${location}` : ""}${addMeet ? " · 📹 Meet" : ""}`,
         });
+      },
+    }),
+
+    checkAvailability: tool({
+      description:
+        "Check whether the founder is FREE or has a conflict in a time window on their own Google Calendar — for 'am I free Thursday at 3?', 'do I have anything at 10am tomorrow?', 'what's blocking my afternoon?'. from + to are LOCAL wall-clock ISO (no Z), resolved against TODAY. Returns busy (true/false) + the conflicting events. Read-only. Supreme-only.",
+      inputSchema: z.object({
+        from: z.string().min(10).describe("window start, LOCAL ISO e.g. 2026-06-19T15:00:00"),
+        to: z.string().min(10).describe("window end, LOCAL ISO e.g. 2026-06-19T16:00:00"),
+      }),
+      execute: async ({ from, to }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const res = await readWorkspaceCalendar({ from, to, max: 50 });
+        if (!res.ok) return { error: res.error === "workspace_not_connected" ? "calendar_not_connected" : "load_failed" };
+        // events.list with a from/to window returns only events overlapping it.
+        const conflicts = res.events
+          .filter((e) => !e.allDay)
+          .map((e) => ({ title: e.title, start: e.start, end: e.end, meetLink: e.meetLink }));
+        return { busy: conflicts.length > 0, conflicts };
       },
     }),
 
@@ -3902,15 +4054,18 @@ export function buildAssistantTools(
 
     storeCandidateDocument: tool({
       description:
-        "STAGE storing the FILE the admin just attached to their Telegram message (a photo or document) into a candidate's documents. ONLY works when a file was actually attached — returns no_file otherwise. Steps: identify the candidate (searchCandidates / listAllCandidates), then call this with their candidateUserId and the docKey. docKey: 'id' = passport (Reisepass), 'cv_de' = CV (Lebenslauf), 'langcert' = B2 certificate, 'diploma' = diploma, 'workcert' = work permit, 'impfung' = vaccination record, or 'other' = Sonstiges (default — use when unsure). Two-step: stage → admin confirms in a SEPARATE message → confirmPendingWrite. The file lands in the candidate's portal as a pending document for review.",
+        "STAGE storing the FILE the admin just attached to their Telegram message (a photo or document) into a candidate's documents. ONLY works when a file was actually attached — returns no_file otherwise. Steps: identify the candidate (searchCandidates / listAllCandidates), then call this with their candidateUserId and the docKey. docKey: 'id'=passport, 'cv_de'=CV, 'langcert'=B2 certificate, 'diploma', 'studyprog'=study programme, 'transcript'=Notenspiegel, 'abitur', 'praktikum', 'workcert'=work certificate, 'work_experience', 'impfung'=vaccination, 'arbeitsvertrag'=employment contract, 'defizitbescheid', 'ezb'=Anerkennung/EzB, 'vorabzustimmung', 'bildungsplan', 'versicherung'=insurance, or 'other'=Sonstiges (default — use when unsure). Set translated:true for the GERMAN TRANSLATION of a qualification ('store Hicham's diploma but the translated version' → docKey:'diploma', translated:true → files it as the _uebersetzt copy). Two-step: stage → admin confirms in a SEPARATE message → confirmPendingWrite. The file lands in the candidate's portal as a pending document for review.",
       inputSchema: z.object({
         candidateUserId: z.string().uuid(),
-        docKey: z.enum(["id", "cv_de", "langcert", "diploma", "workcert", "impfung", "other"]).default("other"),
+        docKey: z.enum(["id", "cv_de", "langcert", "letter", "diploma", "studyprog", "transcript", "abitur", "praktikum", "workcert", "work_experience", "impfung", "arbeitsvertrag", "defizitbescheid", "ezb", "vorabzustimmung", "bildungsplan", "versicherung", "other"]).default("other"),
+        translated: z.boolean().optional().describe("true → store the GERMAN translation (_uebersetzt) of a qualification doc, when that variant exists"),
       }),
-      execute: async ({ candidateUserId, docKey }) => {
+      execute: async ({ candidateUserId, docKey, translated }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
         if (!pendingFile) return { error: "no_file" };
         if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
+        // The translation lives under a "<key>_de" catalog entry; use it only if it exists.
+        const effKey: string = (translated && FILE_KEY_LABELS[`${docKey}_de`]) ? `${docKey}_de` : docKey;
         const { data } = await db.from("candidate_profiles").select("first_name, last_name").eq("user_id", candidateUserId).maybeSingle();
         let name = data ? nameOf(data as { first_name: string | null; last_name: string | null }) : "—";
         if (name === "—") {
@@ -3920,10 +4075,10 @@ export function buildAssistantTools(
             name = fn || u?.user?.email || "this candidate";
           } catch { name = "this candidate"; }
         }
-        const label = FILE_KEY_LABELS[docKey]?.[0] ?? docKey;
+        const label = FILE_KEY_LABELS[effKey]?.[0] ?? effKey;
         return stagePending(scope, {
           toolName: "storeCandidateDocument",
-          args: { candidateUserId, docKey, r2Key: pendingFile.r2Key, mime: pendingFile.mime, fileName: pendingFile.fileName, sha256: pendingFile.sha256 },
+          args: { candidateUserId, docKey: effKey, r2Key: pendingFile.r2Key, mime: pendingFile.mime, fileName: pendingFile.fileName, sha256: pendingFile.sha256 },
           candidateUserId,
           summary: `Store "${pendingFile.fileName}" as ${label} for ${name}`,
         });

@@ -1068,6 +1068,41 @@ describe("assistant tools allow the supreme admin", () => {
     expect(await run(t, "listPendingSignatures", {})).toEqual({ error: "admin_only" });
     expect(await run(t, "getFunnelStageCounts", {})).toEqual({ error: "admin_only" });
     expect(await run(t, "editLead", { leadId: "44444444-4444-4444-4444-444444444444", name: "x" })).toEqual({ error: "admin_only" });
+    // Wave 3
+    expect(await run(t, "checkAvailability", { from: "2026-06-20T15:00:00", to: "2026-06-20T16:00:00" })).toEqual({ error: "admin_only" });
+    expect(await run(t, "markAllThreadsRead", {})).toEqual({ error: "admin_only" });
+    expect(await run(t, "searchMessages", { q: "flight" })).toEqual({ error: "admin_only" });
+    expect(await run(t, "listOrgMembers", { orgId: "55555555-5555-5555-5555-555555555555" })).toEqual({ error: "admin_only" });
+    expect(await run(t, "getCandidateAccess", { candidateUserId: "66666666-6666-6666-6666-666666666666" })).toEqual({ error: "admin_only" });
+    expect(await run(t, "getSubscriptionSummary", {})).toEqual({ error: "admin_only" });
+  });
+
+  it("getSubscriptionSummary reports stripe_not_configured without a key", async () => {
+    const prev = process.env.STRIPE_SECRET_KEY;
+    delete process.env.STRIPE_SECRET_KEY;
+    expect(await run(buildAssistantTools(SUPREME), "getSubscriptionSummary", {})).toEqual({ error: "stripe_not_configured" });
+    if (prev !== undefined) process.env.STRIPE_SECRET_KEY = prev;
+  });
+
+  it("listOrgMembers returns members joined to sub_admins (supreme), excluding the supreme admin", async () => {
+    h.tables.organization_members = { data: [{ sub_admin_email: "x@org.com", role: "owner", created_at: "2026-01-01" }, { sub_admin_email: "admin@borivon.com", role: "owner", created_at: "2026-01-01" }], error: null };
+    h.tables.sub_admins = { data: [{ email: "x@org.com", name: "Xavier", label: "Recruiter" }], error: null };
+    const r = (await run(buildAssistantTools(SUPREME), "listOrgMembers", { orgId: "55555555-5555-5555-5555-555555555555" })) as { count: number; members: { email: string; name: string }[] };
+    expect(r.count).toBe(1); // admin@borivon.com (the supreme admin) is filtered out
+    expect(r.members[0]).toMatchObject({ email: "x@org.com", name: "Xavier · Recruiter" });
+  });
+
+  it("storeCandidateDocument translated:true files the _de variant", async () => {
+    // Stage path needs a pending file; build tools with one attached.
+    const tools = buildAssistantTools(SUPREME, { r2Key: "k", mime: "application/pdf", fileName: "diploma.pdf", sha256: "abc" });
+    h.tables.candidate_profiles = { data: { first_name: "Sara", last_name: "A" }, error: null };
+    h.tables.assistant_pending_actions = { data: { id: "p1" }, error: null };
+    const r = (await run(tools, "storeCandidateDocument", { candidateUserId: "77777777-7777-7777-7777-777777777777", docKey: "diploma", translated: true })) as { staged?: boolean; summary?: string };
+    expect(r.staged).toBe(true);
+    // Filed under the diploma-TRANSLATION label (the _de variant is marked with a
+    // German-translation tag — "(Allemand)" / "(German)" / "(Deutsch)" / "übersetzt").
+    expect(r.summary ?? "").toMatch(/dipl/i);
+    expect(r.summary ?? "").toMatch(/allemand|german|deutsch|übersetz|uebersetz|translat|traduit/i);
   });
 
   // ── Audit fixes (2026-06-12) ────────────────────────────────────────────────

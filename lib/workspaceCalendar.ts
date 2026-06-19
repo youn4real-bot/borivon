@@ -72,6 +72,7 @@ export async function bookWorkspaceEvent(opts: {
   description?: string;
   location?: string;
   addMeet?: boolean;
+  recurrence?: "daily" | "weekly" | "monthly";
 }): Promise<BookEventResult> {
   const cal = calendarClient();
   if (!cal) return { ok: false, error: "workspace_not_connected" };
@@ -99,6 +100,11 @@ export async function bookWorkspaceEvent(opts: {
     start,
     end,
   };
+  // Recurring series (e.g. weekly office-hours) — start/end define the first instance.
+  if (opts.recurrence) {
+    const freq = opts.recurrence === "daily" ? "DAILY" : opts.recurrence === "monthly" ? "MONTHLY" : "WEEKLY";
+    requestBody.recurrence = [`RRULE:FREQ=${freq}`];
+  }
   // Attach a Google Meet video link. requestId MUST be unique per attempt;
   // conferenceDataVersion:1 is required or Google ignores the request. Google
   // returns hangoutLink (sometimes provisioned async → may be empty on the
