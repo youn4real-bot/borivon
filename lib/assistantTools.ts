@@ -99,6 +99,13 @@ function parseDate(raw: string | null): number | null {
   return Number.isFinite(t) ? t : null;
 }
 
+/** Drop ARCHIVED/superseded document rows (LAW #33: the row + bytes are kept, just
+ *  flagged with superseded_at; we hide them from active lists). Migration-safe: if the
+ *  column isn't present yet (select returns no superseded_at), every row reads active. */
+function activeDocs<T>(rows: T[]): T[] {
+  return (rows as Array<T & { superseded_at?: string | null }>).filter((r) => !r.superseded_at);
+}
+
 export function buildAssistantTools(
   scope: AssistantScope,
   // Set ONLY on the Telegram path when the admin attached a photo/document — the
@@ -364,10 +371,10 @@ export function buildAssistantTools(
         if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
         const { data, error } = await db
           .from("documents")
-          .select("id, file_name, file_type, status, uploaded_at, drive_file_id, r2_key")
+          .select("*") // includes superseded_at (when migrated) so activeDocs() can hide archived rows
           .eq("user_id", candidateUserId);
         if (error) return { error: "load_failed" };
-        const cvs = ((data ?? []) as DocRow[])
+        const cvs = activeDocs((data ?? []) as DocRow[])
           .filter((d) => CV_KINDS.has(resolveFileKey(d.file_type)))
           .map((d) => ({
             docId: d.id,
@@ -391,12 +398,12 @@ export function buildAssistantTools(
         if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
         const { data, error } = await db
           .from("documents")
-          .select("id, file_name, file_type, status, uploaded_at, drive_file_id, r2_key")
+          .select("*") // includes superseded_at (when migrated) so activeDocs() can hide archived rows
           .eq("user_id", candidateUserId)
           .order("uploaded_at", { ascending: false });
         if (error) return { error: "load_failed" };
         const needle = (filter ?? "").trim().toLowerCase();
-        const documents = ((data ?? []) as DocRow[])
+        const documents = activeDocs((data ?? []) as DocRow[])
           .map((d) => {
             const label = translateDocLabel(d.file_type, "de") || d.file_type || d.file_name || "Dokument";
             return {
@@ -495,10 +502,10 @@ export function buildAssistantTools(
           }
           const { data: docs } = await db
             .from("documents")
-            .select("id, file_name, file_type, status, uploaded_at, drive_file_id, r2_key")
+            .select("*") // includes superseded_at when migrated → activeDocs() hides archived
             .eq("user_id", cand.userId)
             .order("uploaded_at", { ascending: false });
-          const cv = ((docs ?? []) as DocRow[]).find((d2) => CV_KINDS.has(resolveFileKey(d2.file_type)));
+          const cv = activeDocs((docs ?? []) as DocRow[]).find((d2) => CV_KINDS.has(resolveFileKey(d2.file_type)));
           if (!cv) { results.push({ query: raw, name: cand.name, status: "no_cv" }); continue; }
           const token = signDlToken(scope.userId, 600); // 10 min — webhook delivers files AFTER the model run; 180s expired the tail of big batches (B7)
           const fname = encodeURIComponent((cv.file_name ?? `${cand.name} CV`).slice(0, 180));
@@ -522,12 +529,12 @@ export function buildAssistantTools(
         if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
         const { data, error } = await db
           .from("documents")
-          .select("id, file_name, file_type, status, uploaded_at, drive_file_id, r2_key")
+          .select("*") // includes superseded_at (when migrated) so activeDocs() can hide archived rows
           .eq("user_id", candidateUserId)
           .order("uploaded_at", { ascending: false });
         if (error) return { error: "load_failed" };
         const needle = (filter ?? "").trim().toLowerCase();
-        let rows = (data ?? []) as DocRow[];
+        let rows = activeDocs((data ?? []) as DocRow[]);
         if (needle) rows = rows.filter((d) => docMatchesFilter(d.file_type ?? "", d.file_name, resolveFileKey(d.file_type), needle));
         rows = rows.slice(0, 25); // generous cap; the webhook streams each file in
         if (rows.length === 0) return { results: [] };
@@ -573,13 +580,13 @@ export function buildAssistantTools(
         const ids = roster.map((r) => r.userId);
         const { data, error } = await db
           .from("documents")
-          .select("id, user_id, file_name, file_type, status, uploaded_at")
+          .select("*") // includes superseded_at when migrated → activeDocs() hides archived
           .in("user_id", ids)
           .order("uploaded_at", { ascending: false });
         if (error) return { error: "load_failed" };
         const needle = (kind ?? "").trim().toLowerCase();
         type Row = { id: string; user_id: string; file_name: string | null; file_type: string | null; status: string | null; uploaded_at: string | null };
-        let docs = (data ?? []) as Row[];
+        let docs = activeDocs((data ?? []) as Row[]);
         if (needle) docs = docs.filter((d) => docMatchesFilter(d.file_type ?? "", d.file_name, resolveFileKey(d.file_type), needle));
         if (status === "missing") {
           const have = new Set(docs.map((d) => d.user_id)); // user_ids WITH a (kind-matching) doc
@@ -618,13 +625,13 @@ export function buildAssistantTools(
         const [profRes, pipeRes, docRes, authRes, memRes] = await Promise.all([
           db.from("candidate_profiles").select("b2_exam_date, passport_status, passport_expiry, passport_no, dob, sex, nationality, issue_date, issuing_authority, address_street, address_number, address_postal, city_of_residence, country_of_residence, city_of_birth, country_of_birth, marital_status, children_ages").eq("user_id", id).maybeSingle(),
           db.from("candidate_pipeline").select("*").eq("user_id", id).maybeSingle(),
-          db.from("documents").select("status").eq("user_id", id),
+          db.from("documents").select("*").eq("user_id", id),
           db.auth.admin.getUserById(id).catch(() => null),
           db.from("academy_cohort_members").select("cohort_id, current_level, status").eq("candidate_user_id", id).eq("status", "active").maybeSingle(),
         ]);
         const p = (profRes.data ?? {}) as Record<string, string | null>;
         const email = (authRes && "data" in authRes ? authRes.data?.user?.email : null) ?? null;
-        const docs = (docRes.data ?? []) as { status: string | null }[];
+        const docs = activeDocs((docRes.data ?? []) as { status: string | null }[]);
         // Academy progress (so "tell me everything" truly includes the school) — best-effort.
         let academy: { enrolled: boolean; cohort?: string | null; level?: string | null; attendanceRatePct?: number | null; score?: number | null } = { enrolled: false };
         const mem = (memRes.data ?? null) as { cohort_id?: string; current_level?: string } | null;
@@ -776,10 +783,10 @@ export function buildAssistantTools(
         if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
         const { data, error } = await db
           .from("documents")
-          .select("file_type, status")
+          .select("*") // includes superseded_at when migrated → activeDocs() hides archived
           .eq("user_id", candidateUserId);
         if (error) return { error: "load_failed" };
-        const cl = computeChecklist((data ?? []) as { file_type: string | null; status: string | null }[]);
+        const cl = computeChecklist(activeDocs((data ?? []) as { file_type: string | null; status: string | null }[]));
         // Surface the actionable items by name so the bot can say exactly what's left.
         const label = (key: string) => translateDocLabel(key, "de") || key;
         const missing = cl.items.filter((i) => !i.optional && i.state === "missing").map((i) => label(i.key));
@@ -3820,6 +3827,29 @@ export function buildAssistantTools(
           candidateUserId: ownerId,
           summary: `${name}: rotate "${label}" by ${deltaRotation}°`,
         });
+      },
+    }),
+
+    archiveDocument: tool({
+      description:
+        "ARCHIVE / retire a WRONG or duplicate document — 'that's the wrong file on Asmae, archive it', 'remove that misfiled doc'. It's HIDDEN from every active doc list (the bot, the candidate's dashboard, admin review, the checklist) but the file is NEVER deleted — the row and bytes are kept and it's reversible (LAW #33). docId from listCandidateDocuments. Applies immediately. If it returns needs_migration, run supabase/documents_superseded.sql first. Supreme-only.",
+      inputSchema: z.object({ docId: z.string().uuid() }),
+      execute: async ({ docId }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const { data: doc } = await db.from("documents").select("user_id, file_name, file_type").eq("id", docId).maybeSingle();
+        if (!doc) return { error: "not_found" };
+        const d = doc as { user_id: string; file_name: string | null; file_type: string | null };
+        if (!(await canActOnCandidate(scope.role, scope.email, d.user_id))) return { error: "out_of_scope" };
+        // Soft-retire: flag the row (LAW #33 — never delete; bytes stay). Passport rows
+        // are flagged the same way — only metadata, the image bytes are untouched (LAW #39).
+        const { error } = await db.from("documents").update({ superseded_at: new Date().toISOString() }).eq("id", docId);
+        if (error) {
+          const code = (error as { code?: string }).code;
+          if (code === "42703" || code === "PGRST204") return { error: "needs_migration" };
+          return { error: "archive_failed" };
+        }
+        const label = translateDocLabel(d.file_type, "de") || d.file_name || "document";
+        return { ok: true, archived: true, docId, label, note: "Hidden from all lists; the file is kept (not deleted) and can be restored." };
       },
     }),
 

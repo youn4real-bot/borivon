@@ -34,12 +34,12 @@ export async function GET(req: NextRequest) {
     // Full admin — all docs (or filtered to one user)
     let q = db
       .from("documents")
-      .select("id, user_id, file_name, file_type, uploaded_at, status, feedback, drive_file_id, r2_key, uploaded_by_admin")
+      .select("*") // '*' so a not-yet-migrated superseded_at column never errors; archived rows filtered below
       .order("uploaded_at", { ascending: false });
     if (filteredUserId) q = q.eq("user_id", filteredUserId);
     const { data, error } = await q;
     if (error) { console.error("[admin GET] documents query failed:", error); return NextResponse.json({ error: "Internal error" }, { status: 500 }); }
-    docs = data ?? [];
+    docs = (data ?? []).filter((d) => !(d as { superseded_at?: string | null }).superseded_at); // hide archived (LAW #33)
   } else if (auth.isAgencyAdmin && auth.agencyId) {
     // Agency admin — all candidates in their agency
     const { data: agencyCands } = await db
@@ -54,11 +54,11 @@ export async function GET(req: NextRequest) {
     if (allowedIds.length === 0) return NextResponse.json({ docs: [], users: {}, role });
     const { data, error } = await db
       .from("documents")
-      .select("id, user_id, file_name, file_type, uploaded_at, status, feedback, drive_file_id, r2_key, uploaded_by_admin")
+      .select("*") // '*' so a not-yet-migrated superseded_at column never errors; archived rows filtered below
       .in("user_id", allowedIds)
       .order("uploaded_at", { ascending: false });
     if (error) { console.error("[admin GET] documents query (agency) failed:", error); return NextResponse.json({ error: "Internal error" }, { status: 500 }); }
-    docs = data ?? [];
+    docs = (data ?? []).filter((d) => !(d as { superseded_at?: string | null }).superseded_at); // hide archived (LAW #33)
   } else {
     // Sub-admin — scope by visibility (LAW #25).
     // Regular sub-admins see all (null); org admins see only their org's candidates.
@@ -69,7 +69,7 @@ export async function GET(req: NextRequest) {
 
     let q = db
       .from("documents")
-      .select("id, user_id, file_name, file_type, uploaded_at, status, feedback, drive_file_id, r2_key, uploaded_by_admin")
+      .select("*") // '*' so a not-yet-migrated superseded_at column never errors; archived rows filtered below
       .order("uploaded_at", { ascending: false });
 
     if (visibleIds === null) {
@@ -85,7 +85,7 @@ export async function GET(req: NextRequest) {
     const { data, error } = await q;
 
     if (error) { console.error("[admin GET] documents query failed:", error); return NextResponse.json({ error: "Internal error" }, { status: 500 }); }
-    docs = data ?? [];
+    docs = (data ?? []).filter((d) => !(d as { superseded_at?: string | null }).superseded_at); // hide archived (LAW #33)
   }
 
   // Fetch user metadata (reuse the same service-role client)

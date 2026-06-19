@@ -1124,6 +1124,24 @@ describe("assistant tools allow the supreme admin", () => {
     expect(await run(buildAssistantTools(SUPREME), "broadcastMessage", { text: "hi", by: "batch" })).toEqual({ error: "value_required" });
   });
 
+  it("archiveDocument soft-retires a doc (supreme); sub-admin blocked; needs_migration surfaced", async () => {
+    h.tables.documents = { data: { user_id: "cand-x", file_name: "wrong.pdf", file_type: "Reisepass" }, error: null };
+    // sub-admin can't
+    expect(await run(buildAssistantTools(ORG_ADMIN), "archiveDocument", { docId: "88888888-8888-8888-8888-888888888888" })).toEqual({ error: "admin_only" });
+    // supreme: the update returns no error → archived
+    const ok = (await run(buildAssistantTools(SUPREME), "archiveDocument", { docId: "88888888-8888-8888-8888-888888888888" })) as { archived?: boolean };
+    expect(ok.archived).toBe(true);
+  });
+
+  it("listCandidateDocuments hides archived (superseded_at) rows", async () => {
+    h.tables.documents = { data: [
+      { id: "d1", file_name: "good.pdf", file_type: "Reisepass", status: "approved", uploaded_at: "2026-01-02" },
+      { id: "d2", file_name: "wrong.pdf", file_type: "Reisepass", status: "approved", uploaded_at: "2026-01-01", superseded_at: "2026-06-19T00:00:00Z" },
+    ], error: null };
+    const r = (await run(buildAssistantTools(SUPREME), "listCandidateDocuments", { candidateUserId: "99999999-9999-9999-9999-999999999999" })) as { documents: { docId: string }[] };
+    expect(r.documents.map((d) => d.docId)).toEqual(["d1"]); // d2 archived → hidden
+  });
+
   it("getAcademyLevelCounts tallies active members by level over the scoped roster", async () => {
     // SUPREME roster is built from authUsers; seed two candidates + their active levels.
     h.authUsers = [

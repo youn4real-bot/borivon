@@ -255,10 +255,12 @@ async function maybeGrantVerified(db: DB, userId: string) {
     .from("candidate_profiles").select("passport_status").eq("user_id", userId).maybeSingle();
   if (profile?.passport_status !== "approved") return;
 
-  const { data: passDocs } = await db
-    .from("documents").select("status")
-    .eq("user_id", userId).ilike("file_type", "%pass%").eq("status", "approved").limit(1);
-  if (!passDocs?.length) return;
+  const { data: passDocsRaw } = await db
+    .from("documents").select("*") // '*' so a not-yet-migrated superseded_at never errors
+    .eq("user_id", userId).ilike("file_type", "%pass%").eq("status", "approved");
+  // Ignore ARCHIVED passports (superseded_at set) — a wrong one shouldn't keep them placement-ready.
+  const passDocs = (passDocsRaw ?? []).filter((d) => !(d as { superseded_at?: string | null }).superseded_at);
+  if (!passDocs.length) return;
 
   const { data: updated } = await db
     .from("candidate_profiles").update({ placement_ready: true })
@@ -276,10 +278,11 @@ async function maybeNotifyPassportApproved(db: DB, userId: string) {
     .from("candidate_profiles").select("passport_status").eq("user_id", userId).maybeSingle();
   if (profile?.passport_status !== "approved") return;
 
-  const { data: passDocs } = await db
-    .from("documents").select("id, file_name, file_type, status")
-    .eq("user_id", userId).ilike("file_type", "%pass%").order("uploaded_at", { ascending: false }).limit(1);
-  const passDoc = passDocs?.[0];
+  const { data: passDocsRaw } = await db
+    .from("documents").select("*") // '*' so a not-yet-migrated superseded_at never errors
+    .eq("user_id", userId).ilike("file_type", "%pass%").order("uploaded_at", { ascending: false });
+  // Latest NON-archived passport (skip superseded_at rows).
+  const passDoc = (passDocsRaw ?? []).filter((d) => !(d as { superseded_at?: string | null }).superseded_at)[0] as { id: string; file_name: string | null; file_type: string | null; status: string } | undefined;
   if (!passDoc || passDoc.status !== "approved") return;
 
   const { data: lastNotif } = await db

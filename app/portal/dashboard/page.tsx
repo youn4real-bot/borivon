@@ -1295,12 +1295,25 @@ export default function DashboardPage() {
   async function loadDocs(uid: string, keepPhase = false) {
     let fetched: Doc[] = [];
     try {
-      const { data, error } = await supabase
+      // Hide ARCHIVED docs (superseded_at set, LAW #33). Try the column; if it isn't
+      // migrated yet the select errors → fall back to the base columns (nothing hidden).
+      let data: Doc[] | null = null;
+      const withCol = await supabase
         .from("documents")
-        .select("id, file_name, file_type, uploaded_at, status, feedback, drive_file_id")
+        .select("id, file_name, file_type, uploaded_at, status, feedback, drive_file_id, superseded_at")
         .eq("user_id", uid)
         .order("uploaded_at", { ascending: false });
-      if (error) console.error("loadDocs error:", error.message);
+      if (withCol.error) {
+        const base = await supabase
+          .from("documents")
+          .select("id, file_name, file_type, uploaded_at, status, feedback, drive_file_id")
+          .eq("user_id", uid)
+          .order("uploaded_at", { ascending: false });
+        if (base.error) console.error("loadDocs error:", base.error.message);
+        data = (base.data ?? []) as Doc[];
+      } else {
+        data = ((withCol.data ?? []) as Array<Doc & { superseded_at?: string | null }>).filter((d) => !d.superseded_at);
+      }
       // Deduplicate: only keep the latest doc per file slot (fileKey).
       // Docs are sorted DESC so first occurrence per fileKey = latest version.
       // EXCEPTION: "other" (Sonstiges) is a multi-doc slot — every uploaded
