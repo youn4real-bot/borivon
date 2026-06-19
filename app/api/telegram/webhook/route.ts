@@ -31,6 +31,7 @@ import { parseReminderTime } from "@/lib/reminderTime";
 import { fireDueReminders } from "@/lib/reminderFire";
 import { listDraftAttachments } from "@/lib/gmailApi";
 import { signDlToken } from "@/lib/dlToken";
+import { getServiceSupabase } from "@/lib/supabase";
 import { setAutomation } from "@/lib/automationSettings";
 import { stripMarkdown, stripFileDeliveryNoise } from "@/lib/emailFormat";
 import { tgSend, tgSendNatural, tgSendDocument, tgGetFileBytes, tgTypingLoop, tgSendChatAction, splitOnDivider, getAdminUserId, telegramConfigured } from "@/lib/telegram";
@@ -144,7 +145,7 @@ export async function POST(req: NextRequest) {
   }
   if (!telegramConfigured()) return ok();
 
-  let update: { message?: { chat?: { id: number }; text?: string; caption?: string; voice?: { file_id: string }; photo?: { file_id: string }[]; document?: { file_id: string; file_name?: string; mime_type?: string } } };
+  let update: { update_id?: number; message?: { chat?: { id: number }; text?: string; caption?: string; voice?: { file_id: string }; photo?: { file_id: string }[]; document?: { file_id: string; file_name?: string; mime_type?: string } } };
   try { update = await req.json(); } catch { return ok(); }
   const msg = update.message;
   const chatId = msg?.chat?.id;
@@ -157,6 +158,18 @@ export async function POST(req: NextRequest) {
     return ok();
   }
   if (String(chatId) !== allowed) return ok(); // stranger → silently ignore
+
+  // DEDUPE: Telegram RE-SENDS an update if our webhook is slow to 2xx (a heavy
+  // multi-tool turn can run long), which caused DOUBLE replies. Claim this update_id
+  // once; a retry of the same update hits the PK conflict and is dropped here before
+  // any processing. Fail-safe: a "table not migrated" error (≠ 23505) falls through
+  // and processes normally — i.e. today's behaviour until telegram_updates.sql runs.
+  if (typeof update.update_id === "number") {
+    try {
+      const { error } = await getServiceSupabase().from("telegram_updates").insert({ update_id: update.update_id });
+      if (error && (error as { code?: string }).code === "23505") return ok(); // duplicate delivery → ignore
+    } catch { /* ignore → process normally */ }
+  }
 
   const text = (msg.text || "").trim();
 
@@ -630,10 +643,45 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // HARD RULE the founder set (after I once attached the WRONG files): before he
+    // confirms ANY email, ALWAYS deliver the ACTUAL attachment files into the chat —
+    // never just text or a filename list — so he reviews exactly what will go out. We
+    // do it automatically here when a send is awaiting his yes and the staged email
+    // draft has attachments (skip if the model already streamed files this turn, e.g.
+    // he asked "show me the files"). Best-effort: never block the confirm.
+    let attachmentsShown = false;
+    if (pendingAsk?.isSend && !willSendFiles) {
+      try {
+        const pend = await getPendingDraft(scope.userId);
+        if (pend) {
+          const got = await listDraftAttachments(pend.draftId);
+          if (got && got.attachments.length > 0) {
+            const token = signDlToken(scope.userId, 600);
+            let shown = 0;
+            for (const a of got.attachments.slice(0, 25)) {
+              void tgSendChatAction(chatId, "upload_document");
+              try {
+                const url = `${BASE_URL}/api/portal/admin/email-attachment?mid=${encodeURIComponent(got.messageId)}&aid=${encodeURIComponent(a.attachmentId)}&dlt=${encodeURIComponent(token)}&name=${encodeURIComponent(a.filename)}`;
+                const ctl = new AbortController();
+                const timer = setTimeout(() => ctl.abort(), 30_000);
+                const f = await fetch(url, { signal: ctl.signal }).finally(() => clearTimeout(timer));
+                if (f.ok) { const bytes = new Uint8Array(await f.arrayBuffer()); if (await tgSendDocument(chatId, bytes, a.filename || "attachment")) shown++; }
+              } catch { /* skip a file that won't fetch */ }
+            }
+            if (shown > 0) {
+              attachmentsShown = true;
+              await tgSend(chatId, `📎 These are the EXACT ${shown} file(s) that will attach — review them, then reply "yes" to send (or tell me what to change).`);
+            }
+          }
+        }
+      } catch { /* best-effort — never block the confirm */ }
+    }
+
     // THE ONE GUARDRAIL: a send (or delete) is staged + waiting — ask for the single
     // explicit yes. Final bubble, so the preview body above stays clean. The "yes"
-    // is caught in code next message (isConfirmText → executeLatestPending).
-    if (pendingAsk) {
+    // is caught in code next message (isConfirmText → executeLatestPending). Skip the
+    // generic prompt when we just delivered the attachments (that note already asks).
+    if (pendingAsk && !attachmentsShown) {
       await tgSend(chatId, pendingAsk.isSend
         ? `👉 Send it? Reply "yes" to send, or "no" to cancel.`
         : `👉 Confirm? Reply "yes" to go ahead, or "no" to cancel.`);
