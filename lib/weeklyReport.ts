@@ -88,8 +88,9 @@ export async function computeWeeklyReport(windowDays = 7): Promise<WeeklyReport>
   }
 
   // Documents — pending review now + uploaded this week.
-  const { data: docs } = await db.from("documents").select("status, uploaded_at");
-  const docRows = (docs ?? []) as { status: string | null; uploaded_at: string | null }[];
+  const { data: docs } = await db.from("documents").select("*"); // '*' so a not-yet-migrated superseded_at never errors
+  const docRows = ((docs ?? []) as { status: string | null; uploaded_at: string | null; superseded_at?: string | null }[])
+    .filter((d) => !d.superseded_at); // exclude ARCHIVED docs from the counts (LAW #33)
   const pending = docRows.filter((d) => d.status === "pending").length;
   const uploaded7d = docRows.filter((d) => {
     const t = Date.parse(d.uploaded_at ?? "");

@@ -97,8 +97,9 @@ export async function computeBriefing(adminUserId: string | null): Promise<Brief
       .from("candidate_profiles")
       .select("user_id, first_name, last_name, passport_expiry, b2_exam_date");
     const profRowsAll = (profs ?? []) as P[];
-    const { data: pend } = await db.from("documents").select("user_id, file_name").eq("status", "pending");
-    const pendRowsAll = (pend ?? []) as { user_id: string; file_name: string | null }[];
+    const { data: pend } = await db.from("documents").select("*").eq("status", "pending"); // '*' so a not-yet-migrated superseded_at never errors
+    const pendRowsAll = ((pend ?? []) as { user_id: string; file_name: string | null; superseded_at?: string | null }[])
+      .filter((d) => !d.superseded_at); // skip ARCHIVED docs (LAW #33)
     // Strip staff (they get profile rows when they open the dashboard) so the briefing
     // only ever lists real candidates.
     const allIds = [...new Set([...profRowsAll.map((p) => p.user_id), ...pendRowsAll.map((d) => d.user_id)])];

@@ -48,9 +48,10 @@ export async function GET(req: NextRequest) {
   if (rows.length === 0) return NextResponse.json({ candidates: [] });
 
   const ids = rows.map((p) => p.user_id);
-  const { data: docs } = await db.from("documents").select("user_id, file_type, status").in("user_id", ids);
+  const { data: docs } = await db.from("documents").select("*").in("user_id", ids); // '*' so a not-yet-migrated superseded_at never errors
   const docsByUser = new Map<string, { file_type: string | null; status: string | null }[]>();
-  for (const d of (docs ?? []) as { user_id: string; file_type: string | null; status: string | null }[]) {
+  for (const d of (docs ?? []) as { user_id: string; file_type: string | null; status: string | null; superseded_at?: string | null }[]) {
+    if (d.superseded_at) continue; // skip ARCHIVED docs (LAW #33)
     const arr = docsByUser.get(d.user_id) ?? [];
     arr.push({ file_type: d.file_type, status: d.status });
     docsByUser.set(d.user_id, arr);

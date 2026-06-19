@@ -39,11 +39,12 @@ export async function POST(req: NextRequest) {
   const db = getServiceSupabase();
   const [{ data: profs }, { data: docs }] = await Promise.all([
     db.from("candidate_profiles").select("user_id, first_name, last_name, b2_stage, b2_failed, b2_exam_date, cv_draft").in("user_id", ids),
-    db.from("documents").select("user_id, file_type, status").in("user_id", ids),
+    db.from("documents").select("*").in("user_id", ids), // '*' so a not-yet-migrated superseded_at never errors
   ]);
 
   const docsByUser = new Map<string, { file_type: string | null; status: string | null }[]>();
-  for (const d of (docs ?? []) as { user_id: string; file_type: string | null; status: string | null }[]) {
+  for (const d of (docs ?? []) as { user_id: string; file_type: string | null; status: string | null; superseded_at?: string | null }[]) {
+    if (d.superseded_at) continue; // skip ARCHIVED docs (LAW #33)
     const arr = docsByUser.get(d.user_id) ?? [];
     arr.push({ file_type: d.file_type, status: d.status });
     docsByUser.set(d.user_id, arr);

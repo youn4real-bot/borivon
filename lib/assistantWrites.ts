@@ -60,7 +60,7 @@ export const MILESTONE_BOOL = new Set([
   "interview1_result_date_confirmed", "interview2_result_date_confirmed",
   "visa_appt_date_confirmed", "flight_date_confirmed",
 ]);
-const MILESTONE_DATE = new Set(["visa_date", "visa_appt_date", "flight_date", "interview1_result_date", "interview2_result_date"]);
+const MILESTONE_DATE = new Set(["visa_date", "visa_appt_date", "flight_date", "interview1_result_date", "interview2_result_date", "employment_start", "residence_permit_appt_date"]);
 const MILESTONE_TEXT = new Set(["flight_info", "interview_link", "interview_type", "interview_notes"]);
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const JOURNEY_MAX_TEXT = 500;
