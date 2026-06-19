@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isConfirmText, isCancelText, isResetText, isShowFilesText, isMuteDocReminders, isUnmuteDocReminders, isSetReminder, parseReminderText, looksLikeDone } from "../lib/confirmIntent";
+import { isConfirmText, isCancelText, isResetText, isShowFilesText, isMuteDocReminders, isUnmuteDocReminders, isMinimalReminders, isBriefingSignalsOn, isSetReminder, parseReminderText, looksLikeDone } from "../lib/confirmIntent";
 
 // The bot's CODE-ENFORCED confirm path keys off these. If they regress, the
 // "say yes → it just re-asks forever" bug comes back, so the behaviour is pinned.
@@ -136,5 +136,42 @@ describe("looksLikeDone — founder signalling a task is handled", () => {
     "send the email to Anna",
   ]) {
     it(`does NOT look done: "${t}"`, () => expect(looksLikeDone(t)).toBe(false));
+  }
+});
+
+describe("isMinimalReminders — only push my dictated reminders", () => {
+  for (const t of [
+    "only remind me of what I tell you",
+    "only remind me of what i tell you to remind me of",
+    "just remind me of my own reminders",
+    "stop reminding me of everything",
+    "stop reminding me of all that stuff",
+    "don't remind me of everything, only what I tell you",
+    "only remind me when I tell you to",
+  ]) {
+    it(`is MINIMAL: "${t}"`, () => expect(isMinimalReminders(t)).toBe(true));
+  }
+  // A normal "remind me to X" task must NOT be swallowed as minimal-mode.
+  for (const t of [
+    "remind me to call the embassy Monday",
+    "only remind me to call her at 3pm",
+    "remind me about the mercury bank thing",
+    "what do I need to do today",
+  ]) {
+    it(`is NOT minimal: "${t}"`, () => expect(isMinimalReminders(t)).toBe(false));
+  }
+});
+
+describe("isBriefingSignalsOn — bring the auto-signals back", () => {
+  for (const t of [
+    "turn the briefing signals back on",
+    "turn the signals on again",
+    "show passports and b2 in my briefing again",
+    "include passports in the briefing",
+  ]) {
+    it(`turns signals ON: "${t}"`, () => expect(isBriefingSignalsOn(t)).toBe(true));
+  }
+  for (const t of ["only remind me of what I tell you", "stop reminding me of everything"]) {
+    it(`does NOT turn signals on: "${t}"`, () => expect(isBriefingSignalsOn(t)).toBe(false));
   }
 });

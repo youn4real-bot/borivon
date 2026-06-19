@@ -95,6 +95,31 @@ export function isUnmuteDocReminders(t: string): boolean {
   return DOCISH.test(n) && UNMUTE_VERB.test(n);
 }
 
+// MINIMAL-REMINDERS mode: the founder wants the briefing/nudges to push ONLY the
+// reminders he DICTATES — never the auto-signals (passports/B2/stuck/emails/docs).
+// Detected in code (flips briefing_extras OFF) because he's said it repeatedly and the
+// model kept "saving a preference" that changed nothing. Catches "only remind me of
+// what I tell you", "stop reminding me of everything", "only my reminders".
+const REMINDISH2 = /\b(remind\w*|nudg\w*|briefing|push|surfac\w*|telling me|tell me|show\w* me|notif\w*)\b/i;
+export function isMinimalReminders(t: string): boolean {
+  const n = (t || "").trim().toLowerCase();
+  if (!n || n.length > 220) return false;
+  if (!REMINDISH2.test(n)) return false;
+  const onlyMine = /\b(only|just|nur|seulement)\b/.test(n)
+    && /(what i (tell|ask|say|want|give)|when i (tell|ask|say)|i (tell|ask) (you|u)|my (own )?(reminder|task|list)|i tell (you|u) to|i say so)/.test(n);
+  const stopAll = MUTE_VERB.test(n)
+    && /(everything|every ?thing|all (of )?(that|this|it|them)?|all the (reminder|nag|stuff)|auto\w*|automatic|unless i|except what i)/.test(n);
+  return onlyMine || stopAll;
+}
+
+/** True when the founder wants the auto-signals (passports/B2/stuck/emails) BACK in the briefing. */
+export function isBriefingSignalsOn(t: string): boolean {
+  const n = (t || "").trim().toLowerCase();
+  if (!n || n.length > 200) return false;
+  if (/\b(signals?|briefing|extras?|everything|full briefing)\b/.test(n) && UNMUTE_VERB.test(n)) return true;
+  return /\b(show|include|add|give me)\b[^.]*\b(passports?|b2|stuck|unanswered emails?|all signals|everything in (the|my) briefing|full briefing)/.test(n);
+}
+
 // "Remind me about / to X" — a STANDING personal reminder. Enforced in code
 // because Flash often didn't call the saveReminder tool, so the thing the founder
 // asked to be reminded of (e.g. the Mercury bank task) just vanished. The lead
