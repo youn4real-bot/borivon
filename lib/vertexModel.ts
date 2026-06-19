@@ -8,9 +8,12 @@
  * Gemini-on-Vertex path (and the dual-brain switch) lives in git history if we ever
  * want it back. (The name `vertexModel` is kept so callers don't have to change.)
  *
- * Default tier = Haiku 4.5 (cheapest Claude). ONE-LINE escape hatch to a smarter
- * Claude, no code edit: set ASSISTANT_CLAUDE_FLASH=claude-sonnet-4-6 in Vercel and
- * redeploy — only the model string changes.
+ * Default brain = Claude SONNET 4.6 (founder's call 2026-06-19): Haiku's answer
+ * STYLE/nuance (answering the exact question, brevity, tone) wasn't matching how he
+ * wants replies — Sonnet is the closest affordable match to "answer like Claude Code
+ * does". Override per env without a code edit: set ASSISTANT_CLAUDE_FLASH (e.g. back to
+ * claude-haiku-4-5, or claude-opus-4-8) in Vercel and redeploy. (Future: he plans to
+ * move to a Groq-hosted model for raw SPEED — that'll be a separate brain swap here.)
  */
 import { createAnthropic } from "@ai-sdk/anthropic";
 
@@ -22,9 +25,9 @@ function makeAnthropic() {
   return createAnthropic({ apiKey: key });
 }
 
-const claudeFlashId = () => process.env.ASSISTANT_CLAUDE_FLASH || "claude-haiku-4-5";
+const claudeFlashId = () => process.env.ASSISTANT_CLAUDE_FLASH || "claude-sonnet-4-6";
 const claudeProId = () => process.env.ASSISTANT_CLAUDE_PRO || "claude-sonnet-4-6";
-// Pro tier hard-locked off — the bot runs on one Claude model (Haiku by default).
+// Pro tier hard-locked off — the bot runs on one Claude model (Sonnet by default).
 // Flip to true (and set ASSISTANT_CLAUDE_PRO) only if the founder wants a Pro tier.
 const ALLOW_PRO = false;
 
@@ -33,7 +36,7 @@ export function proConfigured(): boolean {
   return ALLOW_PRO && !!process.env.ASSISTANT_CLAUDE_PRO;
 }
 
-/** The Claude model for a tier (Haiku by default). Null if ANTHROPIC_API_KEY unset. */
+/** The Claude model for a tier (Sonnet by default). Null if ANTHROPIC_API_KEY unset. */
 export function vertexModel(tier: ModelTier = "flash") {
   const a = makeAnthropic();
   if (!a) return null;
