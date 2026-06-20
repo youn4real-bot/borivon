@@ -141,7 +141,11 @@ export async function resolveDoneReminders(
         content: `Open reminders:\n${list}\n\nThe founder just said:\n"${(userMsg || "").slice(0, 400)}"\n\nResolved reminder number(s), or NONE:`,
       }],
       temperature: 0,
-      maxOutputTokens: 60, // just numbers or "NONE" — and Claude REQUIRES max_tokens
+      // 512 + no thinking: on Gemini 2.5 Flash, thinking tokens share maxOutputTokens, so
+      // 60 could leave NO room for the answer → empty → reminders never auto-close. This is
+      // a trivial pick-the-numbers task, so thinking is wasted overhead.
+      maxOutputTokens: 512,
+      providerOptions: { vertex: { thinkingConfig: { thinkingBudget: 0 } }, google: { thinkingConfig: { thinkingBudget: 0 } } },
     });
 
     const out = (res.text || "").trim();

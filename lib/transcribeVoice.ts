@@ -24,7 +24,11 @@ export async function transcribeVoice(bytes: Uint8Array, mime: string): Promise<
     const res = await generateText({
       model,
       maxRetries: 1,
-      maxOutputTokens: 1024,
+      // 2048 + no thinking: a long voice note transcript could overflow 1024 once Gemini
+      // 2.5 Flash's thinking shares the budget → truncated transcript. Transcription needs
+      // no reasoning, so disable thinking (faster + the full transcript always lands).
+      maxOutputTokens: 2048,
+      providerOptions: { vertex: { thinkingConfig: { thinkingBudget: 0 } }, google: { thinkingConfig: { thinkingBudget: 0 } } },
       messages: [{
         role: "user",
         content: [

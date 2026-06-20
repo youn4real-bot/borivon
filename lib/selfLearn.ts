@@ -47,7 +47,12 @@ export async function reflectAndLearn(
         content: `Founder said:\n"${(userMsg || "").slice(0, 900)}"\n\nThe bot's last reply / action was:\n"${(botReply || "").slice(0, 500)}"\n\nThe lasting rule (or NONE):`,
       }],
       temperature: 0.2,
-      maxOutputTokens: 200, // one short rule (<220 chars) — and Claude REQUIRES max_tokens
+      // 1024 (was 200): on Gemini 2.5 Flash, THINKING tokens share this budget — at 200 the
+      // rule got truncated mid-sentence ("Always send actual", "Do not assume email sender
+      // identity;"), so the bot "learned" garbage. Disable thinking too (this is a tiny
+      // classification, thinking is pure overhead) so the full rule always comes out.
+      maxOutputTokens: 1024,
+      providerOptions: { vertex: { thinkingConfig: { thinkingBudget: 0 } }, google: { thinkingConfig: { thinkingBudget: 0 } } },
     });
     const rule = (res.text || "").trim().replace(/^["'`]+|["'`]+$/g, "").trim();
     if (!rule || /^none\b/i.test(rule) || rule.length < 8 || rule.length > 220) return null;
