@@ -1,21 +1,29 @@
 /**
- * Shared model factory — Claude on the Anthropic API. Used by BOTH the in-app
- * assistant route and the Telegram bot, so they run the same brain. Returns null
- * when ANTHROPIC_API_KEY isn't set, so callers degrade gracefully (feature inert).
+ * Shared model factory — the bot's brain. Used by BOTH the in-app assistant route
+ * and the Telegram bot, so they run the same model. Returns null when no key is set,
+ * so callers degrade gracefully (feature inert).
  *
- * CLAUDE ONLY (founder's call, 2026-06-18): Gemini was removed entirely — no
- * primary, no fallback — for a clean week-long evaluation of Claude. The old
- * Gemini-on-Vertex path (and the dual-brain switch) lives in git history if we ever
- * want it back. (The name `vertexModel` is kept so callers don't have to change.)
+ * DEFAULT brain = Claude SONNET 4.6 (founder's call 2026-06-19): the closest affordable
+ * match to "answer like Claude Code does". Override the Claude model per env without a
+ * code edit: ASSISTANT_CLAUDE_FLASH (e.g. claude-haiku-4-5 / claude-opus-4-8).
  *
- * Default brain = Claude SONNET 4.6 (founder's call 2026-06-19): Haiku's answer
- * STYLE/nuance (answering the exact question, brevity, tone) wasn't matching how he
- * wants replies — Sonnet is the closest affordable match to "answer like Claude Code
- * does". Override per env without a code edit: set ASSISTANT_CLAUDE_FLASH (e.g. back to
- * claude-haiku-4-5, or claude-opus-4-8) in Vercel and redeploy. (Future: he plans to
- * move to a Groq-hosted model for raw SPEED — that'll be a separate brain swap here.)
+ * GROQ / OPENROUTER (founder wants raw SPEED): set ASSISTANT_PROVIDER to flip the brain
+ * to ANY OpenAI-compatible host WITHOUT a code change — Claude stays default until then.
+ *   ASSISTANT_PROVIDER = "groq" | "openrouter" | "openai-compatible"
+ *   ASSISTANT_LLM_API_KEY = the provider key (Groq key, or OpenRouter key)
+ *   ASSISTANT_LLM_MODEL   = the model id, e.g. Groq "moonshotai/kimi-k2-instruct" or
+ *                           "llama-3.3-70b-versatile"; OpenRouter "moonshotai/kimi-k2"
+ *   ASSISTANT_LLM_BASE_URL = optional override (groq/openrouter default URLs are built in)
+ * Base URLs default: groq → https://api.groq.com/openai/v1, openrouter →
+ * https://openrouter.ai/api/v1. To revert to Claude: unset ASSISTANT_PROVIDER. NOTE the
+ * bot drives ~160 tools — only a strong tool-calling model holds up (Kimi K2 recommended
+ * on Groq; Llama/GPT-OSS are weaker at function-calling). A/B on real "pull the email
+ * from X" requests before committing; flip back instantly if it regresses.
+ *
+ * Gemini-on-Vertex stays ONLY for voice transcription (lib/transcribeVoice.ts).
  */
 import { createAnthropic } from "@ai-sdk/anthropic";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 
 export type ModelTier = "flash" | "pro";
 
@@ -36,8 +44,33 @@ export function proConfigured(): boolean {
   return ALLOW_PRO && !!process.env.ASSISTANT_CLAUDE_PRO;
 }
 
-/** The Claude model for a tier (Sonnet by default). Null if ANTHROPIC_API_KEY unset. */
+/** Which alt provider (Groq / OpenRouter / any OpenAI-compatible host) is configured, or
+ *  null = stay on Claude. Requires ASSISTANT_PROVIDER + a key + a model id. */
+function altProvider(): { client: ReturnType<typeof createOpenAICompatible>; model: string } | null {
+  const provider = (process.env.ASSISTANT_PROVIDER || "").trim().toLowerCase();
+  if (!provider || provider === "anthropic" || provider === "claude") return null;
+  const apiKey = (process.env.ASSISTANT_LLM_API_KEY || "").trim();
+  const model = (process.env.ASSISTANT_LLM_MODEL || "").trim();
+  if (!apiKey || !model) return null; // misconfigured → fall back to Claude, never break
+  const baseURL = (process.env.ASSISTANT_LLM_BASE_URL || "").trim()
+    || (provider === "groq" ? "https://api.groq.com/openai/v1"
+      : provider === "openrouter" ? "https://openrouter.ai/api/v1"
+      : "");
+  if (!baseURL) return null; // unknown provider with no explicit base URL → stay on Claude
+  const client = createOpenAICompatible({ name: provider, apiKey, baseURL });
+  return { client, model };
+}
+
+/** Is the brain currently a non-Claude (Groq/OpenRouter) provider? */
+export function altBrainActive(): boolean {
+  return altProvider() !== null;
+}
+
+/** The model for a tier. Groq/OpenRouter when configured (both tiers = the one alt model),
+ *  else Claude (Sonnet by default). Null only if NOTHING is configured. */
 export function vertexModel(tier: ModelTier = "flash") {
+  const alt = altProvider();
+  if (alt) return alt.client(alt.model);
   const a = makeAnthropic();
   if (!a) return null;
   return a(tier === "pro" && ALLOW_PRO ? claudeProId() : claudeFlashId());
