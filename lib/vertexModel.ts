@@ -3,9 +3,12 @@
  * and the Telegram bot, so they run the same model. Returns null when no key is set,
  * so callers degrade gracefully (feature inert).
  *
- * DEFAULT brain = Claude SONNET 4.6 (founder's call 2026-06-19): the closest affordable
- * match to "answer like Claude Code does". Override the Claude model per env without a
- * code edit: ASSISTANT_CLAUDE_FLASH (e.g. claude-haiku-4-5 / claude-opus-4-8).
+ * DEFAULT brain = GEMINI 2.5 FLASH on Vertex-Frankfurt (founder's call 2026-06-20:
+ * "switch fully to Gemini Flash NOW" — fast + cheap, and Vertex billing already works so
+ * there's no payment block like Groq's frozen Developer tier). Set ASSISTANT_BRAIN=claude
+ * to revert to Claude instantly (Sonnet 4.6; override its id via ASSISTANT_CLAUDE_FLASH).
+ * Gemini model id override: ASSISTANT_GEMINI_MODEL. NOTE: Gemini function-calling rejects
+ * union/anyOf/regex/format in tool schemas — all ~160 bot tools are flat, so they're safe.
  *
  * GROQ / OPENROUTER (founder wants raw SPEED): set ASSISTANT_PROVIDER to flip the brain
  * to ANY OpenAI-compatible host WITHOUT a code change — Claude stays default until then.
@@ -24,6 +27,7 @@
  */
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import { createVertex } from "@ai-sdk/google-vertex";
 
 export type ModelTier = "flash" | "pro";
 
@@ -31,6 +35,23 @@ function makeAnthropic() {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return null;
   return createAnthropic({ apiKey: key });
+}
+
+// Gemini Flash on Vertex (Frankfurt) — the DEFAULT brain (founder's call 2026-06-20:
+// "switch fully to Gemini Flash" — fast + cheap, and the Vertex billing already works,
+// so there's no payment block like Groq's frozen Developer tier). Reuses the SAME
+// GOOGLE_VERTEX_* creds already present for voice transcription / Gmail / Calendar.
+// Returns null if Vertex isn't configured, so vertexModel() safely falls back to Claude.
+// All ~160 tool schemas are flat (no union/anyOf/regex/format) → Gemini-safe.
+const geminiId = () => process.env.ASSISTANT_GEMINI_MODEL || "gemini-2.5-flash";
+function makeVertexGemini() {
+  const project = process.env.GOOGLE_VERTEX_PROJECT;
+  const credsRaw = process.env.GOOGLE_VERTEX_CREDENTIALS;
+  if (!project || !credsRaw) return null;
+  let credentials: Record<string, unknown>;
+  try { credentials = JSON.parse(credsRaw); } catch { return null; }
+  const location = process.env.GOOGLE_VERTEX_LOCATION || "europe-west4";
+  return createVertex({ project, location, googleAuthOptions: { credentials } });
 }
 
 const claudeFlashId = () => process.env.ASSISTANT_CLAUDE_FLASH || "claude-sonnet-4-6";
@@ -66,11 +87,18 @@ export function altBrainActive(): boolean {
   return altProvider() !== null;
 }
 
-/** The model for a tier. Groq/OpenRouter when configured (both tiers = the one alt model),
- *  else Claude (Sonnet by default). Null only if NOTHING is configured. */
+/** The model for a tier. Precedence: (1) an explicit Groq/OpenRouter alt provider, then
+ *  (2) the DEFAULT brain = Gemini Flash on Vertex (founder's call 2026-06-20), then
+ *  (3) Claude as the safe fallback. Override the brain with ASSISTANT_BRAIN: "claude" to
+ *  revert to Claude, "gemini" (default) for Gemini Flash. Null only if NOTHING configured. */
 export function vertexModel(tier: ModelTier = "flash") {
   const alt = altProvider();
   if (alt) return alt.client(alt.model);
+  const brain = (process.env.ASSISTANT_BRAIN || "gemini").trim().toLowerCase();
+  if (brain !== "claude") {
+    const g = makeVertexGemini();
+    if (g) return g(geminiId()); // Gemini Flash; falls through to Claude if Vertex unset
+  }
   const a = makeAnthropic();
   if (!a) return null;
   return a(tier === "pro" && ALLOW_PRO ? claudeProId() : claudeFlashId());
