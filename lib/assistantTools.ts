@@ -106,6 +106,19 @@ function activeDocs<T>(rows: T[]): T[] {
   return (rows as Array<T & { superseded_at?: string | null }>).filter((r) => !r.superseded_at);
 }
 
+// Human, Morocco-time label for a calendar/meeting time so the CONFIRM preview shows the
+// REAL date+weekday ("Sun 21 Jun, 5:00 PM") instead of a raw ISO the founder skims past.
+// This is the deterministic guard against the model booking the wrong day/time: a wrong
+// value is now obvious before he says "yes". Handles ISO with Z/offset (absolute) or a
+// bare local string (interpreted in Casablanca). Falls back to the raw string if unparseable.
+function whenLabel(iso: string): string {
+  const s = (iso || "").trim();
+  if (!s) return "";
+  const hasTz = /[zZ]$|[+-]\d{2}:?\d{2}$/.test(s);
+  const d = hasTz ? new Date(s) : localIsoToInstant(s);
+  return d && !Number.isNaN(d.getTime()) ? fmtWhen(d) : s;
+}
+
 // ── Fuzzy name matching ── the founder types fast/messy and dictates by voice, so
 // Moroccan names get mangled (Hajar→Hadjar, Samira→Samra, Lahcen→Lhacen, diacritics
 // dropped). Used as a FALLBACK only when exact/substring matching finds nobody, so a
@@ -3354,12 +3367,12 @@ export function buildAssistantTools(
         if (location !== undefined) args.location = location;
         if (addMeet !== undefined) args.addMeet = addMeet;
         if (recurrence !== undefined) args.recurrence = recurrence;
-        const when = startsAt.replace("T", " ").slice(0, 16);
         return stagePending(scope, {
           toolName: "bookCalendarEvent",
           args,
           candidateUserId: null,
-          summary: `Book on your calendar: "${title.trim().slice(0, 80)}" @ ${when}${recurrence ? ` (${recurrence})` : ""}${location ? ` · ${location}` : ""}${addMeet ? " · 📹 Meet" : ""}`,
+          // Human date+weekday in Morocco time so a wrong day/time is obvious in the result.
+          summary: `Book on your calendar: "${title.trim().slice(0, 80)}" on ${whenLabel(startsAt)}${recurrence ? ` (${recurrence})` : ""}${location ? ` · ${location}` : ""}${addMeet ? " · 📹 Meet" : ""}`,
         });
       },
     }),
@@ -3462,7 +3475,9 @@ export function buildAssistantTools(
           toolName: "sendCalendarInvite",
           args,
           candidateUserId: null,
-          summary: `${verb}: "${args.title.slice(0, 80)}" → ${emails.join(", ")} (${args.startsAt})`,
+          // Show the REAL date+weekday in Morocco time (not a raw ISO) so a wrong day/time
+          // is obvious BEFORE the founder confirms — the model sometimes mis-computes it.
+          summary: `${verb}: "${args.title.slice(0, 80)}" → ${emails.join(", ")} on ${whenLabel(args.startsAt)}`,
         });
       },
     }),
