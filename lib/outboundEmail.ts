@@ -122,13 +122,26 @@ export async function sendOutboundEmail(opts: {
   // Plain-text body, with any model-written sign-off trimmed so the signature
   // replaces it (Gmail SMTP never adds the saved web signature itself).
   const cleanBody = stripTrailingSignoff(stripEmailFormatting(opts.body));
-  // Prefer the founder's REAL Gmail signature (read natively via the Workspace
-  // connection, cached); fall back to the built-in Playfair-logo signature.
-  const realSigHtml = await getNativeGmailSignature().catch(() => null);
-  const sigHtml = realSigHtml || OUTBOUND_SIGNATURE_HTML;
-  const sigText = realSigHtml ? htmlToPlain(realSigHtml) : OUTBOUND_SIGNATURE_TEXT;
-  const text = `${cleanBody.trimEnd()}\n\n${sigText}`;
-  const html = `${textToHtml(cleanBody)}<br/>${sigHtml}`;
+  // A CALENDAR INVITATION goes out CLEAN — NO signature, NO disclaimer footer, just the
+  // invite itself (founder's hard rule: "calendar invites = the invite, no text/footer").
+  // The .ics IS the message; the email body is irrelevant, so we never bolt the Borivon
+  // signature onto an invite (that footer was the bug — it was appended unconditionally).
+  const isInvite = !!opts.icalEvent;
+  let text: string;
+  let html: string;
+  if (isInvite) {
+    const b = cleanBody.trim();
+    text = b || " ";
+    html = b ? textToHtml(b) : " ";
+  } else {
+    // Normal email: prefer the founder's REAL Gmail signature (read natively, cached),
+    // fall back to the built-in Playfair-logo signature.
+    const realSigHtml = await getNativeGmailSignature().catch(() => null);
+    const sigHtml = realSigHtml || OUTBOUND_SIGNATURE_HTML;
+    const sigText = realSigHtml ? htmlToPlain(realSigHtml) : OUTBOUND_SIGNATURE_TEXT;
+    text = `${cleanBody.trimEnd()}\n\n${sigText}`;
+    html = `${textToHtml(cleanBody)}<br/>${sigHtml}`;
+  }
   const atts = opts.attachments ?? [];
   const cc = (opts.cc ?? []).map((c) => c.trim()).filter(Boolean);
   const bcc = (opts.bcc ?? []).map((c) => c.trim()).filter(Boolean);
