@@ -14,6 +14,57 @@
 import { generateText } from "ai";
 import { getServiceSupabase } from "@/lib/supabase";
 
+// Generic done-words, action verbs, pronouns and fillers that appear in BOTH a "done"
+// message AND a reminder ("I CALLED them" vs "CALL the embassy") — so they must NOT
+// count as a content match. Only DISTINCTIVE tokens (a name, place, subject: "embassy",
+// "mercury", "deposit", "Aya") should tie a message to the reminder it closes. ASCII-
+// folded so "envoyé"→"envoye" etc. compare cleanly.
+const TOKEN_STOP = new Set([
+  // EN generic verbs / acknowledgement
+  "done", "sent", "send", "sending", "paid", "pay", "paying", "call", "called", "calling",
+  "email", "emailed", "mail", "mailed", "text", "texted", "message", "messaged", "handle",
+  "handled", "handling", "finish", "finished", "made", "make", "making", "took", "take",
+  "taken", "mark", "marked", "cross", "already", "just", "today", "yesterday", "tonight",
+  "thing", "things", "stuff", "task", "reminder", "remind", "please", "thanks", "thank",
+  "yeah", "yep", "yup", "okay", "sure", "cool", "great", "nice", "good", "fine",
+  // EN pronouns / fillers (>=4 chars; shorter ones drop via the length filter)
+  "that", "this", "these", "those", "them", "they", "their", "with", "about", "from",
+  "have", "has", "had", "will", "would", "could", "should", "your", "yours", "mine",
+  "what", "when", "been", "being", "into", "over", "back", "also", "then", "than",
+  // DE
+  "erledigt", "gemacht", "fertig", "geschickt", "gesendet", "angerufen", "bezahlt",
+  "schon", "gerade", "mein", "habe", "auch", "noch",
+  // FR (ascii-folded)
+  "fait", "fini", "envoye", "envoyee", "appele", "appelee", "paye", "payee", "deja",
+  "fini", "termine", "terminee", "mon", "mes",
+]);
+
+/** ASCII-fold + lowercase + split into DISTINCTIVE content tokens (>=4 chars, not a
+ *  generic done/action word). Used to require that a "done" message actually references
+ *  the reminder it would close — so an incidental "I sent it" can't silently clear an
+ *  unrelated task (the founder's tasks must never vanish on fuzzy phrasing). */
+export function contentTokens(s: string): Set<string> {
+  const folded = (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const out = new Set<string>();
+  for (const raw of folded.split(/[^a-z0-9]+/)) {
+    if (raw.length >= 4 && !TOKEN_STOP.has(raw)) out.add(raw);
+  }
+  return out;
+}
+
+/** How many distinctive tokens the message shares with the reminder text. */
+export function contentOverlap(msg: string, reminderText: string): number {
+  const a = contentTokens(msg);
+  if (!a.size) return 0;
+  const b = contentTokens(reminderText);
+  let n = 0;
+  for (const t of a) if (b.has(t)) n++;
+  return n;
+}
+
+// The founder is clearing MANY at once ("mark them all done", "both handled", "clear my list").
+const BULK_DONE = /\b(all|everything|every one|each|both|them all|the (?:whole )?list|all of (?:them|it)|alle[s]?|beide|tous|toutes|les deux)\b/i;
+
 /** Create a personal reminder for the admin. `dueAt` is the exact instant it should
  *  fire (with time-of-day) — null for an undated "keep nagging me" task. Returns the
  *  new id, or null on failure. Stores both due_at (the precise firing instant, source
@@ -98,9 +149,29 @@ export async function resolveDoneReminders(
     const nums = [...new Set((out.match(/\d+/g) || []).map(Number))].filter((n) => n >= 1 && n <= open.length);
     if (!nums.length) return [];
 
+    // PRECISION GATE (code, not the model): closing a reminder is destructive — it
+    // vanishes from every future briefing — so the LLM's pick is only ACCEPTED when the
+    // message actually references that reminder. This stops an incidental "I sent it"
+    // from silently clearing an unrelated task.
+    let picks = nums.map((n) => open[n - 1]);
+    const msgTokens = contentTokens(userMsg);
+    const bulk = BULK_DONE.test(userMsg);
+    if (msgTokens.size === 0) {
+      // A BARE acknowledgement ("done", "erledigt") with no distinctive word: only safe
+      // when there's exactly ONE open reminder (unambiguous); otherwise close nothing.
+      picks = open.length === 1 ? picks.filter((p) => p.id === open[0].id) : [];
+    } else {
+      picks = picks.filter((p) => contentOverlap(userMsg, p.text) > 0);
+      // Not an explicit bulk clear → close at most the SINGLE best-matching reminder, so
+      // an over-eager multi-pick can't sweep several tasks off one ambiguous message.
+      if (!bulk && picks.length > 1) {
+        picks = [picks.reduce((best, p) => (contentOverlap(userMsg, p.text) > contentOverlap(userMsg, best.text) ? p : best))];
+      }
+    }
+    if (!picks.length) return [];
+
     const done: string[] = [];
-    for (const n of nums) {
-      const r = open[n - 1];
+    for (const r of picks) {
       const { error } = await db
         .from("assistant_reminders")
         .update({ done: true })

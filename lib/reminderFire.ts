@@ -26,7 +26,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { tgSend } from "@/lib/telegram";
 import { nextOccurrence, fmtWhen, type Recurrence } from "@/lib/reminderTime";
 
-type DueRow = { id: string; text: string; due_at: string; recurrence?: string | null };
+type DueRow = { id: string; text: string; due_at: string; recurrence?: string | null; remind_count?: number | null };
 
 export type FireResult = { fired: number; skipped?: string };
 
@@ -45,7 +45,7 @@ export async function fireDueReminders(chatId: string | number, ownerUserId?: st
   try {
     let qb = db
       .from("assistant_reminders")
-      .select("id, text, due_at, recurrence")
+      .select("id, text, due_at, recurrence, remind_count")
       .eq("done", false)
       .is("notified_at", null)
       .not("due_at", "is", null)
@@ -67,7 +67,9 @@ export async function fireDueReminders(chatId: string | number, ownerUserId?: st
     // so a concurrent webhook + cron tick can't both send this reminder.
     const { data: claimed } = await db
       .from("assistant_reminders")
-      .update({ notified_at: new Date().toISOString(), remind_count: 1 })
+      // ACCUMULATE remind_count across occurrences (was hardcoded to 1, so it never grew
+      // — would silently break any future snooze/escalation built on the count).
+      .update({ notified_at: new Date().toISOString(), remind_count: (r.remind_count ?? 0) + 1 })
       .eq("id", r.id)
       .is("notified_at", null)
       .select("id")

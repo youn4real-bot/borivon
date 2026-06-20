@@ -163,15 +163,38 @@ export async function POST(req: NextRequest) {
 
   // DEDUPE: Telegram RE-SENDS an update if our webhook is slow to 2xx (a heavy
   // multi-tool turn can run long), which caused DOUBLE replies. Claim this update_id
-  // once; a retry of the same update hits the PK conflict and is dropped here before
-  // any processing. Fail-safe: a "table not migrated" error (≠ 23505) falls through
-  // and processes normally — i.e. today's behaviour until telegram_updates.sql runs.
+  // once; a retry of the same update hits the PK conflict. BUT a heavy turn can also
+  // DIE (60s function cap / crash) BEFORE replying — and dropping the retry then meant
+  // the founder's message was silently LOST. So on a conflict we recover: if the prior
+  // claim never stamped responded_at AND is older than the 65s cap (so it can't still be
+  // running → it died), we RE-CLAIM and re-process the retry. Fail-safe: if the table or
+  // the responded_at column isn't migrated, fall through to today's behaviour (drop).
   if (typeof update.update_id === "number") {
+    const db = getServiceSupabase();
     try {
-      const { error } = await getServiceSupabase().from("telegram_updates").insert({ update_id: update.update_id });
-      if (error && (error as { code?: string }).code === "23505") return ok(); // duplicate delivery → ignore
-    } catch { /* ignore → process normally */ }
+      const { error } = await db.from("telegram_updates").insert({ update_id: update.update_id });
+      if (error && (error as { code?: string }).code === "23505") {
+        let reclaimed = false;
+        try {
+          const { data: ex } = await db.from("telegram_updates")
+            .select("created_at, responded_at").eq("update_id", update.update_id).maybeSingle();
+          const row = ex as { created_at?: string | null; responded_at?: string | null } | null;
+          if (row && !row.responded_at && row.created_at && Date.now() - new Date(row.created_at).getTime() > 65_000) {
+            // The earlier attempt died without answering → take over this retry.
+            await db.from("telegram_updates").update({ created_at: new Date().toISOString() }).eq("update_id", update.update_id);
+            reclaimed = true;
+          }
+        } catch { /* responded_at not migrated → behave as before (drop the retry) */ }
+        if (!reclaimed) return ok(); // genuine duplicate / still in-flight → ignore
+      }
+    } catch { /* table missing → process normally */ }
   }
+  // Stamp responded_at the moment we send a real reply, so a later retry of THIS update
+  // is recognised as already-answered (drop) rather than died (reprocess). Best-effort.
+  const markResponded = async () => {
+    if (typeof update.update_id !== "number") return;
+    try { await getServiceSupabase().from("telegram_updates").update({ responded_at: new Date().toISOString() }).eq("update_id", update.update_id); } catch { /* column not migrated → ignore */ }
+  };
 
   let text = (msg.text || "").trim();
 
@@ -716,6 +739,10 @@ export async function POST(req: NextRequest) {
         await tgSendNatural(chatId, reply);
       }
     }
+    // We've now sent the answer (text now, files immediately below). Stamp responded_at
+    // BEFORE the slow file delivery, so a retry of this update is recognised as answered
+    // even if file delivery later times out — never a double-reply, never a silent loss.
+    if (reply.trim() || willSendFiles) await markResponded();
 
     // Now deliver the actual files behind the text (bounded per-file fetch).
     let sentFile = false;
@@ -849,6 +876,9 @@ export async function POST(req: NextRequest) {
       const short = detail.replace(/\s+/g, " ").trim().slice(0, 300);
       await tgSend(chatId, `Something glitched on my end and that didn't go through — try once more (or type it if it was a voice note).\n\n(technical: ${short})`);
     }
+    // We DID reply (with the error notice), so don't let a Telegram retry reprocess this
+    // into a duplicate — mark it answered.
+    await markResponded();
   } finally {
     stopTyping(); // always clear the typing bubble, success or error
   }
