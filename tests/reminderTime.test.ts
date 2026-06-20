@@ -85,6 +85,38 @@ describe("parseReminderTime — capture the time the founder actually said", () 
     const { dueAt } = parseReminderTime("remind me to chase the passport", NOW);
     expect(dueAt).toBeNull();
   });
+
+  // EXPLICIT clock must win over the keyword default — "tonight at 11pm" = 23:00, not 20:00.
+  it("'tonight at 11pm' → today 23:00 (explicit clock beats the 'tonight' default)", () => {
+    const { dueAt } = parseReminderTime("remind me tonight at 11pm to lock the door", NOW);
+    const l = local(dueAt!);
+    expect(l.day).toBe(18);
+    expect(l.hh).toBe(23);
+    expect(l.mm).toBe(0);
+  });
+
+  // Bare "in N" with NO unit = minutes (the founder's shorthand).
+  it("'in 30' (no unit) → now + 30 min", () => {
+    const { dueAt } = parseReminderTime("remind me in 30 to call the bank", NOW);
+    expect(dueAt!.getTime()).toBe(NOW.getTime() + 30 * 60_000);
+  });
+
+  // EOD / COB → 18:00.
+  it("'EOD' → today 18:00", () => {
+    const { dueAt } = parseReminderTime("remind me to send the report EOD", NOW);
+    const l = local(dueAt!);
+    expect(l.day).toBe(18);
+    expect(l.hh).toBe(18);
+  });
+
+  // Bare hour 1-11 with no am/pm, said in the afternoon → PM (disambiguated against now).
+  it("'at 8' said at 18:00 local → 20:00 (PM-disambiguated)", () => {
+    const evening = new Date("2026-06-18T17:00:00Z"); // 18:00 local at UTC+1
+    const { dueAt } = parseReminderTime("remind me at 8 to take my meds", evening);
+    const l = local(dueAt!);
+    expect(l.day).toBe(18);
+    expect(l.hh).toBe(20);
+  });
 });
 
 describe("localIsoToInstant — model-emitted local wall-clock ISO", () => {

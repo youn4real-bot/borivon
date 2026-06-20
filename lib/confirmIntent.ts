@@ -124,21 +124,31 @@ export function isBriefingSignalsOn(t: string): boolean {
 // because Flash often didn't call the saveReminder tool, so the thing the founder
 // asked to be reminded of (e.g. the Mercury bank task) just vanished. The lead
 // phrase is consumed so the remainder is the task text.
+// Note the OPTIONAL time phrase allowed between "remind me" and the to/about/of/that
+// connector — so TIME-FIRST phrasings ("remind me in 30 to call", "remind me tomorrow
+// to review", "remind me at 3pm to …") still hit the deterministic net AND get the
+// time phrase consumed out of the saved task text.
 const REMIND_LEAD =
-  /^(?:please\s+|pls\s+|hey,?\s+)?(?:can you\s+|could you\s+|can u\s+)?(?:remind me (?:to|about|of|that)|don.?t let me forget(?:\s+(?:to|about))?|note to self|remember to|erinnere mich(?:\s+(?:an|daran))?|rappelle[- ]?moi(?:\s+(?:de|d['’]|que))?)\b/i;
+  /^(?:please\s+|pls\s+|hey,?\s+)?(?:can you\s+|could you\s+|can u\s+)?(?:remind me\b(?:\s+(?:in|at|on|by|this|next|tonight|tomorrow|today|tmrw|morgen|[üu]bermorgen|demain|ce soir|à|um)\b[^.\n]*?)?\s*(?:to|about|of|that)|don.?t let me forget(?:\s+(?:to|about))?|note to self|remember to|erinnere mich(?:\s+(?:an|daran))?|rappelle[- ]?moi(?:\s+(?:de|d['’]|que))?)\b/i;
 // "remind me WHAT Anna said" is a question (tell me now), NOT a task to store.
 const REMIND_QWORD = /\bremind me\s+(what|who|when|where|why|how|whether|if|which)\b/i;
 // RECURRING reminders ("every Monday", "each month", "daily") have richer handling on
 // the model path (saveReminder's recurrence param) than the deterministic intercept,
 // so let those fall through to the model instead of saving a one-shot here.
 const RECURRING = /\b(every|each|daily|weekly|monthly|chaque|jeden|jede[nrs]?|t[äa]glich|w[öo]chentlich|monatlich)\b/i;
+// MULTI-INTENT: "remind me to X, AND set/email/mark Y" — the conjunction is followed by
+// a clearly-separate BOT action, not part of the reminder text. Bail to the model so it
+// does the reminder AND the other actions (the deterministic path would save one garbage
+// reminder + drop the rest). Conservative: only clearly-bot verbs after a conjunction.
+const MULTI_ASK = /(?:,\s*(?:and|then|also|plus)|\b(?:and then|and also|then also|then)\b)\s+(?:set|mark|update|email|e-?mail|message|nudge|assign|approve|reject|reschedule|broadcast|enroll|enrol|archive|book|schedule|create|invite)\b/i;
 
-/** True when the founder is asking to STORE a standing reminder (not a question). */
+/** True when the founder is asking to STORE a (single, one-shot) standing reminder. */
 export function isSetReminder(t: string): boolean {
   const n = (t || "").trim();
   if (!n || n.length > 300) return false;
   if (REMIND_QWORD.test(n)) return false;
   if (RECURRING.test(n)) return false; // recurring → model path (deterministic one is one-shot)
+  if (MULTI_ASK.test(n)) return false; // multi-intent → model path (do the reminder + the rest)
   return REMIND_LEAD.test(n);
 }
 

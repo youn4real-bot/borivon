@@ -82,6 +82,11 @@ describe("isSetReminder — store a standing personal reminder", () => {
     "erinnere mich an den Mercury Termin",
     "rappelle-moi d'appeler l'ambassade",
     "please remind me to follow up with the lawyer",
+    // TIME-FIRST phrasings — the optional time phrase between "remind me" and to/about.
+    "remind me in 30 to call the bank",
+    "remind me tomorrow to review the contract",
+    "remind me at 3pm to email Anna",
+    "remind me tonight about the deposit",
   ]) {
     it(`is a reminder: "${t}"`, () => expect(isSetReminder(t)).toBe(true));
   }
@@ -93,6 +98,13 @@ describe("isSetReminder — store a standing personal reminder", () => {
     "what do I need to do today",
     "how is Hajar doing?",
     "approve the diploma",
+    // MULTI-INTENT — a reminder PLUS a separate bot action (a comma+conjunction or a
+    // multiword conjunction before a clear bot verb) → must go to the model, not be saved
+    // as one garbage reminder with the rest dropped. (A bare "X and email Y" with no comma
+    // stays a single compound reminder by design — the deterministic path handles that.)
+    "remind me to call the embassy, and email Anna the CV",
+    "remind me to follow up, then set Hajar to waiting",
+    "remind me about the deposit and also nudge the stuck candidates",
   ]) {
     it(`is NOT a reminder: "${t}"`, () => expect(isSetReminder(t)).toBe(false));
   }
@@ -105,6 +117,10 @@ describe("parseReminderText — pull just the task out of the phrasing", () => {
     ["don't let me forget the Mercury bank account", "the Mercury bank account"],
     ["note to self: book the flights", "book the flights"],
     ["remember to send Aya the contract", "send Aya the contract"],
+    // TIME-FIRST — the time phrase is consumed out of the saved task text.
+    ["remind me in 30 to call the bank", "call the bank"],
+    ["remind me tomorrow to review the contract", "review the contract"],
+    ["remind me at 3pm to email Anna", "email Anna"],
   ];
   for (const [input, want] of cases) {
     it(`"${input}" -> "${want}"`, () => expect(parseReminderText(input)).toBe(want));

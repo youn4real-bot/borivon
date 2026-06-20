@@ -93,15 +93,17 @@ const MONTHS: Record<string, number> = {
   december: 12, dec: 12, "décembre": 12, decembre: 12, dezember: 12,
 };
 
-/** Extract a time-of-day (returns {hh,mm} or null). Handles 3pm, 3:30pm, 15h, 15h30, 15:30, 21 Uhr, à 9h, "at 9". */
-function parseTimeOfDay(t: string): { hh: number; mm: number } | null {
-  // Keyword times first.
-  if (/\b(tonight|this evening|ce soir|heute abend|abends?)\b/.test(t)) return { hh: 20, mm: 0 };
-  if (/\b(this afternoon|cet après-midi|cet apres-midi|nachmittags?)\b/.test(t)) return { hh: 15, mm: 0 };
-  if (/\b(this morning|ce matin|morgens?|in the morning)\b/.test(t)) return { hh: 9, mm: 0 };
-  if (/\b(at )?noon|midi|mittags?\b/.test(t)) { if (/\bnoon\b|\bmidi\b|\bmittag/.test(t)) return { hh: 12, mm: 0 }; }
-  if (/\bmidnight|minuit|mitternacht\b/.test(t)) return { hh: 0, mm: 0 };
+/** For a bare hour 1-11 with no am/pm: if it's already afternoon/evening locally, the
+ *  founder almost always means PM ("remind me at 8" said at 7pm = 20:00, not 08:00). */
+function disambiguatePm(r: { hh: number; mm: number }, nowLocalHour?: number): { hh: number; mm: number } {
+  if (r.hh >= 1 && r.hh <= 11 && typeof nowLocalHour === "number" && nowLocalHour >= 12) return { hh: r.hh + 12, mm: r.mm };
+  return r;
+}
 
+/** Extract a time-of-day (returns {hh,mm} or null). EXPLICIT clock is tried BEFORE the
+ *  keyword defaults, so "tonight at 11pm" = 23:00 (not the 20:00 'tonight' default). */
+function parseTimeOfDay(t: string, nowLocalHour?: number): { hh: number; mm: number } | null {
+  // ── explicit clock FIRST ──
   // "3pm", "3:30 pm", "11 am"
   let m = t.match(/\b(\d{1,2})(?:[:.](\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)\b/);
   if (m) {
@@ -115,12 +117,21 @@ function parseTimeOfDay(t: string): { hh: number; mm: number } | null {
     const hh = +m[1], mm = m[2] ? +m[2] : 0;
     if (hh <= 23 && mm <= 59) return { hh, mm };
   }
-  // bare "at 9" / "à 9" / "um 9" (no am/pm/colon)
+  // bare "at 9" / "à 9" / "um 9" (no am/pm/colon) — PM-disambiguated against now
   m = t.match(/\b(?:at|à|a|um)\s+(\d{1,2})\b/);
   if (m) {
     const hh = +m[1];
-    if (hh <= 23) return { hh, mm: 0 };
+    if (hh <= 23) return disambiguatePm({ hh, mm: 0 }, nowLocalHour);
   }
+  // "EOD" / "COB" / "end of day" → 18:00
+  if (/\b(eod|cob|end of (?:the )?day|close of business)\b/.test(t)) return { hh: 18, mm: 0 };
+
+  // ── keyword defaults (only when no explicit clock above matched) ──
+  if (/\b(tonight|this evening|ce soir|heute abend|abends?)\b/.test(t)) return { hh: 20, mm: 0 };
+  if (/\b(this afternoon|cet après-midi|cet apres-midi|nachmittags?)\b/.test(t)) return { hh: 15, mm: 0 };
+  if (/\b(this morning|ce matin|morgens?|in the morning)\b/.test(t)) return { hh: 9, mm: 0 };
+  if (/\bnoon\b|\bmidi\b|\bmittag/.test(t)) return { hh: 12, mm: 0 };
+  if (/\bmidnight|minuit|mitternacht\b/.test(t)) return { hh: 0, mm: 0 };
   return null;
 }
 
@@ -135,14 +146,16 @@ export function parseReminderTime(text: string, now: Date = new Date()): ParsedR
   if (!t) return { dueAt: null, whenLabel: null };
 
   // 1) Relative "in N <unit>" / "in a/an/half an <unit>" — explicit offset from now.
-  const rel = t.match(/\bin\s+(\d+|an?|half an|half a|a couple of|a few)\s*(min(?:ute)?s?|hours?|hrs?|h|days?|weeks?|months?)\b/);
+  //    Unit is OPTIONAL: a bare "in 30" / "in 15" (the founder's shorthand) = minutes.
+  const rel = t.match(/\bin\s+(\d+|an?|half an|half a|a couple of|a few)\s*(min(?:ute)?s?|hours?|hrs?|h|days?|weeks?|months?)?\b/);
   if (rel) {
     const word = rel[1];
     let n = parseInt(word, 10);
     if (Number.isNaN(n)) n = /half/.test(word) ? 0.5 : /couple/.test(word) ? 2 : /few/.test(word) ? 3 : 1;
-    const unit = rel[2];
+    const unit = rel[2] || "";
     let ms = 0;
-    if (/^min/.test(unit)) ms = n * 60_000;
+    if (!unit) { if (Number.isFinite(n) && n > 0 && n <= 180) ms = n * 60_000; } // bare "in 30" → 30 min
+    else if (/^min/.test(unit)) ms = n * 60_000;
     else if (/^h/.test(unit)) ms = n * 3_600_000;
     else if (/^day/.test(unit)) ms = n * 86_400_000;
     else if (/^week/.test(unit)) ms = n * 7 * 86_400_000;
@@ -153,8 +166,8 @@ export function parseReminderTime(text: string, now: Date = new Date()): ParsedR
     }
   }
 
-  const time = parseTimeOfDay(t);
   const cur = localParts(now);
+  const time = parseTimeOfDay(t, localPartsFull(now).hh);
 
   // 2) Day anchors.
   let day: { y: number; m: number; d: number } | null = null;

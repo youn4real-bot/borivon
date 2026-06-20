@@ -1879,13 +1879,16 @@ export type AutoApplyResult =
   | { applied: string[]; failed: string[]; awaitingConfirm: AwaitingConfirm | null }
   | { skipped: "nothing"; awaitingConfirm: AwaitingConfirm | null };
 
-/** Is there a staged action still waiting for the human "yes"? (oldest first) */
+/** Is there a staged action still waiting for the human "yes"? Returns the NEWEST one,
+ *  so the "👉 Send it?" prompt we show ALWAYS matches what the "yes" will actually apply
+ *  (executeLatestPending → getLatestPending is newest-first too). They MUST agree, or the
+ *  founder confirms one send and a different one goes out (multi-intent#2). */
 async function findAwaitingConfirm(userId: string): Promise<AwaitingConfirm | null> {
   const db = getServiceSupabase();
   const { data } = await db.from("assistant_pending_actions")
     .select("tool_name, summary, expires_at")
     .eq("owner_user_id", userId).eq("status", "pending")
-    .order("created_at", { ascending: true }).limit(20);
+    .order("created_at", { ascending: false }).limit(20);
   const rows = ((data ?? []) as { tool_name: string; summary: string; expires_at: string }[])
     .filter((r) => new Date(r.expires_at).getTime() >= Date.now());
   const c = rows.find((r) => CONFIRM_TOOLS.has(r.tool_name));

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { tightenReply } from "../lib/replyStyle";
+import { tightenReply, humanizeWriteError } from "../lib/replyStyle";
 
 describe("tightenReply — strip robotic openers", () => {
   it("drops 'Okay, '", () => expect(tightenReply("Okay, I've updated Ismail to waiting.")).toBe("I've updated Ismail to waiting."));
@@ -25,5 +25,43 @@ describe("tightenReply — strip unsolicited model-identity preamble", () => {
   });
   it("KEEPS the identity when that IS the answer (he asked which model)", () => {
     expect(tightenReply("Claude (Haiku), not Gemini.")).toBe("Claude (Haiku), not Gemini.");
+  });
+});
+
+describe("tightenReply — strip unsolicited next-step OFFERS", () => {
+  it("drops 'Want me to also…?'", () => expect(tightenReply("Set Hajar to waiting. Want me to also email her?")).toBe("Set Hajar to waiting."));
+  it("drops 'Should I…?'", () => expect(tightenReply("Done. Should I notify the org too?")).toBe("Done."));
+  it("drops German 'Soll ich…?'", () => expect(tightenReply("Erledigt. Soll ich sie anschreiben?")).toBe("Erledigt."));
+  it("KEEPS a genuine clarifying question (never empties it)", () => {
+    expect(tightenReply("Which Hajar do you mean?")).toBe("Which Hajar do you mean?");
+  });
+});
+
+describe("tightenReply — never mangles an email body (divider guard)", () => {
+  it("passes the body verbatim, only tightening the info head", () => {
+    const draft = "To: anna@klinik.de · Subject: CV · 📎 —\n———\nHallo Anna,\n\nanbei der Lebenslauf. Lassen Sie mich wissen, ob Sie Fragen haben.\n\nViele Grüße";
+    const out = tightenReply(draft);
+    // The closer-like sentence inside the BODY must survive (it's the real email).
+    expect(out).toContain("Lassen Sie mich wissen, ob Sie Fragen haben.");
+    expect(out).toContain("Viele Grüße");
+    expect(out).toContain("\n———\n");
+  });
+  it("still strips an opener that's in the info head", () => {
+    const draft = "Okay, here's the email.\n———\nHallo Anna,\n\nText.";
+    const out = tightenReply(draft);
+    expect(out.startsWith("here's the email.")).toBe(true);
+  });
+});
+
+describe("humanizeWriteError — plain lines, no codes/ids leak", () => {
+  it("maps a known code", () => expect(humanizeWriteError("no_email")).toBe("that candidate has no email on file"));
+  it("strips a ':<id>' suffix before mapping", () => {
+    expect(humanizeWriteError("attachment_missing:6f0a-uuid")).toBe("one of the files isn't ready (e.g. no CV on file yet)");
+  });
+  it("falls back gracefully for an unknown code", () => {
+    expect(humanizeWriteError("kaboom_42")).toBe("something didn't go through — try once more");
+  });
+  it("never returns an empty string for empty input", () => {
+    expect(humanizeWriteError("").length).toBeGreaterThan(0);
   });
 });

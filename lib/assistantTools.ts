@@ -106,6 +106,31 @@ function activeDocs<T>(rows: T[]): T[] {
   return (rows as Array<T & { superseded_at?: string | null }>).filter((r) => !r.superseded_at);
 }
 
+// ── Fuzzy name matching ── the founder types fast/messy and dictates by voice, so
+// Moroccan names get mangled (Hajar→Hadjar, Samira→Samra, Lahcen→Lhacen, diacritics
+// dropped). Used as a FALLBACK only when exact/substring matching finds nobody, so a
+// typo resolves instead of dead-ending at "no such person".
+function normName(s: string): string {
+  return (s || "").normalize("NFD").replace(/[̀-ͯ]/g, "") // strip diacritics
+    .toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/(.)\1+/g, "$1") // collapse doubled letters
+    .replace(/\s+/g, " ").trim();
+}
+function levClose(a: string, b: string): boolean {
+  if (a === b) return true;
+  const max = a.length <= 4 ? 1 : 2; // tolerate more drift on longer names
+  if (Math.abs(a.length - b.length) > max) return false;
+  const dp = Array.from({ length: a.length + 1 }, (_, i) => i);
+  for (let j = 1; j <= b.length; j++) {
+    let prev = dp[0]; dp[0] = j;
+    for (let i = 1; i <= a.length; i++) {
+      const tmp = dp[i];
+      dp[i] = Math.min(dp[i] + 1, dp[i - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return dp[a.length] <= max;
+}
+
 export function buildAssistantTools(
   scope: AssistantScope,
   // Set ONLY on the Telegram path when the admin attached a photo/document — the
@@ -219,6 +244,17 @@ export function buildAssistantTools(
         const n = c.name.toLowerCase();
         return toks.every((tk) => n.includes(tk));
       });
+      // FUZZY fallback (only when strict found nobody): tolerate typos / dropped
+      // diacritics / voice-mangling so a near-miss resolves instead of dead-ending.
+      if (matches.length === 0) {
+        const qToks = normName(q).split(/\s+/).filter(Boolean);
+        if (qToks.length) {
+          matches = roster.filter((c) => {
+            const cToks = normName(c.name).split(/\s+/).filter(Boolean);
+            return qToks.every((qt) => cToks.some((ct) => ct.includes(qt) || qt.includes(ct) || levClose(qt, ct)));
+          });
+        }
+      }
     }
     if (matches.length === 0) return { status: "not_found" };
     if (matches.length > 1) return { status: "ambiguous", matches: matches.slice(0, 6) };
@@ -228,20 +264,25 @@ export function buildAssistantTools(
   return {
     searchCandidates: tool({
       description:
-        "Find candidates by name (first or last, partial is fine). Matches the name on their ACCOUNT, so it works even when their profile name field is empty. Returns the candidates you may see, each with a candidateUserId for other tools. Use this to find a person before looking up details or documents.",
+        "Find candidates by name (first or last, partial is fine). Matches the name on their ACCOUNT, so it works even when their profile name field is empty. Returns the candidates you may see, each with a candidateUserId for other tools. Use this to find a person before looking up details or documents. If `ambiguous` is true, the name matched MORE THAN ONE person — for a WRITE (status change, send, delete, store) you MUST show those matches and ask which one; never guess.",
       inputSchema: z.object({
         query: z.string().min(1).max(120).describe("name or partial name"),
         limit: z.number().int().min(1).max(50).default(15),
       }),
       execute: async ({ query, limit }) => {
-        if (lockedOut) return { candidates: [] };
+        if (lockedOut) return { candidates: [], ambiguous: false };
         const needle = query.trim().toLowerCase();
         const roster = await candidateRoster();
-        const rows = roster
-          .filter((c) => c.name.toLowerCase().includes(needle))
+        const matches = roster.filter((c) => c.name.toLowerCase().includes(needle));
+        const rows = matches
           .slice(0, limit ?? 15)
           .map((c) => ({ candidateUserId: c.userId, name: c.name }));
-        return { candidates: rows };
+        // Ambiguity flag — distinct people sharing the matched name. The model must NOT
+        // silently pick one for a write; it has to disambiguate first (ambiguity#1).
+        const ambiguous = new Set(matches.map((c) => c.userId)).size > 1;
+        return ambiguous
+          ? { candidates: rows, ambiguous: true, note: `"${query}" matches ${rows.length} people — ask which one before any write.` }
+          : { candidates: rows, ambiguous: false };
       },
     }),
 

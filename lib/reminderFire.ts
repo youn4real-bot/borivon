@@ -74,7 +74,13 @@ export async function fireDueReminders(chatId: string | number, ownerUserId?: st
       .maybeSingle();
     if (!claimed) continue; // already fired by another trigger
     const rec = (r.recurrence || "").trim() as Recurrence | "";
-    const next = rec === "daily" || rec === "weekly" || rec === "monthly" ? nextOccurrence(r.due_at, rec) : null;
+    // Re-arm to the next FUTURE occurrence. On Hobby a daily reminder can sit days
+    // overdue; advancing only +1 period could still be in the past → it would re-fire
+    // on the next message. Skip forward until the next slot is actually ahead of now.
+    let next = rec === "daily" || rec === "weekly" || rec === "monthly" ? nextOccurrence(r.due_at, rec) : null;
+    for (let guard = 0; next && next.getTime() <= Date.now() && guard < 400; guard++) {
+      next = nextOccurrence(next.toISOString(), rec as Recurrence);
+    }
     try {
       const suffix = next ? `\n(repeats — next: ${fmtWhen(next)})` : "";
       await tgSend(id, `⏰ Reminder: ${r.text}${suffix}`);
