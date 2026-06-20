@@ -1493,6 +1493,13 @@ export async function stagePending(
 ): Promise<{ staged: true; summary: string } | { error: string }> {
   if (!scope.userId) return { error: "no_user" };
   const db = getServiceSupabase();
+  // HYGIENE: retire this owner's EXPIRED still-'pending' rows (they're already ignored
+  // by getLatestPending/findAwaitingConfirm — this just stops dead crumbs accumulating
+  // and keeps "the latest pending" lookups clean). Best-effort — must NEVER block staging.
+  try {
+    await db.from("assistant_pending_actions").update({ status: "expired" })
+      .eq("owner_user_id", scope.userId).eq("status", "pending").lt("expires_at", new Date().toISOString());
+  } catch { /* hygiene only — ignore */ }
   // The model often RE-STAGES the same action on the very turn the admin confirms
   // ("yes"/"Senden") — re-calling the staging tool before confirmPendingWrite. If
   // we restamped __stagedReq with the CURRENT request every time, the same-turn

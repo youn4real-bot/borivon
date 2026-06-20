@@ -761,6 +761,65 @@ export function buildAssistantTools(
       },
     }),
 
+    pullEmailFrom: tool({
+      description:
+        "Pull up and SHOW the actual email a person sent the founder — for 'pull up the email from X', 'give me the last email Y sent me', 'show me what Z emailed', 'read me X's email', 'what did X send'. In ONE reliable step it: resolves the person to their EXACT email address (saved contacts → candidate account → inbox sender), searches the founder's Gmail for their most recent message(s), and returns the FULL email (sender, subject, date, and the COMPLETE body) ready to show. Returns the single latest by default; set max>1 to list several. ALWAYS PREFER THIS over searchInbox+readEmail for any 'the email from <person>' request — it's one call and resolves the name to a precise from: address (a bare-name search often misses). After it returns, SHOW the email (From · Subject · date, then the body) — do NOT just summarize it unless the founder asked for a summary. If it returns no_email_found, say so plainly; if no_match, the address couldn't be resolved → ask the founder for it (never invent one). Read-only, supreme-only.",
+      inputSchema: z.object({
+        person: z.string().min(2).max(120).describe("the sender's name or email — e.g. 'Asmae', 'Anna Gombert', or 'anna@klinik.de'"),
+        max: z.number().int().min(1).max(5).default(1).describe("how many of their most recent emails to pull (default 1 = the latest)"),
+        unreadOnly: z.boolean().optional().describe("only their UNREAD emails"),
+      }),
+      execute: async ({ person, max, unreadOnly }) => {
+        if (scope.role !== "admin" || !scope.userId) return { error: "admin_only" };
+        if (!gmailApiReady()) return { error: "workspace_not_connected", hint: "Connect Google Workspace first." };
+        const raw = (person || "").trim();
+        const EMAIL_RE = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
+        // Resolve the person → exact email address(es). An exact `from:<addr>` is far more
+        // reliable than a bare-name `from:(asmae)` (the reason "pull the email from X" was
+        // flaky). Falls back to the bare name for a never-saved external sender.
+        const addresses: string[] = [];
+        if (EMAIL_RE.test(raw)) {
+          addresses.push(raw.match(EMAIL_RE)![0]);
+        } else {
+          const toks = raw.toLowerCase().split(/\s+/).filter(Boolean);
+          try {
+            const { data } = await db.from("assistant_memory").select("text").eq("owner_user_id", scope.userId).eq("kind", "contact").limit(300);
+            for (const r of ((data ?? []) as { text: string }[])) {
+              const t = r.text ?? "";
+              if (toks.every((tk) => t.toLowerCase().includes(tk))) { const em = t.match(EMAIL_RE); if (em) addresses.push(em[0]); }
+            }
+          } catch { /* best-effort */ }
+          try {
+            const matches = await candidateRoster();
+            const hits = matches.filter((c) => { const n = c.name.toLowerCase(); return toks.every((tk) => n.includes(tk)); }).slice(0, 5);
+            for (const c of hits) { try { const { data: u } = await db.auth.admin.getUserById(c.userId); if (u?.user?.email) addresses.push(u.user.email); } catch { /* skip */ } }
+          } catch { /* best-effort */ }
+        }
+        const uniq = [...new Set(addresses.map((a) => a.toLowerCase()))];
+        // Build the Gmail query: precise from: addresses OR'd (parens so is:unread binds to
+        // the whole group), else a bare-name from:(...) so an unknown external sender works.
+        const fromPart = uniq.length ? uniq.map((a) => `from:${a}`).join(" OR ") : `from:(${raw})`;
+        const query = `${unreadOnly ? "is:unread " : ""}(${fromPart})`;
+        const hits = await gmailSearch(query, Math.max(max, 1) + 2);
+        if (hits === null) return { error: "gmail_read_failed" };
+        if (!hits.length) {
+          // If a bare-name search found nothing AND we never resolved an address, it's a
+          // resolution miss (ask the founder); otherwise just no mail from them.
+          return uniq.length ? { note: "no_email_found", resolvedTo: uniq } : { note: "no_match", searched: raw };
+        }
+        // Read the FULL body of the top match(es) so the bot SHOWS the email, not a snippet.
+        const wanted = hits.slice(0, Math.max(max, 1));
+        const emails: Array<Record<string, unknown>> = [];
+        for (const h of wanted) {
+          const full = await gmailGet(h.id);
+          emails.push(full
+            ? { id: full.id, from: full.from, fromName: full.fromName, subject: full.subject, date: full.date, body: full.body }
+            : { id: h.id, from: h.from, fromName: h.fromName, subject: h.subject, date: h.date, body: h.snippet });
+        }
+        return { emails, resolvedTo: uniq.length ? uniq : null, more: hits.length > wanted.length };
+      },
+    }),
+
     listMyCalendar: tool({
       description:
         "Read the FOUNDER'S OWN Google Calendar (the one he actually looks at). USE for 'what's on my calendar', 'what do I have today/tomorrow/this week', 'any meetings Thursday', 'my schedule'. Optional from/to (local ISO) — default is today → +7 days. Optional query to filter by text. Returns upcoming events with times, location, Meet link, and attendees. Read-only, supreme-only. NOTE: this is the founder's PERSONAL Google Calendar — NOT listCalendarEvents (which is the portal's candidate-facing community events).",
