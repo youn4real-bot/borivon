@@ -16,7 +16,7 @@
 import { NextRequest } from "next/server";
 import { generateText, stepCountIs } from "ai";
 import { logUsage } from "@/lib/usage";
-import { vertexModel, chooseTier, looksWeak, proConfigured } from "@/lib/vertexModel";
+import { vertexModel, chooseTier, looksWeak, escalationActive } from "@/lib/vertexModel";
 import { buildAssistantTools } from "@/lib/assistantTools";
 import type { AssistantScope } from "@/lib/assistantScope";
 import { computeBriefing } from "@/lib/briefing";
@@ -534,10 +534,8 @@ export async function POST(req: NextRequest) {
   if (memory) {
     dynamicContext += `\n\n— — —\n\n⚠️ THE FOUNDER'S STANDING RULES — HARD rules he programmed himself, by chat. They are NON-NEGOTIABLE and OVERRIDE every default in your instructions above: wording, tone, priorities, tool choices, who to CC, defaults — everything. Follow EVERY one, EVERY time, with NO exceptions. If a rule conflicts with a default, the RULE WINS. (They do NOT relax security or who-you-can-act-on — those always stand.) Obey:\n${memory}`;
   }
-  // HYBRID ROUTING: cheap Flash by default; auto-pick Pro for hard requests
-  // (multi-person, "these candidates", files, voice, comparisons). Below we
-  // ALSO escalate Flash→Pro reactively if Flash errors or punts.
-  const tier = chooseTier(userText, { hasHistory: history.length > 0, hasFile: !!pendingFile, isVoice: !!msg.voice });
+  // ROUTING: Gemini Flash drives EVERY turn (founder's call — exclusively Flash). The
+  // self-healing escalation below retries a weak/empty/errored answer on Gemini 2.5 Pro.
   // The Anthropic prompt-cache breakpoint marker (5-min ephemeral).
   const cacheBreak = { providerOptions: { anthropic: { cacheControl: { type: "ephemeral" as const } } } };
   // CLAUDE-ONLY args (Gemini removed, no fallback). Cache-optimized: the static
@@ -556,7 +554,7 @@ export async function POST(req: NextRequest) {
     maxOutputTokens: 8192,
     stopWhen: stepCountIs(20),
   };
-  const proOn = proConfigured(); // Claude Pro tier only exists when opted in (off now)
+  const escalateOn = escalationActive(); // Gemini Flash→Pro self-healing retry (live on Gemini)
   // Show "typing…" the whole time the bot is thinking + running tools, so the
   // chat feels alive instead of dead-silent for several seconds (the #1 thing
   // that makes a bot feel robotic). Cleared in the finally below.
@@ -567,9 +565,13 @@ export async function POST(req: NextRequest) {
     // without risking a long multi-retry wait (Vercel function timeout). A hard rate
     // limit surfaces the friendly "wait / raise tier" message via the outer catch.
     let result = await generateText({ model: flashModel, maxRetries: 1, ...genArgs });
-    // Reactive escalation (Claude Pro tier only; dormant while ALLOW_PRO is off).
-    if (proOn && tier === "flash" && looksWeak(result.text)) {
-      try { result = await generateText({ model: proModel, maxRetries: 1, ...genArgs }); } catch { /* keep the first result */ }
+    // SELF-HEALING escalation: Flash drives every turn; if its answer comes back weak,
+    // empty, or it errored, silently retry the SAME turn on Gemini 2.5 Pro (same Vertex
+    // billing). So the hard requests fix themselves — no human, no Claude Code. Pro only
+    // fires on a weak answer, so cost stays near-Flash. (tier is 'flash' unless a Pro
+    // proactive route was chosen; both paths escalate the same way.)
+    if (escalateOn && looksWeak(result.text)) {
+      try { result = await generateText({ model: proModel, maxRetries: 1, ...genArgs }); } catch { /* keep the first (Flash) result */ }
     }
 
     // Track token consumption for getApiUsage (best-effort, fail-safe, non-blocking).

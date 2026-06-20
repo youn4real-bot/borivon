@@ -44,6 +44,7 @@ function makeAnthropic() {
 // Returns null if Vertex isn't configured, so vertexModel() safely falls back to Claude.
 // All ~160 tool schemas are flat (no union/anyOf/regex/format) → Gemini-safe.
 const geminiId = () => process.env.ASSISTANT_GEMINI_MODEL || "gemini-2.5-flash";
+const geminiProId = () => process.env.ASSISTANT_GEMINI_PRO || "gemini-2.5-pro";
 function makeVertexGemini() {
   const project = process.env.GOOGLE_VERTEX_PROJECT;
   const credsRaw = process.env.GOOGLE_VERTEX_CREDENTIALS;
@@ -97,11 +98,23 @@ export function vertexModel(tier: ModelTier = "flash") {
   const brain = (process.env.ASSISTANT_BRAIN || "gemini").trim().toLowerCase();
   if (brain !== "claude") {
     const g = makeVertexGemini();
-    if (g) return g(geminiId()); // Gemini Flash; falls through to Claude if Vertex unset
+    // Flash drives every turn; "pro" = Gemini 2.5 Pro, used only for the self-healing
+    // escalation (a weak/failed Flash answer is retried on Pro — same Vertex billing).
+    if (g) return g(tier === "pro" ? geminiProId() : geminiId());
   }
   const a = makeAnthropic();
   if (!a) return null;
   return a(tier === "pro" && ALLOW_PRO ? claudeProId() : claudeFlashId());
+}
+
+/** SELF-HEALING escalation is live when the brain is Gemini on Vertex: the webhook runs
+ *  Flash first, and silently retries a weak/empty/errored answer on Gemini 2.5 Pro — no
+ *  human, no Claude Code. (Off when an alt provider is set, or brain forced to Claude.) */
+export function escalationActive(): boolean {
+  if (altProvider()) return false;
+  const brain = (process.env.ASSISTANT_BRAIN || "gemini").trim().toLowerCase();
+  if (brain === "claude") return false;
+  return makeVertexGemini() !== null;
 }
 
 /**
