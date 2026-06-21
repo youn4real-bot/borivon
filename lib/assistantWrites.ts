@@ -672,19 +672,15 @@ async function writeCalendarInvite(opts: {
     method: opts.method,
   });
 
-  const when = start.toLocaleString("en-GB", { dateStyle: "full", timeStyle: "short", timeZone: "UTC" }) + " UTC";
-  const body = [
-    method === "CANCEL" ? `This meeting has been cancelled: ${opts.title}` : `You're invited: ${opts.title}`,
-    `When: ${when}`,
-    opts.location ? `Where: ${opts.location}` : "",
-    opts.description ? `\n${opts.description}` : "",
-    method === "CANCEL" ? "" : "\nPlease accept or decline using your calendar.",
-  ].filter(Boolean).join("\n");
-
+  // NO BODY TEXT — founder's hard rule: a calendar invite is ONLY the invite, nothing
+  // else. The .ics already carries the title, time, location + Meet link, so the email
+  // body stays EMPTY (no "You're invited / When / Where / Please accept…" blurb, no
+  // signature — sendOutboundEmail also skips the signature when icalEvent is set). This
+  // is ONLY for calendar invites; normal emails are untouched.
   const res = await sendOutboundEmail({
     to: emails.join(", "),
     subject: (method === "CANCEL" ? "Cancelled: " : "Invitation: ") + opts.title.trim(),
-    body,
+    body: "",
     icalEvent: { method, content: ics },
   });
   return res.ok ? { ok: true } : { ok: false, error: res.error };
