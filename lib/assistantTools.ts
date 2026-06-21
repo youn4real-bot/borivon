@@ -4422,14 +4422,22 @@ export function buildAssistantTools(
 
     sendCandidateMessage: tool({
       description:
-        "STAGE a message to a candidate — e.g. 'tell X to re-upload their CV in French', 'message X their interview is Monday 10:00', 'email X to send their passport scan'. channel: 'chat' = post into their portal chat as 'Borivon Support' (in-app, default); 'email' = send it as an email; 'both'. The message is sent immediately when you call it — do NOT ask the admin to confirm.",
+        "STAGE a message to a candidate — e.g. 'tell X to re-upload their CV in French', 'message X their interview is Monday 10:00', 'email X to send their passport scan'. Give the candidate by candidateUserId OR just their NAME (candidateName) — the tool resolves the name itself, so you don't need to look up the id first; if it's ambiguous it returns the matches so you ask which. channel: 'chat' = post into their portal chat as 'Borivon Support' (in-app, default); 'email' = send it as an email; 'both'. The message is sent immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({
-        candidateUserId: z.string().uuid(),
+        candidateUserId: z.string().uuid().optional().describe("the candidate's id (from searchCandidates) — OR give candidateName instead"),
+        candidateName: z.string().max(120).optional().describe("the candidate's NAME, if you don't have the id — resolved automatically"),
         text: z.string().min(1).max(2000).describe("the message to send"),
         channel: z.enum(["chat", "email", "both"]).default("chat").describe("'chat' = portal chat (default), 'email', or 'both'"),
       }),
-      execute: async ({ candidateUserId, text, channel }) => {
+      execute: async ({ candidateUserId, candidateName, text, channel }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
+        if (!candidateUserId) {
+          if (!candidateName?.trim()) return { error: "need_candidate", hint: "Tell me who — a candidate name or id." };
+          const m = pickCandidate(await candidateRoster(), candidateName.trim());
+          if (m.status === "ambiguous") return { error: "ambiguous_candidate", matches: m.matches.map((x) => ({ candidateUserId: x.userId, name: x.name })), hint: "More than one matches — which?" };
+          if (m.status !== "ok") return { error: "candidate_not_found", name: candidateName.trim() };
+          candidateUserId = m.candidate.userId; // resolved from the name
+        }
         if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
         const { data } = await db.from("candidate_profiles").select("first_name, last_name").eq("user_id", candidateUserId).maybeSingle();
         let name = data ? nameOf(data as { first_name: string | null; last_name: string | null }) : "—";
