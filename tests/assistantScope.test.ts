@@ -643,8 +643,9 @@ describe("assistant tools allow the supreme admin", () => {
     const cc = (await run(buildAssistantTools(SUPREME), "sendExternalEmail", { to: "a.gombert@calmaroi.de", cc: "o.musleh@calmaroi.de", subject: "B2-Status", body: "Hallo" })) as { staged?: boolean; summary?: string };
     expect(cc.staged).toBe(true);
     expect(cc.summary).toContain("CC: o.musleh@calmaroi.de");
+    // An unresolvable recipient (not an email, not a known name) → asks for the address.
     const bad = await run(buildAssistantTools(SUPREME), "sendExternalEmail", { to: "not-an-email", subject: "x", body: "y" });
-    expect(bad).toEqual({ error: "bad_email" });
+    expect(bad).toMatchObject({ error: "no_email_for_recipient", recipient: "not-an-email" });
     const badCc = await run(buildAssistantTools(SUPREME), "sendExternalEmail", { to: "a@b.com", cc: "nope", subject: "x", body: "y" });
     expect(badCc).toEqual({ error: "bad_cc:nope" });
     // Tolerant: two addresses lumped into `to` → first is To, rest fold into CC.

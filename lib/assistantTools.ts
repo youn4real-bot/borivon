@@ -4229,7 +4229,7 @@ export function buildAssistantTools(
       description:
         "STAGE an outbound EMAIL to an EXTERNAL person (an employer, recruiter, hospital contact — NOT a candidate; for candidates use sendCandidateMessage). e.g. 'send Hajar and Ali's CVs to anna.gombert@klinikum.de'. Provide to (ONE primary recipient's email), an optional toName, an optional cc (comma-separated extra recipients to copy — e.g. 'email Anna and CC Omar' → to=anna@…, cc='omar@…'), a subject, and a body (you write a clean, professional message). To attach candidate CVs, pass their FULL NAMES (comma-separated, exactly as you'd give them to getCvLinks) in attachCandidateNames — e.g. 'Ismail Louali, Samira Irsani, Hajar El Kairaa, Lahcen Labzioui'. The bot resolves each name to that person's latest CV and attaches it. ALWAYS use names (attachCandidateNames) for CVs — do NOT try to pass ids you don't have. To attach specific documents by id, use attachDocIds. To FORWARD files that were attached to an email you received (e.g. 'send Anna the Defizitbescheid Abdelhak attached'), pass that email's id(s) in attachFromEmailIds — get the id from searchInbox/readEmail; the bot re-fetches those attachments natively and encloses them. It sends from youness.taoufiq@borivon.com.",
       inputSchema: z.object({
-        to: z.string().min(3).max(254).describe("the ONE primary recipient's email address"),
+        to: z.string().min(2).max(254).describe("the ONE primary recipient — an email address, OR a known NAME ('Anna', a candidate) which the tool resolves to their email itself; if it can't, it tells you so you ask me"),
         toName: z.string().max(120).optional().describe("the recipient's name, if known"),
         cc: z.string().max(1000).optional().describe("comma-separated additional recipients to CC (copy), e.g. 'omar@x.com, sara@x.com'"),
         bcc: z.string().max(1000).optional().describe("comma-separated BCC recipients (blind copy — hidden from the other recipients)"),
@@ -4248,7 +4248,17 @@ export function buildAssistantTools(
         // primary recipient and the rest fold into CC — so "send to A, B" works
         // even if the model didn't split them itself.
         const toParts = to.split(/[,;]+/).map((s) => s.trim()).filter(Boolean);
-        const email = toParts[0] ?? "";
+        let email = toParts[0] ?? "";
+        let resolvedToName = toName;
+        // Accept a NAME as the recipient ("email Anna") — resolve it to a real address
+        // (saved contact / candidate account). A literal email passes straight through, so
+        // the common case is unchanged. Confirm-first shows the resolved To: before sending.
+        if (email && !emailRe.test(email)) {
+          const r = await resolveAttendeeEmails([email]);
+          if (r.ambiguous.length) return { error: "ambiguous_recipient", ambiguous: r.ambiguous, hint: "More than one person matches — tell me which (or give the email)." };
+          if (r.emails.length === 1) { resolvedToName = resolvedToName || email; email = r.emails[0]; }
+          else return { error: "no_email_for_recipient", recipient: email, hint: "I don't have an email for them — give me the address." };
+        }
         if (!emailRe.test(email)) return { error: "bad_email" };
         const ccList = [...toParts.slice(1), ...(cc ?? "").split(/[,;]/)]
           .map((s) => s.trim()).filter(Boolean)
@@ -4318,11 +4328,11 @@ export function buildAssistantTools(
             toolName: "sendDraft",
             args: { draftId: d.draftId, draftMessageId: d.draftMessageId, to: email, subject: cleanSubject },
             candidateUserId: null,
-            summary: `📧 To: ${toName ? `${toName} <${email}>` : email}${ccList.length ? `\nCC: ${ccList.join(", ")}` : ""}${bccList.length ? `\nBCC: ${bccList.join(", ")}` : ""}\nSubject: ${cleanSubject}\n📎 Attached (verified on the draft): ${realNames.length ? realNames.join(", ") : "none"}\n(say "show me the attached files" to pull them off the draft and double-check before you send)\n\n${cleanBody.slice(0, 600)}${cleanBody.length > 600 ? "…" : ""}`,
+            summary: `📧 To: ${resolvedToName ? `${resolvedToName} <${email}>` : email}${ccList.length ? `\nCC: ${ccList.join(", ")}` : ""}${bccList.length ? `\nBCC: ${bccList.join(", ")}` : ""}\nSubject: ${cleanSubject}\n📎 Attached (verified on the draft): ${realNames.length ? realNames.join(", ") : "none"}\n(say "show me the attached files" to pull them off the draft and double-check before you send)\n\n${cleanBody.slice(0, 600)}${cleanBody.length > 600 ? "…" : ""}`,
           });
         }
         const args: Record<string, unknown> = { to: email, subject: cleanSubject, body: cleanBody };
-        if (toName !== undefined) args.toName = toName;
+        if (resolvedToName !== undefined) args.toName = resolvedToName;
         if (ccList.length) args.cc = ccList.join(",");
         if (bccList.length) args.bcc = bccList.join(",");
         if (candIds.length) args.attachCandidateIds = candIds.join(","); // RESOLVED real ids, not the raw input
@@ -4333,7 +4343,7 @@ export function buildAssistantTools(
           toolName: "sendExternalEmail",
           args,
           candidateUserId: null,
-          summary: `📧 To: ${toName ? `${toName} <${email}>` : email}${ccList.length ? `\nCC: ${ccList.join(", ")}` : ""}${bccList.length ? `\nBCC: ${bccList.join(", ")}` : ""}\nSubject: ${cleanSubject}\nAttachments: ${attachDesc}\n\n${cleanBody.slice(0, 600)}${cleanBody.length > 600 ? "…" : ""}`,
+          summary: `📧 To: ${resolvedToName ? `${resolvedToName} <${email}>` : email}${ccList.length ? `\nCC: ${ccList.join(", ")}` : ""}${bccList.length ? `\nBCC: ${bccList.join(", ")}` : ""}\nSubject: ${cleanSubject}\nAttachments: ${attachDesc}\n\n${cleanBody.slice(0, 600)}${cleanBody.length > 600 ? "…" : ""}`,
         });
       },
     }),
