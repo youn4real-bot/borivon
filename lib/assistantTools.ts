@@ -3452,16 +3452,17 @@ export function buildAssistantTools(
 
     sendCalendarInvite: tool({
       description:
-        "Send a REAL CALENDAR INVITATION to people — an email carrying an .ics so each attendee gets Yes/Maybe/No (RSVP) and it lands in their calendar (Gmail, Outlook, Apple). Use for 'invite Anna to a meeting', 'send a calendar invite for the interview Thursday 3pm', 'set up a call with X'. attendees = comma-separated EMAIL addresses. startsAt = ISO datetime (e.g. 2026-07-10T10:00:00Z); give endsAt (ISO) OR durationMinutes (defaults to 60). Optional location (a place OR a video-call link) and description. You (the founder) are the organizer. It goes out AFTER you confirm (it's a send). Supreme-admin only. (For a public community event with no attendees, use createCalendarEvent instead.)",
+        "INVITE people to a meeting — creates a REAL event on the founder's Google Calendar with the attendees, so Google emails each a CLEAN RSVP invite (Yes/Maybe/No), provisions a real Google MEET link by default, and the event shows on the founder's own calendar (so it can later be listed/cancelled). NOTHING extra is sent — no email body, no signature, no footer; just the invite. Use for 'invite Anna to a meeting', 'google meet with X today 5pm', 'set up a call'. attendees = comma-separated EMAILs. startsAt = ISO datetime (local no-Z is fine, e.g. 2026-07-10T15:00:00 = Casablanca time); give endsAt OR durationMinutes (default 60). addMeet defaults TRUE (a Google Meet link) — pass false for an in-person meeting. It goes out AFTER you confirm. To CANCEL/REMOVE an invite later, use listMyCalendar to find it then cancelMyCalendarEvent (it un-invites the attendees too) — do NOT use method:cancel here. Supreme-admin only. (For a public candidate-facing community event, use createCalendarEvent.)",
       inputSchema: z.object({
         attendees: z.string().min(3).describe("comma-separated email addresses of the people to invite"),
         title: z.string().min(1).max(200),
-        startsAt: z.string().min(10).describe("ISO datetime, e.g. 2026-07-10T10:00:00Z"),
+        startsAt: z.string().min(10).describe("ISO datetime; local no-Z = Casablanca, e.g. 2026-07-10T15:00:00"),
         endsAt: z.string().optional().describe("ISO datetime; omit to use durationMinutes (or 60 min)"),
         durationMinutes: z.number().int().min(5).max(1440).optional(),
         location: z.string().max(300).optional().describe("a place or a video-call link"),
         description: z.string().max(2000).optional(),
-        method: z.enum(["request", "cancel"]).default("request").describe("'cancel' to call off a meeting you invited earlier"),
+        addMeet: z.boolean().optional().describe("attach a Google Meet link (default true); false for in-person"),
+        method: z.enum(["request", "cancel"]).default("request").describe("always 'request'; to cancel use cancelMyCalendarEvent instead"),
       }),
       execute: async (args) => {
         if (scope.role !== "admin") return { error: "admin_only" };

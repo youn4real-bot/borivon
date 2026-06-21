@@ -73,6 +73,8 @@ export async function bookWorkspaceEvent(opts: {
   location?: string;
   addMeet?: boolean;
   recurrence?: "daily" | "weekly" | "monthly";
+  attendees?: string[];                 // emails to INVITE (Google sends each a real RSVP invite)
+  sendUpdates?: "all" | "none";         // 'all' → Google emails the attendees the invite
 }): Promise<BookEventResult> {
   const cal = calendarClient();
   if (!cal) return { ok: false, error: "workspace_not_connected" };
@@ -93,12 +95,14 @@ export async function bookWorkspaceEvent(opts: {
     const endInstant = new Date(localToInstant(opts.startsAt).getTime() + 60 * 60 * 1000);
     end = { dateTime: endInstant.toISOString() };
   }
+  const inviteEmails = (opts.attendees ?? []).map((e) => e.trim()).filter(Boolean);
   const requestBody: calendar_v3.Schema$Event = {
     summary: title,
     description: (opts.description ?? "").slice(0, 4000) || undefined,
     location: (opts.location ?? "").slice(0, 300) || undefined,
     start,
     end,
+    ...(inviteEmails.length ? { attendees: inviteEmails.map((email) => ({ email })) } : {}),
   };
   // Recurring series (e.g. weekly office-hours) — start/end define the first instance.
   if (opts.recurrence) {
@@ -118,6 +122,9 @@ export async function bookWorkspaceEvent(opts: {
     const res = await cal.events.insert({
       calendarId: "primary",
       ...(opts.addMeet ? { conferenceDataVersion: 1 } : {}),
+      // 'all' → Google emails each attendee a REAL invite (clean, RSVP, lands in their
+      // calendar). Default to notifying when there are attendees, silent otherwise.
+      sendUpdates: opts.sendUpdates ?? (inviteEmails.length ? "all" : "none"),
       requestBody,
     });
     const meetLink = res.data.hangoutLink
@@ -234,7 +241,9 @@ export async function cancelWorkspaceEvent(eventId: string): Promise<{ ok: boole
   const cal = calendarClient();
   if (!cal) return { ok: false, error: "workspace_not_connected" };
   try {
-    await cal.events.delete({ calendarId: "primary", eventId });
+    // sendUpdates:'all' → if the event had attendees (an invite), Google emails them the
+    // cancellation too, so "remove the invite" actually un-invites them.
+    await cal.events.delete({ calendarId: "primary", eventId, sendUpdates: "all" });
     return { ok: true };
   } catch (e) {
     const code = (e as { code?: number })?.code;

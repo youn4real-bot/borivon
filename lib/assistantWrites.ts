@@ -20,7 +20,6 @@ import { FILE_KEY_LABELS } from "@/lib/fileKeys";
 import { applyDocReview, applyCandidateProfilePatch } from "@/lib/adminCandidateActions";
 import { backfillPassportFromCvDraft } from "@/lib/cvDraftBackfill";
 import { sendOutboundEmail, OUTBOUND_FROM_NAME, OUTBOUND_FROM_EMAIL, OUTBOUND_SIGNATURE_HTML, OUTBOUND_SIGNATURE_TEXT, type OutboundAttachment } from "@/lib/outboundEmail";
-import { buildInviteIcs } from "@/lib/calendarInvite";
 import { gmailGet, gmailSearch, gmailSendRaw, gmailCreateDraft, gmailSendDraft, listEmailAttachments, getEmailAttachmentBytes, buildForwardQuote } from "@/lib/gmailApi";
 import { bookWorkspaceEvent } from "@/lib/workspaceCalendar";
 import { reportError } from "@/lib/reportError";
@@ -647,43 +646,39 @@ async function writeExternalEmail(
  *  is the founder; rides the existing Gmail App Password (no Google OAuth). */
 async function writeCalendarInvite(opts: {
   attendees: string[]; title: string; startsAt: string; endsAt?: string;
-  durationMinutes?: number; location?: string; description?: string; method?: "REQUEST" | "CANCEL";
+  durationMinutes?: number; location?: string; description?: string; addMeet?: boolean; method?: "REQUEST" | "CANCEL";
 }): Promise<WriteResult> {
   const emails = opts.attendees.map((e) => e.trim()).filter(Boolean);
   const bad = emails.find((e) => !EMAIL_RE.test(e));
   if (bad) return { ok: false, error: `bad_attendee:${bad}` };
   if (emails.length === 0) return { ok: false, error: "no_attendees" };
   if (!opts.title.trim()) return { ok: false, error: "no_title" };
+  // Cancelling an invite = deleting the real calendar event now → route to cancelMyCalendarEvent.
+  if (opts.method === "CANCEL") return { ok: false, error: "to_cancel_use_cancelMyCalendarEvent_with_the_eventId_from_listMyCalendar" };
 
   const start = new Date(opts.startsAt);
   if (Number.isNaN(start.getTime())) return { ok: false, error: "bad_start_time" };
-  let end = opts.endsAt ? new Date(opts.endsAt) : null;
-  if (end && Number.isNaN(end.getTime())) end = null;
-  if (!end) end = new Date(start.getTime() + (opts.durationMinutes && opts.durationMinutes > 0 ? opts.durationMinutes : 60) * 60_000);
+  const endsAtIso = opts.endsAt && !Number.isNaN(new Date(opts.endsAt).getTime())
+    ? opts.endsAt
+    : new Date(start.getTime() + (opts.durationMinutes && opts.durationMinutes > 0 ? opts.durationMinutes : 60) * 60_000).toISOString();
 
-  const { ics, method } = buildInviteIcs({
-    organizerName: OUTBOUND_FROM_NAME,
-    organizerEmail: OUTBOUND_FROM_EMAIL,
-    attendees: emails.map((email) => ({ email })),
+  // CREATE A REAL EVENT on the founder's Google Calendar WITH the attendee(s). Google then
+  // (1) emails each a CLEAN RSVP invite (no Borivon body/footer — it's Google's own), (2)
+  // provisions a real Google Meet link, and (3) the event lands on the founder's calendar
+  // so he can later SEE / list / cancel it ("remove all invites today" now actually finds
+  // it). This replaces the old .ics-email path, which was invisible to the calendar and
+  // uncancellable. addMeet defaults TRUE (his invites are Google Meet meetings).
+  const r = await bookWorkspaceEvent({
     title: opts.title.trim(),
-    start, end,
+    startsAt: opts.startsAt,
+    endsAt: endsAtIso,
     location: opts.location?.trim() || undefined,
     description: opts.description?.trim() || undefined,
-    method: opts.method,
+    addMeet: opts.addMeet !== false,
+    attendees: emails,
+    sendUpdates: "all",
   });
-
-  // NO BODY TEXT — founder's hard rule: a calendar invite is ONLY the invite, nothing
-  // else. The .ics already carries the title, time, location + Meet link, so the email
-  // body stays EMPTY (no "You're invited / When / Where / Please accept…" blurb, no
-  // signature — sendOutboundEmail also skips the signature when icalEvent is set). This
-  // is ONLY for calendar invites; normal emails are untouched.
-  const res = await sendOutboundEmail({
-    to: emails.join(", "),
-    subject: (method === "CANCEL" ? "Cancelled: " : "Invitation: ") + opts.title.trim(),
-    body: "",
-    icalEvent: { method, content: ics },
-  });
-  return res.ok ? { ok: true } : { ok: false, error: res.error };
+  return r.ok ? { ok: true } : { ok: false, error: r.error };
 }
 
 /** Reply to an email IN-THREAD via the native Gmail API — reads the original for
@@ -1707,6 +1702,7 @@ async function applyPendingRow(
       durationMinutes: typeof a.durationMinutes === "number" ? a.durationMinutes : undefined,
       location: a.location == null ? undefined : String(a.location),
       description: a.description == null ? undefined : String(a.description),
+      addMeet: a.addMeet === false ? false : true, // invites default to a Google Meet link
       method: a.method === "cancel" ? "CANCEL" : "REQUEST",
     });
   } else if (row.tool_name === "generateAndPublishCv") {
