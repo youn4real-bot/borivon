@@ -1693,11 +1693,16 @@ export function buildAssistantTools(
     forwardEmail: tool({
       description:
         "FORWARD a received email to someone else — keeps the original message + its attachments, with an optional note you add on top. messageId from searchInbox/readEmail; to = recipient email; note = optional line above the forwarded content. e.g. 'forward Abdelhak's email to Anna', 'forward this to the embassy with a note'. It's a SEND — goes out after your one confirm. Supreme-only.",
-      inputSchema: z.object({ messageId: z.string().min(5), to: z.string().min(3).max(254), note: z.string().max(4000).optional() }),
+      inputSchema: z.object({ messageId: z.string().min(5), to: z.string().min(2).max(254).describe("recipient EMAIL, or a known NAME (resolved automatically)"), note: z.string().max(4000).optional() }),
       execute: async ({ messageId, to, note }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
         if (!gmailApiReady()) return { error: "workspace_not_connected" };
-        const dest = to.trim();
+        let dest = to.trim();
+        if (dest && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(dest)) {
+          const r = await resolveAttendeeEmails([dest]);
+          if (r.ambiguous.length) return { error: "ambiguous_recipient", ambiguous: r.ambiguous, hint: "Which one? (or give the email)" };
+          if (r.emails.length === 1) dest = r.emails[0]; else return { error: "no_email_for_recipient", recipient: dest, hint: "Give me their email." };
+        }
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(dest)) return { error: "bad_email" };
         const orig = await gmailGet(messageId);
         if (!orig) return { error: "original_not_found" };
@@ -1715,7 +1720,7 @@ export function buildAssistantTools(
       description:
         "Save an email as a Gmail DRAFT (composed but NOT sent) — it lands in MY Gmail Drafts to review/finish/send myself. Use when I say 'draft an email to X', 'write up a draft', 'prepare it but don't send yet'. Same options as sendExternalEmail: to, cc, subject, body, and attachCandidateNames / attachDocIds / attachFromEmailIds for attachments. Applies immediately (a draft is never sent, so no confirm). Supreme-only.",
       inputSchema: z.object({
-        to: z.string().min(3).max(254),
+        to: z.string().min(2).max(254).describe("recipient EMAIL, or a known NAME (resolved automatically)"),
         cc: z.string().max(1000).optional(),
         subject: z.string().min(1).max(200),
         body: z.string().min(1).max(8000),
@@ -1727,7 +1732,12 @@ export function buildAssistantTools(
       execute: async ({ to, cc, subject, body, attachCandidateNames, attachDocIds, attachFromEmailIds, attachChatFiles }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
         if (!gmailApiReady()) return { error: "workspace_not_connected" };
-        const dest = to.trim();
+        let dest = to.trim();
+        if (dest && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(dest)) {
+          const r = await resolveAttendeeEmails([dest]);
+          if (r.ambiguous.length) return { error: "ambiguous_recipient", ambiguous: r.ambiguous, hint: "Which one? (or give the email)" };
+          if (r.emails.length === 1) dest = r.emails[0]; else return { error: "no_email_for_recipient", recipient: dest, hint: "Give me their email." };
+        }
         if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(dest)) return { error: "bad_email" };
         const candRefs = (attachCandidateNames ?? "").split(",").map((s) => s.trim()).filter(Boolean);
         const candIds: string[] = [];
