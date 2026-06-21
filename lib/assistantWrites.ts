@@ -1484,7 +1484,7 @@ export async function getPendingDraft(ownerId: string): Promise<{ draftId: strin
 /** A stable "who/what this send targets" key — so a re-stage to the SAME recipient is a
  *  correction (supersede the stale pending), while a send to a DIFFERENT recipient is kept
  *  (no cross-cancel of two unrelated emails/invites). "" = no identifiable target → keep all. */
-function sendTargetKey(args: Record<string, unknown> | null | undefined): string {
+export function sendTargetKey(args: Record<string, unknown> | null | undefined): string {
   const a = args || {};
   const norm = (v: unknown) => String(v ?? "").toLowerCase().split(",").map((s) => s.trim()).filter(Boolean).sort().join(",");
   const att = norm(a.attendees); if (att) return "att:" + att;
