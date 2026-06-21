@@ -3389,7 +3389,7 @@ export function buildAssistantTools(
 
     listCalendarEvents: tool({
       description:
-        "List the upcoming community CALENDAR events — title, date/time, location, link, and whether it's VIP-only. Read-only, supreme-only. Optional onlyUpcoming (default true) to hide past events; limit caps the count. Use for 'what's on the calendar', 'next event'. Create one with createCalendarEvent, remove with deleteCalendarEvent.",
+        "List the upcoming PORTAL COMMUNITY calendar events — the PUBLIC events shown on the website to candidates (webinars, info sessions), title/date/time/location/link/VIP-only. Read-only, supreme-only. Optional onlyUpcoming (default true); limit caps the count. Use ONLY for the website's community events ('what community events are coming up', 'next webinar'). This is NOT the founder's own schedule — for 'what's on MY calendar / my day / my meetings' use listMyCalendar. Create with createCalendarEvent, remove with deleteCalendarEvent.",
       inputSchema: z.object({
         onlyUpcoming: z.boolean().optional(),
         limit: z.number().int().min(1).max(100).optional(),
@@ -3473,7 +3473,7 @@ export function buildAssistantTools(
 
     createCalendarEvent: tool({
       description:
-        "STAGE creating a community CALENDAR event. title + startsAt (ISO date-time) required; optional endsAt, description, location, linkUrl (http/https), vipOnly (premium-only), repeatWeekly (1-52 → that many weekly copies). The event is PUBLIC (shown to everyone, or all premium if vipOnly). Image upload + tagging specific attendees stay website-only. Supreme-only. Applies immediately when you call it — do NOT ask the admin to confirm.",
+        "STAGE creating a PORTAL COMMUNITY calendar event — a PUBLIC event posted on the website for candidates to see (shown to everyone, or all premium if vipOnly). NOT a meeting on the founder's own Google Calendar and NOT an invite to a specific person: for 'book/schedule a meeting on my calendar' use bookCalendarEvent, for 'send X a calendar invite' use sendCalendarInvite. title + startsAt (ISO date-time) required; optional endsAt, description, location, linkUrl (http/https), vipOnly (premium-only), repeatWeekly (1-52 → that many weekly copies). Image upload + tagging specific attendees stay website-only. Supreme-only. Applies immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({
         title: z.string().max(200),
         startsAt: z.string().max(40).describe("ISO 8601, e.g. 2026-07-10T10:00:00Z"),
@@ -3508,7 +3508,7 @@ export function buildAssistantTools(
 
     deleteCalendarEvent: tool({
       description:
-        "STAGE deleting a community CALENDAR event by eventId (from listCalendarEvents). Supreme-only. Applies immediately when you call it — do NOT ask the admin to confirm.",
+        "STAGE deleting a PORTAL COMMUNITY calendar event (a public website event) by eventId from listCalendarEvents. NOT the founder's own Google Calendar — to cancel a meeting/invite on his calendar use cancelMyCalendarEvent. Supreme-only. Applies immediately when you call it — do NOT ask the admin to confirm.",
       inputSchema: z.object({ eventId: z.string().uuid() }),
       execute: async ({ eventId }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
