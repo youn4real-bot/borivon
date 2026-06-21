@@ -1481,6 +1481,20 @@ export async function getPendingDraft(ownerId: string): Promise<{ draftId: strin
   return draftId ? { draftId, draftMessageId: String(a.draftMessageId ?? "") } : null;
 }
 
+/** A stable "who/what this send targets" key — so a re-stage to the SAME recipient is a
+ *  correction (supersede the stale pending), while a send to a DIFFERENT recipient is kept
+ *  (no cross-cancel of two unrelated emails/invites). "" = no identifiable target → keep all. */
+function sendTargetKey(args: Record<string, unknown> | null | undefined): string {
+  const a = args || {};
+  const norm = (v: unknown) => String(v ?? "").toLowerCase().split(",").map((s) => s.trim()).filter(Boolean).sort().join(",");
+  const att = norm(a.attendees); if (att) return "att:" + att;
+  const to = norm(a.to); if (to) return "to:" + to;
+  if (a.candidateUserId) return "cand:" + String(a.candidateUserId).toLowerCase();
+  if (a.messageId) return "msg:" + String(a.messageId);
+  if (a.by) return "bcast:" + String(a.by).toLowerCase() + ":" + String(a.value ?? "").toLowerCase();
+  return "";
+}
+
 /** Stage a proposed write for confirmation. Returns the summary to show the admin. */
 export async function stagePending(
   scope: AssistantScope,
@@ -1528,18 +1542,21 @@ export async function stagePending(
     await db.from("assistant_pending_actions").update({ status: "cancelled" })
       .eq("owner_user_id", scope.userId).eq("status", "pending");
   } else if (SEND_TOOLS.has(opts.toolName)) {
-    // A re-stage of the SAME send tool from an EARLIER turn is a CORRECTION (e.g. the
-    // founder fixed an invite's time/name) — cancel those stale rows so a later 'yes'
-    // can't fire the outdated send. Same-turn siblings (a multi-send fanned out in ONE
-    // request) share this requestId and are KEPT. (Fixes the double-yes-stale-invite gap.)
-    // Best-effort — must never block staging.
+    // SUPERSEDE only a CORRECTION of the SAME send to the SAME recipient (e.g. the founder
+    // fixed an invite's time, or re-worded an email to Anna) — cancel that stale row so a
+    // later 'yes' can't fire the outdated version. We match on the recipient/target key, so
+    // two DISTINCT sends (email Anna AND email Bob) are BOTH kept — no cross-cancel of
+    // unrelated emails. Best-effort — must never block staging.
     try {
-      const { data: priors } = await db.from("assistant_pending_actions")
-        .select("id, args").eq("owner_user_id", scope.userId).eq("status", "pending").eq("tool_name", opts.toolName);
-      const stale = ((priors ?? []) as { id: string; args: Record<string, unknown> | null }[])
-        .filter((r) => ((r.args?.__stagedReq ?? null) !== (scope.requestId ?? null)))
-        .map((r) => r.id);
-      if (stale.length) await db.from("assistant_pending_actions").update({ status: "cancelled" }).in("id", stale);
+      const newKey = sendTargetKey(opts.args);
+      if (newKey) {
+        const { data: priors } = await db.from("assistant_pending_actions")
+          .select("id, args").eq("owner_user_id", scope.userId).eq("status", "pending").eq("tool_name", opts.toolName);
+        const stale = ((priors ?? []) as { id: string; args: Record<string, unknown> | null }[])
+          .filter((r) => sendTargetKey(r.args) === newKey)
+          .map((r) => r.id);
+        if (stale.length) await db.from("assistant_pending_actions").update({ status: "cancelled" }).in("id", stale);
+      }
     } catch { /* cleanup only — ignore */ }
   }
   const { error } = await db.from("assistant_pending_actions").insert({
