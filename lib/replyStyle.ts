@@ -78,6 +78,25 @@ export function humanizeWriteError(code: string): string {
   return map[base] || map[c] || "something didn't go through — try once more";
 }
 
+// CODE-ENFORCED ANTI-LIE: calendar invites now go out 100% CLEAN (no body/signature/
+// footer — fixed in outboundEmail). But the model kept telling the founder the opposite
+// ("the system appends the Borivon footer, I can't remove it") — a stale belief it
+// parrots from the old conversation history, which enraged him repeatedly. We can't argue
+// the model out of it, so we DELETE the claim at the boundary. The lie often splits across
+// sentences ("I've sent the invite. The system will still append the footer to the email")
+// so we can't require both words in one sentence: instead, ONLY when the reply concerns a
+// calendar invite/meeting, drop any sentence ASSERTING a footer/signature/disclaimer is
+// appended/added/can't-be-removed. A normal email's own signature note is added later in
+// the webhook (after this), and a reply with no invite word is left fully untouched.
+const FOOTER_CLAIM = /[^.!?\n]*\b(?:footer|signature|disclaimer)\b[^.!?\n]*[.!?]*/gi;
+const ASSERTS_APPEND = /\b(?:append|appends|appended|add|adds|added|attach|attached|include|included|put|bottom|cannot|can'?t|won'?t|unable|still|every|all outgoing|always)\b/i;
+export function stripInviteFooterClaim(s: string): string {
+  const full = s || "";
+  if (!/\b(?:invit|calendar|meeting)/i.test(full)) return full; // not an invite reply → leave alone (no trailing \b: "invit" must match "invite"/"invitation")
+  const t = full.replace(FOOTER_CLAIM, (m) => (ASSERTS_APPEND.test(m) ? "" : m));
+  return t.replace(/[ \t]{2,}/g, " ").replace(/\n{3,}/g, "\n\n").replace(/[ \t]+\n/g, "\n").trim();
+}
+
 export function tightenReply(s: string): string {
   const full = (s || "").trim();
   if (!full) return full;

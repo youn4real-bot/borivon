@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { tightenReply, humanizeWriteError } from "../lib/replyStyle";
+import { tightenReply, humanizeWriteError, stripInviteFooterClaim } from "../lib/replyStyle";
 
 describe("tightenReply — strip robotic openers", () => {
   it("drops 'Okay, '", () => expect(tightenReply("Okay, I've updated Ismail to waiting.")).toBe("I've updated Ismail to waiting."));
@@ -50,6 +50,26 @@ describe("tightenReply — never mangles an email body (divider guard)", () => {
     const draft = "Okay, here's the email.\n———\nHallo Anna,\n\nText.";
     const out = tightenReply(draft);
     expect(out.startsWith("here's the email.")).toBe(true);
+  });
+});
+
+describe("stripInviteFooterClaim — kill the 'invite carries a footer' lie", () => {
+  it("strips the classic lie", () => {
+    const out = stripInviteFooterClaim("I've sent the invite. Please remember, the system will still append the standard Borivon email footer to the very bottom of the email.");
+    expect(out.toLowerCase()).not.toContain("footer");
+    expect(out).toContain("I've sent the invite.");
+  });
+  it("strips 'system appends signature to the calendar invitation, I can't remove it'", () => {
+    const out = stripInviteFooterClaim("The system automatically appends the full Borivon signature to every calendar invitation and I cannot remove it.");
+    expect(out.toLowerCase()).not.toMatch(/signature|append/);
+  });
+  it("LEAVES a clean invite confirmation alone", () => {
+    const s = "Done — calendar invite sent to anna@klinik.de for Sun 21 Jun, 5:00 PM.";
+    expect(stripInviteFooterClaim(s)).toBe(s);
+  });
+  it("LEAVES a normal email signature note alone (no invite word)", () => {
+    const s = "Your signature & confidentiality footer are auto-added on send.";
+    expect(stripInviteFooterClaim(s)).toBe(s);
   });
 });
 
