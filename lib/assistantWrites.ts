@@ -21,7 +21,7 @@ import { applyDocReview, applyCandidateProfilePatch } from "@/lib/adminCandidate
 import { backfillPassportFromCvDraft } from "@/lib/cvDraftBackfill";
 import { sendOutboundEmail, OUTBOUND_FROM_NAME, OUTBOUND_FROM_EMAIL, OUTBOUND_SIGNATURE_HTML, OUTBOUND_SIGNATURE_TEXT, type OutboundAttachment } from "@/lib/outboundEmail";
 import { gmailGet, gmailSearch, gmailSendRaw, gmailCreateDraft, gmailSendDraft, listEmailAttachments, getEmailAttachmentBytes, buildForwardQuote } from "@/lib/gmailApi";
-import { bookWorkspaceEvent } from "@/lib/workspaceCalendar";
+import { bookWorkspaceEvent, localToInstant } from "@/lib/workspaceCalendar";
 import { reportError } from "@/lib/reportError";
 import { recordSentForFollowup } from "@/lib/followups";
 import { recentChatUploadAttachments } from "@/lib/chatUploads";
@@ -657,11 +657,13 @@ async function writeCalendarInvite(opts: {
   // Cancelling an invite = deleting the real calendar event now → route to cancelMyCalendarEvent.
   if (opts.method === "CANCEL") return { ok: false, error: "to_cancel_use_cancelMyCalendarEvent_with_the_eventId_from_listMyCalendar" };
 
-  const start = new Date(opts.startsAt);
-  if (Number.isNaN(start.getTime())) return { ok: false, error: "bad_start_time" };
+  if (Number.isNaN(new Date(opts.startsAt).getTime())) return { ok: false, error: "bad_start_time" };
+  // Compute the default end on the SAME Casablanca anchor as the start (localToInstant
+  // handles bare-local "no Z" = Casablanca). The old `new Date(startsAt)` read a bare-local
+  // ISO as the SERVER's zone (UTC on Vercel) → a 30-min invite stored a 90-min span. B-cal.
   const endsAtIso = opts.endsAt && !Number.isNaN(new Date(opts.endsAt).getTime())
     ? opts.endsAt
-    : new Date(start.getTime() + (opts.durationMinutes && opts.durationMinutes > 0 ? opts.durationMinutes : 60) * 60_000).toISOString();
+    : new Date(localToInstant(opts.startsAt).getTime() + (opts.durationMinutes && opts.durationMinutes > 0 ? opts.durationMinutes : 60) * 60_000).toISOString();
 
   // CREATE A REAL EVENT on the founder's Google Calendar WITH the attendee(s). Google then
   // (1) emails each a CLEAN RSVP invite (no Borivon body/footer — it's Google's own), (2)
@@ -1282,7 +1284,7 @@ async function writeDeleteCalendarEvent(eventId: string): Promise<WriteResult> {
 /** Book an event in the FOUNDER'S OWN Google Calendar (native, via domain-wide
  *  delegation) — the calendar they actually look at. Distinct from the portal
  *  community calendar above. */
-async function writeBookCalendarEvent(opts: { title: string; startsAt: string; endsAt?: string; description?: string; location?: string; addMeet?: boolean; recurrence?: "daily" | "weekly" | "monthly" }): Promise<WriteResult> {
+async function writeBookCalendarEvent(opts: { title: string; startsAt: string; endsAt?: string; description?: string; location?: string; addMeet?: boolean; recurrence?: "daily" | "weekly" | "monthly"; durationMinutes?: number }): Promise<WriteResult> {
   const r = await bookWorkspaceEvent(opts);
   if (!r.ok) {
     // Surface the real reason: not connected vs a genuine API failure.
@@ -1525,6 +1527,20 @@ export async function stagePending(
   if (DESTRUCTIVE_TOOLS.has(opts.toolName)) {
     await db.from("assistant_pending_actions").update({ status: "cancelled" })
       .eq("owner_user_id", scope.userId).eq("status", "pending");
+  } else if (SEND_TOOLS.has(opts.toolName)) {
+    // A re-stage of the SAME send tool from an EARLIER turn is a CORRECTION (e.g. the
+    // founder fixed an invite's time/name) — cancel those stale rows so a later 'yes'
+    // can't fire the outdated send. Same-turn siblings (a multi-send fanned out in ONE
+    // request) share this requestId and are KEPT. (Fixes the double-yes-stale-invite gap.)
+    // Best-effort — must never block staging.
+    try {
+      const { data: priors } = await db.from("assistant_pending_actions")
+        .select("id, args").eq("owner_user_id", scope.userId).eq("status", "pending").eq("tool_name", opts.toolName);
+      const stale = ((priors ?? []) as { id: string; args: Record<string, unknown> | null }[])
+        .filter((r) => ((r.args?.__stagedReq ?? null) !== (scope.requestId ?? null)))
+        .map((r) => r.id);
+      if (stale.length) await db.from("assistant_pending_actions").update({ status: "cancelled" }).in("id", stale);
+    } catch { /* cleanup only — ignore */ }
   }
   const { error } = await db.from("assistant_pending_actions").insert({
     owner_user_id: scope.userId,
@@ -1796,6 +1812,7 @@ async function applyPendingRow(
       location: a.location == null ? undefined : String(a.location),
       addMeet: a.addMeet === true,
       recurrence: rec,
+      durationMinutes: typeof a.durationMinutes === "number" ? a.durationMinutes : undefined,
     });
   } else if (row.tool_name === "deleteCalendarEvent") {
     result = await writeDeleteCalendarEvent(String(a.eventId ?? ""));

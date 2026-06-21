@@ -1198,19 +1198,20 @@ export function buildAssistantTools(
 
     rescheduleCalendarEvent: tool({
       description:
-        "Move / edit an event on the founder's OWN Google Calendar by its eventId (get it from listMyCalendar). Change start (startsAt = local ISO, no Z), end, title, and/or add a Meet link. USE for 'move my 3pm to 5pm', 'push the Erstgespräch to Thursday', 'rename that event', 'add a Meet link to it'. Applies immediately. Supreme-only.",
+        "Move / edit an event on the founder's OWN Google Calendar by its eventId (get it from listMyCalendar). Change start (startsAt = local ISO, no Z), end, title, ADD a Meet link (addMeet:true), or REMOVE the Meet link (removeMeet:true). USE for 'move my 3pm to 5pm', 'push the Erstgespräch to Thursday', 'rename that event', 'add/remove the Meet link'. If the event has attendees, the change is emailed to them automatically. Applies immediately. Supreme-only.",
       inputSchema: z.object({
         eventId: z.string().min(1).max(1024),
         startsAt: z.string().max(40).optional().describe("new start, local ISO e.g. 2026-06-19T17:00:00"),
         endsAt: z.string().max(40).optional(),
         title: z.string().max(300).optional(),
         addMeet: z.boolean().optional(),
+        removeMeet: z.boolean().optional().describe("strip the Google Meet link off the event"),
       }),
-      execute: async ({ eventId, startsAt, endsAt, title, addMeet }) => {
+      execute: async ({ eventId, startsAt, endsAt, title, addMeet, removeMeet }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
-        const r = await updateWorkspaceEvent({ eventId, startsAt, endsAt, title, addMeet });
+        const r = await updateWorkspaceEvent({ eventId, startsAt, endsAt, title, addMeet, removeMeet });
         if (!r.ok) return { error: r.error === "workspace_not_connected" ? "calendar_not_connected" : r.error };
-        return { updated: true, eventId: r.id, meetLink: r.meetLink, htmlLink: r.htmlLink };
+        return { updated: true, eventId: r.id, meetLink: removeMeet ? undefined : r.meetLink, htmlLink: r.htmlLink, meetRemoved: !!removeMeet };
       },
     }),
 
@@ -3352,17 +3353,19 @@ export function buildAssistantTools(
         title: z.string().min(1).max(300),
         startsAt: z.string().min(10).describe("LOCAL wall-clock ISO, no Z/offset, e.g. 2026-06-15T15:00:00"),
         endsAt: z.string().max(40).optional(),
+        durationMinutes: z.number().int().min(5).max(1440).optional().describe("length in minutes if no endsAt — e.g. 'a 2-hour block' → 120 (default 60)"),
         description: z.string().max(4000).optional(),
         location: z.string().max(300).optional(),
         addMeet: z.boolean().optional().describe("true → attach a Google Meet video link (for online meetings/interviews)"),
         recurrence: z.enum(["daily", "weekly", "monthly"]).optional().describe("make it a REPEATING series, e.g. 'weekly office-hours every Monday' → 'weekly' (startsAt = the first occurrence)"),
       }),
-      execute: async ({ title, startsAt, endsAt, description, location, addMeet, recurrence }) => {
+      execute: async ({ title, startsAt, endsAt, durationMinutes, description, location, addMeet, recurrence }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
         if (!title.trim()) return { error: "title_required" };
         if (!Number.isFinite(Date.parse(startsAt))) return { error: "bad_start" };
         const args: Record<string, unknown> = { title, startsAt };
         if (endsAt !== undefined) args.endsAt = endsAt;
+        if (durationMinutes !== undefined) args.durationMinutes = durationMinutes;
         if (description !== undefined) args.description = description;
         if (location !== undefined) args.location = location;
         if (addMeet !== undefined) args.addMeet = addMeet;
@@ -3392,7 +3395,13 @@ export function buildAssistantTools(
         const conflicts = res.events
           .filter((e) => !e.allDay)
           .map((e) => ({ title: e.title, start: e.start, end: e.end, meetLink: e.meetLink }));
-        return { busy: conflicts.length > 0, conflicts };
+        // All-day blocks (Out-of-office, travel, vacation) MUST count as busy — dropping
+        // them made the bot answer "you're free" on a day the founder is out. Surface them
+        // separately so it can say "no timed meeting, but you're marked OOO all day."
+        const allDayBlocks = res.events
+          .filter((e) => e.allDay)
+          .map((e) => ({ title: e.title, start: e.start, end: e.end }));
+        return { busy: conflicts.length > 0 || allDayBlocks.length > 0, conflicts, allDayBlocks };
       },
     }),
 

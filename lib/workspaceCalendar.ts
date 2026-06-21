@@ -45,7 +45,7 @@ function tzOffsetMs(date: Date, tz: string): number {
  *  true UTC instant. If it already carries Z/offset, it's absolute → parse as-is.
  *  Used for calendar WINDOW bounds + duration math so they mean Casablanca time, not
  *  the server's UTC (B5/B15). */
-function localToInstant(iso: string): Date {
+export function localToInstant(iso: string): Date {
   const t = (iso ?? "").trim();
   if (HAS_TZ.test(t)) return new Date(Date.parse(t));
   const provisional = new Date(t + "Z");            // treat the wall-clock as if UTC
@@ -75,6 +75,7 @@ export async function bookWorkspaceEvent(opts: {
   recurrence?: "daily" | "weekly" | "monthly";
   attendees?: string[];                 // emails to INVITE (Google sends each a real RSVP invite)
   sendUpdates?: "all" | "none";         // 'all' → Google emails the attendees the invite
+  durationMinutes?: number;             // used for the end when endsAt is omitted (else 60)
 }): Promise<BookEventResult> {
   const cal = calendarClient();
   if (!cal) return { ok: false, error: "workspace_not_connected" };
@@ -90,9 +91,11 @@ export async function bookWorkspaceEvent(opts: {
   if (opts.endsAt && !Number.isNaN(Date.parse(opts.endsAt))) {
     end = calTime(opts.endsAt);
   } else {
-    // +1h on a DEFINITIVELY-absolute instant (B15): the old code stripped the Z then
-    // re-parsed as server-local, giving a wrong (or zero-length) end on a non-UTC host.
-    const endInstant = new Date(localToInstant(opts.startsAt).getTime() + 60 * 60 * 1000);
+    // +duration (default 60min) on a DEFINITIVELY-absolute instant (B15): the old code
+    // stripped the Z then re-parsed as server-local, giving a wrong/zero-length end on a
+    // non-UTC host. durationMinutes lets "book a 2-hour block" honour the real length.
+    const durMin = opts.durationMinutes && opts.durationMinutes > 0 ? opts.durationMinutes : 60;
+    const endInstant = new Date(localToInstant(opts.startsAt).getTime() + durMin * 60 * 1000);
     end = { dateTime: endInstant.toISOString() };
   }
   const inviteEmails = (opts.attendees ?? []).map((e) => e.trim()).filter(Boolean);
@@ -196,6 +199,7 @@ export async function updateWorkspaceEvent(opts: {
   endsAt?: string;
   title?: string;
   addMeet?: boolean;
+  removeMeet?: boolean;            // strip the Google Meet link off the event
 }): Promise<BookEventResult> {
   const cal = calendarClient();
   if (!cal) return { ok: false, error: "workspace_not_connected" };
@@ -218,12 +222,16 @@ export async function updateWorkspaceEvent(opts: {
   }
   if (opts.addMeet) {
     requestBody.conferenceData = { createRequest: { requestId: randomUUID(), conferenceSolutionKey: { type: "hangoutsMeet" } } };
+  } else if (opts.removeMeet) {
+    // Google clears the Meet when conferenceData is null (+ conferenceDataVersion:1); the
+    // googleapis TS type omits null, so cast — the runtime value is what the API needs.
+    (requestBody as unknown as { conferenceData: null }).conferenceData = null;
   }
   try {
     const res = await cal.events.patch({
       calendarId: "primary",
       eventId: opts.eventId,
-      ...(opts.addMeet ? { conferenceDataVersion: 1 } : {}),
+      ...(opts.addMeet || opts.removeMeet ? { conferenceDataVersion: 1 } : {}),
       // 'all' → if the event has attendees (an invite), moving/renaming it emails them the
       // update too, so a reschedule actually reaches the guest. Harmless when no attendees.
       sendUpdates: "all",
