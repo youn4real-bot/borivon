@@ -25,7 +25,7 @@ import { computeBriefing } from "@/lib/briefing";
 import { localIsoToInstant, fmtWhen } from "@/lib/reminderTime";
 import { computeChecklist } from "@/lib/candidateChecklist";
 import { FUNNEL_STAGES, funnelLabel, type FunnelStageKey } from "@/lib/batchBoard";
-import { stagePending, executeLatestPending, cancelLatestPending, prepareEmailDraft, getPendingDraft, MILESTONE_BOOL } from "@/lib/assistantWrites";
+import { stagePending, executeLatestPending, cancelLatestPending, prepareEmailDraft, precheckOutboundAttachments, getPendingDraft, MILESTONE_BOOL } from "@/lib/assistantWrites";
 import { AUTOMATIONS, getAutomationFlags, setAutomation as persistAutomation, type AutomationKey } from "@/lib/automationSettings";
 import { workspaceConfigured, workspaceServiceAccount, testWorkspace, WORKSPACE_SCOPES } from "@/lib/googleWorkspace";
 import { gmailSearch, gmailGet, gmailApiReady, listEmailAttachments, listDraftAttachments, gmailGetThread, gmailModify, gmailTrash } from "@/lib/gmailApi";
@@ -1680,6 +1680,15 @@ export function buildAssistantTools(
             candidateUserId: null,
             summary: `↩️ Reply${replyAll ? " (all)" : ""} to ${who} — ${d.subject}\n📎 Attached (verified on the draft): ${realNames.length ? realNames.join(", ") : "none"}\n(say "show me the attached files" to pull them off the draft and double-check before you send)\n\n${cleanBody.slice(0, 600)}${cleanBody.length > 600 ? "…" : ""}`,
           });
+        }
+        // PRE-FLIGHT (same as sendExternalEmail): prove the CV/doc exists before the yes.
+        if (candIds.length || docIds.length) {
+          const pre = await precheckOutboundAttachments(scope, { candidateIds: candIds, docIds });
+          if (pre.missing.length) {
+            const nameByCid = new Map(candIds.slice(0, 10).map((cid, i) => [cid, names[i]]));
+            const miss = pre.missing.map((id) => nameByCid.get(id) || "a document").join(", ");
+            return { error: "attachment_missing", message: `No CV/document on file yet for: ${miss}. Generate or upload it first, then send.` };
+          }
         }
         const args: Record<string, unknown> = { messageId, body: cleanBody, replyAll: replyAll === true };
         if (candIds.length) args.attachCandidateIds = candIds.join(",");
@@ -4345,6 +4354,19 @@ export function buildAssistantTools(
             candidateUserId: null,
             summary: `📧 To: ${resolvedToName ? `${resolvedToName} <${email}>` : email}${ccList.length ? `\nCC: ${ccList.join(", ")}` : ""}${bccList.length ? `\nBCC: ${bccList.join(", ")}` : ""}\nSubject: ${cleanSubject}\n📎 Attached (verified on the draft): ${realNames.length ? realNames.join(", ") : "none"}\n(say "show me the attached files" to pull them off the draft and double-check before you send)\n\n${cleanBody.slice(0, 600)}${cleanBody.length > 600 ? "…" : ""}`,
           });
+        }
+        // PRE-FLIGHT: prove every CV/doc attachment actually EXISTS before asking for a
+        // yes. Otherwise the founder confirms, the send then fails with
+        // "attachment_missing", and it reads as "the bot broke again". Refuse up front,
+        // naming who has no CV on file. (Email/chat attachments take the draft path above,
+        // which already verifies them, so only id-exact CV/doc need the check here.)
+        if (candIds.length || docIds.length) {
+          const pre = await precheckOutboundAttachments(scope, { candidateIds: candIds, docIds });
+          if (pre.missing.length) {
+            const nameByCid = new Map(candIds.slice(0, 10).map((cid, i) => [cid, names[i]]));
+            const who = pre.missing.map((id) => nameByCid.get(id) || "a document").join(", ");
+            return { error: "attachment_missing", message: `No CV/document on file yet for: ${who}. Generate or upload it first, then send.` };
+          }
         }
         const args: Record<string, unknown> = { to: email, subject: cleanSubject, body: cleanBody };
         if (resolvedToName !== undefined) args.toName = resolvedToName;

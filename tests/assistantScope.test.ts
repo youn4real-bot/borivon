@@ -933,6 +933,9 @@ describe("assistant tools allow the supreme admin", () => {
       { user_id: "11111111-1111-1111-1111-111111111111", first_name: "Ismail", last_name: "Louali" },
       { user_id: "22222222-2222-2222-2222-222222222222", first_name: "Samira", last_name: "Irsani" },
     ], error: null };
+    // Both candidates have a CV on file → the email may stage. (The pre-flight refuses a
+    // send whose CV doesn't exist yet — see the next test.)
+    h.tables.documents = { data: [{ file_type: "cv_de", r2_key: "cv-key" }], error: null };
     h.authUsers = [
       { id: "11111111-1111-1111-1111-111111111111", email: "ismail@x.com", user_metadata: { full_name: "Ismail Louali" } },
       { id: "22222222-2222-2222-2222-222222222222", email: "samira@x.com", user_metadata: { full_name: "Samira Irsani" } },
@@ -947,6 +950,24 @@ describe("assistant tools allow the supreme admin", () => {
     expect(await run(buildAssistantTools(SUPREME), "sendExternalEmail", {
       to: "anna@klinikum.de", subject: "x", body: "y", attachCandidateNames: "Nobody Here",
     })).toEqual({ error: "couldnt_find_candidate: Nobody Here" });
+  });
+
+  it("sendExternalEmail REFUSES before the yes when the candidate has no CV on file (names them)", async () => {
+    h.tables.candidate_profiles = { data: [
+      { user_id: "11111111-1111-1111-1111-111111111111", first_name: "Ismail", last_name: "Louali" },
+    ], error: null };
+    // No cv_draft, and the documents table has no CV row → nothing to attach.
+    h.tables.documents = { data: [], error: null };
+    h.authUsers = [
+      { id: "11111111-1111-1111-1111-111111111111", email: "ismail@x.com", user_metadata: { full_name: "Ismail Louali" } },
+    ];
+    const r = (await run(buildAssistantTools(SUPREME), "sendExternalEmail", {
+      to: "anna@klinikum.de", subject: "CV", body: "Hi", attachCandidateNames: "Ismail Louali",
+    })) as { staged?: boolean; error?: string; message?: string };
+    // It must NOT stage a send that would fail after confirmation.
+    expect(r.staged).not.toBe(true);
+    expect(r.error).toBe("attachment_missing");
+    expect(r.message).toContain("Ismail Louali");
   });
 
   it("setAcademyLevel stages a level change with the candidate name + level", async () => {

@@ -553,6 +553,37 @@ async function resolveOutboundAttachments(
   return { attachments, missing };
 }
 
+/** CHEAP pre-flight: will these CV/doc attachments actually resolve at send time?
+ *  Mirrors resolveOutboundAttachments' success conditions WITHOUT the heavy CV render
+ *  or the R2 byte fetch, so the bot can refuse BEFORE asking the founder to confirm
+ *  ("no CV on file for X") instead of failing AFTER his yes — the exact "claimed it,
+ *  sent nothing" round-trip he hates. Only covers candidate CVs + docs by id; email /
+ *  chat attachments already go through the verified draft path so they're proven there.
+ *  A candidate has a CV iff they have a renderable cv_draft OR a stored cv_de/cv_visa
+ *  doc with bytes — the two sources the resolver tries, in order. */
+export async function precheckOutboundAttachments(
+  scope: AssistantScope,
+  opts: { candidateIds?: string[]; docIds?: string[] },
+): Promise<{ missing: string[] }> {
+  const db = getServiceSupabase();
+  const missing: string[] = [];
+  const CV_EMAIL_KINDS = new Set(["cv_de", "cv_visa"]);
+  for (const cid of opts.candidateIds ?? []) {
+    if (!(await canActOnCandidate(scope.role, scope.email, cid))) { missing.push(cid); continue; }
+    const { data: prof } = await db.from("candidate_profiles").select("cv_draft").eq("user_id", cid).maybeSingle();
+    if ((prof as { cv_draft?: unknown } | null)?.cv_draft) continue; // a draft → resolver renders it fresh
+    const { data } = await db.from("documents").select("file_type, r2_key").eq("user_id", cid).not("r2_key", "is", null);
+    const rows = (data ?? []) as { file_type: string | null; r2_key: string | null }[];
+    if (!rows.some((d) => CV_EMAIL_KINDS.has(resolveFileKey(d.file_type)))) missing.push(cid);
+  }
+  for (const did of opts.docIds ?? []) {
+    const { data: doc } = await db.from("documents").select("user_id, r2_key").eq("id", did).maybeSingle();
+    const d = doc as { user_id: string; r2_key: string | null } | null;
+    if (!d?.r2_key || !(await canActOnCandidate(scope.role, scope.email, d.user_id))) missing.push(did);
+  }
+  return { missing };
+}
+
 /** Compose an email as a Gmail DRAFT with its attachments resolved ONCE and
  *  baked in — the draft is the SINGLE source of truth. The confirm step sends
  *  THIS draft as-is (writeSendDraft); "show me the attached files" reads THIS

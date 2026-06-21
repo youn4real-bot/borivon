@@ -286,6 +286,25 @@ export function nextOccurrence(fromIso: string, recurrence: Recurrence): Date | 
   return instantAt(y, m, d, hh, mm);
 }
 
+/**
+ * The next firing instant STRICTLY in the future. On Vercel HOBBY a daily/weekly
+ * reminder can sit days overdue (no sub-daily cron) — advancing only +1 period could
+ * still land in the past, so it would re-fire on the very next inbound message and
+ * spam the founder. This skips forward period-by-period until the slot is actually
+ * ahead of `now`. Returns null for a non-recurring reminder or bad input. The guard
+ * caps the skip (a stuck clock can't loop forever).
+ */
+export function nextFutureOccurrence(fromIso: string, recurrence: Recurrence, now: Date = new Date()): Date | null {
+  // Guard the recurrence explicitly: nextOccurrence treats any non-daily/weekly value as
+  // monthly (its else branch), so a blank/garbage recurrence must NOT be re-armed here.
+  if (recurrence !== "daily" && recurrence !== "weekly" && recurrence !== "monthly") return null;
+  let next = nextOccurrence(fromIso, recurrence);
+  for (let guard = 0; next && next.getTime() <= now.getTime() && guard < 400; guard++) {
+    next = nextOccurrence(next.toISOString(), recurrence);
+  }
+  return next;
+}
+
 /** Human "when" label in the founder's tz, e.g. "Thu 19 Jun, 3:00 PM". */
 export function fmtWhen(d: Date): string {
   return new Intl.DateTimeFormat("en-GB", {

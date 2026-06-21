@@ -24,7 +24,7 @@
  */
 import { getServiceSupabase } from "@/lib/supabase";
 import { tgSend } from "@/lib/telegram";
-import { nextOccurrence, type Recurrence } from "@/lib/reminderTime";
+import { nextFutureOccurrence, type Recurrence } from "@/lib/reminderTime";
 
 type DueRow = { id: string; text: string; due_at: string; recurrence?: string | null; remind_count?: number | null };
 
@@ -78,11 +78,8 @@ export async function fireDueReminders(chatId: string | number, ownerUserId?: st
     const rec = (r.recurrence || "").trim() as Recurrence | "";
     // Re-arm to the next FUTURE occurrence. On Hobby a daily reminder can sit days
     // overdue; advancing only +1 period could still be in the past → it would re-fire
-    // on the next message. Skip forward until the next slot is actually ahead of now.
-    let next = rec === "daily" || rec === "weekly" || rec === "monthly" ? nextOccurrence(r.due_at, rec) : null;
-    for (let guard = 0; next && next.getTime() <= Date.now() && guard < 400; guard++) {
-      next = nextOccurrence(next.toISOString(), rec as Recurrence);
-    }
+    // on the next message. nextFutureOccurrence skips forward until the slot is ahead of now.
+    const next = rec === "daily" || rec === "weekly" || rec === "monthly" ? nextFutureOccurrence(r.due_at, rec) : null;
     try {
       // MINIMALIST (founder's hard rule): a reminder ping is LITERALLY just the task — no
       // emoji, no "Reminder:" label, no "(repeats…)" suffix. Just what to do.
