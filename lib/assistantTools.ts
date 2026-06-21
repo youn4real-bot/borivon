@@ -837,7 +837,7 @@ export function buildAssistantTools(
       description:
         "Read the FOUNDER'S OWN Google Calendar (the one he actually looks at). USE for 'what's on my calendar', 'what do I have today/tomorrow/this week', 'any meetings Thursday', 'my schedule'. Optional from/to (local ISO) — default is today → +7 days. Optional query to filter by text. Returns upcoming events with times, location, Meet link, and attendees. Read-only, supreme-only. NOTE: this is the founder's PERSONAL Google Calendar — NOT listCalendarEvents (which is the portal's candidate-facing community events).",
       inputSchema: z.object({
-        from: z.string().max(40).optional().describe("start of window, local ISO e.g. 2026-06-18T00:00:00 (default: now)"),
+        from: z.string().max(40).optional().describe("start of window, local ISO e.g. 2026-06-18T00:00:00 (default: start of today, Casablanca)"),
         to: z.string().max(40).optional().describe("end of window (default: +7 days)"),
         query: z.string().max(120).optional(),
         max: z.number().int().min(1).max(50).default(25),
@@ -846,7 +846,14 @@ export function buildAssistantTools(
         if (scope.role !== "admin") return { error: "admin_only" };
         const res = await readWorkspaceCalendar({ from, to, query, max });
         if (!res.ok) return { error: res.error === "workspace_not_connected" ? "calendar_not_connected" : "calendar_read_failed" };
-        return { events: res.events };
+        // Add a deterministic Morocco-time `when` label per event (e.g. "Sun 21 Jun, 5:00 PM")
+        // so the bot narrates times consistently instead of converting raw ISO itself (Flash
+        // did this unreliably). All-day events get a date-only label.
+        const events = res.events.map((e) => ({
+          ...e,
+          when: e.allDay ? (e.start ? whenLabel(e.start).replace(/,?\s*\d{1,2}:\d{2}\s*[ap]m$/i, "") : "") : (e.start ? whenLabel(e.start) : ""),
+        }));
+        return { events };
       },
     }),
 
