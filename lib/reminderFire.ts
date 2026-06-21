@@ -24,7 +24,7 @@
  */
 import { getServiceSupabase } from "@/lib/supabase";
 import { tgSend } from "@/lib/telegram";
-import { nextOccurrence, fmtWhen, type Recurrence } from "@/lib/reminderTime";
+import { nextOccurrence, type Recurrence } from "@/lib/reminderTime";
 
 type DueRow = { id: string; text: string; due_at: string; recurrence?: string | null; remind_count?: number | null };
 
@@ -84,8 +84,9 @@ export async function fireDueReminders(chatId: string | number, ownerUserId?: st
       next = nextOccurrence(next.toISOString(), rec as Recurrence);
     }
     try {
-      const suffix = next ? `\n(repeats — next: ${fmtWhen(next)})` : "";
-      await tgSend(id, `⏰ Reminder: ${r.text}${suffix}`);
+      // MINIMALIST (founder's hard rule): a reminder ping is LITERALLY just the task — no
+      // emoji, no "Reminder:" label, no "(repeats…)" suffix. Just what to do.
+      await tgSend(id, r.text);
       fired++;
       // Recurring → re-arm the next occurrence (clear the claim, advance due_at) so it
       // keeps pinging until the founder marks it done.

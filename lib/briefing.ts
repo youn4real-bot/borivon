@@ -72,18 +72,17 @@ export async function computeBriefing(adminUserId: string | null): Promise<Brief
       .map((x) => ({ text: x.text, due: x.due, when: x.when, days: x.ms === null ? null : Math.round((x.ms - now) / DAY) }));
   }
 
-  const lines: string[] = ["🗓️ Borivon — what needs you today", ""];
+  // MINIMALIST (founder's hard rule): no emojis, no fluff — just what to do.
+  const lines: string[] = [];
   let count = 0;
 
   // ── YOUR dictated tasks lead — and BY DEFAULT they're the ONLY thing pushed. ──
   if (reminders.length) {
     count += reminders.length;
-    lines.push(`⏰ ${reminders.length} thing(s) you asked me to keep on top of:`);
     for (const r of reminders.slice(0, 12)) {
       const tag = r.days === null ? "" : r.days < 0 ? " (overdue)" : r.days === 0 ? " (today)" : ` (in ${r.days}d)`;
-      lines.push(`   • ${r.text}${tag}`);
+      lines.push(`- ${r.text}${tag}`);
     }
-    lines.push("");
   }
 
   // ── EXTRA auto-signals (passports / B2 / stuck / emails / batch / doc-review) ──
@@ -169,13 +168,9 @@ export async function computeBriefing(adminUserId: string | null): Promise<Brief
     }
   }
 
-  if (count === 0) {
-    lines.push(extrasOn
-      ? "✅ Nothing urgent — you're all caught up."
-      : "✅ Nothing on your list. (I only push the reminders YOU give me — say \"turn the briefing signals back on\" to also see passports, B2, stuck candidates & emails.)");
-  } else {
-    lines.push(`That's ${count} thing${count > 1 ? "s" : ""} that need you. Just tell me to act on any of them.`);
-  }
+  // MINIMALIST: no emojis, no chatter, no "want me to…". Just the list (above) or, when
+  // empty, one plain line.
+  if (count === 0) lines.push("Nothing on your list.");
 
   return { text: lines.join("\n").trim(), count };
 }
