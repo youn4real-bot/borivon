@@ -274,6 +274,41 @@ export function buildAssistantTools(
     return { status: "ok", candidate: matches[0] };
   }
 
+  // Resolve a MIXED list of attendee tokens (real emails AND/OR candidate/contact NAMES)
+  // into email addresses — so "invite Hajar and Zineb to a Meet" works in ONE call instead
+  // of the model having to chain searchCandidates→getCandidatePhone per person (Flash
+  // stalls on that). Order: literal email → candidate by name (account email) → saved
+  // contact. Reports ambiguous names + names with no email so the caller ASKS rather than
+  // inventing or silently dropping anyone.
+  async function resolveAttendeeEmails(tokens: string[]): Promise<{ emails: string[]; unresolved: string[]; ambiguous: string[] }> {
+    const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const ADDR = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
+    const emails: string[] = [];
+    const unresolved: string[] = [];
+    const ambiguous: string[] = [];
+    let roster: { userId: string; name: string }[] | null = null;
+    let contacts: { text: string }[] | null = null;
+    for (const raw of tokens) {
+      const t = (raw ?? "").trim();
+      if (!t) continue;
+      if (EMAIL.test(t)) { emails.push(t); continue; }
+      if (!roster) roster = await candidateRoster();
+      const pick = pickCandidate(roster, t);
+      if (pick.status === "ok") {
+        try { const { data: u } = await db.auth.admin.getUserById(pick.candidate.userId); const e = u?.user?.email; if (e) { emails.push(e); continue; } } catch { /* fall through to contacts */ }
+      } else if (pick.status === "ambiguous") { ambiguous.push(t); continue; }
+      if (!contacts) {
+        try { const { data } = await db.from("assistant_memory").select("text").eq("owner_user_id", scope.userId).eq("kind", "contact").limit(300); contacts = (data ?? []) as { text: string }[]; }
+        catch { contacts = []; }
+      }
+      const toks = t.toLowerCase().split(/\s+/).filter(Boolean);
+      let found = "";
+      for (const c of contacts) { const txt = c.text ?? ""; if (toks.every((tk) => txt.toLowerCase().includes(tk))) { const m = txt.match(ADDR); if (m) { found = m[0]; break; } } }
+      if (found) emails.push(found); else unresolved.push(t);
+    }
+    return { emails: [...new Set(emails.map((e) => e.toLowerCase()))], unresolved, ambiguous };
+  }
+
   return {
     searchCandidates: tool({
       description:
@@ -3468,9 +3503,9 @@ export function buildAssistantTools(
 
     sendCalendarInvite: tool({
       description:
-        "INVITE people to a meeting — creates a REAL event on the founder's Google Calendar with the attendees, so Google emails each a CLEAN RSVP invite (Yes/Maybe/No), provisions a real Google MEET link by default, and the event shows on the founder's own calendar (so it can later be listed/cancelled). NOTHING extra is sent — no email body, no signature, no footer; just the invite. Use for 'invite Anna to a meeting', 'google meet with X today 5pm', 'set up a call'. attendees = comma-separated EMAILs. startsAt = ISO datetime (local no-Z is fine, e.g. 2026-07-10T15:00:00 = Casablanca time); give endsAt OR durationMinutes (default 60). addMeet defaults TRUE (a Google Meet link) — pass false for an in-person meeting. It goes out AFTER you confirm. To CANCEL/REMOVE an invite later, use listMyCalendar to find it then cancelMyCalendarEvent (it un-invites the attendees too) — do NOT use method:cancel here. Supreme-admin only. (For a public candidate-facing community event, use createCalendarEvent.)",
+        "INVITE people to a meeting — creates a REAL event on the founder's Google Calendar with the attendees, so Google emails each a CLEAN RSVP invite (Yes/Maybe/No), provisions a real Google MEET link by default, and the event shows on the founder's own calendar (so it can later be listed/cancelled). NOTHING extra is sent — no email body, no signature, no footer; just the invite. Use for 'invite Anna to a meeting', 'google meet with X today 5pm', 'set up a call'. attendees = comma-separated EMAILs OR candidate/contact NAMES ('Hajar', 'Zineb Errichi') — the tool resolves each name to its email itself (so you DON'T need to look it up first). If a name is ambiguous or has no email on file it tells you, so just ask me — never invent an address. startsAt = ISO datetime (local no-Z is fine, e.g. 2026-07-10T15:00:00 = Casablanca time); give endsAt OR durationMinutes (default 60). addMeet defaults TRUE (a Google Meet link) — pass false for an in-person meeting. It goes out AFTER you confirm. To CANCEL/REMOVE an invite later, use listMyCalendar to find it then cancelMyCalendarEvent (it un-invites the attendees too) — do NOT use method:cancel here. Supreme-admin only. (For a public candidate-facing community event, use createCalendarEvent.)",
       inputSchema: z.object({
-        attendees: z.string().min(3).describe("comma-separated email addresses of the people to invite"),
+        attendees: z.string().min(2).describe("comma-separated EMAILs and/or candidate/contact NAMES to invite (names are resolved to emails automatically)"),
         title: z.string().min(1).max(200),
         startsAt: z.string().min(10).describe("ISO datetime; local no-Z = Casablanca, e.g. 2026-07-10T15:00:00"),
         endsAt: z.string().optional().describe("ISO datetime; omit to use durationMinutes (or 60 min)"),
@@ -3483,15 +3518,19 @@ export function buildAssistantTools(
       }),
       execute: async (args) => {
         if (scope.role !== "admin") return { error: "admin_only" };
-        const emails = args.attendees.split(",").map((s) => s.trim()).filter(Boolean);
-        const bad = emails.find((e) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e));
-        if (bad) return { error: `bad_attendee:${bad}` };
-        if (!emails.length) return { error: "no_attendees" };
         if (Number.isNaN(new Date(args.startsAt).getTime())) return { error: "bad_start_time" };
+        // Resolve names → emails (so "invite Hajar and Zineb" works in one call).
+        const tokens = String(args.attendees ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+        const { emails, unresolved, ambiguous } = await resolveAttendeeEmails(tokens);
+        if (ambiguous.length) return { error: "ambiguous_attendee", ambiguous, hint: "More than one person matches — tell me which (or give the email)." };
+        if (unresolved.length) return { error: "no_email_on_file", unresolved, hint: "I don't have an email for these — give me their address." };
+        if (!emails.length) return { error: "no_attendees" };
         const verb = args.method === "cancel" ? "Cancel meeting" : "Calendar invite";
+        // Stage with the RESOLVED emails (not the raw names) so the confirm + the actual send use real addresses.
+        const staged = { ...args, attendees: emails.join(", ") };
         return stagePending(scope, {
           toolName: "sendCalendarInvite",
-          args,
+          args: staged,
           candidateUserId: null,
           // Show the REAL date+weekday in Morocco time (not a raw ISO) so a wrong day/time
           // is obvious BEFORE the founder confirms — the model sometimes mis-computes it.

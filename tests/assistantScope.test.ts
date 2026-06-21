@@ -664,8 +664,8 @@ describe("assistant tools allow the supreme admin", () => {
     expect(ok.staged).toBe(true);
     expect(ok.summary).toContain("Interview Ismail");
     expect(ok.summary).toContain("anna@klinik.de");
-    // bad attendee email → clear error, nothing staged.
-    expect(await run(buildAssistantTools(SUPREME), "sendCalendarInvite", { attendees: "not-an-email", title: "x", startsAt: "2026-07-10T10:00:00Z" })).toEqual({ error: "bad_attendee:not-an-email" });
+    // unresolvable attendee (not an email, not a known name) → asks for the address, nothing staged.
+    expect(await run(buildAssistantTools(SUPREME), "sendCalendarInvite", { attendees: "not-an-email", title: "x", startsAt: "2026-07-10T10:00:00Z" })).toMatchObject({ error: "no_email_on_file", unresolved: ["not-an-email"] });
     // bad start time → error.
     expect(await run(buildAssistantTools(SUPREME), "sendCalendarInvite", { attendees: "a@b.com", title: "x", startsAt: "not-a-date" })).toEqual({ error: "bad_start_time" });
     // a sub-admin can't send invites (supreme-only).
