@@ -682,7 +682,9 @@ async function writeCalendarInvite(opts: {
     sendUpdates: "all",
     recurrence: opts.recurrence,
   });
-  return r.ok ? { ok: true } : { ok: false, error: r.error };
+  // Surface the Google Meet join link in the confirm/Done line (applyPendingRow appends
+  // result.info) so the founder can grab/share it without opening his calendar.
+  return r.ok ? { ok: true, info: r.meetLink ? `📹 Google Meet: ${r.meetLink}` : undefined } : { ok: false, error: r.error };
 }
 
 /** Reply to an email IN-THREAD via the native Gmail API — reads the original for
