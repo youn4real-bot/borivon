@@ -149,6 +149,7 @@ export type CalEvent = {
   location?: string;
   meetLink?: string;
   attendees: { email: string; responseStatus?: string }[];
+  recurringEventId?: string;   // present on an instance of a REPEATING series → the parent id
 };
 
 /** READ the founder's own Google Calendar (primary). Defaults to now → +7 days.
@@ -182,6 +183,7 @@ export async function readWorkspaceCalendar(opts: { from?: string; to?: string; 
       location: e.location ?? undefined,
       meetLink: e.hangoutLink ?? e.conferenceData?.entryPoints?.find((p) => p.entryPointType === "video")?.uri ?? undefined,
       attendees: (e.attendees ?? []).map((a) => ({ email: a.email ?? "", responseStatus: a.responseStatus ?? undefined })).filter((a) => a.email),
+      recurringEventId: e.recurringEventId ?? undefined,
     }));
     return { ok: true, events };
   } catch (e) {
@@ -247,14 +249,20 @@ export async function updateWorkspaceEvent(opts: {
   }
 }
 
-/** Delete an event from the founder's own Google Calendar by its Google event id. */
-export async function cancelWorkspaceEvent(eventId: string): Promise<{ ok: boolean; error?: string }> {
+/** Delete an event from the founder's own Google Calendar by its Google event id. When
+ *  `wholeSeries` is set, first look up the instance's parent recurring series and delete
+ *  THAT, so a "cancel the whole standup" removes every occurrence, not just one. */
+export async function cancelWorkspaceEvent(eventId: string, wholeSeries?: boolean): Promise<{ ok: boolean; error?: string }> {
   const cal = calendarClient();
   if (!cal) return { ok: false, error: "workspace_not_connected" };
   try {
+    let target = eventId;
+    if (wholeSeries) {
+      try { const cur = await cal.events.get({ calendarId: "primary", eventId }); if (cur.data.recurringEventId) target = cur.data.recurringEventId; } catch { /* fall back to the single event */ }
+    }
     // sendUpdates:'all' → if the event had attendees (an invite), Google emails them the
     // cancellation too, so "remove the invite" actually un-invites them.
-    await cal.events.delete({ calendarId: "primary", eventId, sendUpdates: "all" });
+    await cal.events.delete({ calendarId: "primary", eventId: target, sendUpdates: "all" });
     return { ok: true };
   } catch (e) {
     const code = (e as { code?: number })?.code;

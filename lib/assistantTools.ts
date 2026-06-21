@@ -1259,13 +1259,16 @@ export function buildAssistantTools(
 
     cancelMyCalendarEvent: tool({
       description:
-        "Cancel / delete an event from the founder's OWN Google Calendar by its eventId (get it from listMyCalendar). USE for 'cancel my call with Anna Thursday', 'delete that meeting', 'remove the 3pm'. Applies immediately. Supreme-only. NOTE: this is the founder's PERSONAL Google Calendar — NOT deleteCalendarEvent (which removes a portal community event for candidates).",
-      inputSchema: z.object({ eventId: z.string().min(1).max(1024) }),
-      execute: async ({ eventId }) => {
+        "Cancel / delete an event from the founder's OWN Google Calendar by its eventId (get it from listMyCalendar). USE for 'cancel my call with Anna Thursday', 'delete that meeting', 'remove the 3pm'. It also emails any attendees the cancellation. For a REPEATING event, this removes just THAT occurrence; pass wholeSeries:true to cancel the ENTIRE series (use it when I say 'cancel the whole standup' / 'stop the weekly check-in' — listMyCalendar marks repeating events with recurringEventId). Applies immediately. Supreme-only. NOTE: founder's PERSONAL calendar — NOT deleteCalendarEvent (portal community events).",
+      inputSchema: z.object({
+        eventId: z.string().min(1).max(1024),
+        wholeSeries: z.boolean().optional().describe("true → cancel the ENTIRE recurring series, not just this one occurrence"),
+      }),
+      execute: async ({ eventId, wholeSeries }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
-        const r = await cancelWorkspaceEvent(eventId);
+        const r = await cancelWorkspaceEvent(eventId, wholeSeries);
         if (!r.ok) return { error: r.error === "workspace_not_connected" ? "calendar_not_connected" : (r.error ?? "cancel_failed") };
-        return { cancelled: true };
+        return { cancelled: true, scope: wholeSeries ? "whole_series" : "single_occurrence" };
       },
     }),
 
