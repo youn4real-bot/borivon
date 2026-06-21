@@ -1285,7 +1285,9 @@ export function buildAssistantTools(
           const code = (error as { code?: string }).code ?? "";
           const msg = (error as { message?: string }).message ?? "";
           const missing = code === "42703" || code === "PGRST204" || /column .* does not exist|schema cache/i.test(msg);
-          return { error: missing ? "test_flag_not_set_up" : "update_failed" };
+          return missing
+            ? { error: "test_flag_not_set_up", hint: "Run supabase/candidate_test_account.sql in the Supabase SQL editor first, then try again." }
+            : { error: "update_failed" };
         }
         return { ok: true, name, isTest };
       },

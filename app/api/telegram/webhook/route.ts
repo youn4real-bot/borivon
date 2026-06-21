@@ -27,6 +27,7 @@ import { loadConversationContext, saveChatTurns, maybeCompact, resetConversation
 import { executeLatestPending, cancelLatestPending, autoApplyPending, getPendingDraft } from "@/lib/assistantWrites";
 import { isConfirmText, isCancelText, isResetText, isShowFilesText, isMuteDocReminders, isUnmuteDocReminders, isMinimalReminders, isBriefingSignalsOn, isSetReminder, parseReminderText, looksLikeDone, isSetRule, parseRuleText } from "@/lib/confirmIntent";
 import { createReminder, resolveDoneReminders } from "@/lib/reminderAuto";
+import { checkPendingMigrations } from "@/lib/migrationCheck";
 import { parseReminderTime } from "@/lib/reminderTime";
 import { fireDueReminders } from "@/lib/reminderFire";
 import { listDraftAttachments } from "@/lib/gmailApi";
@@ -120,6 +121,9 @@ const TG_SYSTEM = [
 
 const ok = () => new Response("ok");
 
+// Once-per-cold-start guard for the pending-migration heads-up (so it can't nag per message).
+let migrationCheckRan = false;
+
 // PROMPT CACHING (Claude): attach ONE Anthropic cache breakpoint to the LAST tool.
 // Tools render first (before system + messages), so this single breakpoint caches
 // the ENTIRE ~90-tool schema block (~8K tokens) — billed ~0.1x on every reuse: each
@@ -165,6 +169,20 @@ export async function POST(req: NextRequest) {
     return ok();
   }
   if (String(chatId) !== allowed) return ok(); // stranger → silently ignore
+
+  // PENDING-MIGRATION heads-up: a feature can sit silently DEAD on a migration the founder
+  // forgot to run (e.g. test-account marking). Once per cold start, probe the gates and, if
+  // any are unrun, send ONE concise line naming the exact .sql files — so a broken feature
+  // surfaces itself instead of the founder being the bug-finder. Fire-and-forget, never blocks.
+  if (!migrationCheckRan) {
+    migrationCheckRan = true;
+    void checkPendingMigrations().then((missing) => {
+      if (missing.length) {
+        const lines = missing.map((m) => `- ${m.feature} → run supabase/${m.file}`).join("\n");
+        void tgSend(chatId, `Heads up — these features need a 1-min SQL run in Supabase to work:\n${lines}`);
+      }
+    }).catch(() => {});
+  }
 
   // DEDUPE: Telegram RE-SENDS an update if our webhook is slow to 2xx (a heavy
   // multi-tool turn can run long), which caused DOUBLE replies. Claim this update_id
