@@ -646,7 +646,8 @@ async function writeExternalEmail(
  *  is the founder; rides the existing Gmail App Password (no Google OAuth). */
 async function writeCalendarInvite(opts: {
   attendees: string[]; title: string; startsAt: string; endsAt?: string;
-  durationMinutes?: number; location?: string; description?: string; addMeet?: boolean; method?: "REQUEST" | "CANCEL";
+  durationMinutes?: number; location?: string; description?: string; addMeet?: boolean;
+  recurrence?: "daily" | "weekly" | "monthly"; method?: "REQUEST" | "CANCEL";
 }): Promise<WriteResult> {
   const emails = opts.attendees.map((e) => e.trim()).filter(Boolean);
   const bad = emails.find((e) => !EMAIL_RE.test(e));
@@ -677,6 +678,7 @@ async function writeCalendarInvite(opts: {
     addMeet: opts.addMeet !== false,
     attendees: emails,
     sendUpdates: "all",
+    recurrence: opts.recurrence,
   });
   return r.ok ? { ok: true } : { ok: false, error: r.error };
 }
@@ -1703,6 +1705,7 @@ async function applyPendingRow(
       location: a.location == null ? undefined : String(a.location),
       description: a.description == null ? undefined : String(a.description),
       addMeet: a.addMeet === false ? false : true, // invites default to a Google Meet link
+      recurrence: a.recurrence === "daily" || a.recurrence === "weekly" || a.recurrence === "monthly" ? a.recurrence : undefined,
       method: a.method === "cancel" ? "CANCEL" : "REQUEST",
     });
   } else if (row.tool_name === "generateAndPublishCv") {

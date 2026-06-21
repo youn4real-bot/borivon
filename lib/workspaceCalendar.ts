@@ -224,6 +224,9 @@ export async function updateWorkspaceEvent(opts: {
       calendarId: "primary",
       eventId: opts.eventId,
       ...(opts.addMeet ? { conferenceDataVersion: 1 } : {}),
+      // 'all' → if the event has attendees (an invite), moving/renaming it emails them the
+      // update too, so a reschedule actually reaches the guest. Harmless when no attendees.
+      sendUpdates: "all",
       requestBody,
     });
     const meetLink = res.data.hangoutLink || res.data.conferenceData?.entryPoints?.find((e) => e.entryPointType === "video")?.uri || undefined;

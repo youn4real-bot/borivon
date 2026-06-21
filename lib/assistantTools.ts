@@ -3462,6 +3462,7 @@ export function buildAssistantTools(
         location: z.string().max(300).optional().describe("a place or a video-call link"),
         description: z.string().max(2000).optional(),
         addMeet: z.boolean().optional().describe("attach a Google Meet link (default true); false for in-person"),
+        recurrence: z.enum(["daily", "weekly", "monthly"]).optional().describe("REPEATING invite, e.g. 'every Monday' → 'weekly' (startsAt = the first occurrence)"),
         method: z.enum(["request", "cancel"]).default("request").describe("always 'request'; to cancel use cancelMyCalendarEvent instead"),
       }),
       execute: async (args) => {
