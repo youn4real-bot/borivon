@@ -936,6 +936,28 @@ describe("assistant tools allow the supreme admin", () => {
     expect(r.summary?.toLowerCase()).toContain("attendees");
   });
 
+  it("sendCalendarInvite SOFT-FAILS — invites everyone who resolves and FLAGS the ones with no email (never aborts the whole invite)", async () => {
+    h.tables.candidate_profiles = { data: [], error: null };
+    h.authUsers = [];
+    const r = (await run(buildAssistantTools(SUPREME), "sendCalendarInvite", {
+      attendees: "anna@calmaroi.de, NobodyXyz", title: "Interview", startsAt: "2026-07-10T15:00:00",
+    })) as { staged?: boolean; summary?: string };
+    expect(r.staged).toBe(true);                      // staged for the one that resolved
+    expect(r.summary).toContain("anna@calmaroi.de");
+    expect(r.summary?.toLowerCase()).toContain("skipped");
+    expect(r.summary).toContain("NobodyXyz");         // the unresolved one is surfaced, not dropped
+  });
+
+  it("sendCalendarInvite still errors cleanly when NOBODY resolves (nothing to send)", async () => {
+    h.tables.candidate_profiles = { data: [], error: null };
+    h.authUsers = [];
+    const r = (await run(buildAssistantTools(SUPREME), "sendCalendarInvite", {
+      attendees: "NobodyXyz", title: "X", startsAt: "2026-07-10T15:00:00",
+    })) as { error?: string; staged?: boolean };
+    expect(r.staged).not.toBe(true);
+    expect(r.error).toBe("no_email_on_file");
+  });
+
   it("sendExternalEmail attaches CVs by NAME (resolves to real candidates; bad name → clear error, not a garbage id)", async () => {
     h.tables.candidate_profiles = { data: [
       { user_id: "11111111-1111-1111-1111-111111111111", first_name: "Ismail", last_name: "Louali" },

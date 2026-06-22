@@ -3591,9 +3591,14 @@ export function buildAssistantTools(
         // Resolve names → emails (so "invite Hajar and Zineb" works in one call).
         const tokens = String(args.attendees ?? "").split(",").map((s) => s.trim()).filter(Boolean);
         const { emails, unresolved, ambiguous } = await resolveAttendeeEmails(tokens);
-        if (ambiguous.length) return { error: "ambiguous_attendee", ambiguous, hint: "More than one person matches — tell me which (or give the email)." };
-        if (unresolved.length) return { error: "no_email_on_file", unresolved, hint: "I don't have an email for these — give me their address." };
-        if (!emails.length) return { error: "no_attendees" };
+        // SOFT-FAIL ('send this invite to all these people'): if SOME resolve, invite THEM and
+        // flag the rest — never abort the whole invite because one person has no email / is
+        // ambiguous. Only error when NOBODY resolved (nothing to send).
+        if (!emails.length) {
+          if (ambiguous.length) return { error: "ambiguous_attendee", ambiguous, hint: "More than one person matches — tell me which (or give the email)." };
+          return { error: "no_email_on_file", unresolved, hint: "I don't have an email for these — give me their address." };
+        }
+        const skipped = [...unresolved, ...ambiguous];
         const verb = "Calendar invite"; // 'cancel' is short-circuited above → only 'request' reaches here
         // Stage with the RESOLVED emails (not the raw names) so the confirm + the actual send use real addresses.
         const staged = { ...args, attendees: emails.join(", ") };
@@ -3602,8 +3607,9 @@ export function buildAssistantTools(
           args: staged,
           candidateUserId: null,
           // Show the REAL date+weekday in Morocco time (not a raw ISO) so a wrong day/time
-          // is obvious BEFORE the founder confirms — the model sometimes mis-computes it.
-          summary: `${verb}: "${args.title.slice(0, 80)}" → ${emails.join(", ")} on ${whenLabel(args.startsAt)}`,
+          // is obvious BEFORE the founder confirms; LIST anyone skipped (no email / ambiguous)
+          // right in the confirm so he can add them — never silently drop a person.
+          summary: `${verb}: "${args.title.slice(0, 80)}" → ${emails.join(", ")} on ${whenLabel(args.startsAt)}${skipped.length ? `\n⚠️ skipped (no email on file — give me their address to add): ${skipped.join(", ")}` : ""}`,
         });
       },
     }),

@@ -1535,15 +1535,46 @@ export async function getPendingDraft(ownerId: string): Promise<{ draftId: strin
  *  human-gated confirm. Returns [] when the latest pending isn't such a send / has no CV-doc. */
 export async function getPendingSendAttachments(scope: AssistantScope): Promise<OutboundAttachment[]> {
   if (!scope.userId) return [];
-  const row = await getLatestPending(scope.userId);
-  if (!row || (row.tool_name !== "sendExternalEmail" && row.tool_name !== "replyToEmail")) return [];
-  const a = (row.args ?? {}) as Record<string, unknown>;
+  const latest = await getLatestPending(scope.userId);
+  if (!latest) return [];
   const split = (v: unknown) => String(v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
-  const candidateIds = split(a.attachCandidateIds);
-  const docIds = split(a.attachDocIds);
-  if (!candidateIds.length && !docIds.length) return []; // fuzzy/chat/email attachments take the draft path
-  const { attachments } = await resolveOutboundAttachments(scope, { candidateIds, docIds });
-  return attachments;
+  // Gather EVERY send staged this same turn (same __stagedReq), not just the latest — when two
+  // emails are staged at once ("Hajar's CV to Anna AND Ali's CV to the recruiter"), the founder
+  // must review BOTH attachments before his one "yes", not only the last email's. Each file is
+  // labelled with its recipient so it's obvious which file goes to whom.
+  const stagedReq = (latest.args as Record<string, unknown> | null)?.__stagedReq ?? null;
+  let rows: PendingRow[] = [latest];
+  if (stagedReq) {
+    try {
+      const db = getServiceSupabase();
+      const { data } = await db
+        .from("assistant_pending_actions")
+        .select("id, tool_name, args, candidate_user_id, summary, expires_at")
+        .eq("owner_user_id", scope.userId).eq("status", "pending")
+        .order("created_at", { ascending: true });
+      const sameTurn = ((data ?? []) as PendingRow[]).filter((r) =>
+        ((r.args as Record<string, unknown> | null)?.__stagedReq ?? null) === stagedReq
+        && new Date(r.expires_at).getTime() >= Date.now());
+      if (sameTurn.length) rows = sameTurn;
+    } catch { /* fall back to just the latest */ }
+  }
+  const sends = rows.filter((r) => r.tool_name === "sendExternalEmail" || r.tool_name === "replyToEmail");
+  const multi = sends.length > 1;
+  const out: OutboundAttachment[] = [];
+  for (const row of sends) {
+    const a = (row.args ?? {}) as Record<string, unknown>;
+    const candidateIds = split(a.attachCandidateIds);
+    const docIds = split(a.attachDocIds);
+    if (!candidateIds.length && !docIds.length) continue; // fuzzy/chat/email attachments take the draft path
+    const { attachments } = await resolveOutboundAttachments(scope, { candidateIds, docIds });
+    const to = String(a.to ?? "").trim();
+    for (const att of attachments) {
+      // Label by recipient ONLY when several sends are being reviewed at once (cosmetic — the
+      // actual send re-resolves the real filename; this just helps the founder match file→person).
+      out.push(multi && to ? { filename: `[→ ${to}] ${att.filename}`, content: att.content } : att);
+    }
+  }
+  return out;
 }
 
 /** A stable "who/what this send targets" key — so a re-stage to the SAME recipient is a
