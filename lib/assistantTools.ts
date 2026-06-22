@@ -14,7 +14,7 @@ import { randomUUID } from "crypto";
 import { getServiceSupabase } from "@/lib/supabase";
 import { canActOnCandidate, getStaffEmailSet, resolveAuthNames } from "@/lib/admin-auth";
 import { resolveFileKey, translateDocLabel, FILE_KEY_LABELS } from "@/lib/fileKeys";
-import { readWorkspaceCalendar, updateWorkspaceEvent, cancelWorkspaceEvent } from "@/lib/workspaceCalendar";
+import { readWorkspaceCalendar, updateWorkspaceEvent, listEventsInWindow } from "@/lib/workspaceCalendar";
 import { computeWeeklyReport } from "@/lib/weeklyReport";
 import { specialtyLabel } from "@/lib/nurseSpecialties";
 import { signDlToken } from "@/lib/dlToken";
@@ -1259,16 +1259,51 @@ export function buildAssistantTools(
 
     cancelMyCalendarEvent: tool({
       description:
-        "Cancel / delete an event from the founder's OWN Google Calendar by its eventId (get it from listMyCalendar). USE for 'cancel my call with Anna Thursday', 'delete that meeting', 'remove the 3pm'. It also emails any attendees the cancellation. For a REPEATING event, this removes just THAT occurrence; pass wholeSeries:true to cancel the ENTIRE series (use it when I say 'cancel the whole standup' / 'stop the weekly check-in' — listMyCalendar marks repeating events with recurringEventId). Applies immediately. Supreme-only. NOTE: founder's PERSONAL calendar — NOT deleteCalendarEvent (portal community events).",
+        "Cancel ONE event on the founder's OWN Google Calendar by its eventId (from listMyCalendar). USE for 'cancel my call with Anna Thursday', 'delete that meeting', 'remove the 3pm'. STAGES it — cancelling deletes the event AND emails any attendees, so it waits for ONE 'yes' (the founder's guardrail), then applies. Pass eventTitle (what listMyCalendar showed) so the confirm line is clear. For a REPEATING event this removes just THAT occurrence; pass wholeSeries:true to cancel the ENTIRE series ('cancel the whole standup'). For 'cancel ALL events today / clear my afternoon / remove all invites today' DO NOT loop this — use cancelMyCalendarEventsInWindow. Supreme-only. NOTE: founder's PERSONAL calendar — NOT deleteCalendarEvent (portal community events).",
       inputSchema: z.object({
         eventId: z.string().min(1).max(1024),
+        eventTitle: z.string().max(300).optional().describe("the event's title (from listMyCalendar) — shown in the confirm line"),
         wholeSeries: z.boolean().optional().describe("true → cancel the ENTIRE recurring series, not just this one occurrence"),
       }),
-      execute: async ({ eventId, wholeSeries }) => {
+      execute: async ({ eventId, eventTitle, wholeSeries }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
-        const r = await cancelWorkspaceEvent(eventId, wholeSeries);
-        if (!r.ok) return { error: r.error === "workspace_not_connected" ? "calendar_not_connected" : (r.error ?? "cancel_failed") };
-        return { cancelled: true, scope: wholeSeries ? "whole_series" : "single_occurrence" };
+        const label = (eventTitle || "").trim();
+        return stagePending(scope, {
+          toolName: "cancelMyCalendarEvent",
+          args: { eventId, wholeSeries: wholeSeries === true },
+          candidateUserId: null,
+          summary: `Cancel ${label ? `"${label.slice(0, 80)}"` : "this event"}${wholeSeries ? " (the WHOLE repeating series)" : ""} — also emails any attendees the cancellation`,
+        });
+      },
+    }),
+
+    cancelMyCalendarEventsInWindow: tool({
+      description:
+        "Cancel EVERY event on the founder's OWN Google Calendar within a time window — THE tool for 'cancel all my events today', 'clear my afternoon', 'remove all invites today', 'wipe tomorrow'. It lists the window server-side (every event, not just the first page) and STAGES the whole batch: the founder sees the count + titles and ONE 'yes' cancels them all (each also emails its attendees). NEVER loop cancelMyCalendarEvent for a bulk request — use this. Supreme-only.",
+      inputSchema: z.object({
+        from: z.string().max(40).describe("window start, LOCAL wall-clock ISO no Z (e.g. today = 2026-06-22T00:00:00)"),
+        to: z.string().max(40).describe("window end, LOCAL wall-clock ISO no Z (e.g. today = 2026-06-22T23:59:59)"),
+        query: z.string().max(120).optional().describe("only cancel events whose title matches this text"),
+        onlyInvites: z.boolean().optional().describe("true → only events that HAVE attendees ('remove all invites')"),
+        excludeAllDay: z.boolean().optional().describe("true → skip all-day blocks"),
+      }),
+      execute: async ({ from, to, query, onlyInvites, excludeAllDay }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const res = await listEventsInWindow({ from, to, query });
+        if (!res.ok) return { error: res.error === "workspace_not_connected" ? "calendar_not_connected" : "calendar_read_failed" };
+        let evs = res.events;
+        if (onlyInvites) evs = evs.filter((e) => e.hasAttendees);
+        if (excludeAllDay) evs = evs.filter((e) => !e.allDay);
+        if (!evs.length) return { nothing: true, note: "No matching events in that window." };
+        const eventIds = evs.map((e) => e.eventId);
+        const titles = evs.map((e) => e.title);
+        const shown = titles.slice(0, 10).join(", ") + (titles.length > 10 ? `, +${titles.length - 10} more` : "");
+        return stagePending(scope, {
+          toolName: "cancelMyCalendarEventsInWindow",
+          args: { eventIds, titles },
+          candidateUserId: null,
+          summary: `Cancel ${eventIds.length} event(s)${onlyInvites ? " with invites" : ""}: ${shown} — each also emails its attendees the cancellation`,
+        });
       },
     }),
 

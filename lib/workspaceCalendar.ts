@@ -248,6 +248,44 @@ export async function listTodayEvents(): Promise<{ time: string; title: string; 
   }
 }
 
+/** EVERY event in a window (paginated, NO 50-cap) — the server-side basis for bulk ops like
+ *  "cancel all events today". Returns id + title + start + whether it has attendees (so
+ *  "remove all INVITES" can target only events with guests). Fail-safe → {ok:false}. */
+export async function listEventsInWindow(opts: { from: string; to: string; query?: string }): Promise<
+  { ok: true; events: { eventId: string; title: string; start: string | null; allDay: boolean; hasAttendees: boolean; recurringEventId?: string }[] } | { ok: false; error: string }
+> {
+  const cal = calendarClient();
+  if (!cal) return { ok: false, error: "workspace_not_connected" };
+  const timeMin = localToInstant(opts.from).toISOString();
+  const timeMax = localToInstant(opts.to).toISOString();
+  try {
+    const out: { eventId: string; title: string; start: string | null; allDay: boolean; hasAttendees: boolean; recurringEventId?: string }[] = [];
+    let pageToken: string | undefined;
+    for (let page = 0; page < 20; page++) { // hard guard: ≤20 pages (×250 = 5000 events)
+      const res: { data: calendar_v3.Schema$Events } = await cal.events.list({
+        calendarId: "primary", timeMin, timeMax, singleEvents: true, orderBy: "startTime",
+        maxResults: 250, q: (opts.query ?? "").trim() || undefined, timeZone: BORIVON_TZ, pageToken,
+      });
+      for (const e of res.data.items ?? []) {
+        out.push({
+          eventId: e.id ?? "",
+          title: e.summary ?? "(no title)",
+          start: e.start?.dateTime ?? e.start?.date ?? null,
+          allDay: !e.start?.dateTime,
+          hasAttendees: (e.attendees ?? []).some((a) => a.email),
+          recurringEventId: e.recurringEventId ?? undefined,
+        });
+      }
+      pageToken = res.data.nextPageToken ?? undefined;
+      if (!pageToken) break;
+    }
+    return { ok: true, events: out.filter((e) => e.eventId) };
+  } catch (e) {
+    console.error("[workspaceCalendar] listEventsInWindow failed:", e instanceof Error ? e.message : e);
+    return { ok: false, error: e instanceof Error ? e.message : "list_failed" };
+  }
+}
+
 /** Patch an existing event on the founder's own Google Calendar (reschedule / rename
  *  / add a Meet link). Only the provided fields change. If start moves with no new
  *  end, the end shifts to keep a 1h duration. */

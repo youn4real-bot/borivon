@@ -928,6 +928,14 @@ describe("assistant tools allow the supreme admin", () => {
     expect(r.summary).toContain("DELETE");
   });
 
+  it("cancelMyCalendarEvent STAGES (confirm-gated) instead of firing immediately — a cancel deletes + emails attendees", async () => {
+    const r = (await run(buildAssistantTools(SUPREME), "cancelMyCalendarEvent", { eventId: "ev_abc123", eventTitle: "Call with Anna" })) as { staged?: boolean; summary?: string; cancelled?: boolean };
+    expect(r.staged).toBe(true);          // staged, NOT applied immediately
+    expect(r.cancelled).toBeUndefined();  // the old immediate {cancelled:true} is gone
+    expect(r.summary).toContain("Call with Anna");
+    expect(r.summary?.toLowerCase()).toContain("attendees");
+  });
+
   it("sendExternalEmail attaches CVs by NAME (resolves to real candidates; bad name → clear error, not a garbage id)", async () => {
     h.tables.candidate_profiles = { data: [
       { user_id: "11111111-1111-1111-1111-111111111111", first_name: "Ismail", last_name: "Louali" },

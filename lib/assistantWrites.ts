@@ -21,7 +21,7 @@ import { applyDocReview, applyCandidateProfilePatch } from "@/lib/adminCandidate
 import { backfillPassportFromCvDraft } from "@/lib/cvDraftBackfill";
 import { sendOutboundEmail, OUTBOUND_FROM_NAME, OUTBOUND_FROM_EMAIL, OUTBOUND_SIGNATURE_HTML, OUTBOUND_SIGNATURE_TEXT, type OutboundAttachment } from "@/lib/outboundEmail";
 import { gmailGet, gmailSearch, gmailSendRaw, gmailCreateDraft, gmailSendDraft, listEmailAttachments, getEmailAttachmentBytes, buildForwardQuote } from "@/lib/gmailApi";
-import { bookWorkspaceEvent, localToInstant } from "@/lib/workspaceCalendar";
+import { bookWorkspaceEvent, cancelWorkspaceEvent, localToInstant } from "@/lib/workspaceCalendar";
 import { reportError } from "@/lib/reportError";
 import { recordSentForFollowup } from "@/lib/followups";
 import { recentChatUploadAttachments } from "@/lib/chatUploads";
@@ -1648,14 +1648,13 @@ export async function executeLatestPending(
   const row = await getLatestPending(scope.userId);
   if (!row) return { error: "nothing_pending" };
   const first = await applyPendingRow(scope, row, opts);
-  // MULTI-SEND CONFIRM: a single turn can stage several sends ("email Anna AND Bob",
-  // "message all 4"), but the founder is shown ONE "👉 Send it?". His one "yes" must apply
-  // EVERY send staged in that SAME turn (matched by __stagedReq) — otherwise the unshown
-  // siblings either get dropped, or worse, stay armed and fire later off an UNRELATED "yes"
-  // (the orphan-send bug). Non-send confirms (a single delete) are untouched — stagePending
-  // already keeps just one destructive pending row. findAwaitingConfirm lists all of them, so
-  // the prompt always matches what the yes sends.
-  if (!("done" in first) || !SEND_TOOLS.has(row.tool_name)) return first;
+  // BATCH CONFIRM: a single turn can stage several sends / calendar-cancels ("email Anna AND
+  // Bob", "message all 4", "cancel my 3pm AND email Anna it moved"), but the founder is shown
+  // ONE "👉 …?". His one "yes" must apply EVERY batch-confirm action staged in that SAME turn
+  // (matched by __stagedReq) — otherwise the unshown siblings get dropped, or worse stay armed
+  // to fire later off an UNRELATED "yes". A single delete is untouched (stagePending keeps one
+  // destructive row). findAwaitingConfirm lists all of them, so the prompt matches what fires.
+  if (!("done" in first) || !BATCH_CONFIRM_TOOLS.has(row.tool_name)) return first;
   const stagedReq = (row.args as Record<string, unknown> | null)?.__stagedReq ?? null;
   if (!stagedReq) return first;
   const summaries = [first.summary];
@@ -1667,7 +1666,7 @@ export async function executeLatestPending(
       .eq("owner_user_id", scope.userId).eq("status", "pending").neq("id", row.id)
       .order("created_at", { ascending: true });
     const siblings = ((data ?? []) as PendingRow[]).filter((r) =>
-      SEND_TOOLS.has(r.tool_name)
+      BATCH_CONFIRM_TOOLS.has(r.tool_name)
       && ((r.args as Record<string, unknown> | null)?.__stagedReq ?? null) === stagedReq
       && new Date(r.expires_at).getTime() >= Date.now(),
     );
@@ -1675,7 +1674,7 @@ export async function executeLatestPending(
       const r = await applyPendingRow(scope, s, opts);
       if ("done" in r) summaries.push(r.summary);
     }
-  } catch { /* best-effort — the primary send already applied */ }
+  } catch { /* best-effort — the primary action already applied */ }
   return { done: true, summary: summaries.join("; ") };
 }
 
@@ -1925,6 +1924,21 @@ async function applyPendingRow(
       recurrence: rec,
       durationMinutes: typeof a.durationMinutes === "number" ? a.durationMinutes : undefined,
     });
+  } else if (row.tool_name === "cancelMyCalendarEvent") {
+    // The founder's OWN Google Calendar — cancel + notify attendees, AFTER his "yes".
+    const r = await cancelWorkspaceEvent(String(a.eventId ?? ""), a.wholeSeries === true);
+    result = r.ok ? { ok: true } : { ok: false, error: r.error === "workspace_not_connected" ? "calendar_not_connected" : (r.error || "cancel_failed") };
+  } else if (row.tool_name === "cancelMyCalendarEventsInWindow") {
+    // BULK cancel — the exact event ids were resolved + shown in the confirm, so the "yes"
+    // cancels precisely what he saw (no drift). Loop server-side; report how many fell.
+    const ids = Array.isArray(a.eventIds) ? (a.eventIds as unknown[]).map((x) => String(x)).filter(Boolean) : [];
+    let cancelled = 0;
+    for (const id of ids) { const r = await cancelWorkspaceEvent(id); if (r.ok) cancelled++; }
+    result = ids.length === 0
+      ? { ok: true, info: "No events to cancel." }
+      : cancelled > 0
+        ? { ok: true, info: `Cancelled ${cancelled} of ${ids.length} event(s).` }
+        : { ok: false, error: "calendar_not_connected" };
   } else if (row.tool_name === "deleteCalendarEvent") {
     result = await writeDeleteCalendarEvent(String(a.eventId ?? ""));
   } else if (row.tool_name === "toggleStageLock") {
@@ -2002,7 +2016,18 @@ export const SEND_TOOLS = new Set<string>([
   "sendExternalEmail", "sendCandidateMessage", "sendFollowUpNudge", "nudgeStuckCandidates", "sendSlotRequest",
   "sendCalendarInvite", "replyToEmail", "forwardEmail", "sendDraft", "broadcastMessage",
 ]);
-const CONFIRM_TOOLS = new Set<string>([...DESTRUCTIVE_TOOLS, ...SEND_TOOLS]);
+// Cancelling a calendar event DELETES it AND emails every attendee a cancellation — an
+// irreversible outward action, exactly what the founder's one guardrail (deletes + sends wait
+// for an explicit "yes") is for. So a calendar cancel STAGES like a send: it waits for one
+// "yes", keeps sibling actions (so a compound "cancel my 3pm AND email Anna" applies both on
+// one yes, nothing half-done), and the bulk variant confirms the whole batch at once. It is
+// NOT in DESTRUCTIVE_TOOLS (that cancels all other pending — wrong for a compound) nor in
+// SEND_TOOLS (the prompt should read "Confirm?", not "Send it?").
+export const CALENDAR_CONFIRM_TOOLS = new Set<string>(["cancelMyCalendarEvent", "cancelMyCalendarEventsInWindow"]);
+const CONFIRM_TOOLS = new Set<string>([...DESTRUCTIVE_TOOLS, ...SEND_TOOLS, ...CALENDAR_CONFIRM_TOOLS]);
+// Actions that apply TOGETHER on one "yes" when staged in the same turn (sends + calendar
+// cancels) — so a compound command is all-or-nothing. A delete stays single (DESTRUCTIVE).
+const BATCH_CONFIRM_TOOLS = new Set<string>([...SEND_TOOLS, ...CALENDAR_CONFIRM_TOOLS]);
 
 export type AwaitingConfirm = { summary: string; isSend: boolean };
 export type AutoApplyResult =
@@ -2023,14 +2048,17 @@ async function findAwaitingConfirm(userId: string): Promise<AwaitingConfirm | nu
     .filter((r) => new Date(r.expires_at).getTime() >= Date.now());
   const c = rows.find((r) => CONFIRM_TOOLS.has(r.tool_name));
   if (!c) return null;
-  if (!SEND_TOOLS.has(c.tool_name)) return { summary: c.summary, isSend: false };
-  // The "yes" applies EVERY send staged in the same turn (executeLatestPending), so LIST them
-  // all here — never show one send's prompt while the yes silently fires others too.
+  // A single destructive delete (not a batch action) → just its own line.
+  if (!BATCH_CONFIRM_TOOLS.has(c.tool_name)) return { summary: c.summary, isSend: false };
+  // The "yes" applies EVERY batch-confirm action staged this turn (sends + calendar cancels),
+  // so LIST them all — never show one line while the yes silently fires others too.
   const stagedReq = (c.args as Record<string, unknown> | null)?.__stagedReq ?? null;
-  if (!stagedReq) return { summary: c.summary, isSend: true };
-  const sends = rows.filter((r) => SEND_TOOLS.has(r.tool_name) && ((r.args as Record<string, unknown> | null)?.__stagedReq ?? null) === stagedReq);
-  const summary = sends.length > 1 ? sends.slice().reverse().map((r) => r.summary).join("\n") : c.summary; // oldest→newest reading order
-  return { summary, isSend: true };
+  const batch = stagedReq
+    ? rows.filter((r) => BATCH_CONFIRM_TOOLS.has(r.tool_name) && ((r.args as Record<string, unknown> | null)?.__stagedReq ?? null) === stagedReq)
+    : [c];
+  const summary = batch.length > 1 ? batch.slice().reverse().map((r) => r.summary).join("\n") : c.summary; // oldest→newest reading order
+  // "Send it?" when the batch includes a real send; "Confirm?" for a calendar-cancel-only batch.
+  return { summary, isSend: batch.some((r) => SEND_TOOLS.has(r.tool_name)) };
 }
 
 /**
