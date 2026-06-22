@@ -20,6 +20,19 @@ describe("isCancelText — plain negations", () => {
   for (const t of ["", "yes", "no wait actually send it to a different person entirely please"]) {
     it(`does NOT cancel: "${t}"`, () => expect(isCancelText(t)).toBe(false));
   }
+  // COMPOUND corrections carry a NEW instruction — must NOT be swallowed as a bare cancel
+  // (else the new action silently vanishes). They go to the model, which cancels + re-does.
+  for (const t of [
+    "cancel that and email omar@x.com instead",
+    "cancel that and email Omar instead",
+    "no, send it to anna@klinik.de instead",
+    "stop, then send it to the recruiter",
+    "cancel the dentist event and book it for Friday",
+    "abbrechen und schick es an Omar",
+    "annule et envoie-le à Anna",
+  ]) {
+    it(`does NOT cancel (compound correction): "${t}"`, () => expect(isCancelText(t)).toBe(false));
+  }
 });
 
 describe("isResetText — only a bare 'new chat' command (must NEVER wipe context by accident)", () => {

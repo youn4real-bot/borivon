@@ -368,6 +368,25 @@ export async function POST(req: NextRequest) {
   // bytes. The model is NEVER involved, so it cannot fake / narrate / lie about
   // what's attached — what you get is exactly what's on the draft = what will send.
   if (text && !(msg.photo && msg.photo.length) && !msg.document && isShowFilesText(text)) {
+    // PRIMARY path: pull the REAL bytes of EVERY file on EVERY send staged this turn — CV/doc
+    // emails, replies, FORWARDS, and queued drafts, including a MIXED batch. Bytes come straight
+    // off the pending action (not the model), so what the founder sees is exactly what sends.
+    const liveAtts = await getPendingSendAttachments(scope);
+    if (liveAtts.length > 0) {
+      let sent = 0;
+      const failed: string[] = [];
+      for (const a of liveAtts.slice(0, 30)) {
+        void tgSendChatAction(chatId, "upload_document");
+        try {
+          if (await tgSendDocument(chatId, a.content, a.filename || "attachment")) { sent++; continue; }
+          failed.push(a.filename || "attachment");
+        } catch { failed.push(a.filename || "attachment"); }
+      }
+      const note = `📎 These are the EXACT files that will go out (${sent}/${liveAtts.length} delivered${failed.length ? ` — couldn't pull: ${failed.slice(0, 6).join(", ")}` : ""}). This is precisely what gets sent. Reply "yes" to send as-is, or "no" to cancel.`;
+      await tgSend(chatId, note);
+      await saveChatTurns(scope.userId, [{ role: "user", content: text }, { role: "assistant", content: "[delivered the pending send's real attachments; awaiting yes/no]" }]);
+      return ok();
+    }
     const pend = await getPendingDraft(scope.userId);
     if (pend) {
       const got = await listDraftAttachments(pend.draftId);

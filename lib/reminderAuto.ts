@@ -28,7 +28,7 @@ const TOKEN_STOP = new Set([
   "taken", "mark", "marked", "cross", "clear", "clearing", "cleared", "wipe", "whole",
   "already", "just", "today", "yesterday", "tonight",
   "thing", "things", "stuff", "task", "tasks", "todo", "todos", "reminder", "reminders",
-  "remind", "list", "lists", "everything", "please", "thanks", "thank",
+  "remind", "list", "lists", "everything", "both", "beide", "deux", "please", "thanks", "thank",
   "yeah", "yep", "yup", "okay", "sure", "cool", "great", "nice", "good", "fine",
   // EN pronouns / fillers (>=4 chars; shorter ones drop via the length filter)
   "that", "this", "these", "those", "them", "they", "their", "with", "about", "from",

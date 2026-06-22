@@ -20,7 +20,7 @@ import { FILE_KEY_LABELS } from "@/lib/fileKeys";
 import { applyDocReview, applyCandidateProfilePatch } from "@/lib/adminCandidateActions";
 import { backfillPassportFromCvDraft } from "@/lib/cvDraftBackfill";
 import { sendOutboundEmail, OUTBOUND_FROM_NAME, OUTBOUND_FROM_EMAIL, OUTBOUND_SIGNATURE_HTML, OUTBOUND_SIGNATURE_TEXT, type OutboundAttachment } from "@/lib/outboundEmail";
-import { gmailGet, gmailSearch, gmailSendRaw, gmailCreateDraft, gmailSendDraft, listEmailAttachments, getEmailAttachmentBytes, buildForwardQuote } from "@/lib/gmailApi";
+import { gmailGet, gmailSearch, gmailSendRaw, gmailCreateDraft, gmailSendDraft, listEmailAttachments, getEmailAttachmentBytes, listDraftAttachments, buildForwardQuote } from "@/lib/gmailApi";
 import { bookWorkspaceEvent, cancelWorkspaceEvent, localToInstant } from "@/lib/workspaceCalendar";
 import { reportError } from "@/lib/reportError";
 import { recordSentForFollowup } from "@/lib/followups";
@@ -1330,6 +1330,16 @@ async function writeDeleteCalendarEvent(eventId: string): Promise<WriteResult> {
  *  delegation) — the calendar they actually look at. Distinct from the portal
  *  community calendar above. */
 async function writeBookCalendarEvent(opts: { title: string; startsAt: string; endsAt?: string; description?: string; location?: string; addMeet?: boolean; recurrence?: "daily" | "weekly" | "monthly"; durationMinutes?: number }): Promise<WriteResult> {
+  // Validate the times BEFORE hitting Google — a titleless or backwards-timed event
+  // (end before start) would otherwise fail deep in the API with an opaque error and
+  // read as "the bot is broken". Catch it here with a clear, fixable message.
+  if (!opts.title?.trim()) return { ok: false, error: "title_required" };
+  const startMs = Date.parse(opts.startsAt);
+  if (!Number.isFinite(startMs)) return { ok: false, error: "bad_start" };
+  if (opts.endsAt) {
+    const endMs = Date.parse(opts.endsAt);
+    if (Number.isFinite(endMs) && endMs <= startMs) return { ok: false, error: "end_before_start" };
+  }
   const r = await bookWorkspaceEvent(opts);
   if (!r.ok) {
     // Surface the real reason: not connected vs a genuine API failure.
@@ -1558,21 +1568,43 @@ export async function getPendingSendAttachments(scope: AssistantScope): Promise<
       if (sameTurn.length) rows = sameTurn;
     } catch { /* fall back to just the latest */ }
   }
-  const sends = rows.filter((r) => r.tool_name === "sendExternalEmail" || r.tool_name === "replyToEmail");
+  // EVERY send kind that carries files: direct emails + replies + forwards (CV/doc/forwarded-
+  // attachment/chat-file) AND queued Gmail drafts. The founder's rule is to SEE the real bytes
+  // before his one "yes" on ANY of them — including a MIXED batch (a CV email + a forward + a
+  // draft staged together).
+  const sends = rows.filter((r) =>
+    r.tool_name === "sendExternalEmail" || r.tool_name === "replyToEmail"
+    || r.tool_name === "forwardEmail" || r.tool_name === "sendDraft");
   const multi = sends.length > 1;
   const out: OutboundAttachment[] = [];
   for (const row of sends) {
     const a = (row.args ?? {}) as Record<string, unknown>;
+    const to = String(a.to ?? "").trim();
+    const label = (att: OutboundAttachment): OutboundAttachment =>
+      // Label by recipient ONLY when several sends are reviewed at once (cosmetic — the actual
+      // send re-resolves the real filename; this just helps match file→person).
+      multi && to ? { filename: `[→ ${to}] ${att.filename}`, content: att.content } : att;
+    if (row.tool_name === "sendDraft") {
+      // Draft attachments live on the Gmail draft — pull the real bytes off it.
+      const draftId = String(a.draftId ?? "");
+      if (!draftId) continue;
+      try {
+        const meta = await listDraftAttachments(draftId);
+        if (!meta?.messageId) continue;
+        for (const att of meta.attachments.slice(0, 25)) {
+          const bytes = await getEmailAttachmentBytes(meta.messageId, att.attachmentId);
+          if (bytes?.length) out.push(label({ filename: att.filename || "attachment", content: bytes }));
+        }
+      } catch { /* skip this draft's files on error — never block the others */ }
+      continue;
+    }
     const candidateIds = split(a.attachCandidateIds);
     const docIds = split(a.attachDocIds);
-    if (!candidateIds.length && !docIds.length) continue; // fuzzy/chat/email attachments take the draft path
-    const { attachments } = await resolveOutboundAttachments(scope, { candidateIds, docIds });
-    const to = String(a.to ?? "").trim();
-    for (const att of attachments) {
-      // Label by recipient ONLY when several sends are being reviewed at once (cosmetic — the
-      // actual send re-resolves the real filename; this just helps the founder match file→person).
-      out.push(multi && to ? { filename: `[→ ${to}] ${att.filename}`, content: att.content } : att);
-    }
+    const attachFromEmailIds = split(a.attachFromEmailIds);
+    const chatFiles = a.attachChatFiles === true;
+    if (!candidateIds.length && !docIds.length && !attachFromEmailIds.length && !chatFiles) continue;
+    const { attachments } = await resolveOutboundAttachments(scope, { candidateIds, docIds, attachFromEmailIds, chatFiles });
+    for (const att of attachments) out.push(label(att));
   }
   return out;
 }
@@ -1964,12 +1996,15 @@ async function applyPendingRow(
     // cancels precisely what he saw (no drift). Loop server-side; report how many fell.
     const ids = Array.isArray(a.eventIds) ? (a.eventIds as unknown[]).map((x) => String(x)).filter(Boolean) : [];
     let cancelled = 0;
-    for (const id of ids) { const r = await cancelWorkspaceEvent(id); if (r.ok) cancelled++; }
+    let lastErr = "";
+    for (const id of ids) { const r = await cancelWorkspaceEvent(id); if (r.ok) cancelled++; else lastErr = r.error || lastErr; }
     result = ids.length === 0
       ? { ok: true, info: "No events to cancel." }
       : cancelled > 0
         ? { ok: true, info: `Cancelled ${cancelled} of ${ids.length} event(s).` }
-        : { ok: false, error: "calendar_not_connected" };
+        // ALL failed — only call it "not connected" when that's the real reason; otherwise
+        // it's a genuine cancel failure (don't mislabel a permission/API error as disconnected).
+        : { ok: false, error: lastErr === "workspace_not_connected" ? "calendar_not_connected" : "cancel_failed" };
   } else if (row.tool_name === "deleteCalendarEvent") {
     result = await writeDeleteCalendarEvent(String(a.eventId ?? ""));
   } else if (row.tool_name === "toggleStageLock") {

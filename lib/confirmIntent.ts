@@ -11,6 +11,10 @@ const CANCEL_RE = /^(n|no+|nope|nah|nope|cancel|stop|don.?t|dont|never ?mind|nvm
 // Also treat a SHORT message that clearly says cancel/stop as a cancel, even with
 // a few extra words ("actually cancel that", "ne lass es", "nope don't send it").
 const CANCEL_SUBSTR = /\b(cancel|stop|abbrechen|nicht senden|never ?mind|forget it|vergiss|lass es|annule|laisse tomber)\b/i;
+// A NEW bot action after a conjunction ("cancel that AND email Omar", "stop, then send to X")
+// means the message is a CORRECTION, not a bare cancel — let the model cancel the pending
+// action AND perform the new instruction. ("instead"/"@" are caught separately below.)
+const CANCEL_COMPOUND = /\b(and|then|also|but|plus|et|puis|und|dann)\b.*\b(send|email|e-?mail|message|forward|reply|attach|book|schedule|invite|create|reschedule|nudge|assign|approve|reject|broadcast|draft|cc|bcc|schick|envoie|sende?)\b/i;
 
 /** Lowercase, trim, strip surrounding quotes + trailing punctuation. */
 export function normShort(s: string): string {
@@ -33,6 +37,11 @@ export function isConfirmText(t: string): boolean {
 export function isCancelText(t: string): boolean {
   const n = normShort(t);
   if (!n) return false;
+  // A COMPOUND "cancel X and do Y instead" / "no, email anna@x.com" is NOT a bare cancel —
+  // it carries a NEW instruction. Bail so the model cancels the pending action AND performs
+  // the correction (the webhook's stale-pending expiry then voids the old draft).
+  if (/@|\binstead\b|\bstattdessen\b|\bau lieu\b/.test(n)) return false;
+  if (CANCEL_COMPOUND.test(n)) return false;
   if (n.length <= 30 && CANCEL_RE.test(n)) return true;
   // A short message that explicitly says cancel/stop (with a little extra wording).
   if (n.length <= 60 && CANCEL_SUBSTR.test(n)) return true;

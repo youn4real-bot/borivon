@@ -86,6 +86,39 @@ describe("parseReminderTime — capture the time the founder actually said", () 
     expect(dueAt).toBeNull();
   });
 
+  // Bare ordinal day-of-month with NO month name. NOW = Thu 18 June 2026.
+  it("'on the 30th' → June 30 this month (still upcoming), default 09:00", () => {
+    const { dueAt } = parseReminderTime("remind me on the 30th to pay rent", NOW);
+    const l = local(dueAt!);
+    expect(l.m).toBe(6);
+    expect(l.day).toBe(30);
+    expect(l.hh).toBe(9);
+  });
+  it("'on the 1st' → July 1 (June 1 already passed → next month)", () => {
+    const { dueAt } = parseReminderTime("remind me on the 1st to send invoices", NOW);
+    const l = local(dueAt!);
+    expect(l.m).toBe(7);
+    expect(l.day).toBe(1);
+  });
+  it("'on the 30th at 3pm' → June 30 15:00 (ordinal day + explicit clock)", () => {
+    const { dueAt } = parseReminderTime("remind me on the 30th at 3pm to call the bank", NOW);
+    const l = local(dueAt!);
+    expect(l.m).toBe(6);
+    expect(l.day).toBe(30);
+    expect(l.hh).toBe(15);
+  });
+  it("'the 1st of the month' → July 1 (anchored phrase, June 1 passed)", () => {
+    const { dueAt } = parseReminderTime("remind me the 1st of the month to review", NOW);
+    const l = local(dueAt!);
+    expect(l.m).toBe(7);
+    expect(l.day).toBe(1);
+  });
+  // Must NOT misfire on a stray ordinal that isn't a day-of-month anchor.
+  it("a stray 'the 10th' with no on/by/of-month anchor does NOT set a date", () => {
+    const { dueAt } = parseReminderTime("remind me to prep the 10th cohort", NOW);
+    expect(dueAt).toBeNull();
+  });
+
   // EXPLICIT clock must win over the keyword default — "tonight at 11pm" = 23:00, not 20:00.
   it("'tonight at 11pm' → today 23:00 (explicit clock beats the 'tonight' default)", () => {
     const { dueAt } = parseReminderTime("remind me tonight at 11pm to lock the door", NOW);

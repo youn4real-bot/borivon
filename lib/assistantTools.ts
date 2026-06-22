@@ -1732,13 +1732,17 @@ export function buildAssistantTools(
         const candRefs = (attachCandidateNames ?? "").split(",").map((s) => s.trim()).filter(Boolean);
         const candIds: string[] = [];
         const unresolved: string[] = [];
+        const ambiguousAttach: { ref: string; matches: { candidateUserId: string; name: string }[] }[] = [];
         if (candRefs.length) {
           const roster = await candidateRoster();
           for (const ref of candRefs) {
             const m = pickCandidate(roster, ref);
             if (m.status === "ok") { if (!candIds.includes(m.candidate.userId)) candIds.push(m.candidate.userId); }
+            else if (m.status === "ambiguous") ambiguousAttach.push({ ref, matches: m.matches.map((x) => ({ candidateUserId: x.userId, name: x.name })) });
             else unresolved.push(ref);
           }
+          // A name matching SEVERAL candidates isn't "not found" — ask WHICH one's CV.
+          if (ambiguousAttach.length) return { error: "ambiguous_attach_candidate", ambiguous: ambiguousAttach, hint: "More than one candidate matches — which one's CV should I attach?" };
           if (unresolved.length) return { error: `couldnt_find_candidate: ${unresolved.join(", ")}` };
         }
         for (const cid of candIds) {
@@ -1857,13 +1861,17 @@ export function buildAssistantTools(
         const candRefs = (attachCandidateNames ?? "").split(",").map((s) => s.trim()).filter(Boolean);
         const candIds: string[] = [];
         const unresolved: string[] = [];
+        const ambiguousAttach: { ref: string; matches: { candidateUserId: string; name: string }[] }[] = [];
         if (candRefs.length) {
           const roster = await candidateRoster();
           for (const ref of candRefs) {
             const m = pickCandidate(roster, ref);
             if (m.status === "ok") { if (!candIds.includes(m.candidate.userId)) candIds.push(m.candidate.userId); }
+            else if (m.status === "ambiguous") ambiguousAttach.push({ ref, matches: m.matches.map((x) => ({ candidateUserId: x.userId, name: x.name })) });
             else unresolved.push(ref);
           }
+          // A name matching SEVERAL candidates isn't "not found" — ask WHICH one's CV.
+          if (ambiguousAttach.length) return { error: "ambiguous_attach_candidate", ambiguous: ambiguousAttach, hint: "More than one candidate matches — which one's CV should I attach?" };
           if (unresolved.length) return { error: `couldnt_find_candidate: ${unresolved.join(", ")}` };
         }
         for (const cid of candIds) {
@@ -4413,15 +4421,29 @@ export function buildAssistantTools(
           else return { error: "no_email_for_recipient", recipient: email, hint: "I don't have an email for them — give me the address." };
         }
         if (!emailRe.test(email)) return { error: "bad_email" };
-        const ccList = [...toParts.slice(1), ...(cc ?? "").split(/[,;]/)]
-          .map((s) => s.trim()).filter(Boolean)
-          .filter((c) => c.toLowerCase() !== email.toLowerCase()); // never CC the primary
-        const badCc = ccList.find((c) => !emailRe.test(c));
-        if (badCc) return { error: `bad_cc:${badCc}` };
-        const bccList = (bcc ?? "").split(/[,;]/).map((s) => s.trim()).filter(Boolean)
-          .filter((c) => c.toLowerCase() !== email.toLowerCase());
-        const badBcc = bccList.find((c) => !emailRe.test(c));
-        if (badBcc) return { error: `bad_bcc:${badBcc}` };
+        // CC/BCC accept NAMES too ("email Anna and CC Omar") — resolve each non-email
+        // token through the SAME contact/candidate resolver as the primary recipient.
+        // A literal email passes straight through (common case unchanged). Confirm-first
+        // shows the fully-resolved CC/BCC before anything sends.
+        const resolveRecipientList = async (raw: string[], label: "cc" | "bcc") => {
+          const toks = raw.map((s) => s.trim()).filter(Boolean)
+            .filter((c) => c.toLowerCase() !== email.toLowerCase()); // never CC the primary
+          const out: string[] = [];
+          for (const tok of toks) {
+            if (emailRe.test(tok)) { if (!out.includes(tok)) out.push(tok); continue; }
+            const r = await resolveAttendeeEmails([tok]);
+            if (r.ambiguous.length) return { error: `ambiguous_${label}`, ambiguous: r.ambiguous, hint: `More than one person matches "${tok}" for ${label.toUpperCase()} — tell me which (or give the email).` };
+            if (r.emails.length === 1) { if (!out.includes(r.emails[0])) out.push(r.emails[0]); }
+            else return { error: `no_email_for_${label}`, recipient: tok, hint: `I don't have an email for "${tok}" to ${label.toUpperCase()} — give me the address.` };
+          }
+          return { emails: out };
+        };
+        const ccRes = await resolveRecipientList([...toParts.slice(1), ...(cc ?? "").split(/[,;]/)], "cc");
+        if ("error" in ccRes) return ccRes;
+        const ccList = ccRes.emails;
+        const bccRes = await resolveRecipientList((bcc ?? "").split(/[,;]/), "bcc");
+        if ("error" in bccRes) return bccRes;
+        const bccList = bccRes.emails;
         // Resolve attachment candidates BY NAME (or id) through the SAME roster
         // resolver getCvLinks uses — the model reliably knows names but routinely
         // mangles ids (it was passing garbage ids → every CV "went missing"). So
@@ -4430,13 +4452,18 @@ export function buildAssistantTools(
           .map((s) => s.trim()).filter(Boolean);
         const candIds: string[] = [];
         const unresolved: string[] = [];
+        const ambiguousAttach: { ref: string; matches: { candidateUserId: string; name: string }[] }[] = [];
         if (candRefs.length) {
           const roster = await candidateRoster();
           for (const ref of candRefs) {
             const m = pickCandidate(roster, ref);
             if (m.status === "ok") { if (!candIds.includes(m.candidate.userId)) candIds.push(m.candidate.userId); }
+            else if (m.status === "ambiguous") ambiguousAttach.push({ ref, matches: m.matches.map((x) => ({ candidateUserId: x.userId, name: x.name })) });
             else unresolved.push(ref);
           }
+          // A name matching SEVERAL candidates isn't "not found" — ask WHICH one's CV (never
+          // guess, never falsely say the candidate doesn't exist).
+          if (ambiguousAttach.length) return { error: "ambiguous_attach_candidate", ambiguous: ambiguousAttach, hint: "More than one candidate matches — which one's CV should I attach?" };
           if (unresolved.length) return { error: `couldnt_find_candidate: ${unresolved.join(", ")}` };
         }
         const docIds = (attachDocIds ?? "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -4560,6 +4587,17 @@ export function buildAssistantTools(
           .eq("id", emailId).eq("owner_user_id", scope.userId).maybeSingle();
         if (!data) return { error: "not_found" };
         const e = data as { to_email: string; cc: string | null; subject: string; body: string; candidate_ids: string | null; doc_ids: string | null };
+        const reCandIds = (e.candidate_ids ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+        const reDocIds = (e.doc_ids ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+        // PRE-FLIGHT before staging: the CV/doc may have been archived or the candidate
+        // removed since the original send. Prove every attachment still EXISTS now, so the
+        // resend can't go out missing the file it's supposed to carry (a wrong-file hazard).
+        if (reCandIds.length || reDocIds.length) {
+          const pre = await precheckOutboundAttachments(scope, { candidateIds: reCandIds, docIds: reDocIds });
+          if (pre.missing.length) {
+            return { error: "attachment_missing", message: `That email's attachment isn't on file anymore (${pre.missing.length} missing) — regenerate or re-upload it, then resend.` };
+          }
+        }
         const args: Record<string, unknown> = { to: e.to_email, subject: e.subject, body: e.body };
         if (e.cc) args.cc = e.cc;
         if (e.candidate_ids) args.attachCandidateIds = e.candidate_ids; // stored REAL ids → writeExternalEmail re-attaches the CVs

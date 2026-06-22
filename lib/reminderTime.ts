@@ -235,6 +235,32 @@ export function parseReminderTime(text: string, now: Date = new Date()): ParsedR
     }
   }
 
+  // 3.5) Bare ordinal day-of-month with NO month name ("on the 1st", "by the 30th",
+  // "the 30th of the month", FR "le 30 du mois", DE "am 30. des monats"). Resolve to that
+  // day in the CURRENT month if it's still upcoming, else the NEXT month — clamped to the
+  // month's real length so "the 31st" in a 30-day month lands on the 30th, never overflows.
+  // Anchored to an explicit on/by/of-month phrase so it can't misfire on a stray "the 10th".
+  if (!day) {
+    const domMatch = t.match(/\b(?:on|by)\s+the\s+(\d{1,2})(?:st|nd|rd|th)\b/)
+      || t.match(/\bthe\s+(\d{1,2})(?:st|nd|rd|th)\s+of\s+(?:the\s+|each\s+|every\s+)?month\b/)
+      || t.match(/\ble\s+(\d{1,2})(?:er)?\s+du\s+mois\b/)
+      || t.match(/\bam\s+(\d{1,2})\.\s*(?:des|jeden)\s+monats?\b/);
+    if (domMatch) {
+      const dom = +domMatch[1];
+      if (dom >= 1 && dom <= 31) {
+        const clamp = (yy: number, mm: number) => Math.min(dom, new Date(Date.UTC(yy, mm, 0)).getUTCDate());
+        let y = cur.y, m = cur.m;
+        let d = clamp(y, m);
+        // already past this month → roll to next month (re-clamped to its length).
+        if (instantAt(y, m, d, time?.hh ?? 9, time?.mm ?? 0).getTime() <= now.getTime()) {
+          m += 1; if (m > 12) { m = 1; y += 1; }
+          d = clamp(y, m);
+        }
+        day = { y, m, d };
+      }
+    }
+  }
+
   // 4) Combine day + time.
   if (day) {
     const hh = time?.hh ?? 9;   // default reminders to 09:00 local when only a day is given
