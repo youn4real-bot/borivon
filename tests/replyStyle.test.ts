@@ -71,6 +71,13 @@ describe("stripInviteFooterClaim — kill the 'invite carries a footer' lie", ()
     const s = "Your signature & confidentiality footer are auto-added on send.";
     expect(stripInviteFooterClaim(s)).toBe(s);
   });
+  // The EXACT lie found in the founder's REAL chat (2026-06-20) — pinned so it can never
+  // re-surface, and so the read-path scrub that cleans historical turns is proven on it.
+  it("strips the exact real-world 2026-06-20 lie", () => {
+    const out = stripInviteFooterClaim("I did send a calendar invite, not a regular email. The system automatically adds a footer to all outgoing communications, including calendar invites, which is something I cannot control or remove.");
+    expect(out.toLowerCase()).not.toContain("footer");
+    expect(out).toContain("I did send a calendar invite, not a regular email.");
+  });
 });
 
 describe("humanizeWriteError — plain lines, no codes/ids leak", () => {

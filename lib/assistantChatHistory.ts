@@ -25,8 +25,19 @@
 import { getServiceSupabase } from "@/lib/supabase";
 import { vertexModel } from "@/lib/vertexModel";
 import { generateText } from "ai";
+import { stripInviteFooterClaim } from "@/lib/replyStyle";
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
+
+// Neutralise the stale "calendar invites carry an uncontrollable footer" lie in HISTORICAL
+// assistant turns too (defense-in-depth). The webhook scrubs every NEW reply before it's sent
+// AND saved — but turns saved BEFORE that scrubber existed still sit in the tail, where the
+// model re-reads them (re-seeding the false belief) and where compaction would fold the lie
+// into the PERMANENT summary. Scrubbing assistant content on the way IN cleans them
+// retroactively, with no DB migration. User turns are never touched (only the model lies).
+function cleanHistoricalTurn(t: ChatTurn): ChatTurn {
+  return t.role === "assistant" ? { role: "assistant", content: stripInviteFooterClaim(t.content) } : t;
+}
 
 // Live tail kept VERBATIM in the prompt. Must be COMFORTABLY > COMPACT_THRESHOLD: in
 // normal operation compaction keeps the un-summarised tail near COMPACT_KEEP, so this cap
@@ -80,6 +91,7 @@ export async function loadConversationContext(
     if (data.length >= TAIL_TURNS) void maybeCompact(ownerUserId);
     const turns = (data as ChatTurn[])
       .filter((t) => (t.role === "user" || t.role === "assistant") && typeof t.content === "string" && t.content.trim())
+      .map(cleanHistoricalTurn) // retroactively strip the footer-lie from old assistant turns
       .reverse(); // chronological for the model
     return { summary: sum?.summary ?? "", turns };
   } catch {
@@ -181,7 +193,8 @@ export async function maybeCompact(ownerUserId: string): Promise<void> {
     if (!model) return; // Vertex not configured → leave it; the tail still covers recent
 
     const transcript = folding
-      .map((t) => `${t.role === "user" ? "Admin" : "Assistant"}: ${t.content}`)
+      // Scrub the footer-lie BEFORE it can be folded into the permanent summary.
+      .map((t) => `${t.role === "user" ? "Admin" : "Assistant"}: ${t.role === "assistant" ? stripInviteFooterClaim(t.content) : t.content}`)
       .join("\n")
       .slice(0, 24000); // bound the summariser input
     const { text } = await generateText({
