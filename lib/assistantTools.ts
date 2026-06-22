@@ -3139,7 +3139,7 @@ export function buildAssistantTools(
 
     sendSlotRequest: tool({
       description:
-        "STAGE sending a candidate a Bearbeitung/Visum slot request — the action that turns the slot ORANGE (waiting on the candidate to sign/fill it) and drops a bell notification in their portal. slotId from listSlots. By default it figures out whether the candidate needs to sign and/or fill from the slot's own flags; you may override with needsSign/needsFill. Applies immediately when you call it — do NOT ask the admin to confirm. (Uploading the slot's PDF template + drawing signature zones stays a website-only action.)",
+        "STAGE sending a candidate a Bearbeitung/Visum slot request — the action that turns the slot ORANGE (waiting on the candidate to sign/fill it) and drops a bell notification in their portal. slotId from listSlots. By default it figures out whether the candidate needs to sign and/or fill from the slot's own flags; you may override with needsSign/needsFill. It reaches the candidate → it STAGES and goes out only after my one 'yes'; do NOT claim it was sent before I confirm. (Uploading the slot's PDF template + drawing signature zones stays a website-only action.)",
       inputSchema: z.object({
         slotId: z.string().uuid(),
         candidateUserId: z.string().uuid(),
@@ -4013,7 +4013,7 @@ export function buildAssistantTools(
 
     nudgeStuckCandidates: tool({
       description:
-        "STAGE a gentle follow-up nudge (a 'Borivon' bell reminder, never auto-sent) to ALL currently-stuck candidates (the listStuckCandidates set). Optional short custom message. Applies immediately when you call it — it sends each stuck candidate the reminder right away; report how many. (For one candidate, use sendFollowUpNudge or sendCandidateMessage.)",
+        "STAGE a gentle follow-up nudge (a 'Borivon' bell reminder, never auto-sent) to ALL currently-stuck candidates (the listStuckCandidates set). Optional short custom message. It reaches people → it STAGES and goes out only after my one 'yes' (the confirm shows how many); do NOT claim you nudged them before I confirm. (For one candidate, use sendFollowUpNudge or sendCandidateMessage.)",
       inputSchema: z.object({ message: z.string().max(200).optional() }),
       execute: async ({ message }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
@@ -4122,7 +4122,7 @@ export function buildAssistantTools(
 
     sendFollowUpNudge: tool({
       description:
-        "STAGE a gentle follow-up nudge into a candidate's notification bell (shown as coming from 'Borivon', never you) — use when they've gone quiet or missed a step. Optional short message. De-duped: refreshes an existing unread nudge rather than stacking. Applies immediately when you call it — do NOT ask the admin to confirm. (To send an actual chat message or email, use sendCandidateMessage instead.)",
+        "STAGE a gentle follow-up nudge into a candidate's notification bell (shown as coming from 'Borivon', never you) — use when they've gone quiet or missed a step. Optional short message. De-duped: refreshes an existing unread nudge rather than stacking. It reaches a person → it STAGES and goes out only after my one 'yes'; do NOT claim you nudged them before I confirm. (To send an actual chat message or email, use sendCandidateMessage instead.)",
       inputSchema: z.object({
         candidateUserId: z.string().uuid(),
         message: z.string().max(200).optional(),
@@ -4551,7 +4551,7 @@ export function buildAssistantTools(
 
     resendEmail: tool({
       description:
-        "Resend an email you previously sent, EXACTLY as before — same recipient, CC, subject, body, and the SAME CV attachments. emailId comes from listRecentSentEmails. Use for 'resend that' / 'send it again'. (To resend to a DIFFERENT recipient or with edits, use sendExternalEmail instead, reusing the subject + body from listRecentSentEmails.) Supreme-only; sends immediately when you call it.",
+        "Resend an email you previously sent, EXACTLY as before — same recipient, CC, subject, body, and the SAME CV attachments. emailId comes from listRecentSentEmails. Use for 'resend that' / 'send it again'. (To resend to a DIFFERENT recipient or with edits, use sendExternalEmail instead, reusing the subject + body from listRecentSentEmails.) Supreme-only. It's a SEND → it STAGES and goes out only after my one 'yes' (the confirm shows the recipient + subject); do NOT claim it was resent before I confirm.",
       inputSchema: z.object({ emailId: z.string().uuid() }),
       execute: async ({ emailId }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
@@ -4575,7 +4575,7 @@ export function buildAssistantTools(
 
     sendCandidateMessage: tool({
       description:
-        "STAGE a message to a candidate — e.g. 'tell X to re-upload their CV in French', 'message X their interview is Monday 10:00', 'email X to send their passport scan'. Give the candidate by candidateUserId OR just their NAME (candidateName) — the tool resolves the name itself, so you don't need to look up the id first; if it's ambiguous it returns the matches so you ask which. channel: 'chat' = post into their portal chat as 'Borivon Support' (in-app, default); 'email' = send it as an email; 'both'. The message is sent immediately when you call it — do NOT ask the admin to confirm.",
+        "STAGE a message to a candidate — e.g. 'tell X to re-upload their CV in French', 'message X their interview is Monday 10:00', 'email X to send their passport scan'. Give the candidate by candidateUserId OR just their NAME (candidateName) — the tool resolves the name itself, so you don't need to look up the id first; if it's ambiguous it returns the matches so you ask which. channel: 'chat' = post into their portal chat as 'Borivon Support' (in-app, default); 'email' = send it as an email; 'both'. It's a SEND to a person → it STAGES and goes out only after my one 'yes' (the confirm shows who + a preview); do NOT claim it was sent before I confirm.",
       inputSchema: z.object({
         candidateUserId: z.string().uuid().optional().describe("the candidate's id (from searchCandidates) — OR give candidateName instead"),
         candidateName: z.string().max(120).optional().describe("the candidate's NAME, if you don't have the id — resolved automatically"),
