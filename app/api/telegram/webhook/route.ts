@@ -717,6 +717,13 @@ export async function POST(req: NextRequest) {
         console.error("[telegram] auto-apply failed:", e instanceof Error ? e.message : e);
       }
     }
+    // If side-effecting writes were APPLIED this turn (createLead, bookCalendarEvent, …),
+    // stamp responded_at NOW — before the slow reply/file phase. A function death between here
+    // and the normal stamp (line ~785) would otherwise let Telegram's retry reprocess the turn
+    // and RE-APPLY non-idempotent writes (a duplicate lead / calendar event). This trades a
+    // possibly-missing reply on a crash (the founder just re-asks) for never duplicating a
+    // write — the safer failure. Idempotent: the later markResponded() is a harmless no-op.
+    if (confirmOutcome?.done) await markResponded();
 
     const willSendFiles = fileLinks.length > 0;
     // Build the ANSWER text. Strip markdown (Telegram won't render it). If files are

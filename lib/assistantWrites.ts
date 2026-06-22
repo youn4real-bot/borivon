@@ -571,7 +571,17 @@ export async function precheckOutboundAttachments(
   for (const cid of opts.candidateIds ?? []) {
     if (!(await canActOnCandidate(scope.role, scope.email, cid))) { missing.push(cid); continue; }
     const { data: prof } = await db.from("candidate_profiles").select("cv_draft").eq("user_id", cid).maybeSingle();
-    if ((prof as { cv_draft?: unknown } | null)?.cv_draft) continue; // a draft → resolver renders it fresh
+    // A draft counts ONLY if it actually PARSES to an object — renderCandidateCvPdf does the
+    // same JSON.parse and returns null on a corrupt draft, so a truthy-but-unparseable draft
+    // would pass the old check yet fail at render → attachment_missing AFTER the yes. Validate
+    // the parse here (cheap) so a corrupt draft falls through to the stored-doc check instead.
+    const draftRaw = (prof as { cv_draft?: unknown } | null)?.cv_draft;
+    let draftRenderable = false;
+    if (draftRaw) {
+      try { const d = typeof draftRaw === "string" ? JSON.parse(draftRaw) : draftRaw; draftRenderable = !!d && typeof d === "object"; }
+      catch { draftRenderable = false; }
+    }
+    if (draftRenderable) continue; // a parseable draft → resolver renders it fresh
     const { data } = await db.from("documents").select("file_type, r2_key").eq("user_id", cid).not("r2_key", "is", null);
     const rows = (data ?? []) as { file_type: string | null; r2_key: string | null }[];
     if (!rows.some((d) => CV_EMAIL_KINDS.has(resolveFileKey(d.file_type)))) missing.push(cid);
@@ -787,7 +797,9 @@ async function writeSaveDraft(scope: AssistantScope, opts: { to: string; cc?: st
 async function writeForwardEmail(scope: AssistantScope, opts: { messageId: string; to: string; note?: string }): Promise<WriteResult> {
   const to = (opts.to || "").trim();
   if (!to.includes("@")) return { ok: false, error: "bad_email" };
-  const orig = await gmailGet(opts.messageId);
+  // Pull the FULL body (high cap) — forwarding must carry the whole original message; the
+  // default 8 KB cap would silently drop everything past 8 KB of a long letter/contract.
+  const orig = await gmailGet(opts.messageId, 500_000);
   if (!orig) return { ok: false, error: "original_not_found" };
   const subject = /^fwd:/i.test(orig.subject.trim()) ? orig.subject : `Fwd: ${orig.subject}`;
   const note = opts.note ? stripMarkdown(opts.note).trim() : "";
@@ -1615,7 +1627,36 @@ export async function executeLatestPending(
 ): Promise<{ done: true; summary: string } | { error: string }> {
   const row = await getLatestPending(scope.userId);
   if (!row) return { error: "nothing_pending" };
-  return applyPendingRow(scope, row, opts);
+  const first = await applyPendingRow(scope, row, opts);
+  // MULTI-SEND CONFIRM: a single turn can stage several sends ("email Anna AND Bob",
+  // "message all 4"), but the founder is shown ONE "👉 Send it?". His one "yes" must apply
+  // EVERY send staged in that SAME turn (matched by __stagedReq) — otherwise the unshown
+  // siblings either get dropped, or worse, stay armed and fire later off an UNRELATED "yes"
+  // (the orphan-send bug). Non-send confirms (a single delete) are untouched — stagePending
+  // already keeps just one destructive pending row. findAwaitingConfirm lists all of them, so
+  // the prompt always matches what the yes sends.
+  if (!("done" in first) || !SEND_TOOLS.has(row.tool_name)) return first;
+  const stagedReq = (row.args as Record<string, unknown> | null)?.__stagedReq ?? null;
+  if (!stagedReq) return first;
+  const summaries = [first.summary];
+  try {
+    const db = getServiceSupabase();
+    const { data } = await db
+      .from("assistant_pending_actions")
+      .select("id, tool_name, args, candidate_user_id, summary, expires_at")
+      .eq("owner_user_id", scope.userId).eq("status", "pending").neq("id", row.id)
+      .order("created_at", { ascending: true });
+    const siblings = ((data ?? []) as PendingRow[]).filter((r) =>
+      SEND_TOOLS.has(r.tool_name)
+      && ((r.args as Record<string, unknown> | null)?.__stagedReq ?? null) === stagedReq
+      && new Date(r.expires_at).getTime() >= Date.now(),
+    );
+    for (const s of siblings) {
+      const r = await applyPendingRow(scope, s, opts);
+      if ("done" in r) summaries.push(r.summary);
+    }
+  } catch { /* best-effort — the primary send already applied */ }
+  return { done: true, summary: summaries.join("; ") };
 }
 
 /** Apply ONE specific staged row: anti-injection guard + serve-time scope recheck
@@ -1955,13 +1996,21 @@ export type AutoApplyResult =
 async function findAwaitingConfirm(userId: string): Promise<AwaitingConfirm | null> {
   const db = getServiceSupabase();
   const { data } = await db.from("assistant_pending_actions")
-    .select("tool_name, summary, expires_at")
+    .select("tool_name, summary, expires_at, args")
     .eq("owner_user_id", userId).eq("status", "pending")
     .order("created_at", { ascending: false }).limit(20);
-  const rows = ((data ?? []) as { tool_name: string; summary: string; expires_at: string }[])
+  const rows = ((data ?? []) as { tool_name: string; summary: string; expires_at: string; args: Record<string, unknown> | null }[])
     .filter((r) => new Date(r.expires_at).getTime() >= Date.now());
   const c = rows.find((r) => CONFIRM_TOOLS.has(r.tool_name));
-  return c ? { summary: c.summary, isSend: SEND_TOOLS.has(c.tool_name) } : null;
+  if (!c) return null;
+  if (!SEND_TOOLS.has(c.tool_name)) return { summary: c.summary, isSend: false };
+  // The "yes" applies EVERY send staged in the same turn (executeLatestPending), so LIST them
+  // all here — never show one send's prompt while the yes silently fires others too.
+  const stagedReq = (c.args as Record<string, unknown> | null)?.__stagedReq ?? null;
+  if (!stagedReq) return { summary: c.summary, isSend: true };
+  const sends = rows.filter((r) => SEND_TOOLS.has(r.tool_name) && ((r.args as Record<string, unknown> | null)?.__stagedReq ?? null) === stagedReq);
+  const summary = sends.length > 1 ? sends.slice().reverse().map((r) => r.summary).join("\n") : c.summary; // oldest→newest reading order
+  return { summary, isSend: true };
 }
 
 /**

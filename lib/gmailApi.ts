@@ -77,8 +77,11 @@ export async function gmailSearch(query: string, max = 15): Promise<EmailSummary
   }
 }
 
-/** Read one message in full (decoded body + the headers needed to thread a reply). */
-export async function gmailGet(id: string): Promise<FullEmail | null> {
+/** Read one message in full (decoded body + the headers needed to thread a reply).
+ *  `maxBody` caps the decoded body (default 8000 — plenty for the model to read / for a
+ *  reply quote). FORWARDING passes a much higher cap so a long embassy letter / contract
+ *  isn't silently chopped to 8 KB before being re-sent. */
+export async function gmailGet(id: string, maxBody = 8000): Promise<FullEmail | null> {
   const gmail = gmailClient();
   if (!gmail) return null;
   try {
@@ -91,7 +94,7 @@ export async function gmailGet(id: string): Promise<FullEmail | null> {
       to: hdr(headers, "To"), cc: hdr(headers, "Cc"),
       subject: hdr(headers, "Subject") || "(no subject)", date: hdr(headers, "Date"),
       snippet: (m.data.snippet ?? "").slice(0, 200),
-      body: extractBody(m.data.payload).slice(0, 8000),
+      body: extractBody(m.data.payload).slice(0, Math.max(1, maxBody)),
       messageIdHeader: hdr(headers, "Message-ID") || hdr(headers, "Message-Id"),
       references: hdr(headers, "References"),
     };

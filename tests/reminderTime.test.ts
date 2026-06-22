@@ -191,4 +191,23 @@ describe("nextOccurrence — recurring re-arm preserves wall-clock", () => {
     expect(l.day).toBe(28); // 2026 is not a leap year
     expect(l.hh).toBe(9);
   });
+  // With an explicit anchor day, a "31st" monthly must RECOVER to 31 after a short month,
+  // not stay degraded at the clamped value (the silent day-of-month drift bug).
+  it("monthly re-derives from the anchor day after a short month (28 → 31, not 28 → 28)", () => {
+    // Standing on Feb 28 (already clamped), anchor 31 → the next is March 31, not March 28.
+    const feb = localIsoToInstant("2026-02-28T09:00:00")!;
+    const l = local(nextOccurrence(feb.toISOString(), "monthly", 31)!);
+    expect(l.m).toBe(3);
+    expect(l.day).toBe(31);
+  });
+  it("monthly with anchor 31 holds 31 across a full year of re-arms", () => {
+    let cur = localIsoToInstant("2026-01-31T09:00:00")!;
+    const days: number[] = [];
+    for (let i = 0; i < 12; i++) { cur = nextOccurrence(cur.toISOString(), "monthly", 31)!; days.push(local(cur).day); }
+    // Feb→28, then every long month back to 31, short months clamped — never stuck at 28.
+    expect(days[0]).toBe(28); // Feb
+    expect(days[1]).toBe(31); // Mar (recovered, not 28)
+    expect(days[2]).toBe(30); // Apr
+    expect(days[3]).toBe(31); // May
+  });
 });

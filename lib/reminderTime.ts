@@ -284,20 +284,26 @@ export type Recurrence = "daily" | "weekly" | "monthly";
 /**
  * The next firing instant for a recurring reminder, advancing from `fromIso` by one
  * period while PRESERVING the local wall-clock time (so a 9:00 reminder stays 9:00
- * across DST / month-length changes). Monthly clamps to the last day of short months
- * (e.g. the 31st → 30th/28th). Returns null on bad input.
+ * across DST / month-length changes). Returns null on bad input.
+ *
+ * `anchorDom` (1-31) is the ORIGINALLY-intended day-of-month for a MONTHLY reminder. It's
+ * needed because clamping is lossy: "the 31st" clamped to Feb 28 must still return Mar 31,
+ * not Mar 28 — but advancing from the clamped value (28) would permanently degrade the day.
+ * Re-deriving each month as min(anchorDom, daysInMonth) keeps it pinned to the real anchor.
+ * Omit it and the clamp falls back to the from-date's day (legacy behaviour).
  */
-export function nextOccurrence(fromIso: string, recurrence: Recurrence): Date | null {
+export function nextOccurrence(fromIso: string, recurrence: Recurrence, anchorDom?: number): Date | null {
   const from = new Date(fromIso);
   if (Number.isNaN(from.getTime())) return null;
   let { y, m, d } = localPartsFull(from);
   const { hh, mm } = localPartsFull(from);
   if (recurrence === "daily") ({ y, m, d } = addLocalDays(y, m, d, 1));
   else if (recurrence === "weekly") ({ y, m, d } = addLocalDays(y, m, d, 7));
-  else { // monthly — same day-of-month next month, clamped to the month's length
+  else { // monthly — the anchor day-of-month next month, clamped to the month's length
     m += 1; if (m > 12) { m = 1; y += 1; }
     const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
-    if (d > daysInMonth) d = daysInMonth;
+    const baseDay = anchorDom && anchorDom >= 1 && anchorDom <= 31 ? anchorDom : d;
+    d = Math.min(baseDay, daysInMonth);
   }
   return instantAt(y, m, d, hh, mm);
 }
@@ -310,13 +316,13 @@ export function nextOccurrence(fromIso: string, recurrence: Recurrence): Date | 
  * ahead of `now`. Returns null for a non-recurring reminder or bad input. The guard
  * caps the skip (a stuck clock can't loop forever).
  */
-export function nextFutureOccurrence(fromIso: string, recurrence: Recurrence, now: Date = new Date()): Date | null {
+export function nextFutureOccurrence(fromIso: string, recurrence: Recurrence, now: Date = new Date(), anchorDom?: number): Date | null {
   // Guard the recurrence explicitly: nextOccurrence treats any non-daily/weekly value as
   // monthly (its else branch), so a blank/garbage recurrence must NOT be re-armed here.
   if (recurrence !== "daily" && recurrence !== "weekly" && recurrence !== "monthly") return null;
-  let next = nextOccurrence(fromIso, recurrence);
+  let next = nextOccurrence(fromIso, recurrence, anchorDom);
   for (let guard = 0; next && next.getTime() <= now.getTime() && guard < 400; guard++) {
-    next = nextOccurrence(next.toISOString(), recurrence);
+    next = nextOccurrence(next.toISOString(), recurrence, anchorDom);
   }
   return next;
 }

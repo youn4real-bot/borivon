@@ -26,7 +26,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { tgSend } from "@/lib/telegram";
 import { nextFutureOccurrence, type Recurrence } from "@/lib/reminderTime";
 
-type DueRow = { id: string; text: string; due_at: string; recurrence?: string | null; remind_count?: number | null };
+type DueRow = { id: string; text: string; due_at: string; due_date?: string | null; recurrence?: string | null; remind_count?: number | null };
 
 export type FireResult = { fired: number; skipped?: string };
 
@@ -45,7 +45,7 @@ export async function fireDueReminders(chatId: string | number, ownerUserId?: st
   try {
     let qb = db
       .from("assistant_reminders")
-      .select("id, text, due_at, recurrence, remind_count")
+      .select("id, text, due_at, due_date, recurrence, remind_count")
       .eq("done", false)
       .is("notified_at", null)
       .not("due_at", "is", null)
@@ -81,10 +81,16 @@ export async function fireDueReminders(chatId: string | number, ownerUserId?: st
       .maybeSingle();
     if (!claimed) continue; // already fired by another trigger
     const rec = (r.recurrence || "").trim() as Recurrence | "";
+    // For MONTHLY, derive the original day-of-month from due_date (which re-arm never
+    // overwrites — only due_at advances), so "the 31st" keeps returning the 31st instead of
+    // collapsing to the 28th forever after the first February. due_date is "YYYY-MM-DD".
+    const anchorDom = rec === "monthly" && r.due_date && /^\d{4}-\d{2}-\d{2}/.test(r.due_date)
+      ? parseInt(r.due_date.slice(8, 10), 10)
+      : undefined;
     // Re-arm to the next FUTURE occurrence. On Hobby a daily reminder can sit days
     // overdue; advancing only +1 period could still be in the past → it would re-fire
     // on the next message. nextFutureOccurrence skips forward until the slot is ahead of now.
-    const next = rec === "daily" || rec === "weekly" || rec === "monthly" ? nextFutureOccurrence(r.due_at, rec) : null;
+    const next = rec === "daily" || rec === "weekly" || rec === "monthly" ? nextFutureOccurrence(r.due_at, rec, undefined, anchorDom) : null;
     try {
       // MINIMALIST (founder's hard rule): a reminder ping is LITERALLY just the task — no
       // emoji, no "Reminder:" label, no "(repeats…)" suffix. Just what to do.
