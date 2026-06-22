@@ -2153,6 +2153,33 @@ export function buildAssistantTools(
       },
     }),
 
+    listFollowUps: tool({
+      description:
+        "THE follow-up tool — find emails that need a FOLLOW-UP, in EITHER direction, over ANY timeframe. This is how you answer 'who hasn't replied to me?', 'which emails I SENT got no reply?', 'what do I still owe a reply to?', 'show me follow-ups for the last month', 'did the client ever reply?'. direction: 'awaiting_them' = emails I SENT where the OTHER person hasn't replied yet (chase THEM — the classic 'they went quiet'); 'i_owe' = emails people sent ME that I haven't replied to (I owe THEM); 'both' = everything needing a follow-up (default). days = how far back (default 7; pass 30 for 'last month', 90 for 'last 3 months', up to 365). Optional query = a Gmail filter to narrow — a person ('from:anna' or their email) OR an exact window ('after:2026/05/01 before:2026/06/01'). Works off the REAL state of each conversation (who sent the last message), not just unread, so it catches threads you read but never answered. Returns who + subject + days since the last message + which way the follow-up goes, most-overdue first. Read-only, supreme-only. NEVER tell me you can't list unanswered or sent-but-unreplied emails — call THIS.",
+      inputSchema: z.object({
+        direction: z.enum(["awaiting_them", "i_owe", "both"]).optional().describe("'awaiting_them' = they haven't replied to me; 'i_owe' = I haven't replied to them; 'both' (default)"),
+        days: z.number().int().min(1).max(365).optional().describe("how far back to look (default 7; 30 = last month, 90 = last 3 months)"),
+        query: z.string().max(200).optional().describe("optional Gmail filter — 'from:anna', an email, or 'after:YYYY/MM/DD before:YYYY/MM/DD'"),
+        limit: z.number().int().min(1).max(40).optional().describe("max results (default 25)"),
+      }),
+      execute: async ({ direction, days, query, limit }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const { gmailFindFollowUps } = await import("@/lib/gmailApi");
+        const res = await gmailFindFollowUps({ direction: direction ?? "both", days, query, maxThreads: 60 });
+        if (res === null) return { error: "gmail_read_failed", hint: "Couldn't read Gmail just now — the Workspace connection may be down." };
+        const items = res.slice(0, limit ?? 25).map((f) => ({
+          who: f.whoName,
+          email: f.who,
+          subject: f.subject,
+          daysSinceLast: f.ageDays,
+          direction: f.direction,
+          need: f.direction === "awaiting_them" ? "they haven't replied — chase them" : "you haven't replied — you owe them",
+          lastMessageId: f.lastMessageId, // pass to readThread / replyToEmail to act on it
+        }));
+        return { count: items.length, direction: direction ?? "both", days: days ?? 7, followUps: items };
+      },
+    }),
+
     setCandidateMilestone: tool({
       description:
         "STAGE a pipeline milestone change for a candidate ('X got their visa', 'X's flight is June 20', 'X signed the contract', 'X arrived'). Applies immediately when you call it — do NOT ask the admin to confirm. field is one of — yes/no flags (value 'true'/'false'): visa_granted, housing_done, contract_done, recognition_done, docs_approved, docs_ready, vorab_done, arrived_done, interview1_held, interview2_held, interview1_date_confirmed, interview2_date_confirmed, interview1_result_date_confirmed, interview2_result_date_confirmed, visa_appt_date_confirmed, flight_date_confirmed; date fields (value 'YYYY-MM-DD' or '' to clear): visa_date, visa_appt_date, flight_date, interview1_result_date, interview2_result_date, employment_start (first day at work / Arbeitsbeginn), residence_permit_appt_date (Aufenthaltstitel appointment); text fields: flight_info, interview_link, interview_type, interview_notes. (For interview pass/fail use setInterviewResult; for interview dates use setInterviewDate. Stage LOCK/UNLOCK is NOT available here — that stays on the website.)",

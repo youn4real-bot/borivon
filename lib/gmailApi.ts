@@ -25,6 +25,10 @@ function emailOf(raw: string): string {
 function nameOf(raw: string): string {
   return raw.replace(/<[^>]+>/, "").replace(/"/g, "").trim() || emailOf(raw);
 }
+// Machine senders that are never a "needs a follow-up" counterparty (no-reply, newsletters,
+// billing bots). Mirrors lib/gmailInbox.ts so the follow-up engine skips them too.
+const AUTOMATED_RE =
+  /(^|[._-])(no-?reply|do-?not-?reply|donotreply|do-not-respond|notifications?|notify|alerts?|alerting|mailer|mailer-daemon|postmaster|bounce|bounces|automated|auto-?confirm|newsletter|news|updates?|digest|unsubscribe|receipts?|billing|invoices?)@/i;
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function extractBody(payload: any): string {
@@ -309,6 +313,120 @@ export async function gmailGetThread(messageId: string): Promise<ThreadView | nu
     return { subject, messages };
   } catch (e) {
     console.error("[gmailApi] getThread failed:", e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+export type FollowUp = {
+  threadId: string;
+  lastMessageId: string;
+  who: string;        // the OTHER party's email
+  whoName: string;    // their display name
+  subject: string;
+  lastDate: string;   // ISO of the last message in the thread
+  ageDays: number;    // whole days since the last message
+  direction: "awaiting_them" | "i_owe"; // last msg from me → awaiting their reply; from them → I owe one
+  lastFrom: string;   // who sent the LAST message (email)
+};
+
+export type ThreadMsg = { id: string; fromEmail: string; fromName: string; to: string; subject: string; internal: number };
+
+/**
+ * PURE classification of ONE thread into a follow-up (or null). The bug-prone core of the
+ * follow-up engine, exported so it's unit-tested deterministically (the I/O wrapper just
+ * fetches threads + calls this). `me` is my own address; `now` lets tests pin ageDays.
+ *   last message from ME  → "awaiting_them" (they owe me a reply → chase them)
+ *   last message from THEM → "i_owe"        (I owe them a reply)
+ * Returns null when the other party is automated/no-reply, or can't be resolved.
+ */
+export function classifyThreadFollowUp(msgs: ThreadMsg[], me: string, now: number = Date.now()): FollowUp | null {
+  if (!msgs.length) return null;
+  const meL = (me || "").toLowerCase();
+  const sorted = [...msgs].sort((a, b) => a.internal - b.internal); // oldest → newest
+  const last = sorted[sorted.length - 1];
+  const lastFromMe = !!meL && last.fromEmail.toLowerCase() === meL;
+  const direction: "awaiting_them" | "i_owe" = lastFromMe ? "awaiting_them" : "i_owe";
+  let who = "", whoName = "";
+  if (direction === "i_owe") { who = last.fromEmail.toLowerCase(); whoName = last.fromName; }
+  else {
+    who = emailOf(last.to); whoName = nameOf(last.to);
+    if (!who || who === meL) { const other = sorted.find((p) => p.fromEmail && p.fromEmail.toLowerCase() !== meL); if (other) { who = other.fromEmail.toLowerCase(); whoName = other.fromName; } }
+  }
+  if (!who || who === meL || AUTOMATED_RE.test(who)) return null;
+  const lastMs = last.internal || 0;
+  return {
+    threadId: "",
+    lastMessageId: last.id,
+    who,
+    whoName: (whoName || who).slice(0, 120),
+    subject: (last.subject || sorted[0].subject || "(no subject)").slice(0, 200),
+    lastDate: lastMs ? new Date(lastMs).toISOString() : "",
+    ageDays: lastMs ? Math.max(0, Math.floor((now - lastMs) / 86_400_000)) : 0,
+    direction,
+    lastFrom: last.fromEmail.toLowerCase(),
+  };
+}
+
+/**
+ * THE follow-up engine. Finds threads that NEED A FOLLOW-UP, in EITHER direction, over ANY
+ * timeframe — based on the ACTUAL last message in each thread (not just unread state):
+ *   • "awaiting_them" — the LAST message is from ME and the other side hasn't replied → chase them.
+ *   • "i_owe"         — the LAST message is from THEM and I haven't replied → I owe a reply.
+ * Window via `days` (newer_than) OR an explicit Gmail date query in `opts.query`
+ * ("after:2026/05/01 before:2026/06/01"); `query` also narrows by person ("from:anna").
+ * Real people only (automated/no-reply senders skipped). Most-overdue first. Same mailbox
+ * (gmailClient, userId:"me") the rest of the bot's email tools use. Null on read failure.
+ */
+export async function gmailFindFollowUps(opts: {
+  direction: "awaiting_them" | "i_owe" | "both";
+  days?: number;
+  query?: string;
+  maxThreads?: number;
+}): Promise<FollowUp[] | null> {
+  const gmail = gmailClient();
+  if (!gmail) return null;
+  try {
+    // MY address — needed to tell which messages in a thread are mine.
+    let me = "";
+    try { const p = await gmail.users.getProfile({ userId: "me" }); me = (p.data.emailAddress || "").toLowerCase(); } catch { /* fall back below */ }
+    if (!me) me = (process.env.GMAIL_USER || process.env.GOOGLE_WORKSPACE_SUBJECT || "").toLowerCase();
+
+    const days = opts.days && opts.days > 0 ? Math.min(opts.days, 365) : 7;
+    const cap = Math.min(Math.max(opts.maxThreads ?? 50, 1), 60);
+    const userQuery = (opts.query || "").trim();
+    const hasExplicitWindow = /\b(after|before|older_than|newer_than):/i.test(userQuery);
+    // Exclude chats/spam/trash; AND the caller's filter; apply the time window unless the
+    // caller already gave an explicit one.
+    const q = [userQuery, hasExplicitWindow ? "" : `newer_than:${days}d`, "-in:chats", "-in:spam", "-in:trash"]
+      .filter(Boolean).join(" ");
+
+    const list = await gmail.users.threads.list({ userId: "me", q, maxResults: cap });
+    const threadIds = (list.data.threads ?? []).map((t) => t.id!).filter(Boolean);
+    const out: FollowUp[] = [];
+    for (const tid of threadIds) {
+      const t = await gmail.users.threads.get({ userId: "me", id: tid, format: "metadata", metadataHeaders: ["From", "To", "Subject", "Date"] });
+      const msgs = (t.data.messages ?? []).map((m) => {
+        const h = m.payload?.headers as Hdr[] | undefined;
+        const fromRaw = hdr(h, "From");
+        return {
+          id: m.id ?? "",
+          fromEmail: emailOf(fromRaw),
+          fromName: nameOf(fromRaw),
+          to: hdr(h, "To"),
+          subject: hdr(h, "Subject"),
+          internal: m.internalDate ? Number(m.internalDate) : 0,
+        };
+      });
+      const fu = classifyThreadFollowUp(msgs, me);
+      if (!fu) continue; // automated/no counterparty
+      if (opts.direction !== "both" && fu.direction !== opts.direction) continue;
+      fu.threadId = tid;
+      out.push(fu);
+    }
+    out.sort((a, b) => b.ageDays - a.ageDays); // most overdue first
+    return out;
+  } catch (e) {
+    console.error("[gmailApi] findFollowUps failed:", e instanceof Error ? e.message : e);
     return null;
   }
 }
