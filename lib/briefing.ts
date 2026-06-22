@@ -18,6 +18,7 @@
 import { getServiceSupabase } from "@/lib/supabase";
 import { getStaffUserIdsAmong } from "@/lib/admin-auth";
 import { computeStuckCandidates } from "@/lib/autoChase";
+import { computeCriticalDates } from "@/lib/criticalDates";
 import { getUnansweredEmails } from "@/lib/gmailInbox";
 import { computeBatchTasks, formatBatchTasks } from "@/lib/batchBoard";
 import { isAutomationEnabled } from "@/lib/automationSettings";
@@ -118,15 +119,28 @@ export async function computeBriefing(adminUserId: string | null): Promise<Brief
     const pendByUser = new Map<string, number>();
     for (const d of pendRows) pendByUser.set(d.user_id, (pendByUser.get(d.user_id) ?? 0) + 1);
 
-    const [stuck, emails, batch] = await Promise.all([
+    const [stuck, emails, batch, critical] = await Promise.all([
       computeStuckCandidates().catch(() => null),
       getUnansweredEmails().catch(() => null),
       computeBatchTasks().catch(() => null),
+      computeCriticalDates().catch(() => null),
     ]);
 
     if (batch && batch.tasks.length) {
       count += batch.count;
       lines.push(formatBatchTasks(batch.tasks), "");
+    }
+    // ⏳ The hard, can't-miss future dates (embassy appt / flight / interview / residence
+    // permit / first day) — the irreversible cliffs. Surfaced early because a missed Rabat
+    // slot costs months. Name + what + date + countdown; minimalist, like the other lines.
+    if (critical && critical.tasks.length) {
+      count += critical.count;
+      lines.push(`⏳ ${critical.count} key date${critical.count > 1 ? "s" : ""} approaching:`);
+      for (const t of critical.tasks.slice(0, 12)) {
+        const when = t.days === 0 ? "today" : t.days === 1 ? "tomorrow" : `in ${t.days}d`;
+        lines.push(`   • ${t.name} — ${t.what} ${t.dateStr} (${when})`);
+      }
+      lines.push("");
     }
     // The document-review nag has its OWN sub-switch (doc_reminders), default off.
     const docRemindersOn = await isAutomationEnabled("doc_reminders").catch(() => false);

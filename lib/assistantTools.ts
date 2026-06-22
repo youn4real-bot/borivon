@@ -3892,6 +3892,18 @@ export function buildAssistantTools(
       },
     }),
 
+    listCriticalDates: tool({
+      description:
+        "List the hard, can't-miss CANDIDATE DATES coming up — embassy/Visum appointment, flight, 1st/2nd interview, residence-permit appointment, first day at work — with a countdown. Read-only. Use for 'what's coming up', 'any embassy appointments soon', 'who flies this week', 'upcoming interviews/visa dates'. Each within its window (interviews/embassy ≤7d, residence-permit ≤10d, flight/first-day ≤14d), soonest first, staff excluded, already-done ones (visa granted / arrived) dropped. This is the same radar folded into the daily briefing.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const { computeCriticalDates } = await import("@/lib/criticalDates");
+        const { tasks, count } = await computeCriticalDates();
+        return { count, dates: tasks };
+      },
+    }),
+
     nudgeStuckCandidates: tool({
       description:
         "STAGE a gentle follow-up nudge (a 'Borivon' bell reminder, never auto-sent) to ALL currently-stuck candidates (the listStuckCandidates set). Optional short custom message. Applies immediately when you call it — it sends each stuck candidate the reminder right away; report how many. (For one candidate, use sendFollowUpNudge or sendCandidateMessage.)",
