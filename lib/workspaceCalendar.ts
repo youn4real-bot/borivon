@@ -31,6 +31,23 @@ function calTime(iso: string): { dateTime: string; timeZone?: string } {
   return HAS_TZ.test(t) ? { dateTime: t } : { dateTime: t, timeZone: BORIVON_TZ };
 }
 
+/** An absolute instant → a bare-local wall-clock in BORIVON_TZ + an explicit timeZone tag.
+ *  Google REQUIRES an IANA timeZone on BOTH start and end for any event carrying an RRULE;
+ *  a Z-suffixed dateTime alone (no timeZone) makes the recurring insert 400. */
+function localCalTime(instant: Date): { dateTime: string; timeZone: string } {
+  const p = new Intl.DateTimeFormat("en-CA", {
+    timeZone: BORIVON_TZ, hourCycle: "h23",
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(instant).reduce((a, x) => { if (x.type !== "literal") a[x.type] = x.value; return a; }, {} as Record<string, string>);
+  return { dateTime: `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`, timeZone: BORIVON_TZ };
+}
+
+/** Ensure a cal time carries an explicit timeZone (convert an absolute Z instant to a
+ *  TZ-tagged bare-local). Used on recurring events where Google needs timeZone on both ends. */
+function ensureTz(ct: { dateTime: string; timeZone?: string }): { dateTime: string; timeZone: string } {
+  return ct.timeZone ? (ct as { dateTime: string; timeZone: string }) : localCalTime(new Date(Date.parse(ct.dateTime)));
+}
+
 /** ms offset of `tz` from UTC at a given instant (handles DST / Morocco's Ramadan shift). */
 function tzOffsetMs(date: Date, tz: string): number {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -84,7 +101,13 @@ export async function bookWorkspaceEvent(opts: {
   if (!opts.startsAt || Number.isNaN(Date.parse(opts.startsAt.replace(HAS_TZ, "")))) {
     if (Number.isNaN(Date.parse(opts.startsAt ?? ""))) return { ok: false, error: "bad_start" };
   }
-  const start = calTime(opts.startsAt);
+  // Reject an explicit end at/before the start (a common AM/PM or cross-noon slip) up
+  // front with a clear reason, instead of letting Google bounce it as an opaque 400.
+  if (opts.endsAt && !Number.isNaN(Date.parse(opts.endsAt))
+    && localToInstant(opts.endsAt).getTime() <= localToInstant(opts.startsAt).getTime()) {
+    return { ok: false, error: "end_before_start" };
+  }
+  let start = calTime(opts.startsAt);
   // End: explicit, else +1h from start (computed on the absolute instant so a
   // bare local time still gets a sane end on the same local clock).
   let end: { dateTime: string; timeZone?: string };
@@ -98,6 +121,10 @@ export async function bookWorkspaceEvent(opts: {
     const endInstant = new Date(localToInstant(opts.startsAt).getTime() + durMin * 60 * 1000);
     end = { dateTime: endInstant.toISOString() };
   }
+  // A RECURRING event MUST carry an explicit timeZone on BOTH start and end or Google 400s
+  // the insert. The default end (and an absolute Z start) lack one → tag them now. This was
+  // why "weekly office-hours" / "invite Anna every Monday" silently failed. (B-recurring-tz)
+  if (opts.recurrence) { start = ensureTz(start); end = ensureTz(end); }
   const inviteEmails = (opts.attendees ?? []).map((e) => e.trim()).filter(Boolean);
   const requestBody: calendar_v3.Schema$Event = {
     summary: title,
@@ -158,11 +185,14 @@ export type CalEvent = {
 export async function readWorkspaceCalendar(opts: { from?: string; to?: string; max?: number; query?: string } = {}): Promise<{ ok: true; events: CalEvent[] } | { ok: false; error: string }> {
   const cal = calendarClient();
   if (!cal) return { ok: false, error: "workspace_not_connected" };
-  const nowMs = Date.now();
   // Interpret a bare-local from/to in BORIVON_TZ (B5 — was server-UTC). Default floor =
   // start of TODAY in Casablanca (B16 — was `now`, which hid earlier-today events).
-  const timeMin = (opts.from && !Number.isNaN(Date.parse(opts.from))) ? localToInstant(opts.from).toISOString() : startOfTodayTz().toISOString();
-  const timeMax = (opts.to && !Number.isNaN(Date.parse(opts.to))) ? localToInstant(opts.to).toISOString() : new Date(nowMs + 7 * 24 * 60 * 60 * 1000).toISOString();
+  const timeMinMs = (opts.from && !Number.isNaN(Date.parse(opts.from))) ? localToInstant(opts.from).getTime() : startOfTodayTz().getTime();
+  const timeMin = new Date(timeMinMs).toISOString();
+  // Default the window END to from + 7 days, NOT now + 7 days: a future "from" (e.g. "what's
+  // on my calendar in August?") with no "to" otherwise gives timeMax < timeMin and Google
+  // 400s the whole read. Anchoring to `from` makes the next-N-days window work at any start.
+  const timeMax = (opts.to && !Number.isNaN(Date.parse(opts.to))) ? localToInstant(opts.to).toISOString() : new Date(timeMinMs + 7 * 24 * 60 * 60 * 1000).toISOString();
   try {
     const res = await cal.events.list({
       calendarId: "primary",
@@ -205,6 +235,12 @@ export async function updateWorkspaceEvent(opts: {
 }): Promise<BookEventResult> {
   const cal = calendarClient();
   if (!cal) return { ok: false, error: "workspace_not_connected" };
+  // If BOTH ends are being set, reject end ≤ start up front (clear reason, no opaque Google
+  // 400 that would leave the event unchanged while the bot implies it moved).
+  if (opts.startsAt && opts.endsAt && !Number.isNaN(Date.parse(opts.startsAt)) && !Number.isNaN(Date.parse(opts.endsAt))
+    && localToInstant(opts.endsAt).getTime() <= localToInstant(opts.startsAt).getTime()) {
+    return { ok: false, error: "end_before_start" };
+  }
   const requestBody: calendar_v3.Schema$Event = {};
   if (opts.title && opts.title.trim()) requestBody.summary = opts.title.trim().slice(0, 300);
   if (opts.startsAt && !Number.isNaN(Date.parse(opts.startsAt.replace(HAS_TZ, "")))) requestBody.start = calTime(opts.startsAt);

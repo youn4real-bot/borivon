@@ -117,8 +117,11 @@ function parseTimeOfDay(t: string, nowLocalHour?: number): { hh: number; mm: num
     const hh = +m[1], mm = m[2] ? +m[2] : 0;
     if (hh <= 23 && mm <= 59) return { hh, mm };
   }
-  // bare "at 9" / "à 9" / "um 9" (no am/pm/colon) — PM-disambiguated against now
-  m = t.match(/\b(?:at|à|a|um)\s+(\d{1,2})\b/);
+  // bare "at 9" / "à 9" / "um 9" (no am/pm/colon) — PM-disambiguated against now.
+  // NOTE: the English indefinite article "a" is deliberately NOT here — "book a 2 bedroom",
+  // "send a 5 page summary" would otherwise parse "a 2"/"a 5" as 2pm/5pm and fabricate a
+  // bogus fire time. French "à" (accented) and German "um" stay; English always uses "at".
+  m = t.match(/\b(?:at|à|um)\s+(\d{1,2})\b/);
   if (m) {
     const hh = +m[1];
     if (hh <= 23) return disambiguatePm({ hh, mm: 0 }, nowLocalHour);
@@ -171,11 +174,16 @@ export function parseReminderTime(text: string, now: Date = new Date()): ParsedR
 
   // 2) Day anchors.
   let day: { y: number; m: number; d: number } | null = null;
+  // Track when the day came from a "today / tonight / this morning" keyword — if the
+  // resolved time is already past (e.g. "this morning" said at 2pm, "tonight" said at 11pm),
+  // we must roll it forward instead of storing a past instant that fires immediately.
+  let dayIsTodayKeyword = false;
 
   if (/\b(tomorrow|tmrw|demain|morgen)\b/.test(t)) {
     day = addLocalDays(cur.y, cur.m, cur.d, 1);
   } else if (/\b(today|tonight|aujourd|heute|ce soir|this (morning|afternoon|evening))\b/.test(t)) {
     day = { y: cur.y, m: cur.m, d: cur.d };
+    dayIsTodayKeyword = true;
   } else {
     // day-of-week
     const dowMatch = t.match(/\b(next\s+|prochain\s+|nächste[nr]?\s+)?(sunday|sun|dimanche|sonntag|monday|mon|lundi|montag|tuesday|tues?|mardi|dienstag|wednesday|wed|mercredi|mittwoch|thursday|thur?s?|jeudi|donnerstag|friday|fri|vendredi|freitag|saturday|sat|samedi|samstag)\b/);
@@ -231,7 +239,15 @@ export function parseReminderTime(text: string, now: Date = new Date()): ParsedR
   if (day) {
     const hh = time?.hh ?? 9;   // default reminders to 09:00 local when only a day is given
     const mm = time?.mm ?? 0;
-    const dueAt = instantAt(day.y, day.m, day.d, hh, mm);
+    let dueAt = instantAt(day.y, day.m, day.d, hh, mm);
+    // A "today / tonight / this morning" whose hour is already past must roll to the next
+    // day — otherwise the stored instant is in the past and fires on the very next message
+    // (and the Saved confirmation shows a past time). Explicit dates / weekdays are handled
+    // by their own past-guards above, so only the today-keyword case needs this.
+    if (dayIsTodayKeyword && dueAt.getTime() <= now.getTime()) {
+      const tm = addLocalDays(day.y, day.m, day.d, 1);
+      dueAt = instantAt(tm.y, tm.m, tm.d, hh, mm);
+    }
     return { dueAt, whenLabel: fmtWhen(dueAt) };
   }
 

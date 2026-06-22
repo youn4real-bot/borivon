@@ -63,14 +63,19 @@ export async function fireDueReminders(chatId: string | number, ownerUserId?: st
 
   let fired = 0;
   for (const r of rows) {
-    // CLAIM first (optimistic lock): only succeeds while notified_at is still null,
-    // so a concurrent webhook + cron tick can't both send this reminder.
+    // CLAIM first (optimistic lock): only succeeds while notified_at is still null AND the
+    // row's due_at is still the one this worker SELECTed. The due_at match closes a race on
+    // RECURRING reminders: after we send + re-arm (notified_at→null, due_at→next), a trigger
+    // whose stale SELECT ran before the re-arm would otherwise re-claim the now-null
+    // notified_at and double-send. Pinning due_at means that trigger's claim matches 0 rows
+    // (due_at already advanced), so each occurrence fires exactly once.
     const { data: claimed } = await db
       .from("assistant_reminders")
       // ACCUMULATE remind_count across occurrences (was hardcoded to 1, so it never grew
       // — would silently break any future snooze/escalation built on the count).
       .update({ notified_at: new Date().toISOString(), remind_count: (r.remind_count ?? 0) + 1 })
       .eq("id", r.id)
+      .eq("due_at", r.due_at)
       .is("notified_at", null)
       .select("id")
       .maybeSingle();

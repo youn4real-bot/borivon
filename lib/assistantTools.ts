@@ -3546,6 +3546,12 @@ export function buildAssistantTools(
       }),
       execute: async (args) => {
         if (scope.role !== "admin") return { error: "admin_only" };
+        // 'cancel' must NOT be staged as a confirmable SEND — applying it just dead-ends
+        // (writeCalendarInvite refuses) and pings an error AFTER the founder's "yes". Route
+        // it to the real cancel tool up front, before anything is staged.
+        if (args.method === "cancel") {
+          return { error: "use_cancelMyCalendarEvent", hint: "To cancel an event, call cancelMyCalendarEvent with the eventId from listMyCalendar — don't stage a cancel through sendCalendarInvite." };
+        }
         if (Number.isNaN(new Date(args.startsAt).getTime())) return { error: "bad_start_time" };
         // Resolve names → emails (so "invite Hajar and Zineb" works in one call).
         const tokens = String(args.attendees ?? "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -3553,7 +3559,7 @@ export function buildAssistantTools(
         if (ambiguous.length) return { error: "ambiguous_attendee", ambiguous, hint: "More than one person matches — tell me which (or give the email)." };
         if (unresolved.length) return { error: "no_email_on_file", unresolved, hint: "I don't have an email for these — give me their address." };
         if (!emails.length) return { error: "no_attendees" };
-        const verb = args.method === "cancel" ? "Cancel meeting" : "Calendar invite";
+        const verb = "Calendar invite"; // 'cancel' is short-circuited above → only 'request' reaches here
         // Stage with the RESOLVED emails (not the raw names) so the confirm + the actual send use real addresses.
         const staged = { ...args, attendees: emails.join(", ") };
         return stagePending(scope, {

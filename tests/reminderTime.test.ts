@@ -117,6 +117,39 @@ describe("parseReminderTime — capture the time the founder actually said", () 
     expect(l.day).toBe(18);
     expect(l.hh).toBe(20);
   });
+
+  // The English article "a" before a number must NOT be read as a clock hour — otherwise
+  // "book a 2 bedroom" / "send a 5 page summary" fabricate a 2pm/5pm reminder.
+  it("'a <number>' (indefinite article) does NOT fabricate a time", () => {
+    expect(parseReminderTime("remind me to book a 2 bedroom apartment", NOW).dueAt).toBeNull();
+    expect(parseReminderTime("remind me to send a 5 page summary", NOW).dueAt).toBeNull();
+  });
+  // German "um 9" before an hour still parses (ASCII keyword, word-boundary-safe).
+  it("German 'um 9' still parses a clock hour", () => {
+    const evening = new Date("2026-06-18T17:00:00Z"); // 18:00 local → PM-disambiguates 9→21
+    const { dueAt } = parseReminderTime("erinnere mich um 9 anzurufen", evening);
+    expect(dueAt).not.toBeNull();
+    expect(local(dueAt!).hh).toBe(21);
+  });
+
+  // A "today / this morning / tonight" keyword whose hour is already PAST must roll to the
+  // next day — never store a past instant that fires on the very next message.
+  it("'this morning' said in the afternoon rolls to tomorrow 09:00", () => {
+    const afternoon = new Date("2026-06-18T13:00:00Z"); // 14:00 local
+    const { dueAt } = parseReminderTime("remind me this morning to call the embassy", afternoon);
+    const l = local(dueAt!);
+    expect(l.day).toBe(19); // tomorrow, not today-9am-in-the-past
+    expect(l.hh).toBe(9);
+    expect(dueAt!.getTime()).toBeGreaterThan(afternoon.getTime());
+  });
+  it("'tonight' said late at night rolls to tomorrow 20:00", () => {
+    const lateNight = new Date("2026-06-18T22:30:00Z"); // 23:30 local
+    const { dueAt } = parseReminderTime("remind me tonight to lock up", lateNight);
+    const l = local(dueAt!);
+    expect(l.day).toBe(19);
+    expect(l.hh).toBe(20);
+    expect(dueAt!.getTime()).toBeGreaterThan(lateNight.getTime());
+  });
 });
 
 describe("localIsoToInstant — model-emitted local wall-clock ISO", () => {
