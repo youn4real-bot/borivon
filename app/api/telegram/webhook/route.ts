@@ -444,6 +444,11 @@ export async function POST(req: NextRequest) {
         : "Couldn't save that — say it once more.";
       await tgSend(chatId, reply);
       await saveChatTurns(scope.userId, [{ role: "user", content: text }, { role: "assistant", content: reply }]);
+      // Stamp responded_at: createReminder is a plain INSERT (not idempotent), and a slow
+      // voice turn (transcription runs first) can be slow enough that Telegram RETRIES the
+      // update; without this stamp the dedup recovery would treat the >65s-old un-stamped
+      // claim as "died", re-run this intercept, and store the SAME reminder twice.
+      await markResponded();
       return ok();
     }
     // empty task ("remind me …" with nothing after) → fall through; the model asks what.
@@ -593,13 +598,26 @@ export async function POST(req: NextRequest) {
     // Claude evaluation). maxRetries:1 recovers from a brief transient/rate blip
     // without risking a long multi-retry wait (Vercel function timeout). A hard rate
     // limit surfaces the friendly "wait / raise tier" message via the outer catch.
-    let result = await generateText({ model: flashModel, maxRetries: 1, ...genArgs });
-    // SELF-HEALING escalation: Flash drives every turn; if its answer comes back weak,
-    // empty, or it errored, silently retry the SAME turn on Gemini 2.5 Pro (same Vertex
-    // billing). So the hard requests fix themselves — no human, no Claude Code. Pro only
-    // fires on a weak answer, so cost stays near-Flash. (tier is 'flash' unless a Pro
-    // proactive route was chosen; both paths escalate the same way.)
-    if (escalateOn && looksWeak(result.text)) {
+    // SELF-HEALING escalation: Flash drives every turn; if it THROWS (transient 5xx / a tool
+    // error / safety stop), silently retry the SAME turn on Gemini 2.5 Pro — the documented
+    // "a failed Flash answer fixes itself, no human" only worked for a weak TEXT reply before,
+    // never an actual throw (which fell straight to the outer "glitched" message). usedProFallback
+    // records that we already escalated so we don't double-run Pro below.
+    let usedProFallback = false;
+    let result = await generateText({ model: flashModel, maxRetries: 1, ...genArgs })
+      .catch((e) => {
+        if (!escalateOn) throw e;
+        usedProFallback = true;
+        return generateText({ model: proModel, maxRetries: 1, ...genArgs });
+      });
+    // Did this turn actually do TOOL work? An EMPTY text reply is EXPECTED and correct when
+    // delivering files / doing a silent action (TG_SYSTEM tells the model to send no text
+    // then), so escalating on empty-text there would re-run Pro and RE-EXECUTE every tool
+    // (re-pull files, re-stage writes) — doubling latency/cost and risking the 60s cap. Only
+    // escalate a weak answer when NO tool ran (a genuine "the model just whiffed the reply").
+    const didTools = ((result as { steps?: Array<{ toolCalls?: unknown[] }> }).steps?.some((s) => (s.toolCalls?.length ?? 0) > 0))
+      ?? (((result as { toolCalls?: unknown[] }).toolCalls?.length ?? 0) > 0);
+    if (escalateOn && !usedProFallback && !didTools && looksWeak(result.text)) {
       try { result = await generateText({ model: proModel, maxRetries: 1, ...genArgs }); } catch { /* keep the first (Flash) result */ }
     }
 
@@ -623,6 +641,7 @@ export async function POST(req: NextRequest) {
     const fileLinks: { url: string; fileName?: string }[] = [];
     const fileMisses: string[] = []; // file tools that produced NO deliverable file (truth-line)
     let savedReminderThisTurn = false; // skip the looks-done auto-close when we just saved one
+    let stagedSendThisTurn = false; // only auto-stream a pending send's attachments the turn it's first staged
     const seenUrls = new Set<string>();
     // Truthful confirm status — the model sometimes claims "done/versendet" even
     // when the write was refused/errored. We read the ACTUAL result and append the
@@ -664,6 +683,11 @@ export async function POST(req: NextRequest) {
       // pass below — a message like "remind me to call the bank, haven't done it yet" must
       // never both save a reminder AND immediately mark one done.
       if (all.some((t) => t.toolName === "saveReminder" || t.toolName === "updateReminder")) savedReminderThisTurn = true;
+      // A send is "freshly staged" this turn iff the model called a send-staging tool now.
+      // Used to stream the pending attachments ONCE (not on every later follow-up turn while
+      // the same send sits waiting for "yes").
+      const SEND_STAGING_TOOLS = new Set(["sendExternalEmail", "replyToEmail", "resendEmail", "saveDraft", "forwardEmail"]);
+      if (all.some((t) => t.toolName != null && SEND_STAGING_TOOLS.has(t.toolName))) stagedSendThisTurn = true;
     } catch (e) {
       console.error("[telegram] tool-result parse failed:", e instanceof Error ? e.message : e);
     }
@@ -672,12 +696,21 @@ export async function POST(req: NextRequest) {
     // person (the ONE guardrail) or a delete, which wait for the founder's explicit
     // "yes". pendingAsk = the action now waiting for that yes.
     let pendingAsk: { summary: string; isSend: boolean } | null = null;
-    if (!confirmOutcome) {
+    // Drain staged work UNLESS a write genuinely completed (confirmOutcome.done). The model
+    // sometimes spuriously calls confirmPendingWrite — which returns {error:"confirm_in_new_message"}
+    // same-turn — and the OLD `if (!confirmOutcome)` then SKIPPED the drain entirely: legit
+    // same-turn non-send writes (setB2Status, etc.) never applied and the send's "👉 Send it?"
+    // prompt never showed (the founder saw a bogus "Not done yet"). Gating on !done fixes that.
+    if (!confirmOutcome?.done) {
       try {
         const res = await autoApplyPending(scope);
         if ("applied" in res) {
           if (res.failed.length) confirmOutcome = { error: res.failed.join("; "), partialApplied: res.applied.length ? res.applied.join("; ") : undefined };
           else if (res.applied.length) confirmOutcome = { done: true, summary: res.applied.join("; ") };
+          // Nothing applied AND the only "outcome" was the model's spurious same-turn confirm
+          // call → drop that misleading error so the founder isn't told "Not done yet" for an
+          // action that needed no confirm (pendingAsk below carries any real send prompt).
+          else if (confirmOutcome?.error === "confirm_in_new_message") confirmOutcome = null;
         }
         pendingAsk = res.awaitingConfirm;
       } catch (e) {
@@ -829,7 +862,10 @@ export async function POST(req: NextRequest) {
     // draft has attachments (skip if the model already streamed files this turn, e.g.
     // he asked "show me the files"). Best-effort: never block the confirm.
     let attachmentsShown = false;
-    if (pendingAsk?.isSend && !willSendFiles) {
+    // Only stream the attachments the turn the send is FIRST staged — not on every later
+    // follow-up while it waits for "yes" (that re-downloaded + re-sent the same CV/PDF each
+    // message). stagedSendThisTurn is true only when a send-staging tool ran this turn.
+    if (pendingAsk?.isSend && !willSendFiles && stagedSendThisTurn) {
       try {
         const pend = await getPendingDraft(scope.userId);
         if (pend) {
