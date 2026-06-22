@@ -236,11 +236,19 @@ export function parsePingReply(text: string, now: Date = new Date()):
     const ms = /^h/.test(u) ? n * 3_600_000 : /^d/.test(u) ? n * 86_400_000 : n * 60_000;
     if (ms > 0 && ms <= 60 * 86_400_000) return { action: "snooze", dueAt: new Date(now.getTime() + ms) };
   }
-  // Natural language — strip a leading snooze verb, then reuse the reminder time parser
-  // ("snooze to 5pm" → "5pm", "push to tomorrow 9" → "tomorrow 9", "in 2h", "tonight").
-  const phrase = t.replace(/^(snooze|push|move|delay|reschedule|remind me)\b\s*(it\s+)?(to|by|until|for|again)?\s*/i, "").trim() || t;
-  const { dueAt } = parseReminderTime(phrase, now);
-  if (dueAt && dueAt.getTime() > now.getTime()) return { action: "snooze", dueAt };
+  // Natural language → snooze, but ONLY when the reply is COMMAND-shaped, so a NOTE that
+  // happens to contain a time ("called them, will follow up at 3 tomorrow") is NOT misread as
+  // a snooze. Command-shaped = a leading snooze verb ("snooze to 5pm", "push to tomorrow 9"),
+  // OR a short reply (≤4 words) that's essentially just a time ("tomorrow 9am", "in 2h", "3pm").
+  // Anything longer falls through to the model as a normal message.
+  const SNOOZE_VERB = /^(snooze|push|move|delay|reschedule|remind me)\b\s*(it\s+)?(to|by|until|for|again)?\s*/i;
+  const hadVerb = SNOOZE_VERB.test(t);
+  const phrase = (hadVerb ? t.replace(SNOOZE_VERB, "").trim() : t) || t;
+  const wordCount = t.split(/\s+/).filter(Boolean).length;
+  if (hadVerb || wordCount <= 4) {
+    const { dueAt } = parseReminderTime(phrase, now);
+    if (dueAt && dueAt.getTime() > now.getTime()) return { action: "snooze", dueAt };
+  }
   return { action: "none" };
 }
 

@@ -33,6 +33,13 @@ describe("parsePingReply — act on a reminder by replying to its ping", () => {
     expect(parsePingReply("later maybe", NOW).action).toBe("none");
     expect(parsePingReply("", NOW).action).toBe("none");
   });
+  it("a NOTE that merely contains a time is NOT misread as a snooze (only command-shaped replies snooze)", () => {
+    // Long, no snooze verb → a note, not a reschedule → let the model handle it.
+    expect(parsePingReply("I already called them at 3pm and will follow up tomorrow", NOW).action).toBe("none");
+    expect(parsePingReply("spoke to the bank, they said come back at 9 next week", NOW).action).toBe("none");
+    // But an explicit snooze verb still snoozes even when long.
+    expect(parsePingReply("snooze this one to tomorrow at 9am please", NOW).action).toBe("snooze");
+  });
 });
 
 // The auto-close precision gate: a reminder is only cleared when the founder's "done"

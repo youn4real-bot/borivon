@@ -1263,16 +1263,23 @@ export function buildAssistantTools(
       inputSchema: z.object({
         eventId: z.string().min(1).max(1024),
         eventTitle: z.string().max(300).optional().describe("the event's title (from listMyCalendar) — shown in the confirm line"),
+        isRecurring: z.boolean().optional().describe("true if listMyCalendar marked this event with recurringEventId (it REPEATS) — so the confirm shows the cancel SCOPE"),
         wholeSeries: z.boolean().optional().describe("true → cancel the ENTIRE recurring series, not just this one occurrence"),
       }),
-      execute: async ({ eventId, eventTitle, wholeSeries }) => {
+      execute: async ({ eventId, eventTitle, isRecurring, wholeSeries }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
         const label = (eventTitle || "").trim();
+        // For a REPEATING event, make the scope explicit in the confirm so an ambiguous "cancel
+        // the standup" never silently nukes the whole series (or vice-versa) — the founder sees
+        // it and can say "the whole series" before his "yes".
+        const seriesNote = wholeSeries
+          ? " (the WHOLE repeating series)"
+          : isRecurring ? " (just THIS occurrence — say 'cancel the whole series' to remove all of them)" : "";
         return stagePending(scope, {
           toolName: "cancelMyCalendarEvent",
           args: { eventId, wholeSeries: wholeSeries === true },
           candidateUserId: null,
-          summary: `Cancel ${label ? `"${label.slice(0, 80)}"` : "this event"}${wholeSeries ? " (the WHOLE repeating series)" : ""} — also emails any attendees the cancellation`,
+          summary: `Cancel ${label ? `"${label.slice(0, 80)}"` : "this event"}${seriesNote} — also emails any attendees the cancellation`,
         });
       },
     }),
