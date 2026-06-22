@@ -222,6 +222,32 @@ export async function readWorkspaceCalendar(opts: { from?: string; to?: string; 
   }
 }
 
+/** The founder's OWN events for TODAY (start-of-today → +1 day in BORIVON_TZ), as a compact
+ *  {time,title,meetLink,allDay} list for the morning briefing header. Reuses readWorkspaceCalendar.
+ *  Fail-safe → [] (a Workspace outage must never break the briefing). */
+export async function listTodayEvents(): Promise<{ time: string; title: string; meetLink?: string; allDay: boolean }[]> {
+  try {
+    const start = startOfTodayTz();
+    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+    const res = await readWorkspaceCalendar({ from: start.toISOString(), to: end.toISOString(), max: 20 });
+    if (!res.ok) return [];
+    const fmtTime = (iso: string | null): string => {
+      if (!iso) return "";
+      const t = Date.parse(iso);
+      if (!Number.isFinite(t)) return "";
+      return new Intl.DateTimeFormat("en-GB", { timeZone: BORIVON_TZ, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(t));
+    };
+    return res.events.map((e) => ({
+      time: e.allDay ? "all day" : fmtTime(e.start),
+      title: e.title,
+      meetLink: e.meetLink,
+      allDay: e.allDay,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 /** Patch an existing event on the founder's own Google Calendar (reschedule / rename
  *  / add a Meet link). Only the provided fields change. If start moves with no new
  *  end, the end shifts to keep a 1h duration. */

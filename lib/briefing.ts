@@ -19,6 +19,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { getStaffUserIdsAmong } from "@/lib/admin-auth";
 import { computeStuckCandidates } from "@/lib/autoChase";
 import { computeCriticalDates } from "@/lib/criticalDates";
+import { listTodayEvents } from "@/lib/workspaceCalendar";
 import { getUnansweredEmails } from "@/lib/gmailInbox";
 import { computeBatchTasks, formatBatchTasks } from "@/lib/batchBoard";
 import { isAutomationEnabled } from "@/lib/automationSettings";
@@ -76,6 +77,17 @@ export async function computeBriefing(adminUserId: string | null): Promise<Brief
   // MINIMALIST (founder's hard rule): no emojis, no fluff — just what to do.
   const lines: string[] = [];
   let count = 0;
+
+  // TODAY'S AGENDA first — the founder's OWN calendar for today ("here's your day"). Always
+  // on (it's HIS commitments, not a candidate nag, so it honors "only what I tell you"), but
+  // only shown when there's actually something today — no empty-day noise. Does NOT count as
+  // an actionable item (it's context). Fail-safe → skipped if Workspace is unreachable.
+  const todayEvents = await listTodayEvents().catch(() => []);
+  if (todayEvents.length) {
+    lines.push("Today:");
+    for (const e of todayEvents.slice(0, 12)) lines.push(`- ${e.time} ${e.title}${e.meetLink ? " 📹" : ""}`);
+    lines.push("");
+  }
 
   // ── YOUR dictated tasks lead — and BY DEFAULT they're the ONLY thing pushed. ──
   if (reminders.length) {
