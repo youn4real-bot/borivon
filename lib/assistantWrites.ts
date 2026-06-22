@@ -2006,6 +2006,30 @@ export async function cancelLatestPending(
   return { cancelled: true, summary: row.summary };
 }
 
+/** WYSIWYG SAFETY — expire every pending send / calendar-cancel / delete that is still
+ *  awaiting a "yes". Called the instant the founder sends ANYTHING that isn't a bare yes/no:
+ *  a correction or a new request means the previously-shown confirm is STALE, and a later
+ *  "yes" must NEVER fire it (that's how the wrong, older email got sent to the wrong person).
+ *  The model re-stages within the same turn if the action is still wanted, so the next "yes"
+ *  fires EXACTLY what was last shown — nothing else. Best-effort; never throws. Returns the
+ *  number expired. */
+export async function expireStalePendingConfirms(ownerUserId: string): Promise<number> {
+  if (!ownerUserId) return 0;
+  try {
+    const db = getServiceSupabase();
+    const { data } = await db
+      .from("assistant_pending_actions")
+      .update({ status: "expired" })
+      .eq("owner_user_id", ownerUserId)
+      .eq("status", "pending")
+      .in("tool_name", [...CONFIRM_TOOLS])
+      .select("id");
+    return (data as { id: string }[] | null)?.length ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
 // Actions that WAIT for an explicit human "yes" before running. Two groups:
 //  • DESTRUCTIVE — irreversible deletes (a competent assistant double-checks).
 //  • SEND — anything that transmits a message to a PERSON. This is the ONE
