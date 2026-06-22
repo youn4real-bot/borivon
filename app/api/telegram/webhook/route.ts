@@ -24,7 +24,7 @@ import { loadMemory, saveMemory } from "@/lib/assistantMemory";
 import { transcribeVoice } from "@/lib/transcribeVoice";
 import { looksLikeCorrection, reflectAndLearn } from "@/lib/selfLearn";
 import { loadConversationContext, saveChatTurns, maybeCompact, resetConversation } from "@/lib/assistantChatHistory";
-import { executeLatestPending, cancelLatestPending, autoApplyPending, getPendingDraft } from "@/lib/assistantWrites";
+import { executeLatestPending, cancelLatestPending, autoApplyPending, getPendingDraft, getPendingSendAttachments } from "@/lib/assistantWrites";
 import { isConfirmText, isCancelText, isResetText, isShowFilesText, isMuteDocReminders, isUnmuteDocReminders, isMinimalReminders, isBriefingSignalsOn, isSetReminder, parseReminderText, looksLikeDone, isSetRule, parseRuleText } from "@/lib/confirmIntent";
 import { createReminder, resolveDoneReminders } from "@/lib/reminderAuto";
 import { checkPendingMigrations } from "@/lib/migrationCheck";
@@ -876,6 +876,8 @@ export async function POST(req: NextRequest) {
       try {
         const pend = await getPendingDraft(scope.userId);
         if (pend) {
+          // sendDraft path (fuzzy / chat-file / forwarded attachments) — stream the REAL
+          // draft attachments (byte-for-byte what goes out).
           const got = await listDraftAttachments(pend.draftId);
           if (got && got.attachments.length > 0) {
             const token = signDlToken(scope.userId, 600);
@@ -894,6 +896,21 @@ export async function POST(req: NextRequest) {
               attachmentsShown = true;
               await tgSend(chatId, `📎 These are the EXACT ${shown} file(s) that will attach — review them, then reply "yes" to send (or tell me what to change).`);
             }
+          }
+        } else {
+          // sendExternalEmail / replyToEmail with CV/doc BY ID — these stay on the non-draft
+          // path (so the resend log survives), so getPendingDraft is null. Resolve the real
+          // CV/doc bytes and stream them too, so the founder reviews the ACTUAL file before
+          // "yes" for the MOST COMMON email type — not just a filename in the text preview.
+          const atts = await getPendingSendAttachments(scope);
+          let shown = 0;
+          for (const a of atts.slice(0, 25)) {
+            void tgSendChatAction(chatId, "upload_document");
+            try { if (await tgSendDocument(chatId, a.content, a.filename || "attachment")) shown++; } catch { /* skip one that won't send */ }
+          }
+          if (shown > 0) {
+            attachmentsShown = true;
+            await tgSend(chatId, `📎 These are the EXACT ${shown} file(s) that will attach — review them, then reply "yes" to send (or tell me what to change).`);
           }
         }
       } catch { /* best-effort — never block the confirm */ }

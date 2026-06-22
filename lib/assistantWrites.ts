@@ -1526,6 +1526,26 @@ export async function getPendingDraft(ownerId: string): Promise<{ draftId: strin
   return draftId ? { draftId, draftMessageId: String(a.draftMessageId ?? "") } : null;
 }
 
+/** Resolve the ACTUAL attachment bytes for a pending CV/doc-by-id email send
+ *  (sendExternalEmail / replyToEmail). These DON'T go through the draft path (kept on the
+ *  proven non-draft path so the assistant_sent_emails resend log stays intact), so
+ *  getPendingDraft returns null for them — yet the founder's hard rule is to SEE the real
+ *  file before confirming ANY email. The webhook calls this to stream the bytes before the
+ *  "👉 Send it?". Renders the CV fresh (same as the send will) — accepted cost at the
+ *  human-gated confirm. Returns [] when the latest pending isn't such a send / has no CV-doc. */
+export async function getPendingSendAttachments(scope: AssistantScope): Promise<OutboundAttachment[]> {
+  if (!scope.userId) return [];
+  const row = await getLatestPending(scope.userId);
+  if (!row || (row.tool_name !== "sendExternalEmail" && row.tool_name !== "replyToEmail")) return [];
+  const a = (row.args ?? {}) as Record<string, unknown>;
+  const split = (v: unknown) => String(v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const candidateIds = split(a.attachCandidateIds);
+  const docIds = split(a.attachDocIds);
+  if (!candidateIds.length && !docIds.length) return []; // fuzzy/chat/email attachments take the draft path
+  const { attachments } = await resolveOutboundAttachments(scope, { candidateIds, docIds });
+  return attachments;
+}
+
 /** A stable "who/what this send targets" key — so a re-stage to the SAME recipient is a
  *  correction (supersede the stale pending), while a send to a DIFFERENT recipient is kept
  *  (no cross-cancel of two unrelated emails/invites). "" = no identifiable target → keep all. */
