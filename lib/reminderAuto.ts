@@ -25,8 +25,10 @@ const TOKEN_STOP = new Set([
   "done", "sent", "send", "sending", "paid", "pay", "paying", "call", "called", "calling",
   "email", "emailed", "mail", "mailed", "text", "texted", "message", "messaged", "handle",
   "handled", "handling", "finish", "finished", "made", "make", "making", "took", "take",
-  "taken", "mark", "marked", "cross", "already", "just", "today", "yesterday", "tonight",
-  "thing", "things", "stuff", "task", "reminder", "remind", "please", "thanks", "thank",
+  "taken", "mark", "marked", "cross", "clear", "clearing", "cleared", "wipe", "whole",
+  "already", "just", "today", "yesterday", "tonight",
+  "thing", "things", "stuff", "task", "tasks", "todo", "todos", "reminder", "reminders",
+  "remind", "list", "lists", "everything", "please", "thanks", "thank",
   "yeah", "yep", "yup", "okay", "sure", "cool", "great", "nice", "good", "fine",
   // EN pronouns / fillers (>=4 chars; shorter ones drop via the length filter)
   "that", "this", "these", "those", "them", "they", "their", "with", "about", "from",
@@ -132,6 +134,23 @@ export async function resolveDoneReminders(
     const open = (data ?? []) as { id: string; text: string }[];
     if (!open.length) return [];
 
+    // BULK DONE — handle in CODE (the model is unreliable at "all" and often returns NONE,
+    // which is why "mark them all done" / "mark all my reminders done" closed NOTHING). An
+    // explicit bulk-clear with no distinctive task word → close EVERY open reminder; a
+    // TOPIC-scoped bulk ("mark all the embassy ones done") → close every open one sharing a
+    // distinctive token. No model pick needed, so it always works.
+    if (BULK_DONE.test(userMsg)) {
+      const toks = contentTokens(userMsg);
+      const picks = toks.size ? open.filter((p) => contentOverlap(userMsg, p.text) > 0) : open.slice();
+      if (!picks.length) return [];
+      const done: string[] = [];
+      for (const r of picks) {
+        const { error } = await db.from("assistant_reminders").update({ done: true }).eq("id", r.id).eq("owner_user_id", adminUserId);
+        if (!error) done.push(r.text);
+      }
+      return done;
+    }
+
     const list = open.map((r, i) => `${i + 1}. ${r.text}`).join("\n");
     const res = await generateText({
       model,
@@ -160,16 +179,16 @@ export async function resolveDoneReminders(
     // from silently clearing an unrelated task.
     let picks = nums.map((n) => open[n - 1]);
     const msgTokens = contentTokens(userMsg);
-    const bulk = BULK_DONE.test(userMsg);
+    // (Bulk is handled above; here the message is a SINGLE-item "done".)
     if (msgTokens.size === 0) {
       // A BARE acknowledgement ("done", "erledigt") with no distinctive word: only safe
       // when there's exactly ONE open reminder (unambiguous); otherwise close nothing.
       picks = open.length === 1 ? picks.filter((p) => p.id === open[0].id) : [];
     } else {
       picks = picks.filter((p) => contentOverlap(userMsg, p.text) > 0);
-      // Not an explicit bulk clear → close at most the SINGLE best-matching reminder, so
-      // an over-eager multi-pick can't sweep several tasks off one ambiguous message.
-      if (!bulk && picks.length > 1) {
+      // Close at most the SINGLE best-matching reminder, so an over-eager multi-pick can't
+      // sweep several tasks off one ambiguous message.
+      if (picks.length > 1) {
         picks = [picks.reduce((best, p) => (contentOverlap(userMsg, p.text) > contentOverlap(userMsg, best.text) ? p : best))];
       }
     }

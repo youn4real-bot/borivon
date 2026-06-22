@@ -1485,20 +1485,22 @@ export function buildAssistantTools(
 
     clearReminders: tool({
       description:
-        "Mark MANY of the admin's reminders done at once. scope: 'all' clears every open reminder ('clear all my reminders / wipe my to-do list'); 'overdue' clears only ones already past due. By design this is a soft close (done=true), never a hard delete. Returns how many were cleared.",
-      inputSchema: z.object({ scope: z.enum(["all", "overdue"]).default("all") }),
-      execute: async ({ scope: which }) => {
-        // Load open ids first so we can both apply the 'overdue' filter (which needs
-        // due_at/due_date math) and report an exact count.
+        "Mark MANY of the admin's reminders done at once. scope: 'all' clears every open reminder ('clear all my reminders / wipe my to-do list'); 'overdue' clears only ones already past due. Optional match = only clear reminders whose text contains it ('clear all the embassy ones' → match 'embassy'). Soft close (done=true), never a hard delete. Returns how many were cleared. Use this for ANY 'mark all done / clear all' — never loop completeReminder.",
+      inputSchema: z.object({
+        scope: z.enum(["all", "overdue"]).default("all"),
+        match: z.string().max(80).optional().describe("only clear reminders whose text contains this substring (topic-scoped bulk)"),
+      }),
+      execute: async ({ scope: which, match }) => {
+        // Load open ids + text first so we can apply the 'overdue'/match filters and report an exact count.
         const sel = async (withDueAt: boolean) => db
           .from("assistant_reminders")
-          .select(withDueAt ? "id, due_date, due_at" : "id, due_date")
+          .select(withDueAt ? "id, text, due_date, due_at" : "id, text, due_date")
           .eq("owner_user_id", scope.userId)
           .eq("done", false);
         let { data, error } = await sel(true);
         if (error) ({ data, error } = await sel(false));
         if (error) return { error: "load_failed" };
-        type R = { id: string; due_date: string | null; due_at?: string | null };
+        type R = { id: string; text: string | null; due_date: string | null; due_at?: string | null };
         let rows = (data ?? []) as unknown as R[];
         const now = Date.now();
         if (which === "overdue") {
@@ -1506,6 +1508,10 @@ export function buildAssistantTools(
             const ms = r.due_at ? Date.parse(r.due_at) : parseDate(r.due_date);
             return ms !== null && !Number.isNaN(ms) && ms <= now;
           });
+        }
+        if (match && match.trim()) {
+          const m = match.trim().toLowerCase();
+          rows = rows.filter((r) => (r.text ?? "").toLowerCase().includes(m));
         }
         const ids = rows.map((r) => r.id);
         if (!ids.length) return { cleared: 0 };
@@ -1516,6 +1522,59 @@ export function buildAssistantTools(
           .eq("owner_user_id", scope.userId);
         if (uErr) return { error: "clear_failed" };
         return { cleared: ids.length };
+      },
+    }),
+
+    bulkSnoozeReminders: tool({
+      description:
+        "Snooze/reschedule MANY open reminders to a new time AT ONCE — 'snooze everything to tomorrow', 'push all my reminders to next week', 'move all the embassy ones to Friday 9am'. dueAt = LOCAL wall-clock ISO no Z (e.g. 2026-06-25T09:00:00), resolved against RIGHT NOW. scope 'all' (default) or 'overdue'; optional match = only ones whose text contains it. Re-arms each so it fires again at the new time. Returns how many moved. Use this for ANY bulk snooze — never loop updateReminder.",
+      inputSchema: z.object({
+        dueAt: z.string().describe("LOCAL wall-clock ISO no Z, e.g. 2026-06-25T09:00:00"),
+        scope: z.enum(["all", "overdue"]).default("all"),
+        match: z.string().max(80).optional().describe("only snooze reminders whose text contains this substring"),
+      }),
+      execute: async ({ dueAt, scope: which, match }) => {
+        const due = localIsoToInstant(dueAt);
+        if (!due) return { error: "bad_dueAt" };
+        const sel = async (withDueAt: boolean) => db
+          .from("assistant_reminders")
+          .select(withDueAt ? "id, text, due_date, due_at" : "id, text, due_date")
+          .eq("owner_user_id", scope.userId)
+          .eq("done", false);
+        let { data, error } = await sel(true);
+        if (error) ({ data, error } = await sel(false));
+        if (error) return { error: "load_failed" };
+        type R = { id: string; text: string | null; due_date: string | null; due_at?: string | null };
+        let rows = (data ?? []) as unknown as R[];
+        const now = Date.now();
+        if (which === "overdue") {
+          rows = rows.filter((r) => {
+            const ms = r.due_at ? Date.parse(r.due_at) : parseDate(r.due_date);
+            return ms !== null && !Number.isNaN(ms) && ms <= now;
+          });
+        }
+        if (match && match.trim()) {
+          const m = match.trim().toLowerCase();
+          rows = rows.filter((r) => (r.text ?? "").toLowerCase().includes(m));
+        }
+        const ids = rows.map((r) => r.id);
+        if (!ids.length) return { snoozed: 0 };
+        const iso = due.toISOString();
+        let { error: uErr } = await db
+          .from("assistant_reminders")
+          .update({ due_at: iso, due_date: iso.slice(0, 10), notified_at: null })
+          .in("id", ids)
+          .eq("owner_user_id", scope.userId);
+        if (uErr) {
+          // due_at/notified_at columns may not be migrated → retry date-only so it still moves.
+          ({ error: uErr } = await db
+            .from("assistant_reminders")
+            .update({ due_date: iso.slice(0, 10) })
+            .in("id", ids)
+            .eq("owner_user_id", scope.userId));
+        }
+        if (uErr) return { error: "snooze_failed" };
+        return { snoozed: ids.length, when: fmtWhen(due) };
       },
     }),
 

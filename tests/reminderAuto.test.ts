@@ -52,6 +52,16 @@ describe("contentTokens — keep distinctive words, drop generic done/action wor
     expect(contentTokens("erledigt").size).toBe(0);
     expect(contentTokens("yeah I handled that").size).toBe(0);
   });
+  it("'reminders/list/everything/tasks' are stop-words → a generic bulk-clear has NO distinctive token", () => {
+    // So "mark all my reminders done" / "clear my whole list" → empty token set → the bulk
+    // path closes ALL open (instead of trying to text-match "reminders"/"list" and closing none).
+    expect(contentTokens("mark all my reminders done").size).toBe(0);
+    expect(contentTokens("clear my whole list").size).toBe(0);
+    expect(contentTokens("mark everything done").size).toBe(0);
+    // A TOPIC-scoped bulk still keeps its distinctive word so it can target just those.
+    const t = contentTokens("clear all the embassy ones");
+    expect(t.has("embassy")).toBe(true);
+  });
   it("ascii-folds accents (French)", () => {
     const t = contentTokens("j'ai envoyé le contrat à l'ambassade");
     expect(t.has("contrat")).toBe(true);
