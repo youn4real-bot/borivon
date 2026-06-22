@@ -156,7 +156,7 @@ export async function POST(req: NextRequest) {
   }
   if (!telegramConfigured()) return ok();
 
-  let update: { update_id?: number; message?: { chat?: { id: number }; text?: string; caption?: string; voice?: { file_id: string }; photo?: { file_id: string }[]; document?: { file_id: string; file_name?: string; mime_type?: string } } };
+  let update: { update_id?: number; message?: { chat?: { id: number }; text?: string; caption?: string; voice?: { file_id: string }; audio?: { file_id: string; mime_type?: string }; photo?: { file_id: string }[]; document?: { file_id: string; file_name?: string; mime_type?: string } } };
   try { update = await req.json(); } catch { return ok(); }
   const msg = update.message;
   const chatId = msg?.chat?.id;
@@ -225,14 +225,21 @@ export async function POST(req: NextRequest) {
   // rule, mute, show-files) run on the transcript too — Claude can't ingest audio, and voice
   // is the founder's most common input, so without this the whole "enforce in code" net was
   // silently OFF for voice. Transcribe once here; the build-user-turn step reuses it.
+  // Handle BOTH msg.voice (in-app mic note) AND msg.audio (a voice memo sent as a file or
+  // FORWARDED from another chat) — the latter previously fell through to a silent no-reply.
   let voiceTranscript: string | null = null;
-  if (msg.voice) {
-    const audio = await tgGetFileBytes(msg.voice.file_id);
+  const voiceLike = msg.voice ?? msg.audio;
+  if (voiceLike) {
+    const audio = await tgGetFileBytes(voiceLike.file_id);
     if (!audio) { await tgSend(chatId, "Couldn't fetch that voice note — resend it or type it."); return ok(); }
     void tgSendChatAction(chatId, "typing");
-    voiceTranscript = await transcribeVoice(audio.bytes, audio.mime);
-    if (!voiceTranscript) { await tgSend(chatId, "I couldn't catch that voice note — resend it or type it; nothing was saved."); return ok(); }
-    text = voiceTranscript;
+    const vt = await transcribeVoice(audio.bytes, audio.mime);
+    if (!vt) { await tgSend(chatId, "I couldn't catch that voice note — resend it or type it; nothing was saved."); return ok(); }
+    voiceTranscript = vt.text;
+    text = vt.text;
+    // The transcript hit the model's output cap → the END of a long memo may be missing.
+    // Tell the founder up front so a dictated task that got cut can't silently vanish.
+    if (vt.truncated) await tgSend(chatId, "That voice note was long — I may have missed the end. If a task is missing, send the rest.");
   }
 
   // 3) Fast paths.
@@ -718,7 +725,11 @@ export async function POST(req: NextRequest) {
       if (confirmOutcome.error === "confirm_in_new_message") reply = `${reply}\n\n⚠️ Not done yet — send "yes" (or "senden") as a separate message and I'll apply it.`.trim();
       else if (confirmOutcome.error === "nothing_pending") reply = `${reply}\n\n⚠️ There was nothing pending to confirm — ask me again and I'll re-prepare it.`.trim();
       else if (confirmOutcome.error) {
-        const why = humanizeWriteError(confirmOutcome.error);
+        // A multi-action turn joins several raw codes ("no_email; bad_email"); humanize EACH
+        // (split on ";") instead of feeding the whole joined string to humanizeWriteError,
+        // which would match no key and fall back to the useless generic line. Single-code
+        // errors (the common case) pass through a 1-element map unchanged.
+        const why = confirmOutcome.error.split(/\s*;\s*/).filter(Boolean).map(humanizeWriteError).join("; ");
         const partial = confirmOutcome.partialApplied ? ` Did go through: ${confirmOutcome.partialApplied}.` : " Nothing was sent/changed.";
         reply = `${reply}\n\n⚠️ Couldn't apply that — ${why}.${partial}`.trim();
       }
@@ -855,11 +866,16 @@ export async function POST(req: NextRequest) {
         : `👉 Confirm? Reply "yes" to go ahead, or "no" to cancel.`);
     }
 
-    // Remember this turn so the NEXT message has context. Save the model's ORIGINAL
-    // text (not the display copy) so the candidate names it used survive as a referent.
+    // Remember this turn so the NEXT message has context. Save the TRUTH-CORRECTED `reply`
+    // the founder actually saw — NOT the raw model text. Otherwise a false "I've sent the
+    // email to Anna" (when the send actually failed or is still awaiting "yes") re-enters the
+    // next turn's context and, worse, gets folded into the permanent rolling summary, so the
+    // bot believes a phantom send happened and refuses to resend. `reply` keeps every
+    // candidate name the model used (the softeners only rewrite send-verbs, never names), so
+    // referents still resolve. Fall back to raw text, then the file marker, when reply is empty.
     await saveChatTurns(scope.userId, [
       { role: "user", content: userText },
-      { role: "assistant", content: (result.text || "").trim() || (sentFile ? "[delivered the requested file(s)]" : "") },
+      { role: "assistant", content: (reply || "").trim() || (result.text || "").trim() || (sentFile ? "[delivered the requested file(s)]" : "") },
     ]);
     // Fold older turns into the rolling summary once the live tail grows long, so
     // memory stays effectively unlimited at a bounded prompt size (compress &
@@ -873,7 +889,7 @@ export async function POST(req: NextRequest) {
     // wouldn't have called rememberAboutMe. Runs AFTER the reply is sent (no delay
     // to the answer); tells the founder what it learned so they can catch a bad one.
     if (looksLikeCorrection(userText)) {
-      const learned = await reflectAndLearn(scope.userId, userText, result.text || "", flashModel).catch(() => null);
+      const learned = await reflectAndLearn(scope.userId, userText, reply || result.text || "", flashModel).catch(() => null);
       if (learned) {
         await tgSend(chatId, `📝 Got it — I'll remember this from now on: ${learned}\n(if that's wrong, say "forget that")`);
         await saveChatTurns(scope.userId, [{ role: "assistant", content: `[learned a lasting rule: ${learned}]` }]);

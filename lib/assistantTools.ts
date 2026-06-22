@@ -1859,12 +1859,16 @@ export function buildAssistantTools(
         // Dedup case-insensitively in memory (NOT via ilike — a rule containing
         // '_' or '%' would be treated as a SQL wildcard and could falsely match a
         // DIFFERENT rule, silently dropping the new teaching). Compare exact text,
-        // lowercased.
+        // lowercased. ORDER BY created_at desc + 400 (matching saveMemory) so the dedup
+        // window is DETERMINISTIC — without an order, once memory exceeds the limit Postgres
+        // returns an arbitrary slice, so an existing duplicate outside it slips through and
+        // a second copy piles up (every freshly-phrased self-learned rule is a new row).
         const { data: existing } = await db
           .from("assistant_memory")
           .select("text")
           .eq("owner_user_id", scope.userId)
-          .limit(200);
+          .order("created_at", { ascending: false })
+          .limit(400);
         const needle = clean.toLowerCase();
         if (((existing as { text: string }[] | null) ?? []).some((r) => (r.text ?? "").trim().toLowerCase() === needle)) {
           return { remembered: true, alreadyKnew: true };

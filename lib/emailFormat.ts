@@ -42,8 +42,11 @@ export function stripFileDeliveryNoise(s: string): string {
     // Lead-ins: "Here are the attachments:", "Here's the file Abdelhak sent:", etc.
     .replace(/^\s*here(?:'s| is| are)\b[^.\n]*\b(?:attachment|file|document|pdf|photo|image)s?\b[^.\n]*:?\s*$/gim, "")
     .replace(/^\s*(?:the|those|these)\s+(?:attachment|file|document|photo|image)s?\b[^.\n]*:?\s*$/gim, "")
-    // Redundant filename bullets (the delivered documents already show the names).
-    .replace(/^\s*[-•*]\s*\S.*\.(?:pdf|jpe?g|png|docx?|xlsx?|pptx?|zip|txt|csv)\b.*$/gim, "")
+    // Redundant filename bullets (the delivered documents already show the names). The line
+    // must be JUST a filename (any chars before the extension, optionally a "(size)" after) —
+    // so a per-file SUMMARY the founder asked for ("- Hajar_CV.pdf: 5 yrs ICU, B2 passed")
+    // is KEPT, because text follows the extension instead of ending the line there.
+    .replace(/^\s*[-•*]\s*.+\.(?:pdf|jpe?g|png|docx?|xlsx?|pptx?|zip|txt|csv)\s*(?:\([^)]*\))?\s*$/gim, "")
     .replace(/[ \t]+$/gm, "")
     .replace(/\n{2,}/g, "\n")
     .trim();

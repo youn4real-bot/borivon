@@ -25,4 +25,17 @@ describe("stripFileDeliveryNoise — files-only on delivery", () => {
     expect(out).toContain("Hajar passed");
     expect(out).toContain("Ismail exam on 12 July");
   });
+
+  it("KEEPS a per-file SUMMARY bullet (filename followed by analysis the founder asked for)", () => {
+    const out = stripFileDeliveryNoise([
+      "- Hajar_CV.pdf: 5 yrs ICU, B2 passed",
+      "- Omar_CV.pdf: surgical nurse, B1 in progress",
+    ].join("\n"));
+    expect(out).toContain("Hajar_CV.pdf: 5 yrs ICU, B2 passed");
+    expect(out).toContain("Omar_CV.pdf: surgical nurse, B1 in progress");
+  });
+
+  it("still strips a bare filename bullet with a trailing size", () => {
+    expect(stripFileDeliveryNoise("- hajar_lebenslauf.pdf (2.1 MB)\n- passport.jpg")).toBe("");
+  });
 });

@@ -9,7 +9,7 @@
  * rememberAboutMe.
  */
 import { generateText } from "ai";
-import { saveMemory } from "@/lib/assistantMemory";
+import { saveMemory, loadLearnedRuleTexts } from "@/lib/assistantMemory";
 
 // Language that signals a correction, a lasting preference, or frustration worth
 // reflecting on. Broad on purpose (missing a correction = not learning), but the
@@ -39,12 +39,20 @@ export async function reflectAndLearn(
 ): Promise<string | null> {
   if (!adminUserId || !model) return null;
   try {
+    // Show the reflector the rules ALREADY active so a re-worded re-correction doesn't create
+    // a semantic duplicate (exact-text dedup in saveMemory can't catch a fresh phrasing). If
+    // one already covers the founder's message, the reflector returns NONE → no duplicate, no
+    // re-announce. Best-effort: an empty list just means no dedup hint this turn.
+    const existing = await loadLearnedRuleTexts(adminUserId, 80).catch(() => [] as string[]);
+    const existingBlock = existing.length
+      ? `Rules I ALREADY follow — if the founder's message is already covered by one of these, output NONE (do NOT restate a near-duplicate):\n${existing.map((r) => `- ${r}`).join("\n")}\n\n`
+      : "";
     const res = await generateText({
       model,
       system: REFLECT_SYS,
       messages: [{
         role: "user",
-        content: `Founder said:\n"${(userMsg || "").slice(0, 900)}"\n\nThe bot's last reply / action was:\n"${(botReply || "").slice(0, 500)}"\n\nThe lasting rule (or NONE):`,
+        content: `${existingBlock}Founder said:\n"${(userMsg || "").slice(0, 900)}"\n\nThe bot's last reply / action was:\n"${(botReply || "").slice(0, 500)}"\n\nThe lasting rule (or NONE):`,
       }],
       temperature: 0.2,
       // 1024 (was 200): on Gemini 2.5 Flash, THINKING tokens share this budget — at 200 the

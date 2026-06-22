@@ -29,6 +29,28 @@ export async function loadMemory(adminUserId: string | null): Promise<string> {
   return lines.map((t) => `- ${t}`).join("\n");
 }
 
+/** The bot's currently-active behavioural rules (rule + correction + preference), newest
+ *  first. Used by the self-learn reflector to de-duplicate a freshly-phrased rule against
+ *  what's ALREADY learned — exact-text dedup can't catch a re-worded re-correction
+ *  ("stop CCing the agency" vs "don't CC the agency"), so the reflector is shown these and
+ *  told to return NONE when one already covers the founder's message. Fail-safe to []. */
+export async function loadLearnedRuleTexts(adminUserId: string | null, limit = 80): Promise<string[]> {
+  if (!adminUserId) return [];
+  try {
+    const db = getServiceSupabase();
+    const { data } = await db
+      .from("assistant_memory")
+      .select("text")
+      .eq("owner_user_id", adminUserId)
+      .in("kind", ["rule", "correction", "preference"])
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    return ((data as { text: string }[] | null) ?? []).map((r) => (r.text || "").trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 export type SaveMemoryResult = "saved" | "duplicate" | "failed";
 
 /** Save a durable rule the bot LEARNED (from rememberAboutMe OR auto-reflection),

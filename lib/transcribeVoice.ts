@@ -11,7 +11,7 @@
 import { createVertex } from "@ai-sdk/google-vertex";
 import { generateText } from "ai";
 
-export async function transcribeVoice(bytes: Uint8Array, mime: string): Promise<string | null> {
+export async function transcribeVoice(bytes: Uint8Array, mime: string): Promise<{ text: string; truncated: boolean } | null> {
   const project = process.env.GOOGLE_VERTEX_PROJECT;
   const location = process.env.GOOGLE_VERTEX_LOCATION || "europe-west4";
   const credsRaw = process.env.GOOGLE_VERTEX_CREDENTIALS;
@@ -24,10 +24,13 @@ export async function transcribeVoice(bytes: Uint8Array, mime: string): Promise<
     const res = await generateText({
       model,
       maxRetries: 1,
-      // 2048 + no thinking: a long voice note transcript could overflow 1024 once Gemini
-      // 2.5 Flash's thinking shares the budget → truncated transcript. Transcription needs
-      // no reasoning, so disable thinking (faster + the full transcript always lands).
-      maxOutputTokens: 2048,
+      // 8192 + no thinking. Transcription output scales with audio length: at the old 2048
+      // cap a long memo (the founder's main input, often several dictated tasks) was cut off
+      // by Gemini with NO error, so the tasks after the cutoff silently vanished. 8192 covers
+      // any realistic voice note; thinking is disabled (no reasoning needed) so the whole
+      // budget is transcript, and we still flag finishReason === "length" so the caller can
+      // warn the founder if even 8192 wasn't enough (never let a dictated task slip silently).
+      maxOutputTokens: 8192,
       providerOptions: { vertex: { thinkingConfig: { thinkingBudget: 0 } }, google: { thinkingConfig: { thinkingBudget: 0 } } },
       messages: [{
         role: "user",
@@ -38,7 +41,8 @@ export async function transcribeVoice(bytes: Uint8Array, mime: string): Promise<
       }],
     });
     const t = (res.text || "").trim();
-    return t || null;
+    if (!t) return null;
+    return { text: t, truncated: res.finishReason === "length" };
   } catch (e) {
     console.error("[transcribeVoice] failed:", e instanceof Error ? e.message : e);
     return null;

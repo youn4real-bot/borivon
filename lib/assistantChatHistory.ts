@@ -28,9 +28,14 @@ import { generateText } from "ai";
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
-// Live tail kept VERBATIM in the prompt. Must be >= COMPACT_THRESHOLD so the
-// whole un-summarised tail always loads (older context lives in the summary).
-const TAIL_TURNS = 60;
+// Live tail kept VERBATIM in the prompt. Must be COMFORTABLY > COMPACT_THRESHOLD: in
+// normal operation compaction keeps the un-summarised tail near COMPACT_KEEP, so this cap
+// is rarely approached. The headroom matters when compaction STALLS (Flash down / erroring)
+// while the founder keeps chatting — without it, anything older than the newest TAIL_TURNS
+// is excluded from the loaded context AND never folded into the summary, so the conversation
+// silently forgets its own middle. 120 means compaction must fail across ~95 turns before
+// any loss, and loadConversationContext force-fires a catch-up compaction when it hits the cap.
+const TAIL_TURNS = 120;
 // Once the un-summarised tail exceeds this many turns, fold the oldest down.
 const COMPACT_THRESHOLD = 50;
 // After folding, keep roughly this many recent turns raw (the rest → summary).
@@ -68,6 +73,11 @@ export async function loadConversationContext(
 
     const { data, error } = await q.order("created_at", { ascending: false }).limit(TAIL_TURNS);
     if (error || !data) return { summary: sum?.summary ?? "", turns: [] };
+    // We hit the cap → there are MORE un-summarised turns than we loaded (compaction has
+    // fallen behind). Fire a catch-up compaction (fire-and-forget, self-throttled, swallows
+    // its own errors) so the watermark advances and the overflow is summarised next turn
+    // instead of being silently dropped.
+    if (data.length >= TAIL_TURNS) void maybeCompact(ownerUserId);
     const turns = (data as ChatTurn[])
       .filter((t) => (t.role === "user" || t.role === "assistant") && typeof t.content === "string" && t.content.trim())
       .reverse(); // chronological for the model
