@@ -389,9 +389,19 @@ export function buildAssistantTools(
 
     getCandidateById: tool({
       description:
-        "Get the FULL profile for ONE candidate by candidateUserId: name, EMAIL, phone-less core + B2 exam date + passport status, PLUS every identity/passport field — passport number, date of birth, sex, nationality, full address, city & country of birth, marital status, children, issuing authority, passport issue & expiry dates. USE THIS for 'what's X's passport number / date of birth / nationality / address / email / marital status' — the answer is here, never say you can't find it. Returns { error: 'out_of_scope' } if you are not allowed to see them.",
-      inputSchema: z.object({ candidateUserId: z.string().uuid() }),
-      execute: async ({ candidateUserId }) => {
+        "Get the FULL profile for ONE candidate — by candidateUserId OR just their NAME (candidateName; it's resolved for you, so you DON'T need the id first): name, EMAIL + B2 exam date + passport status, PLUS every identity/passport field — passport number, date of birth, sex, nationality, full address, city & country of birth, marital status, children, issuing authority, passport issue & expiry dates. USE THIS for 'what's X's email / phone / passport number / date of birth / nationality / address / marital status' — the answer is here, NEVER say you can't pull up a candidate's email/contact. If the name is ambiguous it returns the matches so you ask which. Returns { error: 'out_of_scope' } if you are not allowed to see them.",
+      inputSchema: z.object({
+        candidateUserId: z.string().uuid().optional().describe("the candidate's id — OR give candidateName instead"),
+        candidateName: z.string().max(120).optional().describe("the candidate's NAME, if you don't have the id — resolved automatically"),
+      }),
+      execute: async ({ candidateUserId, candidateName }) => {
+        if (!candidateUserId) {
+          if (!candidateName?.trim()) return { error: "need_candidate", hint: "Tell me who — a candidate name or id." };
+          const m = pickCandidate(await candidateRoster(), candidateName.trim());
+          if (m.status === "ambiguous") return { error: "ambiguous_candidate", matches: m.matches.map((x) => ({ candidateUserId: x.userId, name: x.name })), hint: "More than one matches — which?" };
+          if (m.status !== "ok") return { error: "candidate_not_found", name: candidateName.trim() };
+          candidateUserId = m.candidate.userId; // resolved from the name
+        }
         if (!(await canActOnCandidate(scope.role, scope.email, candidateUserId))) return { error: "out_of_scope" };
         const { data, error } = await db
           .from("candidate_profiles")

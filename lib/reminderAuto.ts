@@ -14,6 +14,7 @@
 import { generateText } from "ai";
 import { getServiceSupabase } from "@/lib/supabase";
 import { parseReminderTime, fmtWhen } from "@/lib/reminderTime";
+import { GEMINI_SAFETY } from "@/lib/vertexModel";
 
 // Generic done-words, action verbs, pronouns and fillers that appear in BOTH a "done"
 // message AND a reminder ("I CALLED them" vs "CALL the embassy") — so they must NOT
@@ -165,7 +166,7 @@ export async function resolveDoneReminders(
       // 60 could leave NO room for the answer → empty → reminders never auto-close. This is
       // a trivial pick-the-numbers task, so thinking is wasted overhead.
       maxOutputTokens: 512,
-      providerOptions: { vertex: { thinkingConfig: { thinkingBudget: 0 } }, google: { thinkingConfig: { thinkingBudget: 0 } } },
+      providerOptions: { vertex: { thinkingConfig: { thinkingBudget: 0 }, safetySettings: GEMINI_SAFETY }, google: { thinkingConfig: { thinkingBudget: 0 }, safetySettings: GEMINI_SAFETY } },
     });
 
     const out = (res.text || "").trim();

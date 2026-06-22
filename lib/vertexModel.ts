@@ -31,6 +31,23 @@ import { createVertex } from "@ai-sdk/google-vertex";
 
 export type ModelTier = "flash" | "pro";
 
+/**
+ * Gemini safety thresholds for EVERY Gemini call (main brain + voice transcription +
+ * auto-close + self-learn). This is an INTERNAL ops tool with ONE fully-trusted user (the
+ * founder); Gemini's default medium-threshold filters were FALSE-blocking benign business
+ * content (a real chat: he pasted a candidate's email → "I cannot send… it goes against my
+ * safety guidelines"). BLOCK_ONLY_HIGH still blocks genuinely severe content, needs no Vertex
+ * allowlist, and never errors the call (unlike OFF/BLOCK_NONE on some categories). Pass via
+ * providerOptions.{vertex,google}.safetySettings — the key differs by SDK path, so set both.
+ * Claude ignores these keys, so it's a no-op when the brain is Claude.
+ */
+export const GEMINI_SAFETY: { category: string; threshold: string }[] = [
+  { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_ONLY_HIGH" },
+  { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_ONLY_HIGH" },
+  { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
+  { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_ONLY_HIGH" },
+];
+
 function makeAnthropic() {
   const key = process.env.ANTHROPIC_API_KEY;
   if (!key) return null;

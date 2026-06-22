@@ -10,6 +10,7 @@
  */
 import { createVertex } from "@ai-sdk/google-vertex";
 import { generateText } from "ai";
+import { GEMINI_SAFETY } from "@/lib/vertexModel";
 
 export async function transcribeVoice(bytes: Uint8Array, mime: string): Promise<{ text: string; truncated: boolean } | null> {
   const project = process.env.GOOGLE_VERTEX_PROJECT;
@@ -31,7 +32,7 @@ export async function transcribeVoice(bytes: Uint8Array, mime: string): Promise<
       // budget is transcript, and we still flag finishReason === "length" so the caller can
       // warn the founder if even 8192 wasn't enough (never let a dictated task slip silently).
       maxOutputTokens: 8192,
-      providerOptions: { vertex: { thinkingConfig: { thinkingBudget: 0 } }, google: { thinkingConfig: { thinkingBudget: 0 } } },
+      providerOptions: { vertex: { thinkingConfig: { thinkingBudget: 0 }, safetySettings: GEMINI_SAFETY }, google: { thinkingConfig: { thinkingBudget: 0 }, safetySettings: GEMINI_SAFETY } },
       messages: [{
         role: "user",
         content: [

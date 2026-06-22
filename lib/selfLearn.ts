@@ -10,6 +10,7 @@
  */
 import { generateText } from "ai";
 import { saveMemory, loadLearnedRuleTexts } from "@/lib/assistantMemory";
+import { GEMINI_SAFETY } from "@/lib/vertexModel";
 
 // Language that signals a correction, a lasting preference, or frustration worth
 // reflecting on. Broad on purpose (missing a correction = not learning), but the
@@ -60,7 +61,7 @@ export async function reflectAndLearn(
       // identity;"), so the bot "learned" garbage. Disable thinking too (this is a tiny
       // classification, thinking is pure overhead) so the full rule always comes out.
       maxOutputTokens: 1024,
-      providerOptions: { vertex: { thinkingConfig: { thinkingBudget: 0 } }, google: { thinkingConfig: { thinkingBudget: 0 } } },
+      providerOptions: { vertex: { thinkingConfig: { thinkingBudget: 0 }, safetySettings: GEMINI_SAFETY }, google: { thinkingConfig: { thinkingBudget: 0 }, safetySettings: GEMINI_SAFETY } },
     });
     const rule = (res.text || "").trim().replace(/^["'`]+|["'`]+$/g, "").trim();
     if (!rule || /^none\b/i.test(rule) || rule.length < 8 || rule.length > 220) return null;

@@ -16,7 +16,7 @@
 import { NextRequest } from "next/server";
 import { generateText, stepCountIs } from "ai";
 import { logUsage } from "@/lib/usage";
-import { vertexModel, chooseTier, looksWeak, escalationActive } from "@/lib/vertexModel";
+import { vertexModel, chooseTier, looksWeak, escalationActive, GEMINI_SAFETY } from "@/lib/vertexModel";
 import { buildAssistantTools } from "@/lib/assistantTools";
 import type { AssistantScope } from "@/lib/assistantScope";
 import { computeBriefing } from "@/lib/briefing";
@@ -642,6 +642,15 @@ export async function POST(req: NextRequest) {
     temperature: 0.4,
     maxOutputTokens: 8192,
     stopWhen: stepCountIs(20),
+    // SAFETY FILTERS loosened to BLOCK_ONLY_HIGH. This bot serves ONE fully-trusted user
+    // (the business owner) doing legitimate nurse-placement ops. Gemini's default
+    // medium-threshold filters were FALSE-blocking benign content — a real chat had the
+    // founder paste a candidate's email and get "I cannot send… it goes against my safety
+    // guidelines", which reads as the bot refusing for no reason (his #1 complaint). BLOCK_
+    // ONLY_HIGH still blocks genuinely severe content, needs no Vertex allowlist, and never
+    // errors the call. Keyed under BOTH vertex + google (the provider key differs by SDK
+    // path); Claude ignores these keys, so it's a no-op when the brain is Claude.
+    providerOptions: { vertex: { safetySettings: GEMINI_SAFETY }, google: { safetySettings: GEMINI_SAFETY } },
   };
   const escalateOn = escalationActive(); // Gemini Flash→Pro self-healing retry (live on Gemini)
   // Show "typing…" the whole time the bot is thinking + running tools, so the
