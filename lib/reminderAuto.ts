@@ -13,6 +13,7 @@
  */
 import { generateText } from "ai";
 import { getServiceSupabase } from "@/lib/supabase";
+import { parseReminderTime, fmtWhen } from "@/lib/reminderTime";
 
 // Generic done-words, action verbs, pronouns and fillers that appear in BOTH a "done"
 // message AND a reminder ("I CALLED them" vs "CALL the embassy") — so they must NOT
@@ -186,5 +187,82 @@ export async function resolveDoneReminders(
     return done;
   } catch {
     return [];
+  }
+}
+
+const PING_DONE_RE = /\b(done|erledigt|fertig|geregelt|fini|finie?|finished|completed?|sorted|handled|c'?est fait)\b/i;
+const PING_NEG_RE = /\b(not|n'?t|nicht|pas|haven'?t|didn'?t|won'?t|can'?t|no longer|never)\b/i;
+
+/**
+ * Parse a REPLY to a reminder ping into an action. PURE + deterministic (no model) so a quick
+ * "done" / "+1h" / "tomorrow 9am" reliably maps to that reminder. Returns:
+ *  - done   → the founder handled it (a done-word, not negated)
+ *  - snooze → a new due instant ("+1h"/"+30m"/"+2d" shorthand, or "in 2h"/"tonight"/"tomorrow
+ *             9"/"3pm" via parseReminderTime)
+ *  - none   → not actionable → let the normal model path handle the reply
+ */
+export function parsePingReply(text: string, now: Date = new Date()):
+  | { action: "done" }
+  | { action: "snooze"; dueAt: Date }
+  | { action: "none" } {
+  const raw = (text || "").trim();
+  const t = raw.toLowerCase();
+  if (!t) return { action: "none" };
+  if ((PING_DONE_RE.test(t) || raw === "✅" || raw === "👍") && !PING_NEG_RE.test(t)) return { action: "done" };
+  // "+1h" / "+30m" / "+2d" snooze shorthand (also bare "+90" = minutes).
+  const plus = t.match(/^\+\s*(\d{1,4})\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)?\b/);
+  if (plus) {
+    const n = parseInt(plus[1], 10);
+    const u = plus[2] || "m";
+    const ms = /^h/.test(u) ? n * 3_600_000 : /^d/.test(u) ? n * 86_400_000 : n * 60_000;
+    if (ms > 0 && ms <= 60 * 86_400_000) return { action: "snooze", dueAt: new Date(now.getTime() + ms) };
+  }
+  // Natural language — strip a leading snooze verb, then reuse the reminder time parser
+  // ("snooze to 5pm" → "5pm", "push to tomorrow 9" → "tomorrow 9", "in 2h", "tonight").
+  const phrase = t.replace(/^(snooze|push|move|delay|reschedule|remind me)\b\s*(it\s+)?(to|by|until|for|again)?\s*/i, "").trim() || t;
+  const { dueAt } = parseReminderTime(phrase, now);
+  if (dueAt && dueAt.getTime() > now.getTime()) return { action: "snooze", dueAt };
+  return { action: "none" };
+}
+
+/**
+ * Act on a REPLY to a reminder ping: find the reminder by the ping's Telegram message_id
+ * (deterministic — no fuzzy name match) and complete or snooze it. Fail-safe → {action:"none"}
+ * when the column isn't migrated, the reply doesn't map to a ping, or it isn't actionable, so
+ * the caller falls through to normal processing.
+ */
+export async function handleReminderPingReply(
+  adminUserId: string | null,
+  replyToMessageId: number,
+  text: string,
+): Promise<{ action: "done" | "snoozed" | "none"; task?: string; whenLabel?: string }> {
+  if (!adminUserId || !replyToMessageId) return { action: "none" };
+  try {
+    const db = getServiceSupabase();
+    const { data, error } = await db
+      .from("assistant_reminders")
+      .select("id, text")
+      .eq("owner_user_id", adminUserId)
+      .eq("last_ping_message_id", replyToMessageId)
+      .eq("done", false)
+      .limit(1)
+      .maybeSingle();
+    if (error || !data) return { action: "none" }; // not a ping reply (or column not migrated)
+    const row = data as { id: string; text: string };
+    const parsed = parsePingReply(text);
+    if (parsed.action === "done") {
+      const { error: e } = await db.from("assistant_reminders").update({ done: true }).eq("id", row.id).eq("owner_user_id", adminUserId);
+      return e ? { action: "none" } : { action: "done", task: row.text };
+    }
+    if (parsed.action === "snooze") {
+      const iso = parsed.dueAt.toISOString();
+      const { error: e } = await db.from("assistant_reminders")
+        .update({ due_at: iso, due_date: iso.slice(0, 10), notified_at: null })
+        .eq("id", row.id).eq("owner_user_id", adminUserId);
+      return e ? { action: "none" } : { action: "snoozed", task: row.text, whenLabel: fmtWhen(parsed.dueAt) };
+    }
+    return { action: "none" };
+  } catch {
+    return { action: "none" };
   }
 }

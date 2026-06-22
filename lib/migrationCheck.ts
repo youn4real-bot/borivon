@@ -22,6 +22,7 @@ const GATES: { table: string; column: string; file: string; feature: string }[] 
   { table: "documents", column: "superseded_at", file: "documents_superseded.sql", feature: "archiving documents" },
   { table: "candidate_pipeline", column: "employment_start", file: "candidate_pipeline_employment_dates.sql", feature: "employment/residence dates" },
   { table: "leads", column: "status", file: "leads_status.sql", feature: "lead lifecycle (status/convert)" },
+  { table: "assistant_reminders", column: "last_ping_message_id", file: "assistant_reminders_ping.sql", feature: "snoozing a reminder by replying to its ping" },
 ];
 
 const isMissingErr = (error: unknown): boolean => {

@@ -26,7 +26,7 @@ import { looksLikeCorrection, reflectAndLearn } from "@/lib/selfLearn";
 import { loadConversationContext, saveChatTurns, maybeCompact, resetConversation } from "@/lib/assistantChatHistory";
 import { executeLatestPending, cancelLatestPending, autoApplyPending, getPendingDraft, getPendingSendAttachments } from "@/lib/assistantWrites";
 import { isConfirmText, isCancelText, isResetText, isShowFilesText, isMuteDocReminders, isUnmuteDocReminders, isMinimalReminders, isBriefingSignalsOn, isSetReminder, parseReminderText, looksLikeDone, isSetRule, parseRuleText } from "@/lib/confirmIntent";
-import { createReminder, resolveDoneReminders } from "@/lib/reminderAuto";
+import { createReminder, resolveDoneReminders, handleReminderPingReply } from "@/lib/reminderAuto";
 import { checkPendingMigrations } from "@/lib/migrationCheck";
 import { parseReminderTime } from "@/lib/reminderTime";
 import { fireDueReminders } from "@/lib/reminderFire";
@@ -156,7 +156,7 @@ export async function POST(req: NextRequest) {
   }
   if (!telegramConfigured()) return ok();
 
-  let update: { update_id?: number; message?: { chat?: { id: number }; text?: string; caption?: string; voice?: { file_id: string }; audio?: { file_id: string; mime_type?: string }; photo?: { file_id: string }[]; document?: { file_id: string; file_name?: string; mime_type?: string } } };
+  let update: { update_id?: number; message?: { chat?: { id: number }; text?: string; caption?: string; voice?: { file_id: string }; audio?: { file_id: string; mime_type?: string }; photo?: { file_id: string }[]; document?: { file_id: string; file_name?: string; mime_type?: string }; reply_to_message?: { message_id?: number } } };
   try { update = await req.json(); } catch { return ok(); }
   const msg = update.message;
   const chatId = msg?.chat?.id;
@@ -267,6 +267,30 @@ export async function POST(req: NextRequest) {
   // primary near-real-time delivery path (we're on Vercel Hobby — no sub-daily cron).
   // Best-effort: never blocks or breaks the message if it fails / the table isn't migrated.
   await fireDueReminders(chatId, scope.userId).catch(() => ({ fired: 0 }));
+
+  // ⏰ REPLY-TO-A-PING: if this message is a reply to a reminder's ping, act on THAT exact
+  // reminder (matched by the ping's message_id — no fuzzy name guessing). "done"/"erledigt" →
+  // close it; "+1h"/"in 2h"/"tomorrow 9"/"3pm" → snooze it. Minimalist confirm (just the task).
+  // Falls through to normal processing when it isn't a ping reply or isn't actionable.
+  const replyToId = msg.reply_to_message?.message_id;
+  if (typeof replyToId === "number" && text) {
+    const pr = await handleReminderPingReply(scope.userId, replyToId, text).catch(() => ({ action: "none" as const }));
+    if (pr.action === "done") {
+      const reply = `Done: ${pr.task}`;
+      await tgSend(chatId, reply);
+      await saveChatTurns(scope.userId, [{ role: "user", content: text }, { role: "assistant", content: reply }]);
+      await markResponded();
+      return ok();
+    }
+    if (pr.action === "snoozed") {
+      const reply = pr.whenLabel ? `Snoozed — ${pr.task} (${pr.whenLabel})` : `Snoozed — ${pr.task}`;
+      await tgSend(chatId, reply);
+      await saveChatTurns(scope.userId, [{ role: "user", content: text }, { role: "assistant", content: reply }]);
+      await markResponded();
+      return ok();
+    }
+    // action "none" → not a ping reply (or unparseable) → continue to normal handling.
+  }
 
   if (text === "/today") {
     // Guard the briefing build: a DB hiccup here must NOT throw out of the handler (that

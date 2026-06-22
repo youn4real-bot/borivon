@@ -1,5 +1,39 @@
 import { describe, it, expect } from "vitest";
-import { contentTokens, contentOverlap } from "../lib/reminderAuto";
+import { contentTokens, contentOverlap, parsePingReply } from "../lib/reminderAuto";
+
+// Replying to a reminder's ping: "done" closes it, "+1h"/"in 2h"/"tomorrow 9" snoozes it.
+// Pure + deterministic so the founder can act on the exact pinged task with no fuzzy matching.
+describe("parsePingReply — act on a reminder by replying to its ping", () => {
+  const NOW = new Date("2026-06-18T10:00:00Z"); // 11:00 local (Casablanca, UTC+1)
+  it("treats done-words as DONE (not negated)", () => {
+    expect(parsePingReply("done", NOW).action).toBe("done");
+    expect(parsePingReply("erledigt", NOW).action).toBe("done");
+    expect(parsePingReply("✅", NOW).action).toBe("done");
+    expect(parsePingReply("handled it", NOW).action).toBe("done");
+  });
+  it("does NOT mark done on a negation", () => {
+    expect(parsePingReply("haven't done it yet", NOW).action).not.toBe("done");
+    expect(parsePingReply("not done", NOW).action).not.toBe("done");
+  });
+  it("snoozes on +Nh / +Nm / +Nd shorthand", () => {
+    const h = parsePingReply("+1h", NOW);
+    expect(h.action).toBe("snooze");
+    if (h.action === "snooze") expect(h.dueAt.getTime()).toBe(NOW.getTime() + 3_600_000);
+    const m = parsePingReply("+30m", NOW);
+    if (m.action === "snooze") expect(m.dueAt.getTime()).toBe(NOW.getTime() + 30 * 60_000);
+    const d = parsePingReply("+2d", NOW);
+    if (d.action === "snooze") expect(d.dueAt.getTime()).toBe(NOW.getTime() + 2 * 86_400_000);
+  });
+  it("snoozes on natural language (in 2h, tomorrow 9am, snooze to 5pm)", () => {
+    expect(parsePingReply("in 2h", NOW).action).toBe("snooze");
+    expect(parsePingReply("tomorrow 9am", NOW).action).toBe("snooze");
+    expect(parsePingReply("snooze to 5pm", NOW).action).toBe("snooze"); // strips "snooze to" → "5pm" today (future)
+  });
+  it("returns none for an unactionable reply", () => {
+    expect(parsePingReply("later maybe", NOW).action).toBe("none");
+    expect(parsePingReply("", NOW).action).toBe("none");
+  });
+});
 
 // The auto-close precision gate: a reminder is only cleared when the founder's "done"
 // message actually REFERENCES it (shares a distinctive token). This stops an incidental

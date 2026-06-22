@@ -43,6 +43,38 @@ async function postMessage(chatId: string | number, text: string): Promise<void>
   }
 }
 
+/** Send ONE short message and return its Telegram message_id (or null). Used for a reminder
+ *  PING so a later reply-to of "done" / "+1h" / "tomorrow 9" can be mapped deterministically
+ *  back to THAT reminder (by message_id, no fuzzy matching). Pings are short, so no splitting;
+ *  rides the same 429/5xx backoff as postMessage. */
+export async function tgSendReturningId(chatId: string | number, text: string): Promise<number | null> {
+  if (!token()) return null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const r = await fetch(`${API}/bot${token()}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, text: text.slice(0, 3900), disable_web_page_preview: true }),
+      });
+      if (r.ok) {
+        const j = (await r.json().catch(() => null)) as { result?: { message_id?: number } } | null;
+        return typeof j?.result?.message_id === "number" ? j.result.message_id : null;
+      }
+      if (r.status === 429) {
+        const j = (await r.json().catch(() => null)) as { parameters?: { retry_after?: number } } | null;
+        await delay(Math.min(10, Number(j?.parameters?.retry_after) || 1) * 1000);
+        continue;
+      }
+      if (r.status >= 500 && attempt < 2) { await delay(500 * (attempt + 1)); continue; }
+      return null;
+    } catch {
+      if (attempt < 2) { await delay(500 * (attempt + 1)); continue; }
+      return null;
+    }
+  }
+  return null;
+}
+
 /** Send a plain-text message. Telegram caps a message at 4096 chars, so for long
  *  text we split — but on a WORD/LINE boundary, never mid-word/number/URL. */
 export async function tgSend(chatId: string | number, text: string): Promise<void> {

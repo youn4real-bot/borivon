@@ -23,7 +23,7 @@
  * the query errors and we return {fired:0, skipped} — never throw, never block a message.
  */
 import { getServiceSupabase } from "@/lib/supabase";
-import { tgSend } from "@/lib/telegram";
+import { tgSendReturningId } from "@/lib/telegram";
 import { nextFutureOccurrence, type Recurrence } from "@/lib/reminderTime";
 
 type DueRow = { id: string; text: string; due_at: string; due_date?: string | null; recurrence?: string | null; remind_count?: number | null };
@@ -94,7 +94,7 @@ export async function fireDueReminders(chatId: string | number, ownerUserId?: st
     try {
       // MINIMALIST (founder's hard rule): a reminder ping is LITERALLY just the task — no
       // emoji, no "Reminder:" label, no "(repeats…)" suffix. Just what to do.
-      await tgSend(id, r.text);
+      const pingId = await tgSendReturningId(id, r.text);
       fired++;
       // Recurring → re-arm the next occurrence (clear the claim, advance due_at) so it
       // keeps pinging until the founder marks it done.
@@ -102,6 +102,13 @@ export async function fireDueReminders(chatId: string | number, ownerUserId?: st
         await db.from("assistant_reminders")
           .update({ notified_at: null, due_at: next.toISOString() })
           .eq("id", r.id);
+      }
+      // Remember THIS ping's message_id so a reply-to of "done"/"+1h"/"tomorrow 9" can target
+      // this exact reminder. A SEPARATE, self-contained best-effort update: a not-yet-migrated
+      // last_ping_message_id column must NEVER break the re-arm above nor trip the claim-release
+      // catch below (which would wrongly re-fire the reminder).
+      if (pingId != null) {
+        try { await db.from("assistant_reminders").update({ last_ping_message_id: pingId }).eq("id", r.id); } catch { /* column not migrated → ignore */ }
       }
     } catch {
       // Send threw (network) — release the claim so a later trigger retries it.
