@@ -9,8 +9,13 @@
  * isn't configured or transcription fails, so the caller can ask the founder to type.
  */
 import { createVertex } from "@ai-sdk/google-vertex";
+import { createVertex as createVertexEdge } from "@ai-sdk/google-vertex/edge";
 import { generateText } from "ai";
 import { GEMINI_SAFETY } from "@/lib/vertexModel";
+
+// On Cloudflare Workers the node google-auth path 500s (unenv lacks node:http.validateHeaderName);
+// the /edge variant auths via WebCrypto. Mirrors lib/vertexModel.
+const ON_WORKERS = typeof navigator !== "undefined" && (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
 
 export async function transcribeVoice(bytes: Uint8Array, mime: string): Promise<{ text: string; truncated: boolean } | null> {
   const project = process.env.GOOGLE_VERTEX_PROJECT;
@@ -20,7 +25,9 @@ export async function transcribeVoice(bytes: Uint8Array, mime: string): Promise<
   let credentials: Record<string, unknown>;
   try { credentials = JSON.parse(credsRaw); } catch { return null; }
   try {
-    const vertex = createVertex({ project, location, googleAuthOptions: { credentials } });
+    const vertex = ON_WORKERS
+      ? createVertexEdge({ project, location, googleCredentials: { clientEmail: String(credentials.client_email || ""), privateKey: String(credentials.private_key || ""), privateKeyId: credentials.private_key_id ? String(credentials.private_key_id) : undefined } })
+      : createVertex({ project, location, googleAuthOptions: { credentials } });
     const model = vertex(process.env.ASSISTANT_TRANSCRIBE_MODEL || "gemini-2.5-flash");
     const res = await generateText({
       model,
