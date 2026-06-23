@@ -33,6 +33,25 @@ export function isConfirmText(t: string): boolean {
   return false;
 }
 
+// SEND-imperatives: the subset of confirm-words that explicitly say "send" (NOT a bare
+// "yes"/"ok"/"confirm"). Used to break the send-loop: when the founder says "send"/"send it"
+// but there is NOTHING staged (already sent, or the model never staged it), we must NOT fall
+// through to the model — a weak model re-drafts the email (infinite re-preview) and can even
+// re-stage a duplicate send (the real bug today: the email went out TWICE). A bare "yes" with
+// nothing pending still falls through (it may be answering a model question).
+const SEND_IMPERATIVE_RE = /^(send|send it|send it now|send the e?mail|send the mail|just send( it)?|yes,? send( it)?|ok,? send( it)?|go ahead and send|senden|abschicken|schick(e|s)?( es| ihn| sie)?( ab)?|envoie([- ]le)?|envoyer)$/i;
+
+/** True when the message is specifically a "send the email" imperative (a send-confirm),
+ *  not just a bare affirmation. Subset of isConfirmText. */
+export function isSendImperative(t: string): boolean {
+  const n = normShort(t);
+  if (!n) return false;
+  if (/@|\binstead\b|\bstattdessen\b|\bau lieu\b/.test(n)) return false; // a new/changed request
+  if (SEND_IMPERATIVE_RE.test(n)) return true;
+  if (n.length <= 50 && /(^|\b)(send it|send the|just send|yes send|ok send|go ahead and send|abschicken|senden|envoie)\b/.test(n)) return true;
+  return false;
+}
+
 /** True when the message is a plain "cancel the pending action" negation. */
 export function isCancelText(t: string): boolean {
   const n = normShort(t);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isConfirmText, isCancelText, isResetText, isShowFilesText, isMuteDocReminders, isUnmuteDocReminders, isMinimalReminders, isBriefingSignalsOn, isSetReminder, parseReminderText, looksLikeDone } from "../lib/confirmIntent";
+import { isConfirmText, isCancelText, isSendImperative, isResetText, isShowFilesText, isMuteDocReminders, isUnmuteDocReminders, isMinimalReminders, isBriefingSignalsOn, isSetReminder, parseReminderText, looksLikeDone } from "../lib/confirmIntent";
 
 // The bot's CODE-ENFORCED confirm path keys off these. If they regress, the
 // "say yes → it just re-asks forever" bug comes back, so the behaviour is pinned.
@@ -9,6 +9,20 @@ describe("isConfirmText — plain 'apply the pending action' affirmations", () =
   }
   for (const t of ["", "no", "what's Hajar's status", "send it to omar@x.com instead", "send it to Omar instead", "actually change the subject first", "who is in the UKSH batch", "draft an email about the interview"]) {
     it(`does NOT confirm: "${t}"`, () => expect(isConfirmText(t)).toBe(false));
+  }
+});
+
+// isSendImperative pins the send-loop fix: a "send" with NOTHING staged must be caught here
+// (so the webhook says "nothing staged" instead of letting the model re-draft → re-preview
+// loop + duplicate send). A bare "yes" must NOT match (it can answer a model question).
+describe("isSendImperative — send-the-email imperatives (subset of confirm)", () => {
+  for (const t of ["send", "Send", "send it", "send it now", "Send it now", "send the email", "send the mail", "just send it", "yes send it", "ok send it", "go ahead and send", "senden", "abschicken", "schick es ab", "envoie", "envoie-le", "envoyer"]) {
+    it(`is a send-imperative: "${t}"`, () => expect(isSendImperative(t)).toBe(true));
+    it(`...and also a confirm: "${t}"`, () => expect(isConfirmText(t)).toBe(true));
+  }
+  // Bare affirmations / questions / new-recipient corrections must NOT be send-imperatives.
+  for (const t of ["yes", "ok", "sure", "ja", "oui", "go ahead", "confirm", "do it", "", "send it to omar@x.com instead", "why are there two events", "draft an email to anna"]) {
+    it(`is NOT a send-imperative: "${t}"`, () => expect(isSendImperative(t)).toBe(false));
   }
 });
 
