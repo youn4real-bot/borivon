@@ -15,6 +15,13 @@
  */
 import { google } from "googleapis";
 import type { JWT } from "google-auth-library";
+import { makeGmailRestClient, makeCalendarRestClient } from "@/lib/googleRestShim";
+
+// On Cloudflare Workers, googleapis (→ google-auth-library → node:http) 500s with
+// "validateHeaderName not implemented". We swap in fetch+WebCrypto REST shims that mimic the
+// googleapis surface, so gmailApi.ts / workspaceCalendar.ts run unchanged. Vercel (Node) keeps
+// the real googleapis client (this is false there).
+const ON_WORKERS = typeof navigator !== "undefined" && (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
 
 // Scopes the bot needs across Workspace. These must ALSO be pasted into the
 // Admin console domain-wide-delegation grant for the service account (same list).
@@ -67,10 +74,20 @@ export function getWorkspaceAuth(scopes: string[] = WORKSPACE_SCOPES): JWT | nul
 }
 
 export function gmailClient() {
+  if (ON_WORKERS) {
+    const k = saKey(); const sub = subjectEmail();
+    if (!k || !sub) return null;
+    return makeGmailRestClient({ key: k, subject: sub, scopes: WORKSPACE_SCOPES }) as unknown as ReturnType<typeof google.gmail>;
+  }
   const auth = getWorkspaceAuth();
   return auth ? google.gmail({ version: "v1", auth }) : null;
 }
 export function calendarClient() {
+  if (ON_WORKERS) {
+    const k = saKey(); const sub = subjectEmail();
+    if (!k || !sub) return null;
+    return makeCalendarRestClient({ key: k, subject: sub, scopes: WORKSPACE_SCOPES }) as unknown as ReturnType<typeof google.calendar>;
+  }
   const auth = getWorkspaceAuth();
   return auth ? google.calendar({ version: "v3", auth }) : null;
 }
