@@ -5,7 +5,11 @@
   "compatibility_date": "2025-03-25",
   // nodejs_compat lets Node-style libs (googleapis, streams, crypto, pdf-lib)
   // run on the Workers runtime. Required for this app.
-  "compatibility_flags": ["nodejs_compat"],
+  // enable_weak_ref: exposes WeakRef/FinalizationRegistry (becomes default only at compat
+  // date 2025-05-05; we're earlier). A bot dependency (ai-sdk / google-auth) needs it — without
+  // it the Telegram webhook route 500s with "WeakRef is not defined". Surgical flag so the rest
+  // of the runtime stays exactly as the working homepage deploy.
+  "compatibility_flags": ["nodejs_compat", "enable_weak_ref"],
   "assets": {
     "binding": "ASSETS",
     "directory": ".open-next/assets"
