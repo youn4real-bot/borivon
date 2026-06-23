@@ -10,6 +10,12 @@ import { isPassportFileType } from "@/lib/passportFile";
 import { r2GetObject } from "@/lib/r2";
 import { enforceRateLimitDistributed } from "@/lib/rateLimit";
 
+// On Cloudflare Workers the googleapis Drive client crashes (google-auth-library →
+// node:http.validateHeaderName, unimplemented by unenv). Files are R2-primary now and the
+// Supabase Storage backup (fetch-based) works on workerd — so on Workers we SKIP the Drive
+// fallback and fall straight through to the Storage backup (or 404). Vercel keeps Drive.
+const ON_WORKERS = typeof navigator !== "undefined" && (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
+
 const BUCKET = "sign-documents";
 
 /**
@@ -330,6 +336,10 @@ export async function GET(req: NextRequest) {
   if (!fileId) return new NextResponse("File not found", { status: 404 });
 
   try {
+    // On Workers, the googleapis Drive client can't run — skip it and let the catch fall
+    // through to the Supabase Storage backup (which works on workerd). R2 already handled
+    // the common case above; this only matters for un-migrated (no-r2_key) files.
+    if (ON_WORKERS) throw new Error("drive_unavailable_on_workers");
     const drive = getDriveClient();
 
     const meta = await drive.files.get({
