@@ -28,6 +28,13 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { createVertex } from "@ai-sdk/google-vertex";
+import { createVertex as createVertexEdge } from "@ai-sdk/google-vertex/edge";
+
+// True on the Cloudflare Workers runtime (workerd sets this UA). On Workers the default
+// google-auth-library auth path calls node:http funcs unenv doesn't implement
+// (validateHeaderName) → the bot 500s mid-generation; the /edge Vertex variant auths via
+// WebCrypto instead. On Vercel (Node) this is false and we keep the proven node path.
+const ON_WORKERS = typeof navigator !== "undefined" && (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
 
 export type ModelTier = "flash" | "pro";
 
@@ -69,6 +76,23 @@ function makeVertexGemini() {
   let credentials: Record<string, unknown>;
   try { credentials = JSON.parse(credsRaw); } catch { return null; }
   const location = process.env.GOOGLE_VERTEX_LOCATION || "europe-west4";
+  if (ON_WORKERS) {
+    // Cloudflare Workers: the node google-auth-library path 500s (node:http.validateHeaderName
+    // is unimplemented by unenv). The /edge Vertex variant signs the service-account JWT with
+    // WebCrypto and exchanges it via fetch — no node:http, no google-auth-library.
+    const clientEmail = String(credentials.client_email || "");
+    const privateKey = String(credentials.private_key || "");
+    if (!clientEmail || !privateKey) return null;
+    return createVertexEdge({
+      project,
+      location,
+      googleCredentials: {
+        clientEmail,
+        privateKey,
+        privateKeyId: credentials.private_key_id ? String(credentials.private_key_id) : undefined,
+      },
+    });
+  }
   return createVertex({ project, location, googleAuthOptions: { credentials } });
 }
 
