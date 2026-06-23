@@ -631,6 +631,14 @@ export async function POST(req: NextRequest) {
   // TG_SYSTEM as a CACHED system block, the dynamic context (date + learned rules +
   // summary) as a second uncached block, plus a cache breakpoint on the tools.
   // (Anthropic can't cache the top-level system STRING — hence the message blocks.)
+  // HARD TIME WALL so the bot is NEVER silent. Vercel kills the function at 60s (Hobby cap)
+  // with NO chance to reply — that's the "sometimes it just doesn't answer" the founder hit:
+  // a heavy multi-action turn ran past 60s and was killed mid-flight (no success path, no
+  // catch). We abort the model loop at 50s FIRST, so the abort throws INTO our catch (below)
+  // while there's still ~10s to send a graceful "that was too heavy, I stopped partway" line.
+  // Converts a silent death into an honest reply, every time.
+  const turnAbort = new AbortController();
+  const turnKiller = setTimeout(() => turnAbort.abort(), 50_000);
   const genArgs = {
     messages: [
       { role: "system" as const, content: TG_SYSTEM, ...cacheBreak }, // cached (~17K prefix w/ tools)
@@ -641,7 +649,12 @@ export async function POST(req: NextRequest) {
     tools: withToolCacheBreakpoint(buildAssistantTools(scope, pendingFile)),
     temperature: 0.4,
     maxOutputTokens: 8192,
-    stopWhen: stepCountIs(20),
+    abortSignal: turnAbort.signal,
+    // 28 steps (was 20): the founder kept hitting the cap mid-work on big multi-action
+    // requests ("do all these things") → the bot stopped early and said "I hit my step
+    // limit" (the "lazy" complaint). The 50s abort wall above makes the higher cap safe —
+    // a turn that now runs longer can't silently time out; it ends with a real reply.
+    stopWhen: stepCountIs(28),
     // SAFETY FILTERS loosened to BLOCK_ONLY_HIGH. This bot serves ONE fully-trusted user
     // (the business owner) doing legitimate nurse-placement ops. Gemini's default
     // medium-threshold filters were FALSE-blocking benign content — a real chat had the
@@ -1034,9 +1047,12 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     const detail = e instanceof Error ? e.message : String(e);
     console.error("[telegram] generate failed:", detail);
-    // A rate-limit (Anthropic Tier-1 cap) gets a plain, actionable message instead of
-    // the raw API error — and only reaches here if the Gemini fallback ALSO failed.
-    if (/rate.?limit|429|rate_limit/i.test(detail)) {
+    // The 50s time-wall fired (or the SDK aborted): the request was too heavy to finish in
+    // Vercel's 60s window. Reply gracefully INSTEAD of the silent timeout the founder hit —
+    // tell him it was too much at once and to break it up. (AbortError / "aborted" detail.)
+    if (turnAbort.signal.aborted || /\babort(ed)?\b/i.test(detail)) {
+      await tgSend(chatId, "⚠️ That was a big one and it ran past my time limit before I finished — so I stopped rather than leave you hanging. Send it again, or split it into a couple of smaller asks and I'll rip through them.");
+    } else if (/rate.?limit|429|rate_limit/i.test(detail)) {
       await tgSend(chatId, "⏳ Hit the per-minute rate limit for a moment. Give it ~30 seconds and send that again. (If this keeps happening, the Anthropic account needs a higher tier — a $40 credit top-up unlocks 9× the limit.)");
     } else {
       // Calm, human line first — then the real error as a clearly-secondary diagnostic
@@ -1048,6 +1064,7 @@ export async function POST(req: NextRequest) {
     // into a duplicate — mark it answered.
     await markResponded();
   } finally {
+    clearTimeout(turnKiller); // release the 50s time-wall timer
     stopTyping(); // always clear the typing bubble, success or error
   }
   return ok();
