@@ -85,6 +85,42 @@ export async function buildGoogleJwtAssertion(opts: {
 type CacheEntry = { accessToken: string; expiresAt: number };
 const tokenCache = new Map<string, CacheEntry>();
 
+type TokenResponse = { access_token?: string; expires_in?: number };
+
+/**
+ * POST the signed assertion to Google's token endpoint, retrying ONCE on a transient
+ * (a network throw or a 5xx). A 4xx is a deterministic config error (unauthorized_client =
+ * DWD not delegated, invalid_grant = clock/JWT) so we DON'T waste a retry on it — return
+ * null immediately. This matters on Cloudflare: a cold worker isolate's very first token
+ * fetch can blip, and without a retry the founder's first message of an idle period fails.
+ */
+async function exchangeToken(assertion: string): Promise<TokenResponse | null> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const last = attempt === 1;
+    try {
+      const res = await fetch(TOKEN_ENDPOINT, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ grant_type: JWT_BEARER_GRANT, assertion }),
+      });
+      if (res.ok) return (await res.json()) as TokenResponse;
+      const bodyText = await res.text().catch(() => "");
+      if (res.status < 500 || last) {
+        console.error("[googleAuthWebCrypto] token exchange failed:", res.status, bodyText);
+        return null; // 4xx (config) → no retry; or 5xx on the last attempt
+      }
+      console.error("[googleAuthWebCrypto] token exchange 5xx, retrying:", res.status);
+    } catch (e) {
+      if (last) {
+        console.error("[googleAuthWebCrypto] token exchange error:", e instanceof Error ? e.message : e);
+        return null;
+      }
+      // transient network throw on the first attempt → fall through and retry
+    }
+  }
+  return null;
+}
+
 /**
  * Mint (and cache ~55 min) a Google access token for the service account, impersonating
  * `subject`. Returns null on any failure (fail-safe — callers degrade, never throw). Works
@@ -105,17 +141,8 @@ export async function mintGoogleAccessToken(opts: {
       if (hit && hit.expiresAt - 60 > nowS) return hit.accessToken; // 60s safety margin
     }
     const assertion = await buildGoogleJwtAssertion({ key: opts.key, subject: opts.subject, scopes: opts.scopes, now: opts.now });
-    const res = await fetch(TOKEN_ENDPOINT, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({ grant_type: JWT_BEARER_GRANT, assertion }),
-    });
-    if (!res.ok) {
-      console.error("[googleAuthWebCrypto] token exchange failed:", res.status, await res.text().catch(() => ""));
-      return null;
-    }
-    const json = (await res.json()) as { access_token?: string; expires_in?: number };
-    if (!json.access_token) return null;
+    const json = await exchangeToken(assertion);
+    if (!json || !json.access_token) return null;
     tokenCache.set(cacheKey, { accessToken: json.access_token, expiresAt: nowS + (json.expires_in ?? 3600) });
     return json.access_token;
   } catch (e) {

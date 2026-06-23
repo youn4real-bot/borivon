@@ -37,14 +37,18 @@ export const WORKSPACE_SCOPES = [
 type SaKey = { client_email: string; private_key: string; client_id?: string };
 
 function saKey(): SaKey | null {
-  const raw = process.env.GOOGLE_WORKSPACE_CREDENTIALS || process.env.GOOGLE_VERTEX_CREDENTIALS;
-  if (!raw) return null;
-  try {
-    const k = JSON.parse(raw) as SaKey;
-    return k.client_email && k.private_key ? k : null;
-  } catch {
-    return null;
+  // Try WORKSPACE creds, then fall back to VERTEX creds. IMPORTANT: a present-but-MALFORMED
+  // WORKSPACE secret must NOT block the valid VERTEX one (that bug made gmailApiReady() false
+  // on Cloudflare — Gmail/Calendar "workspace_not_connected" — even though the same SA key in
+  // GOOGLE_VERTEX_CREDENTIALS powers the brain fine). So iterate + skip any that won't parse.
+  for (const raw of [process.env.GOOGLE_WORKSPACE_CREDENTIALS, process.env.GOOGLE_VERTEX_CREDENTIALS]) {
+    if (!raw) continue;
+    try {
+      const k = JSON.parse(raw) as SaKey;
+      if (k.client_email && k.private_key) return k;
+    } catch { /* malformed → try the next source */ }
   }
+  return null;
 }
 
 /** The founder's mailbox the service account impersonates. */
