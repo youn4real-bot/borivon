@@ -1,7 +1,9 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "borivon",
-  "main": ".open-next/worker.js",
+  // Custom entry (cf-worker.ts) wraps the OpenNext-generated .open-next/worker.js to add a
+  // scheduled() handler for the cron triggers below (OpenNext only emits a fetch handler).
+  "main": "cf-worker.ts",
   "compatibility_date": "2025-03-25",
   // nodejs_compat lets Node-style libs (googleapis, streams, crypto, pdf-lib)
   // run on the Workers runtime. Required for this app.
@@ -20,6 +22,12 @@
   "r2_buckets": [
     { "binding": "R2", "bucket_name": "borivon-files" }
   ],
+  // Cron triggers — mirror vercel.json "crons" so the bot's proactive automation (briefing,
+  // midday/evening nudges, weekly report, auto-chase, inbox reminder + the riding SLA/follow-up
+  // chase) runs on Cloudflare too. cf-worker.ts's scheduled() maps each → its /api/cron/* route.
+  "triggers": {
+    "crons": ["0 6 * * *", "0 12 * * *", "0 17 * * *", "0 7 * * 1", "0 8 * * *", "30 8 * * *"]
+  },
   "observability": {
     "enabled": true
   }
