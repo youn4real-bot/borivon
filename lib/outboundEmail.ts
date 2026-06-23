@@ -16,6 +16,12 @@ import { Resend } from "resend";
 import { stripEmailFormatting } from "@/lib/emailFormat";
 import { getNativeGmailSignature } from "@/lib/gmailApi";
 
+// Cloudflare Workers (workerd) can't open the raw TCP/TLS socket nodemailer's SMTP
+// transport needs — the attempt would throw (or hang up to connectionTimeout) before
+// falling through to Resend. On Workers we skip SMTP entirely and send via Resend
+// (HTTP, fetch-based). Vercel (Node) keeps the Gmail-SMTP-first behavior unchanged.
+const ON_WORKERS = typeof navigator !== "undefined" && (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
+
 /** Base URL for the logo image (the Playfair wordmark PNG — see app/email-logo). */
 const SITE = (process.env.NEXT_PUBLIC_BASE_URL || "https://www.borivon.com").replace(/\/+$/, "");
 
@@ -146,8 +152,9 @@ export async function sendOutboundEmail(opts: {
   const cc = (opts.cc ?? []).map((c) => c.trim()).filter(Boolean);
   const bcc = (opts.bcc ?? []).map((c) => c.trim()).filter(Boolean);
 
-  // 1) Gmail (App Password) — true Sent-folder send as the founder.
-  if (gmailConfigured()) {
+  // 1) Gmail (App Password) — true Sent-folder send as the founder. Skipped on
+  // Workers (no raw SMTP socket); the Resend fallback below carries it instead.
+  if (gmailConfigured() && !ON_WORKERS) {
     try {
       const transport = nodemailer.createTransport({
         host: "smtp.gmail.com",

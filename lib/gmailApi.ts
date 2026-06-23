@@ -7,6 +7,13 @@
  */
 import { gmailClient, workspaceConfigured } from "@/lib/googleWorkspace";
 import nodemailer from "nodemailer";
+import { buildMimeBase64Url } from "@/lib/mimeBuilder";
+
+// On Cloudflare Workers, nodemailer's MIME composer (even in socket-free streamTransport
+// mode) leans on Node stream/os/crypto surface workerd doesn't fully provide → reply /
+// forward / draft would silently fail. Use the pure-JS MIME builder there instead. Vercel
+// (Node) keeps the battle-tested nodemailer path. Same detection as lib/googleWorkspace.ts.
+const ON_WORKERS = typeof navigator !== "undefined" && (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
 
 export function gmailApiReady(): boolean {
   return workspaceConfigured() && !!gmailClient();
@@ -187,6 +194,17 @@ export type RawMessageOpts = {
  *  (encoding, threading headers, no attachment support). This is PURE and
  *  Google-free, so it's unit-testable without a live mailbox. */
 export async function buildRawMessage(opts: RawMessageOpts): Promise<string> {
+  // Cloudflare Workers: nodemailer is unreliable on workerd → use the pure-JS RFC-822
+  // builder (lib/mimeBuilder.ts). Produces an equivalent, valid, correctly-threaded
+  // base64url message. Vercel (Node) falls through to the nodemailer path below.
+  if (ON_WORKERS) {
+    return buildMimeBase64Url({
+      to: opts.to, cc: opts.cc, bcc: opts.bcc, subject: opts.subject,
+      html: opts.html, text: opts.text, fromName: opts.fromName, fromEmail: opts.fromEmail,
+      inReplyTo: opts.inReplyTo, references: opts.references,
+      attachments: opts.attachments?.map((a) => ({ filename: a.filename, content: a.content })),
+    });
+  }
   // streamTransport + buffer:true makes sendMail BUILD the message and hand it
   // back as a Buffer WITHOUT sending — the documented way to extract raw MIME
   // from nodemailer. CRLF newlines per RFC-822. nodemailer sets In-Reply-To /
