@@ -1,30 +1,47 @@
 import { NextRequest } from "next/server";
-import React from "react";
-import { renderToBuffer } from "@react-pdf/renderer";
-import { PassportDataDocument } from "@/components/PassportDataDocument";
-import type { PassportDataPdfGroup } from "@/components/PassportDataDocument";
 import { requireUser } from "@/lib/admin-auth";
 import { getAnonVerifyClient } from "@/lib/supabase";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 import { dlTokenUserId } from "@/lib/dlToken";
-import { registerPdfFonts } from "@/lib/pdf-fonts";
 import { enforceRateLimitDistributed, enforceUserRateLimit } from "@/lib/rateLimit";
-
-registerPdfFonts();
+// Type-only — never pulls the @react-pdf-importing component into the bundle.
+import type { PassportDataPdfGroup } from "@/components/PassportDataDocument";
 
 // Heavy server-side PDF render — give it headroom so a slow render under load
 // never hits the function timeout. Vercel clamps to the plan's max.
 export const maxDuration = 60;
+
+// @react-pdf/renderer can't run on Cloudflare Workers (yoga-layout needs runtime
+// WASM codegen, forbidden by workerd). Every @react-pdf touchpoint is lazy + gated:
+// on Workers render with pure pdf-lib; on Vercel keep the proven @react-pdf path.
+const ON_WORKERS =
+  typeof navigator !== "undefined" &&
+  (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
+
+function toArrayBuffer(u: Uint8Array): ArrayBuffer {
+  return u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) as ArrayBuffer;
+}
 
 async function renderPdf(
   groups: PassportDataPdfGroup[],
   docTitle: string | undefined,
   docSubtitle: string | undefined,
 ): Promise<ArrayBuffer> {
+  if (ON_WORKERS) {
+    const { renderPassportDataPdf } = await import("@/lib/pdflib/passportData");
+    return toArrayBuffer(await renderPassportDataPdf({ groups, docTitle, docSubtitle }));
+  }
+  const [{ renderToBuffer }, { createElement }, { PassportDataDocument }, { registerPdfFonts }] =
+    await Promise.all([
+      import("@react-pdf/renderer"),
+      import("react"),
+      import("@/components/PassportDataDocument"),
+      import("@/lib/pdf-fonts"),
+    ]);
+  registerPdfFonts();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const element = React.createElement(PassportDataDocument, { groups, docTitle, docSubtitle }) as any;
-  const buffer = await renderToBuffer(element);
-  return buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
+  const element = createElement(PassportDataDocument, { groups, docTitle, docSubtitle }) as any;
+  return toArrayBuffer(new Uint8Array(await renderToBuffer(element)));
 }
 
 /**
@@ -70,9 +87,9 @@ export async function GET(req: NextRequest) {
   if (!Array.isArray(payload.groups)) return new Response("Bad request", { status: 400 });
 
   try {
-    const arrayBuffer = await renderPdf(payload.groups as PassportDataPdfGroup[], payload.docTitle, payload.docSubtitle);
+    const bytes = await renderPdf(payload.groups as PassportDataPdfGroup[], payload.docTitle, payload.docSubtitle);
     const name = (payload.filename || "passport_data.pdf").replace(/[\r\n"]/g, "").slice(0, 200);
-    return new Response(arrayBuffer, {
+    return new Response(bytes, {
       headers: {
         // octet-stream so iOS Safari downloads instead of force-previewing.
         "Content-Type": "application/octet-stream",
@@ -118,8 +135,8 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const arrayBuffer = await renderPdf(groups, docTitle, docSubtitle);
-    return new Response(arrayBuffer, {
+    const bytes = await renderPdf(groups, docTitle, docSubtitle);
+    return new Response(bytes, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="${filename}"`,

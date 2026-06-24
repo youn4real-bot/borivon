@@ -1,16 +1,46 @@
 import { NextRequest } from "next/server";
-import React from "react";
-import { renderToBuffer } from "@react-pdf/renderer";
-import { PassportDataDocument } from "@/components/PassportDataDocument";
-import type { PassportDataPdfGroup } from "@/components/PassportDataDocument";
 import { requireAdminRole } from "@/lib/admin-auth";
 import { getAnonVerifyClient } from "@/lib/supabase";
 import { isSoftDeletedAuthUser } from "@/lib/softDeleted";
 import { dlTokenUserId } from "@/lib/dlToken";
-import { registerPdfFonts } from "@/lib/pdf-fonts";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
+// Type-only — never pulls the @react-pdf-importing component into the bundle.
+import type { PassportDataPdfGroup } from "@/components/PassportDataDocument";
 
-registerPdfFonts();
+// @react-pdf/renderer can't run on Cloudflare Workers (yoga-layout needs runtime
+// WASM codegen, which workerd forbids — it crashes the moment the module loads).
+// So EVERY @react-pdf touchpoint here is lazy + gated: on Workers we render the
+// same document with pure pdf-lib (lib/pdflib/passportData); on Vercel (Node) we
+// keep the proven @react-pdf path, byte-identical output. See lib/pdflib/render.ts.
+const ON_WORKERS =
+  typeof navigator !== "undefined" &&
+  (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
+
+function toArrayBuffer(u: Uint8Array): ArrayBuffer {
+  return u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) as ArrayBuffer;
+}
+
+async function renderPassportPdf(
+  groups: PassportDataPdfGroup[],
+  docTitle?: string,
+  docSubtitle?: string,
+): Promise<ArrayBuffer> {
+  if (ON_WORKERS) {
+    const { renderPassportDataPdf } = await import("@/lib/pdflib/passportData");
+    return toArrayBuffer(await renderPassportDataPdf({ groups, docTitle, docSubtitle }));
+  }
+  const [{ renderToBuffer }, { createElement }, { PassportDataDocument }, { registerPdfFonts }] =
+    await Promise.all([
+      import("@react-pdf/renderer"),
+      import("react"),
+      import("@/components/PassportDataDocument"),
+      import("@/lib/pdf-fonts"),
+    ]);
+  registerPdfFonts();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const el = createElement(PassportDataDocument, { groups, docTitle, docSubtitle }) as any;
+  return toArrayBuffer(new Uint8Array(await renderToBuffer(el)));
+}
 
 /**
  * GET — iOS-safe download (iOS can't download a client blob). Small payload
@@ -51,12 +81,9 @@ export async function GET(req: NextRequest) {
   if (!Array.isArray(payload.groups)) return new Response("Bad request", { status: 400 });
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const el = React.createElement(PassportDataDocument, { groups: payload.groups as PassportDataPdfGroup[], docTitle: payload.docTitle, docSubtitle: payload.docSubtitle }) as any;
-    const buf = await renderToBuffer(el);
-    const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+    const bytes = await renderPassportPdf(payload.groups as PassportDataPdfGroup[], payload.docTitle, payload.docSubtitle);
     const name = (payload.filename || "passport_data.pdf").replace(/[\r\n"]/g, "").slice(0, 200);
-    return new Response(ab, {
+    return new Response(bytes, {
       headers: {
         "Content-Type": "application/octet-stream",
         "Content-Disposition": `attachment; filename="${name}"`,
@@ -89,11 +116,8 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const element = React.createElement(PassportDataDocument, { groups, docTitle, docSubtitle }) as any;
-    const buffer = await renderToBuffer(element);
-    const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
-    return new Response(arrayBuffer, {
+    const bytes = await renderPassportPdf(groups, docTitle, docSubtitle);
+    return new Response(bytes, {
       headers: {
         "Content-Type": "application/pdf",
         "Content-Disposition": `attachment; filename="${filename}"`,
