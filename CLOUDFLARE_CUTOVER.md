@@ -48,9 +48,16 @@ config/DNS switch below.
    - **Must be present:** Supabase keys · `ADMIN_EMAIL` · `DL_TOKEN_SECRET` · `CRON_SECRET` ·
      Stripe (`STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, price/lookup config) ·
      Google (`GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_PRIVATE_KEY`, `GOOGLE_DRIVE_FOLDER_ID`,
-     Vertex creds) · `AZURE_DOC_INTEL_ENDPOINT` + `AZURE_DOC_INTEL_KEY` (passport OCR) ·
-     Resend (`RESEND_API_KEY`, `OUTBOUND_FROM_EMAIL`) · Turnstile · `NEXT_PUBLIC_BASE_URL`
-     (set to `https://www.borivon.com`) · LiveKit/Daily (only if classroom is used).
+     `GOOGLE_WORKSPACE_CREDENTIALS`+`_SUBJECT`, `GMAIL_USER`, Vertex creds+project, OAuth
+     client id/secret) · `AZURE_DOC_INTEL_ENDPOINT` + `AZURE_DOC_INTEL_KEY` (passport OCR) ·
+     Resend (`RESEND_API_KEY`, `OUTBOUND_FROM_EMAIL`) · `TURNSTILE_SECRET_KEY` ·
+     `NEXT_PUBLIC_BASE_URL` (→ `https://www.borivon.com`) · `NEXT_PUBLIC_TURNSTILE_SITE_KEY` ·
+     KV/Upstash (rate-limit store) · LiveKit/Daily (only if classroom is used).
+   - **⚠️ A missed secret fails SILENTLY, not loudly.** Several vars default to a
+     working-looking placeholder (`SUPABASE_SERVICE_ROLE_KEY`→`"placeholder"`,
+     `ADMIN_EMAIL`→`""`) — omit one and you get a portal-wide 401 or *no admin power*,
+     with no crash to alert you. Mirroring **every** Vercel env var (minus the R2 keys
+     below) is the safe move; then spot-check login + an admin action in step 5.
    - The bot's ~21 secrets are already on the worker from Stage 1; this step adds the
      remaining website ones. `NEXT_PUBLIC_*` are public by design.
 5. **[me]** Smoke-test the worker URL end to end while DNS still points at Vercel:
