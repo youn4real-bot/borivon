@@ -14,21 +14,42 @@
  * Heavy (@react-pdf/renderer) — import LAZILY from the bot path so the dep isn't
  * pulled into every assistant turn.
  */
-import path from "path";
-import fs from "fs";
-import React from "react";
 import { createHash } from "crypto";
-import { renderToBuffer } from "@react-pdf/renderer";
-import { CVDocument } from "@/components/CVDocument";
 import type { CVData, CVBrand } from "@/components/CVDocument";
 import { getServiceSupabase } from "@/lib/supabase";
-import { registerPdfFonts } from "@/lib/pdf-fonts";
 import { sanitizeCvData } from "@/lib/cvSanitize";
 import { candidateKey, r2Put } from "@/lib/r2";
 import { FILE_KEY_LABELS } from "@/lib/fileKeys";
 import { CV_DE_FILE_TYPES } from "@/lib/constants";
 
-registerPdfFonts();
+// @react-pdf/renderer can't run on Cloudflare Workers (yoga-layout needs runtime
+// WASM codegen, which workerd forbids). On Workers we render the CV with pure
+// pdf-lib (lib/pdflib/cv — verified pixel-identical to the @react-pdf output); on
+// Vercel we keep @react-pdf. CRITICAL: @react-pdf + its fonts are imported LAZILY
+// (only inside the non-Workers branch) so merely importing this module — the bot
+// lazy-loads it on every CV action — never evaluates yoga on workerd.
+const ON_WORKERS =
+  typeof navigator !== "undefined" &&
+  (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
+
+/** Render CV data → PDF bytes. pdf-lib on Workers, @react-pdf on Vercel. */
+export async function renderCvBuffer(data: CVData, brand?: CVBrand): Promise<Uint8Array> {
+  if (ON_WORKERS) {
+    const { renderCvPdf } = await import("@/lib/pdflib/cv");
+    return renderCvPdf(data, brand);
+  }
+  const [{ renderToBuffer }, { createElement }, { CVDocument }, { registerPdfFonts }] =
+    await Promise.all([
+      import("@react-pdf/renderer"),
+      import("react"),
+      import("@/components/CVDocument"),
+      import("@/lib/pdf-fonts"),
+    ]);
+  registerPdfFonts();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const element = createElement(CVDocument, { data, brand }) as any;
+  return new Uint8Array(await renderToBuffer(element));
+}
 
 type RenderResult = { ok: true } | { ok: false; error: string };
 
@@ -79,23 +100,17 @@ export async function resolveCvBrand(userId: string, byAdmin: boolean): Promise<
       brand.logoSrc = org.logo_filename;
     } else {
       const safeName = /^[\w.\-]+\.(png|jpe?g|webp)$/i.test(org.logo_filename) ? org.logo_filename : null;
-      const ext = safeName ? path.extname(safeName).toLowerCase() : "";
+      const ext = (safeName?.match(/\.[a-z0-9]+$/i)?.[0] ?? "").toLowerCase();
       const mime = ext === ".png" ? "image/png" : ext === ".jpg" || ext === ".jpeg" ? "image/jpeg" : ext === ".webp" ? "image/webp" : "image/png";
-      let b64: string | null = null;
       if (safeName) {
         try {
-          const logoPath = path.join(process.cwd(), "public", "logos", safeName);
-          if (fs.existsSync(logoPath)) b64 = fs.readFileSync(logoPath).toString("base64");
-        } catch { /* no disk → fetch */ }
-        if (!b64) {
-          try {
-            const base = (process.env.NEXT_PUBLIC_BASE_URL || "").replace(/\/$/, "");
-            const res = await fetch(`${base}/logos/${safeName}`);
-            if (res.ok) b64 = Buffer.from(await res.arrayBuffer()).toString("base64");
-          } catch { /* leave logo unset */ }
-        }
+          // Cross-platform: disk on Vercel, the ASSETS binding on Workers (org
+          // logos live in /public/logos, bundled into the worker assets).
+          const { loadPublicAsset } = await import("@/lib/pdflib/assets");
+          const bytes = await loadPublicAsset(`logos/${safeName}`);
+          brand.logoSrc = `data:${mime};base64,${Buffer.from(bytes).toString("base64")}`;
+        } catch { /* logo unavailable → text-logo fallback */ }
       }
-      if (b64) brand.logoSrc = `data:${mime};base64,${b64}`;
     }
   }
   if (org.footer_text) {
@@ -132,9 +147,7 @@ export async function renderCandidateCvPdf(
   if (photo) data.photo = photo;
 
   const brand: CVBrand = opts.plain ? { noBranding: true } : await resolveCvBrand(userId, true);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const element = React.createElement(CVDocument, { data, brand }) as any;
-  const buffer = await renderToBuffer(element);
+  const buffer = await renderCvBuffer(data, brand);
 
   const fn = (data.firstName ?? "").trim().toLowerCase().replace(/\s+/g, "_") || "kandidat";
   const ln = (data.lastName ?? "").trim().toLowerCase().replace(/\s+/g, "_") || "unbekannt";

@@ -15,7 +15,20 @@
  * column. Character "tracking" (letter-spacing) is emulated by drawing glyph by
  * glyph since pdf-lib's drawText has no character-spacing option.
  */
-import { PDFDocument, PDFFont, PDFPage, rgb, type RGB } from "pdf-lib";
+import {
+  PDFDocument,
+  PDFFont,
+  PDFImage,
+  PDFPage,
+  rgb,
+  pushGraphicsState,
+  popGraphicsState,
+  moveTo,
+  appendBezierCurve,
+  clip,
+  endPath,
+  type RGB,
+} from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import { loadPublicAsset } from "./assets";
 
@@ -114,6 +127,92 @@ export class Surface {
   /** Filled rectangle with top-left at (x, topY). */
   rect(x: number, topY: number, w: number, h: number, color: RGB): void {
     this.page.drawRectangle({ x, y: this.height - topY - h, width: w, height: h, color });
+  }
+
+  /** Draw an image into a (w × h) box with its top-left at (x, topY). */
+  image(img: PDFImage, x: number, topY: number, w: number, h: number): void {
+    this.page.drawImage(img, { x, y: this.height - topY - h, width: w, height: h });
+  }
+
+  /**
+   * Draw an image clipped to a circle (top-left of the bounding square at
+   * (x, topY), diameter = size). Mirrors @react-pdf's borderRadius:50% photo.
+   */
+  circleImage(img: PDFImage, x: number, topY: number, size: number): void {
+    const r = size / 2;
+    const cx = x + r;
+    const cy = this.height - (topY + r); // pdf-space center
+    const k = 0.5522847498307936 * r; // bezier circle constant × r
+    this.page.pushOperators(
+      pushGraphicsState(),
+      moveTo(cx + r, cy),
+      appendBezierCurve(cx + r, cy + k, cx + k, cy + r, cx, cy + r),
+      appendBezierCurve(cx - k, cy + r, cx - r, cy + k, cx - r, cy),
+      appendBezierCurve(cx - r, cy - k, cx - k, cy - r, cx, cy - r),
+      appendBezierCurve(cx + k, cy - r, cx + r, cy - k, cx + r, cy),
+      clip(),
+      endPath(),
+    );
+    this.page.drawImage(img, { x, y: this.height - topY - size, width: size, height: size });
+    this.page.pushOperators(popGraphicsState());
+  }
+
+  /**
+   * Rounded rectangle (fill and/or border), top-left at (x, topY). Uses an SVG
+   * path so corners are real arcs (pdf-lib's drawRectangle has no radius).
+   */
+  roundedRect(
+    x: number,
+    topY: number,
+    w: number,
+    h: number,
+    r: number,
+    opts: { fill?: RGB; border?: RGB; borderWidth?: number },
+  ): void {
+    const rr = Math.min(r, w / 2, h / 2);
+    // SVG path in a y-DOWN local space; drawSvgPath anchors (0,0) at (x, y) and
+    // flips for us, so y is the pdf coordinate of the box's TOP edge.
+    const d =
+      `M ${rr} 0 H ${w - rr} A ${rr} ${rr} 0 0 1 ${w} ${rr} ` +
+      `V ${h - rr} A ${rr} ${rr} 0 0 1 ${w - rr} ${h} ` +
+      `H ${rr} A ${rr} ${rr} 0 0 1 0 ${h - rr} ` +
+      `V ${rr} A ${rr} ${rr} 0 0 1 ${rr} 0 Z`;
+    this.page.drawSvgPath(d, {
+      x,
+      y: this.height - topY,
+      ...(opts.fill ? { color: opts.fill } : {}),
+      ...(opts.border ? { borderColor: opts.border } : {}),
+      ...(opts.borderWidth != null ? { borderWidth: opts.borderWidth } : {}),
+    });
+  }
+}
+
+/**
+ * Embed a base64 data-URI image ("data:image/png;base64,…" or jpeg) into `doc`.
+ * Returns the PDFImage plus its intrinsic pixel size, or null if it can't be
+ * decoded (caller then just omits the image — never throws on a bad photo/logo).
+ */
+export async function embedDataUriImage(
+  doc: PDFDocument,
+  dataUri: string | null | undefined,
+): Promise<{ image: PDFImage; width: number; height: number } | null> {
+  if (!dataUri || typeof dataUri !== "string") return null;
+  const m = /^data:(image\/[a-z0-9.+-]+)?;base64,(.+)$/i.exec(dataUri.trim());
+  if (!m) return null;
+  let bytes: Uint8Array;
+  try {
+    const bin = atob(m[2]);
+    bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  } catch {
+    return null;
+  }
+  try {
+    const isPng = bytes[0] === 0x89 && bytes[1] === 0x50; // \x89PNG
+    const image = isPng ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
+    return { image, width: image.width, height: image.height };
+  } catch {
+    return null;
   }
 }
 

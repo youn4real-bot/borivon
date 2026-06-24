@@ -14,18 +14,13 @@
  * Self-only unless an admin allowed to act on the candidate (LAW #25).
  */
 import { NextRequest } from "next/server";
-import React from "react";
-import { renderToBuffer } from "@react-pdf/renderer";
-import { CVDocument } from "@/components/CVDocument";
 import type { CVData } from "@/components/CVDocument";
 import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
-import { registerPdfFonts } from "@/lib/pdf-fonts";
+import { renderCvBuffer } from "@/lib/cvRender";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { sanitizeCvData } from "@/lib/cvSanitize";
 import { UUID_RE } from "@/lib/uuid";
-
-registerPdfFonts();
 
 // Heavy server-side PDF render — give it headroom so a slow render under load
 // never hits the function timeout. Vercel clamps to the plan's max.
@@ -77,9 +72,7 @@ export async function GET(req: NextRequest) {
   if (photo) data.photo = photo;
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const element = React.createElement(CVDocument, { data, brand: { noBranding: true } }) as any;
-    const buffer = await renderToBuffer(element);
+    const buffer = await renderCvBuffer(data, { noBranding: true });
     const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
     const fn = (data.firstName ?? "").trim().toLowerCase().replace(/\s+/g, "_") || "kandidat";
     const ln = (data.lastName ?? "").trim().toLowerCase().replace(/\s+/g, "_") || "unbekannt";

@@ -1,17 +1,11 @@
 import { NextRequest } from "next/server";
-import React from "react";
-import { renderToBuffer } from "@react-pdf/renderer";
-import { CVDocument } from "@/components/CVDocument";
 import type { CVData } from "@/components/CVDocument";
 import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { getServiceSupabase } from "@/lib/supabase";
-import { registerPdfFonts } from "@/lib/pdf-fonts";
 import { sanitizeCvData } from "@/lib/cvSanitize";
-import { resolveCvBrand } from "@/lib/cvRender";
+import { resolveCvBrand, renderCvBuffer } from "@/lib/cvRender";
 import { UUID_RE } from "@/lib/uuid";
-
-registerPdfFonts();
 
 // Heavy server-side PDF render — give it headroom so a slow render under load
 // never hits the function timeout. Vercel clamps to the plan's max.
@@ -78,9 +72,7 @@ export async function POST(req: NextRequest) {
     const plain = req.nextUrl.searchParams.get("variant") === "plain";
     const brand = plain ? { noBranding: true } : await resolveCvBrand(targetUserId, byAdmin);
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const element = React.createElement(CVDocument, { data, brand }) as any;
-    const buffer = await renderToBuffer(element);
+    const buffer = await renderCvBuffer(data, brand);
     const arrayBuffer = buffer.buffer.slice(
       buffer.byteOffset,
       buffer.byteOffset + buffer.byteLength
