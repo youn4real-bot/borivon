@@ -22,7 +22,9 @@ import { getNativeGmailSignature } from "@/lib/gmailApi";
 // (HTTP, fetch-based). Vercel (Node) keeps the Gmail-SMTP-first behavior unchanged.
 const ON_WORKERS = typeof navigator !== "undefined" && (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
 
-/** Base URL for the logo image (the Playfair wordmark PNG — see app/email-logo). */
+/** Base URL for the logo image (the static wordmark — public/email-logo.png; the
+ *  dynamic next/og route can't run on Cloudflare Workers, so we serve the
+ *  pre-rendered PNG and the /email-logo route redirects there on Workers). */
 const SITE = (process.env.NEXT_PUBLIC_BASE_URL || "https://www.borivon.com").replace(/\/+$/, "");
 
 /** From address (must be on the verified borivon.com domain to send via Resend). */
@@ -64,7 +66,7 @@ export const OUTBOUND_SIGNATURE_HTML = (process.env.OUTBOUND_SIGNATURE_HTML ?? `
   <div>77 Boulevard Mohamed Smiha</div>
   <div>20080 Casablanca, Marokko</div>
   <div style="height:18px;line-height:18px;">&nbsp;</div>
-  <img src="${SITE}/email-logo" alt="Borivon" width="150" height="48" style="display:block;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;" />
+  <img src="${SITE}/email-logo.png" alt="Borivon" width="150" height="48" style="display:block;border:0;outline:none;text-decoration:none;-ms-interpolation-mode:bicubic;" />
   <div style="height:18px;line-height:18px;">&nbsp;</div>
   <div style="font-style:italic;font-size:12px;color:#8a8a85;line-height:1.5;">
     <div>Diese E-Mail und ihre Anhänge sind vertraulich und ausschließlich für den/die Empfänger/in bestimmt.</div>

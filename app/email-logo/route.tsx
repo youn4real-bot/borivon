@@ -10,6 +10,14 @@ import path from "path";
 // is unreachable. Logo never changes → cached hard + memoized per instance.
 export const runtime = "nodejs";
 
+// next/og (Satori + resvg WASM) cannot run on Cloudflare Workers (it 500s there),
+// so on Workers we serve the pre-rendered static wordmark instead. Outbound email
+// already points at /email-logo.png directly; this also covers any older emails
+// whose signature still references /email-logo.
+const ON_WORKERS =
+  typeof navigator !== "undefined" &&
+  (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
+
 let cachedFont: ArrayBuffer | null = null;
 
 async function getFont(): Promise<ArrayBuffer> {
@@ -41,6 +49,10 @@ async function getFont(): Promise<ArrayBuffer> {
 }
 
 export async function GET() {
+  if (ON_WORKERS) {
+    const base = (process.env.NEXT_PUBLIC_BASE_URL || "https://www.borivon.com").replace(/\/+$/, "");
+    return Response.redirect(`${base}/email-logo.png`, 308);
+  }
   const font = await getFont();
   return new ImageResponse(
     (

@@ -55,4 +55,10 @@ describe("requestIp (trusted IP extraction)", () => {
   it("falls back to x-real-ip", () => {
     expect(requestIp(reqWith({ "x-real-ip": "8.8.8.8" }))).toBe("8.8.8.8");
   });
+  it("uses cf-connecting-ip on Cloudflare Workers (un-spoofable edge IP)", () => {
+    expect(requestIp(reqWith({ "cf-connecting-ip": "7.7.7.7" }))).toBe("7.7.7.7");
+  });
+  it("prefers cf-connecting-ip over the client-influenceable x-forwarded-for", () => {
+    expect(requestIp(reqWith({ "cf-connecting-ip": "7.7.7.7", "x-forwarded-for": "6.6.6.6, 5.5.5.5" }))).toBe("7.7.7.7");
+  });
 });

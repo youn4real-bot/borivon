@@ -49,10 +49,11 @@ function maybeGc(now: number) {
  * rotates a fake first IP every request and gets unlimited buckets,
  * defeating the limiter entirely.
  *
- * `x-vercel-forwarded-for` and `x-real-ip` are injected by Vercel's edge and
- * are NOT overridable by the client (the edge discards any inbound value and
- * sets the true client IP). Use those only. If neither is present (non-Vercel
- * runtime / direct hit), fall back to a single shared "unknown" bucket so
+ * `x-vercel-forwarded-for` and `x-real-ip` (Vercel) and `cf-connecting-ip`
+ * (Cloudflare) are injected by the EDGE and are NOT overridable by the client
+ * (the edge discards any inbound value and sets the true client IP). Use those
+ * only. If none is present (some other runtime / direct hit), fall back to the
+ * rightmost `x-forwarded-for` hop, then a single shared "unknown" bucket so
  * abuse is still throttled rather than unbounded.
  */
 function clientId(req: NextRequest): string {
@@ -60,6 +61,12 @@ function clientId(req: NextRequest): string {
   if (vercel) return vercel.split(",")[0]!.trim();
   const real = req.headers.get("x-real-ip");
   if (real) return real.trim();
+  // Cloudflare Workers: cf-connecting-ip is set by CF's edge on every request
+  // and is NOT client-overridable — the unspoofable per-IP key on workerd (where
+  // x-vercel-forwarded-for / x-real-ip are absent). Without this the limiter
+  // would fall through to the client-influenceable x-forwarded-for below.
+  const cf = req.headers.get("cf-connecting-ip");
+  if (cf) return cf.trim();
   // Off-Vercel fallback: the RIGHTMOST x-forwarded-for entry is the hop
   // closest to our server (added by the trusted proxy in front), never the
   // client-controlled leftmost — so it can't be spoofed to rotate buckets,
