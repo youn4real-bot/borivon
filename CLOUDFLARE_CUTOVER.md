@@ -53,6 +53,20 @@ config/DNS switch below.
      Resend (`RESEND_API_KEY`, `OUTBOUND_FROM_EMAIL`) · `TURNSTILE_SECRET_KEY` ·
      `NEXT_PUBLIC_BASE_URL` (→ `https://www.borivon.com`) · `NEXT_PUBLIC_TURNSTILE_SITE_KEY` ·
      KV/Upstash (rate-limit store) · LiveKit/Daily (only if classroom is used).
+   - **As of 2026-06-24 the worker ALREADY has 21 secrets** (Supabase service+anon+url,
+     ADMIN_EMAIL + NEXT_PUBLIC_ADMIN_EMAIL, DL_TOKEN_SECRET, CRON_SECRET,
+     BOOTSTRAP_RESET_SECRET, CALENDAR_FEED_SECRET, RESEND_API_KEY, OUTBOUND_FROM_EMAIL,
+     GMAIL_USER, GOOGLE_VERTEX_CREDENTIALS+PROJECT+LOCATION, GOOGLE_WORKSPACE_CREDENTIALS+SUBJECT,
+     TELEGRAM_BOT_TOKEN+CHAT_ID+WEBHOOK_SECRET, GIPHY_API_KEY). **You still need to ADD these
+     (website-specific, currently missing)** — copy the values from your Vercel project's env:
+     - **Payments:** `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`
+     - **Drive + passport PDF + Vision OCR:** `GOOGLE_SERVICE_ACCOUNT_EMAIL`, `GOOGLE_PRIVATE_KEY`, `GOOGLE_DRIVE_FOLDER_ID`
+     - **Passport OCR (primary):** `AZURE_DOC_INTEL_ENDPOINT`, `AZURE_DOC_INTEL_KEY`
+     - **Captcha:** `TURNSTILE_SECRET_KEY`, `NEXT_PUBLIC_TURNSTILE_SITE_KEY`
+     - **Base URL:** `NEXT_PUBLIC_BASE_URL` (= `https://www.borivon.com`)
+     - **Rate-limit store (recommended):** `KV_REST_API_URL` + `KV_REST_API_TOKEN` (or `UPSTASH_REDIS_REST_URL`+`_TOKEN`)
+     - **Only if used:** LiveKit (`LIVEKIT_URL`/`_API_KEY`/`_API_SECRET`), Daily (`DAILY_API_KEY`/`_WEBHOOK_SECRET`), Google OAuth Calendar (`GOOGLE_OAUTH_CLIENT_ID`/`_SECRET`)
+     - **At cutover only:** `CF_CRONS_ENABLED=true`
    - **⚠️ A missed secret fails SILENTLY, not loudly.** Several vars default to a
      working-looking placeholder (`SUPABASE_SERVICE_ROLE_KEY`→`"placeholder"`,
      `ADMIN_EMAIL`→`""`) — omit one and you get a portal-wide 401 or *no admin power*,
