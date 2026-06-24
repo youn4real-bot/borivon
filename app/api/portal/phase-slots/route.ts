@@ -8,6 +8,13 @@ import { UUID_RE } from "@/lib/uuid";
 const VALID_PHASES = ["bearbeitung", "visum"] as const;
 const VALID_TYPES  = ["simple", "dual"] as const;
 
+// googleapis Drive can't run on Cloudflare Workers. On Workers the slot-rename
+// updates the DB file_name (what's shown) and skips the Drive file rename — the R2
+// object key is internal/opaque so a stale physical name has no user-facing effect.
+const ON_WORKERS =
+  typeof navigator !== "undefined" &&
+  (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
+
 /** Mirrors lib in app/api/portal/upload/route.ts — kept inline to avoid a
  *  bigger shared-lib refactor for one cross-route use. */
 function slugifyGerman(s: string): string {
@@ -49,7 +56,7 @@ async function renameSlotDocs(slotId: string, newLabel: string): Promise<void> {
     if (!docs || docs.length === 0) return;
 
     const slug = slugifyGerman(newLabel);
-    const drive = getDriveClient();
+    const drive = ON_WORKERS ? null : getDriveClient();
 
     for (const raw of docs as { id: string; user_id: string; drive_file_id: string | null; file_name: string | null }[]) {
       // Look up candidate first/last for the filename prefix
@@ -65,7 +72,7 @@ async function renameSlotDocs(slotId: string, newLabel: string): Promise<void> {
       const ext = (raw.file_name ?? "").split(".").pop()?.toLowerCase() || "pdf";
       const newName = `${fn}_${ln}_pflegekraft_${slug}.${ext}`;
 
-      if (raw.drive_file_id) {
+      if (raw.drive_file_id && drive) {
         try {
           await drive.files.update({
             fileId: raw.drive_file_id,

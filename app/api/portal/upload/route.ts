@@ -179,12 +179,30 @@ function getDriveClient() {
   return google.drive({ version: "v3", auth });
 }
 
+// On Cloudflare Workers googleapis/google-auth-library's HTTP layer is unavailable
+// (node:http.validateHeaderName). Drive calls here are already gated behind
+// !r2Configured() (R2 is hard-true on Workers); this gates the Vision OCR token.
+const ON_WORKERS =
+  typeof navigator !== "undefined" &&
+  (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
+
 async function getVisionToken(): Promise<string> {
-  const jwt = new JWT({
-    email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    key: (process.env.GOOGLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n"),
-    scopes: ["https://www.googleapis.com/auth/cloud-vision"],
-  });
+  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ?? "";
+  const key = (process.env.GOOGLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n");
+  // google-auth-library's JWT.getAccessToken() hits node:http.validateHeaderName
+  // (unimplemented on workerd) and throws. On Workers mint the SA token via
+  // WebCrypto instead (2-legged self-auth — no DWD subject), so passport OCR's
+  // Google Vision fallback works there too (not just when Azure is configured).
+  if (ON_WORKERS) {
+    const { mintGoogleAccessToken } = await import("@/lib/googleAuthWebCrypto");
+    const token = await mintGoogleAccessToken({
+      key: { client_email: email, private_key: key },
+      scopes: ["https://www.googleapis.com/auth/cloud-vision"],
+    });
+    if (!token) throw new Error("Could not obtain Vision API access token (Workers)");
+    return token;
+  }
+  const jwt = new JWT({ email, key, scopes: ["https://www.googleapis.com/auth/cloud-vision"] });
   const res = await jwt.getAccessToken();
   if (!res.token) throw new Error("Could not obtain Vision API access token");
   return res.token;

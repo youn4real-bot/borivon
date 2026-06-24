@@ -52,20 +52,22 @@ function pemToPkcs8Der(pem: string): ArrayBuffer {
  */
 export async function buildGoogleJwtAssertion(opts: {
   key: GoogleSaKey;
-  subject: string;
+  /** Impersonated Workspace user for domain-wide delegation. OMIT for 2-legged
+   *  service-account self-auth (e.g. a GCP API like Cloud Vision) — no `sub` claim. */
+  subject?: string;
   scopes: string[];
   now?: number; // unix seconds; injectable for deterministic tests
 }): Promise<string> {
   const now = opts.now ?? Math.floor(Date.now() / 1000);
   const header = { alg: "RS256", typ: "JWT" };
-  const claims = {
+  const claims: Record<string, string | number> = {
     iss: opts.key.client_email,
-    sub: opts.subject, // the impersonated user (DWD)
     scope: opts.scopes.join(" "),
     aud: TOKEN_ENDPOINT,
     iat: now,
     exp: now + 3600,
   };
+  if (opts.subject) claims.sub = opts.subject; // DWD impersonation; omitted = SA self-auth
   const signingInput = `${b64urlStr(JSON.stringify(header))}.${b64urlStr(JSON.stringify(claims))}`;
   const cryptoKey = await crypto.subtle.importKey(
     "pkcs8",
@@ -128,14 +130,15 @@ async function exchangeToken(assertion: string): Promise<TokenResponse | null> {
  */
 export async function mintGoogleAccessToken(opts: {
   key: GoogleSaKey;
-  subject: string;
+  /** Impersonated user (DWD). OMIT for 2-legged service-account self-auth (e.g. Cloud Vision). */
+  subject?: string;
   scopes: string[];
   now?: number;
   skipCache?: boolean;
 }): Promise<string | null> {
   try {
     const nowS = opts.now ?? Math.floor(Date.now() / 1000);
-    const cacheKey = `${opts.key.client_email}|${opts.subject}|${[...opts.scopes].sort().join(",")}`;
+    const cacheKey = `${opts.key.client_email}|${opts.subject ?? "self"}|${[...opts.scopes].sort().join(",")}`;
     if (!opts.skipCache) {
       const hit = tokenCache.get(cacheKey);
       if (hit && hit.expiresAt - 60 > nowS) return hit.accessToken; // 60s safety margin

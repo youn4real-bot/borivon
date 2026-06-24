@@ -43,7 +43,11 @@ export async function POST(req: NextRequest) {
 
   let event: Stripe.Event;
   try {
-    event = stripe.webhooks.constructEvent(rawBody, sig, secret);
+    // constructEventAsync (SubtleCrypto) works on BOTH Node and Cloudflare Workers.
+    // The synchronous constructEvent throws on workerd (the Stripe web build's
+    // SubtleCryptoProvider has no sync HMAC), which would silently 400 every
+    // webhook — premium never set on checkout, never revoked on cancel.
+    event = await stripe.webhooks.constructEventAsync(rawBody, sig, secret);
   } catch (err) {
     console.error("[stripe webhook] signature invalid:", err);
     return Response.json({ error: "Invalid signature" }, { status: 400 });

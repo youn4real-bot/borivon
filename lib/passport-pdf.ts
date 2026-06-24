@@ -1,8 +1,18 @@
-import React from "react";
-import { renderToBuffer, Document, Page, View, Text, StyleSheet } from "@react-pdf/renderer";
 import { google } from "googleapis";
 import { r2Configured, r2Put, candidateKey } from "@/lib/r2";
 import { PassThrough } from "stream";
+
+// @react-pdf/renderer does runtime WASM codegen (yoga) at MODULE LOAD, which
+// Cloudflare Workers ban — so it is NOT imported at top level. It is loaded LAZILY
+// inside generatePassportPdf only on the Vercel branch; on Workers we render the
+// same sheet with pure pdf-lib (lib/pdflib/passportSheet). This is the cutover-audit
+// fix: importing this module (e.g. /api/portal/upload imports makeDrivePublic from
+// here) no longer drags @react-pdf into the worker and crashes it at load.
+// (`import { google } from "googleapis"` IS import-safe on workerd — only its
+// runtime network calls throw, and those are gated/try-caught by callers.)
+const ON_WORKERS =
+  typeof navigator !== "undefined" &&
+  (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
 
 // ── Country / nationality helpers ─────────────────────────────────────────────
 const NAT_MAP: Record<string, string> = {
@@ -78,32 +88,9 @@ function up(s: string | null | undefined): string {
   return s.toUpperCase();
 }
 
-// ── PDF layout ────────────────────────────────────────────────────────────────
+// ── Passport-data PDF ───────────────────────────────────────────────────────--
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function generatePassportPdf(profile: any): Promise<Buffer> {
-  const styles = StyleSheet.create({
-    page:         { fontFamily: "Helvetica", fontSize: 10, color: "#1a1a1a", padding: 48 },
-    header:       { marginBottom: 28 },
-    title:        { fontSize: 18, fontFamily: "Helvetica-Bold", color: "#0a0a0a", marginBottom: 4 },
-    subtitle:     { fontSize: 8, color: "#888" },
-    section:      { marginBottom: 20 },
-    sectionTitle: {
-      fontSize: 7, fontFamily: "Helvetica-Bold", color: "#888",
-      textTransform: "uppercase", letterSpacing: 1.2,
-      marginBottom: 8, paddingBottom: 5,
-      borderBottomWidth: 0.5, borderBottomColor: "#e0e0e0",
-    },
-    row:    { flexDirection: "row", marginBottom: 7 },
-    label:  { fontSize: 8, color: "#666", width: 150 },
-    value:  { fontSize: 9, fontFamily: "Helvetica-Bold", color: "#1a1a1a", flex: 1 },
-    warn:   { fontSize: 9, fontFamily: "Helvetica-Bold", color: "#c0392b", flex: 1 },
-    footer: {
-      position: "absolute", bottom: 28, left: 48, right: 48,
-      fontSize: 7, color: "#bbb", textAlign: "center",
-      borderTopWidth: 0.5, borderTopColor: "#eee", paddingTop: 6,
-    },
-  });
-
   const firstName  = up(profile.first_name);
   const lastName   = up(profile.last_name);
   const sexLabel   = profile.sex === "M" ? "MÄNNLICH" : profile.sex === "F" ? "WEIBLICH" : "—";
@@ -114,6 +101,9 @@ export async function generatePassportPdf(profile: any): Promise<Buffer> {
   const todayStr = `${String(today.getDate()).padStart(2, "0")}.${String(today.getMonth() + 1).padStart(2, "0")}.${today.getFullYear()}`;
   const fullName = [firstName, lastName].filter(v => v !== "—").join(" ") || "—";
 
+  const title = "Reisepassdaten";
+  const subtitle = `Kandidat: ${fullName}  ·  Erstellt: ${todayStr}`;
+  const footerText = `Borivon — Automatisch generiert am ${todayStr}`;
   const groups = [
     {
       title: "Persönliche Daten",
@@ -148,17 +138,45 @@ export async function generatePassportPdf(profile: any): Promise<Buffer> {
     },
   ];
 
+  // Cloudflare Workers — pure pdf-lib (no @react-pdf / yoga).
+  if (ON_WORKERS) {
+    const { renderPassportSheetPdf } = await import("@/lib/pdflib/passportSheet");
+    return Buffer.from(await renderPassportSheetPdf({ title, subtitle, footer: footerText, groups }));
+  }
+
+  // Vercel (Node) — @react-pdf, imported LAZILY so workerd never loads it.
+  const React = await import("react");
+  const { renderToBuffer, Document, Page, View, Text, StyleSheet } = await import("@react-pdf/renderer");
+  const styles = StyleSheet.create({
+    page:         { fontFamily: "Helvetica", fontSize: 10, color: "#1a1a1a", padding: 48 },
+    header:       { marginBottom: 28 },
+    title:        { fontSize: 18, fontFamily: "Helvetica-Bold", color: "#0a0a0a", marginBottom: 4 },
+    subtitle:     { fontSize: 8, color: "#888" },
+    section:      { marginBottom: 20 },
+    sectionTitle: {
+      fontSize: 7, fontFamily: "Helvetica-Bold", color: "#888",
+      textTransform: "uppercase", letterSpacing: 1.2,
+      marginBottom: 8, paddingBottom: 5,
+      borderBottomWidth: 0.5, borderBottomColor: "#e0e0e0",
+    },
+    row:    { flexDirection: "row", marginBottom: 7 },
+    label:  { fontSize: 8, color: "#666", width: 150 },
+    value:  { fontSize: 9, fontFamily: "Helvetica-Bold", color: "#1a1a1a", flex: 1 },
+    warn:   { fontSize: 9, fontFamily: "Helvetica-Bold", color: "#c0392b", flex: 1 },
+    footer: {
+      position: "absolute", bottom: 28, left: 48, right: 48,
+      fontSize: 7, color: "#bbb", textAlign: "center",
+      borderTopWidth: 0.5, borderTopColor: "#eee", paddingTop: 6,
+    },
+  });
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const el = React.createElement(Document, null,
     React.createElement(Page, { size: "A4", style: styles.page },
-
-      // Header
       React.createElement(View, { style: styles.header },
-        React.createElement(Text, { style: styles.title }, "Reisepassdaten"),
-        React.createElement(Text, { style: styles.subtitle }, `Kandidat: ${fullName}  ·  Erstellt: ${todayStr}`)
+        React.createElement(Text, { style: styles.title }, title),
+        React.createElement(Text, { style: styles.subtitle }, subtitle)
       ),
-
-      // Groups
       ...groups.map(g =>
         React.createElement(View, { style: styles.section, key: g.title },
           React.createElement(Text, { style: styles.sectionTitle }, g.title),
@@ -170,11 +188,7 @@ export async function generatePassportPdf(profile: any): Promise<Buffer> {
           )
         )
       ),
-
-      // Footer
-      React.createElement(Text, { style: styles.footer },
-        `Borivon — Automatisch generiert am ${todayStr}`
-      )
+      React.createElement(Text, { style: styles.footer }, footerText)
     )
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   ) as any;

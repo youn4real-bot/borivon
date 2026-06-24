@@ -7,6 +7,14 @@ import { PDFDocument } from "pdf-lib";
 import { r2GetObject } from "@/lib/r2";
 import { UUID_RE } from "@/lib/uuid";
 
+// googleapis Drive can't run on Cloudflare Workers (node:http.validateHeaderName).
+// R2 is the store of record; on Workers we never fall back to Drive — an un-migrated
+// doc (NULL r2_key) returns a clear 409 instead of a doomed Drive call, and the
+// signed-bytes write-back to Drive is skipped (R2 holds the signed copy).
+const ON_WORKERS =
+  typeof navigator !== "undefined" &&
+  (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
+
 function getDriveClient() {
   const auth = new google.auth.GoogleAuth({
     credentials: {
@@ -237,7 +245,12 @@ export async function POST(req: NextRequest) {
       const { data: keyRow } = await dbk.from("documents").select("r2_key").eq("drive_file_id", driveFileId).maybeSingle();
       const r2k = (keyRow as { r2_key?: string | null } | null)?.r2_key ?? null;
       if (r2k) { const o = await r2GetObject(r2k); if (o) pdfBuffer = o.body; }
-      if (!pdfBuffer) pdfBuffer = await fetchPdfBuffer(driveFileId);
+      if (!pdfBuffer) {
+        // On Workers the Drive fallback can't run — surface a precise "not migrated"
+        // error rather than attempt a doomed googleapis call.
+        if (ON_WORKERS) return NextResponse.json({ error: "Document not yet migrated to R2" }, { status: 409 });
+        pdfBuffer = await fetchPdfBuffer(driveFileId);
+      }
     } catch (err) {
       console.error("[sign-request POST] fetch error:", err);
       return NextResponse.json({ error: "Could not fetch the file" }, { status: 502 });
@@ -323,8 +336,9 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Write signed bytes back to the original Drive file so the "normal pdf popup" shows signatures
-  if (driveFileId && (adminOnly || adminSave)) {
+  // Write signed bytes back to the original Drive file so the "normal pdf popup" shows
+  // signatures. Skipped on Workers (Drive unavailable; R2 holds the signed copy below).
+  if (driveFileId && (adminOnly || adminSave) && !ON_WORKERS) {
     try {
       await updateDriveFile(driveFileId, pdfBuffer!);
     } catch (e) {

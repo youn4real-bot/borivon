@@ -20,6 +20,7 @@ import {
   PDFFont,
   PDFImage,
   PDFPage,
+  StandardFonts,
   rgb,
   pushGraphicsState,
   popGraphicsState,
@@ -70,6 +71,25 @@ function wrapDocFont(pdf: PDFFont): DocFont {
     widthOf: (t, s) => pdf.widthOfTextAtSize(t, s),
     ascent: (s) => (ascentU / unitsPerEm) * s,
     lineHeight: (s) => ((ascentU - descentU + lineGapU) / unitsPerEm) * s,
+  };
+}
+
+/**
+ * Embed the built-in standard Helvetica (regular + bold) — no font files / no
+ * fontkit needed (one of the 14 PDF base fonts). Used by the passport-data sheet,
+ * which renders in Helvetica. Metrics are Helvetica's AFM ratios.
+ */
+export async function embedHelvetica(doc: PDFDocument): Promise<{ reg: DocFont; bold: DocFont }> {
+  const mk = (pdf: PDFFont): DocFont => ({
+    pdf,
+    unitsPerEm: 1000,
+    widthOf: (t, s) => pdf.widthOfTextAtSize(t, s),
+    ascent: (s) => 0.718 * s,
+    lineHeight: (s) => 1.15 * s,
+  });
+  return {
+    reg: mk(await doc.embedFont(StandardFonts.Helvetica)),
+    bold: mk(await doc.embedFont(StandardFonts.HelveticaBold)),
   };
 }
 
