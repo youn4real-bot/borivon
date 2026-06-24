@@ -9,6 +9,11 @@ import { r2GetObject } from "@/lib/r2";
 import { isPassportFileType } from "@/lib/passportFile";
 import { enforceRateLimitDistributed } from "@/lib/rateLimit";
 
+// googleapis Drive crashes on Cloudflare Workers (google-auth-library →
+// node:http.validateHeaderName). Files are R2-primary (r2_key backfilled), so on Workers we
+// serve merge sources from R2 only; if one isn't in R2 we error rather than hit Drive.
+const ON_WORKERS = typeof navigator !== "undefined" && (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
+
 function getDriveClient() {
   const auth = new google.auth.GoogleAuth({
     credentials: {
@@ -149,6 +154,8 @@ export async function GET(req: NextRequest) {
       const o = await r2GetObject(m.r2Key);
       if (o) return o.body;
     }
+    // On Workers the Drive fallback can't run — R2 is the store of record (keys backfilled).
+    if (ON_WORKERS) throw new Error("file not found (R2 only on Workers)");
     if (!m.fileId) throw new Error("file not found");
     return fetchPdfBuffer(m.fileId);
   };
