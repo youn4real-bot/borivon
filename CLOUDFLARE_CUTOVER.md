@@ -28,6 +28,14 @@ config/DNS switch below.
 
 ## 1. Pre-cutover prep (do once, no user impact)
 
+0. **[you] ⚠️ REQUIRED — finish the Drive→R2 backfill first.** A check on 2026-06-24
+   found **129 of 402 documents** still live only on Google Drive (no `r2_key`).
+   On Cloudflare those can't be read, so they'd break at cutover. **Fix: open
+   `https://www.borivon.com/portal/admin/migrate` (logged in as the supreme admin)
+   and click the migrate button** — it loops batches until `remaining: 0` (safe:
+   it only copies, never deletes Drive). Then click **verify**. This must read
+   `remaining: 0` before cutover. (Re-check anytime with
+   `node scripts/cftest/checkR2Backfill.mjs`.)
 1. **[you]** Confirm Cloudflare **Workers Paid ($5)** is active (it is — Queues work).
 2. **[me]** Final green check on the branch: `npx tsc --noEmit` · `npm test` · `npm run cf:build`.
 3. **[me]** Deploy the worker (still a parallel/test deploy — does NOT touch the live
@@ -105,8 +113,6 @@ Vercel is never deleted until the Cloudflare deploy has run clean for a few days
 
 ## 5. Optional follow-ups (after a clean cutover)
 
-- Finish the **Drive→R2 backfill** so no `documents` row has a `drive_file_id` with a
-  NULL `r2_key` (legacy docs then never need the — now Workers-gated — Drive fallback).
 - Switch the Vercel PDF path to pdf-lib too and **drop `@react-pdf` + yoga** entirely.
 - Decommission Vercel + remove the dev-only `scripts/cftest/` tooling and the throwaway
   `borivon-cftest` worker.
