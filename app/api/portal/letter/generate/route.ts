@@ -1,16 +1,36 @@
 import { NextRequest } from "next/server";
-import React from "react";
-import { renderToBuffer } from "@react-pdf/renderer";
-import { LetterDocument } from "@/components/LetterDocument";
-import type { LetterData, LetterBrand } from "@/components/LetterDocument";
+import type { LetterData } from "@/components/LetterDocument";
 import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { getServiceSupabase } from "@/lib/supabase";
-import { registerPdfFonts } from "@/lib/pdf-fonts";
 import { VISA_RECIPIENT_LINES, VISA_SUBJECT } from "@/lib/visaLetter";
 import { UUID_RE } from "@/lib/uuid";
 
-registerPdfFonts();
+// @react-pdf can't run on Cloudflare Workers (yoga WASM). On Workers we render the
+// letter with pure pdf-lib (lib/pdflib/letter); on Vercel we keep @react-pdf. Every
+// @react-pdf touchpoint is lazy so loading this route never yoga-crashes the worker.
+const ON_WORKERS =
+  typeof navigator !== "undefined" &&
+  (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
+
+async function renderLetter(data: LetterData): Promise<ArrayBuffer> {
+  const toAb = (u: Uint8Array) => u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) as ArrayBuffer;
+  if (ON_WORKERS) {
+    const { renderLetterPdf } = await import("@/lib/pdflib/letter");
+    return toAb(await renderLetterPdf(data));
+  }
+  const [{ renderToBuffer }, { createElement }, { LetterDocument }, { registerPdfFonts }] =
+    await Promise.all([
+      import("@react-pdf/renderer"),
+      import("react"),
+      import("@/components/LetterDocument"),
+      import("@/lib/pdf-fonts"),
+    ]);
+  registerPdfFonts();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const element = createElement(LetterDocument, { data }) as any;
+  return toAb(new Uint8Array(await renderToBuffer(element)));
+}
 
 // Heavy server-side PDF render — give it headroom so a slow render under load
 // never hits the function timeout. Vercel clamps to the plan's max.
@@ -19,15 +39,8 @@ export const maxDuration = 60;
 
 const MAX_BODY_BYTES = 256 * 1024;
 
-async function resolveBrand(userId: string): Promise<LetterBrand> {
-  // Letter is candidate-generated only. Per user 2026-05: candidate-side
-  // output is always plain Borivon — no agency / org branding override.
-  // The recipient block (employer name + address) is still auto-filled in
-  // the POST handler from candidate_profiles.employer_id — that is
-  // separate from brand and is preserved.
-  void userId;
-  return {};
-}
+// Letter is candidate-generated only and always plain Borivon (no agency / org
+// branding) — LetterDocument ignores brand entirely, so none is passed.
 
 export async function POST(req: NextRequest) {
   // Target resolution mirrors the rest of the cover-letter routes:
@@ -106,15 +119,7 @@ export async function POST(req: NextRequest) {
       data.subject = `Betreff: Motivationsschreiben für eine Tätigkeit als Pflegekraft am ${employerName}`.trim();
     }
 
-    const brand = await resolveBrand(targetUid);
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const element = React.createElement(LetterDocument, { data, brand }) as any;
-    const buffer = await renderToBuffer(element);
-    const arrayBuffer = buffer.buffer.slice(
-      buffer.byteOffset,
-      buffer.byteOffset + buffer.byteLength
-    ) as ArrayBuffer;
+    const arrayBuffer = await renderLetter(data);
 
     return new Response(arrayBuffer, {
       headers: {

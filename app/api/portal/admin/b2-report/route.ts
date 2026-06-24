@@ -1,13 +1,35 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createElement } from "react";
-import { renderToBuffer } from "@react-pdf/renderer";
 import { requireAdminRole, getVisibleCandidateIds } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { UUID_RE } from "@/lib/uuid";
 import { normalizeB2Stage, effectiveB2Stage, B2_STAGE_BY_KEY, isB2CertDoc } from "@/lib/b2Journey";
 import { germanSummary } from "@/lib/b2Detail";
-import { registerPdfFonts } from "@/lib/pdf-fonts";
-import { B2ReportDocument, type B2ReportRow } from "@/components/B2ReportDocument";
+import type { B2ReportRow } from "@/components/B2ReportDocument";
+
+// @react-pdf can't run on Cloudflare Workers (yoga WASM). On Workers we render the
+// report with pure pdf-lib (lib/pdflib/b2report); on Vercel we keep @react-pdf,
+// imported lazily so loading this route never yoga-crashes the worker.
+const ON_WORKERS =
+  typeof navigator !== "undefined" &&
+  (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
+
+async function renderB2Report(rows: B2ReportRow[], generatedAt: string): Promise<ArrayBuffer> {
+  const toAb = (u: Uint8Array) => u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) as ArrayBuffer;
+  if (ON_WORKERS) {
+    const { renderB2ReportPdf } = await import("@/lib/pdflib/b2report");
+    return toAb(await renderB2ReportPdf(rows, generatedAt));
+  }
+  const [{ renderToBuffer }, { createElement }, { B2ReportDocument }, { registerPdfFonts }] =
+    await Promise.all([
+      import("@react-pdf/renderer"),
+      import("react"),
+      import("@/components/B2ReportDocument"),
+      import("@/lib/pdf-fonts"),
+    ]);
+  registerPdfFonts();
+  const element = createElement(B2ReportDocument, { rows, generatedAt }) as Parameters<typeof renderToBuffer>[0];
+  return toAb(new Uint8Array(await renderToBuffer(element)));
+}
 
 /**
  * B2-status report PDF for one or many candidates (admin "where is everyone in
@@ -71,10 +93,7 @@ export async function POST(req: NextRequest) {
 
   const reportDate = new Intl.DateTimeFormat("de-DE", { timeZone: "Africa/Casablanca", day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date());
 
-  registerPdfFonts();
-  const element = createElement(B2ReportDocument, { rows, generatedAt: reportDate }) as Parameters<typeof renderToBuffer>[0];
-  const buf = await renderToBuffer(element);
-  const arrayBuffer = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
+  const arrayBuffer = await renderB2Report(rows, reportDate);
 
   return new NextResponse(arrayBuffer, {
     status: 200,
