@@ -2,10 +2,12 @@
  * Trilingual copy for the /v2 marketing site (FR · EN · DE).
  *
  * Voice: premium, minimal, OUTCOME-only. No level jargon (A1/A2/B1/B2).
- * ENTERPRISE-FIRST — German for the German labour market, made operational.
- * The hybrid delivery model (En ligne · Vor Ort · Hybride) is the centerpiece;
- * it solves Germany's Fachkräftemangel + integration problem.
- * No fabricated stats, numbers, logos or testimonials.
+ * THE GERMAN LANGUAGE is the sole focus — master it or face real consequences
+ * (no Anerkennung, stuck/underpaid, isolated). B2B + B2C are blended, not split.
+ * The hybrid delivery model (En ligne · Vor Ort · Hybride) is the "how".
+ * Motto: "Ambitions without Borders" (constant, never translated).
+ * No fabricated stats, numbers, logos or testimonials — only verifiable facts
+ * (e.g. B2 German is required for the Anerkennung of nursing qualifications).
  *
  * Usage in a page:
  *   const { lang } = useLang();
@@ -19,10 +21,13 @@ export const pick = (t: Tri, lang: Lang) => t[lang];
 
 const tri = (fr: string, en: string, de: string): Tri => ({ fr, en, de });
 
+/** Brand motto — constant, shown across the site, never translated. */
+export const MOTTO = "Ambitions without Borders";
+
 export const COPY = {
   // ── Chrome ──────────────────────────────────────────────────────────────
   nav: {
-    business:    tri("Entreprises", "For business", "Für Unternehmen"),
+    business:    tri("Solutions", "Solutions", "Lösungen"),
     model:       tri("Le modèle", "The model", "Das Modell"),
     individuals: tri("Particuliers", "Individuals", "Privatpersonen"),
     about:       tri("À propos", "About", "Über uns"),
@@ -31,29 +36,30 @@ export const COPY = {
   },
   footer: {
     tagline: tri(
-      "L'allemand qui prépare vos talents au marché allemand.",
-      "German that gets your talent ready for the German market.",
-      "Deutsch, das Ihre Talente fit für den deutschen Markt macht.",
+      "Maîtrisez l'allemand. Le reste suit.",
+      "Master German. The rest follows.",
+      "Beherrschen Sie Deutsch. Der Rest folgt.",
     ),
     colSite:    tri("Site", "Site", "Seite"),
     colCompany: tri("Entreprise", "Company", "Unternehmen"),
     login:      tri("Espace client", "Client portal", "Kundenbereich"),
     rights:     tri("Tous droits réservés.", "All rights reserved.", "Alle Rechte vorbehalten."),
-    addr1:      tri("77 Boulevard Mohamed Smiha", "77 Boulevard Mohamed Smiha", "77 Boulevard Mohamed Smiha"),
-    addr2:      tri("20080 Casablanca, Maroc", "20080 Casablanca, Morocco", "20080 Casablanca, Marokko"),
+    company:    tri("Germeds LLC", "Germeds LLC", "Germeds LLC"),
+    country:    tri("États-Unis", "United States", "Vereinigte Staaten"),
+    email:      tri("contact@borivon.com", "contact@borivon.com", "contact@borivon.com"),
     institut:   tri("Institut de langue allemande", "German-language institute", "Institut für deutsche Sprache"),
   },
 
   // ── Home ────────────────────────────────────────────────────────────────
   home: {
-    heroEyebrow: tri("L'allemand pour le marché du travail allemand", "German for the German labour market", "Deutsch für den deutschen Arbeitsmarkt"),
+    heroEyebrow: tri("Ambitions without Borders", "Ambitions without Borders", "Ambitions without Borders"),
     // heroTitle is split for the word-by-word reveal; last word is the accent.
-    heroTitle:   tri("Vos talents, opérationnels en", "Your talent, operational in", "Ihre Talente, einsatzbereit auf"),
-    heroAccent:  tri("allemand.", "German.", "Deutsch."),
+    heroTitle:   tri("Tout commence par", "It all starts with", "Alles beginnt mit"),
+    heroAccent:  tri("l'allemand.", "German.", "Deutsch."),
     heroSub:     tri(
-      "Un modèle hybride — en ligne et vor Ort — qui prépare vos collaborateurs internationaux au marché allemand. Plus vite, et pour de bon.",
-      "A hybrid model — online and vor Ort — that gets your international staff ready for the German market. Faster, and for good.",
-      "Ein hybrides Modell — online und vor Ort — das Ihre internationalen Mitarbeitenden fit für den deutschen Markt macht. Schneller, und nachhaltig.",
+      "Sans lui, vos compétences restent bloquées. Avec lui, l'Allemagne s'ouvre. Notre métier : vous y amener — en ligne et vor Ort.",
+      "Without it, your skills stay locked. With it, Germany opens up. Our craft: getting you there — online and vor Ort.",
+      "Ohne es bleiben Ihre Fähigkeiten blockiert. Mit ihm öffnet sich Deutschland. Unsere Aufgabe: Sie dorthin zu bringen — online und vor Ort.",
     ),
     heroCta1:    tri("Parler à un expert", "Talk to an expert", "Beratung anfragen"),
     heroCta2:    tri("Découvrir le modèle", "See the model", "Das Modell ansehen"),
@@ -61,20 +67,20 @@ export const COPY = {
     chip2:       tri("Sans jargon ni niveaux", "No jargon, no levels", "Ohne Fachjargon, ohne Niveaustufen"),
     chip3:       tri("Orienté résultats", "Results-driven", "Ergebnisorientiert"),
 
-    problemEyebrow: tri("Le défi allemand", "The German challenge", "Die deutsche Herausforderung"),
-    problemTitle:   tri("L'Allemagne a besoin de talents.", "Germany needs talent.", "Deutschland braucht Talente."),
-    problemAccent:  tri("Vos talents ont besoin d'allemand.", "Your talent needs German.", "Ihre Talente brauchen Deutsch."),
+    problemEyebrow: tri("Pourquoi l'allemand", "Why German", "Warum Deutsch"),
+    problemTitle:   tri("En Allemagne, l'allemand n'est pas une option.", "In Germany, German isn't optional.", "In Deutschland ist Deutsch keine Option."),
+    problemAccent:  tri("C'est la condition.", "It's the condition.", "Es ist die Bedingung."),
     problemSub:     tri(
-      "La pénurie de main-d'œuvre freine les entreprises allemandes. Le vrai obstacle n'est pas de recruter — c'est la langue.",
-      "The labour shortage is holding German companies back. The real bottleneck isn't hiring — it's the language.",
-      "Der Fachkräftemangel bremst deutsche Unternehmen. Der eigentliche Engpass ist nicht das Einstellen — es ist die Sprache.",
+      "On n'échoue pas en Allemagne par manque de compétences. On échoue à cause de la langue.",
+      "People don't fail in Germany for lack of skill. They fail because of the language.",
+      "Man scheitert in Deutschland nicht an fehlendem Können. Man scheitert an der Sprache.",
     ),
-    problem1Title: tri("Le talent n'est pas le frein.", "Talent isn't the blocker.", "Talent ist nicht das Problem."),
-    problem1Body:  tri("La langue l'est. Sans allemand, même les meilleurs profils restent bloqués.", "Language is. Without German, even the best profiles stay stuck.", "Die Sprache ist es. Ohne Deutsch bleiben selbst die besten Profile blockiert."),
-    problem2Title: tri("L'intégration qui traîne coûte cher.", "Slow integration is expensive.", "Schleppende Integration kostet."),
-    problem2Body:  tri("Chaque mois sans allemand opérationnel, c'est de la productivité — et des talents — perdus.", "Every month without operational German is lost productivity — and lost talent.", "Jeder Monat ohne einsatzbereites Deutsch bedeutet verlorene Produktivität — und verlorene Talente."),
-    problem3Title: tri("La reconnaissance exige l'allemand.", "Recognition requires German.", "Die Anerkennung verlangt Deutsch."),
-    problem3Body:  tri("Pas d'Anerkennung, pas de poste qualifié. La langue est la clé du dossier.", "No Anerkennung, no qualified role. Language is the key to the file.", "Keine Anerkennung, keine Fachstelle. Die Sprache ist der Schlüssel zum Verfahren."),
+    problem1Title: tri("Sans B2, pas d'Anerkennung.", "No B2, no Anerkennung.", "Ohne B2 keine Anerkennung."),
+    problem1Body:  tri("La reconnaissance des diplômes exige l'allemand B2. Sans elle, votre diplôme ne vaut rien sur le papier allemand.", "Recognition of your qualification requires B2 German. Without it, your diploma is worth nothing on German paper.", "Die Anerkennung Ihres Abschlusses verlangt Deutsch auf B2-Niveau. Ohne sie ist Ihr Diplom auf deutschem Papier nichts wert."),
+    problem2Title: tri("Vos compétences ne suffisent pas.", "Your skills aren't enough.", "Ihr Können allein reicht nicht."),
+    problem2Body:  tri("D'excellents profils restent bloqués — pas par manque de savoir, mais à cause de la langue et du système.", "Excellent professionals get stuck — not for lack of knowledge, but because of the language and the system.", "Hervorragende Fachkräfte bleiben stecken — nicht aus Unwissen, sondern wegen der Sprache und des Systems."),
+    problem3Title: tri("Sinon : bloqué, sous-payé, isolé.", "Otherwise: stuck, underpaid, isolated.", "Sonst: blockiert, unterbezahlt, isoliert."),
+    problem3Body:  tri("Sans allemand, c'est un poste sous-qualifié, un quotidien difficile, une intégration qui n'arrive jamais.", "Without German: an under-qualified job, a hard daily life, an integration that never comes.", "Ohne Deutsch: eine unterqualifizierte Stelle, ein schwieriger Alltag, eine Integration, die nie gelingt."),
 
     modelEyebrow: tri("Notre modèle", "Our model", "Unser Modell"),
     modelTitle:   tri("En ligne. Vor Ort.", "Online. Vor Ort.", "Online. Vor Ort."),
@@ -150,6 +156,23 @@ export const COPY = {
     p2:   tri("Accédez à l'Ausbildung ou aux études", "Access an Ausbildung or studies", "Zugang zu Ausbildung oder Studium"),
     p3:   tri("Parlez avec confiance, plus vite que prévu", "Speak with confidence, sooner than you think", "Sprechen Sie sicher, schneller als gedacht"),
     p4:   tri("Accompagné jusqu'à votre objectif", "Supported all the way to your goal", "Begleitet bis zu Ihrem Ziel"),
+  },
+
+  // ── Unified audience (home) — B2B + B2C blended, German is the through-line ─
+  unified: {
+    eyebrow: tri("Pour qui", "Who it's for", "Für wen"),
+    title:   tri("Une langue. Toutes les", "One language. Every", "Eine Sprache. Alle"),
+    accent:  tri("ambitions.", "ambition.", "Ambitionen."),
+    body:    tri(
+      "Que vous visiez votre propre carrière en Allemagne ou que vous prépariez vos équipes, le chemin est le même : l'allemand, maîtrisé pour de bon.",
+      "Whether you're aiming for your own career in Germany or preparing your teams, the path is the same: German, mastered for good.",
+      "Ob Sie Ihre eigene Karriere in Deutschland anstreben oder Ihre Teams vorbereiten — der Weg ist derselbe: Deutsch, nachhaltig gemeistert.",
+    ),
+    cta:  tri("Parler à un expert", "Talk to an expert", "Beratung anfragen"),
+    p1:   tri("Décrochez le poste, l'Ausbildung ou les études", "Land the job, Ausbildung or studies", "Job, Ausbildung oder Studium sichern"),
+    p2:   tri("Préparez vos collaborateurs au terrain allemand", "Get your staff ready for the German workplace", "Mitarbeitende auf den deutschen Arbeitsalltag vorbereiten"),
+    p3:   tri("Débloquez la reconnaissance des diplômes (Anerkennung)", "Unlock qualification recognition (Anerkennung)", "Anerkennung der Abschlüsse freischalten"),
+    p4:   tri("Parlez avec confiance, plus vite que prévu", "Speak with confidence, sooner than you think", "Sicher sprechen, schneller als gedacht"),
   },
 
   // ── /solutions (enterprise deep-dive) ─────────────────────────────────────

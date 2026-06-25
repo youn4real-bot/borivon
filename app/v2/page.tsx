@@ -214,7 +214,7 @@ function FinalCTA() {
         <p className="mx-auto mt-6 max-w-[500px]" style={{ fontFamily: "var(--font-sans)", fontSize: "1.1rem", lineHeight: 1.65, color: "var(--w2)" }}>{T(C.home.finalSub)}</p>
         <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
           <PrimaryCTA href="/v2/contact" big>{T(C.home.heroCta1)}</PrimaryCTA>
-          <GhostCTA href="/v2/particuliers" big>{T(C.ind.eyebrow)}</GhostCTA>
+          <GhostCTA href="/v2/methode" big>{T(C.home.heroCta2)}</GhostCTA>
         </div>
       </Up>
     </section>
@@ -229,11 +229,9 @@ export default function V2Home() {
       <HomeHero />
       <Problem />
       <HybridModel />
-      <Audience id="entreprises" eyebrow={T(C.ent.eyebrow)} title={T(C.ent.title)} accent={T(C.ent.accent)} body={T(C.ent.body)}
-        points={[T(C.ent.p1), T(C.ent.p2), T(C.ent.p3), T(C.ent.p4)]} cta={T(C.ent.cta)} ctaHref="/v2/contact" />
+      <Audience id="solutions" eyebrow={T(C.unified.eyebrow)} title={T(C.unified.title)} accent={T(C.unified.accent)} body={T(C.unified.body)}
+        points={[T(C.unified.p1), T(C.unified.p2), T(C.unified.p3), T(C.unified.p4)]} cta={T(C.unified.cta)} ctaHref="/v2/contact" />
       <Journey />
-      <Audience id="particuliers" eyebrow={T(C.ind.eyebrow)} title={T(C.ind.title)} accent={T(C.ind.accent)} body={T(C.ind.body)}
-        points={[T(C.ind.p1), T(C.ind.p2), T(C.ind.p3), T(C.ind.p4)]} cta={T(C.ind.cta)} ctaHref="/portal" reverse />
       <Trust />
       <FinalCTA />
     </>

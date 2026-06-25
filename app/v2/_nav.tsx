@@ -13,7 +13,7 @@ import { Menu, X, Sun, Moon } from "lucide-react";
 import { useLang } from "@/components/LangContext";
 import { useTheme } from "@/components/ThemeContext";
 import type { Lang } from "@/lib/translations";
-import { COPY, type Tri } from "./_copy";
+import { COPY, MOTTO, type Tri } from "./_copy";
 
 const LANGS: Lang[] = ["fr", "en", "de"];
 
@@ -58,9 +58,8 @@ export function V2Nav() {
   const T = (t: Tri) => t[lang];
 
   const links = [
-    { href: "/v2/solutions", label: T(COPY.nav.business) },
     { href: "/v2/methode", label: T(COPY.nav.model) },
-    { href: "/v2/particuliers", label: T(COPY.nav.individuals) },
+    { href: "/v2/solutions", label: T(COPY.nav.business) },
     { href: "/v2/a-propos", label: T(COPY.nav.about) },
   ];
   const isActive = (href: string) => pathname === href;
@@ -145,6 +144,7 @@ export function V2Footer() {
             <span style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontWeight: 700, fontSize: "1.5rem", color: "var(--w)" }}>
               Borivon<span style={{ color: "var(--gold)" }}>.</span>
             </span>
+            <p className="mt-2.5" style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontSize: "1.05rem", color: "var(--gold)" }}>{MOTTO}</p>
             <p className="mt-3 max-w-[320px]" style={{ fontFamily: "var(--font-sans)", fontSize: "0.95rem", lineHeight: 1.6, color: "var(--w2)" }}>{T(COPY.footer.tagline)}</p>
             <p className="mt-4 bv-small" style={{ fontSize: "0.8rem", color: "var(--w3)" }}>{T(COPY.footer.institut)}</p>
           </div>
@@ -152,9 +152,8 @@ export function V2Footer() {
             <div className="bv-eyebrow" style={{ marginBottom: "0.9rem" }}>{T(COPY.footer.colSite)}</div>
             <ul className="space-y-2.5">
               {[
-                ["/v2/solutions", T(COPY.nav.business)],
                 ["/v2/methode", T(COPY.nav.model)],
-                ["/v2/particuliers", T(COPY.nav.individuals)],
+                ["/v2/solutions", T(COPY.nav.business)],
                 ["/v2/contact", T(COPY.nav.contact)],
               ].map(([h, l]) => (
                 <li key={h}><Link href={h} className="transition-opacity hover:opacity-80" style={{ fontFamily: "var(--font-sans)", fontSize: "0.92rem", color: "var(--w2)" }}>{l}</Link></li>
@@ -166,15 +165,16 @@ export function V2Footer() {
             <ul className="space-y-2.5">
               <li><Link href="/v2/a-propos" className="transition-opacity hover:opacity-80" style={{ fontFamily: "var(--font-sans)", fontSize: "0.92rem", color: "var(--w2)" }}>{T(COPY.nav.about)}</Link></li>
               <li><Link href="/portal" className="transition-opacity hover:opacity-80" style={{ fontFamily: "var(--font-sans)", fontSize: "0.92rem", color: "var(--w2)" }}>{T(COPY.footer.login)}</Link></li>
+              <li><a href={`mailto:${COPY.footer.email.en}`} className="transition-opacity hover:opacity-80" style={{ fontFamily: "var(--font-sans)", fontSize: "0.92rem", color: "var(--w2)" }}>{COPY.footer.email.en}</a></li>
             </ul>
             <p className="mt-5 bv-small" style={{ fontSize: "0.8rem", lineHeight: 1.55, color: "var(--w3)" }}>
-              {T(COPY.footer.addr1)}<br />{T(COPY.footer.addr2)}
+              {T(COPY.footer.company)}<br />{T(COPY.footer.country)}
             </p>
           </div>
         </div>
         <div className="mt-12 flex flex-col items-center justify-between gap-3 pt-6 sm:flex-row" style={{ borderTop: "1px solid var(--border)" }}>
-          <span className="bv-small" style={{ fontSize: "0.8rem", color: "var(--w3)" }}>© {new Date().getFullYear()} Borivon. {T(COPY.footer.rights)}</span>
-          <span className="bv-small" style={{ fontSize: "0.8rem", color: "var(--w3)" }}>Casablanca · Deutschland</span>
+          <span className="bv-small" style={{ fontSize: "0.8rem", color: "var(--w3)" }}>© {new Date().getFullYear()} Borivon · {T(COPY.footer.company)}. {T(COPY.footer.rights)}</span>
+          <span className="bv-small" style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontSize: "0.86rem", color: "var(--w3)" }}>{MOTTO}</span>
         </div>
       </div>
     </footer>
