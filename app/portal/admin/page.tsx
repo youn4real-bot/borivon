@@ -3609,17 +3609,17 @@ export default function AdminPage() {
                   .filter(tab => !(isOrgAdmin && (tab.id === "docs" || tab.id === "journey" || tab.id === "assign")));
                 const assignT = lang === "fr"
                   ? { sec:"Affectation", to:"Affecter à", agency:"Agence", employer:"Employeur direct", pickAg:"Agence", pickSite:"Site / employeur", pickEmp:"Employeur",
-                      addEmp:"Nouvel employeur", empName:"Nom", empNamePh:"Ambulante Pflegedienst Murnau",
-                      empAddr:"Adresse (une ligne par ligne)", empAddrPh:"Ambulante Pflegedienst Murnau\nPersonalabteilung\nBahnhofstraße 1\n82418 Murnau am Staffelsee",
+                      addEmp:"Nouvel employeur", empName:"Nom", empNamePh:"Pflegedienst Sonnenschein",
+                      empAddr:"Adresse (une ligne par ligne)", empAddrPh:"Pflegedienst Sonnenschein\nPersonalabteilung\nMusterstraße 12\n80331 München",
                       save:"Créer et affecter", cancel:"Annuler" }
                   : lang === "de"
                   ? { sec:"Zuweisung", to:"Zuweisen an", agency:"Agentur", employer:"Direkter Arbeitgeber", pickAg:"Agentur", pickSite:"Standort / Arbeitgeber", pickEmp:"Arbeitgeber",
-                      addEmp:"Neuer Arbeitgeber", empName:"Name", empNamePh:"Ambulante Pflegedienst Murnau",
-                      empAddr:"Adresse (eine pro Zeile)", empAddrPh:"Ambulante Pflegedienst Murnau\nPersonalabteilung\nBahnhofstraße 1\n82418 Murnau am Staffelsee",
+                      addEmp:"Neuer Arbeitgeber", empName:"Name", empNamePh:"Pflegedienst Sonnenschein",
+                      empAddr:"Adresse (eine pro Zeile)", empAddrPh:"Pflegedienst Sonnenschein\nPersonalabteilung\nMusterstraße 12\n80331 München",
                       save:"Anlegen & zuweisen", cancel:"Abbrechen" }
                   : { sec:"Assignment", to:"Assign to", agency:"Agency", employer:"Direct employer", pickAg:"Agency", pickSite:"Site / employer", pickEmp:"Employer",
-                      addEmp:"New employer", empName:"Name", empNamePh:"Ambulante Pflegedienst Murnau",
-                      empAddr:"Address (one per line)", empAddrPh:"Ambulante Pflegedienst Murnau\nPersonalabteilung\nBahnhofstraße 1\n82418 Murnau am Staffelsee",
+                      addEmp:"New employer", empName:"Name", empNamePh:"Pflegedienst Sonnenschein",
+                      empAddr:"Address (one per line)", empAddrPh:"Pflegedienst Sonnenschein\nPersonalabteilung\nMusterstraße 12\n80331 München",
                       save:"Create & assign", cancel:"Cancel" };
                 return (
                 <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"

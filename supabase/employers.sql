@@ -65,6 +65,16 @@ VALUES
 ON CONFLICT (slug) DO UPDATE
   SET name = EXCLUDED.name, address_lines = EXCLUDED.address_lines;
 
+-- Permanent DIRECT employer (no agency) — Ambulante Pflegedienst Murnau.
+-- DO NOTHING (not DO UPDATE) on conflict so re-running this seed never clobbers
+-- the street/address the admin completes in the UI (the street here is a
+-- placeholder until confirmed; name + town/PLZ are correct).
+INSERT INTO public.employers (slug, name, address_lines)
+VALUES
+  ('ambulante_pflegedienst_murnau', 'Ambulante Pflegedienst Murnau',
+   ARRAY['Ambulante Pflegedienst Murnau','82418 Murnau am Staffelsee'])
+ON CONFLICT (slug) DO NOTHING;
+
 ALTER TABLE public.employers ENABLE ROW LEVEL SECURITY;
 
 -- 2. Canonical candidate → employer link ──────────────────────────────────────
