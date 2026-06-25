@@ -333,7 +333,7 @@ export default function V2Home() {
   return (
     <>
       <HomeHero />
-      <Marquee items={["Meetings", "Kundengespräch", "Vorstellungsgespräch", "Verhandlung", "Telefonate", "Präsentation", "DACH", "Online"]} />
+      <Marquee items={["Meetings", "Kundengespräch", "Vorstellungsgespräch", "Verhandlung", "Telefonate", "Präsentation", "Karriere", "Online"]} />
       <Audience id="outcomes" eyebrow={T(C.ent.eyebrow)} title={T(C.ent.title)} accent={T(C.ent.accent)} body={T(C.ent.body)}
         points={[T(C.ent.p1), T(C.ent.p2), T(C.ent.p3), T(C.ent.p4)]} cta={T(C.ent.cta)} ctaHref="/v2/contact" />
       <PhotoBand src="https://images.unsplash.com/photo-1521737604893-d14cc237f11d?auto=format&fit=crop&w=2000&q=70" alt="Réunion d'équipe en allemand" />

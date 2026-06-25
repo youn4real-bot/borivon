@@ -15,7 +15,12 @@ import { useTheme } from "@/components/ThemeContext";
 import type { Lang } from "@/lib/translations";
 import { COPY, MOTTO, type Tri } from "./_copy";
 
-const LANGS: Lang[] = ["fr", "en", "de"];
+// Flag picker (matches the old site: flagcdn SVGs). gb flag for English.
+const LANGS: { code: Lang; flag: string; label: string }[] = [
+  { code: "fr", flag: "https://flagcdn.com/fr.svg", label: "Français" },
+  { code: "en", flag: "https://flagcdn.com/gb.svg", label: "English" },
+  { code: "de", flag: "https://flagcdn.com/de.svg", label: "Deutsch" },
+];
 
 function Wordmark() {
   return (
@@ -27,17 +32,30 @@ function Wordmark() {
 
 function LangSwitch({ lang, setLang }: { lang: Lang; setLang: (l: Lang) => void }) {
   return (
-    <div className="flex items-center gap-0.5 rounded-full p-0.5" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
-      {LANGS.map((l) => (
-        <button
-          key={l}
-          onClick={() => setLang(l)}
-          className="rounded-full px-2 py-1 text-[11px] font-semibold uppercase transition-opacity hover:opacity-80"
-          style={{ background: lang === l ? "var(--gdim)" : "transparent", color: lang === l ? "var(--gold)" : "var(--w3)", letterSpacing: "0.02em" }}
-        >
-          {l}
-        </button>
-      ))}
+    <div className="flex items-center gap-1.5">
+      {LANGS.map((l) => {
+        const active = lang === l.code;
+        return (
+          <button
+            key={l.code}
+            onClick={() => setLang(l.code)}
+            aria-label={l.label}
+            aria-pressed={active}
+            title={l.label}
+            className="relative grid place-items-center rounded-full hover:opacity-100"
+            style={{ width: 26, height: 26, opacity: active ? 1 : 0.4 }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={l.flag} alt={l.label} width={26} height={26} className="h-full w-full rounded-full object-cover" style={{ boxShadow: active ? "none" : "0 0 0 1px var(--border)" }} />
+            {/* Active ring as a conditionally-rendered child: a DOM structure change
+                on every switch forces a clean repaint (paint-only toggles on a single
+                node can go stale under the page's continuous animation load). */}
+            {active && (
+              <span aria-hidden className="pointer-events-none absolute inset-0 rounded-full" style={{ boxShadow: "0 0 0 2px var(--gold)" }} />
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -71,12 +89,13 @@ export function V2Nav() {
         className="fixed inset-x-0 top-0 z-[1000]"
         style={{ background: "color-mix(in oklab, var(--bg) 72%, transparent)", backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)", borderBottom: "1px solid var(--border)" }}
       >
-        <div className="mx-auto flex h-[60px] max-w-[1200px] items-center justify-between px-[5vw] lg:px-8">
+        <div className="relative mx-auto flex h-[60px] max-w-[1200px] items-center justify-between px-[5vw] lg:px-8">
           <Wordmark />
 
-          <nav className="hidden items-center gap-7 lg:flex">
+          {/* Centered nav — absolutely placed so it sits in the true middle of the bar */}
+          <nav className="absolute left-1/2 hidden -translate-x-1/2 items-center gap-8 lg:flex">
             {links.map((l) => (
-              <Link key={l.href} href={l.href} className="text-[14px] font-medium transition-colors" style={{ color: isActive(l.href) ? "var(--gold)" : "var(--w2)" }}>
+              <Link key={l.href} href={l.href} className="text-[14px] font-medium transition-colors hover:opacity-80" style={{ color: isActive(l.href) ? "var(--gold)" : "var(--w2)" }}>
                 {l.label}
               </Link>
             ))}
@@ -146,8 +165,6 @@ export function V2Footer() {
               Borivon<span style={{ color: "var(--gold)" }}>.</span>
             </span>
             <p className="mt-2.5" style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontSize: "1.05rem", color: "var(--gold)" }}>{MOTTO}</p>
-            <p className="mt-3 max-w-[320px]" style={{ fontFamily: "var(--font-sans)", fontSize: "0.95rem", lineHeight: 1.6, color: "var(--w2)" }}>{T(COPY.footer.tagline)}</p>
-            <p className="mt-4 bv-small" style={{ fontSize: "0.8rem", color: "var(--w3)" }}>{T(COPY.footer.institut)}</p>
           </div>
           <div>
             <div className="bv-eyebrow" style={{ marginBottom: "0.9rem" }}>{T(COPY.footer.colSite)}</div>
@@ -169,14 +186,10 @@ export function V2Footer() {
               <li><Link href="/portal" className="transition-opacity hover:opacity-80" style={{ fontFamily: "var(--font-sans)", fontSize: "0.92rem", color: "var(--w2)" }}>{T(COPY.footer.login)}</Link></li>
               <li><a href={`mailto:${COPY.footer.email.en}`} className="transition-opacity hover:opacity-80" style={{ fontFamily: "var(--font-sans)", fontSize: "0.92rem", color: "var(--w2)" }}>{COPY.footer.email.en}</a></li>
             </ul>
-            <p className="mt-5 bv-small" style={{ fontSize: "0.8rem", lineHeight: 1.55, color: "var(--w3)" }}>
-              {T(COPY.footer.company)}<br />{T(COPY.footer.country)}
-            </p>
           </div>
         </div>
-        <div className="mt-12 flex flex-col items-center justify-between gap-3 pt-6 sm:flex-row" style={{ borderTop: "1px solid var(--border)" }}>
+        <div className="mt-12 flex items-center pt-6" style={{ borderTop: "1px solid var(--border)" }}>
           <span className="bv-small" style={{ fontSize: "0.8rem", color: "var(--w3)" }}>© {new Date().getFullYear()} Borivon · {T(COPY.footer.company)}. {T(COPY.footer.rights)}</span>
-          <span className="bv-small" style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontSize: "0.86rem", color: "var(--w3)" }}>{MOTTO}</span>
         </div>
       </div>
     </footer>
