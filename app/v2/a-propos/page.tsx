@@ -26,6 +26,18 @@ export default function AboutPage() {
         </div>
       </GlowField>
 
+      {/* Social proof — honest, founder-supplied numbers */}
+      <section className="px-[6vw] py-16 sm:py-20" style={{ borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
+        <motion.div className="mx-auto grid max-w-[900px] gap-10 text-center sm:grid-cols-3" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }}>
+          {([[C.stat1N, C.stat1L], [C.stat2N, C.stat2L], [C.stat3N, C.stat3L]] as const).map(([n, l]) => (
+            <motion.div key={T(n)} variants={item}>
+              <div className="font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(2.6rem, 6vw, 4rem)", letterSpacing: "-0.04em", lineHeight: 1, color: "var(--gold)" }}>{T(n)}</div>
+              <div className="mt-2.5" style={{ fontFamily: "var(--font-sans)", fontSize: "0.95rem", color: "var(--w2)" }}>{T(l)}</div>
+            </motion.div>
+          ))}
+        </motion.div>
+      </section>
+
       <section className="px-[6vw] py-24 sm:py-28">
         <div className="mx-auto grid max-w-[1000px] items-start gap-12 lg:grid-cols-2">
           <Up>

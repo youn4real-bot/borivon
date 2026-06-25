@@ -28,7 +28,7 @@ function MaskWord({ children, delay, accent }: { children: React.ReactNode; dela
         initial={reduce ? false : { y: "115%" }}
         animate={{ y: 0 }}
         transition={{ duration: 0.85, ease: EASE, delay }}
-        style={accent ? { backgroundImage: "var(--gold-gradient, linear-gradient(90deg, var(--gold), var(--gold2, var(--gold))))", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" } : undefined}
+        style={accent ? { color: "var(--gold)" } : undefined}
       >
         {children}
       </motion.span>
@@ -52,31 +52,33 @@ function HomeHero() {
         <span style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontWeight: 700, fontSize: "clamp(9rem, 34vw, 30rem)", lineHeight: 1, color: "var(--w)", opacity: 0.035, whiteSpace: "nowrap", userSelect: "none" }}>Borivon</span>
       </Parallax>
 
-      <motion.div className="relative z-[1] mx-auto max-w-[1080px] text-center" style={reduce ? undefined : { y: contentY, opacity: contentOp }}>
-        <motion.div initial={reduce ? false : { opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }}>
-          <span className="bv-eyebrow" style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", textTransform: "none", letterSpacing: "0", fontSize: "0.95rem" }}>{T(C.home.heroEyebrow)}</span>
-        </motion.div>
+      <motion.div className="relative z-[1] mx-auto max-w-[1180px]" style={reduce ? undefined : { y: contentY, opacity: contentOp }}>
+        <div className="max-w-[840px]">
+          <motion.div initial={reduce ? false : { opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }}>
+            <span className="bv-eyebrow" style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", textTransform: "none", letterSpacing: "0", fontSize: "0.95rem" }}>{T(C.home.heroEyebrow)}</span>
+          </motion.div>
 
-        <h1 className="mx-auto mt-6 max-w-[15ch] font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(2.8rem, 7.4vw, 6rem)", lineHeight: 1.0, letterSpacing: "-0.035em", color: "var(--w)" }}>
-          {words.map((w, i) => (<MaskWord key={i} delay={0.15 + 0.08 * i}>{w}</MaskWord>))}
-          <MaskWord delay={0.15 + 0.08 * words.length} accent>{T(C.home.heroAccent)}</MaskWord>
-        </h1>
+          <h1 className="mt-6 max-w-[15ch] font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(2.8rem, 7.4vw, 6rem)", lineHeight: 1.0, letterSpacing: "-0.035em", color: "var(--w)" }}>
+            {words.map((w, i) => (<MaskWord key={i} delay={0.15 + 0.08 * i}>{w}</MaskWord>))}
+            <MaskWord delay={0.15 + 0.08 * words.length} accent>{T(C.home.heroAccent)}</MaskWord>
+          </h1>
 
-        <motion.p className="mx-auto mt-7 max-w-[600px]" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(1.05rem, 1.6vw, 1.28rem)", lineHeight: 1.65, color: "var(--w2)" }}
-          initial={reduce ? false : { opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, ease: EASE, delay: 0.6 }}>
-          {T(C.home.heroSub)}
-        </motion.p>
+          <motion.p className="mt-7 max-w-[560px]" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(1.05rem, 1.6vw, 1.28rem)", lineHeight: 1.65, color: "var(--w2)" }}
+            initial={reduce ? false : { opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, ease: EASE, delay: 0.6 }}>
+            {T(C.home.heroSub)}
+          </motion.p>
 
-        <motion.div className="mt-11 flex flex-wrap items-center justify-center gap-4" initial={reduce ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, ease: EASE, delay: 0.75 }}>
-          <PrimaryCTA href="/v2/contact" big>{T(C.home.heroCta1)}</PrimaryCTA>
-          <GhostCTA href="/v2/methode" big>{T(C.home.heroCta2)}</GhostCTA>
-        </motion.div>
+          <motion.div className="mt-11 flex flex-wrap items-center gap-4" initial={reduce ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, ease: EASE, delay: 0.75 }}>
+            <PrimaryCTA href="/v2/contact" big>{T(C.home.heroCta1)}</PrimaryCTA>
+            <GhostCTA href="/v2/methode" big>{T(C.home.heroCta2)}</GhostCTA>
+          </motion.div>
 
-        <motion.div className="mt-14 flex flex-wrap items-center justify-center gap-x-8 gap-y-3" initial={reduce ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.8, ease: EASE, delay: 0.95 }}>
-          {[T(C.home.chip1), T(C.home.chip2), T(C.home.chip3)].map((t) => (
-            <span key={t} className="bv-small" style={{ fontSize: "0.82rem", color: "var(--w3)" }}>{t}</span>
-          ))}
-        </motion.div>
+          <motion.div className="mt-14 flex flex-wrap items-center gap-x-8 gap-y-3" initial={reduce ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.8, ease: EASE, delay: 0.95 }}>
+            {[T(C.home.chip1), T(C.home.chip2), T(C.home.chip3)].map((t) => (
+              <span key={t} className="bv-small" style={{ fontSize: "0.82rem", color: "var(--w3)" }}>{t}</span>
+            ))}
+          </motion.div>
+        </div>
       </motion.div>
     </GlowField>
   );
@@ -121,13 +123,13 @@ function HybridModel() {
     <section id="modele" className="px-[6vw] py-28 sm:py-36" style={{ background: "var(--bg2)" }}>
       <div className="mx-auto max-w-[1140px]">
         <SectionHead eyebrow={T(C.home.modelEyebrow)} title={T(C.home.modelTitle)} accent={T(C.home.modelAccent)} sub={T(C.home.modelSub)} />
-        <motion.div className="mt-16 grid gap-6 lg:grid-cols-3" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} style={{ transformStyle: "preserve-3d" }}>
+        <motion.div className="mt-16 grid gap-6 lg:grid-cols-4" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} style={{ transformStyle: "preserve-3d" }}>
           {modes.map((m) => (
-            <motion.div key={T(m.tag)} variants={item} className={m.featured ? "lg:-mt-4 lg:mb-4" : ""}>
-              <TiltCard className="flex h-full flex-col rounded-[22px] p-8" style={{ background: m.featured ? "var(--gdim)" : "var(--card)", border: `1px solid ${m.featured ? "var(--border-gold)" : "var(--border)"}`, boxShadow: m.featured ? "var(--shadow-gold-sm)" : "none" }}>
+            <motion.div key={T(m.tag)} variants={item} className={m.featured ? "lg:col-span-2" : ""}>
+              <TiltCard className={`flex h-full flex-col rounded-[22px] ${m.featured ? "p-10" : "p-8"}`} style={{ background: m.featured ? "var(--gdim)" : "var(--card)", border: `1px solid ${m.featured ? "var(--border-gold)" : "var(--border)"}`, boxShadow: m.featured ? "var(--shadow-gold-sm)" : "none" }}>
                 <span className="inline-flex w-fit items-center rounded-full px-3 py-1 text-[12px] font-semibold" style={{ background: m.featured ? "var(--gold)" : "var(--gdim)", color: m.featured ? "#131312" : "var(--gold)", border: m.featured ? "none" : "1px solid var(--border-gold)", letterSpacing: "-0.01em" }}>{T(m.tag)}</span>
-                <h3 className="mt-5 font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "1.5rem", lineHeight: 1.2, letterSpacing: "-0.02em", color: "var(--w)" }}>{T(m.h)}</h3>
-                <p className="mt-3" style={{ fontFamily: "var(--font-sans)", fontSize: "1rem", lineHeight: 1.62, color: "var(--w2)" }}>{T(m.b)}</p>
+                <h3 className="mt-5 font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: m.featured ? "1.9rem" : "1.4rem", lineHeight: 1.15, letterSpacing: "-0.02em", color: "var(--w)" }}>{T(m.h)}</h3>
+                <p className="mt-3 max-w-[42ch]" style={{ fontFamily: "var(--font-sans)", fontSize: m.featured ? "1.06rem" : "1rem", lineHeight: 1.62, color: "var(--w2)" }}>{T(m.b)}</p>
               </TiltCard>
             </motion.div>
           ))}
@@ -174,7 +176,7 @@ function Journey() {
   return (
     <section className="px-[6vw] py-28 sm:py-32">
       <div className="mx-auto max-w-[1080px]">
-        <SectionHead eyebrow={T(C.home.journeyEyebrow)} title={T(C.home.journeyTitle)} accent={T(C.home.journeyAccent)} sub={T(C.home.journeySub)} />
+        <SectionHead title={T(C.home.journeyTitle)} accent={T(C.home.journeyAccent)} sub={T(C.home.journeySub)} />
         <div ref={ref} className="relative mt-16">
           <div className="absolute left-0 right-0 top-[34px] hidden h-[2px] lg:block" style={{ background: "var(--border)" }}>
             <motion.div className="h-full" style={{ width: lineW, background: "var(--gold-gradient)" }} />
@@ -229,9 +231,8 @@ function FinalCTA() {
           {T(C.home.finalTitle)} <span style={{ color: "var(--gold)" }}>{T(C.home.finalAccent)}</span>
         </h2>
         <p className="mx-auto mt-6 max-w-[500px]" style={{ fontFamily: "var(--font-sans)", fontSize: "1.1rem", lineHeight: 1.65, color: "var(--w2)" }}>{T(C.home.finalSub)}</p>
-        <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-          <PrimaryCTA href="/v2/contact" big>{T(C.home.heroCta1)}</PrimaryCTA>
-          <GhostCTA href="/v2/methode" big>{T(C.home.heroCta2)}</GhostCTA>
+        <div className="mt-10 flex justify-center">
+          <PrimaryCTA href="/v2/contact" big>{T(C.home.finalCta)}</PrimaryCTA>
         </div>
       </Up>
     </section>
@@ -277,8 +278,7 @@ function VorOrt() {
   return (
     <section className="px-[6vw] py-20" style={{ background: "var(--bg2)" }}>
       <Up className="mx-auto max-w-[760px] text-center">
-        <span className="bv-eyebrow">{T(V.eyebrow)}</span>
-        <h2 className="mt-4 font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(1.7rem, 4vw, 2.6rem)", lineHeight: 1.12, letterSpacing: "-0.025em", color: "var(--w)" }}>{T(V.title)}</h2>
+        <h2 className="font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(1.7rem, 4vw, 2.6rem)", lineHeight: 1.12, letterSpacing: "-0.025em", color: "var(--w)" }}>{T(V.title)}</h2>
         <p className="mx-auto mt-5 max-w-[560px]" style={{ fontFamily: "var(--font-sans)", fontSize: "1.05rem", lineHeight: 1.65, color: "var(--w2)" }}>{T(V.body)}</p>
         <div className="mt-8 flex justify-center"><PrimaryCTA href="/v2/contact" big>{T(V.cta)}</PrimaryCTA></div>
       </Up>

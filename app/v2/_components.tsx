@@ -5,7 +5,7 @@
  * Motion lives on motion values (no per-frame re-render); every interaction
  * bails under prefers-reduced-motion and never runs on touch (no mouse events).
  */
-import { useRef, useEffect, useState } from "react";
+import { useRef } from "react";
 import Link from "next/link";
 import {
   motion,
@@ -240,12 +240,9 @@ export function Parallax({ children, distance = 80, className = "", style }: { c
 
 // ── Atmosphere: signature trailing cursor + film grain (sitewide, desktop) ────
 export function Atmosphere() {
-  return (
-    <>
-      <Grain />
-      <Cursor />
-    </>
-  );
+  // Film grain only. (Custom cursors are an accessibility/perf anti-pattern and
+  // were removed per the taste rubric.)
+  return <Grain />;
 }
 
 function Grain() {
@@ -258,40 +255,5 @@ function Grain() {
     );
   return (
     <div aria-hidden className="pointer-events-none fixed inset-0 z-[60]" style={{ backgroundImage: `url("${noise}")`, backgroundSize: "140px 140px", opacity: 0.035, mixBlendMode: "overlay" }} />
-  );
-}
-
-function Cursor() {
-  const reduce = useReducedMotion();
-  const [enabled, setEnabled] = useState(false);
-  const [hot, setHot] = useState(false);
-  const x = useMotionValue(-200), y = useMotionValue(-200);
-  const rx = useSpring(x, { stiffness: 170, damping: 18, mass: 0.5 });
-  const ry = useSpring(y, { stiffness: 170, damping: 18, mass: 0.5 });
-
-  useEffect(() => {
-    if (reduce) return;
-    if (typeof window === "undefined") return;
-    if (!window.matchMedia("(pointer: fine)").matches) return; // desktop / mouse only
-    setEnabled(true);
-    const move = (e: MouseEvent) => { x.set(e.clientX); y.set(e.clientY); };
-    const over = (e: MouseEvent) => {
-      const el = e.target as HTMLElement | null;
-      setHot(!!el?.closest("a, button, [role='button'], input, textarea, select, label"));
-    };
-    window.addEventListener("mousemove", move, { passive: true });
-    window.addEventListener("mouseover", over, { passive: true });
-    return () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseover", over); };
-  }, [reduce, x, y]);
-
-  if (!enabled) return null;
-  return (
-    <motion.div
-      aria-hidden
-      className="pointer-events-none fixed left-0 top-0 z-[9998] rounded-full"
-      style={{ x: rx, y: ry, translateX: "-50%", translateY: "-50%", mixBlendMode: "screen", border: "1.5px solid var(--gold)" }}
-      animate={{ width: hot ? 56 : 30, height: hot ? 56 : 30, opacity: hot ? 0.95 : 0.55, backgroundColor: hot ? "color-mix(in oklab, var(--gold) 14%, transparent)" : "rgba(0,0,0,0)" }}
-      transition={{ type: "spring", stiffness: 260, damping: 22 }}
-    />
   );
 }
