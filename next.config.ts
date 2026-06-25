@@ -100,6 +100,14 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/portal/cv/generate": ["./public/fonts/**", "./public/logos/**"],
     "/api/portal/admin/b2-report": ["./public/fonts/**"],
+    // The Motivationsschreiben (cover letter) route renders with @react-pdf +
+    // Lexend too. Without bundling the fonts here, Vercel's tracer misses the
+    // dynamic path.join() in lib/pdf-fonts.ts, fs.readFileSync fails, and the
+    // loader falls back to fetching the font over HTTP — which loads the BOLD
+    // font unreliably and dropped the first glyph of the bold Betreff
+    // ("Motivationsschreiben" → "otivationsschreiben"). Bundling the fonts
+    // makes the on-disk data-URI path work, exactly like the CV route.
+    "/api/portal/letter/generate": ["./public/fonts/**"],
   },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   webpack: (config: any) => {
