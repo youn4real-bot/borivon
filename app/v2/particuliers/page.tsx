@@ -37,7 +37,24 @@ export default function ParticuliersPage() {
         </div>
       </section>
 
+      {/* Deep B2C needs */}
       <section className="px-[6vw] py-24 sm:py-28" style={{ background: "var(--bg2)" }}>
+        <div className="mx-auto max-w-[1080px]">
+          <SectionHead eyebrow={T(C.needsEyebrow)} title={T(C.needsTitle)} />
+          <motion.div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} style={{ transformStyle: "preserve-3d" }}>
+            {([[C.n1H, C.n1B], [C.n2H, C.n2B], [C.n3H, C.n3B], [C.n4H, C.n4B], [C.n5H, C.n5B], [C.n6H, C.n6B]] as const).map(([h, b]) => (
+              <motion.div key={T(h)} variants={item}>
+                <TiltCard className="h-full rounded-2xl p-7" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+                  <h3 style={{ fontFamily: "var(--font-sans)", fontSize: "1.1rem", fontWeight: 600, lineHeight: 1.3, color: "var(--w)" }}>{T(h)}</h3>
+                  <p className="mt-2.5" style={{ fontFamily: "var(--font-sans)", fontSize: "0.95rem", lineHeight: 1.55, color: "var(--w2)" }}>{T(b)}</p>
+                </TiltCard>
+              </motion.div>
+            ))}
+          </motion.div>
+        </div>
+      </section>
+
+      <section className="px-[6vw] py-24 sm:py-28">
         <div className="mx-auto max-w-[1080px]">
           <SectionHead eyebrow={T(H.journeyEyebrow)} title={T(H.journeyTitle)} accent={T(H.journeyAccent)} sub={T(H.journeySub)} />
           <motion.div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-4" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} style={{ transformStyle: "preserve-3d" }}>
