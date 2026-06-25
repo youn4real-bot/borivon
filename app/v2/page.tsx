@@ -238,45 +238,17 @@ function FinalCTA() {
   );
 }
 
-// Two-paths bridge — the merged front sends each party to its deep page.
-function Paths() {
+export default function V2Home() {
   const { lang } = useLang();
   const T = (t: Tri) => t[lang];
-  const P = C.paths;
-  const cards = [
-    { h: P.entH, b: P.entB, href: "/v2/solutions" },
-    { h: P.indH, b: P.indB, href: "/v2/particuliers" },
-  ];
-  return (
-    <section className="px-[6vw] py-24 sm:py-32">
-      <div className="mx-auto max-w-[1080px]">
-        <SectionHead eyebrow={T(P.eyebrow)} title={T(P.title)} accent={T(P.accent)} sub={T(P.sub)} />
-        <motion.div className="mt-14 grid gap-6 sm:grid-cols-2" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} style={{ transformStyle: "preserve-3d" }}>
-          {cards.map((c) => (
-            <motion.div key={T(c.h)} variants={item}>
-              <Link href={c.href} className="block h-full">
-                <TiltCard className="flex h-full flex-col rounded-[22px] p-8" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-                  <h3 className="font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "1.55rem", letterSpacing: "-0.02em", color: "var(--w)" }}>{T(c.h)}</h3>
-                  <p className="mt-3 flex-1" style={{ fontFamily: "var(--font-sans)", fontSize: "1rem", lineHeight: 1.6, color: "var(--w2)" }}>{T(c.b)}</p>
-                  <span className="mt-6 inline-flex items-center gap-1.5 text-[14px] font-semibold" style={{ color: "var(--gold)" }}>{T(P.more)} <span aria-hidden>→</span></span>
-                </TiltCard>
-              </Link>
-            </motion.div>
-          ))}
-        </motion.div>
-      </div>
-    </section>
-  );
-}
-
-export default function V2Home() {
   return (
     <>
       <HomeHero />
-      <Marquee items={["Anerkennung", "B2", "Pflege", "Ausbildung", "Studium", "Visum", "Fachsprache", "Vor Ort", "Integration", "Karriere"]} />
+      <Marquee items={["Geschäftsdeutsch", "Verhandlung", "Kundenkontakt", "Fachsprache", "Meetings", "Präsentation", "DACH", "Vor Ort", "Export", "B2"]} />
       <Problem />
       <HybridModel />
-      <Paths />
+      <Audience id="entreprises" eyebrow={T(C.ent.eyebrow)} title={T(C.ent.title)} accent={T(C.ent.accent)} body={T(C.ent.body)}
+        points={[T(C.ent.p1), T(C.ent.p2), T(C.ent.p3), T(C.ent.p4)]} cta={T(C.ent.cta)} ctaHref="/v2/contact" />
       <Journey />
       <Trust />
       <FinalCTA />
