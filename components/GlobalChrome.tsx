@@ -93,6 +93,11 @@ export function GlobalChrome({ children }: { children: React.ReactNode }) {
   const isLoginPage = pathname === "/portal";
   const isPortal    = pathname.startsWith("/portal") && !isLoginPage;
   const isHome      = pathname === "/";
+  // /v2 is the new self-contained marketing site — it ships its OWN glass nav +
+  // footer (app/v2/_nav.tsx) with language/theme controls. Suppress the global
+  // Navbar + bug button here so there's no double-nav. The providers above stay
+  // mounted, so /v2's own nav reads/writes the same Lang/Theme context.
+  const isV2 = pathname === "/v2" || pathname.startsWith("/v2/");
 
   return (
     <ThemeProvider>
@@ -102,19 +107,21 @@ export function GlobalChrome({ children }: { children: React.ReactNode }) {
               Visually hidden until focused — keyboard-only users get to
               the main content with one Tab keypress instead of 8+. */}
           <SkipToMain />
-          <Navbar
-            hideThemeLang={isPortal}
-            rightExtra={isPortal ? (
-              <>
-                <ChecklistDrawer />
-                <MessageIcon />
-                <NotificationBell />
-                <ProfileIcon />
-              </>
-            ) : isHome ? (
-              <HomeLoginButton />
-            ) : null}
-          />
+          {!isV2 && (
+            <Navbar
+              hideThemeLang={isPortal}
+              rightExtra={isPortal ? (
+                <>
+                  <ChecklistDrawer />
+                  <MessageIcon />
+                  <NotificationBell />
+                  <ProfileIcon />
+                </>
+              ) : isHome ? (
+                <HomeLoginButton />
+              ) : null}
+            />
+          )}
           {/* 100 px bottom clearance only on portal mobile (where the
               bottom action bar lives). Public + login pages stay flush. */}
           <div className={isPortal ? "pb-[100px] sm:pb-0" : ""}>
