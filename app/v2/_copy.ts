@@ -61,14 +61,14 @@ export const COPY = {
     heroTitle:   tri("Parlez l'allemand de", "Speak the German of", "Sprechen Sie das Deutsch"),
     heroAccent:  tri("votre travail.", "your work.", "Ihrer Arbeit."),
     heroSub:     tri(
-      "Réunions, appels, clients, entretiens : tout ce que votre quotidien avec la région DACH exige, parlé sans galérer. En ligne, autour de votre travail, sans bachotage de grammaire.",
-      "Meetings, calls, clients, interviews: everything your day-to-day with the DACH region demands, spoken without struggling. Online, around your work, no grammar cramming.",
-      "Meetings, Anrufe, Kunden, Vorstellungsgespräche: alles, was Ihr Alltag mit der DACH-Region verlangt, sicher gesprochen. Online, rund um Ihre Arbeit, ohne Grammatikpauken.",
+      "Réunions, appels, clients, entretiens : l'allemand que votre quotidien avec la région DACH exige, parlé sans galérer. Propulsé par l'IA, en ligne, sans bachotage de grammaire.",
+      "Meetings, calls, clients, interviews: the German your day-to-day with the DACH region demands, spoken without struggling. Powered by AI, online, no grammar cramming.",
+      "Meetings, Anrufe, Kunden, Vorstellungsgespräche: das Deutsch, das Ihr Alltag mit der DACH-Region verlangt, sicher gesprochen. Mit KI, online, ohne Grammatikpauken.",
     ),
     heroCta1:    tri("Parler à un expert", "Talk to an expert", "Beratung anfragen"),
     heroCta2:    tri("Voir comment ça marche", "See how it works", "So funktioniert's"),
-    chip1:       tri("Axé sur la parole", "Speaking-first", "Sprechen zuerst"),
-    chip2:       tri("Sans bachotage de grammaire", "No grammar cramming", "Ohne Grammatikpauken"),
+    chip1:       tri("Propulsé par l'IA", "Powered by AI", "Mit KI"),
+    chip2:       tri("Axé sur la parole", "Speaking-first", "Sprechen zuerst"),
     chip3:       tri("Autour de votre travail", "Around your work", "Rund um Ihre Arbeit"),
 
     problemEyebrow: tri("L'enjeu", "What's at stake", "Worum es geht"),
@@ -129,6 +129,24 @@ export const COPY = {
     finalAccent: tri("projet.", "plan.", "Vorhaben."),
     finalCta:    tri("Réserver un échange", "Book a call", "Beratung buchen"),
     finalSub:    tri("Carrière ou équipes, en ligne ou Vor Ort, dites-nous votre objectif et nous construisons le cours.", "Career or teams, online or Vor Ort, tell us your goal and we'll build the course.", "Karriere oder Teams, online oder Vor Ort, sagen Sie uns Ihr Ziel und wir bauen den Kurs."),
+  },
+
+  // ── AI — we teach WITH AI + teach you to USE AI to learn faster ───────────
+  ai: {
+    eyebrow: tri("Propulsé par l'IA", "Powered by AI", "Mit KI"),
+    title:   tri("Tout le monde a l'IA.", "Everyone has AI.", "Jeder hat KI."),
+    accent:  tri("Vous saurez vous en servir.", "You'll know how to use it.", "Sie lernen, sie zu nutzen."),
+    sub:     tri(
+      "On utilise l'IA pour accélérer votre apprentissage. Et surtout, on vous apprend à vous en servir pour progresser en allemand bien plus vite, seul comme en équipe.",
+      "We use AI to accelerate your learning. And above all, we teach you to use it to progress in German far faster, on your own or as a team.",
+      "Wir nutzen KI, um Ihr Lernen zu beschleunigen. Und vor allem bringen wir Ihnen bei, sie zu nutzen, um in Deutsch viel schneller voranzukommen, allein oder im Team.",
+    ),
+    c1H: tri("On enseigne avec l'IA", "We teach with AI", "Wir unterrichten mit KI"),
+    c1B: tri("Exercices personnalisés, correction instantanée, répétition de ce qui compte. Vous progressez plus vite, sans perdre de temps.", "Personalised drills, instant correction, repetition of what matters. You progress faster, without wasting time.", "Personalisierte Übungen, sofortige Korrektur, Wiederholung dessen, was zählt. Sie kommen schneller voran, ohne Zeit zu verlieren."),
+    c2H: tri("On vous apprend à l'utiliser", "We teach you to use it", "Wir zeigen Ihnen, wie"),
+    c2B: tri("Presque personne ne sait se servir de l'IA pour apprendre une langue. Vous, oui, et vous gardez cette compétence à vie.", "Almost no one knows how to use AI to learn a language. You will, and you keep that skill for life.", "Fast niemand weiß, wie man KI zum Sprachenlernen nutzt. Sie schon, und diese Fähigkeit bleibt Ihnen."),
+    c3H: tri("Beaucoup plus vite", "Much faster", "Viel schneller"),
+    c3B: tri("Bien utilisée, l'IA change le temps qu'il faut pour parler. On vous montre exactement comment.", "Used well, AI changes how long it takes to speak. We show you exactly how.", "Richtig eingesetzt, verändert KI, wie lange es bis zum Sprechen dauert. Wir zeigen Ihnen genau wie."),
   },
 
   // ── Enterprise value (home audience block + reused) ───────────────────────

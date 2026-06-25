@@ -12,8 +12,8 @@ import { motion, useReducedMotion, useScroll, useTransform } from "motion/react"
 import { useLang } from "@/components/LangContext";
 import { COPY, type Tri } from "./_copy";
 import {
-  EASE, Up, stagger, item, Magnetic, TiltCard, GlowField, SectionHead,
-  PrimaryCTA, GhostCTA, CheckCard, Marquee, Parallax,
+  EASE, Up, stagger, item, TiltCard, GlowField, SectionHead,
+  PrimaryCTA, GhostCTA, CheckCard, Check, Marquee, Parallax, RevealImage,
 } from "./_components";
 
 const C = COPY;
@@ -286,6 +286,47 @@ function VorOrt() {
   );
 }
 
+// Full-width photo that reveals + parallaxes on scroll. Placeholder stock photo
+// (swap for Borivon's own). Only two photos on the page, both scroll-animated.
+function PhotoBand({ src, alt }: { src: string; alt: string }) {
+  return (
+    <section className="px-[6vw] py-12 sm:py-16">
+      <RevealImage src={src} alt={alt} className="mx-auto h-[clamp(220px,40vw,480px)] max-w-[1200px] rounded-[26px]" />
+    </section>
+  );
+}
+
+// AI — we teach WITH AI + teach you to USE AI to learn faster.
+function AISection() {
+  const { lang } = useLang();
+  const T = (t: Tri) => t[lang];
+  const A = C.ai;
+  const points = [[A.c1H, A.c1B], [A.c2H, A.c2B], [A.c3H, A.c3B]] as const;
+  return (
+    <section className="px-[6vw] py-24 sm:py-32" style={{ background: "var(--bg2)" }}>
+      <div className="mx-auto max-w-[1140px]">
+        <SectionHead eyebrow={T(A.eyebrow)} title={T(A.title)} accent={T(A.accent)} sub={T(A.sub)} />
+        <div className="mt-14 grid items-center gap-12 lg:grid-cols-2">
+          <Up><RevealImage src="https://images.unsplash.com/photo-1531746790731-6c087fecd65a?auto=format&fit=crop&w=1100&q=70" alt="Apprendre l'allemand en ligne avec l'IA" className="aspect-[4/3] rounded-[24px]" /></Up>
+          <Up delay={0.1}>
+            <div className="space-y-7">
+              {points.map(([h, b]) => (
+                <div key={T(h)} className="flex gap-4">
+                  <span className="mt-1 grid h-7 w-7 flex-shrink-0 place-items-center rounded-full" style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}><Check size={14} /></span>
+                  <div>
+                    <h3 style={{ fontFamily: "var(--font-sans)", fontSize: "1.15rem", fontWeight: 600, lineHeight: 1.25, color: "var(--w)" }}>{T(h)}</h3>
+                    <p className="mt-1.5" style={{ fontFamily: "var(--font-sans)", fontSize: "0.97rem", lineHeight: 1.6, color: "var(--w2)" }}>{T(b)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </Up>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function V2Home() {
   const { lang } = useLang();
   const T = (t: Tri) => t[lang];
@@ -295,6 +336,8 @@ export default function V2Home() {
       <Marquee items={["Meetings", "Kundengespräch", "Vorstellungsgespräch", "Verhandlung", "Telefonate", "Präsentation", "DACH", "Online"]} />
       <Audience id="outcomes" eyebrow={T(C.ent.eyebrow)} title={T(C.ent.title)} accent={T(C.ent.accent)} body={T(C.ent.body)}
         points={[T(C.ent.p1), T(C.ent.p2), T(C.ent.p3), T(C.ent.p4)]} cta={T(C.ent.cta)} ctaHref="/v2/contact" />
+      <PhotoBand src="https://images.unsplash.com/photo-1521737604893-d14cc237f11d?auto=format&fit=crop&w=2000&q=70" alt="Réunion d'équipe en allemand" />
+      <AISection />
       <HybridModel />
       <VorOrt />
       <Journey />

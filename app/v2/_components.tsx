@@ -5,16 +5,15 @@
  * Motion lives on motion values (no per-frame re-render); every interaction
  * bails under prefers-reduced-motion and never runs on touch (no mouse events).
  */
-import { useRef } from "react";
+import { useRef, useEffect } from "react";
 import Link from "next/link";
 import {
   motion,
+  animate,
   useReducedMotion,
-  useMotionValue,
-  useSpring,
-  useMotionTemplate,
   useScroll,
   useTransform,
+  useInView,
   type Variants,
 } from "motion/react";
 
@@ -26,10 +25,10 @@ export function Up({ children, className = "", delay = 0 }: { children: React.Re
   return (
     <motion.div
       className={className}
-      initial={reduce ? false : { opacity: 0, y: 22 }}
-      whileInView={{ opacity: 1, y: 0 }}
+      initial={reduce ? false : { opacity: 0, y: 30, scale: 0.985 }}
+      whileInView={{ opacity: 1, y: 0, scale: 1 }}
       viewport={{ once: true, margin: "-90px" }}
-      transition={{ duration: 0.7, ease: EASE, delay }}
+      transition={{ duration: 0.8, ease: EASE, delay }}
     >
       {children}
     </motion.div>
@@ -38,78 +37,24 @@ export function Up({ children, className = "", delay = 0 }: { children: React.Re
 export const stagger: Variants = { hidden: {}, show: { transition: { staggerChildren: 0.09 } } };
 export const item: Variants = { hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: EASE } } };
 
-// ── Magnetic wrapper (CTAs lean toward the cursor) ────────────────────────────
-export function Magnetic({ children, strength = 0.4 }: { children: React.ReactNode; strength?: number }) {
-  const reduce = useReducedMotion();
-  const ref = useRef<HTMLDivElement>(null);
-  const x = useMotionValue(0), y = useMotionValue(0);
-  const sx = useSpring(x, { stiffness: 250, damping: 18, mass: 0.4 });
-  const sy = useSpring(y, { stiffness: 250, damping: 18, mass: 0.4 });
-  return (
-    <motion.div
-      ref={ref}
-      style={{ x: sx, y: sy, display: "inline-block" }}
-      onMouseMove={(e) => {
-        if (reduce || !ref.current) return;
-        const r = ref.current.getBoundingClientRect();
-        x.set((e.clientX - (r.left + r.width / 2)) * strength);
-        y.set((e.clientY - (r.top + r.height / 2)) * strength);
-      }}
-      onMouseLeave={() => { x.set(0); y.set(0); }}
-    >
-      {children}
-    </motion.div>
-  );
-}
-
-// ── 3D tilt + mouse-tracking gold spotlight card ──────────────────────────────
+// ── Card with a calm hover-lift (NO cursor tracking — nothing follows the mouse) ─
 export function TiltCard({ children, className = "", style }: { children: React.ReactNode; className?: string; style?: React.CSSProperties }) {
-  const reduce = useReducedMotion();
-  const ref = useRef<HTMLDivElement>(null);
-  const mx = useMotionValue(50), my = useMotionValue(50), op = useMotionValue(0);
-  const rxRaw = useMotionValue(0), ryRaw = useMotionValue(0);
-  const rx = useSpring(rxRaw, { stiffness: 150, damping: 16, mass: 0.3 });
-  const ry = useSpring(ryRaw, { stiffness: 150, damping: 16, mass: 0.3 });
-  const glow = useMotionTemplate`radial-gradient(420px circle at ${mx}% ${my}%, color-mix(in oklab, var(--gold) 18%, transparent), transparent 45%)`;
-  return (
-    <motion.div
-      ref={ref}
-      className={`relative overflow-hidden ${className}`}
-      style={{ rotateX: rx, rotateY: ry, transformPerspective: 1100, ...style }}
-      onMouseMove={(e) => {
-        if (reduce || !ref.current) return;
-        const r = ref.current.getBoundingClientRect();
-        const px = (e.clientX - r.left) / r.width, py = (e.clientY - r.top) / r.height;
-        mx.set(px * 100); my.set(py * 100); op.set(1);
-        ryRaw.set((px - 0.5) * 9); rxRaw.set(-(py - 0.5) * 9);
-      }}
-      onMouseLeave={() => { rxRaw.set(0); ryRaw.set(0); op.set(0); }}
-    >
-      <motion.div aria-hidden className="pointer-events-none absolute inset-0 rounded-[inherit]" style={{ background: glow, opacity: op }} />
-      <div className="relative" style={{ transform: "translateZ(40px)" }}>{children}</div>
-    </motion.div>
-  );
-}
-
-// ── Cursor-following glow + ambient aurora backdrop (for heroes / CTAs) ────────
-export function GlowField({ children, className = "", strong = false }: { children: React.ReactNode; className?: string; strong?: boolean }) {
-  const reduce = useReducedMotion();
-  const ref = useRef<HTMLDivElement>(null);
-  const gx = useMotionValue(50), gy = useMotionValue(30);
-  const sgx = useSpring(gx, { stiffness: 60, damping: 20 }), sgy = useSpring(gy, { stiffness: 60, damping: 20 });
-  const glow = useMotionTemplate`radial-gradient(680px circle at ${sgx}% ${sgy}%, color-mix(in oklab, var(--gold) ${strong ? 16 : 11}%, transparent) 0%, transparent 60%)`;
   return (
     <div
-      ref={ref}
-      className={`relative overflow-hidden ${className}`}
-      onMouseMove={(e) => {
-        if (reduce || !ref.current) return;
-        const r = ref.current.getBoundingClientRect();
-        gx.set(((e.clientX - r.left) / r.width) * 100);
-        gy.set(((e.clientY - r.top) / r.height) * 100);
-      }}
+      className={`overflow-hidden transition-[transform,border-color,box-shadow] duration-300 ease-out hover:-translate-y-1 hover:[border-color:var(--border-gold)] hover:shadow-[0_22px_55px_-22px_rgba(201,162,64,0.32)] ${className}`}
+      style={style}
     >
-      <motion.div aria-hidden className="pointer-events-none absolute inset-0 -z-0" style={{ background: glow }} />
+      {children}
+    </div>
+  );
+}
+
+// ── Ambient aurora backdrop (auto-animated; nothing follows the cursor) ───────
+export function GlowField({ children, className = "", strong = false }: { children: React.ReactNode; className?: string; strong?: boolean }) {
+  const reduce = useReducedMotion();
+  return (
+    <div className={`relative overflow-hidden ${className}`}>
+      <div aria-hidden className="pointer-events-none absolute inset-0 -z-0" style={{ background: `radial-gradient(680px circle at 30% 22%, color-mix(in oklab, var(--gold) ${strong ? 15 : 10}%, transparent) 0%, transparent 60%)` }} />
       {!reduce && (
         <>
           <motion.div
@@ -152,25 +97,21 @@ export function SectionHead({ eyebrow, title, accent, sub, center = true, classN
   );
 }
 
-// ── CTA buttons (magnetic) ────────────────────────────────────────────────────
+// ── CTA buttons (FIXED in place — no magnetic cursor movement; only a hover shine) ─
 export function PrimaryCTA({ href, children, big = false }: { href: string; children: React.ReactNode; big?: boolean }) {
   return (
-    <Magnetic>
-      <Link href={href} className="group bv-btn bv-btn-primary-lg bv-glow-gold bv-press relative overflow-hidden" style={{ padding: big ? "1rem 1.8rem" : "0.95rem 1.6rem", fontSize: big ? "1rem" : "0.98rem" }}>
-        <span className="relative z-[1] inline-flex items-center gap-1.5">{children}</span>
-        {/* shine sweep on hover */}
-        <span aria-hidden className="pointer-events-none absolute inset-y-0 -left-full w-1/2 -skew-x-12 transition-[left] duration-700 ease-out group-hover:left-[150%]" style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.45), transparent)" }} />
-      </Link>
-    </Magnetic>
+    <Link href={href} className="group bv-btn bv-btn-primary-lg bv-glow-gold bv-press relative overflow-hidden" style={{ padding: big ? "1rem 1.8rem" : "0.95rem 1.6rem", fontSize: big ? "1rem" : "0.98rem" }}>
+      <span className="relative z-[1] inline-flex items-center gap-1.5">{children}</span>
+      {/* shine sweep on hover (the button itself never moves) */}
+      <span aria-hidden className="pointer-events-none absolute inset-y-0 -left-full w-1/2 -skew-x-12 transition-[left] duration-700 ease-out group-hover:left-[150%]" style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.45), transparent)" }} />
+    </Link>
   );
 }
 export function GhostCTA({ href, children, big = false }: { href: string; children: React.ReactNode; big?: boolean }) {
   return (
-    <Magnetic strength={0.25}>
-      <Link href={href} className="bv-btn bv-press" style={{ background: "transparent", color: "var(--w)", border: "1px solid var(--border2)", padding: big ? "1rem 1.8rem" : "0.95rem 1.6rem", borderRadius: "var(--r-lg)", fontSize: big ? "1rem" : "0.98rem" }}>
-        {children}
-      </Link>
-    </Magnetic>
+    <Link href={href} className="bv-btn bv-press" style={{ background: "transparent", color: "var(--w)", border: "1px solid var(--border2)", padding: big ? "1rem 1.8rem" : "0.95rem 1.6rem", borderRadius: "var(--r-lg)", fontSize: big ? "1rem" : "0.98rem" }}>
+      {children}
+    </Link>
   );
 }
 
@@ -255,5 +196,54 @@ function Grain() {
     );
   return (
     <div aria-hidden className="pointer-events-none fixed inset-0 z-[60]" style={{ backgroundImage: `url("${noise}")`, backgroundSize: "140px 140px", opacity: 0.035, mixBlendMode: "overlay" }} />
+  );
+}
+
+// ── Count-up figure — animates from 0 when scrolled into view (Motion, no raf) ─
+export function CountUp({ value, className = "", style }: { value: string; className?: string; style?: React.CSSProperties }) {
+  const reduce = useReducedMotion();
+  const ref = useRef<HTMLSpanElement>(null);
+  const inView = useInView(ref, { once: true, margin: "-60px" });
+  const m = /^(\d+)(.*)$/.exec(value.trim());
+  const isNum = !!m;
+  const target = m ? parseInt(m[1], 10) : 0;
+  const suffix = m ? m[2] : "";
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    if (!isNum) { el.textContent = value; return; }
+    if (reduce) { el.textContent = `${target}${suffix}`; return; }
+    if (!inView) return;
+    const controls = animate(0, target, {
+      duration: 1.4,
+      ease: EASE,
+      onUpdate: (v) => { el.textContent = `${Math.round(v)}${suffix}`; },
+    });
+    return () => controls.stop();
+  }, [inView, reduce, isNum, target, suffix, value]);
+  return <span ref={ref} className={className} style={style}>{isNum ? `0${suffix}` : value}</span>;
+}
+
+// ── Photo that reveals + gently parallaxes on scroll (the only "alive" images) ─
+export function RevealImage({ src, alt, className = "", priority = false }: { src: string; alt: string; className?: string; priority?: boolean }) {
+  const reduce = useReducedMotion();
+  const ref = useRef<HTMLDivElement>(null);
+  const { scrollYProgress } = useScroll({ target: ref, offset: ["start end", "end start"] });
+  const y = useTransform(scrollYProgress, [0, 1], ["-8%", "8%"]);
+  return (
+    <motion.div
+      ref={ref}
+      className={`relative overflow-hidden ${className}`}
+      initial={reduce ? false : { opacity: 0, y: 36 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-80px" }}
+      transition={{ duration: 0.9, ease: EASE }}
+      style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <motion.img src={src} alt={alt} loading={priority ? "eager" : "lazy"} className="h-full w-full object-cover"
+        style={reduce ? { height: "100%", width: "100%" } : { y, scale: 1.15 }} />
+      <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: "linear-gradient(180deg, color-mix(in oklab, var(--bg) 8%, transparent), color-mix(in oklab, var(--bg) 60%, transparent))" }} />
+    </motion.div>
   );
 }
