@@ -244,7 +244,7 @@ export default function V2Home() {
   return (
     <>
       <HomeHero />
-      <Marquee items={["Geschäftsdeutsch", "Verhandlung", "Kundenkontakt", "Fachsprache", "Meetings", "Präsentation", "DACH", "Vor Ort", "Export", "B2"]} />
+      <Marquee items={["Geschäftsdeutsch", "Verhandlung", "Kundenkontakt", "Fachsprache", "Meetings", "Präsentation", "DACH", "Online", "Export", "B2"]} />
       <Problem />
       <HybridModel />
       <Audience id="entreprises" eyebrow={T(C.ent.eyebrow)} title={T(C.ent.title)} accent={T(C.ent.accent)} body={T(C.ent.body)}
