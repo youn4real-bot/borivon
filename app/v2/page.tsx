@@ -239,10 +239,10 @@ export default function V2Page() {
       <Audience
         id="entreprises"
         eyebrow="Pour votre entreprise"
-        title="Ouvrez le marché"
-        accent="allemand."
-        body="Des équipes qui négocient, vendent et collaborent en allemand. Plus de marchés, plus de clients, moins de barrières."
-        points={["Gagnez des clients germanophones", "Développez-vous sur le marché allemand", "Des équipes autonomes, sans interprète", "Des résultats que vous pouvez mesurer"]}
+        title="Faites de l'allemand"
+        accent="votre avantage."
+        body="Vos équipes servent vos clients germanophones, échangent avec vos partenaires et votre maison-mère, et gagnent en autonomie — un atout concret, au quotidien, sans quitter leur poste."
+        points={["Servez vos clients et partenaires allemands avec aisance", "Échangez avec votre maison-mère, sans interprète", "Décrochez et sécurisez des contrats germanophones", "Des équipes plus autonomes, plus efficaces"]}
         cta="Préparer mes équipes"
         reverse
       />
