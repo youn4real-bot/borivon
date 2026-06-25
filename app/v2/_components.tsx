@@ -247,3 +247,74 @@ export function RevealImage({ src, alt, className = "", priority = false }: { sr
     </motion.div>
   );
 }
+
+// ── Headline whose words rise from behind a mask when scrolled into view ───────
+export function RiseWords({ text, className = "", style, accent = false, delay = 0 }: {
+  text: string; className?: string; style?: React.CSSProperties; accent?: boolean; delay?: number;
+}) {
+  const reduce = useReducedMotion();
+  const words = text.split(" ");
+  return (
+    <span className={className} style={style}>
+      {words.map((w, i) => (
+        <span key={i} className="inline-block overflow-hidden align-bottom" style={{ marginRight: "0.24em", paddingBottom: "0.1em" }}>
+          <motion.span
+            className="inline-block"
+            initial={reduce ? false : { y: "112%" }}
+            whileInView={{ y: 0 }}
+            viewport={{ once: true, margin: "-60px" }}
+            transition={{ duration: 0.7, ease: EASE, delay: delay + i * 0.07 }}
+            style={accent ? { color: "var(--gold)" } : undefined}
+          >
+            {w}
+          </motion.span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
+// ── Full-bleed cinematic image that carries a message ─────────────────────────
+// The photo is never naked: it slow-zooms + parallaxes on scroll while an
+// eyebrow + two-line headline (+ optional sub) rise over a legibility scrim.
+export function CinematicStatement({ src, alt, eyebrow, line1, line2, sub }: {
+  src: string; alt: string; eyebrow: string; line1: string; line2: string; sub?: string;
+}) {
+  const reduce = useReducedMotion();
+  const ref = useRef<HTMLDivElement>(null);
+  const { scrollYProgress } = useScroll({ target: ref, offset: ["start end", "end start"] });
+  const y = useTransform(scrollYProgress, [0, 1], ["-10%", "10%"]);
+  const scale = useTransform(scrollYProgress, [0, 1], [1.32, 1.06]);
+  return (
+    <section className="px-[5vw] py-12 sm:py-16">
+      <div
+        ref={ref}
+        className="relative mx-auto h-[clamp(440px,74vh,780px)] max-w-[1320px] overflow-hidden rounded-[28px]"
+        style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}
+      >
+        {/* image layer (parallax + slow zoom) */}
+        <motion.div aria-hidden className="absolute inset-0 -z-0" style={reduce ? undefined : { y }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <motion.img src={src} alt={alt} loading="lazy" className="h-full w-full object-cover" style={reduce ? undefined : { scale }} />
+        </motion.div>
+        {/* legibility scrim — darker bottom-left where the text sits */}
+        <div aria-hidden className="absolute inset-0" style={{ background: "linear-gradient(105deg, rgba(8,8,10,0.82) 0%, rgba(8,8,10,0.52) 40%, rgba(8,8,10,0.15) 70%, rgba(8,8,10,0.35) 100%)" }} />
+        {/* text */}
+        <div className="relative z-[1] flex h-full items-end p-7 sm:p-12 lg:p-16">
+          <div className="max-w-[680px]">
+            <Up><span className="bv-eyebrow" style={{ color: "var(--gold)" }}>{eyebrow}</span></Up>
+            <h2 className="mt-4 font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(2rem, 5vw, 3.7rem)", lineHeight: 1.05, letterSpacing: "-0.03em", color: "#fff" }}>
+              <RiseWords text={line1} />{" "}
+              <RiseWords text={line2} accent delay={0.12} />
+            </h2>
+            {sub && (
+              <Up delay={0.2}>
+                <p className="mt-5 max-w-[460px]" style={{ fontFamily: "var(--font-sans)", fontSize: "1.05rem", lineHeight: 1.6, color: "rgba(255,255,255,0.85)" }}>{sub}</p>
+              </Up>
+            )}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}

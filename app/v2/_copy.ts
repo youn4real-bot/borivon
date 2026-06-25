@@ -60,9 +60,9 @@ export const COPY = {
     heroTitle:   tri("Parlez l'allemand de", "Speak the German of", "Sprechen Sie das Deutsch"),
     heroAccent:  tri("votre travail.", "your work.", "Ihrer Arbeit."),
     heroSub:     tri(
-      "Réunions, appels, clients, entretiens : parlez l'allemand de votre travail sans bloquer. Avec l'IA, en ligne, sans cours de grammaire ennuyeux.",
+      "Réunions, appels, clients, entretiens : parlez l'allemand dont votre travail a besoin, sans bloquer. Avec l'IA, en ligne, sans grammaire ennuyeuse.",
       "Meetings, calls, clients, interviews: speak the German your job needs, without freezing. With AI, online, no boring grammar.",
-      "Meetings, Anrufe, Kunden, Gespräche: Sprechen Sie das Deutsch, das Ihr Job braucht, ohne zu stocken. Mit KI, online, ohne langweilige Grammatik.",
+      "Meetings, Anrufe, Kunden, Vorstellungsgespräche: Sprechen Sie das Deutsch, das Ihr Job braucht, ohne zu stocken. Mit KI, online, ohne langweilige Grammatik.",
     ),
     heroCta1:    tri("Parler à un expert", "Talk to an expert", "Beratung anfragen"),
     heroCta2:    tri("Voir comment ça marche", "See how it works", "So funktioniert's"),
@@ -81,9 +81,9 @@ export const COPY = {
     problem1Title: tri("Vous perdez des clients.", "You lose clients.", "Sie verlieren Kunden."),
     problem1Body:  tri("Vos clients allemands préfèrent parler allemand. En anglais, ils choisissent souvent quelqu'un d'autre.", "Your German clients prefer German. In English, they often pick someone else.", "Ihre deutschen Kunden sprechen lieber Deutsch. Auf Englisch wählen sie oft jemand anderen."),
     problem2Title: tri("L'anglais ne suffit pas.", "English isn't enough.", "Englisch reicht nicht."),
-    problem2Body:  tri("La confiance se gagne en allemand. C'est là que tout se joue.", "Trust is built in German. That's where deals happen.", "Vertrauen entsteht auf Deutsch. Da fallen die Entscheidungen."),
+    problem2Body:  tri("La confiance se gagne en allemand. C'est là que se concluent les affaires.", "Trust is built in German. That's where deals happen.", "Vertrauen entsteht auf Deutsch. Da fallen die Entscheidungen."),
     problem3Title: tri("L'allemand de l'école ne suffit pas.", "School German isn't enough.", "Schuldeutsch reicht nicht."),
-    problem3Body:  tri("Les cours classiques laissent vos équipes bloquées devant un vrai client, au mauvais moment.", "Normal courses leave your team stuck in front of a real client, at the worst moment.", "Normale Kurse lassen Ihr Team vor echten Kunden stecken, im falschen Moment."),
+    problem3Body:  tri("Les cours classiques laissent vos équipes bloquées devant un vrai client, au mauvais moment.", "Normal courses leave your team stuck in front of a real client, at the worst moment.", "Normale Kurse helfen nicht: Vor echten Kunden weiß Ihr Team plötzlich nicht weiter, genau im falschen Moment."),
 
     modelEyebrow: tri("Pourquoi ça marche", "Why it works", "Warum es funktioniert"),
     modelTitle:   tri("Fait pour parler,", "Built to speak,", "Zum Sprechen gemacht,"),
@@ -99,7 +99,7 @@ export const COPY = {
     modeHybridTag:  tri("Vos situations", "Your situations", "Ihre Situationen"),
     modeHybridH:    tri("Votre allemand, pas un manuel.", "Your German, not a textbook.", "Ihr Deutsch, kein Lehrbuch."),
     modeHybridB:    tri("On travaille vos vraies situations : vos réunions, vos appels, vos entretiens. Un problème clair, une solution claire.", "We work on your real situations: your meetings, calls and interviews. A clear problem, a clear answer.", "Wir arbeiten an Ihren echten Situationen: Meetings, Anrufe, Gespräche. Klares Problem, klare Lösung."),
-    modeVorOrtTag:  tri("Sans perdre de temps", "No time lost", "Ohne Zeitverlust"),
+    modeVorOrtTag:  tri("Sans perdre de temps", "No time lost", "Keine Zeit verlieren"),
     modeVorOrtH:    tri("Autour de votre travail.", "Around your work.", "Rund um Ihre Arbeit."),
     modeVorOrtB:    tri("En ligne, en direct, à l'heure qui vous arrange. Aucun temps de travail perdu.", "Online, live, at a time that works for you. No work time lost.", "Online, live, zur passenden Zeit. Keine verlorene Arbeitszeit."),
     modelGloss:     tri(
@@ -120,9 +120,9 @@ export const COPY = {
     trustA_h: tri("Spécialistes de l'allemand pro", "Business-German experts", "Profis für Business-Deutsch"),
     trustA_b: tri("Une école 100% dédiée à l'allemand professionnel.", "A school fully focused on professional German.", "Eine Schule, ganz auf professionelles Deutsch fokussiert."),
     trustB_h: tri("Tournés vers les résultats", "Results first", "Ergebnisse zuerst"),
-    trustB_b: tri("On vise l'allemand qui marche en réunion, pas les diplômes pour la vitrine.", "We aim for German that works in meetings, not diplomas for show.", "Wir wollen Deutsch, das im Meeting funktioniert, keine Diplome für die Vitrine."),
+    trustB_b: tri("On vise l'allemand qui marche en réunion, pas les diplômes pour la vitrine.", "We aim for German that works in meetings, not diplomas for show.", "Wir wollen Deutsch, das im Meeting funktioniert, keine Diplome fürs Schaufenster."),
     trustC_h: tri("Un partenaire, pas un fournisseur", "A partner, not a vendor", "Ein Partner, kein Lieferant"),
-    trustC_b: tri("Du premier besoin au suivi, une seule équipe avec vous.", "From the first need to follow-up, one team with you.", "Vom ersten Bedarf bis zur Begleitung, ein Team an Ihrer Seite."),
+    trustC_b: tri("Du premier besoin au suivi, une seule équipe avec vous.", "From the first need to follow-up, one team at your side.", "Vom ersten Bedarf bis zur Nachbetreuung, ein Team an Ihrer Seite."),
 
     finalTitle:  tri("Parlons de votre", "Let's talk about your", "Sprechen wir über Ihr"),
     finalAccent: tri("projet.", "plan.", "Vorhaben."),
@@ -137,8 +137,8 @@ export const COPY = {
     accent:  tri("Vous saurez vous en servir.", "You'll know how to use it.", "Sie lernen, sie zu nutzen."),
     sub:     tri(
       "On utilise l'IA pour vous faire avancer plus vite. Et surtout, on vous apprend à vous en servir pour apprendre l'allemand bien plus vite, seul ou en équipe.",
-      "We use AI to help you progress faster. And we teach you to use it to learn German much faster, on your own or as a team.",
-      "Wir nutzen KI, damit Sie schneller vorankommen. Und wir zeigen Ihnen, wie Sie damit viel schneller Deutsch lernen, allein oder im Team.",
+      "We use AI to help you progress faster. And above all, we teach you to use it to learn German much faster, on your own or as a team.",
+      "Wir nutzen KI, damit Sie schneller vorankommen. Und vor allem zeigen wir Ihnen, wie Sie damit viel schneller Deutsch lernen, allein oder im Team.",
     ),
     c1H: tri("On enseigne avec l'IA", "We teach with AI", "Wir unterrichten mit KI"),
     c1B: tri("Exercices sur mesure, correction immédiate, on répète ce qui compte. Vous avancez plus vite, sans perdre de temps.", "Custom exercises, instant correction, we repeat what matters. You move faster, without wasting time.", "Übungen nach Maß, sofortige Korrektur, Wiederholung des Wichtigen. Sie kommen schneller voran, ohne Zeit zu verlieren."),
@@ -163,6 +163,14 @@ export const COPY = {
     p2:   tri("Gérer vos appels et vos clients allemands", "Handle your calls and German clients", "Anrufe und deutsche Kunden meistern"),
     p3:   tri("Réussir vos entretiens en allemand", "Pass your interviews in German", "Gespräche auf Deutsch bestehen"),
     p4:   tri("Négocier et présenter, sans interprète", "Negotiate and present, no interpreter", "Verhandeln und präsentieren, ohne Dolmetscher"),
+  },
+
+  // ── Home: full-bleed photo statement (text overlaid on the image) ─────────
+  statement: {
+    eyebrow: tri("En réunion", "In the meeting", "Im Meeting"),
+    line1:   tri("Parlez en réunion", "Speak up in meetings", "Reden Sie im Meeting mit"),
+    line2:   tri("sans hésiter.", "without hesitating.", "ohne zu zögern."),
+    sub:     tri("Le moment qui compte, vous êtes prêt.", "The moment that matters, you're ready.", "Im wichtigen Moment sind Sie bereit."),
   },
 
   // ── Home: same German, two goals (B2C + B2B) ──────────────────────────────
@@ -197,16 +205,16 @@ export const COPY = {
   // ── /particuliers (consumer space, NO migration) ──────────────────────────
   ind: {
     eyebrow: tri("Pour les particuliers", "For individuals", "Für Privatpersonen"),
-    title:   tri("L'allemand qui fait avancer", "German that moves", "Deutsch, das voranbringt:"),
-    accent:  tri("votre carrière.", "your career.", "Ihre Karriere."),
+    title:   tri("L'allemand qui fait avancer", "German that grows", "Deutsch, das Ihre"),
+    accent:  tri("votre carrière.", "your career.", "Karriere voranbringt."),
     body:    tri(
       "Ajoutez à votre profil une langue rare. Parlez allemand avec confiance, pour votre métier et vos chances.",
       "Add a rare language to your profile. Speak German with confidence, for your job and your chances.",
-      "Fügen Sie Ihrem Profil eine seltene Sprache hinzu. Sprechen Sie sicher Deutsch, für Ihren Job und Ihre Chancen.",
+      "Geben Sie Ihrem Profil eine seltene Sprache. Sprechen Sie sicher Deutsch, für Ihren Job und Ihre Chancen.",
     ),
     cta:  tri("Commencer", "Get started", "Loslegen"),
     p1:   tri("Une compétence rare qui vous démarque", "A rare skill that sets you apart", "Eine seltene Fähigkeit, die auffällt"),
-    p2:   tri("Parlez avec confiance, plus vite que prévu", "Speak with confidence, sooner than you think", "Sprechen Sie sicher, schneller als gedacht"),
+    p2:   tri("Parlez avec confiance, plus vite que vous ne le pensez", "Speak with confidence, faster than you expect", "Sprechen Sie sicher, schneller als gedacht"),
     p3:   tri("Un allemand utile, pas scolaire", "Useful German, not school German", "Nützliches Deutsch, kein Schuldeutsch"),
     p4:   tri("Accompagné jusqu'à votre but", "Supported all the way to your goal", "Begleitet bis zum Ziel"),
 
@@ -229,7 +237,7 @@ export const COPY = {
   // ── /solutions (companies, NO migration) ──────────────────────────────────
   solutions: {
     eyebrow:  tri("Solutions entreprise", "Business solutions", "Lösungen für Firmen"),
-    title:    tri("Une seule chose sépare vos équipes du marché allemand :", "One thing stands between your teams and the German market:", "Nur eine Sache trennt Ihre Teams vom deutschen Markt:"),
+    title:    tri("Une seule chose sépare vos équipes du marché allemand :", "One thing stands between your teams and the German market:", "Nur eine Sache steht zwischen Ihren Teams und dem deutschen Markt:"),
     accent:   tri("la langue.", "language.", "die Sprache."),
     sub:      tri("On l'enlève. 100% en ligne, fait pour l'allemand pro.", "We remove it. 100% online, built for professional German.", "Wir nehmen sie weg. 100% online, für Profi-Deutsch gebaut."),
     cta:      tri("Parler à un expert", "Talk to an expert", "Beratung anfragen"),
@@ -241,7 +249,7 @@ export const COPY = {
     seg2H: tri("Partenaires et maison mère", "Partners and HQ", "Partner und Zentrale"),
     seg2B: tri("Vos équipes travaillent chaque jour avec des partenaires, fournisseurs ou une maison mère allemande.", "Your teams work every day with German partners, suppliers or a head office.", "Ihre Teams arbeiten täglich mit deutschen Partnern, Lieferanten oder einer Zentrale."),
     seg3H: tri("Allemagne, Autriche, Suisse", "Germany, Austria, Switzerland", "Deutschland, Österreich, Schweiz"),
-    seg3B: tri("Vous visez ces marchés. Là-bas, on gagne en allemand, pas en anglais.", "You're aiming at these markets. There, you win in German, not in English.", "Sie zielen auf diese Märkte. Dort gewinnt man auf Deutsch, nicht auf Englisch."),
+    seg3B: tri("Vous visez ces marchés. Là-bas, on gagne en allemand, pas en anglais.", "You're aiming for these markets. There, you win in German, not in English.", "Diese Märkte sind Ihr Ziel. Dort gewinnt man auf Deutsch, nicht auf Englisch."),
 
     outEyebrow: tri("Ce que vous y gagnez", "What you gain", "Ihr Gewinn"),
     outTitle:   tri("Des résultats que vous pouvez mesurer.", "Results you can measure.", "Ergebnisse, die Sie messen können."),
@@ -257,7 +265,7 @@ export const COPY = {
     needsEyebrow: tri("Vos besoins en détail", "Your needs in detail", "Ihre Bedürfnisse im Detail"),
     needsTitle:   tri("Fait pour le travail, pas pour la salle de classe.", "Built for work, not the classroom.", "Für die Arbeit gemacht, nicht fürs Klassenzimmer."),
     need1H: tri("Centré sur la parole", "Speaking-centred", "Auf Sprechen ausgerichtet"),
-    need1B: tri("On fait parler vos équipes dès le premier cours. Pas de grammaire sans fin, juste l'allemand qu'elles utilisent vraiment.", "We get your teams speaking from the first class. No endless grammar, just the German they really use.", "Wir bringen Ihre Teams ab dem ersten Kurs zum Sprechen. Keine endlose Grammatik, nur das Deutsch, das sie wirklich brauchen."),
+    need1B: tri("On fait parler vos équipes dès le premier cours. Pas de grammaire sans fin, juste l'allemand qu'elles utilisent vraiment.", "We get your teams speaking from the first class. No endless grammar, just the German they really use.", "Wir bringen Ihre Teams ab dem ersten Kurs zum Sprechen. Keine endlose Grammatik, nur das Deutsch, das sie wirklich nutzen."),
     need2H: tri("Sans les couper du travail", "Without taking them off work", "Ohne sie von der Arbeit abzuziehen"),
     need2B: tri("100% en ligne. Vos équipes apprennent autour du travail, sans déplacement ni arrêt.", "100% online. Your teams learn around work, no travel and no downtime.", "100% online. Ihre Teams lernen rund um die Arbeit, ohne Anreise und ohne Ausfall."),
     need3H: tri("L'allemand de votre secteur", "The German of your industry", "Das Deutsch Ihrer Branche"),
@@ -272,7 +280,7 @@ export const COPY = {
   methode: {
     eyebrow: tri("Comment ça marche", "How it works", "So geht's"),
     title:   tri("L'allemand, en ligne.", "German, online.", "Deutsch, online."),
-    accent:  tri("Et ça marche mieux.", "And it works better.", "Und es klappt besser."),
+    accent:  tri("Et ça marche mieux.", "And it works better.", "Und es klappt sogar besser."),
     sub:     tri("On parle d'abord, autour de votre travail. L'allemand que vous utilisez vraiment, sans grammaire ennuyeuse.", "We speak first, around your work. The German you really use, without boring grammar.", "Wir sprechen zuerst, rund um Ihre Arbeit. Das Deutsch, das Sie wirklich nutzen, ohne langweilige Grammatik."),
     cta:     tri("Parler à un expert", "Talk to an expert", "Beratung anfragen"),
 
@@ -317,7 +325,7 @@ export const COPY = {
     storyP2: tri(
       "Notre méthode n'a pas changé : 100% en ligne, humaine, tournée vers les résultats. Pas des diplômes pour la vitrine, mais l'allemand qui sert vraiment, au travail comme dans la vie.",
       "Our method hasn't changed: 100% online, human, results-driven. Not diplomas for show, but German that really helps, at work and in life.",
-      "Unsere Methode ist gleich geblieben: 100% online, menschlich, ergebnisorientiert. Keine Diplome für die Vitrine, sondern Deutsch, das wirklich hilft, im Beruf wie im Leben.",
+      "Unsere Methode ist gleich geblieben: 100% online, menschlich, ergebnisorientiert. Keine Diplome fürs Schaufenster, sondern Deutsch, das wirklich hilft, im Beruf wie im Leben.",
     ),
     v1H: tri("Le résultat avant tout", "Results above all", "Ergebnis über allem"),
     v1B: tri("On mesure le succès à ce que vous savez faire, pas à un diplôme.", "We measure success by what you can do, not by a diploma.", "Wir messen Erfolg an dem, was Sie können, nicht an einem Diplom."),
@@ -341,7 +349,7 @@ export const COPY = {
     fEmail:   tri("E-mail professionnel", "Work email", "Geschäftliche E-Mail"),
     fPhone:   tri("Téléphone (optionnel)", "Phone (optional)", "Telefon (optional)"),
     fMessage: tri("Votre besoin", "What you need", "Ihr Anliegen"),
-    fMessagePh: tri("Ex. : préparer 15 commerciaux à parler allemand avec les clients d'ici septembre.", "E.g. get 15 salespeople ready to speak German with clients by September.", "Z. B. 15 Vertriebler bis September fit machen, mit Kunden Deutsch zu sprechen."),
+    fMessagePh: tri("Ex. : préparer 15 commerciaux à parler allemand avec les clients d'ici septembre.", "E.g. get 15 salespeople ready to speak German with clients by September.", "Z. B. 15 Vertriebler bis September fit machen, mit Kunden auf Deutsch zu sprechen."),
     audienceLabel: tri("Vous êtes", "You are", "Sie sind"),
     audBusiness:   tri("Une entreprise", "A business", "Eine Firma"),
     audIndividual: tri("Un particulier", "An individual", "Eine Privatperson"),
