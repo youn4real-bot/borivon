@@ -238,17 +238,62 @@ function FinalCTA() {
   );
 }
 
-export default function V2Home() {
+// Same German, two framings — B2C + B2B, each linking to its deep page.
+function Who() {
   const { lang } = useLang();
   const T = (t: Tri) => t[lang];
+  const W = C.who;
+  const cards = [
+    { h: W.indH, b: W.indB, href: "/v2/particuliers" },
+    { h: W.entH, b: W.entB, href: "/v2/solutions" },
+  ];
+  return (
+    <section className="px-[6vw] py-24 sm:py-32">
+      <div className="mx-auto max-w-[1080px]">
+        <SectionHead eyebrow={T(W.eyebrow)} title={T(W.title)} accent={T(W.accent)} sub={T(W.sub)} />
+        <motion.div className="mt-14 grid gap-6 sm:grid-cols-2" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} style={{ transformStyle: "preserve-3d" }}>
+          {cards.map((c) => (
+            <motion.div key={T(c.h)} variants={item}>
+              <Link href={c.href} className="block h-full">
+                <TiltCard className="flex h-full flex-col rounded-[22px] p-8" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+                  <h3 className="font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "1.5rem", letterSpacing: "-0.02em", color: "var(--w)" }}>{T(c.h)}</h3>
+                  <p className="mt-3 flex-1" style={{ fontFamily: "var(--font-sans)", fontSize: "1rem", lineHeight: 1.6, color: "var(--w2)" }}>{T(c.b)}</p>
+                  <span className="mt-6 inline-flex items-center gap-1.5 text-[14px] font-semibold" style={{ color: "var(--gold)" }}>{T(W.more)} <span aria-hidden>→</span></span>
+                </TiltCard>
+              </Link>
+            </motion.div>
+          ))}
+        </motion.div>
+      </div>
+    </section>
+  );
+}
+
+// Vor Ort (in-person) — offered on request only, behind the contact form.
+function VorOrt() {
+  const { lang } = useLang();
+  const T = (t: Tri) => t[lang];
+  const V = C.vorort;
+  return (
+    <section className="px-[6vw] py-20" style={{ background: "var(--bg2)" }}>
+      <Up className="mx-auto max-w-[760px] text-center">
+        <span className="bv-eyebrow">{T(V.eyebrow)}</span>
+        <h2 className="mt-4 font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(1.7rem, 4vw, 2.6rem)", lineHeight: 1.12, letterSpacing: "-0.025em", color: "var(--w)" }}>{T(V.title)}</h2>
+        <p className="mx-auto mt-5 max-w-[560px]" style={{ fontFamily: "var(--font-sans)", fontSize: "1.05rem", lineHeight: 1.65, color: "var(--w2)" }}>{T(V.body)}</p>
+        <div className="mt-8 flex justify-center"><PrimaryCTA href="/v2/contact" big>{T(V.cta)}</PrimaryCTA></div>
+      </Up>
+    </section>
+  );
+}
+
+export default function V2Home() {
   return (
     <>
       <HomeHero />
       <Marquee items={["Geschäftsdeutsch", "Verhandlung", "Kundenkontakt", "Fachsprache", "Meetings", "Präsentation", "DACH", "Online", "Export", "B2"]} />
-      <Problem />
       <HybridModel />
-      <Audience id="entreprises" eyebrow={T(C.ent.eyebrow)} title={T(C.ent.title)} accent={T(C.ent.accent)} body={T(C.ent.body)}
-        points={[T(C.ent.p1), T(C.ent.p2), T(C.ent.p3), T(C.ent.p4)]} cta={T(C.ent.cta)} ctaHref="/v2/contact" />
+      <Who />
+      <VorOrt />
       <Journey />
       <Trust />
       <FinalCTA />

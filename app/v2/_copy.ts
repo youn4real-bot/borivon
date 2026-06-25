@@ -51,25 +51,25 @@ export const COPY = {
     company:    tri("Borivon LLC", "Borivon LLC", "Borivon LLC"),
     country:    tri("États-Unis", "United States", "Vereinigte Staaten"),
     email:      tri("contact@borivon.com", "contact@borivon.com", "contact@borivon.com"),
-    institut:   tri("Allemand professionnel pour entreprises", "Professional German for business", "Professionelles Deutsch für Unternehmen"),
+    institut:   tri("Allemand professionnel — particuliers & entreprises", "Professional German — individuals & business", "Professionelles Deutsch — Privat & Unternehmen"),
   },
 
   // ── Home (B2B only) ───────────────────────────────────────────────────────
   home: {
     heroEyebrow: tri("Ambitions without Borders", "Ambitions without Borders", "Ambitions without Borders"),
     // heroTitle is split for the word-by-word reveal; last word is the accent.
-    heroTitle:   tri("Vos équipes, opérationnelles en", "Your teams, fluent in", "Ihre Teams, sicher auf"),
-    heroAccent:  tri("allemand.", "German.", "Deutsch."),
+    heroTitle:   tri("Nous enseignons l'allemand", "We teach professional", "Wir unterrichten professionelles"),
+    heroAccent:  tri("professionnel.", "German.", "Deutsch."),
     heroSub:     tri(
-      "Pour servir vos clients germanophones, négocier avec vos partenaires allemands et gagner le plus grand marché d'Europe — sans interprète. 100% en ligne, autour de leur travail.",
-      "To serve your German-speaking clients, negotiate with your German partners and win Europe's largest market — without an interpreter. 100% online, around the workday.",
-      "Um deutschsprachige Kunden zu betreuen, mit deutschen Partnern zu verhandeln und Europas größten Markt zu gewinnen — ohne Dolmetscher. 100% online, rund um den Arbeitstag.",
+      "En ligne, en direct, avec un vrai formateur. Pour votre carrière ou pour vos équipes — c'est le même allemand, adapté à votre objectif.",
+      "Online, live, with a real teacher. For your career or for your teams — it's the same German, fit to your goal.",
+      "Online, live, mit einer echten Lehrkraft. Für Ihre Karriere oder Ihre Teams — dasselbe Deutsch, auf Ihr Ziel zugeschnitten.",
     ),
     heroCta1:    tri("Parler à un expert", "Talk to an expert", "Beratung anfragen"),
-    heroCta2:    tri("Pourquoi en ligne", "Why online", "Warum online"),
-    chip1:       tri("100% en ligne", "100% online", "100% online"),
-    chip2:       tri("Allemand professionnel", "Professional German", "Professionelles Deutsch"),
-    chip3:       tri("Résultats mesurables", "Measurable results", "Messbare Ergebnisse"),
+    heroCta2:    tri("Voir comment ça marche", "See how it works", "So funktioniert's"),
+    chip1:       tri("Allemand professionnel", "Professional German", "Professionelles Deutsch"),
+    chip2:       tri("En ligne & en direct", "Online & live", "Online & live"),
+    chip3:       tri("Particuliers & entreprises", "Individuals & business", "Privat & Unternehmen"),
 
     problemEyebrow: tri("L'enjeu", "What's at stake", "Worum es geht"),
     problemTitle:   tri("Le marché germanophone est le plus grand d'Europe.", "The German-speaking market is Europe's largest.", "Der deutschsprachige Markt ist der größte Europas."),
@@ -87,26 +87,26 @@ export const COPY = {
     problem3Body:  tri("Les cours génériques laissent vos équipes bloquées — elles calent face à un vrai client, au mauvais moment.", "Generic courses leave your teams stuck — they freeze in front of a real client, at the worst moment.", "Generische Kurse lassen Ihre Teams blockiert zurück — sie versagen vor echten Kunden, im falschen Moment."),
 
     modelEyebrow: tri("Pourquoi en ligne", "Why online", "Warum online"),
-    modelTitle:   tri("Tout se passe en ligne.", "It all happens online.", "Alles läuft online."),
-    modelAccent:  tri("Et c'est mieux.", "And it's better.", "Und das ist besser."),
+    modelTitle:   tri("Des cours en ligne,", "Online classes,", "Online-Unterricht,"),
+    modelAccent:  tri("en direct.", "live.", "live."),
     modelSub:     tri(
-      "Pas un compromis — un choix. Flexible, à l'échelle, régulier : c'est ainsi que l'allemand entre vraiment dans vos équipes, sans jamais les sortir du travail.",
-      "Not a compromise — a choice. Flexible, scalable, consistent: that's how German truly lands in your teams, without ever taking them off work.",
-      "Kein Kompromiss — eine Entscheidung. Flexibel, skalierbar, regelmäßig: So kommt Deutsch wirklich in Ihre Teams, ohne sie je von der Arbeit abzuziehen.",
+      "Pas de vidéos préenregistrées : un vrai formateur, en direct, à l'heure qui vous arrange. Voici pourquoi c'est plus efficace.",
+      "No pre-recorded videos: a real teacher, live, at a time that suits you. Here's why it works better.",
+      "Keine vorgefertigten Videos: eine echte Lehrkraft, live, zur passenden Uhrzeit. Darum funktioniert es besser.",
     ),
     modeOnlineTag:  tri("À l'échelle", "At scale", "Skalierbar"),
-    modeOnlineH:    tri("5 ou 500, même qualité.", "5 or 500, same quality.", "5 oder 500, gleiche Qualität."),
-    modeOnlineB:    tri("Partout où sont vos collaborateurs, exactement la même formation — sans déplacement, sans salle à réserver, sans logistique.", "Wherever your people are, the exact same training — no travel, no room to book, no logistics.", "Wo immer Ihre Mitarbeitenden sind, genau dieselbe Schulung — ohne Anreise, ohne Raumbuchung, ohne Logistik."),
+    modeOnlineH:    tri("5 ou 500 personnes.", "5 or 500 people.", "5 oder 500 Personen."),
+    modeOnlineB:    tri("La même qualité de cours pour toute l'équipe, où qu'elle soit. Aucun déplacement, aucune salle à réserver.", "The same quality of class for the whole team, wherever they are. No travel, no room to book.", "Dieselbe Unterrichtsqualität für das ganze Team, egal wo. Keine Anreise, keine Raumbuchung."),
     modeHybridTag:  tri("Flexibilité", "Flexibility", "Flexibilität"),
-    modeHybridH:    tri("Apprendre sans s'arrêter.", "Learn without stopping.", "Lernen, ohne zu stoppen."),
-    modeHybridB:    tri("Vos équipes apprennent autour du travail, à leur rythme. Aucune production stoppée, aucun agenda bouleversé.", "Your teams learn around the workday, at their own pace. No production stopped, no calendar blown up.", "Ihre Teams lernen rund um den Arbeitstag, im eigenen Tempo. Keine gestoppte Produktion, kein gesprengter Kalender."),
+    modeHybridH:    tri("Quand ça vous arrange.", "When it suits you.", "Wann es Ihnen passt."),
+    modeHybridB:    tri("Les cours s'adaptent à votre emploi du temps. Vous apprenez sans arrêter de travailler.", "Classes fit around your schedule. You learn without stopping work.", "Der Unterricht passt sich Ihrem Zeitplan an. Sie lernen, ohne die Arbeit zu unterbrechen."),
     modeVorOrtTag:  tri("Régularité", "Consistency", "Regelmäßigkeit"),
-    modeVorOrtH:    tri("Souvent bat intense.", "Often beats intense.", "Oft schlägt intensiv."),
-    modeVorOrtB:    tri("Un peu chaque semaine ancre l'allemand bien plus qu'un séminaire ponctuel — et seul l'en ligne rend cette régularité possible.", "A little every week anchors German far more than a one-off seminar — and only online makes that consistency possible.", "Ein wenig jede Woche verankert Deutsch weit mehr als ein einmaliges Seminar — und nur online macht diese Regelmäßigkeit möglich."),
+    modeVorOrtH:    tri("Un peu, souvent.", "A little, often.", "Ein wenig, oft."),
+    modeVorOrtB:    tri("Des cours réguliers font progresser plus qu'un stage intensif ponctuel. En ligne, c'est simple à tenir chaque semaine.", "Regular classes make you progress more than a one-off intensive. Online, it's easy to keep up every week.", "Regelmäßiger Unterricht bringt mehr als ein einmaliger Intensivkurs. Online lässt er sich jede Woche leicht einhalten."),
     modelGloss:     tri(
-      "En ligne ne veut pas dire seul : des formateurs en direct, de vraies conversations, du feedback — jamais une vidéo de plus.",
-      "Online doesn't mean alone: live trainers, real conversations, feedback — never just another video.",
-      "Online heißt nicht allein: Live-Trainer, echte Gespräche, Feedback — nie nur ein weiteres Video.",
+      "En ligne ne veut pas dire seul : vous parlez en direct avec un formateur qui vous corrige et vous fait pratiquer.",
+      "Online doesn't mean alone: you speak live with a teacher who corrects you and gets you practising.",
+      "Online heißt nicht allein: Sie sprechen live mit einer Lehrkraft, die Sie korrigiert und üben lässt.",
     ),
 
     journeyEyebrow: tri("La progression", "The journey", "Der Weg"),
@@ -125,9 +125,9 @@ export const COPY = {
     trustC_h: tri("Un partenaire, pas un fournisseur", "A partner, not a vendor", "Ein Partner, kein Lieferant"),
     trustC_b: tri("De l'audit des besoins au suivi sur le terrain — un seul interlocuteur.", "From a needs audit to follow-up on the ground — one single contact.", "Von der Bedarfsanalyse bis zur Begleitung im Alltag — ein Ansprechpartner."),
 
-    finalTitle:  tri("Faites de l'allemand votre", "Make German your", "Machen Sie Deutsch zu Ihrem"),
-    finalAccent: tri("avantage.", "edge.", "Vorteil."),
-    finalSub:    tri("Parlons de vos équipes et de vos marchés germanophones. On construit le parcours — 100% en ligne, autour de leur travail.", "Let's talk about your teams and your German-speaking markets. We'll build the path — 100% online, around the workday.", "Sprechen wir über Ihre Teams und Ihre deutschsprachigen Märkte. Wir bauen den Weg — 100% online, rund um den Arbeitstag."),
+    finalTitle:  tri("Parlons de votre", "Let's talk about your", "Sprechen wir über Ihr"),
+    finalAccent: tri("projet.", "plan.", "Vorhaben."),
+    finalSub:    tri("Carrière ou équipes, en ligne ou Vor Ort — dites-nous votre objectif et nous construisons le cours.", "Career or teams, online or Vor Ort — tell us your goal and we'll build the course.", "Karriere oder Teams, online oder Vor Ort — sagen Sie uns Ihr Ziel und wir bauen den Kurs."),
   },
 
   // ── Enterprise value (home audience block + reused) ───────────────────────
@@ -145,6 +145,35 @@ export const COPY = {
     p2:   tri("Négociez avec vos partenaires, sans interprète", "Negotiate with your partners, no interpreter", "Verhandeln Sie mit Partnern, ohne Dolmetscher"),
     p3:   tri("Des équipes confiantes — en réunion, au téléphone, par écrit", "Confident teams — in meetings, on calls, in writing", "Sichere Teams — im Meeting, am Telefon, schriftlich"),
     p4:   tri("Une méthode mesurable, des résultats visibles", "A measurable method, visible results", "Eine messbare Methode, sichtbare Ergebnisse"),
+  },
+
+  // ── Home: same German, two framings (B2C + B2B) ───────────────────────────
+  who: {
+    eyebrow: tri("Pour qui", "Who it's for", "Für wen"),
+    title:   tri("Le même allemand.", "The same German.", "Dasselbe Deutsch."),
+    accent:  tri("Deux objectifs.", "Two goals.", "Zwei Ziele."),
+    sub:     tri(
+      "Particulier ou entreprise, vous apprenez le même allemand professionnel. On l'adapte simplement à votre objectif.",
+      "Individual or company, you learn the same professional German. We simply fit it to your goal.",
+      "Ob Privatperson oder Unternehmen — Sie lernen dasselbe professionelle Deutsch. Wir passen es einfach an Ihr Ziel an.",
+    ),
+    indH:  tri("Pour les particuliers", "For individuals", "Für Privatpersonen"),
+    indB:  tri("Pour votre carrière : une compétence rare et la confiance pour parler allemand au travail.", "For your career: a rare skill and the confidence to speak German at work.", "Für Ihre Karriere: eine seltene Fähigkeit und die Sicherheit, bei der Arbeit Deutsch zu sprechen."),
+    entH:  tri("Pour les entreprises", "For business", "Für Unternehmen"),
+    entB:  tri("Pour vos équipes : servir vos clients allemands et travailler avec vos partenaires germanophones.", "For your teams: serve your German clients and work with your German-speaking partners.", "Für Ihre Teams: deutsche Kunden betreuen und mit deutschsprachigen Partnern arbeiten."),
+    more:  tri("En savoir plus", "Learn more", "Mehr erfahren"),
+  },
+
+  // ── Home: Vor Ort (in-person) — on request only, behind the form ──────────
+  vorort: {
+    eyebrow: tri("En présentiel", "In person", "In Präsenz"),
+    title:   tri("Vous préférez le présentiel ?", "Prefer in person?", "Lieber in Präsenz?"),
+    body:    tri(
+      "Nous proposons aussi des cours Vor Ort, en présentiel, sur demande. Dites-nous votre besoin dans le formulaire et nous organisons.",
+      "We also offer Vor Ort classes, in person, on request. Tell us what you need in the form and we'll arrange it.",
+      "Wir bieten auch Vor-Ort-Unterricht in Präsenz an, auf Anfrage. Sagen Sie uns im Formular, was Sie brauchen, und wir organisieren es.",
+    ),
+    cta:     tri("Demander un cours Vor Ort", "Request a Vor Ort class", "Vor-Ort-Unterricht anfragen"),
   },
 
   // ── /particuliers (consumer space — kept, NO migration) ───────────────────
