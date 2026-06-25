@@ -5,7 +5,7 @@
  * Motion lives on motion values (no per-frame re-render); every interaction
  * bails under prefers-reduced-motion and never runs on touch (no mouse events).
  */
-import { useRef } from "react";
+import { useRef, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   motion,
@@ -13,6 +13,8 @@ import {
   useMotionValue,
   useSpring,
   useMotionTemplate,
+  useScroll,
+  useTransform,
   type Variants,
 } from "motion/react";
 
@@ -112,15 +114,21 @@ export function GlowField({ children, className = "", strong = false }: { childr
         <>
           <motion.div
             aria-hidden className="pointer-events-none absolute -z-0 h-[520px] w-[520px] rounded-full blur-[90px]"
-            style={{ left: "6%", top: "0%", background: "radial-gradient(circle, color-mix(in oklab, var(--gold) 12%, transparent), transparent 70%)" }}
-            animate={{ x: [0, 60, 0], y: [0, 30, 0] }}
+            style={{ left: "4%", top: "-4%", background: "radial-gradient(circle, color-mix(in oklab, var(--gold) 13%, transparent), transparent 70%)" }}
+            animate={{ x: [0, 70, 0], y: [0, 36, 0], scale: [1, 1.12, 1] }}
             transition={{ duration: 18, repeat: Infinity, ease: "easeInOut" }}
           />
           <motion.div
             aria-hidden className="pointer-events-none absolute right-0 -z-0 h-[460px] w-[460px] rounded-full blur-[100px]"
-            style={{ right: "3%", top: "16%", background: "radial-gradient(circle, color-mix(in oklab, var(--gold) 8%, transparent), transparent 70%)" }}
-            animate={{ x: [0, -50, 0], y: [0, 40, 0] }}
-            transition={{ duration: 22, repeat: Infinity, ease: "easeInOut" }}
+            style={{ right: "2%", top: "12%", background: "radial-gradient(circle, color-mix(in oklab, var(--gold2, var(--gold)) 10%, transparent), transparent 70%)" }}
+            animate={{ x: [0, -56, 0], y: [0, 44, 0], scale: [1.1, 1, 1.1] }}
+            transition={{ duration: 23, repeat: Infinity, ease: "easeInOut" }}
+          />
+          <motion.div
+            aria-hidden className="pointer-events-none absolute left-1/2 -z-0 h-[600px] w-[600px] -translate-x-1/2 rounded-full blur-[120px]"
+            style={{ bottom: "-30%", background: "radial-gradient(circle, color-mix(in oklab, var(--gold) 7%, transparent), transparent 70%)" }}
+            animate={{ x: [-30, 40, -30], scale: [1, 1.15, 1] }}
+            transition={{ duration: 27, repeat: Infinity, ease: "easeInOut" }}
           />
         </>
       )}
@@ -148,8 +156,10 @@ export function SectionHead({ eyebrow, title, accent, sub, center = true, classN
 export function PrimaryCTA({ href, children, big = false }: { href: string; children: React.ReactNode; big?: boolean }) {
   return (
     <Magnetic>
-      <Link href={href} className="bv-btn bv-btn-primary-lg bv-glow-gold bv-press" style={{ padding: big ? "1rem 1.8rem" : "0.95rem 1.6rem", fontSize: big ? "1rem" : "0.98rem" }}>
-        {children}
+      <Link href={href} className="group bv-btn bv-btn-primary-lg bv-glow-gold bv-press relative overflow-hidden" style={{ padding: big ? "1rem 1.8rem" : "0.95rem 1.6rem", fontSize: big ? "1rem" : "0.98rem" }}>
+        <span className="relative z-[1] inline-flex items-center gap-1.5">{children}</span>
+        {/* shine sweep on hover */}
+        <span aria-hidden className="pointer-events-none absolute inset-y-0 -left-full w-1/2 -skew-x-12 transition-[left] duration-700 ease-out group-hover:left-[150%]" style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.45), transparent)" }} />
       </Link>
     </Magnetic>
   );
@@ -164,12 +174,124 @@ export function GhostCTA({ href, children, big = false }: { href: string; childr
   );
 }
 
+// ── Drawn check (stroke draws on scroll-in) — replaces the emoji ✓ ────────────
+export function Check({ size = 13, color = "var(--gold)" }: { size?: number; color?: string }) {
+  const reduce = useReducedMotion();
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden style={{ display: "block" }}>
+      <motion.path
+        d="M4 12.5 L9.5 18 L20 6.5" stroke={color} strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round"
+        initial={reduce ? false : { pathLength: 0, opacity: 0 }}
+        whileInView={{ pathLength: 1, opacity: 1 }}
+        viewport={{ once: true, margin: "-40px" }}
+        transition={{ duration: 0.5, ease: EASE, delay: 0.1 }}
+      />
+    </svg>
+  );
+}
+
 // ── Checklist card (used by audience / solutions point lists) ──────────────────
 export function CheckCard({ children }: { children: React.ReactNode }) {
   return (
     <TiltCard className="flex items-start gap-4 rounded-2xl p-5" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-      <span className="mt-0.5 grid h-6 w-6 flex-shrink-0 place-items-center rounded-full text-[12px] font-bold" style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>✓</span>
+      <span className="mt-0.5 grid h-6 w-6 flex-shrink-0 place-items-center rounded-full" style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}><Check /></span>
       <span style={{ fontFamily: "var(--font-sans)", fontSize: "1rem", lineHeight: 1.55, color: "var(--w)" }}>{children}</span>
     </TiltCard>
+  );
+}
+
+// ── Kinetic marquee — keywords scroll horizontally (pure motion, seamless loop) ─
+export function Marquee({ items, duration = 32 }: { items: string[]; duration?: number }) {
+  const reduce = useReducedMotion();
+  const row = [...items, ...items];
+  return (
+    <div className="relative overflow-hidden py-6" aria-hidden style={{ borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
+      {/* edge fades */}
+      <div className="pointer-events-none absolute inset-y-0 left-0 z-[1] w-24" style={{ background: "linear-gradient(90deg, var(--bg), transparent)" }} />
+      <div className="pointer-events-none absolute inset-y-0 right-0 z-[1] w-24" style={{ background: "linear-gradient(270deg, var(--bg), transparent)" }} />
+      <motion.div
+        className="flex w-max gap-10 whitespace-nowrap"
+        animate={reduce ? undefined : { x: ["0%", "-50%"] }}
+        transition={{ duration, repeat: Infinity, ease: "linear" }}
+      >
+        {row.map((t, i) => (
+          <span key={i} className="inline-flex items-center gap-10" style={{ fontFamily: "var(--font-sans)", fontSize: "1.15rem", fontWeight: 500, letterSpacing: "-0.01em", color: "var(--w3)" }}>
+            {t}
+            <span style={{ color: "var(--gold)" }}>✦</span>
+          </span>
+        ))}
+      </motion.div>
+    </div>
+  );
+}
+
+// ── Parallax wrapper (translates a layer on scroll for real depth) ────────────
+export function Parallax({ children, distance = 80, className = "", style }: { children: React.ReactNode; distance?: number; className?: string; style?: React.CSSProperties }) {
+  const reduce = useReducedMotion();
+  const ref = useRef<HTMLDivElement>(null);
+  const { scrollYProgress } = useScroll({ target: ref, offset: ["start end", "end start"] });
+  const y = useTransform(scrollYProgress, [0, 1], [distance, -distance]);
+  return (
+    <div ref={ref} className={className} style={style}>
+      <motion.div style={reduce ? undefined : { y }}>{children}</motion.div>
+    </div>
+  );
+}
+
+// ── Atmosphere: signature trailing cursor + film grain (sitewide, desktop) ────
+export function Atmosphere() {
+  return (
+    <>
+      <Grain />
+      <Cursor />
+    </>
+  );
+}
+
+function Grain() {
+  // A fixed, ultra-subtle film grain over everything — the single cheapest
+  // "this is an expensive site" cue. SVG fractal noise, soft-light blend.
+  const noise =
+    "data:image/svg+xml;utf8," +
+    encodeURIComponent(
+      `<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(#n)' opacity='0.5'/></svg>`,
+    );
+  return (
+    <div aria-hidden className="pointer-events-none fixed inset-0 z-[60]" style={{ backgroundImage: `url("${noise}")`, backgroundSize: "140px 140px", opacity: 0.035, mixBlendMode: "overlay" }} />
+  );
+}
+
+function Cursor() {
+  const reduce = useReducedMotion();
+  const [enabled, setEnabled] = useState(false);
+  const [hot, setHot] = useState(false);
+  const x = useMotionValue(-200), y = useMotionValue(-200);
+  const rx = useSpring(x, { stiffness: 170, damping: 18, mass: 0.5 });
+  const ry = useSpring(y, { stiffness: 170, damping: 18, mass: 0.5 });
+
+  useEffect(() => {
+    if (reduce) return;
+    if (typeof window === "undefined") return;
+    if (!window.matchMedia("(pointer: fine)").matches) return; // desktop / mouse only
+    setEnabled(true);
+    const move = (e: MouseEvent) => { x.set(e.clientX); y.set(e.clientY); };
+    const over = (e: MouseEvent) => {
+      const el = e.target as HTMLElement | null;
+      setHot(!!el?.closest("a, button, [role='button'], input, textarea, select, label"));
+    };
+    window.addEventListener("mousemove", move, { passive: true });
+    window.addEventListener("mouseover", over, { passive: true });
+    return () => { window.removeEventListener("mousemove", move); window.removeEventListener("mouseover", over); };
+  }, [reduce, x, y]);
+
+  if (!enabled) return null;
+  return (
+    <motion.div
+      aria-hidden
+      className="pointer-events-none fixed left-0 top-0 z-[9998] rounded-full"
+      style={{ x: rx, y: ry, translateX: "-50%", translateY: "-50%", mixBlendMode: "screen", border: "1.5px solid var(--gold)" }}
+      animate={{ width: hot ? 56 : 30, height: hot ? 56 : 30, opacity: hot ? 0.95 : 0.55, backgroundColor: hot ? "color-mix(in oklab, var(--gold) 14%, transparent)" : "rgba(0,0,0,0)" }}
+      transition={{ type: "spring", stiffness: 260, damping: 22 }}
+    />
   );
 }

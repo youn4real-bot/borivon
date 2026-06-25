@@ -5,7 +5,7 @@
 import { useState } from "react";
 import { useLang } from "@/components/LangContext";
 import { COPY, type Tri } from "../_copy";
-import { Up, GlowField } from "../_components";
+import { Up, GlowField, Check } from "../_components";
 
 export default function ContactPage() {
   const { lang } = useLang();
@@ -44,7 +44,7 @@ export default function ContactPage() {
         {state === "ok" ? (
           <Up className="mt-12">
             <div className="rounded-[22px] p-10 text-center" style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
-              <div className="mx-auto grid h-12 w-12 place-items-center rounded-full text-[1.4rem] font-bold" style={{ background: "var(--gold)", color: "#131312" }}>✓</div>
+              <div className="mx-auto grid h-12 w-12 place-items-center rounded-full" style={{ background: "var(--gold)" }}><Check size={24} color="#131312" /></div>
               <h2 className="mt-5 font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "1.4rem", color: "var(--w)" }}>{T(C.okTitle)}</h2>
               <p className="mt-2" style={{ fontFamily: "var(--font-sans)", fontSize: "1rem", color: "var(--w2)" }}>{T(C.okBody)}</p>
             </div>

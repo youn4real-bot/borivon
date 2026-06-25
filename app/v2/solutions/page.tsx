@@ -4,7 +4,7 @@
 import { useLang } from "@/components/LangContext";
 import { motion } from "motion/react";
 import { COPY, type Tri } from "../_copy";
-import { Up, stagger, item, TiltCard, GlowField, SectionHead, PrimaryCTA } from "../_components";
+import { Up, stagger, item, TiltCard, GlowField, SectionHead, PrimaryCTA, Check } from "../_components";
 
 export default function SolutionsPage() {
   const { lang } = useLang();
@@ -68,7 +68,7 @@ export default function SolutionsPage() {
             {outs.map(([h, b]) => (
               <motion.div key={T(h)} variants={item}>
                 <TiltCard className="flex h-full items-start gap-4 rounded-2xl p-6" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-                  <span className="mt-0.5 grid h-7 w-7 flex-shrink-0 place-items-center rounded-full text-[13px] font-bold" style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>✓</span>
+                  <span className="mt-0.5 grid h-7 w-7 flex-shrink-0 place-items-center rounded-full" style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}><Check size={14} /></span>
                   <div>
                     <h3 style={{ fontFamily: "var(--font-sans)", fontSize: "1.08rem", fontWeight: 600, lineHeight: 1.3, color: "var(--w)" }}>{T(h)}</h3>
                     <p className="mt-1.5" style={{ fontFamily: "var(--font-sans)", fontSize: "0.95rem", lineHeight: 1.55, color: "var(--w2)" }}>{T(b)}</p>

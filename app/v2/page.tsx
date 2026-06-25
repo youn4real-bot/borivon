@@ -13,54 +13,71 @@ import { useLang } from "@/components/LangContext";
 import { COPY, type Tri } from "./_copy";
 import {
   EASE, Up, stagger, item, Magnetic, TiltCard, GlowField, SectionHead,
-  PrimaryCTA, GhostCTA, CheckCard,
+  PrimaryCTA, GhostCTA, CheckCard, Marquee, Parallax,
 } from "./_components";
 
 const C = COPY;
+
+// One word, revealed by rising from behind a mask (overflow-hidden line).
+function MaskWord({ children, delay, accent }: { children: React.ReactNode; delay: number; accent?: boolean }) {
+  const reduce = useReducedMotion();
+  return (
+    <span className="inline-block overflow-hidden align-bottom" style={{ marginRight: "0.24em", paddingBottom: "0.12em" }}>
+      <motion.span
+        className="inline-block"
+        initial={reduce ? false : { y: "115%" }}
+        animate={{ y: 0 }}
+        transition={{ duration: 0.85, ease: EASE, delay }}
+        style={accent ? { backgroundImage: "var(--gold-gradient, linear-gradient(90deg, var(--gold), var(--gold2, var(--gold))))", WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" } : undefined}
+      >
+        {children}
+      </motion.span>
+    </span>
+  );
+}
 
 function HomeHero() {
   const { lang } = useLang();
   const reduce = useReducedMotion();
   const T = (t: Tri) => t[lang];
   const words = T(C.home.heroTitle).split(" ");
+  const { scrollY } = useScroll();
+  const contentY = useTransform(scrollY, [0, 520], [0, -90]);
+  const contentOp = useTransform(scrollY, [0, 420], [1, 0]);
+
   return (
-    <GlowField className="px-[6vw] pt-[150px] pb-28 sm:pt-[180px] sm:pb-36" strong>
-      <div className="mx-auto max-w-[1080px] text-center">
+    <GlowField className="px-[6vw] pt-[150px] pb-28 sm:pt-[185px] sm:pb-40" strong>
+      {/* giant parallax watermark — depth, on-brand */}
+      <Parallax distance={110} className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center overflow-hidden">
+        <span style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontWeight: 700, fontSize: "clamp(9rem, 34vw, 30rem)", lineHeight: 1, color: "var(--w)", opacity: 0.035, whiteSpace: "nowrap", userSelect: "none" }}>Borivon</span>
+      </Parallax>
+
+      <motion.div className="relative z-[1] mx-auto max-w-[1080px] text-center" style={reduce ? undefined : { y: contentY, opacity: contentOp }}>
         <motion.div initial={reduce ? false : { opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }}>
-          <span className="bv-eyebrow">{T(C.home.heroEyebrow)}</span>
+          <span className="bv-eyebrow" style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", textTransform: "none", letterSpacing: "0", fontSize: "0.95rem" }}>{T(C.home.heroEyebrow)}</span>
         </motion.div>
 
-        <h1 className="mx-auto mt-7 max-w-[15ch] font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(2.7rem, 7.2vw, 5.7rem)", lineHeight: 1.02, letterSpacing: "-0.03em", color: "var(--w)" }}>
-          {words.map((w, i) => (
-            <motion.span key={i} className="inline-block" style={{ marginRight: "0.24em" }}
-              initial={reduce ? false : { opacity: 0, y: 24, filter: "blur(8px)" }} animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-              transition={{ duration: 0.6, ease: EASE, delay: 0.06 * i }}>
-              {w}
-            </motion.span>
-          ))}
-          <motion.span className="inline-block" style={{ color: "var(--gold)" }}
-            initial={reduce ? false : { opacity: 0, y: 24, filter: "blur(8px)" }} animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
-            transition={{ duration: 0.6, ease: EASE, delay: 0.06 * words.length }}>
-            {T(C.home.heroAccent)}
-          </motion.span>
+        <h1 className="mx-auto mt-6 max-w-[15ch] font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(2.8rem, 7.4vw, 6rem)", lineHeight: 1.0, letterSpacing: "-0.035em", color: "var(--w)" }}>
+          {words.map((w, i) => (<MaskWord key={i} delay={0.15 + 0.08 * i}>{w}</MaskWord>))}
+          <MaskWord delay={0.15 + 0.08 * words.length} accent>{T(C.home.heroAccent)}</MaskWord>
         </h1>
 
         <motion.p className="mx-auto mt-7 max-w-[600px]" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(1.05rem, 1.6vw, 1.28rem)", lineHeight: 1.65, color: "var(--w2)" }}
-          initial={reduce ? false : { opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, ease: EASE, delay: 0.5 }}>
+          initial={reduce ? false : { opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, ease: EASE, delay: 0.6 }}>
           {T(C.home.heroSub)}
         </motion.p>
 
-        <motion.div className="mt-11 flex flex-wrap items-center justify-center gap-4" initial={reduce ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, ease: EASE, delay: 0.6 }}>
+        <motion.div className="mt-11 flex flex-wrap items-center justify-center gap-4" initial={reduce ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, ease: EASE, delay: 0.75 }}>
           <PrimaryCTA href="/v2/contact" big>{T(C.home.heroCta1)}</PrimaryCTA>
           <GhostCTA href="/v2/methode" big>{T(C.home.heroCta2)}</GhostCTA>
         </motion.div>
 
-        <motion.div className="mt-14 flex flex-wrap items-center justify-center gap-x-8 gap-y-3" initial={reduce ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.8, ease: EASE, delay: 0.8 }}>
+        <motion.div className="mt-14 flex flex-wrap items-center justify-center gap-x-8 gap-y-3" initial={reduce ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.8, ease: EASE, delay: 0.95 }}>
           {[T(C.home.chip1), T(C.home.chip2), T(C.home.chip3)].map((t) => (
             <span key={t} className="bv-small" style={{ fontSize: "0.82rem", color: "var(--w3)" }}>{t}</span>
           ))}
         </motion.div>
-      </div>
+      </motion.div>
     </GlowField>
   );
 }
@@ -256,6 +273,7 @@ export default function V2Home() {
   return (
     <>
       <HomeHero />
+      <Marquee items={["Anerkennung", "B2", "Pflege", "Ausbildung", "Studium", "Visum", "Fachsprache", "Vor Ort", "Integration", "Karriere"]} />
       <Problem />
       <HybridModel />
       <Paths />
