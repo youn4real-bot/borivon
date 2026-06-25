@@ -643,6 +643,15 @@ export default function AdminPage() {
   const [employerByUser, setEmployerByUser] = useState<Record<string, string | null>>({});
   const [employerSaving, setEmployerSaving] = useState<Record<string, boolean>>({});
   const [allEmployers, setAllEmployers] = useState<{ id: string; name: string; agencyId?: string | null }[]>([]);
+  // Inline "quick-add a direct employer" form inside the Zuweisung tab —
+  // supreme admin only (the create endpoint is supreme-only). Lets the admin
+  // create a brand-new direct employer right where they assign it, instead of
+  // detouring to /portal/admin/employers. On save it auto-assigns the new
+  // employer to the open candidate.
+  const [addingEmployer, setAddingEmployer] = useState(false);
+  const [newEmpName, setNewEmpName]         = useState("");
+  const [newEmpAddr, setNewEmpAddr]         = useState("");
+  const [savingNewEmp, setSavingNewEmp]     = useState(false);
   const [searchQuery, setSearchQuery]   = useState("");
   const [filterMode, setFilterMode]     = useState<"all" | "pending" | "stuck" | "clear">("all");
   const [pipeline, setPipeline]         = useState<AdminPipeline>(DEFAULT_PIPELINE);
@@ -1669,6 +1678,48 @@ export default function AdminPage() {
       showError(t.adErrNetwork);
     } finally {
       setEmployerSaving(p => { const n = { ...p }; delete n[userId]; return n; });
+    }
+  }
+
+  /** Supreme-admin quick-add: create a brand-new DIRECT employer (no agency)
+      from inside the Zuweisung tab, then auto-assign it to the open candidate.
+      Mirrors the create on /portal/admin/employers (POST employers) so the new
+      row lights up everywhere (picker + Motivationsschreiben recipient). */
+  async function createDirectEmployer() {
+    if (savingNewEmp) return;
+    const name = newEmpName.trim();
+    const addressLines = newEmpAddr.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+    if (!name) { showError(t.adErrNetwork); return; }
+    if (addressLines.length === 0) { showError(t.adErrNetwork); return; }
+    setSavingNewEmp(true);
+    try {
+      const r = await fetch("/api/portal/admin/employers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+        body: JSON.stringify({ name, address_lines: addressLines, agency_id: null, active: true }),
+      });
+      if (!r.ok) {
+        let msg = `HTTP ${r.status}`;
+        try { const j = await r.json(); if (j?.error) msg = j.error; } catch { /* ignore */ }
+        showError(msg);
+        return;
+      }
+      const j = await r.json().catch(() => ({}));
+      const emp = j?.employer as { id: string; name: string; agency_id?: string | null } | undefined;
+      if (emp?.id) {
+        // Reflect the new row in the live picker (direct → agencyId null).
+        setAllEmployers(prev => [...prev, { id: emp.id, name: emp.name, agencyId: null }]
+          .sort((a, b) => a.name.localeCompare(b.name)));
+        // Auto-assign to the candidate the admin is looking at.
+        if (selectedUser) void assignEmployer(selectedUser, emp.id);
+      }
+      setNewEmpName("");
+      setNewEmpAddr("");
+      setAddingEmployer(false);
+    } catch {
+      showError(t.adErrNetwork);
+    } finally {
+      setSavingNewEmp(false);
     }
   }
 
@@ -3557,10 +3608,19 @@ export default function AdminPage() {
                   // Engagement IS shown to org admins — it's the employer-matching signal.
                   .filter(tab => !(isOrgAdmin && (tab.id === "docs" || tab.id === "journey" || tab.id === "assign")));
                 const assignT = lang === "fr"
-                  ? { sec:"Affectation", to:"Affecter à", agency:"Agence", employer:"Employeur direct", pickAg:"Agence", pickSite:"Site / employeur", pickEmp:"Employeur" }
+                  ? { sec:"Affectation", to:"Affecter à", agency:"Agence", employer:"Employeur direct", pickAg:"Agence", pickSite:"Site / employeur", pickEmp:"Employeur",
+                      addEmp:"Nouvel employeur", empName:"Nom", empNamePh:"Ambulante Pflegedienst Murnau",
+                      empAddr:"Adresse (une ligne par ligne)", empAddrPh:"Ambulante Pflegedienst Murnau\nPersonalabteilung\nBahnhofstraße 1\n82418 Murnau am Staffelsee",
+                      save:"Créer et affecter", cancel:"Annuler" }
                   : lang === "de"
-                  ? { sec:"Zuweisung", to:"Zuweisen an", agency:"Agentur", employer:"Direkter Arbeitgeber", pickAg:"Agentur", pickSite:"Standort / Arbeitgeber", pickEmp:"Arbeitgeber" }
-                  : { sec:"Assignment", to:"Assign to", agency:"Agency", employer:"Direct employer", pickAg:"Agency", pickSite:"Site / employer", pickEmp:"Employer" };
+                  ? { sec:"Zuweisung", to:"Zuweisen an", agency:"Agentur", employer:"Direkter Arbeitgeber", pickAg:"Agentur", pickSite:"Standort / Arbeitgeber", pickEmp:"Arbeitgeber",
+                      addEmp:"Neuer Arbeitgeber", empName:"Name", empNamePh:"Ambulante Pflegedienst Murnau",
+                      empAddr:"Adresse (eine pro Zeile)", empAddrPh:"Ambulante Pflegedienst Murnau\nPersonalabteilung\nBahnhofstraße 1\n82418 Murnau am Staffelsee",
+                      save:"Anlegen & zuweisen", cancel:"Abbrechen" }
+                  : { sec:"Assignment", to:"Assign to", agency:"Agency", employer:"Direct employer", pickAg:"Agency", pickSite:"Site / employer", pickEmp:"Employer",
+                      addEmp:"New employer", empName:"Name", empNamePh:"Ambulante Pflegedienst Murnau",
+                      empAddr:"Address (one per line)", empAddrPh:"Ambulante Pflegedienst Murnau\nPersonalabteilung\nBahnhofstraße 1\n82418 Murnau am Staffelsee",
+                      save:"Create & assign", cancel:"Cancel" };
                 return (
                 <div className="fixed inset-x-0 bottom-0 top-[58px] z-[1100] flex items-center justify-center p-4 pb-[88px] sm:pb-4"
                   style={{ background: "rgba(0,0,0,0.45)", backdropFilter: "blur(8px)", animation: "bvFadeRise .22s var(--ease-out)" }}
@@ -3960,12 +4020,61 @@ export default function AdminPage() {
                                       className="px-3.5 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80"
                                       style={pill(shownDirectEmpId === emp.id)}>{emp.name}</button>
                                   ))}
-                                  {allEmployers.filter(e => !e.agencyId).length === 0 && (
+                                  {allEmployers.filter(e => !e.agencyId).length === 0 && !addingEmployer && (
                                     <p className="text-[11px]" style={{ color: "var(--w3)" }}>
-                                      Noch keine direkten Arbeitgeber.
+                                      {lang === "de" ? "Noch keine direkten Arbeitgeber."
+                                        : lang === "fr" ? "Aucun employeur direct pour le moment."
+                                        : "No direct employers yet."}
                                     </p>
                                   )}
                                 </div>
+
+                                {/* Quick-add a NEW direct employer right here —
+                                    supreme admin only (POST /employers is
+                                    supreme-only). Saves to the employers table
+                                    and auto-assigns to the open candidate, so
+                                    the admin never has to leave this panel. */}
+                                {isSuperAdmin && !addingEmployer && (
+                                  <button type="button" onClick={() => setAddingEmployer(true)}
+                                    className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-opacity hover:opacity-80"
+                                    style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                                    <Plus size={12} strokeWidth={2} /> {assignT.addEmp}
+                                  </button>
+                                )}
+                                {isSuperAdmin && addingEmployer && (
+                                  <div className="mt-2 rounded-xl p-3 space-y-2"
+                                    style={{ background: "var(--bg2)", border: "1px solid var(--border-gold)" }}>
+                                    <div>
+                                      <label className="text-[10.5px] font-medium mb-1 block" style={{ color: "var(--w2)" }}>{assignT.empName}</label>
+                                      <input value={newEmpName} autoFocus
+                                        onChange={e => setNewEmpName(e.target.value)}
+                                        placeholder={assignT.empNamePh}
+                                        className="w-full rounded-lg px-2.5 py-2 text-xs outline-none"
+                                        style={{ background: "var(--card)", border: "1px solid var(--border2)", color: "var(--w)" }} />
+                                    </div>
+                                    <div>
+                                      <label className="text-[10.5px] font-medium mb-1 block" style={{ color: "var(--w2)" }}>{assignT.empAddr}</label>
+                                      <textarea rows={4} value={newEmpAddr}
+                                        onChange={e => setNewEmpAddr(e.target.value)}
+                                        placeholder={assignT.empAddrPh}
+                                        className="w-full rounded-lg px-2.5 py-2 text-xs outline-none resize-y"
+                                        style={{ background: "var(--card)", border: "1px solid var(--border2)", color: "var(--w)", minHeight: 88 }} />
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <button type="button" onClick={() => void createDirectEmployer()}
+                                        disabled={savingNewEmp || !newEmpName.trim() || newEmpAddr.split(/\r?\n/).every(l => !l.trim())}
+                                        className="flex-1 py-2 rounded-lg text-xs font-semibold transition-opacity hover:opacity-80 disabled:opacity-50"
+                                        style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                                        {savingNewEmp ? "…" : assignT.save}
+                                      </button>
+                                      <button type="button"
+                                        onClick={() => { if (savingNewEmp) return; setAddingEmployer(false); setNewEmpName(""); setNewEmpAddr(""); }}
+                                        className="py-2 px-3 text-xs" style={{ color: "var(--w3)" }}>
+                                        {assignT.cancel}
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             )}
 
