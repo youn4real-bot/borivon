@@ -140,6 +140,26 @@ export const COPY = {
     finalAccent: tri("qui gagne vos marchés.", "that wins your markets.", "die Ihre Märkte gewinnt."),
     finalCta:    tri("Réserver un audit des besoins", "Book a needs audit", "Bedarfsanalyse buchen"),
     finalSub:    tri("Commençons par un audit des besoins. Nous écoutons, puis nous vous montrons exactement comment faire parler vos équipes.", "Let's start with a needs audit. We listen, then we show you exactly how to get your teams speaking.", "Beginnen wir mit einer Bedarfsanalyse. Wir hören zu und zeigen Ihnen genau, wie Ihre Teams sprechen lernen."),
+
+    // Scrollytelling manifesto (word-by-word gold sweep on scroll).
+    manifesto: tri(
+      "L'allemand n'est pas une matière scolaire. C'est la langue dans laquelle vos équipes gagnent, ou perdent, le marché.",
+      "German is not a school subject. It is the language your teams win, or lose, the market in.",
+      "Deutsch ist kein Schulfach. Es ist die Sprache, in der Ihre Teams den Markt gewinnen, oder verlieren.",
+    ),
+  },
+
+  // ── Home: horizontal pinned showcase (where teams will speak German) ───────
+  showcase: {
+    eyebrow: tri("En situation", "In the room", "In der Praxis"),
+    title:   tri("Là où vos équipes", "Where your teams", "Wo Ihre Teams"),
+    accent:  tri("parleront allemand.", "will speak German.", "Deutsch sprechen."),
+    // Tags are German situation words — same in every language.
+    p1Tag: "Meetings",          p1H: tri("Mener la réunion", "Lead the meeting", "Das Meeting führen"),
+    p2Tag: "Kundengespräch",    p2H: tri("Gérer vos clients", "Handle your clients", "Kunden betreuen"),
+    p3Tag: "Verhandlung",       p3H: tri("Gagner la négociation", "Win the negotiation", "Die Verhandlung gewinnen"),
+    p4Tag: "Präsentation",      p4H: tri("Présenter avec assurance", "Present with confidence", "Sicher präsentieren"),
+    p5Tag: "Vorstellungsgespräch", p5H: tri("Réussir l'entretien", "Nail the interview", "Das Gespräch bestehen"),
   },
 
   // ── AI — we teach WITH AI + teach teams to USE AI to learn faster ─────────

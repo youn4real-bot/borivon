@@ -5,7 +5,7 @@
  * Motion lives on motion values (no per-frame re-render); every interaction
  * bails under prefers-reduced-motion and never runs on touch (no mouse events).
  */
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   motion,
@@ -16,6 +16,7 @@ import {
   useTransform,
   useInView,
   type Variants,
+  type MotionValue,
 } from "motion/react";
 
 export const EASE = [0.16, 1, 0.3, 1] as const;
@@ -343,5 +344,84 @@ export function CinematicStatement({ src, alt, eyebrow, line1, line2, sub }: {
         </div>
       </div>
     </section>
+  );
+}
+
+// ── Scrollytelling: a line whose words sweep from muted to gold as you scroll
+// through it. Two layers per word (muted base + gold overlay swept by opacity) so
+// color stays theme-safe and ONLY opacity animates; inline-block keeps the wrap
+// identical to a static paragraph (no line-break shift). Reduced-motion → static
+// gold line. ─────────────────────────────────────────────────────────────────
+export function GoldReveal({ text, className = "" }: { text: string; className?: string }) {
+  const reduce = useReducedMotion();
+  const ref = useRef<HTMLParagraphElement>(null);
+  const { scrollYProgress } = useScroll({ target: ref, offset: ["start 0.82", "end 0.5"] });
+  if (reduce) return <p className={className} style={{ color: "var(--gold)" }}>{text}</p>;
+  const words = text.split(" ");
+  return (
+    <p ref={ref} className={className}>
+      {words.map((w, i) => {
+        const start = i / words.length;
+        const end = Math.min(1, (i + 1.6) / words.length); // overlap → sweep, not step
+        return <GoldWord key={i} progress={scrollYProgress} range={[start, end]} word={w} />;
+      })}
+    </p>
+  );
+}
+function GoldWord({ progress, range, word }: { progress: MotionValue<number>; range: [number, number]; word: string }) {
+  const opacity = useTransform(progress, range, [0, 1]);
+  return (
+    <span className="relative mr-[0.28em] inline-block" style={{ color: "var(--w3)" }}>
+      {word}
+      <motion.span aria-hidden className="absolute left-0 top-0" style={{ color: "var(--gold)", opacity }}>{word}</motion.span>
+    </span>
+  );
+}
+
+// ── Horizontal pinned scroll. Desktop: the section pins one screen and a wide row
+// pans left as you scroll down (the rare "$10k" beat). Touch / reduced-motion: a
+// native snap carousel (pinned-horizontal feels broken on phones). Pan distance is
+// MEASURED (track − viewport, re-measured on resize) so the last panel always lands
+// flush; x is transform-only (no CLS). 100svh sticky height dodges the iOS toolbar
+// re-pin. The page passes already-styled panels (shrink-0 + width + snap-align). ──
+export function HorizontalPin({ children, heightVh = 320 }: { children: React.ReactNode; heightVh?: number }) {
+  const reduce = useReducedMotion();
+  const sectionRef = useRef<HTMLDivElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [dist, setDist] = useState(0);
+
+  useEffect(() => {
+    const measure = () => {
+      const track = trackRef.current, vp = viewportRef.current;
+      if (!track || !vp) return;
+      setDist(Math.max(0, track.scrollWidth - vp.clientWidth));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [children]);
+
+  const { scrollYProgress } = useScroll({ target: sectionRef, offset: ["start start", "end end"] });
+  const xRaw = useTransform(scrollYProgress, [0, 1], [0, -dist]);
+  const x = useSpring(xRaw, { stiffness: 120, damping: 30, restDelta: 0.01 });
+
+  const carousel = (
+    <div className="flex gap-6 overflow-x-auto px-[6vw] pb-3" style={{ scrollSnapType: "x mandatory", scrollbarWidth: "none" }}>
+      {children}
+    </div>
+  );
+  if (reduce) return carousel;
+  return (
+    <>
+      <div className="md:hidden">{carousel}</div>
+      <div ref={sectionRef} className="relative hidden md:block" style={{ height: `${heightVh}vh` }}>
+        <div ref={viewportRef} className="sticky top-0 flex h-[100svh] items-center overflow-hidden">
+          <motion.div ref={trackRef} className="flex gap-8 px-[6vw] will-change-transform" style={{ x }}>
+            {children}
+          </motion.div>
+        </div>
+      </div>
+    </>
   );
 }

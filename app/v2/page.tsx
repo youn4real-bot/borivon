@@ -8,12 +8,13 @@
  * -> credibility -> one repeated "book a needs audit" CTA. Trilingual; reduced-motion safe.
  */
 import { Fragment, useRef } from "react";
-import { motion, useReducedMotion, useScroll, useTransform } from "motion/react";
+import { motion, useReducedMotion, useScroll, useSpring, useTransform } from "motion/react";
 import { useLang } from "@/components/LangContext";
 import { COPY, type Tri } from "./_copy";
 import {
   EASE, Up, stagger, item, TiltCard, GlowField, SectionHead,
   PrimaryCTA, GhostCTA, CheckCard, Check, RevealImage, CinematicStatement, CountUp, Marquee, RiseWords,
+  GoldReveal, HorizontalPin,
 } from "./_components";
 
 const C = COPY;
@@ -153,7 +154,8 @@ function Journey() {
   const T = (t: Tri) => t[lang];
   const ref = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start 0.85", "end 0.5"] });
-  const lineSX = useTransform(scrollYProgress, [0, 1], [0, 1]);
+  const lineSXraw = useTransform(scrollYProgress, [0, 1], [0, 1]);
+  const lineSX = useSpring(lineSXraw, { stiffness: 120, damping: 30, restDelta: 0.001 });
   const steps = [["01", C.home.step1, C.home.step1B], ["02", C.home.step2, C.home.step2B], ["03", C.home.step3, C.home.step3B], ["04", C.home.step4, C.home.step4B]] as const;
   return (
     <section className="px-[6vw] py-24 sm:py-32" style={{ background: "var(--bg2)" }}>
@@ -321,6 +323,49 @@ function FinalCTA() {
   );
 }
 
+// Scrollytelling manifesto — words sweep muted → gold as you scroll through.
+function Manifesto() {
+  const { lang } = useLang();
+  const T = (t: Tri) => t[lang];
+  return (
+    <section className="px-[6vw] py-28 sm:py-36">
+      <div className="mx-auto max-w-[1000px]">
+        <GoldReveal text={T(C.home.manifesto)} className="text-center font-medium tracking-tight text-[clamp(1.5rem,3.4vw,2.6rem)] leading-[1.4]" />
+      </div>
+    </section>
+  );
+}
+
+// Horizontal pinned showcase — the work situations where teams will speak German.
+function Showcase() {
+  const { lang } = useLang();
+  const T = (t: Tri) => t[lang];
+  const S = C.showcase;
+  const panels = [
+    [S.p1Tag, S.p1H], [S.p2Tag, S.p2H], [S.p3Tag, S.p3H], [S.p4Tag, S.p4H], [S.p5Tag, S.p5H],
+  ] as const;
+  return (
+    <section className="py-16 sm:py-24" style={{ background: "var(--bg2)" }}>
+      <div className="px-[6vw]">
+        <SectionHead eyebrow={T(S.eyebrow)} title={T(S.title)} accent={T(S.accent)} center={false} />
+      </div>
+      <div className="mt-12">
+        <HorizontalPin heightVh={300}>
+          {panels.map(([tag, h], i) => (
+            <article key={tag} className="w-[78vw] shrink-0 sm:w-[58vw] md:w-[44vw] lg:w-[34vw]" style={{ scrollSnapAlign: "center" }}>
+              <div className="bv-surface flex h-[clamp(340px,60vh,540px)] flex-col justify-end rounded-[28px] p-9">
+                <span style={{ fontFamily: "var(--font-sans)", fontVariantNumeric: "tabular-nums", fontSize: "0.8rem", fontWeight: 600, letterSpacing: "0.08em", color: "var(--gold-muted)" }}>{String(i + 1).padStart(2, "0")}</span>
+                <span className="mt-3 font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(1.9rem, 3vw, 2.9rem)", lineHeight: 1.04, letterSpacing: "-0.03em", color: "var(--w)" }}>{tag}</span>
+                <span className="mt-3" style={{ fontFamily: "var(--font-sans)", fontSize: "1.05rem", lineHeight: 1.5, color: "var(--w2)" }}>{T(h)}</span>
+              </div>
+            </article>
+          ))}
+        </HorizontalPin>
+      </div>
+    </section>
+  );
+}
+
 export default function V2Home() {
   const { lang } = useLang();
   const T = (t: Tri) => t[lang];
@@ -330,6 +375,7 @@ export default function V2Home() {
       <TrustStrip />
       <Marquee items={["Meetings", "Kundengespräch", "Verhandlung", "Vertrieb", "Telefonate", "Präsentation", "Verträge", "Kundenbetreuung"]} duration={34} />
       <Problem />
+      <Manifesto />
       <Journey />
       <OutcomesSticky />
       <CinematicStatement
@@ -341,6 +387,7 @@ export default function V2Home() {
         sub={T(C.statement.sub)}
       />
       <AISection />
+      <Showcase />
       <StatsBand />
       <VorOrt />
       <Trust />

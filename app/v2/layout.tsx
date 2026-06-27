@@ -6,15 +6,18 @@
  */
 import { V2Nav, V2Footer } from "./_nav";
 import { Atmosphere, ScrollProgress } from "./_components";
+import SmoothScroll from "./SmoothScroll";
 
 export default function V2Layout({ children }: { children: React.ReactNode }) {
   return (
-    <div style={{ background: "var(--bg)", color: "var(--w)", minHeight: "100dvh" }}>
-      <Atmosphere />
-      <ScrollProgress />
-      <V2Nav />
-      <main id="bv-main">{children}</main>
-      <V2Footer />
-    </div>
+    <SmoothScroll>
+      <div style={{ background: "var(--bg)", color: "var(--w)", minHeight: "100dvh" }}>
+        <Atmosphere />
+        <ScrollProgress />
+        <V2Nav />
+        <main id="bv-main">{children}</main>
+        <V2Footer />
+      </div>
+    </SmoothScroll>
   );
 }

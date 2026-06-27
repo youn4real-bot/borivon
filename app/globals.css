@@ -1288,3 +1288,13 @@ img { -webkit-user-drag: none; }
 @media (hover: hover) { .bv-ul:hover::after { transform: scaleX(1); } }
 .bv-ul[data-active="true"]::after { transform: scaleX(1); }
 @media (prefers-reduced-motion: reduce) { .bv-ul::after { transition-duration: 0.01ms; } }
+
+/* Lenis smooth-scroll required classes. Inert everywhere EXCEPT /v2: the `lenis`
+   class is only added to <html> while the /v2 SmoothScroll component is mounted,
+   so the portal is untouched. The scroll-behavior:auto override stops our global
+   `html{scroll-behavior:smooth}` from double-smoothing against Lenis. */
+html.lenis, html.lenis body { height: auto; }
+.lenis.lenis-smooth { scroll-behavior: auto !important; }
+.lenis.lenis-smooth [data-lenis-prevent] { overscroll-behavior: contain; }
+.lenis.lenis-stopped { overflow: clip; }
+.lenis.lenis-smooth iframe { pointer-events: none; }
