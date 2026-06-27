@@ -23,7 +23,7 @@ const C = COPY;
 const U = "https://images.unsplash.com/";
 const IMG = {
   outcomes:  `${U}photo-1556761175-b413da4baf72?auto=format&fit=crop&w=1100&q=72`, // team in a meeting, talking
-  statement: `${U}photo-1600880292089-90a7e086ee0c?auto=format&fit=crop&w=1600&q=70`, // colleagues in conversation
+  statement: `${U}photo-1521737711867-e3b97375f902?auto=format&fit=crop&w=1600&q=70`, // team talking in a meeting
   ai:        `${U}photo-1573164713988-8665fc963095?auto=format&fit=crop&w=1200&q=72`, // professional on a video call
 };
 // One scene per showcase panel (Meetings · Kundengespräch · Verhandlung · Präsentation · Vorstellungsgespräch).
@@ -505,12 +505,13 @@ function Testimonials() {
   return (
     <section className="px-[6vw] py-24 sm:py-28">
       <div className="mx-auto max-w-[1080px]">
-        <Up className="mb-12 text-center"><span className="bv-eyebrow">{T(C.testimonials.eyebrow)}</span></Up>
-        <motion.div className="grid gap-6 md:grid-cols-2" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }}>
+        <SectionHead eyebrow={T(C.testimonials.eyebrow)} title={T(C.testimonials.title)} />
+        <motion.div className="mt-14 grid gap-6 md:grid-cols-2" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }}>
           {C.testimonials.items.map((t, i) => (
             <motion.div key={i} variants={item}>
               <TiltCard className="h-full rounded-[22px] p-8 bv-surface">
-                <p style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontSize: "1.18rem", lineHeight: 1.5, color: "var(--w)" }}>&ldquo;{T(t.quote)}&rdquo;</p>
+                <div aria-hidden style={{ color: "var(--gold)", letterSpacing: "0.14em", fontSize: "0.95rem" }}>{"★".repeat(t.rating ?? 5)}</div>
+                <p className="mt-4" style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontSize: "1.18rem", lineHeight: 1.5, color: "var(--w)" }}>&ldquo;{T(t.quote)}&rdquo;</p>
                 <div className="mt-5" style={{ fontFamily: "var(--font-sans)", fontSize: "0.9rem", color: "var(--w3)" }}>{t.name} · {T(t.role)} · {t.company}</div>
               </TiltCard>
             </motion.div>

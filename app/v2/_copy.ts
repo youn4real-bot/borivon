@@ -130,7 +130,7 @@ export const COPY = {
     step4B: tri("Nous mesurons les progrès et restons à vos côtés. Le même partenaire, du début à la fin.", "We measure progress and stay by your side. The same partner, start to finish.", "Wir messen die Fortschritte und bleiben an Ihrer Seite. Derselbe Partner, von Anfang bis Ende."),
 
     trustA_h: tri("Spécialistes de l'allemand pro", "Business-German experts", "Profis für Business-Deutsch"),
-    trustA_b: tri("Une école 100% dédiée à l'allemand professionnel.", "A school fully focused on professional German.", "Eine Schule, ganz auf professionelles Deutsch fokussiert."),
+    trustA_b: tri("Un institut 100% dédié à l'allemand professionnel.", "An institute fully focused on professional German.", "Ein Institut, ganz auf professionelles Deutsch fokussiert."),
     trustB_h: tri("Tournés vers les résultats", "Results first", "Ergebnisse zuerst"),
     trustB_b: tri("On vise l'allemand qui marche en réunion, pas les diplômes pour la vitrine.", "We aim for German that works in meetings, not diplomas for show.", "Wir wollen Deutsch, das im Meeting funktioniert, keine Diplome fürs Schaufenster."),
     trustC_h: tri("Un partenaire, pas un fournisseur", "A partner, not a vendor", "Ein Partner, kein Lieferant"),
@@ -231,7 +231,9 @@ export const COPY = {
   },
   testimonials: {
     eyebrow: tri("Ce qu'ils en disent", "What they say", "Was sie sagen"),
-    items: [] as { quote: Tri; name: string; role: Tri; company: string }[],
+    title:   tri("Un institut, de vrais résultats.", "One institute, real results.", "Ein Institut, echte Ergebnisse."),
+    // Fill with REAL, consented client quotes (name, role, company, rating). Empty = section hidden.
+    items: [] as { quote: Tri; name: string; role: Tri; company: string; rating?: number }[],
   },
 
   // ── AI — we teach WITH AI + teach teams to USE AI to learn faster ─────────

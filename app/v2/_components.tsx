@@ -331,15 +331,16 @@ export function CinematicStatement({ src, alt, eyebrow, line1, line2, sub }: {
         <div aria-hidden className="absolute inset-x-0 bottom-0 h-3/4" style={{ background: "linear-gradient(0deg, rgba(8,8,10,0.94) 0%, rgba(8,8,10,0.45) 55%, transparent 100%)" }} />
         {/* text */}
         <div className="relative z-[1] flex h-full items-end p-7 sm:p-12 lg:p-16">
-          <div className="max-w-[680px]">
+          <div className="max-w-[720px]">
             <Up><span className="bv-eyebrow" style={{ color: "var(--gold)" }}>{eyebrow}</span></Up>
-            <h2 className="mt-4 font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(2rem, 5vw, 3.7rem)", lineHeight: 1.05, letterSpacing: "-0.03em", color: "#fff" }}>
-              <RiseWords text={line1} />{" "}
-              <RiseWords text={line2} accent delay={0.12} />
-            </h2>
+            <Up delay={0.08}>
+              <h2 className="mt-4 font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(2.1rem, 5vw, 3.7rem)", lineHeight: 1.05, letterSpacing: "-0.03em", color: "#fff" }}>
+                {line1} <span style={{ color: "var(--gold)" }}>{line2}</span>
+              </h2>
+            </Up>
             {sub && (
-              <Up delay={0.2}>
-                <p className="mt-5 max-w-[460px]" style={{ fontFamily: "var(--font-sans)", fontSize: "1.05rem", lineHeight: 1.6, color: "rgba(255,255,255,0.85)" }}>{sub}</p>
+              <Up delay={0.16}>
+                <p className="mt-5 max-w-[480px]" style={{ fontFamily: "var(--font-sans)", fontSize: "1.1rem", lineHeight: 1.6, color: "rgba(255,255,255,0.9)" }}>{sub}</p>
               </Up>
             )}
           </div>
