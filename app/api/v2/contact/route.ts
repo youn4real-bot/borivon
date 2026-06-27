@@ -28,11 +28,14 @@ export async function POST(req: NextRequest) {
   const email = clip(body?.email, 160);
   const message = clip(body?.message, 4000);
   const company = clip(body?.company, 160);
+  const role = clip(body?.role, 120);
   const phone = clip(body?.phone, 60);
-  const audience = body?.audience === "individual" ? "Privatperson / Particulier" : "Unternehmen / Entreprise";
+  const headcount = clip(body?.headcount, 60);
+  const situations = clip(body?.situations, 300);
   const lang = ["fr", "en", "de"].includes(body?.lang) ? body.lang : "—";
 
-  if (!name || !message || !EMAIL_RE.test(email)) {
+  // Enterprise lead: name, work email, company and message are required.
+  if (!name || !company || !message || !EMAIL_RE.test(email)) {
     return NextResponse.json({ error: "Invalid input" }, { status: 400 });
   }
 
@@ -43,14 +46,16 @@ export async function POST(req: NextRequest) {
   }
 
   const text = [
-    "Nouvelle demande depuis le site (borivon.com).",
+    "Nouvelle demande entreprise depuis le site (borivon.com).",
     "",
-    `Type      : ${audience}`,
-    `Nom       : ${name}`,
-    company ? `Entreprise: ${company}` : null,
-    `E-mail    : ${email}`,
-    phone ? `Téléphone : ${phone}` : null,
-    `Langue    : ${lang}`,
+    `Nom        : ${name}`,
+    `Entreprise : ${company}`,
+    role ? `Fonction   : ${role}` : null,
+    `E-mail     : ${email}`,
+    phone ? `Téléphone  : ${phone}` : null,
+    headcount ? `À former   : ${headcount}` : null,
+    situations ? `Situations : ${situations}` : null,
+    `Langue     : ${lang}`,
     "",
     "Message :",
     message,

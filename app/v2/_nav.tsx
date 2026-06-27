@@ -77,7 +77,6 @@ export function V2Nav() {
 
   const links = [
     { href: "/v2/solutions", label: T(COPY.nav.business) },
-    { href: "/v2/particuliers", label: T(COPY.nav.individuals) },
     { href: "/v2/methode", label: T(COPY.nav.model) },
     { href: "/v2/a-propos", label: T(COPY.nav.about) },
   ];
@@ -171,8 +170,8 @@ export function V2Footer() {
             <ul className="space-y-2.5">
               {[
                 ["/v2/solutions", T(COPY.nav.business)],
-                ["/v2/particuliers", T(COPY.nav.individuals)],
                 ["/v2/methode", T(COPY.nav.model)],
+                ["/v2/a-propos", T(COPY.nav.about)],
                 ["/v2/contact", T(COPY.nav.contact)],
               ].map(([h, l]) => (
                 <li key={h}><Link href={h} className="transition-opacity hover:opacity-80" style={{ fontFamily: "var(--font-sans)", fontSize: "0.92rem", color: "var(--w2)" }}>{l}</Link></li>
