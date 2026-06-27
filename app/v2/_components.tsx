@@ -325,8 +325,10 @@ export function CinematicStatement({ src, alt, eyebrow, line1, line2, sub }: {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <motion.img src={src} alt={alt} loading="lazy" decoding="async" className="h-full w-full object-cover" style={reduce ? undefined : { scale }} />
         </motion.div>
-        {/* legibility scrim — darker bottom-left where the text sits */}
-        <div aria-hidden className="absolute inset-0" style={{ background: "linear-gradient(105deg, rgba(8,8,10,0.82) 0%, rgba(8,8,10,0.52) 40%, rgba(8,8,10,0.15) 70%, rgba(8,8,10,0.35) 100%)" }} />
+        {/* legibility scrims (static) — a diagonal wash + a guaranteed-dark bottom
+            band so the overlaid text reads no matter how bright the photo is. */}
+        <div aria-hidden className="absolute inset-0" style={{ background: "linear-gradient(105deg, rgba(8,8,10,0.88) 0%, rgba(8,8,10,0.45) 45%, transparent 82%)" }} />
+        <div aria-hidden className="absolute inset-x-0 bottom-0 h-3/4" style={{ background: "linear-gradient(0deg, rgba(8,8,10,0.94) 0%, rgba(8,8,10,0.45) 55%, transparent 100%)" }} />
         {/* text */}
         <div className="relative z-[1] flex h-full items-end p-7 sm:p-12 lg:p-16">
           <div className="max-w-[680px]">

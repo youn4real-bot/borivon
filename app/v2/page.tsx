@@ -22,11 +22,9 @@ const C = COPY;
 // Professional, on-message photos (each one is paired with text + scroll motion).
 const U = "https://images.unsplash.com/";
 const IMG = {
-  hero:      `${U}photo-1556761175-b413da4baf72?auto=format&fit=crop&w=1200&q=72`, // team in a meeting room
-  outcomes:  `${U}photo-1521737711867-e3b97375f902?auto=format&fit=crop&w=1100&q=72`, // team talking, meeting
+  outcomes:  `${U}photo-1556761175-b413da4baf72?auto=format&fit=crop&w=1100&q=72`, // team in a meeting, talking
   statement: `${U}photo-1600880292089-90a7e086ee0c?auto=format&fit=crop&w=1600&q=70`, // colleagues in conversation
   ai:        `${U}photo-1573164713988-8665fc963095?auto=format&fit=crop&w=1200&q=72`, // professional on a video call
-  closing:   `${U}photo-1551818255-e6e10975bc17?auto=format&fit=crop&w=1600&q=70`, // presenting to a room
 };
 // One scene per showcase panel (Meetings · Kundengespräch · Verhandlung · Präsentation · Vorstellungsgespräch).
 const SHOWCASE_IMG = [
@@ -76,9 +74,8 @@ function HomeHero() {
         <span style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontWeight: 700, fontSize: "clamp(9rem, 34vw, 30rem)", lineHeight: 1, color: "var(--w)", opacity: 0.05, whiteSpace: "nowrap", userSelect: "none" }}>Borivon</span>
       </motion.div>
 
-      <motion.div className="relative z-[1] mx-auto max-w-[1240px]" style={reduce ? undefined : { y: contentY, opacity: contentOp }}>
-        <div className="grid items-center gap-12 lg:grid-cols-[1.05fr_0.9fr]">
-          <div className="max-w-[640px]">
+      <motion.div className="relative z-[1] mx-auto max-w-[1180px]" style={reduce ? undefined : { y: contentY, opacity: contentOp }}>
+        <div className="max-w-[840px]">
           <motion.div initial={reduce ? false : { opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }}>
             <span className="bv-eyebrow">{T(C.home.heroEyebrow)}</span>
           </motion.div>
@@ -107,10 +104,6 @@ function HomeHero() {
               </Fragment>
             ))}
           </motion.div>
-          </div>
-          <div className="relative">
-            <RevealImage src={IMG.hero} alt={lang === "de" ? "Team-Meeting auf Deutsch" : lang === "fr" ? "Réunion d'équipe en allemand" : "Team meeting in German"} className="aspect-[16/10] w-full rounded-[24px] lg:aspect-[4/5]" priority />
-          </div>
         </div>
       </motion.div>
 
@@ -558,14 +551,6 @@ export default function V2Home() {
       <Commitment />
       <Trust />
       <FAQ />
-      <CinematicStatement
-        src={IMG.closing}
-        alt={lang === "de" ? "Präsentation auf Deutsch" : lang === "fr" ? "Présentation en allemand" : "Presenting in German"}
-        eyebrow={T(C.closing.eyebrow)}
-        line1={T(C.closing.line1)}
-        line2={T(C.closing.line2)}
-        sub={T(C.closing.sub)}
-      />
       <FinalCTA />
     </>
   );
