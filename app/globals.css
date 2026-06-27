@@ -1293,6 +1293,10 @@ img { -webkit-user-drag: none; }
    class is only added to <html> while the /v2 SmoothScroll component is mounted,
    so the portal is untouched. The scroll-behavior:auto override stops our global
    `html{scroll-behavior:smooth}` from double-smoothing against Lenis. */
+/* FAQ accordion marker — the "+" rotates to "×" when the <details> is open. */
+.bv-faq-mark { display: inline-block; transition: transform 0.25s var(--ease-out); }
+details[open] .bv-faq-mark { transform: rotate(45deg); }
+
 html.lenis, html.lenis body { height: auto; }
 .lenis.lenis-smooth { scroll-behavior: auto !important; }
 .lenis.lenis-smooth [data-lenis-prevent] { overscroll-behavior: contain; }

@@ -135,6 +135,10 @@ export const COPY = {
     trustB_b: tri("On vise l'allemand qui marche en réunion, pas les diplômes pour la vitrine.", "We aim for German that works in meetings, not diplomas for show.", "Wir wollen Deutsch, das im Meeting funktioniert, keine Diplome fürs Schaufenster."),
     trustC_h: tri("Un partenaire, pas un fournisseur", "A partner, not a vendor", "Ein Partner, kein Lieferant"),
     trustC_b: tri("Du premier audit au suivi, une seule équipe avec vous.", "From the first audit to follow-up, one team at your side.", "Von der ersten Analyse bis zur Nachbetreuung, ein Team an Ihrer Seite."),
+    trustD_h: tri("Trilingue, par des humains", "Trilingual, by humans", "Dreisprachig, von Menschen"),
+    trustD_b: tri("On travaille en français, anglais et allemand, avec de vrais professeurs.", "We work in French, English and German, with real teachers.", "Wir arbeiten auf Französisch, Englisch und Deutsch, mit echten Lehrkräften."),
+    trustEyebrow: tri("Pourquoi nous faire confiance", "Why teams trust us", "Warum Teams uns vertrauen"),
+    trustSince:   tri("Au service des équipes depuis plus de 8 ans.", "Serving teams for 8+ years.", "Seit über 8 Jahren im Dienst von Teams."),
 
     finalTitle:  tri("Donnez à vos équipes la langue", "Give your teams the language", "Geben Sie Ihren Teams die Sprache"),
     finalAccent: tri("qui gagne vos marchés.", "that wins your markets.", "die Ihre Märkte gewinnt."),
@@ -160,6 +164,74 @@ export const COPY = {
     p3Tag: "Verhandlung",       p3H: tri("Gagner la négociation", "Win the negotiation", "Die Verhandlung gewinnen"),
     p4Tag: "Präsentation",      p4H: tri("Présenter avec assurance", "Present with confidence", "Sicher präsentieren"),
     p5Tag: "Vorstellungsgespräch", p5H: tri("Réussir l'entretien", "Nail the interview", "Das Gespräch bestehen"),
+  },
+
+  // ── Home: closing cinematic (2nd full-bleed image before the final CTA) ────
+  closing: {
+    eyebrow: tri("Le moment décisif", "The decisive moment", "Der entscheidende Moment"),
+    line1:   tri("Vos équipes,", "Your teams,", "Ihre Teams,"),
+    line2:   tri("maîtres de la salle.", "owning the room.", "souverän im Raum."),
+    sub:     tri("En allemand, devant le client. C'est là que tout se gagne.", "In German, in front of the client. That is where it is won.", "Auf Deutsch, vor dem Kunden. Genau dort wird gewonnen."),
+  },
+
+  // ── Home: method-as-proof contrast (the usual course vs the Borivon method) ─
+  contrast: {
+    eyebrow: tri("La différence", "The difference", "Der Unterschied"),
+    title:   tri("La plupart des cours enseignent l'allemand.", "Most courses teach German.", "Die meisten Kurse lehren Deutsch."),
+    accent:  tri("Nous le faisons parler.", "We get it spoken.", "Wir bringen es zum Sprechen."),
+    oldH:    tri("Le cours classique", "The usual course", "Der übliche Kurs"),
+    newH:    tri("La méthode Borivon", "The Borivon method", "Die Borivon-Methode"),
+    old1: tri("Des mois de grammaire avant de parler", "Months of grammar before speaking", "Monate Grammatik vor dem Sprechen"),
+    new1: tri("On parle dès la première leçon", "Speaking from the first lesson", "Sprechen ab der ersten Stunde"),
+    old2: tri("Un manuel générique", "A generic textbook", "Ein generisches Lehrbuch"),
+    new2: tri("Vos vraies situations de travail", "Your real work situations", "Ihre echten Arbeitssituationen"),
+    old3: tri("Une appli, seul face à l'écran", "An app, alone with a screen", "Eine App, allein vor dem Bildschirm"),
+    new3: tri("Un vrai professeur, plus l'IA pour aller plus vite", "A real teacher, plus AI to go faster", "Eine echte Lehrkraft, plus KI für mehr Tempo"),
+    old4: tri("Un diplôme pour la vitrine", "A diploma for show", "Ein Diplom fürs Schaufenster"),
+    new4: tri("De l'allemand qui marche en réunion", "German that works in the meeting", "Deutsch, das im Meeting funktioniert"),
+    old5: tri("Plusieurs prestataires à gérer", "Several vendors to manage", "Mehrere Dienstleister zu managen"),
+    new5: tri("Un seul partenaire, du début à la fin", "One partner, start to finish", "Ein Partner, von Anfang bis Ende"),
+  },
+
+  // ── Home: commitment / risk-reversal (honest process promise, no fake outcome) ─
+  commit: {
+    eyebrow: tri("Notre engagement", "Our commitment", "Unser Versprechen"),
+    title:   tri("Vous ne pariez pas.", "You don't gamble.", "Sie wetten nicht."),
+    accent:  tri("Vous commencez par un audit.", "You start with an audit.", "Sie starten mit einer Analyse."),
+    sub:     tri("Avant tout engagement, on écoute vos besoins et on vous montre exactement comment vos équipes parleront allemand.", "Before any commitment, we listen to your needs and show you exactly how your teams will speak German.", "Vor jeder Verpflichtung hören wir Ihren Bedarf an und zeigen Ihnen genau, wie Ihre Teams Deutsch sprechen werden."),
+    c1: tri("Un audit des besoins, sans frais.", "A needs audit, at no cost.", "Eine Bedarfsanalyse, kostenlos."),
+    c2: tri("Une proposition concrète sous un jour ouvré.", "A concrete proposal within one business day.", "Ein konkreter Vorschlag innerhalb eines Werktags."),
+    c3: tri("Un seul partenaire, responsable du début à la fin.", "One partner, accountable from start to finish.", "Ein Partner, verantwortlich von Anfang bis Ende."),
+    c4: tri("Une visibilité réelle sur les progrès de chaque personne.", "Real visibility on each person's progress.", "Echte Übersicht über den Fortschritt jeder Person."),
+    cta: tri("Réserver un audit des besoins", "Book a needs audit", "Bedarfsanalyse buchen"),
+  },
+
+  // ── Home: procurement FAQ ──────────────────────────────────────────────────
+  faq: {
+    eyebrow: tri("Questions fréquentes", "Frequently asked", "Häufige Fragen"),
+    title:   tri("Ce que les entreprises nous demandent.", "What companies ask us.", "Was Unternehmen uns fragen."),
+    q1: tri("Combien de personnes pouvez-vous former ?", "How many people can you train?", "Wie viele Personen können Sie schulen?"),
+    a1: tri("Des petits groupes comme des équipes entières. On calibre le programme à votre effectif lors de l'audit.", "From small groups to whole teams. We size the program to your headcount during the audit.", "Von kleinen Gruppen bis zu ganzen Teams. Wir richten das Programm bei der Analyse an Ihrer Personalstärke aus."),
+    q2: tri("Est-ce vraiment 100% en ligne ?", "Is it really 100% online?", "Ist es wirklich 100% online?"),
+    a2: tri("Oui, en direct avec un vrai professeur, pour ne perdre aucune heure de travail. Sur site possible, sur demande.", "Yes, live with a real teacher, so no work hours are lost. On-site is available on request.", "Ja, live mit einer echten Lehrkraft, damit keine Arbeitszeit verloren geht. Vor Ort auf Wunsch möglich."),
+    q3: tri("Dans quelles langues travaillez-vous ?", "In which languages do you work?", "In welchen Sprachen arbeiten Sie?"),
+    a3: tri("On enseigne l'allemand et on travaille avec vous en français, anglais ou allemand.", "We teach German and work with you in French, English or German.", "Wir lehren Deutsch und arbeiten mit Ihnen auf Französisch, Englisch oder Deutsch."),
+    q4: tri("Comment mesurez-vous les progrès ?", "How do you measure progress?", "Wie messen Sie den Fortschritt?"),
+    a4: tri("Vous voyez où en est chaque personne : progrès, présence, capacité à s'en servir au travail.", "You see where each person stands: progress, attendance, ability to use it at work.", "Sie sehen, wo jede Person steht: Fortschritt, Anwesenheit, Anwendung im Beruf."),
+    q5: tri("Comment commence-t-on ?", "How do we get started?", "Wie fangen wir an?"),
+    a5: tri("Par un audit des besoins. On écoute, puis on propose un programme sous un jour ouvré.", "With a needs audit. We listen, then propose a program within one business day.", "Mit einer Bedarfsanalyse. Wir hören zu und schlagen innerhalb eines Werktags ein Programm vor."),
+    cta: tri("Une autre question ? Parlons-en", "Another question? Let's talk", "Noch eine Frage? Sprechen wir"),
+  },
+
+  // ── Social proof that needs REAL, consented assets — gated DARK until filled.
+  //    NEVER fabricate logos/quotes. Each component renders only when items.length > 0.
+  logos: {
+    eyebrow: tri("Ils nous font confiance", "Trusted by", "Sie vertrauen uns"),
+    items: [] as { name: string; src: string }[],
+  },
+  testimonials: {
+    eyebrow: tri("Ce qu'ils en disent", "What they say", "Was sie sagen"),
+    items: [] as { quote: Tri; name: string; role: Tri; company: string }[],
   },
 
   // ── AI — we teach WITH AI + teach teams to USE AI to learn faster ─────────
@@ -297,6 +369,14 @@ export const COPY = {
     stat2L: tri("Entreprises formées", "Companies trained", "Geschulte Unternehmen"),
     stat3N: tri("100%", "100%", "100%"),
     stat3L: tri("En ligne, sans temps perdu", "Online, no time lost", "Online, ohne Zeitverlust"),
+    stat4N: tri("3", "3", "3"),
+    stat4L: tri("Langues d'enseignement (FR/EN/DE)", "Languages of instruction (FR/EN/DE)", "Unterrichtssprachen (FR/EN/DE)"),
+    statsEyebrow: tri("Borivon en chiffres", "Borivon by the numbers", "Borivon in Zahlen"),
+    statsNote: tri(
+      "Des chiffres réels, pas gonflés. On préfère prouver par la méthode.",
+      "Real numbers, not inflated. We'd rather prove it through the method.",
+      "Echte Zahlen, nicht aufgebläht. Wir beweisen es lieber durch die Methode.",
+    ),
 
     storyEyebrow: tri("Pourquoi Borivon", "Why Borivon", "Warum Borivon"),
     storyTitle:   tri("Plus de 8 ans à faire parler les équipes.", "8+ years getting teams speaking.", "Über 8 Jahre, in denen wir Teams zum Sprechen bringen."),

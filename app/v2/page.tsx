@@ -14,17 +14,28 @@ import { COPY, type Tri } from "./_copy";
 import {
   EASE, Up, stagger, item, TiltCard, GlowField, SectionHead,
   PrimaryCTA, GhostCTA, CheckCard, Check, RevealImage, CinematicStatement, CountUp, Marquee, RiseWords,
-  GoldReveal, HorizontalPin,
+  GoldReveal, HorizontalPin, PanelPhoto,
 } from "./_components";
 
 const C = COPY;
 
 // Professional, on-message photos (each one is paired with text + scroll motion).
+const U = "https://images.unsplash.com/";
 const IMG = {
-  outcomes:  "https://images.unsplash.com/photo-1542744173-8e7e53415bb0?auto=format&fit=crop&w=1200&q=72", // business meeting
-  statement: "https://images.unsplash.com/photo-1600880292089-90a7e086ee0c?auto=format&fit=crop&w=2000&q=72", // colleagues in conversation
-  ai:        "https://images.unsplash.com/photo-1531746790731-6c087fecd65a?auto=format&fit=crop&w=1200&q=72", // learning online
+  hero:      `${U}photo-1556761175-b413da4baf72?auto=format&fit=crop&w=1200&q=72`, // team in a meeting room
+  outcomes:  `${U}photo-1521737711867-e3b97375f902?auto=format&fit=crop&w=1100&q=72`, // team talking, meeting
+  statement: `${U}photo-1600880292089-90a7e086ee0c?auto=format&fit=crop&w=1600&q=70`, // colleagues in conversation
+  ai:        `${U}photo-1573164713988-8665fc963095?auto=format&fit=crop&w=1200&q=72`, // professional on a video call
+  closing:   `${U}photo-1551818255-e6e10975bc17?auto=format&fit=crop&w=1600&q=70`, // presenting to a room
 };
+// One scene per showcase panel (Meetings · Kundengespräch · Verhandlung · Präsentation · Vorstellungsgespräch).
+const SHOWCASE_IMG = [
+  `${U}photo-1543269865-cbf427effbad?auto=format&fit=crop&w=900&q=70`,   // team meeting
+  `${U}photo-1600880292203-757bb62b4baf?auto=format&fit=crop&w=900&q=70`, // client conversation
+  `${U}photo-1551836022-d5d88e9218df?auto=format&fit=crop&w=900&q=70`,    // handshake / deal
+  `${U}photo-1475721027785-f74eccf877e2?auto=format&fit=crop&w=900&q=70`, // presenting to a room
+  `${U}photo-1552581234-26160f608093?auto=format&fit=crop&w=900&q=70`,    // one-on-one interview
+];
 
 // One word, revealed by rising from behind a mask (overflow-hidden line).
 function MaskWord({ children, delay, accent }: { children: React.ReactNode; delay: number; accent?: boolean }) {
@@ -65,8 +76,9 @@ function HomeHero() {
         <span style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontWeight: 700, fontSize: "clamp(9rem, 34vw, 30rem)", lineHeight: 1, color: "var(--w)", opacity: 0.05, whiteSpace: "nowrap", userSelect: "none" }}>Borivon</span>
       </motion.div>
 
-      <motion.div className="relative z-[1] mx-auto max-w-[1180px]" style={reduce ? undefined : { y: contentY, opacity: contentOp }}>
-        <div className="max-w-[860px]">
+      <motion.div className="relative z-[1] mx-auto max-w-[1240px]" style={reduce ? undefined : { y: contentY, opacity: contentOp }}>
+        <div className="grid items-center gap-12 lg:grid-cols-[1.05fr_0.9fr]">
+          <div className="max-w-[640px]">
           <motion.div initial={reduce ? false : { opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: EASE }}>
             <span className="bv-eyebrow">{T(C.home.heroEyebrow)}</span>
           </motion.div>
@@ -95,6 +107,10 @@ function HomeHero() {
               </Fragment>
             ))}
           </motion.div>
+          </div>
+          <div className="relative">
+            <RevealImage src={IMG.hero} alt={lang === "de" ? "Team-Meeting auf Deutsch" : lang === "fr" ? "Réunion d'équipe en allemand" : "Team meeting in German"} className="aspect-[16/10] w-full rounded-[24px] lg:aspect-[4/5]" priority />
+          </div>
         </div>
       </motion.div>
 
@@ -192,7 +208,7 @@ function OutcomesSticky() {
     <section id="outcomes" className="px-[6vw] py-24 sm:py-32">
       <div className="mx-auto grid max-w-[1140px] items-start gap-12 lg:grid-cols-2 lg:gap-16">
         <div className="lg:sticky lg:top-[92px] lg:self-start">
-          <RevealImage src={IMG.outcomes} alt={lang === "de" ? "Meeting auf Deutsch" : lang === "fr" ? "Réunion en allemand" : "Meeting in German"} className="aspect-[4/5] rounded-[26px] sm:aspect-[16/10] lg:aspect-[4/5]" priority />
+          <RevealImage src={IMG.outcomes} alt={lang === "de" ? "Meeting auf Deutsch" : lang === "fr" ? "Réunion en allemand" : "Meeting in German"} className="aspect-[4/5] rounded-[26px] sm:aspect-[16/10] lg:aspect-[4/5]" />
         </div>
         <div>
           <Up>
@@ -248,10 +264,11 @@ function StatsBand() {
   const { lang } = useLang();
   const T = (t: Tri) => t[lang];
   const A = C.about;
-  const stats = [[A.stat1N, A.stat1L], [A.stat2N, A.stat2L], [A.stat3N, A.stat3L]] as const;
+  const stats = [[A.stat1N, A.stat1L], [A.stat2N, A.stat2L], [A.stat3N, A.stat3L], [A.stat4N, A.stat4L]] as const;
   return (
     <section className="px-[6vw] py-16 sm:py-20" style={{ borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
-      <motion.div className="mx-auto grid max-w-[900px] gap-10 text-center sm:grid-cols-3" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }}>
+      <Up className="mb-10 text-center"><span className="bv-eyebrow">{T(A.statsEyebrow)}</span></Up>
+      <motion.div className="mx-auto grid max-w-[1000px] gap-10 text-center sm:grid-cols-2 lg:grid-cols-4" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }}>
         {stats.map(([n, l]) => (
           <motion.div key={T(n)} variants={item}>
             <div className="font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(2.6rem, 6vw, 4rem)", letterSpacing: "-0.04em", lineHeight: 1, color: "var(--gold)" }}><CountUp value={T(n)} /></div>
@@ -259,6 +276,7 @@ function StatsBand() {
           </motion.div>
         ))}
       </motion.div>
+      <Up delay={0.1} className="mt-9 text-center"><p className="bv-small" style={{ fontSize: "0.85rem", color: "var(--w3)" }}>{T(A.statsNote)}</p></Up>
     </section>
   );
 }
@@ -283,10 +301,11 @@ function VorOrt() {
 function Trust() {
   const { lang } = useLang();
   const T = (t: Tri) => t[lang];
-  const items = [[C.home.trustA_h, C.home.trustA_b], [C.home.trustB_h, C.home.trustB_b], [C.home.trustC_h, C.home.trustC_b]] as const;
+  const items = [[C.home.trustA_h, C.home.trustA_b], [C.home.trustB_h, C.home.trustB_b], [C.home.trustC_h, C.home.trustC_b], [C.home.trustD_h, C.home.trustD_b]] as const;
   return (
     <section className="px-[6vw] py-24 sm:py-28">
-      <motion.div className="mx-auto grid max-w-[1000px] gap-8 sm:grid-cols-3" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-70px" }}>
+      <Up className="mx-auto mb-12 max-w-[1000px] text-center"><span className="bv-eyebrow">{T(C.home.trustEyebrow)}</span></Up>
+      <motion.div className="mx-auto grid max-w-[1080px] gap-8 sm:grid-cols-2 lg:grid-cols-4" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-70px" }}>
         {items.map(([t, d]) => (
           <motion.div key={T(t)} variants={item}>
             <div className="font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "1.18rem", letterSpacing: "-0.02em", color: "var(--gold)" }}>{T(t)}</div>
@@ -294,6 +313,7 @@ function Trust() {
           </motion.div>
         ))}
       </motion.div>
+      <Up delay={0.1} className="mt-10 text-center"><p className="bv-small" style={{ fontSize: "0.85rem", color: "var(--w3)" }}>{T(C.home.trustSince)}</p></Up>
     </section>
   );
 }
@@ -353,14 +373,156 @@ function Showcase() {
         <HorizontalPin heightVh={300}>
           {panels.map(([tag, h], i) => (
             <article key={tag} className="w-[78vw] shrink-0 sm:w-[58vw] md:w-[44vw] lg:w-[34vw]" style={{ scrollSnapAlign: "center" }}>
-              <div className="bv-surface flex h-[clamp(340px,60vh,540px)] flex-col justify-end rounded-[28px] p-9">
-                <span style={{ fontFamily: "var(--font-sans)", fontVariantNumeric: "tabular-nums", fontSize: "0.8rem", fontWeight: 600, letterSpacing: "0.08em", color: "var(--gold-muted)" }}>{String(i + 1).padStart(2, "0")}</span>
-                <span className="mt-3 font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(1.9rem, 3vw, 2.9rem)", lineHeight: 1.04, letterSpacing: "-0.03em", color: "var(--w)" }}>{tag}</span>
-                <span className="mt-3" style={{ fontFamily: "var(--font-sans)", fontSize: "1.05rem", lineHeight: 1.5, color: "var(--w2)" }}>{T(h)}</span>
+              <div className="bv-surface relative flex h-[clamp(340px,60vh,540px)] flex-col justify-end overflow-hidden rounded-[28px] p-9">
+                <PanelPhoto src={SHOWCASE_IMG[i]} alt={tag} />
+                <div className="relative z-[1]">
+                  <span className="block" style={{ fontFamily: "var(--font-sans)", fontVariantNumeric: "tabular-nums", fontSize: "0.8rem", fontWeight: 600, letterSpacing: "0.08em", color: "var(--gold)" }}>{String(i + 1).padStart(2, "0")}</span>
+                  <span className="mt-3 block font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(1.9rem, 3vw, 2.9rem)", lineHeight: 1.04, letterSpacing: "-0.03em", color: "#fff" }}>{tag}</span>
+                  <span className="mt-3 block" style={{ fontFamily: "var(--font-sans)", fontSize: "1.05rem", lineHeight: 1.5, color: "rgba(255,255,255,0.85)" }}>{T(h)}</span>
+                </div>
               </div>
             </article>
           ))}
         </HorizontalPin>
+      </div>
+    </section>
+  );
+}
+
+// Method-as-proof: the usual course vs the Borivon method (positioning, no fake metrics).
+function MethodContrast() {
+  const { lang } = useLang();
+  const T = (t: Tri) => t[lang];
+  const X = C.contrast;
+  const olds = [X.old1, X.old2, X.old3, X.old4, X.old5];
+  const news = [X.new1, X.new2, X.new3, X.new4, X.new5];
+  return (
+    <section className="px-[6vw] py-24 sm:py-28">
+      <div className="mx-auto max-w-[1080px]">
+        <SectionHead eyebrow={T(X.eyebrow)} title={T(X.title)} accent={T(X.accent)} />
+        <div className="mt-14 grid gap-6 lg:grid-cols-2">
+          <div className="rounded-[22px] p-8" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+            <div className="bv-eyebrow" style={{ color: "var(--w3)" }}>{T(X.oldH)}</div>
+            <ul className="mt-6 space-y-4">
+              {olds.map((o) => (
+                <li key={T(o)} className="flex items-start gap-3">
+                  <span className="mt-1.5 grid h-5 w-5 flex-shrink-0 place-items-center rounded-full" style={{ border: "1px solid var(--border2)" }}><span style={{ width: 8, height: 1.5, background: "var(--w3)", display: "block" }} /></span>
+                  <span style={{ fontFamily: "var(--font-sans)", fontSize: "1rem", lineHeight: 1.5, color: "var(--w3)" }}>{T(o)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <TiltCard className="rounded-[22px] p-8 bv-surface" style={{ borderColor: "var(--border-gold)" }}>
+            <div className="bv-eyebrow" style={{ color: "var(--gold)" }}>{T(X.newH)}</div>
+            <ul className="mt-6 space-y-4">
+              {news.map((n) => (
+                <li key={T(n)} className="flex items-start gap-3">
+                  <span className="mt-0.5 grid h-6 w-6 flex-shrink-0 place-items-center rounded-full" style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}><Check size={13} /></span>
+                  <span style={{ fontFamily: "var(--font-sans)", fontSize: "1rem", lineHeight: 1.5, color: "var(--w)" }}>{T(n)}</span>
+                </li>
+              ))}
+            </ul>
+          </TiltCard>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// Commitment / honest risk-reversal (free audit, 1-day proposal, one partner, visibility).
+function Commitment() {
+  const { lang } = useLang();
+  const T = (t: Tri) => t[lang];
+  const M = C.commit;
+  const items = [M.c1, M.c2, M.c3, M.c4];
+  return (
+    <section className="px-[6vw] py-24 sm:py-28" style={{ background: "var(--bg2)" }}>
+      <div className="mx-auto max-w-[760px]">
+        <div className="bv-surface rounded-[26px] p-8 sm:p-12">
+          <Up className="text-center">
+            <span className="bv-eyebrow">{T(M.eyebrow)}</span>
+            <h2 className="mt-4 font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(1.7rem, 3.6vw, 2.5rem)", lineHeight: 1.12, letterSpacing: "-0.025em", color: "var(--w)" }}>{T(M.title)} <span style={{ color: "var(--gold)" }}>{T(M.accent)}</span></h2>
+            <p className="mx-auto mt-5 max-w-[520px]" style={{ fontFamily: "var(--font-sans)", fontSize: "1.05rem", lineHeight: 1.6, color: "var(--w2)" }}>{T(M.sub)}</p>
+          </Up>
+          <motion.ul className="mx-auto mt-9 grid max-w-[600px] gap-3 sm:grid-cols-2" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }}>
+            {items.map((c) => (
+              <motion.li key={T(c)} variants={item} className="flex items-start gap-3">
+                <span className="mt-0.5 grid h-6 w-6 flex-shrink-0 place-items-center rounded-full" style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}><Check size={13} /></span>
+                <span style={{ fontFamily: "var(--font-sans)", fontSize: "0.97rem", lineHeight: 1.45, color: "var(--w)" }}>{T(c)}</span>
+              </motion.li>
+            ))}
+          </motion.ul>
+          <Up delay={0.1} className="mt-9 flex justify-center"><PrimaryCTA href="/v2/contact" big>{T(M.cta)}</PrimaryCTA></Up>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// Procurement FAQ — native <details> (no JS, accessible, reduced-motion safe).
+function FAQ() {
+  const { lang } = useLang();
+  const T = (t: Tri) => t[lang];
+  const F = C.faq;
+  const qa = [[F.q1, F.a1], [F.q2, F.a2], [F.q3, F.a3], [F.q4, F.a4], [F.q5, F.a5]] as const;
+  return (
+    <section className="px-[6vw] py-24 sm:py-28">
+      <div className="mx-auto max-w-[820px]">
+        <SectionHead eyebrow={T(F.eyebrow)} title={T(F.title)} />
+        <div className="mt-12 space-y-3">
+          {qa.map(([q, a]) => (
+            <details key={T(q)} className="bv-surface rounded-[16px] px-6 py-4">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-4" style={{ fontFamily: "var(--font-sans)", fontSize: "1.05rem", fontWeight: 600, color: "var(--w)" }}>
+                {T(q)}
+                <span aria-hidden className="bv-faq-mark" style={{ color: "var(--gold)", fontSize: "1.5rem", lineHeight: 1 }}>+</span>
+              </summary>
+              <p className="mt-3" style={{ fontFamily: "var(--font-sans)", fontSize: "0.98rem", lineHeight: 1.6, color: "var(--w2)" }}>{T(a)}</p>
+            </details>
+          ))}
+        </div>
+        <Up delay={0.1} className="mt-10 flex justify-center"><GhostCTA href="/v2/contact">{T(F.cta)}</GhostCTA></Up>
+      </div>
+    </section>
+  );
+}
+
+// Client logo wall — GATED: renders only when real, consented logos exist.
+function LogoWall() {
+  const { lang } = useLang();
+  const T = (t: Tri) => t[lang];
+  if (!C.logos.items.length) return null;
+  return (
+    <section className="px-[6vw] py-16" style={{ background: "var(--bg2)" }}>
+      <Up className="mb-9 text-center"><span className="bv-eyebrow">{T(C.logos.eyebrow)}</span></Up>
+      <div className="mx-auto flex max-w-[1000px] flex-wrap items-center justify-center gap-x-12 gap-y-8">
+        {C.logos.items.map((l) => (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img key={l.name} src={l.src} alt={l.name} loading="lazy" decoding="async" className="h-8 w-auto opacity-70 grayscale transition hover:opacity-100 hover:grayscale-0" />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+// Named testimonials — GATED: renders only when real, consented quotes exist.
+function Testimonials() {
+  const { lang } = useLang();
+  const T = (t: Tri) => t[lang];
+  if (!C.testimonials.items.length) return null;
+  return (
+    <section className="px-[6vw] py-24 sm:py-28">
+      <div className="mx-auto max-w-[1080px]">
+        <Up className="mb-12 text-center"><span className="bv-eyebrow">{T(C.testimonials.eyebrow)}</span></Up>
+        <motion.div className="grid gap-6 md:grid-cols-2" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }}>
+          {C.testimonials.items.map((t, i) => (
+            <motion.div key={i} variants={item}>
+              <TiltCard className="h-full rounded-[22px] p-8 bv-surface">
+                <p style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontSize: "1.18rem", lineHeight: 1.5, color: "var(--w)" }}>&ldquo;{T(t.quote)}&rdquo;</p>
+                <div className="mt-5" style={{ fontFamily: "var(--font-sans)", fontSize: "0.9rem", color: "var(--w3)" }}>{t.name} · {T(t.role)} · {t.company}</div>
+              </TiltCard>
+            </motion.div>
+          ))}
+        </motion.div>
       </div>
     </section>
   );
@@ -374,8 +536,10 @@ export default function V2Home() {
       <HomeHero />
       <TrustStrip />
       <Marquee items={["Meetings", "Kundengespräch", "Verhandlung", "Vertrieb", "Telefonate", "Präsentation", "Verträge", "Kundenbetreuung"]} duration={34} />
+      <StatsBand />
       <Problem />
       <Manifesto />
+      <MethodContrast />
       <Journey />
       <OutcomesSticky />
       <CinematicStatement
@@ -388,9 +552,20 @@ export default function V2Home() {
       />
       <AISection />
       <Showcase />
-      <StatsBand />
+      <LogoWall />
+      <Testimonials />
       <VorOrt />
+      <Commitment />
       <Trust />
+      <FAQ />
+      <CinematicStatement
+        src={IMG.closing}
+        alt={lang === "de" ? "Präsentation auf Deutsch" : lang === "fr" ? "Présentation en allemand" : "Presenting in German"}
+        eyebrow={T(C.closing.eyebrow)}
+        line1={T(C.closing.line1)}
+        line2={T(C.closing.line2)}
+        sub={T(C.closing.sub)}
+      />
       <FinalCTA />
     </>
   );

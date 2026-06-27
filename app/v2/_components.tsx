@@ -269,7 +269,7 @@ export function RevealImage({ src, alt, className = "", priority = false }: { sr
       style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderTop: "1px solid var(--border-gold)" }}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <motion.img src={src} alt={alt} loading={priority ? "eager" : "lazy"} className="h-full w-full object-cover"
+      <motion.img src={src} alt={alt} loading={priority ? "eager" : "lazy"} decoding="async" className="h-full w-full object-cover"
         style={reduce ? { height: "100%", width: "100%" } : { y, scale: 1.15 }} />
       <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: "linear-gradient(180deg, color-mix(in oklab, var(--bg) 6%, transparent), color-mix(in oklab, var(--bg) 72%, transparent))" }} />
     </motion.div>
@@ -323,7 +323,7 @@ export function CinematicStatement({ src, alt, eyebrow, line1, line2, sub }: {
         {/* image layer (parallax + slow zoom) */}
         <motion.div aria-hidden className="absolute inset-0 -z-0" style={reduce ? undefined : { y }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <motion.img src={src} alt={alt} loading="lazy" className="h-full w-full object-cover" style={reduce ? undefined : { scale }} />
+          <motion.img src={src} alt={alt} loading="lazy" decoding="async" className="h-full w-full object-cover" style={reduce ? undefined : { scale }} />
         </motion.div>
         {/* legibility scrim — darker bottom-left where the text sits */}
         <div aria-hidden className="absolute inset-0" style={{ background: "linear-gradient(105deg, rgba(8,8,10,0.82) 0%, rgba(8,8,10,0.52) 40%, rgba(8,8,10,0.15) 70%, rgba(8,8,10,0.35) 100%)" }} />
@@ -422,6 +422,19 @@ export function HorizontalPin({ children, heightVh = 320 }: { children: React.Re
           </motion.div>
         </div>
       </div>
+    </>
+  );
+}
+
+// ── Background photo for a card/panel: object-cover image + a static bottom-heavy
+// scrim (for legible white text) + a faint gold top edge. Parent must be
+// position:relative + overflow-hidden + a reserved height. Lazy + async decode. ─
+export function PanelPhoto({ src, alt }: { src: string; alt: string }) {
+  return (
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={src} alt={alt} loading="lazy" decoding="async" className="absolute inset-0 h-full w-full object-cover" />
+      <div aria-hidden className="absolute inset-0" style={{ background: "linear-gradient(180deg, color-mix(in oklab, var(--bg) 12%, transparent) 0%, color-mix(in oklab, var(--bg) 55%, transparent) 50%, color-mix(in oklab, var(--bg) 88%, transparent) 100%)", borderTop: "1px solid var(--border-gold)" }} />
     </>
   );
 }
