@@ -53,7 +53,7 @@ export default function AboutPage() {
 
       <section className="px-[6vw] py-24 sm:py-28" style={{ background: "var(--bg2)" }}>
         <div className="mx-auto max-w-[1080px]">
-          <motion.div className="grid gap-5 sm:grid-cols-3" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} style={{ transformStyle: "preserve-3d" }}>
+          <motion.div className="grid gap-5 sm:grid-cols-3" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }}>
             {values.map(([h, b]) => (
               <motion.div key={T(h)} variants={item}>
                 <TiltCard className="h-full rounded-2xl p-7" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>

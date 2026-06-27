@@ -7,13 +7,13 @@
  * problem -> how it works -> outcomes -> statement -> AI -> proof stats -> on-site
  * -> credibility -> one repeated "book a needs audit" CTA. Trilingual; reduced-motion safe.
  */
-import { useRef } from "react";
+import { Fragment, useRef } from "react";
 import { motion, useReducedMotion, useScroll, useTransform } from "motion/react";
 import { useLang } from "@/components/LangContext";
 import { COPY, type Tri } from "./_copy";
 import {
   EASE, Up, stagger, item, TiltCard, GlowField, SectionHead,
-  PrimaryCTA, GhostCTA, CheckCard, Check, RevealImage, CinematicStatement, CountUp,
+  PrimaryCTA, GhostCTA, CheckCard, Check, RevealImage, CinematicStatement, CountUp, Marquee, RiseWords,
 } from "./_components";
 
 const C = COPY;
@@ -51,13 +51,18 @@ function HomeHero() {
   const { scrollY } = useScroll();
   const contentY = useTransform(scrollY, [0, 520], [0, -90]);
   const contentOp = useTransform(scrollY, [0, 420], [1, 0]);
+  const wmY = useTransform(scrollY, [0, 600], [0, 90]);   // watermark counter-parallax
+  const cueOp = useTransform(scrollY, [0, 120], [1, 0]);  // scroll cue fades on first scroll
+  const chips = [T(C.home.chip1), T(C.home.chip2), T(C.home.chip3)];
 
   return (
-    <GlowField className="px-[6vw] pt-[150px] pb-24 sm:pt-[185px] sm:pb-32" strong>
-      {/* giant parallax watermark — depth, on-brand */}
-      <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center overflow-hidden">
-        <span style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontWeight: 700, fontSize: "clamp(9rem, 34vw, 30rem)", lineHeight: 1, color: "var(--w)", opacity: 0.035, whiteSpace: "nowrap", userSelect: "none" }}>Borivon</span>
-      </div>
+    <GlowField className="px-[6vw] pt-[150px] pb-28 sm:pt-[185px] sm:pb-36" strong>
+      {/* masked grid backdrop — quiet Linear/Vercel depth cue */}
+      <div className="bv-hero-grid" />
+      {/* giant watermark — slow counter-parallax for real depth */}
+      <motion.div aria-hidden className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center overflow-hidden" style={reduce ? undefined : { y: wmY }}>
+        <span style={{ fontFamily: "var(--font-serif)", fontStyle: "italic", fontWeight: 700, fontSize: "clamp(9rem, 34vw, 30rem)", lineHeight: 1, color: "var(--w)", opacity: 0.05, whiteSpace: "nowrap", userSelect: "none" }}>Borivon</span>
+      </motion.div>
 
       <motion.div className="relative z-[1] mx-auto max-w-[1180px]" style={reduce ? undefined : { y: contentY, opacity: contentOp }}>
         <div className="max-w-[860px]">
@@ -70,7 +75,7 @@ function HomeHero() {
             <MaskWord delay={0.15 + 0.07 * words.length} accent>{T(C.home.heroAccent)}</MaskWord>
           </h1>
 
-          <motion.p className="mt-7 max-w-[600px]" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(1.05rem, 1.6vw, 1.28rem)", lineHeight: 1.65, color: "var(--w2)" }}
+          <motion.p className="mt-7 bv-measure" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(1.15rem, 1.7vw, 1.42rem)", lineHeight: 1.6, color: "var(--w2)" }}
             initial={reduce ? false : { opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, ease: EASE, delay: 0.6 }}>
             {T(C.home.heroSub)}
           </motion.p>
@@ -80,11 +85,22 @@ function HomeHero() {
             <GhostCTA href="/v2/methode" big>{T(C.home.heroCta2)}</GhostCTA>
           </motion.div>
 
-          <motion.div className="mt-14 flex flex-wrap items-center gap-x-8 gap-y-3" initial={reduce ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.8, ease: EASE, delay: 0.95 }}>
-            {[T(C.home.chip1), T(C.home.chip2), T(C.home.chip3)].map((t) => (
-              <span key={t} className="bv-small" style={{ fontSize: "0.82rem", color: "var(--w3)" }}>{t}</span>
+          {/* credential rail — top hairline + thin dividers between chips */}
+          <motion.div className="mt-12 flex flex-wrap items-center gap-x-5 gap-y-3 pt-7" style={{ borderTop: "1px solid var(--border)" }} initial={reduce ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.8, ease: EASE, delay: 0.95 }}>
+            {chips.map((t, i) => (
+              <Fragment key={t}>
+                {i > 0 && <span aria-hidden style={{ width: 1, height: 12, background: "var(--border2)" }} />}
+                <span className="bv-small" style={{ fontSize: "0.82rem", letterSpacing: "0.01em", color: "var(--w3)" }}>{t}</span>
+              </Fragment>
             ))}
           </motion.div>
+        </div>
+      </motion.div>
+
+      {/* scroll cue — gold dot travels down a thin rail, fades on first scroll */}
+      <motion.div aria-hidden className="pointer-events-none absolute bottom-7 left-1/2 hidden -translate-x-1/2 sm:block" style={{ opacity: reduce ? 0.5 : cueOp }}>
+        <div className="h-10 w-[1.5px] overflow-hidden" style={{ background: "var(--border2)" }}>
+          <motion.div className="h-3 w-full" style={{ background: "var(--gold)" }} animate={reduce ? undefined : { y: ["-100%", "330%"] }} transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }} />
         </div>
       </motion.div>
     </GlowField>
@@ -115,11 +131,11 @@ function Problem() {
   return (
     <section className="px-[6vw] py-24 sm:py-28">
       <div className="mx-auto max-w-[1080px]">
-        <SectionHead eyebrow={T(C.home.problemEyebrow)} title={T(C.home.problemTitle)} accent={T(C.home.problemAccent)} sub={T(C.home.problemSub)} />
-        <motion.div className="mt-14 grid gap-5 sm:grid-cols-3" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} style={{ transformStyle: "preserve-3d" }}>
+        <SectionHead index="01" eyebrow={T(C.home.problemEyebrow)} title={T(C.home.problemTitle)} accent={T(C.home.problemAccent)} sub={T(C.home.problemSub)} />
+        <motion.div className="mt-14 grid gap-5 sm:grid-cols-3" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }}>
           {cards.map(([t, d]) => (
             <motion.div key={T(t)} variants={item}>
-              <TiltCard className="h-full rounded-2xl p-7" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+              <TiltCard className="h-full rounded-2xl p-7 bv-surface">
                 <h3 style={{ fontFamily: "var(--font-sans)", fontSize: "1.12rem", fontWeight: 600, lineHeight: 1.3, color: "var(--w)" }}>{T(t)}</h3>
                 <p className="mt-3" style={{ fontFamily: "var(--font-sans)", fontSize: "0.97rem", lineHeight: 1.6, color: "var(--w2)" }}>{T(d)}</p>
               </TiltCard>
@@ -137,20 +153,20 @@ function Journey() {
   const T = (t: Tri) => t[lang];
   const ref = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start 0.85", "end 0.5"] });
-  const lineW = useTransform(scrollYProgress, [0, 1], ["0%", "100%"]);
+  const lineSX = useTransform(scrollYProgress, [0, 1], [0, 1]);
   const steps = [["01", C.home.step1, C.home.step1B], ["02", C.home.step2, C.home.step2B], ["03", C.home.step3, C.home.step3B], ["04", C.home.step4, C.home.step4B]] as const;
   return (
     <section className="px-[6vw] py-24 sm:py-32" style={{ background: "var(--bg2)" }}>
       <div className="mx-auto max-w-[1140px]">
-        <SectionHead eyebrow={T(C.home.journeyEyebrow)} title={T(C.home.journeyTitle)} accent={T(C.home.journeyAccent)} sub={T(C.home.journeySub)} />
+        <SectionHead index="02" eyebrow={T(C.home.journeyEyebrow)} title={T(C.home.journeyTitle)} accent={T(C.home.journeyAccent)} sub={T(C.home.journeySub)} />
         <div ref={ref} className="relative mt-16">
           <div className="absolute left-0 right-0 top-[34px] hidden h-[2px] lg:block" style={{ background: "var(--border)" }}>
-            <motion.div className="h-full" style={{ width: lineW, background: "var(--gold-gradient)" }} />
+            <motion.div className="h-full w-full" style={{ scaleX: lineSX, transformOrigin: "0% 50%", background: "var(--gold-gradient)" }} />
           </div>
-          <motion.div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} style={{ transformStyle: "preserve-3d" }}>
+          <motion.div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }}>
             {steps.map(([n, t, b]) => (
               <motion.div key={n} variants={item}>
-                <TiltCard className="h-full rounded-2xl p-7" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+                <TiltCard className="h-full rounded-2xl p-7 bv-surface">
                   <div className="grid h-12 w-12 place-items-center rounded-full text-[1.1rem] font-bold" style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>{n}</div>
                   <h3 className="mt-5" style={{ fontFamily: "var(--font-sans)", fontSize: "1.16rem", fontWeight: 600, lineHeight: 1.3, color: "var(--w)" }}>{T(t)}</h3>
                   <p className="mt-2.5" style={{ fontFamily: "var(--font-sans)", fontSize: "0.95rem", lineHeight: 1.55, color: "var(--w2)" }}>{T(b)}</p>
@@ -184,7 +200,7 @@ function OutcomesSticky() {
             </h2>
             <p className="mt-6 max-w-[460px]" style={{ fontFamily: "var(--font-sans)", fontSize: "1.08rem", lineHeight: 1.7, color: "var(--w2)" }}>{T(E.body)}</p>
           </Up>
-          <motion.ul className="mt-10 space-y-4" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} style={{ transformStyle: "preserve-3d" }}>
+          <motion.ul className="mt-10 space-y-4" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }}>
             {points.map((p) => (<motion.li key={T(p)} variants={item}><CheckCard>{T(p)}</CheckCard></motion.li>))}
           </motion.ul>
           <Up delay={0.1} className="mt-9"><PrimaryCTA href="/v2/contact">{T(E.cta)}</PrimaryCTA></Up>
@@ -203,7 +219,7 @@ function AISection() {
   return (
     <section className="px-[6vw] py-24 sm:py-32" style={{ background: "var(--bg2)" }}>
       <div className="mx-auto max-w-[1140px]">
-        <SectionHead eyebrow={T(A.eyebrow)} title={T(A.title)} accent={T(A.accent)} sub={T(A.sub)} />
+        <SectionHead index="03" eyebrow={T(A.eyebrow)} title={T(A.title)} accent={T(A.accent)} sub={T(A.sub)} />
         <div className="mt-14 grid items-center gap-12 lg:grid-cols-2">
           <Up><RevealImage src={IMG.ai} alt={lang === "de" ? "Deutsch online lernen mit KI" : lang === "fr" ? "Apprendre l'allemand en ligne avec l'IA" : "Learning German online with AI"} className="aspect-[4/3] rounded-[24px]" /></Up>
           <Up delay={0.1}>
@@ -289,11 +305,12 @@ function FinalCTA() {
       {!reduce && (
         <motion.div aria-hidden className="pointer-events-none absolute left-1/2 top-1/2 -z-0 h-[560px] w-[900px] max-w-[140vw] -translate-x-1/2 -translate-y-1/2 rounded-full blur-[80px]"
           style={{ background: "radial-gradient(ellipse 50% 50% at 50% 50%, color-mix(in oklab, var(--gold) 13%, transparent) 0%, transparent 70%)" }}
-          animate={{ scale: [1, 1.08, 1], opacity: [0.8, 1, 0.8] }} transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }} />
+          animate={{ opacity: [0.7, 1, 0.7] }} transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }} />
       )}
       <Up className="relative mx-auto max-w-[820px]">
         <h2 className="mx-auto font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(2.3rem, 5.5vw, 4rem)", lineHeight: 1.05, letterSpacing: "-0.03em", color: "var(--w)" }}>
-          {T(C.home.finalTitle)} <span style={{ color: "var(--gold)" }}>{T(C.home.finalAccent)}</span>
+          <RiseWords text={T(C.home.finalTitle)} />{" "}
+          <RiseWords text={T(C.home.finalAccent)} accent delay={0.12} />
         </h2>
         <p className="mx-auto mt-6 max-w-[540px]" style={{ fontFamily: "var(--font-sans)", fontSize: "1.1rem", lineHeight: 1.65, color: "var(--w2)" }}>{T(C.home.finalSub)}</p>
         <div className="mt-10 flex justify-center">
@@ -311,6 +328,7 @@ export default function V2Home() {
     <>
       <HomeHero />
       <TrustStrip />
+      <Marquee items={["Meetings", "Kundengespräch", "Verhandlung", "Vertrieb", "Telefonate", "Präsentation", "Verträge", "Kundenbetreuung"]} duration={34} />
       <Problem />
       <Journey />
       <OutcomesSticky />

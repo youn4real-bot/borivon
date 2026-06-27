@@ -12,12 +12,30 @@ import {
   animate,
   useReducedMotion,
   useScroll,
+  useSpring,
   useTransform,
   useInView,
   type Variants,
 } from "motion/react";
 
 export const EASE = [0.16, 1, 0.3, 1] as const;
+
+// ── Scroll-progress bar — a gold line that fills as you scroll. scaleX only
+// (GPU-composited, never `width`); a spring smooths fast wheels. Reduced-motion
+// removes it entirely. Sits just under the nav. ──────────────────────────────
+export function ScrollProgress() {
+  const reduce = useReducedMotion();
+  const { scrollYProgress } = useScroll();
+  const scaleX = useSpring(scrollYProgress, { stiffness: 120, damping: 30, mass: 0.4 });
+  if (reduce) return null;
+  return (
+    <motion.div
+      aria-hidden
+      className="fixed left-0 top-0 z-[999] h-[2px] w-full"
+      style={{ scaleX, transformOrigin: "0% 50%", background: "var(--gold-gradient)" }}
+    />
+  );
+}
 
 // ── Scroll reveal ─────────────────────────────────────────────────────────────
 export function Up({ children, className = "", delay = 0 }: { children: React.ReactNode; className?: string; delay?: number }) {
@@ -34,17 +52,17 @@ export function Up({ children, className = "", delay = 0 }: { children: React.Re
     </motion.div>
   );
 }
-export const stagger: Variants = { hidden: {}, show: { transition: { staggerChildren: 0.09 } } };
-export const item: Variants = { hidden: { opacity: 0, y: 20 }, show: { opacity: 1, y: 0, transition: { duration: 0.6, ease: EASE } } };
+export const stagger: Variants = { hidden: {}, show: { transition: { staggerChildren: 0.11 } } };
+export const item: Variants = { hidden: { opacity: 0, y: 24 }, show: { opacity: 1, y: 0, transition: { duration: 0.62, ease: EASE } } };
 
-// ── Card with a calm hover-lift (NO cursor tracking — nothing follows the mouse) ─
+// ── Card with a calm hover-lift. Lift = transform; gold glow = an overlay whose
+// OPACITY animates (its shadow/border are static) → no var-shadow transition,
+// no stale-paint, and the lift is gated to real-hover so it can't latch on touch.
 export function TiltCard({ children, className = "", style }: { children: React.ReactNode; className?: string; style?: React.CSSProperties }) {
   return (
-    <div
-      className={`overflow-hidden transition-[transform,border-color,box-shadow] duration-300 ease-out hover:-translate-y-1 hover:[border-color:var(--border-gold)] hover:shadow-[0_22px_55px_-22px_rgba(201,162,64,0.32)] ${className}`}
-      style={style}
-    >
+    <div className={`bv-tilt ${className}`} style={style}>
       {children}
+      <span aria-hidden className="bv-tilt-glow" />
     </div>
   );
 }
@@ -57,22 +75,24 @@ export function GlowField({ children, className = "", strong = false }: { childr
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-0" style={{ background: `radial-gradient(680px circle at 30% 22%, color-mix(in oklab, var(--gold) ${strong ? 15 : 10}%, transparent) 0%, transparent 60%)` }} />
       {!reduce && (
         <>
+          {/* Translate-only on pre-rasterized blurs (no scale → no per-frame blur
+              re-raster → smooth on mid-range Android). */}
           <motion.div
             aria-hidden className="pointer-events-none absolute -z-0 h-[520px] w-[520px] rounded-full blur-[90px]"
             style={{ left: "4%", top: "-4%", background: "radial-gradient(circle, color-mix(in oklab, var(--gold) 13%, transparent), transparent 70%)" }}
-            animate={{ x: [0, 70, 0], y: [0, 36, 0], scale: [1, 1.12, 1] }}
+            animate={{ x: [0, 70, 0], y: [0, 36, 0] }}
             transition={{ duration: 18, repeat: Infinity, ease: "easeInOut" }}
           />
           <motion.div
             aria-hidden className="pointer-events-none absolute right-0 -z-0 h-[460px] w-[460px] rounded-full blur-[100px]"
             style={{ right: "2%", top: "12%", background: "radial-gradient(circle, color-mix(in oklab, var(--gold2, var(--gold)) 10%, transparent), transparent 70%)" }}
-            animate={{ x: [0, -56, 0], y: [0, 44, 0], scale: [1.1, 1, 1.1] }}
+            animate={{ x: [0, -56, 0], y: [0, 44, 0] }}
             transition={{ duration: 23, repeat: Infinity, ease: "easeInOut" }}
           />
           <motion.div
-            aria-hidden className="pointer-events-none absolute left-1/2 -z-0 h-[600px] w-[600px] -translate-x-1/2 rounded-full blur-[120px]"
+            aria-hidden className="pointer-events-none absolute left-1/2 -z-0 hidden h-[600px] w-[600px] -translate-x-1/2 rounded-full blur-[120px] sm:block"
             style={{ bottom: "-30%", background: "radial-gradient(circle, color-mix(in oklab, var(--gold) 7%, transparent), transparent 70%)" }}
-            animate={{ x: [-30, 40, -30], scale: [1, 1.15, 1] }}
+            animate={{ x: [-30, 40, -30] }}
             transition={{ duration: 27, repeat: Infinity, ease: "easeInOut" }}
           />
         </>
@@ -83,16 +103,22 @@ export function GlowField({ children, className = "", strong = false }: { childr
 }
 
 // ── Section heading block ─────────────────────────────────────────────────────
-export function SectionHead({ eyebrow, title, accent, sub, center = true, className = "" }: {
-  eyebrow?: string; title: React.ReactNode; accent?: string; sub?: string; center?: boolean; className?: string;
+export function SectionHead({ eyebrow, title, accent, sub, index, center = true, className = "" }: {
+  eyebrow?: string; title: React.ReactNode; accent?: string; sub?: string; index?: string; center?: boolean; className?: string;
 }) {
   return (
     <Up className={`${center ? "mx-auto text-center" : ""} max-w-[680px] ${className}`}>
-      {eyebrow && <span className="bv-eyebrow">{eyebrow}</span>}
+      {eyebrow && (
+        <span className={`inline-flex items-center gap-2.5 ${center ? "justify-center" : ""}`}>
+          {index && <span style={{ fontFamily: "var(--font-sans)", fontVariantNumeric: "tabular-nums", fontSize: "0.72rem", fontWeight: 600, letterSpacing: "0.06em", color: "var(--gold-muted)" }}>{index}</span>}
+          {index && <span aria-hidden style={{ width: 18, height: 1, background: "var(--border-gold)" }} />}
+          <span className="bv-eyebrow">{eyebrow}</span>
+        </span>
+      )}
       <h2 className="mt-4 font-medium" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(2rem, 4.6vw, 3.3rem)", lineHeight: 1.07, letterSpacing: "-0.028em", color: "var(--w)" }}>
         {title} {accent && <span style={{ color: "var(--gold)" }}>{accent}</span>}
       </h2>
-      {sub && <p className={`mt-5 ${center ? "mx-auto" : ""} max-w-[560px]`} style={{ fontFamily: "var(--font-sans)", fontSize: "1.06rem", lineHeight: 1.65, color: "var(--w2)" }}>{sub}</p>}
+      {sub && <p className={`mt-5 ${center ? "mx-auto" : ""} bv-measure-tight`} style={{ fontFamily: "var(--font-sans)", fontSize: "1.06rem", lineHeight: 1.65, color: "var(--w2)" }}>{sub}</p>}
     </Up>
   );
 }
@@ -134,7 +160,7 @@ export function Check({ size = 13, color = "var(--gold)" }: { size?: number; col
 // ── Checklist card (used by audience / solutions point lists) ──────────────────
 export function CheckCard({ children }: { children: React.ReactNode }) {
   return (
-    <TiltCard className="flex items-start gap-4 rounded-2xl p-5" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+    <TiltCard className="flex items-start gap-4 rounded-2xl p-5 bv-surface">
       <span className="mt-0.5 grid h-6 w-6 flex-shrink-0 place-items-center rounded-full" style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}><Check /></span>
       <span style={{ fontFamily: "var(--font-sans)", fontSize: "1rem", lineHeight: 1.55, color: "var(--w)" }}>{children}</span>
     </TiltCard>
@@ -144,14 +170,15 @@ export function CheckCard({ children }: { children: React.ReactNode }) {
 // ── Kinetic marquee — keywords scroll horizontally (pure motion, seamless loop) ─
 export function Marquee({ items, duration = 32 }: { items: string[]; duration?: number }) {
   const reduce = useReducedMotion();
-  const row = [...items, ...items];
+  // Reduced-motion: a single, centered, non-animated row (no doubled strip).
+  const row = reduce ? items : [...items, ...items];
   return (
     <div className="relative overflow-hidden py-6" aria-hidden style={{ borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
-      {/* edge fades */}
+      {/* edge fades (static var(--bg) — never animated) */}
       <div className="pointer-events-none absolute inset-y-0 left-0 z-[1] w-24" style={{ background: "linear-gradient(90deg, var(--bg), transparent)" }} />
       <div className="pointer-events-none absolute inset-y-0 right-0 z-[1] w-24" style={{ background: "linear-gradient(270deg, var(--bg), transparent)" }} />
       <motion.div
-        className="flex w-max gap-10 whitespace-nowrap"
+        className={`flex gap-10 whitespace-nowrap ${reduce ? "flex-wrap justify-center px-6" : "w-max"}`}
         animate={reduce ? undefined : { x: ["0%", "-50%"] }}
         transition={{ duration, repeat: Infinity, ease: "linear" }}
       >
@@ -238,12 +265,12 @@ export function RevealImage({ src, alt, className = "", priority = false }: { sr
       whileInView={{ opacity: 1, y: 0 }}
       viewport={{ once: true, margin: "-80px" }}
       transition={{ duration: 0.9, ease: EASE }}
-      style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}
+      style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderTop: "1px solid var(--border-gold)" }}
     >
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <motion.img src={src} alt={alt} loading={priority ? "eager" : "lazy"} className="h-full w-full object-cover"
         style={reduce ? { height: "100%", width: "100%" } : { y, scale: 1.15 }} />
-      <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: "linear-gradient(180deg, color-mix(in oklab, var(--bg) 8%, transparent), color-mix(in oklab, var(--bg) 60%, transparent))" }} />
+      <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: "linear-gradient(180deg, color-mix(in oklab, var(--bg) 6%, transparent), color-mix(in oklab, var(--bg) 72%, transparent))" }} />
     </motion.div>
   );
 }
@@ -284,7 +311,7 @@ export function CinematicStatement({ src, alt, eyebrow, line1, line2, sub }: {
   const ref = useRef<HTMLDivElement>(null);
   const { scrollYProgress } = useScroll({ target: ref, offset: ["start end", "end start"] });
   const y = useTransform(scrollYProgress, [0, 1], ["-10%", "10%"]);
-  const scale = useTransform(scrollYProgress, [0, 1], [1.32, 1.06]);
+  const scale = useTransform(scrollYProgress, [0, 1], [1.18, 1.04]);
   return (
     <section className="px-[5vw] py-12 sm:py-16">
       <div

@@ -31,7 +31,7 @@ export default function SolutionsPage() {
       <section className="px-[6vw] py-24 sm:py-28">
         <div className="mx-auto max-w-[1080px]">
           <SectionHead eyebrow={T(C.forEyebrow)} title={T(C.forTitle)} />
-          <motion.div className="mt-14 grid gap-5 sm:grid-cols-3" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} style={{ transformStyle: "preserve-3d" }}>
+          <motion.div className="mt-14 grid gap-5 sm:grid-cols-3" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }}>
             {segs.map(([h, b]) => (
               <motion.div key={T(h)} variants={item}>
                 <TiltCard className="h-full rounded-2xl p-7" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
@@ -48,7 +48,7 @@ export default function SolutionsPage() {
       <section className="px-[6vw] py-24 sm:py-28" style={{ background: "var(--bg2)" }}>
         <div className="mx-auto max-w-[1080px]">
           <SectionHead eyebrow={T(C.needsEyebrow)} title={T(C.needsTitle)} />
-          <motion.div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} style={{ transformStyle: "preserve-3d" }}>
+          <motion.div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-3" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }}>
             {([[C.need1H, C.need1B], [C.need2H, C.need2B], [C.need3H, C.need3B], [C.need4H, C.need4B], [C.need5H, C.need5B]] as const).map(([h, b]) => (
               <motion.div key={T(h)} variants={item}>
                 <TiltCard className="h-full rounded-2xl p-7" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
@@ -64,7 +64,7 @@ export default function SolutionsPage() {
       <section className="px-[6vw] py-24 sm:py-28">
         <div className="mx-auto max-w-[1080px]">
           <SectionHead eyebrow={T(C.outEyebrow)} title={T(C.outTitle)} />
-          <motion.div className="mt-14 grid gap-5 sm:grid-cols-2" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} style={{ transformStyle: "preserve-3d" }}>
+          <motion.div className="mt-14 grid gap-5 sm:grid-cols-2" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }}>
             {outs.map(([h, b]) => (
               <motion.div key={T(h)} variants={item}>
                 <TiltCard className="flex h-full items-start gap-4 rounded-2xl p-6" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>

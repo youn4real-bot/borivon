@@ -36,7 +36,7 @@ export default function MethodePage() {
       <section className="px-[6vw] py-24 sm:py-28">
         <div className="mx-auto max-w-[1140px]">
           <SectionHead eyebrow={T(H.modelEyebrow)} title={T(H.modelTitle)} accent={T(H.modelAccent)} sub={T(H.modelSub)} />
-          <motion.div className="mt-16 grid gap-6 lg:grid-cols-3" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} style={{ transformStyle: "preserve-3d" }}>
+          <motion.div className="mt-16 grid gap-6 lg:grid-cols-3" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }}>
             {modes.map((m) => (
               <motion.div key={T(m.tag)} variants={item} className={m.featured ? "lg:-mt-4 lg:mb-4" : ""}>
                 <TiltCard className="flex h-full flex-col rounded-[22px] p-8" style={{ background: m.featured ? "var(--gdim)" : "var(--card)", border: `1px solid ${m.featured ? "var(--border-gold)" : "var(--border)"}`, boxShadow: m.featured ? "var(--shadow-gold-sm)" : "none" }}>
@@ -57,7 +57,7 @@ export default function MethodePage() {
       <section className="px-[6vw] py-24 sm:py-28" style={{ background: "var(--bg2)" }}>
         <div className="mx-auto max-w-[1080px]">
           <SectionHead eyebrow={T(C.pEyebrow)} title={T(C.pTitle)} />
-          <motion.div className="mt-14 grid gap-5 sm:grid-cols-2" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }} style={{ transformStyle: "preserve-3d" }}>
+          <motion.div className="mt-14 grid gap-5 sm:grid-cols-2" variants={stagger} initial="hidden" whileInView="show" viewport={{ once: true, margin: "-60px" }}>
             {principles.map(([h, b], i) => (
               <motion.div key={T(h)} variants={item}>
                 <TiltCard className="flex h-full items-start gap-4 rounded-2xl p-6" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>

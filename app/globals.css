@@ -1219,3 +1219,72 @@ img { -webkit-user-drag: none; }
   user-select: none;
 }
 .textLayer.selecting .endOfContent { top: 0; }
+
+/* ════════════════════════════════════════════════════════════════════════
+   /v2 MARKETING — premium surfaces, motion-safe hover, hero backdrop.
+   GUARDRAILS (founder: "animations that WORK, not buggy"):
+   - Hover lifts gated to (hover:hover) so they never latch after a tap on iOS.
+   - Hover GLOW is opacity-only on an overlay with a STATIC shadow — never a
+     CSS transition of a var-valued box-shadow under the continuous aurora
+     (that combo stale-painted before).
+   - Reduced-motion neutralizes every transform.
+   ════════════════════════════════════════════════════════════════════════ */
+
+:root { --gold-muted: color-mix(in oklab, var(--gold) 58%, var(--w3)); }
+
+/* Premium card surface — subtle top inner-highlight + hairline + grounded
+   shadow, all SET ONCE (never transitioned). Pair with .bv-tilt for motion. */
+.bv-surface {
+  background:
+    linear-gradient(180deg, color-mix(in oklab, var(--w) 3%, transparent), transparent 22%),
+    var(--card);
+  border: 1px solid var(--border);
+  box-shadow: inset 0 1px 0 color-mix(in oklab, var(--w) 8%, transparent), var(--shadow-md);
+}
+
+/* Motion wrapper for cards — lift on real-hover only; gold-ring glow rides an
+   overlay whose OPACITY animates (its shadow/border are static). */
+.bv-tilt { position: relative; transition: transform 0.3s var(--ease-out); }
+.bv-tilt-glow {
+  position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  opacity: 0; transition: opacity 0.3s var(--ease-out);
+  border: 1px solid var(--border-gold);
+  box-shadow: 0 22px 55px -22px rgba(201, 162, 64, 0.34);
+}
+@media (hover: hover) {
+  .bv-tilt:hover { transform: translateY(-4px); }
+  .bv-tilt:hover .bv-tilt-glow { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bv-tilt, .bv-tilt:hover { transform: none; }
+}
+
+/* Measure helpers — ch-based so German's longer words don't overflow. */
+.bv-measure       { max-width: 64ch; }
+.bv-measure-tight { max-width: 54ch; }
+
+/* Gold-fading hairline divider between major sections. */
+.bv-divider-gold { height: 1px; background: linear-gradient(90deg, transparent, var(--border-gold) 50%, transparent); }
+
+/* Hero backdrop grid — faint, radially masked so it fades to the edges. */
+.bv-hero-grid {
+  position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  background-image:
+    linear-gradient(to right, var(--border) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--border) 1px, transparent 1px);
+  background-size: 64px 64px;
+  -webkit-mask-image: radial-gradient(ellipse 72% 60% at 32% 28%, #000 0%, transparent 75%);
+          mask-image: radial-gradient(ellipse 72% 60% at 32% 28%, #000 0%, transparent 75%);
+  opacity: 0.5;
+}
+
+/* Underline that draws in on hover (scaleX, composited). data-active keeps it on. */
+.bv-ul { position: relative; }
+.bv-ul::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: -5px; height: 2px;
+  background: var(--gold); transform: scaleX(0); transform-origin: 0% 50%;
+  transition: transform 0.32s var(--ease-out);
+}
+@media (hover: hover) { .bv-ul:hover::after { transform: scaleX(1); } }
+.bv-ul[data-active="true"]::after { transform: scaleX(1); }
+@media (prefers-reduced-motion: reduce) { .bv-ul::after { transition-duration: 0.01ms; } }
