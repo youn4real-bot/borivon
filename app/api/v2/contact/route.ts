@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { enforceRateLimit } from "@/lib/rateLimit";
 import { sendOutboundEmail } from "@/lib/outboundEmail";
+import { getServiceSupabase } from "@/lib/supabase";
+import { tgSend } from "@/lib/telegram";
 
 /**
- * Public lead form for the /v2 marketing site ("talk to an expert").
+ * Public ENTERPRISE lead form for the /v2 marketing site ("Book a needs audit").
  * No auth (public), but defended: per-IP rate limit + honeypot + strict
- * validation + length caps. Emails the lead to the Borivon inbox (ADMIN_EMAIL)
- * via the existing Gmail/Resend channel. Never stores anything.
+ * validation + length caps. Three independent, best-effort sinks so one outage
+ * can never lose a lead:
+ *   1. stores it in the dedicated `enterprise_leads` table — B2B ONLY, fully
+ *      separate from candidates and from the homepage `leads` funnel;
+ *   2. pings the founder on Telegram instantly (TELEGRAM_CHAT_ID);
+ *   3. emails it to the Borivon inbox (ADMIN_EMAIL).
+ * Returns ok if the lead landed in at least one durable sink (db or email).
  */
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const clip = (s: unknown, n: number) => (typeof s === "string" ? s.trim().slice(0, n) : "");
@@ -39,38 +46,69 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid input" }, { status: 400 });
   }
 
-  const to = (process.env.ADMIN_EMAIL || "").trim();
-  if (!to) {
-    console.error("[v2/contact] ADMIN_EMAIL not set — cannot route lead");
-    return NextResponse.json({ error: "Server not configured" }, { status: 500 });
+  // ── 1) Store in the dedicated enterprise_leads table (B2B ONLY; best-effort) ─
+  let dbOk = false;
+  try {
+    const { error } = await getServiceSupabase()
+      .from("enterprise_leads")
+      .insert({ name, email, company, role, phone, headcount, situations, message, lang, source: "v2-contact" });
+    if (error) console.error("[v2/contact] enterprise_leads insert failed:", error.message);
+    else dbOk = true;
+  } catch (e) {
+    console.error("[v2/contact] enterprise_leads insert threw:", e instanceof Error ? e.message : e);
   }
 
-  const text = [
-    "Nouvelle demande entreprise depuis le site (borivon.com).",
-    "",
-    `Nom        : ${name}`,
-    `Entreprise : ${company}`,
-    role ? `Fonction   : ${role}` : null,
-    `E-mail     : ${email}`,
-    phone ? `Téléphone  : ${phone}` : null,
-    headcount ? `À former   : ${headcount}` : null,
-    situations ? `Situations : ${situations}` : null,
-    `Langue     : ${lang}`,
-    "",
-    "Message :",
-    message,
-    "",
-    `— Répondre directement à : ${email}`,
-  ].filter(Boolean).join("\n");
+  // ── 2) Telegram ping to the founder — instant "someone signed up" alert ─────
+  const tgChat = (process.env.TELEGRAM_CHAT_ID || "").trim();
+  if (tgChat) {
+    const tgText = [
+      "🟢 Nouvelle demande ENTREPRISE — borivon.com",
+      "",
+      `Entreprise : ${company}`,
+      `Contact    : ${name}${role ? ` (${role})` : ""}`,
+      `E-mail     : ${email}`,
+      phone ? `Téléphone  : ${phone}` : null,
+      headcount ? `À former   : ${headcount}` : null,
+      situations ? `Situations : ${situations}` : null,
+      "",
+      message,
+    ].filter(Boolean).join("\n");
+    try { await tgSend(tgChat, tgText); } catch (e) { console.error("[v2/contact] telegram ping failed:", e instanceof Error ? e.message : e); }
+  }
 
-  const res = await sendOutboundEmail({
-    to,
-    subject: `[Borivon] Nouvelle demande — ${name}${company ? ` · ${company}` : ""}`,
-    body: text,
-  });
+  // ── 3) Email to the Borivon inbox (durable record + reply thread) ───────────
+  let emailOk = false;
+  const to = (process.env.ADMIN_EMAIL || "").trim();
+  if (to) {
+    const text = [
+      "Nouvelle demande entreprise depuis le site (borivon.com).",
+      "",
+      `Nom        : ${name}`,
+      `Entreprise : ${company}`,
+      role ? `Fonction   : ${role}` : null,
+      `E-mail     : ${email}`,
+      phone ? `Téléphone  : ${phone}` : null,
+      headcount ? `À former   : ${headcount}` : null,
+      situations ? `Situations : ${situations}` : null,
+      `Langue     : ${lang}`,
+      "",
+      "Message :",
+      message,
+      "",
+      `— Répondre directement à : ${email}`,
+    ].filter(Boolean).join("\n");
+    const res = await sendOutboundEmail({
+      to,
+      subject: `[Borivon] Demande entreprise — ${company} · ${name}`,
+      body: text,
+    });
+    emailOk = res.ok;
+    if (!res.ok) console.error("[v2/contact] email send failed:", res.error);
+  }
 
-  if (!res.ok) {
-    console.error("[v2/contact] send failed:", res.error);
+  // Succeed if the lead landed in at least one durable sink (db or email).
+  // Telegram is a bonus alert and never gates the response.
+  if (!dbOk && !emailOk) {
     return NextResponse.json({ error: "Send failed" }, { status: 502 });
   }
   return NextResponse.json({ ok: true });
