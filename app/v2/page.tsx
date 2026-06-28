@@ -59,8 +59,8 @@ function HomeHero() {
   const T = (t: Tri) => t[lang];
   const words = T(C.home.heroTitle).split(" ");
   const { scrollY } = useScroll();
-  const contentY = useTransform(scrollY, [0, 520], [0, -90]);
-  const contentOp = useTransform(scrollY, [0, 420], [1, 0]);
+  const contentY = useTransform(scrollY, [0, 650], [0, -70]);
+  const contentOp = useTransform(scrollY, [0, 650], [1, 0.25]); // fades over a longer range + never to 0 → CTA never fades while on-screen
   const wmY = useTransform(scrollY, [0, 600], [0, 90]);   // watermark counter-parallax
   const cueOp = useTransform(scrollY, [0, 120], [1, 0]);  // scroll cue fades on first scroll
   const chips = [T(C.home.chip1), T(C.home.chip2), T(C.home.chip3)];

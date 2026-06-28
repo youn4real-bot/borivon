@@ -27,11 +27,10 @@ export default function SmoothScroll({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     const mql = window.matchMedia("(prefers-reduced-motion: reduce)");
-    if (mql.matches) return; // reduced-motion → native scroll, no Lenis at all
-    setEnabled(true);
+    setEnabled(!mql.matches); // enable Lenis unless reduced-motion (symmetric, live)
     const onChange = (e: MediaQueryListEvent) => setEnabled(!e.matches);
     mql.addEventListener?.("change", onChange);
-    return () => { mql.removeEventListener?.("change", onChange); setEnabled(false); };
+    return () => { mql.removeEventListener?.("change", onChange); };
   }, []);
 
   useEffect(() => {

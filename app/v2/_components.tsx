@@ -289,8 +289,7 @@ export function RiseWords({ text, className = "", style, accent = false, delay =
           <motion.span
             className="inline-block"
             initial={reduce ? false : { y: "112%" }}
-            whileInView={{ y: 0 }}
-            viewport={{ once: true, margin: "-60px" }}
+            animate={{ y: 0 }}
             transition={{ duration: 0.7, ease: EASE, delay: delay + i * 0.07 }}
             style={accent ? { color: "var(--gold)" } : undefined}
           >
@@ -320,8 +319,9 @@ export function CinematicStatement({ src, alt, eyebrow, line1, line2, sub }: {
         className="relative mx-auto h-[clamp(440px,74vh,780px)] max-w-[1320px] overflow-hidden rounded-[28px]"
         style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}
       >
-        {/* image layer (parallax + slow zoom) */}
-        <motion.div aria-hidden className="absolute inset-0 -z-0" style={reduce ? undefined : { y }}>
+        {/* image layer (parallax + slow zoom). Overscanned by 16% so the ±10%
+            parallax translate never exposes the container edge. */}
+        <motion.div aria-hidden className="absolute -inset-[16%] -z-0" style={reduce ? undefined : { y }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <motion.img src={src} alt={alt} loading="lazy" decoding="async" className="h-full w-full object-cover" style={reduce ? undefined : { scale }} />
         </motion.div>
@@ -402,8 +402,10 @@ export function HorizontalPin({ children, heightVh = 320 }: { children: React.Re
     };
     measure();
     window.addEventListener("resize", measure);
+    // Re-measure once webfonts swap in (panel widths are vw-fixed, but be safe).
+    if (document.fonts?.ready) document.fonts.ready.then(() => measure()).catch(() => {});
     return () => window.removeEventListener("resize", measure);
-  }, [children]);
+  }, []);
 
   const { scrollYProgress } = useScroll({ target: sectionRef, offset: ["start start", "end end"] });
   const xRaw = useTransform(scrollYProgress, [0, 1], [0, -dist]);

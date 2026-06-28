@@ -21,6 +21,7 @@ import type { Lang } from "@/lib/translations";
 import { COPY, MOTTO, type Tri } from "./_copy";
 
 const EASE = [0.16, 1, 0.3, 1] as const;
+const YEAR = new Date().getFullYear(); // computed once → no SSR/hydration year mismatch
 
 // Flag picker (matches the old site: flagcdn SVGs). gb flag for English.
 const LANGS: { code: Lang; flag: string; label: string }[] = [
@@ -162,7 +163,7 @@ export function V2Nav() {
                 </motion.div>
               ))}
               <div className="mt-8 flex items-center justify-between">
-                <LangSwitch lang={lang} setLang={setLang} />
+                <LangSwitch lang={lang} setLang={(l) => { setLang(l); setOpen(false); }} />
                 <ThemeBtn />
               </div>
               <Link href="/v2/contact" onClick={() => setOpen(false)} className="bv-press mt-6 rounded-full py-3.5 text-center text-[15px] font-semibold" style={{ background: "var(--gold-gradient)", color: "#09090a", boxShadow: "inset 0 1px 0 rgba(255,255,255,0.28), var(--shadow-gold-sm)" }}>
@@ -214,7 +215,7 @@ export function V2Footer() {
         </div>
         <div className="bv-divider-gold mt-12" />
         <div className="flex items-center pt-6">
-          <span className="bv-small" style={{ fontSize: "0.8rem", color: "var(--w3)" }}>© {new Date().getFullYear()} Borivon · {T(COPY.footer.company)}. {T(COPY.footer.rights)}</span>
+          <span className="bv-small" style={{ fontSize: "0.8rem", color: "var(--w3)" }}>© {YEAR} Borivon · {T(COPY.footer.company)}. {T(COPY.footer.rights)}</span>
         </div>
       </div>
     </footer>

@@ -28,6 +28,7 @@ export default function MethodePage() {
               {T(C.title)} <span style={{ color: "var(--gold)" }}>{T(C.accent)}</span>
             </h1>
             <p className="mx-auto mt-6 max-w-[560px]" style={{ fontFamily: "var(--font-sans)", fontSize: "clamp(1.05rem, 1.6vw, 1.22rem)", lineHeight: 1.65, color: "var(--w2)" }}>{T(C.sub)}</p>
+            <div className="mt-9 flex justify-center"><PrimaryCTA href="/v2/contact" big>{T(C.cta)}</PrimaryCTA></div>
           </Up>
         </div>
       </GlowField>

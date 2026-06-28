@@ -148,7 +148,7 @@ export const COPY = {
     // Scrollytelling manifesto (word-by-word gold sweep on scroll).
     manifesto: tri(
       "L'allemand n'est pas une matière scolaire. C'est la langue dans laquelle vos équipes gagnent, ou perdent, le marché.",
-      "German is not a school subject. It is the language your teams win, or lose, the market in.",
+      "German is not a school subject. It is the language in which your teams win, or lose, the market.",
       "Deutsch ist kein Schulfach. Es ist die Sprache, in der Ihre Teams den Markt gewinnen, oder verlieren.",
     ),
   },
@@ -164,14 +164,6 @@ export const COPY = {
     p3Tag: "Verhandlung",       p3H: tri("Gagner la négociation", "Win the negotiation", "Die Verhandlung gewinnen"),
     p4Tag: "Präsentation",      p4H: tri("Présenter avec assurance", "Present with confidence", "Sicher präsentieren"),
     p5Tag: "Vorstellungsgespräch", p5H: tri("Réussir l'entretien", "Nail the interview", "Das Gespräch bestehen"),
-  },
-
-  // ── Home: closing cinematic (2nd full-bleed image before the final CTA) ────
-  closing: {
-    eyebrow: tri("Le moment décisif", "The decisive moment", "Der entscheidende Moment"),
-    line1:   tri("Vos équipes,", "Your teams,", "Ihre Teams,"),
-    line2:   tri("maîtres de la salle.", "owning the room.", "souverän im Raum."),
-    sub:     tri("En allemand, devant le client. C'est là que tout se gagne.", "In German, in front of the client. That is where it is won.", "Auf Deutsch, vor dem Kunden. Genau dort wird gewonnen."),
   },
 
   // ── Home: method-as-proof contrast (the usual course vs the Borivon method) ─

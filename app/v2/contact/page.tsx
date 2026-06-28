@@ -7,6 +7,8 @@ import { useLang } from "@/components/LangContext";
 import { COPY, type Tri } from "../_copy";
 import { Up, GlowField, Check } from "../_components";
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export default function ContactPage() {
   const { lang } = useLang();
   const T = (t: Tri) => t[lang];
@@ -20,7 +22,7 @@ export default function ContactPage() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!form.name.trim() || !form.email.trim() || !form.company.trim() || !form.message.trim()) { setState("error"); return; }
+    if (!form.name.trim() || !EMAIL_RE.test(form.email.trim()) || !form.company.trim() || !form.message.trim()) { setState("error"); return; }
     setState("sending");
     try {
       const r = await fetch("/api/v2/contact", {
@@ -76,7 +78,7 @@ export default function ContactPage() {
 
               {state === "error" && (
                 <p className="mt-4 text-[13px]" style={{ color: "var(--danger, #ef4444)" }}>
-                  {!form.name.trim() || !form.email.trim() || !form.company.trim() || !form.message.trim() ? T(C.errValidation) : T(C.errMsg)}
+                  {!form.name.trim() || !EMAIL_RE.test(form.email.trim()) || !form.company.trim() || !form.message.trim() ? T(C.errValidation) : T(C.errMsg)}
                 </p>
               )}
 
