@@ -711,7 +711,7 @@ export function buildAssistantTools(
 
     getCandidateDossier: tool({
       description:
-        "ONE call = the WHOLE file on a candidate. USE for 'tell me everything about X', 'brief me on X', 'her full status', 'X's whole file', 'give me everything on X'. Accepts a NAME or a candidateUserId. Returns identity + email + B2 + the full pipeline (milestones, funnel stage, interview dates) + document counts — so you NEVER chain 8 separate calls. Per-result: 'ambiguous' (show the matches and ask which) or 'not_found', like getB2Status. out_of_scope if you can't see them.",
+        "ONE call = the WHOLE file on a candidate. USE for 'tell me everything about X', 'brief me on X', 'her full status', 'X's whole file', 'give me everything on X' — or the shorthand 'x <name>' alone. Accepts a NAME or a candidateUserId. Returns identity + email + B2 + the full pipeline (milestones, funnel stage, interview dates) + document counts + CV-on-file + nurse profile + open journey tasks + academy + the admin's saved NOTES on them (the human log: interviews passed, bail-outs, promises — newest first) — so you NEVER chain 8 separate calls. Per-result: 'ambiguous' (show the matches and ask which) or 'not_found', like getB2Status. out_of_scope if you can't see them.",
       inputSchema: z.object({ candidate: z.string().min(1).max(120).describe("the candidate's full name or candidateUserId") }),
       execute: async ({ candidate }) => {
         if (lockedOut) return { error: "out_of_scope" };
@@ -721,16 +721,25 @@ export function buildAssistantTools(
         if (m.status === "ambiguous") return { status: "ambiguous", matches: m.matches.map((x) => ({ candidateUserId: x.userId, name: x.name })) };
         const id = m.candidate.userId;
         if (!(await canActOnCandidate(scope.role, scope.email, id))) return { error: "out_of_scope" };
-        const [profRes, pipeRes, docRes, authRes, memRes] = await Promise.all([
-          db.from("candidate_profiles").select("b2_exam_date, passport_status, passport_expiry, passport_no, dob, sex, nationality, issue_date, issuing_authority, address_street, address_number, address_postal, city_of_residence, country_of_residence, city_of_birth, country_of_birth, marital_status, children_ages").eq("user_id", id).maybeSingle(),
+        const [profRes, pipeRes, docRes, authRes, memRes, notesRes, taskRes] = await Promise.all([
+          db.from("candidate_profiles").select("b2_exam_date, passport_status, passport_expiry, passport_no, dob, sex, nationality, issue_date, issuing_authority, address_street, address_number, address_postal, city_of_residence, country_of_residence, city_of_birth, country_of_birth, marital_status, children_ages, nursing_specialty, years_experience, current_workplace, available_from, anerkennung_stage").eq("user_id", id).maybeSingle(),
           db.from("candidate_pipeline").select("*").eq("user_id", id).maybeSingle(),
           db.from("documents").select("*").eq("user_id", id),
           db.auth.admin.getUserById(id).catch(() => null),
           db.from("academy_cohort_members").select("cohort_id, current_level, status").eq("candidate_user_id", id).eq("status", "active").maybeSingle(),
+          // Founder's notes — best-effort: before the candidate_notes migration runs
+          // this returns an error result, which we treat as "no notes" (never break the dossier).
+          db.from("candidate_notes").select("note, created_at").eq("candidate_user_id", id).order("created_at", { ascending: false }).limit(15),
+          db.from("candidate_journey_items").select("text, owner, done, due_date").eq("candidate_user_id", id).is("preset_key", null),
         ]);
-        const p = (profRes.data ?? {}) as Record<string, string | null>;
+        const p = (profRes.data ?? {}) as Record<string, string | number | null>;
         const email = (authRes && "data" in authRes ? authRes.data?.user?.email : null) ?? null;
-        const docs = activeDocs((docRes.data ?? []) as { status: string | null }[]);
+        const docs = activeDocs((docRes.data ?? []) as DocRow[]);
+        const cvDocs = docs.filter((d) => CV_KINDS.has(resolveFileKey(d.file_type)));
+        const notes = ((notesRes.data ?? []) as { note: string; created_at: string }[]).map((n) => ({ note: n.note, at: n.created_at }));
+        const openTasks = ((taskRes.data ?? []) as { text: string; owner: string | null; done: boolean | null; due_date: string | null }[])
+          .filter((t) => t.done !== true)
+          .map((t) => ({ text: t.text, owner: t.owner ?? null, dueDate: t.due_date ?? null }));
         // Academy progress (so "tell me everything" truly includes the school) — best-effort.
         let academy: { enrolled: boolean; cohort?: string | null; level?: string | null; attendanceRatePct?: number | null; score?: number | null } = { enrolled: false };
         const mem = (memRes.data ?? null) as { cohort_id?: string; current_level?: string } | null;
@@ -763,9 +772,97 @@ export function buildAssistantTools(
               approved: docs.filter((d) => d.status === "approved").length,
               rejected: docs.filter((d) => d.status === "rejected").length,
             },
+            cv: { onFile: cvDocs.length > 0, status: cvDocs[0]?.status ?? null },
+            nurseProfile: {
+              specialty: (p.nursing_specialty as string | null) ?? null,
+              yearsExperience: (p.years_experience as number | null) ?? null,
+              currentWorkplace: (p.current_workplace as string | null) ?? null,
+              availableFrom: (p.available_from as string | null) ?? null,
+              anerkennungStage: (p.anerkennung_stage as string | null) ?? null,
+            },
+            openTasks,
             academy,
+            notes,
           },
         };
+      },
+    }),
+
+    // ── Candidate NOTES — the founder's own log on each person ──
+    // The human layer the portal can't derive ("passed the external interview",
+    // "bailed out", "wants a March start"). getCandidateDossier surfaces the
+    // latest ones so "x Amina" always includes the story.
+    addCandidateNote: tool({
+      description:
+        "Save a free-text OBSERVATION about a candidate — the admin's own log ('passed the external interview', 'thinking of bailing out', 'wants a March start', 'spoke on WhatsApp, needs a week'). USE the MOMENT the admin states a fact about a candidate's situation that no status tool covers — don't ask, just save. Accepts a NAME or candidateUserId ('ambiguous' → show matches and ask which; it's a write, never guess). NOT for: a task to DO (saveReminder), a standing rule about how you work (rememberAboutMe), or a status a real tool tracks (setB2Status / setInterviewResult / setCandidateMilestone — set the real status, and add a note only for extra color the status can't hold). Applies immediately. Supreme-only.",
+      inputSchema: z.object({
+        candidate: z.string().min(1).max(120).describe("the candidate's full name or candidateUserId"),
+        note: z.string().min(1).max(1000).describe("the observation, in the admin's own words"),
+      }),
+      execute: async ({ candidate, note }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const roster = await candidateRoster();
+        const m = pickCandidate(roster, candidate);
+        if (m.status === "not_found") return { status: "not_found" };
+        if (m.status === "ambiguous") return { status: "ambiguous", matches: m.matches.map((x) => ({ candidateUserId: x.userId, name: x.name })) };
+        const id = m.candidate.userId;
+        if (!(await canActOnCandidate(scope.role, scope.email, id))) return { error: "out_of_scope" };
+        const { data, error } = await db
+          .from("candidate_notes")
+          .insert({ candidate_user_id: id, author_email: scope.email, note: note.trim(), source: "telegram" })
+          .select("id")
+          .maybeSingle();
+        if (error) {
+          const missing = error.code === "42P01" || /does not exist|schema cache/i.test(error.message ?? "");
+          return missing
+            ? { error: "notes_not_set_up", hint: "Run supabase/candidate_notes.sql in the Supabase SQL editor first, then try again." }
+            : { error: "save_failed" };
+        }
+        return { saved: true, noteId: (data as { id: string } | null)?.id ?? null, name: m.candidate.name };
+      },
+    }),
+
+    listCandidateNotes: tool({
+      description:
+        "Read the saved OBSERVATIONS/notes on ONE candidate (newest first, each with its date + noteId) — the admin's own log ('passed external interview', 'bailed out'). Use for 'what do we know about X', 'my notes on X', 'X's story so far', or to get a noteId to delete. (getCandidateDossier already includes the latest notes — use this for the FULL history.) out_of_scope if you can't see them.",
+      inputSchema: z.object({
+        candidate: z.string().min(1).max(120).describe("the candidate's full name or candidateUserId"),
+        limit: z.number().int().min(1).max(100).default(30),
+      }),
+      execute: async ({ candidate, limit }) => {
+        if (lockedOut) return { error: "out_of_scope" };
+        const roster = await candidateRoster();
+        const m = pickCandidate(roster, candidate);
+        if (m.status === "not_found") return { status: "not_found" };
+        if (m.status === "ambiguous") return { status: "ambiguous", matches: m.matches.map((x) => ({ candidateUserId: x.userId, name: x.name })) };
+        const id = m.candidate.userId;
+        if (!(await canActOnCandidate(scope.role, scope.email, id))) return { error: "out_of_scope" };
+        const { data, error } = await db
+          .from("candidate_notes")
+          .select("id, note, created_at")
+          .eq("candidate_user_id", id)
+          .order("created_at", { ascending: false })
+          .limit(limit);
+        if (error) {
+          const missing = error.code === "42P01" || /does not exist|schema cache/i.test(error.message ?? "");
+          return missing
+            ? { error: "notes_not_set_up", hint: "Run supabase/candidate_notes.sql in the Supabase SQL editor first." }
+            : { error: "load_failed" };
+        }
+        const notes = ((data ?? []) as { id: string; note: string; created_at: string }[]).map((n) => ({ noteId: n.id, note: n.note, at: n.created_at }));
+        return { name: m.candidate.name, count: notes.length, notes };
+      },
+    }),
+
+    deleteCandidateNote: tool({
+      description:
+        "Delete ONE saved candidate note by its noteId ('remove that note', 'that was wrong, delete it') — get the noteId from listCandidateNotes first. Applies immediately. Supreme-only.",
+      inputSchema: z.object({ noteId: z.string().uuid() }),
+      execute: async ({ noteId }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const { error } = await db.from("candidate_notes").delete().eq("id", noteId);
+        if (error) return { error: "delete_failed" };
+        return { deleted: true };
       },
     }),
 
@@ -1966,7 +2063,7 @@ export function buildAssistantTools(
     // ── Memory: how the admin likes to work (learned, applied every chat) ──
     rememberAboutMe: tool({
       description:
-        "Save DURABLE info / a STANDING RULE so you never have to be told it again. For a HARD RULE the founder programs ('from now on…', 'always…', 'never…', 'going forward…') pass kind 'rule' — it's injected into EVERY future turn and you MUST follow it. Otherwise: (a) a rule about HOW you should WORK — 'prefers short answers', 'always lead with passports', 'wants dates as DD.MM.YYYY', 'for B2 of named people use getB2Status, never getB2Overview' (kind preference/term/correction); or (b) one of the admin's recurring EXTERNAL CONTACTS — a recruiter / employer / partner they email, stored as 'Name = email' e.g. 'Anna Gombert = a.gombert@calmaroi.de' (kind 'contact'), so next time they say 'email Anna' or 'CC Omar' you already have the address. Call it whenever the admin states a lasting preference, teaches a term, corrects you for the future, OR gives you a contact's name+email to keep — then confirm briefly. Do NOT store: one-off tasks (use saveReminder); a CANDIDATE's transient status (e.g. 'Hajar is on leave until June', 'Ali failed B2') — that's about a candidate, not durable; or anything tied to a one-time date/deadline.",
+        "Save DURABLE info / a STANDING RULE so you never have to be told it again. For a HARD RULE the founder programs ('from now on…', 'always…', 'never…', 'going forward…') pass kind 'rule' — it's injected into EVERY future turn and you MUST follow it. Otherwise: (a) a rule about HOW you should WORK — 'prefers short answers', 'always lead with passports', 'wants dates as DD.MM.YYYY', 'for B2 of named people use getB2Status, never getB2Overview' (kind preference/term/correction); or (b) one of the admin's recurring EXTERNAL CONTACTS — a recruiter / employer / partner they email, stored as 'Name = email' e.g. 'Anna Gombert = a.gombert@calmaroi.de' (kind 'contact'), so next time they say 'email Anna' or 'CC Omar' you already have the address. Call it whenever the admin states a lasting preference, teaches a term, corrects you for the future, OR gives you a contact's name+email to keep — then confirm briefly. Do NOT store: one-off tasks (use saveReminder); a fact/status about a CANDIDATE (e.g. 'Hajar is on leave until June', 'Ali passed the external interview') — that belongs in addCandidateNote (their per-person log), not here; or anything tied to a one-time date/deadline.",
       inputSchema: z.object({
         text: z.string().min(1).max(300),
         kind: z.enum(["preference", "fact", "term", "correction", "contact", "rule"]).default("preference"),

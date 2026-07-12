@@ -1260,3 +1260,39 @@ describe("assistant tools allow the supreme admin", () => {
     expect(r.error).toMatch(/^attachment_missing/);
   });
 });
+
+describe("candidate notes (the founder's per-person log)", () => {
+  it("addCandidateNote → admin_only for a sub-admin", async () => {
+    const r = await run(buildAssistantTools(ORG_ADMIN), "addCandidateNote", { candidate: "allowed-cand", note: "passed external interview" });
+    expect(r).toEqual({ error: "admin_only" });
+  });
+
+  it("deleteCandidateNote → admin_only for a sub-admin", async () => {
+    const r = await run(buildAssistantTools(ORG_ADMIN), "deleteCandidateNote", { noteId: "11111111-1111-1111-1111-111111111111" });
+    expect(r).toEqual({ error: "admin_only" });
+  });
+
+  it("listCandidateNotes → a foreign candidate never resolves for an org admin (no notes leaked)", async () => {
+    h.tables.sub_admins = { data: [{ is_agency_admin: true }], error: null };
+    h.tables.organization_members = { data: [{ org_id: "o1" }], error: null };
+    h.tables.candidate_organizations = { data: null, error: null };
+    h.authUsers = [
+      { id: "allowed-cand", email: "allowed@x.com", user_metadata: { full_name: "Allowed One" } },
+      { id: "foreign-cand", email: "foreign@x.com", user_metadata: { full_name: "Foreign Two" } },
+    ];
+    h.tables.candidate_profiles = { data: [{ user_id: "allowed-cand" }, { user_id: "foreign-cand" }], error: null };
+    h.tables.candidate_notes = { data: [{ id: "n1", note: "secret", created_at: "2026-01-01T00:00:00Z" }], error: null };
+    const r = await run(buildAssistantTools(ORG_ADMIN), "listCandidateNotes", { candidate: "Foreign Two", limit: 30 });
+    expect(r).toEqual({ status: "not_found" });
+  });
+
+  it("addCandidateNote saves for the supreme admin and returns the resolved name", async () => {
+    h.authUsers = [{ id: "cand-a", email: "a@cand.com", user_metadata: { full_name: "Amina Test" } }];
+    h.tables.candidate_profiles = { data: [{ user_id: "cand-a" }], error: null };
+    h.tables.candidate_notes = { data: { id: "note-1" }, error: null };
+    const r = (await run(buildAssistantTools(SUPREME), "addCandidateNote", { candidate: "Amina Test", note: "passed external interview" })) as { saved?: boolean; noteId?: string | null; name?: string };
+    expect(r.saved).toBe(true);
+    expect(r.noteId).toBe("note-1");
+    expect(r.name).toBe("Amina Test");
+  });
+});
