@@ -1339,3 +1339,24 @@ describe("registration tracking (recent signups + stalled ghosts)", () => {
     expect(r.candidates.map((c) => c.candidateUserId)).toEqual(["allowed-cand"]);
   });
 });
+
+describe("Google Sheet candidate mirror (one-way)", () => {
+  it("syncCandidatesSheet → admin_only for a sub-admin (it mirrors the whole base)", async () => {
+    const r = await run(buildAssistantTools(ORG_ADMIN), "syncCandidatesSheet", {});
+    expect(r).toEqual({ error: "admin_only" });
+  });
+
+  it("syncCandidatesSheet → workspace_not_connected when Google Workspace isn't configured (no throw)", async () => {
+    // Force "not connected" deterministically — no real Google call from tests.
+    delete process.env.GOOGLE_WORKSPACE_CREDENTIALS;
+    delete process.env.GOOGLE_VERTEX_CREDENTIALS;
+    h.authUsers = [{ id: "cand-a", email: "a@cand.com", user_metadata: { full_name: "Amina Test" }, created_at: new Date(Date.now() - 5 * 86_400_000).toISOString() }];
+    h.tables.candidate_profiles = { data: [{ user_id: "cand-a", phone: "+212600000000", b2_stage: "B1" }], error: null };
+    h.tables.candidate_pipeline = { data: [{ user_id: "cand-a", funnel_stage: "screening" }], error: null };
+    h.tables.documents = { data: [], error: null };
+    h.tables.candidate_notes = { data: [], error: null };
+    h.tables.app_settings = { data: null, error: null };
+    const r = (await run(buildAssistantTools(SUPREME), "syncCandidatesSheet", {})) as { error?: string };
+    expect(r.error).toBe("workspace_not_connected");
+  });
+});

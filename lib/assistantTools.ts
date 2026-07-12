@@ -28,6 +28,7 @@ import { FUNNEL_STAGES, funnelLabel, type FunnelStageKey } from "@/lib/batchBoar
 import { stagePending, executeLatestPending, cancelLatestPending, prepareEmailDraft, precheckOutboundAttachments, getPendingDraft, MILESTONE_BOOL } from "@/lib/assistantWrites";
 import { AUTOMATIONS, getAutomationFlags, setAutomation as persistAutomation, type AutomationKey } from "@/lib/automationSettings";
 import { workspaceConfigured, workspaceServiceAccount, testWorkspace, WORKSPACE_SCOPES } from "@/lib/googleWorkspace";
+import { syncCandidateSheet } from "@/lib/googleSheets";
 import { gmailSearch, gmailGet, gmailApiReady, listEmailAttachments, listDraftAttachments, gmailGetThread, gmailModify, gmailTrash } from "@/lib/gmailApi";
 import { getUsageSummary } from "@/lib/usage";
 import { stopFollowupsFor } from "@/lib/followups";
@@ -235,18 +236,18 @@ export function buildAssistantTools(
     return roster;
   }
 
-  // Registration timestamps (auth.users.created_at) for a set of candidate ids.
-  // Pages listUsers once — same source as candidateRoster — so it's one sweep for
-  // the whole roster. Best-effort: a missing id just won't appear in the map.
-  async function signupDateMap(ids: string[]): Promise<Map<string, string>> {
+  // Auth-side info (registration timestamp + account email) for a set of candidate
+  // ids. Pages listUsers once — same source as candidateRoster — so it's one sweep
+  // for the whole roster. Best-effort: a missing id just won't appear in the map.
+  async function authInfoMap(ids: string[]): Promise<Map<string, { createdAt: string | null; email: string | null }>> {
     const want = new Set(ids);
-    const out = new Map<string, string>();
+    const out = new Map<string, { createdAt: string | null; email: string | null }>();
     if (want.size === 0) return out;
     for (let page = 1; page <= 20; page++) {
       const { data: u, error } = await db.auth.admin.listUsers({ page, perPage: 1000 });
       if (error || !u?.users?.length) break;
       for (const usr of u.users) {
-        if (want.has(usr.id) && usr.created_at) out.set(usr.id, usr.created_at);
+        if (want.has(usr.id)) out.set(usr.id, { createdAt: usr.created_at ?? null, email: usr.email ?? null });
       }
       if (u.users.length < 1000) break;
     }
@@ -2665,7 +2666,7 @@ export function buildAssistantTools(
         if (roster.length === 0) return { candidates: [] };
         const ids = roster.map((r) => r.userId);
         const [dates, pipeRes, docRes] = await Promise.all([
-          signupDateMap(ids),
+          authInfoMap(ids),
           db.from("candidate_pipeline").select("user_id, funnel_stage, interview1_status, interview2_status").in("user_id", ids),
           db.from("documents").select("user_id").in("user_id", ids),
         ]);
@@ -2674,7 +2675,7 @@ export function buildAssistantTools(
         const now = Date.now();
         const cutoff = days > 0 ? now - days * 86_400_000 : -Infinity;
         const rows = roster
-          .map((r) => { const iso = dates.get(r.userId) ?? null; return { r, iso, t: iso ? new Date(iso).getTime() : 0 }; })
+          .map((r) => { const iso = dates.get(r.userId)?.createdAt ?? null; return { r, iso, t: iso ? new Date(iso).getTime() : 0 }; })
           .filter((x) => x.iso && x.t >= cutoff)
           .sort((a, b) => b.t - a.t)
           .slice(0, limit)
@@ -2706,7 +2707,7 @@ export function buildAssistantTools(
         if (roster.length === 0) return { candidates: [] };
         const ids = roster.map((r) => r.userId);
         const [dates, pipeRes, docRes] = await Promise.all([
-          signupDateMap(ids),
+          authInfoMap(ids),
           db.from("candidate_pipeline").select("user_id, funnel_stage, interview1_status, interview2_status, updated_at").in("user_id", ids),
           db.from("documents").select("user_id").in("user_id", ids),
         ]);
@@ -2715,7 +2716,7 @@ export function buildAssistantTools(
         const now = Date.now();
         const minMs = minDays * 86_400_000;
         const rows = roster
-          .map((r) => { const iso = dates.get(r.userId) ?? null; return { r, iso, t: iso ? new Date(iso).getTime() : 0 }; })
+          .map((r) => { const iso = dates.get(r.userId)?.createdAt ?? null; return { r, iso, t: iso ? new Date(iso).getTime() : 0 }; })
           .filter((x) => x.iso && (now - x.t) >= minMs)
           .filter(({ r }) => {
             const p = (pipeById.get(r.userId) ?? {}) as { interview1_status?: string | null; interview2_status?: string | null };
@@ -2737,6 +2738,71 @@ export function buildAssistantTools(
             };
           });
         return { count: rows.length, stage, minDays, candidates: rows };
+      },
+    }),
+
+    syncCandidatesSheet: tool({
+      description:
+        "Push the WHOLE candidate base into the founder's Google Sheet — a live one-way mirror (one row per candidate: registration date, name, email, phone, funnel stage, interview 1 & 2, B2 stage, doc counts, and the latest saved note). Use for 'update the sheet', 'sync the candidates to Google Sheets', 'refresh my spreadsheet', 'put everyone in the sheet'. Creates the sheet on the FIRST run and reuses it after; reply with the returned link. It only writes its own columns (A–K), so any columns the founder added to the right are preserved. Supreme-only.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const roster = await candidateRoster();
+        if (roster.length === 0) return { error: "no_candidates" };
+        const ids = roster.map((r) => r.userId);
+        const [auth, profRes, pipeRes, docRes, notesRes] = await Promise.all([
+          authInfoMap(ids),
+          db.from("candidate_profiles").select("user_id, phone, b2_stage").in("user_id", ids),
+          db.from("candidate_pipeline").select("user_id, funnel_stage, interview1_status, interview2_status").in("user_id", ids),
+          db.from("documents").select("user_id, status, superseded_at").in("user_id", ids),
+          db.from("candidate_notes").select("candidate_user_id, note, created_at").in("candidate_user_id", ids).order("created_at", { ascending: false }),
+        ]);
+        const profById = new Map(((profRes.data ?? []) as { user_id: string; phone: string | null; b2_stage: string | null }[]).map((r) => [r.user_id, r]));
+        const pipeById = new Map(((pipeRes.data ?? []) as Record<string, unknown>[]).map((r) => [String(r.user_id), r]));
+        // Doc counts per candidate (active only, LAW #33).
+        const docsByUser = new Map<string, { total: number; approved: number }>();
+        for (const d of activeDocs((docRes.data ?? []) as { user_id: string; status: string | null }[])) {
+          const c = docsByUser.get(d.user_id) ?? { total: 0, approved: 0 };
+          c.total += 1; if (d.status === "approved") c.approved += 1;
+          docsByUser.set(d.user_id, c);
+        }
+        // Latest note per candidate (notes came back newest-first).
+        const latestNote = new Map<string, string>();
+        for (const n of ((notesRes.data ?? []) as { candidate_user_id: string; note: string }[])) {
+          if (!latestNote.has(n.candidate_user_id)) latestNote.set(n.candidate_user_id, n.note);
+        }
+
+        // Stable order: oldest registration first → new signups append at the bottom
+        // so the founder's own side-columns stay row-aligned across syncs.
+        const ordered = roster
+          .map((r) => ({ r, t: auth.get(r.userId)?.createdAt ? new Date(auth.get(r.userId)!.createdAt!).getTime() : Number.MAX_SAFE_INTEGER }))
+          .sort((a, b) => a.t - b.t)
+          .map((x) => x.r);
+
+        const headers = ["Registered", "Name", "Email", "Phone", "Funnel stage", "Interview 1", "Interview 2", "B2", "Docs (approved/total)", "Latest note", "Candidate ID"];
+        const rows = ordered.map((r) => {
+          const info = auth.get(r.userId);
+          const prof = profById.get(r.userId);
+          const p = (pipeById.get(r.userId) ?? {}) as { funnel_stage?: string | null; interview1_status?: string | null; interview2_status?: string | null };
+          const dc = docsByUser.get(r.userId) ?? { total: 0, approved: 0 };
+          return [
+            info?.createdAt ? info.createdAt.slice(0, 10) : "",
+            r.name,
+            info?.email ?? "",
+            prof?.phone ?? "",
+            p.funnel_stage ? funnelLabel(p.funnel_stage) : "",
+            p.interview1_status ?? "",
+            p.interview2_status ?? "",
+            prof?.b2_stage ?? "",
+            `${dc.approved}/${dc.total}`,
+            latestNote.get(r.userId) ?? "",
+            r.userId,
+          ];
+        });
+
+        const res = await syncCandidateSheet(db, headers, rows);
+        if (!res.ok) return { error: res.error, hint: res.hint };
+        return { synced: true, url: res.url, count: res.count, created: res.created };
       },
     }),
 
