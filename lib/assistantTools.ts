@@ -235,6 +235,24 @@ export function buildAssistantTools(
     return roster;
   }
 
+  // Registration timestamps (auth.users.created_at) for a set of candidate ids.
+  // Pages listUsers once — same source as candidateRoster — so it's one sweep for
+  // the whole roster. Best-effort: a missing id just won't appear in the map.
+  async function signupDateMap(ids: string[]): Promise<Map<string, string>> {
+    const want = new Set(ids);
+    const out = new Map<string, string>();
+    if (want.size === 0) return out;
+    for (let page = 1; page <= 20; page++) {
+      const { data: u, error } = await db.auth.admin.listUsers({ page, perPage: 1000 });
+      if (error || !u?.users?.length) break;
+      for (const usr of u.users) {
+        if (want.has(usr.id) && usr.created_at) out.set(usr.id, usr.created_at);
+      }
+      if (u.users.length < 1000) break;
+    }
+    return out;
+  }
+
   // Resolve ONE admin-supplied identifier (a candidateUserId or a name) against
   // the roster. Exact full-name match wins; else require EVERY token of the
   // query to appear in the name — so "Hajar El Kairaa" pins one person while a
@@ -2631,6 +2649,94 @@ export function buildAssistantTools(
           };
         });
         return { board };
+      },
+    }),
+
+    listRecentSignups: tool({
+      description:
+        "The most RECENT candidate signups — for 'who registered lately / last week / newest candidates / who just signed up'. Each carries the exact date they registered, how many days ago, where they sit in the funnel, and whether they've uploaded anything yet. Read-only, newest first. Defaults to the last 30 days; pass days to widen/narrow, or days:0 for ALL candidates ordered by signup date.",
+      inputSchema: z.object({
+        days: z.number().int().min(0).max(3650).default(30).describe("only signups within the last N days; 0 = all-time, newest first"),
+        limit: z.number().int().min(1).max(100).default(25),
+      }),
+      execute: async ({ days, limit }) => {
+        if (lockedOut) return { error: "out_of_scope" };
+        const roster = await candidateRoster();
+        if (roster.length === 0) return { candidates: [] };
+        const ids = roster.map((r) => r.userId);
+        const [dates, pipeRes, docRes] = await Promise.all([
+          signupDateMap(ids),
+          db.from("candidate_pipeline").select("user_id, funnel_stage, interview1_status, interview2_status").in("user_id", ids),
+          db.from("documents").select("user_id").in("user_id", ids),
+        ]);
+        const pipeById = new Map(((pipeRes.data ?? []) as Record<string, unknown>[]).map((r) => [String(r.user_id), r]));
+        const hasDocs = new Set(((docRes.data ?? []) as { user_id: string }[]).map((d) => d.user_id));
+        const now = Date.now();
+        const cutoff = days > 0 ? now - days * 86_400_000 : -Infinity;
+        const rows = roster
+          .map((r) => { const iso = dates.get(r.userId) ?? null; return { r, iso, t: iso ? new Date(iso).getTime() : 0 }; })
+          .filter((x) => x.iso && x.t >= cutoff)
+          .sort((a, b) => b.t - a.t)
+          .slice(0, limit)
+          .map(({ r, iso, t }) => {
+            const p = (pipeById.get(r.userId) ?? {}) as { funnel_stage?: string | null; interview1_status?: string | null; interview2_status?: string | null };
+            return {
+              candidateUserId: r.userId, name: r.name,
+              registeredAt: iso, daysAgo: Math.floor((now - t) / 86_400_000),
+              funnelStage: p.funnel_stage ?? null,
+              interview1: p.interview1_status ?? null, interview2: p.interview2_status ?? null,
+              hasUploadedDocs: hasDocs.has(r.userId),
+            };
+          });
+        return { count: rows.length, candidates: rows };
+      },
+    }),
+
+    listStalledSignups: tool({
+      description:
+        "OLD signups who never moved forward — candidates who registered a while ago but STILL haven't passed the first interview (the ghosts who signed up and stalled, the ones 'just playing with us'). Read-only, most-overdue (oldest signup) FIRST. Use for 'who signed up but never did the first interview', 'old candidates that never progressed', 'who's been sitting for months without an interview'. minDays = how long ago they had to register to count (default 14). By default it flags anyone not past interview 1; set stage:'interview2' to instead flag those who PASSED the first interview but never did the second.",
+      inputSchema: z.object({
+        minDays: z.number().int().min(0).max(3650).default(14).describe("only count people who registered at least this many days ago"),
+        stage: z.enum(["interview1", "interview2"]).default("interview1").describe("interview1 = never passed the 1st interview; interview2 = passed 1st but never did the 2nd"),
+        limit: z.number().int().min(1).max(100).default(40),
+      }),
+      execute: async ({ minDays, stage, limit }) => {
+        if (lockedOut) return { error: "out_of_scope" };
+        const roster = await candidateRoster();
+        if (roster.length === 0) return { candidates: [] };
+        const ids = roster.map((r) => r.userId);
+        const [dates, pipeRes, docRes] = await Promise.all([
+          signupDateMap(ids),
+          db.from("candidate_pipeline").select("user_id, funnel_stage, interview1_status, interview2_status, updated_at").in("user_id", ids),
+          db.from("documents").select("user_id").in("user_id", ids),
+        ]);
+        const pipeById = new Map(((pipeRes.data ?? []) as Record<string, unknown>[]).map((r) => [String(r.user_id), r]));
+        const hasDocs = new Set(((docRes.data ?? []) as { user_id: string }[]).map((d) => d.user_id));
+        const now = Date.now();
+        const minMs = minDays * 86_400_000;
+        const rows = roster
+          .map((r) => { const iso = dates.get(r.userId) ?? null; return { r, iso, t: iso ? new Date(iso).getTime() : 0 }; })
+          .filter((x) => x.iso && (now - x.t) >= minMs)
+          .filter(({ r }) => {
+            const p = (pipeById.get(r.userId) ?? {}) as { interview1_status?: string | null; interview2_status?: string | null };
+            return stage === "interview2"
+              ? p.interview1_status === "passed" && p.interview2_status !== "passed"
+              : p.interview1_status !== "passed";
+          })
+          .sort((a, b) => a.t - b.t) // oldest signup first = most overdue
+          .slice(0, limit)
+          .map(({ r, iso, t }) => {
+            const p = (pipeById.get(r.userId) ?? {}) as { funnel_stage?: string | null; interview1_status?: string | null; interview2_status?: string | null; updated_at?: string | null };
+            return {
+              candidateUserId: r.userId, name: r.name,
+              registeredAt: iso, daysAgo: Math.floor((now - t) / 86_400_000),
+              funnelStage: p.funnel_stage ?? null,
+              interview1: p.interview1_status ?? null, interview2: p.interview2_status ?? null,
+              hasUploadedDocs: hasDocs.has(r.userId),
+              lastPipelineUpdate: p.updated_at ?? null,
+            };
+          });
+        return { count: rows.length, stage, minDays, candidates: rows };
       },
     }),
 

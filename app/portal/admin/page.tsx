@@ -83,7 +83,7 @@ type Doc = {
  *  all the UI needs — this just decides whether to SHOW the controls. */
 const docHasFile = (d?: { drive_file_id?: string | null; r2_key?: string | null } | null): boolean =>
   !!(d?.drive_file_id || d?.r2_key);
-type UserInfo = { email: string; name: string };
+type UserInfo = { email: string; name: string; createdAt?: string | null };
 type CandidateProfile = {
   first_name: string | null; last_name: string | null;
   dob: string | null; sex: string | null; nationality: string | null;
@@ -654,6 +654,10 @@ export default function AdminPage() {
   const [savingNewEmp, setSavingNewEmp]     = useState(false);
   const [searchQuery, setSearchQuery]   = useState("");
   const [filterMode, setFilterMode]     = useState<"all" | "pending" | "stuck" | "clear">("all");
+  // Registration lens (independent of filterMode): default keeps the activity
+  // order; "newest" surfaces the last people who signed up; "inactive" surfaces
+  // old signups who never uploaded a single document (the ghosts to chase).
+  const [regView, setRegView]           = useState<"default" | "newest" | "inactive">("default");
   const [pipeline, setPipeline]         = useState<AdminPipeline>(DEFAULT_PIPELINE);
   const [pipelineSaving, setPipelineSaving] = useState(false);
   const [pipelineLoaded, setPipelineLoaded] = useState(false);
@@ -7286,6 +7290,28 @@ export default function AdminPage() {
                       fontSize: "13px",
                     }} />
                 </div>
+                {/* Registration lens — who registered when + the never-started ghosts */}
+                <div className="mt-2 flex items-center gap-1.5">
+                  {([
+                    ["default",  lang === "de" ? "Aktivität" : lang === "fr" ? "Activité"  : "Activity"],
+                    ["newest",   lang === "de" ? "Neueste"   : lang === "fr" ? "Récents"   : "Newest"],
+                    ["inactive", lang === "de" ? "Inaktiv"   : lang === "fr" ? "Inactifs"  : "Inactive"],
+                  ] as const).map(([mode, label]) => {
+                    const active = regView === mode;
+                    return (
+                      <button key={mode} type="button" onClick={() => setRegView(mode)}
+                        className="px-2.5 py-1 text-[11.5px] font-semibold transition-colors"
+                        style={{
+                          borderRadius: "999px",
+                          border: `1px solid ${active ? "var(--border-gold)" : "var(--border)"}`,
+                          background: active ? "var(--gdim)" : "transparent",
+                          color: active ? "var(--gold)" : "var(--w3)",
+                        }}>
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             );
           })()}
@@ -7305,8 +7331,21 @@ export default function AdminPage() {
               return grouped[uid].some(d => d.status === "pending") && (Date.now() - recent) / HOUR >= 7 * 24;
             };
 
+            // Registration helpers (createdAt now flows from /api/portal/admin).
+            const regTime = (uid: string) => { const c = users[uid]?.createdAt; return c ? new Date(c).getTime() : 0; };
+            const regAgeDays = (uid: string) => { const t = regTime(uid); return t ? (Date.now() - t) / (24 * HOUR) : Infinity; };
+
             let visibleIds: string[];
-            if (filterMode === "all")          visibleIds = [...pendingUserIds, ...archivedUserIds];
+            if (regView === "newest") {
+              // Everyone, most-recent signup first — "who are the last who registered".
+              visibleIds = Object.keys(users).slice().sort((a, b) => regTime(b) - regTime(a));
+            } else if (regView === "inactive") {
+              // Signed up ≥14 days ago and never uploaded a single document — the
+              // ghosts that never made it to the next step. Oldest-registered first.
+              visibleIds = Object.keys(users)
+                .filter(uid => !grouped[uid] && regAgeDays(uid) >= 14)
+                .sort((a, b) => regTime(a) - regTime(b));
+            } else if (filterMode === "all")   visibleIds = [...pendingUserIds, ...archivedUserIds];
             else if (filterMode === "pending") visibleIds = pendingUserIds;
             else if (filterMode === "stuck")   visibleIds = pendingUserIds.filter(isStuck);
             else                                visibleIds = archivedUserIds;
@@ -7315,6 +7354,11 @@ export default function AdminPage() {
             if (visibleIds.length === 0) {
               if (q) {
                 return <EmptyState Icon={Search} title={t.adNoCandFound} sub={t.adNoMatchFor.replace("{q}", searchQuery)} />;
+              }
+              if (regView === "inactive") {
+                return <EmptyState Icon={CheckCircle2} tone="success"
+                  title={lang === "de" ? "Keine inaktiven Anmeldungen" : lang === "fr" ? "Aucune inscription inactive" : "No inactive signups"}
+                  sub={lang === "de" ? "Alle Angemeldeten haben mindestens ein Dokument hochgeladen." : lang === "fr" ? "Tous les inscrits ont téléversé au moins un document." : "Everyone who signed up has uploaded at least one document."} />;
               }
               if (filterMode === "stuck") {
                 return <EmptyState Icon={CheckCircle2} tone="success" title={t.adNothingStuck} sub={t.adNoStuckSub} />;
@@ -7377,6 +7421,22 @@ export default function AdminPage() {
                           ))}
                         </p>
                       </div>
+
+                      {/* Registration date — when they signed up (the "who registered when" ask) */}
+                      {(() => {
+                        const c = users[uid]?.createdAt;
+                        if (!c) return null;
+                        const d = new Date(c);
+                        const locale = lang === "de" ? "de-DE" : lang === "fr" ? "fr-FR" : "en-GB";
+                        const label = d.toLocaleDateString(locale, { day: "2-digit", month: "short", year: "numeric" });
+                        return (
+                          <span className="hidden sm:block flex-shrink-0 text-[10.5px] tabular-nums"
+                            title={lang === "de" ? "Registriert am" : lang === "fr" ? "Inscrit le" : "Registered on"}
+                            style={{ color: "var(--w3)" }}>
+                            {label}
+                          </span>
+                        );
+                      })()}
 
                       {/* Pending tasks badge */}
                       {(() => {

@@ -5,7 +5,7 @@ process.env.ADMIN_EMAIL = "admin@borivon.com";
 // Hoisted mock state (vi.mock factories hoist above imports).
 const h = vi.hoisted(() => ({
   tables: {} as Record<string, { data: unknown; error: unknown }>,
-  authUsers: [] as Array<{ id: string; email: string; user_metadata?: Record<string, unknown> }>,
+  authUsers: [] as Array<{ id: string; email: string; user_metadata?: Record<string, unknown>; created_at?: string }>,
   signDlToken: vi.fn((..._a: unknown[]) => "signed-token"),
 }));
 
@@ -1294,5 +1294,48 @@ describe("candidate notes (the founder's per-person log)", () => {
     expect(r.saved).toBe(true);
     expect(r.noteId).toBe("note-1");
     expect(r.name).toBe("Amina Test");
+  });
+});
+
+describe("registration tracking (recent signups + stalled ghosts)", () => {
+  const now = Date.now();
+  const daysAgoIso = (d: number) => new Date(now - d * 86_400_000).toISOString();
+
+  it("listRecentSignups returns only within the window, newest first, with the registration date", async () => {
+    h.authUsers = [
+      { id: "cand-new", email: "new@x.com", user_metadata: { full_name: "New Person" }, created_at: daysAgoIso(2) },
+      { id: "cand-old", email: "old@x.com", user_metadata: { full_name: "Old Person" }, created_at: daysAgoIso(200) },
+    ];
+    h.tables.candidate_profiles = { data: [{ user_id: "cand-new" }, { user_id: "cand-old" }], error: null };
+    h.tables.candidate_pipeline = { data: [{ user_id: "cand-old", interview1_status: "passed" }], error: null };
+    h.tables.documents = { data: [], error: null };
+    const r = (await run(buildAssistantTools(SUPREME), "listRecentSignups", { days: 30, limit: 25 })) as { candidates: { candidateUserId: string; registeredAt: string | null; daysAgo: number }[] };
+    expect(r.candidates.map((c) => c.candidateUserId)).toEqual(["cand-new"]); // cand-old is 200d ago → outside 30d
+    expect(r.candidates[0].registeredAt).toBeTruthy();
+    expect(r.candidates[0].daysAgo).toBeGreaterThanOrEqual(1);
+  });
+
+  it("listStalledSignups flags an old signup who never passed interview 1 (and drops one who did)", async () => {
+    h.authUsers = [
+      { id: "cand-stall", email: "s@x.com", user_metadata: { full_name: "Stalled One" }, created_at: daysAgoIso(90) },
+      { id: "cand-ok", email: "o@x.com", user_metadata: { full_name: "Passed One" }, created_at: daysAgoIso(90) },
+    ];
+    h.tables.candidate_profiles = { data: [{ user_id: "cand-stall" }, { user_id: "cand-ok" }], error: null };
+    h.tables.candidate_pipeline = { data: [{ user_id: "cand-ok", interview1_status: "passed" }], error: null };
+    h.tables.documents = { data: [], error: null };
+    const r = (await run(buildAssistantTools(SUPREME), "listStalledSignups", { minDays: 14, stage: "interview1", limit: 40 })) as { candidates: { candidateUserId: string }[] };
+    expect(r.candidates.map((c) => c.candidateUserId)).toEqual(["cand-stall"]);
+  });
+
+  it("listStalledSignups is scoped — an org admin never sees a foreign candidate (LAW #25)", async () => {
+    h.authUsers = [
+      { id: "allowed-cand", email: "a@x.com", user_metadata: { full_name: "Allowed One" }, created_at: daysAgoIso(90) },
+      { id: "foreign-cand", email: "f@x.com", user_metadata: { full_name: "Foreign Two" }, created_at: daysAgoIso(90) },
+    ];
+    h.tables.candidate_profiles = { data: [{ user_id: "allowed-cand" }, { user_id: "foreign-cand" }], error: null };
+    h.tables.candidate_pipeline = { data: [], error: null };
+    h.tables.documents = { data: [], error: null };
+    const r = (await run(buildAssistantTools(ORG_ADMIN), "listStalledSignups", { minDays: 14, stage: "interview1", limit: 40 })) as { candidates: { candidateUserId: string }[] };
+    expect(r.candidates.map((c) => c.candidateUserId)).toEqual(["allowed-cand"]);
   });
 });

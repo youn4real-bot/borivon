@@ -92,7 +92,7 @@ export async function GET(req: NextRequest) {
   const adminClient = getServiceSupabase();
 
   let userIds = [...new Set(docs.map((d: { user_id: string }) => d.user_id))];
-  const users: Record<string, { email: string; name: string }> = {};
+  const users: Record<string, { email: string; name: string; createdAt?: string | null }> = {};
 
   // For full admins, surface candidates who have signed up but not yet
   // uploaded anything — otherwise they're invisible until their first
@@ -121,6 +121,7 @@ export async function GET(req: NextRequest) {
         users[u.id] = {
           email: u.email,
           name: u.user_metadata?.full_name ?? u.email,
+          createdAt: u.created_at ?? null, // signup timestamp → admin "who registered when" + inactive-signup radar
         };
       }
       if (list.length < 1000) break;
@@ -138,6 +139,7 @@ export async function GET(req: NextRequest) {
         users[uid] = {
           email: data.user.email ?? uid,
           name: data.user.user_metadata?.full_name ?? data.user.email ?? uid,
+          createdAt: data.user.created_at ?? null,
         };
       }
     } catch (err) {
