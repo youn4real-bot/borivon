@@ -7485,6 +7485,20 @@ export default function AdminPage() {
             );
           })()}
 
+          {/* ── Batch Tracker — the ritual board. All admins (scoped). ── */}
+          {roleResolved && (
+            <button onClick={() => router.push("/portal/admin/tracker")}
+              className="mt-4 w-full flex items-center gap-3 px-4 py-3.5 transition-opacity hover:opacity-90"
+              style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-xl)" }}>
+              <ListChecks size={18} strokeWidth={1.8} style={{ color: "var(--gold)" }} />
+              <span className="flex-1 text-left min-w-0">
+                <span className="block text-[13px] font-semibold" style={{ color: "var(--w)" }}>{lang === "de" ? "Batch-Tracker" : lang === "fr" ? "Suivi du lot" : "Batch Tracker"}</span>
+                <span className="block text-[11px]" style={{ color: "var(--w3)" }}>{lang === "de" ? "Fortschritt jedes Kandidaten in einem Batch verfolgen" : lang === "fr" ? "Suivre la progression de chaque candidat d'un lot" : "Track every candidate's progress in a batch"}</span>
+              </span>
+              <ChevronDown size={16} strokeWidth={2} className="-rotate-90 flex-shrink-0" style={{ color: "var(--gold)" }} />
+            </button>
+          )}
+
           {/* ── Tools strip — invite + agencies ──
               Candidate invite: ALL admins (supreme + sub-admins).
               Org-admin + sub-admin invites: supreme only. ── */}
