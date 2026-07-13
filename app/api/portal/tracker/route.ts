@@ -20,10 +20,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const PROGRESS_COLS =
-  "user_id, funnel_stage, batch_id, interview1_status, interview1_date, interview2_status, interview2_date, contract_done, visa_appt_date, visa_granted, arrived_done";
+  "user_id, funnel_stage, batch_id, interview1_status, interview1_date, interview2_status, interview2_date, agreement_signed, contract_done, visa_appt_date, visa_granted, arrived_done";
 
 // Editable fields the tracker exposes (deliberately NOT the supreme-only stage locks).
-const BOOL_FIELDS = new Set(["contract_done", "visa_granted", "arrived_done"]);
+const BOOL_FIELDS = new Set(["agreement_signed", "contract_done", "visa_granted", "arrived_done"]);
 const DATE_FIELDS = new Set(["interview1_date", "interview2_date", "visa_appt_date"]);
 const STATUS_FIELDS = new Set(["interview1_status", "interview2_status"]);
 const VALID_STATUS = new Set(["pending", "passed", "failed"]);
@@ -86,6 +86,7 @@ export async function GET(req: NextRequest) {
         interview1Date: (pr.interview1_date as string | null) ?? null,
         interview2Status: (pr.interview2_status as string | null) ?? null,
         interview2Date: (pr.interview2_date as string | null) ?? null,
+        agreementSigned: pr.agreement_signed === true,
         contractDone: pr.contract_done === true,
         visaApptDate: (pr.visa_appt_date as string | null) ?? null,
         visaGranted: pr.visa_granted === true,

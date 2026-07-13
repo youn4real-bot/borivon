@@ -16,7 +16,7 @@ import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
 import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
-import { ArrowLeft, Users, CalendarRange, Search, Plus, Check } from "lucide-react";
+import { ArrowLeft, Users, CalendarRange, Search, Plus, Check, X } from "lucide-react";
 
 type Batch = { id: string; name: string; agency: string | null; employer: string | null; seats: number; filled: number; targetStart: string | null; targetEnd: string | null };
 type Employer = { id: string; name: string };
@@ -25,27 +25,21 @@ type Cand = {
   userId: string; name: string; batchId: string | null; funnelStage: string | null;
   interview1Status: string | null; interview1Date: string | null;
   interview2Status: string | null; interview2Date: string | null;
+  agreementSigned: boolean;
   contractDone: boolean; visaApptDate: string | null; visaGranted: boolean; arrivedDone: boolean;
 };
 
-// Funnel ladder (keys MUST match lib/batchBoard FUNNEL_STAGES + the bot enum).
-const STAGES: { key: string; label: string }[] = [
-  { key: "funneling", label: "Funneling" },
-  { key: "screening", label: "Screening call" },
-  { key: "interview1", label: "Interview 1" },
-  { key: "waiting_2nd", label: "Waiting 2nd interview" },
-  { key: "interview2", label: "Interview 2" },
-  { key: "passed", label: "Passed" },
-  { key: "departed", label: "Departed" },
-];
+// The tracker interview cycle is a plain 3-state: none → passed → failed → none
+// (every click visibly changes; no invisible "pending" step).
+const nextInterview = (cur: string | null): string | null => (cur === "passed" ? "failed" : cur === "failed" ? null : "passed");
 
-// Interview status cycle: none → pending → passed → failed → none.
-const NEXT_STATUS: Record<string, string | null> = { "": "pending", pending: "passed", passed: "failed", failed: "" };
-const STATUS_COLOR = (s: string | null): { bg: string; fg: string; bd: string } => {
-  if (s === "passed") return { bg: "var(--success-bg, rgba(22,163,74,0.14))", fg: "#16a34a", bd: "rgba(22,163,74,0.4)" };
-  if (s === "failed") return { bg: "rgba(239,68,68,0.13)", fg: "#ef4444", bd: "rgba(239,68,68,0.4)" };
-  if (s === "pending") return { bg: "rgba(245,158,11,0.14)", fg: "#f59e0b", bd: "rgba(245,158,11,0.4)" };
-  return { bg: "var(--bg2)", fg: "var(--w3)", bd: "var(--border)" };
+// One flat tone per step state — no gradients, no gold, deliberately calm.
+type Tone = "done" | "fail" | "need" | "todo";
+const TONE: Record<Tone, { bg: string; fg: string; bd: string }> = {
+  done: { bg: "rgba(22,163,74,0.12)",  fg: "#16a34a", bd: "rgba(22,163,74,0.38)" },
+  fail: { bg: "rgba(239,68,68,0.10)",  fg: "#ef4444", bd: "rgba(239,68,68,0.38)" },
+  need: { bg: "rgba(245,158,11,0.12)", fg: "#c98212", bd: "rgba(245,158,11,0.42)" },
+  todo: { bg: "var(--bg2)",            fg: "var(--w3)", bd: "var(--border)" },
 };
 
 export default function AdminTrackerPage() {
@@ -140,12 +134,11 @@ export default function AdminTrackerPage() {
   }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cycleInterview = (c: Cand, n: 1 | 2) => {
-    const cur = (n === 1 ? c.interview1Status : c.interview2Status) ?? "";
-    const next = NEXT_STATUS[cur] ?? "pending";
-    if (n === 1) apply(c.userId, { interview1Status: next || null }, { interview1_status: next || null });
-    else apply(c.userId, { interview2Status: next || null }, { interview2_status: next || null });
+    const next = nextInterview(n === 1 ? c.interview1Status : c.interview2Status);
+    if (n === 1) apply(c.userId, { interview1Status: next }, { interview1_status: next });
+    else apply(c.userId, { interview2Status: next }, { interview2_status: next });
   };
-  const setStage = (c: Cand, stage: string) => apply(c.userId, { funnelStage: stage || null }, { funnel_stage: stage || null });
+  const toggleAgreement = (c: Cand) => apply(c.userId, { agreementSigned: !c.agreementSigned }, { agreement_signed: !c.agreementSigned });
   const addToBatch = (c: Cand) => apply(c.userId, { batchId: selectedBatch }, { batch_id: selectedBatch });
   const removeFromBatch = (c: Cand) => apply(c.userId, { batchId: null }, { batch_id: null });
 
@@ -188,11 +181,12 @@ export default function AdminTrackerPage() {
       .slice(0, 40);
   }, [candidates, selectedBatch, addQuery]);
 
-  // Batch progress summary — how many have passed interview 1 / 2 / arrived.
+  // Batch progress summary — leads with the beginning that matters most.
   const summary = useMemo(() => {
-    const s = { i1: 0, i2: 0, contract: 0, visa: 0, arrived: 0 };
+    const s = { i1: 0, agreement: 0, i2: 0, contract: 0, visa: 0, arrived: 0 };
     for (const c of members) {
       if (c.interview1Status === "passed") s.i1++;
+      if (c.agreementSigned) s.agreement++;
       if (c.interview2Status === "passed") s.i2++;
       if (c.contractDone) s.contract++;
       if (c.visaGranted) s.visa++;
@@ -205,13 +199,29 @@ export default function AdminTrackerPage() {
 
   const fmtWindow = (b: Batch) => [b.targetStart, b.targetEnd].filter(Boolean).join(" → ");
 
+  // One big, obvious step in the primary row (Interview 1 · Agreement · Interview 2).
+  const Step = ({ label, tone, onClick }: { label: string; tone: Tone; onClick: () => void }) => {
+    const t = TONE[tone];
+    return (
+      <button onClick={onClick}
+        className="flex-1 min-w-0 flex items-center justify-center gap-1.5 px-2 py-3 rounded-xl transition-colors"
+        style={{ background: t.bg, color: t.fg, border: `1px solid ${t.bd}` }}>
+        {tone === "done" ? <Check size={15} strokeWidth={2.6} />
+          : tone === "fail" ? <X size={15} strokeWidth={2.6} />
+          : <span aria-hidden style={{ width: 9, height: 9, borderRadius: 99, border: `2px solid ${t.fg}` }} />}
+        <span className="text-[12.5px] font-semibold truncate">{label}</span>
+      </button>
+    );
+  };
+
+  // Small, muted toggle for the later "after" stages (contract · visa · arrived).
   const Pill = ({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) => (
     <button onClick={onClick}
       className="inline-flex items-center gap-1 px-2.5 py-1 text-[11.5px] font-semibold rounded-full transition-colors"
       style={{
-        background: active ? "var(--success-bg, rgba(22,163,74,0.14))" : "var(--bg2)",
+        background: active ? "rgba(22,163,74,0.12)" : "var(--bg2)",
         color: active ? "#16a34a" : "var(--w3)",
-        border: `1px solid ${active ? "rgba(22,163,74,0.4)" : "var(--border)"}`,
+        border: `1px solid ${active ? "rgba(22,163,74,0.38)" : "var(--border)"}`,
       }}>
       {active && <Check size={12} strokeWidth={2.5} />}{children}
     </button>
@@ -250,7 +260,7 @@ export default function AdminTrackerPage() {
       ) : (
         <>
           {/* Batch header + summary */}
-          <div className="p-4 sm:p-5 mb-5" style={{ background: "var(--card)", border: "1px solid var(--border-gold)", borderRadius: "var(--r-xl)", boxShadow: "var(--shadow-sm)" }}>
+          <div className="p-4 sm:p-5 mb-5" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-xl)" }}>
             <div className="flex items-start justify-between gap-3 flex-wrap">
               <div className="min-w-0">
                 <p className="text-[16px] font-semibold" style={{ color: "var(--w)" }}>{batch.name}</p>
@@ -264,13 +274,12 @@ export default function AdminTrackerPage() {
                 <Plus size={15} strokeWidth={2} /> {T("Add candidate", "Kandidat hinzufügen", "Ajouter un candidat")}
               </button>
             </div>
-            {/* progress chips */}
+            {/* progress chips — lead with the beginning */}
             <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px]" style={{ color: "var(--w2)" }}>
-              <span>{T("Interview 1 passed", "Interview 1 bestanden", "Entretien 1 réussi")}: <b style={{ color: "var(--w)" }}>{summary.i1}/{members.length}</b></span>
-              <span>{T("Interview 2 passed", "Interview 2 bestanden", "Entretien 2 réussi")}: <b style={{ color: "var(--w)" }}>{summary.i2}/{members.length}</b></span>
-              <span>{T("Contract", "Vertrag", "Contrat")}: <b style={{ color: "var(--w)" }}>{summary.contract}</b></span>
-              <span>{T("Visa", "Visum", "Visa")}: <b style={{ color: "var(--w)" }}>{summary.visa}</b></span>
-              <span>{T("Arrived", "Angekommen", "Arrivés")}: <b style={{ color: "var(--w)" }}>{summary.arrived}</b></span>
+              <span>{T("Interview 1", "Interview 1", "Entretien 1")}: <b style={{ color: "var(--w)" }}>{summary.i1}/{members.length}</b></span>
+              <span>{T("Agreement", "Vereinbarung", "Accord")}: <b style={{ color: "var(--w)" }}>{summary.agreement}/{members.length}</b></span>
+              <span>{T("Interview 2", "Interview 2", "Entretien 2")}: <b style={{ color: "var(--w)" }}>{summary.i2}/{members.length}</b></span>
+              <span className="opacity-70">{T("Contract", "Vertrag", "Contrat")} {summary.contract} · {T("Visa", "Visum", "Visa")} {summary.visa} · {T("Arrived", "Angekommen", "Arrivés")} {summary.arrived}</span>
             </div>
           </div>
 
@@ -304,62 +313,44 @@ export default function AdminTrackerPage() {
               {T("No candidates in this batch yet — add some above.", "Noch keine Kandidaten in diesem Batch — oben hinzufügen.", "Aucun candidat dans ce lot — ajoutez-en ci-dessus.")}
             </div>
           ) : (
-            <div className="space-y-3">
-              {members.map((c) => {
-                const i1 = STATUS_COLOR(c.interview1Status);
-                const i2 = STATUS_COLOR(c.interview2Status);
-                const statusLabel = (s: string | null) => s === "passed" ? T("passed", "bestanden", "réussi") : s === "failed" ? T("failed", "nicht bestanden", "échoué") : s === "pending" ? T("pending", "ausstehend", "en attente") : T("—", "—", "—");
-                return (
-                  <div key={c.userId} className="p-4" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-xl)" }}>
-                    <div className="flex items-center justify-between gap-3 flex-wrap">
-                      <p className="text-[14px] font-semibold min-w-0 truncate" style={{ color: "var(--w)" }}>{c.name}</p>
-                      <select value={c.funnelStage ?? ""} onChange={(e) => setStage(c, e.target.value)}
-                        className="text-[12px] px-2 py-1 rounded-md flex-shrink-0" style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
-                        <option value="">{T("stage…", "Phase…", "étape…")}</option>
-                        {STAGES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
-                      </select>
-                    </div>
-
-                    {/* interviews */}
-                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                      {([1, 2] as const).map((n) => {
-                        const s = n === 1 ? c.interview1Status : c.interview2Status;
-                        const d = n === 1 ? c.interview1Date : c.interview2Date;
-                        const col = n === 1 ? i1 : i2;
-                        return (
-                          <div key={n} className="flex items-center gap-2">
-                            <span className="text-[11.5px] w-[68px] flex-shrink-0" style={{ color: "var(--w3)" }}>{T("Interview", "Interview", "Entretien")} {n}</span>
-                            <button onClick={() => cycleInterview(c, n)}
-                              className="px-2.5 py-1 text-[11.5px] font-semibold rounded-full transition-colors"
-                              style={{ background: col.bg, color: col.fg, border: `1px solid ${col.bd}` }}>
-                              {statusLabel(s)}
-                            </button>
-                            <input type="date" value={d ?? ""}
-                              onChange={(e) => n === 1
-                                ? apply(c.userId, { interview1Date: e.target.value || null }, { interview1_date: e.target.value || null })
-                                : apply(c.userId, { interview2Date: e.target.value || null }, { interview2_date: e.target.value || null })}
-                              className="text-[11.5px] px-2 py-1 rounded-md" style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }} />
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    {/* milestones */}
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <Pill active={c.contractDone} onClick={() => apply(c.userId, { contractDone: !c.contractDone }, { contract_done: !c.contractDone })}>{T("Contract", "Vertrag", "Contrat")}</Pill>
-                      <Pill active={c.visaGranted} onClick={() => apply(c.userId, { visaGranted: !c.visaGranted }, { visa_granted: !c.visaGranted })}>{T("Visa", "Visum", "Visa")}</Pill>
-                      <div className="inline-flex items-center gap-1">
-                        <span className="text-[10.5px]" style={{ color: "var(--w3)" }}>{T("Visa appt", "Visum-Termin", "RDV visa")}</span>
-                        <input type="date" value={c.visaApptDate ?? ""} onChange={(e) => apply(c.userId, { visaApptDate: e.target.value || null }, { visa_appt_date: e.target.value || null })}
-                          className="text-[11px] px-1.5 py-1 rounded-md" style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }} />
+            <>
+              <p className="mb-2.5 text-[11.5px]" style={{ color: "var(--w3)" }}>
+                {T("Tap a step to set it — green = done, red = failed. The agreement is signed right after Interview 1.",
+                   "Tippe auf einen Schritt — grün = erledigt, rot = nicht bestanden. Die Vereinbarung wird direkt nach Interview 1 unterschrieben.",
+                   "Touchez une étape — vert = fait, rouge = échoué. L'accord se signe juste après l'entretien 1.")}
+              </p>
+              <div className="space-y-2.5">
+                {members.map((c) => {
+                  const i1tone: Tone = c.interview1Status === "passed" ? "done" : c.interview1Status === "failed" ? "fail" : "todo";
+                  const i2tone: Tone = c.interview2Status === "passed" ? "done" : c.interview2Status === "failed" ? "fail" : "todo";
+                  // Agreement is REQUIRED after Interview 1 → amber "need" once I1 passed but not yet signed.
+                  const agTone: Tone = c.agreementSigned ? "done" : c.interview1Status === "passed" ? "need" : "todo";
+                  return (
+                    <div key={c.userId} className="p-4" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-xl)" }}>
+                      <div className="flex items-center justify-between gap-3 mb-3">
+                        <p className="text-[14px] font-semibold min-w-0 truncate" style={{ color: "var(--w)" }}>{c.name}</p>
+                        <button onClick={() => removeFromBatch(c)} className="text-[11px] flex-shrink-0 hover:opacity-70" style={{ color: "var(--w3)" }}>{T("Remove", "Entfernen", "Retirer")}</button>
                       </div>
-                      <Pill active={c.arrivedDone} onClick={() => apply(c.userId, { arrivedDone: !c.arrivedDone }, { arrived_done: !c.arrivedDone })}>{T("Arrived", "Angekommen", "Arrivé")}</Pill>
-                      <button onClick={() => removeFromBatch(c)} className="ml-auto text-[11px]" style={{ color: "var(--w3)" }}>{T("Remove", "Entfernen", "Retirer")}</button>
+
+                      {/* The beginning that matters: Interview 1 → Agreement → Interview 2 */}
+                      <div className="flex items-stretch gap-2">
+                        <Step label={`${T("Interview", "Interview", "Entretien")} 1`} tone={i1tone} onClick={() => cycleInterview(c, 1)} />
+                        <Step label={T("Agreement", "Vereinbarung", "Accord")} tone={agTone} onClick={() => toggleAgreement(c)} />
+                        <Step label={`${T("Interview", "Interview", "Entretien")} 2`} tone={i2tone} onClick={() => cycleInterview(c, 2)} />
+                      </div>
+
+                      {/* Later stages — smaller and muted; the beginning is what counts */}
+                      <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--w3)" }}>{T("Later", "Später", "Ensuite")}</span>
+                        <Pill active={c.contractDone} onClick={() => apply(c.userId, { contractDone: !c.contractDone }, { contract_done: !c.contractDone })}>{T("Contract", "Vertrag", "Contrat")}</Pill>
+                        <Pill active={c.visaGranted} onClick={() => apply(c.userId, { visaGranted: !c.visaGranted }, { visa_granted: !c.visaGranted })}>{T("Visa", "Visum", "Visa")}</Pill>
+                        <Pill active={c.arrivedDone} onClick={() => apply(c.userId, { arrivedDone: !c.arrivedDone }, { arrived_done: !c.arrivedDone })}>{T("Arrived", "Angekommen", "Arrivé")}</Pill>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            </>
           )}
         </>
       )}

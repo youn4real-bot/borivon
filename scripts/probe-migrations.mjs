@@ -28,6 +28,7 @@ const GATES = [
   { table: "employer_batches", column: "id", file: "employer_batches.sql", feature: "Batch board / Batch Tracker (base table)" },
   { table: "employer_batches", column: "org_id", file: "employer_batches_org.sql", feature: "agency on batches (Calmaroi → UKSH)" },
   { table: "enterprise_leads", column: "id", file: "enterprise_leads.sql", feature: "v2 enterprise contact leads" },
+  { table: "candidate_pipeline", column: "agreement_signed", file: "candidate_pipeline_agreement.sql", feature: "Agreement step in the Batch Tracker" },
 ];
 
 const isMissing = (e) => {
