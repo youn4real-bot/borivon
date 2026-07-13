@@ -1451,12 +1451,13 @@ async function writeAcademyLevel(userId: string, level: string): Promise<WriteRe
 
 // ── Batch Board ──────────────────────────────────────────────────────────────
 // Create / edit / close an employer intake batch (employer_batches).
-async function writeManageBatch(opts: { op: string; batchId?: string; employerId?: string; name?: string; seats?: number; targetStart?: string; targetEnd?: string; notes?: string; close?: boolean }): Promise<WriteResult> {
+async function writeManageBatch(opts: { op: string; batchId?: string; employerId?: string; orgId?: string; name?: string; seats?: number; targetStart?: string; targetEnd?: string; notes?: string; close?: boolean }): Promise<WriteResult> {
   const db = getServiceSupabase();
   if (opts.op === "create") {
     if (!opts.name) return { ok: false, error: "name_required" };
     const row: Record<string, unknown> = { name: opts.name, seats: opts.seats && opts.seats > 0 ? opts.seats : 10 };
     if (opts.employerId) row.employer_id = opts.employerId;
+    if (opts.orgId) row.org_id = opts.orgId;
     if (opts.targetStart) row.target_start = opts.targetStart;
     if (opts.targetEnd) row.target_end = opts.targetEnd;
     if (opts.notes) row.notes = opts.notes;
@@ -1468,6 +1469,7 @@ async function writeManageBatch(opts: { op: string; batchId?: string; employerId
   if (opts.name !== undefined) upd.name = opts.name;
   if (opts.seats !== undefined && opts.seats > 0) upd.seats = opts.seats;
   if (opts.employerId !== undefined) upd.employer_id = opts.employerId || null;
+  if (opts.orgId !== undefined) upd.org_id = opts.orgId || null;
   if (opts.targetStart !== undefined) upd.target_start = opts.targetStart || null;
   if (opts.targetEnd !== undefined) upd.target_end = opts.targetEnd || null;
   if (opts.notes !== undefined) upd.notes = opts.notes || null;
@@ -2022,6 +2024,7 @@ async function applyPendingRow(
       op: String(a.op ?? ""),
       batchId: a.batchId == null ? undefined : String(a.batchId),
       employerId: a.employerId === undefined ? undefined : a.employerId == null ? "" : String(a.employerId),
+      orgId: a.orgId === undefined ? undefined : a.orgId == null ? "" : String(a.orgId),
       name: a.name == null ? undefined : String(a.name),
       seats: a.seats == null ? undefined : Number(a.seats),
       targetStart: a.targetStart == null ? undefined : String(a.targetStart),

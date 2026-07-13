@@ -38,12 +38,16 @@ export async function GET(req: NextRequest) {
 
   const { data: batches, error: bErr } = await db
     .from("employer_batches")
-    .select("id, employer_id, name, seats, target_start, target_end, status")
+    .select("id, employer_id, org_id, name, seats, target_start, target_end, status")
     .order("created_at", { ascending: false });
   if (bErr) return NextResponse.json({ error: "batches_unavailable" }, { status: 500 });
 
-  const { data: emps } = await db.from("employers").select("id, name");
-  const empName = new Map<string, string>(((emps ?? []) as { id: string; name: string }[]).map((e) => [e.id, e.name]));
+  const { data: emps } = await db.from("employers").select("id, name").eq("active", true).order("name");
+  const employers = (emps ?? []) as { id: string; name: string }[];
+  const empName = new Map<string, string>(employers.map((e) => [e.id, e.name]));
+  const { data: orgsData } = await db.from("organizations").select("id, name").order("name");
+  const organizations = (orgsData ?? []) as { id: string; name: string }[];
+  const orgName = new Map<string, string>(organizations.map((o) => [o.id, o.name]));
 
   // Candidate roster (scoped), minus staff.
   let profQ = db.from("candidate_profiles").select("user_id, first_name, last_name");
@@ -90,13 +94,19 @@ export async function GET(req: NextRequest) {
     })
     .sort((a, b) => a.name.localeCompare(b.name));
 
+  const isSupreme = auth.role === "admin";
   return NextResponse.json({
     role: auth.role,
+    // The create-form pickers are only meaningful (and only sent) to the supreme admin.
+    employers: isSupreme ? employers : undefined,
+    organizations: isSupreme ? organizations : undefined,
     batches: (batches ?? [])
-      .map((b) => b as { id: string; employer_id: string | null; name: string; seats: number; target_start: string | null; target_end: string | null; status: string })
+      .map((b) => b as { id: string; employer_id: string | null; org_id: string | null; name: string; seats: number; target_start: string | null; target_end: string | null; status: string })
       .filter((b) => b.status === "open")
       .map((b) => ({
-        id: b.id, name: b.name, employer: b.employer_id ? empName.get(b.employer_id) ?? null : null,
+        id: b.id, name: b.name,
+        agency: b.org_id ? orgName.get(b.org_id) ?? null : null,
+        employer: b.employer_id ? empName.get(b.employer_id) ?? null : null,
         seats: b.seats, filled: filled.get(b.id) ?? 0, targetStart: b.target_start, targetEnd: b.target_end,
       })),
     candidates,

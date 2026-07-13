@@ -4221,11 +4221,11 @@ export function buildAssistantTools(
       inputSchema: z.object({ includeClosed: z.boolean().optional() }),
       execute: async ({ includeClosed }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
-        let q = db.from("employer_batches").select("id, employer_id, name, seats, target_start, target_end, status").order("created_at", { ascending: false });
+        let q = db.from("employer_batches").select("id, employer_id, org_id, name, seats, target_start, target_end, status").order("created_at", { ascending: false });
         if (!includeClosed) q = q.eq("status", "open");
         const { data: batches, error } = await q;
         if (error) return { error: "load_failed" };
-        const list = (batches ?? []) as { id: string; employer_id: string | null; name: string; seats: number; target_start: string | null; target_end: string | null; status: string }[];
+        const list = (batches ?? []) as { id: string; employer_id: string | null; org_id: string | null; name: string; seats: number; target_start: string | null; target_end: string | null; status: string }[];
         const { data: assigned } = await db.from("candidate_pipeline").select("batch_id").not("batch_id", "is", null);
         const cnt = new Map<string, number>();
         for (const r of (assigned ?? []) as { batch_id: string }[]) cnt.set(r.batch_id, (cnt.get(r.batch_id) ?? 0) + 1);
@@ -4235,10 +4235,18 @@ export function buildAssistantTools(
           const { data: emps } = await db.from("employers").select("id, name").in("id", empIds);
           for (const e of (emps ?? []) as { id: string; name: string }[]) empName.set(e.id, e.name);
         }
+        const orgIds = [...new Set(list.map((b) => b.org_id).filter(Boolean) as string[])];
+        const orgName = new Map<string, string>();
+        if (orgIds.length) {
+          const { data: orgs } = await db.from("organizations").select("id, name").in("id", orgIds);
+          for (const o of (orgs ?? []) as { id: string; name: string }[]) orgName.set(o.id, o.name);
+        }
         return {
           count: list.length,
           batches: list.map((b) => ({
-            batchId: b.id, name: b.name, employer: b.employer_id ? empName.get(b.employer_id) ?? null : null,
+            batchId: b.id, name: b.name,
+            agency: b.org_id ? orgName.get(b.org_id) ?? null : null,
+            employer: b.employer_id ? empName.get(b.employer_id) ?? null : null,
             filled: cnt.get(b.id) ?? 0, seats: b.seats, targetStart: b.target_start, targetEnd: b.target_end, status: b.status,
           })),
         };
@@ -4247,24 +4255,26 @@ export function buildAssistantTools(
 
     manageBatch: tool({
       description:
-        "STAGE creating/editing/closing an employer intake BATCH. op 'create' (name required, e.g. 'UKSH — Q3 2026'; optional employerId from listEmployers, seats default 10, targetStart/targetEnd as YYYY-MM-DD, notes), 'edit' (batchId + any field), or 'close' (batchId — stops it counting as an open gap to fill). Supreme-only; applies immediately when you call it. e.g. 'open a UKSH batch for Q3, 10 seats' → manageBatch(op 'create', name 'UKSH — Q3 2026', seats 10).",
+        "STAGE creating/editing/closing an employer intake BATCH. op 'create' (name required, e.g. 'UKSH Kiel — April 2027'; optional employerId from listEmployers, optional orgId = the AGENCY the batch runs through from listOrganizations e.g. Calmaroi, seats default 10, targetStart/targetEnd as YYYY-MM-DD, notes), 'edit' (batchId + any field), or 'close' (batchId — stops it counting as an open gap to fill). Supreme-only; applies immediately when you call it. e.g. 'open a UKSH Kiel batch for April 2027 through Calmaroi, 12 seats' → manageBatch(op 'create', name 'UKSH Kiel — April 2027', employerId <uksh>, orgId <calmaroi>, seats 12).",
       inputSchema: z.object({
         op: z.enum(["create", "edit", "close"]),
         batchId: z.string().uuid().optional(),
         employerId: z.string().uuid().optional(),
+        orgId: z.string().uuid().optional().describe("the AGENCY (organization) the batch runs through, from listOrganizations"),
         name: z.string().max(120).optional(),
         seats: z.number().int().min(1).max(1000).optional(),
         targetStart: z.string().max(10).optional(),
         targetEnd: z.string().max(10).optional(),
         notes: z.string().max(500).optional(),
       }),
-      execute: async ({ op, batchId, employerId, name, seats, targetStart, targetEnd, notes }) => {
+      execute: async ({ op, batchId, employerId, orgId, name, seats, targetStart, targetEnd, notes }) => {
         if (scope.role !== "admin") return { error: "admin_only" };
         if ((op === "edit" || op === "close") && !batchId) return { error: "batchId_required" };
         if (op === "create" && !name) return { error: "name_required" };
         const args: Record<string, unknown> = { op };
         if (batchId !== undefined) args.batchId = batchId;
         if (employerId !== undefined) args.employerId = employerId;
+        if (orgId !== undefined) args.orgId = orgId;
         if (name !== undefined) args.name = name;
         if (seats !== undefined) args.seats = seats;
         if (targetStart !== undefined) args.targetStart = targetStart;

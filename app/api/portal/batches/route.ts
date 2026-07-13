@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
 
   const { data: batches, error: bErr } = await db
     .from("employer_batches")
-    .select("id, employer_id, name, seats, target_start, target_end, status, notes")
+    .select("id, employer_id, org_id, name, seats, target_start, target_end, status, notes")
     .order("created_at", { ascending: false });
   if (bErr) return NextResponse.json({ error: "batches_unavailable" }, { status: 500 });
 
@@ -76,12 +76,20 @@ export async function GET(req: NextRequest) {
   const empName = new Map<string, string>();
   for (const e of employers) empName.set(e.id, e.name);
 
+  // Organizations = the AGENCIES a batch can run through (e.g. Calmaroi).
+  const { data: orgsData } = await db.from("organizations").select("id, name").order("name");
+  const organizations = (orgsData ?? []) as { id: string; name: string }[];
+  const orgName = new Map<string, string>();
+  for (const o of organizations) orgName.set(o.id, o.name);
+
   return NextResponse.json({
     employers,
+    organizations,
     batches: (batches ?? []).map((b) => {
-      const row = b as { id: string; employer_id: string | null; name: string; seats: number; target_start: string | null; target_end: string | null; status: string; notes: string | null };
+      const row = b as { id: string; employer_id: string | null; org_id: string | null; name: string; seats: number; target_start: string | null; target_end: string | null; status: string; notes: string | null };
       return {
         id: row.id, name: row.name, employerId: row.employer_id, employer: row.employer_id ? empName.get(row.employer_id) ?? null : null,
+        orgId: row.org_id, agency: row.org_id ? orgName.get(row.org_id) ?? null : null,
         seats: row.seats, filled: filled.get(row.id) ?? 0, targetStart: row.target_start, targetEnd: row.target_end, status: row.status, notes: row.notes,
       };
     }),
@@ -100,6 +108,7 @@ export async function POST(req: NextRequest) {
   if (!name) return NextResponse.json({ error: "Name required" }, { status: 400 });
   const row: Record<string, unknown> = { name, seats: Number.isFinite(body.seats) ? Math.max(1, Math.min(1000, Math.round(body.seats))) : 10 };
   if (typeof body.employerId === "string" && UUID_RE.test(body.employerId)) row.employer_id = body.employerId;
+  if (typeof body.orgId === "string" && UUID_RE.test(body.orgId)) row.org_id = body.orgId;
   if (typeof body.targetStart === "string" && body.targetStart) row.target_start = body.targetStart;
   if (typeof body.targetEnd === "string" && body.targetEnd) row.target_end = body.targetEnd;
   if (typeof body.notes === "string" && body.notes.trim()) row.notes = body.notes.trim().slice(0, 500);
@@ -146,6 +155,8 @@ export async function PATCH(req: NextRequest) {
   if (Number.isFinite(body.seats)) upd.seats = Math.max(1, Math.min(1000, Math.round(body.seats)));
   if (body.employerId === null || body.employerId === "") upd.employer_id = null;
   else if (typeof body.employerId === "string" && UUID_RE.test(body.employerId)) upd.employer_id = body.employerId;
+  if (body.orgId === null || body.orgId === "") upd.org_id = null;
+  else if (typeof body.orgId === "string" && UUID_RE.test(body.orgId)) upd.org_id = body.orgId;
   if (typeof body.targetStart === "string") upd.target_start = body.targetStart || null;
   if (typeof body.targetEnd === "string") upd.target_end = body.targetEnd || null;
   if (typeof body.notes === "string") upd.notes = body.notes.trim().slice(0, 500) || null;

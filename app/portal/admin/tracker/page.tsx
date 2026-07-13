@@ -15,9 +15,12 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
+import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
 import { ArrowLeft, Users, CalendarRange, Search, Plus, Check } from "lucide-react";
 
-type Batch = { id: string; name: string; employer: string | null; seats: number; filled: number; targetStart: string | null; targetEnd: string | null };
+type Batch = { id: string; name: string; agency: string | null; employer: string | null; seats: number; filled: number; targetStart: string | null; targetEnd: string | null };
+type Employer = { id: string; name: string };
+type Org = { id: string; name: string };
 type Cand = {
   userId: string; name: string; batchId: string | null; funnelStage: string | null;
   interview1Status: string | null; interview1Date: string | null;
@@ -57,6 +60,12 @@ export default function AdminTrackerPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [addQuery, setAddQuery] = useState("");
   const [err, setErr] = useState("");
+  const [isSupreme, setIsSupreme] = useState(false);
+  const [employers, setEmployers] = useState<Employer[]>([]);
+  const [organizations, setOrganizations] = useState<Org[]>([]);
+  const [showNew, setShowNew] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ name: "", seats: 12, orgId: "", employerId: "", targetStart: "", targetEnd: "" });
 
   const load = useCallback(async (tk: string) => {
     const res = await fetch("/api/portal/tracker", { headers: { Authorization: `Bearer ${tk}` } });
@@ -65,6 +74,9 @@ export default function AdminTrackerPage() {
     const bs = (j.batches ?? []) as Batch[];
     setBatches(bs);
     setCandidates((j.candidates ?? []) as Cand[]);
+    setIsSupreme(j.role === "admin");
+    setEmployers((j.employers ?? []) as Employer[]);
+    setOrganizations((j.organizations ?? []) as Org[]);
     setSelectedBatch((cur) => {
       if (cur && bs.some((b) => b.id === cur)) return cur;
       // Default to the UKSH / April 2027 batch if present, else the first open one.
@@ -116,6 +128,32 @@ export default function AdminTrackerPage() {
   const setStage = (c: Cand, stage: string) => apply(c.userId, { funnelStage: stage || null }, { funnel_stage: stage || null });
   const addToBatch = (c: Cand) => apply(c.userId, { batchId: selectedBatch }, { batch_id: selectedBatch });
   const removeFromBatch = (c: Cand) => apply(c.userId, { batchId: null }, { batch_id: null });
+
+  // Supreme-only: create a new batch (name + date window + agency + employer),
+  // then select it. Reuses the supreme-gated POST /api/portal/batches.
+  const createBatch = async () => {
+    if (!form.name.trim() || saving) return;
+    setSaving(true);
+    const res = await fetch("/api/portal/batches", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: form.name.trim(), seats: form.seats,
+        orgId: form.orgId || undefined, employerId: form.employerId || undefined,
+        targetStart: form.targetStart || undefined, targetEnd: form.targetEnd || undefined,
+      }),
+    }).catch(() => null);
+    setSaving(false);
+    if (res && res.ok) {
+      const created = await res.json().catch(() => ({}));
+      setShowNew(false);
+      setForm({ name: "", seats: 12, orgId: "", employerId: "", targetStart: "", targetEnd: "" });
+      await load(token);
+      if (created?.id) setSelectedBatch(created.id);
+    } else {
+      setErr(T("Could not create the batch.", "Batch konnte nicht erstellt werden.", "Impossible de créer le lot."));
+    }
+  };
 
   const batch = useMemo(() => batches.find((b) => b.id === selectedBatch) ?? null, [batches, selectedBatch]);
   const members = useMemo(
@@ -170,12 +208,19 @@ export default function AdminTrackerPage() {
           <h1 className="bv-h1">{T("Batch Tracker", "Batch-Tracker", "Suivi du lot")}</h1>
           <p className="bv-body mt-1">{T("Track every candidate's progress in one batch.", "Verfolge den Fortschritt jedes Kandidaten in einem Batch.", "Suivez la progression de chaque candidat d'un lot.")}</p>
         </div>
-        {batches.length > 1 && (
-          <select value={selectedBatch} onChange={(e) => setSelectedBatch(e.target.value)}
-            className="text-[13px] px-3 py-2 rounded-md" style={{ background: "var(--card)", color: "var(--w)", border: "1px solid var(--border)" }}>
-            {batches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
-          </select>
-        )}
+        <div className="flex items-center gap-2 flex-wrap">
+          {batches.length > 1 && (
+            <select value={selectedBatch} onChange={(e) => setSelectedBatch(e.target.value)}
+              className="text-[13px] px-3 py-2 rounded-md" style={{ background: "var(--card)", color: "var(--w)", border: "1px solid var(--border)" }}>
+              {batches.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+            </select>
+          )}
+          {isSupreme && (
+            <button onClick={() => setShowNew(true)} className="bv-btn bv-btn-ghost inline-flex">
+              <Plus size={15} strokeWidth={2} /> {T("New batch", "Neuer Batch", "Nouveau lot")}
+            </button>
+          )}
+        </div>
       </div>
 
       {!batch ? (
@@ -190,7 +235,7 @@ export default function AdminTrackerPage() {
               <div className="min-w-0">
                 <p className="text-[16px] font-semibold" style={{ color: "var(--w)" }}>{batch.name}</p>
                 <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]" style={{ color: "var(--w3)" }}>
-                  {batch.employer && <span>{batch.employer}</span>}
+                  {(batch.agency || batch.employer) && <span>{[batch.agency, batch.employer].filter(Boolean).join(" → ")}</span>}
                   {fmtWindow(batch) && <span className="inline-flex items-center gap-1"><CalendarRange size={12} /> {fmtWindow(batch)}</span>}
                   <span className="inline-flex items-center gap-1"><Users size={12} /> {batch.filled}/{batch.seats}</span>
                 </div>
@@ -298,6 +343,56 @@ export default function AdminTrackerPage() {
           )}
         </>
       )}
+
+      {/* Supreme-only: create a new batch — name + date window + agency + employer. */}
+      <Modal open={showNew} onClose={() => !saving && setShowNew(false)} size="sm" busy={saving}
+        title={T("New batch", "Neuer Batch", "Nouveau lot")}
+        subtitle={T("An employer intake, e.g. \"UKSH Kiel — April 2027\".", "Ein Arbeitgeber-Intake, z.B. \"UKSH Kiel — April 2027\".", "Un recrutement employeur, p.ex. \"UKSH Kiel — April 2027\".")}
+        footer={<><GhostButton onClick={() => setShowNew(false)} disabled={saving}>{T("Cancel", "Abbrechen", "Annuler")}</GhostButton>
+          <GoldButton onClick={createBatch} disabled={saving || !form.name.trim()}>{T("Create", "Erstellen", "Créer")}</GoldButton></>}>
+        <div className="px-5 py-4 space-y-3">
+          <label className="block">
+            <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Name", "Name", "Nom")}</span>
+            <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="UKSH Kiel — April 2027"
+              className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }} />
+          </label>
+          <div className="flex gap-3">
+            <label className="block w-24">
+              <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Seats", "Plätze", "Places")}</span>
+              <input type="number" min={1} max={1000} value={form.seats} onChange={(e) => setForm({ ...form, seats: Math.max(1, Number(e.target.value) || 1) })}
+                className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }} />
+            </label>
+            <label className="block flex-1">
+              <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Agency (optional)", "Agentur (optional)", "Agence (optionnel)")}</span>
+              <select value={form.orgId} onChange={(e) => setForm({ ...form, orgId: e.target.value })}
+                className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }}>
+                <option value="">{T("— none —", "— keine —", "— aucune —")}</option>
+                {organizations.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </select>
+            </label>
+          </div>
+          <label className="block">
+            <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Employer (optional)", "Arbeitgeber (optional)", "Employeur (optionnel)")}</span>
+            <select value={form.employerId} onChange={(e) => setForm({ ...form, employerId: e.target.value })}
+              className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }}>
+              <option value="">{T("— none —", "— keiner —", "— aucun —")}</option>
+              {employers.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+            </select>
+          </label>
+          <div className="flex gap-3">
+            <label className="block flex-1">
+              <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Window start", "Fenster-Start", "Début fenêtre")}</span>
+              <input type="date" value={form.targetStart} onChange={(e) => setForm({ ...form, targetStart: e.target.value })}
+                className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }} />
+            </label>
+            <label className="block flex-1">
+              <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Window end", "Fenster-Ende", "Fin fenêtre")}</span>
+              <input type="date" value={form.targetEnd} onChange={(e) => setForm({ ...form, targetEnd: e.target.value })}
+                className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }} />
+            </label>
+          </div>
+        </div>
+      </Modal>
     </main>
   );
 }

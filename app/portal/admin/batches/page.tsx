@@ -14,9 +14,10 @@ import { PageLoader } from "@/components/ui/states";
 import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
 import { ArrowLeft, Plus, Users, CalendarRange } from "lucide-react";
 
-type Batch = { id: string; name: string; employerId: string | null; employer: string | null; seats: number; filled: number; targetStart: string | null; targetEnd: string | null; status: string; notes: string | null };
+type Batch = { id: string; name: string; employerId: string | null; employer: string | null; orgId: string | null; agency: string | null; seats: number; filled: number; targetStart: string | null; targetEnd: string | null; status: string; notes: string | null };
 type Cand = { userId: string; name: string; funnelStage: string | null; batchId: string | null };
 type Employer = { id: string; name: string };
+type Org = { id: string; name: string };
 
 // Funnel ladder (keys MUST match lib/batchBoard FUNNEL_STAGES + the bot enum).
 const STAGES: { key: string; label: string }[] = [
@@ -39,9 +40,10 @@ export default function AdminBatchesPage() {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [candidates, setCandidates] = useState<Cand[]>([]);
   const [employers, setEmployers] = useState<Employer[]>([]);
+  const [organizations, setOrganizations] = useState<Org[]>([]);
   const [showNew, setShowNew] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ name: "", seats: 10, employerId: "", targetStart: "", targetEnd: "" });
+  const [form, setForm] = useState({ name: "", seats: 10, employerId: "", orgId: "", targetStart: "", targetEnd: "" });
 
   const load = useCallback(async (tk: string) => {
     const res = await fetch("/api/portal/batches", { headers: { Authorization: `Bearer ${tk}` } });
@@ -50,6 +52,7 @@ export default function AdminBatchesPage() {
     setBatches((j.batches ?? []) as Batch[]);
     setCandidates((j.candidates ?? []) as Cand[]);
     setEmployers((j.employers ?? []) as Employer[]);
+    setOrganizations((j.organizations ?? []) as Org[]);
   }, [router]);
 
   useEffect(() => {
@@ -89,11 +92,12 @@ export default function AdminBatchesPage() {
       body: JSON.stringify({
         name: form.name.trim(), seats: form.seats,
         employerId: form.employerId || undefined,
+        orgId: form.orgId || undefined,
         targetStart: form.targetStart || undefined, targetEnd: form.targetEnd || undefined,
       }),
     }).catch(() => null);
     setSaving(false);
-    if (res && res.ok) { setShowNew(false); setForm({ name: "", seats: 10, employerId: "", targetStart: "", targetEnd: "" }); await load(token); }
+    if (res && res.ok) { setShowNew(false); setForm({ name: "", seats: 10, employerId: "", orgId: "", targetStart: "", targetEnd: "" }); await load(token); }
   };
 
   const closeBatch = async (batchId: string) => {
@@ -159,7 +163,7 @@ export default function AdminBatchesPage() {
                   <div className="min-w-0">
                     <p className="text-[15px] font-semibold" style={{ color: "var(--w)" }}>{b.name}</p>
                     <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]" style={{ color: "var(--w3)" }}>
-                      {b.employer && <span>{b.employer}</span>}
+                      {(b.agency || b.employer) && <span>{[b.agency, b.employer].filter(Boolean).join(" → ")}</span>}
                       <span className="inline-flex items-center gap-1"><CalendarRange size={12} /> {fmtWindow(b)}</span>
                     </div>
                   </div>
@@ -242,6 +246,14 @@ export default function AdminBatchesPage() {
               </select>
             </label>
           </div>
+          <label className="block">
+            <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Agency (optional)", "Agentur (optional)", "Agence (optionnel)")}</span>
+            <select value={form.orgId} onChange={(e) => setForm({ ...form, orgId: e.target.value })}
+              className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }}>
+              <option value="">{T("— none —", "— keine —", "— aucune —")}</option>
+              {organizations.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+            </select>
+          </label>
           <div className="flex gap-3">
             <label className="block flex-1">
               <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Window start", "Fenster-Start", "Début fenêtre")}</span>
