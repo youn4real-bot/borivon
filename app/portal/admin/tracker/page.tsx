@@ -103,16 +103,36 @@ export default function AdminTrackerPage() {
     return () => { cancelled = true; };
   }, [router, load]);
 
+  // Keep the access token fresh — Supabase silently rotates the JWT ~hourly.
+  // WITHOUT this, a page left open long enough kept using a stale token and
+  // every write 401'd → "Could not save" (the portal convention: every
+  // long-lived authenticated page attaches this listener).
+  useEffect(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, session) => {
+      if (session?.access_token) setToken(session.access_token);
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
   // Optimistic per-candidate write: apply local immediately, roll back on failure.
   const apply = useCallback(async (userId: string, localPatch: Partial<Cand>, serverPatch: Record<string, unknown>) => {
     setErr("");
     let prev: Cand[] = [];
     setCandidates((cs) => { prev = cs; return cs.map((c) => (c.userId === userId ? { ...c, ...localPatch } : c)); });
-    const res = await fetch("/api/portal/tracker", {
+    const doPatch = (tk: string) => fetch("/api/portal/tracker", {
       method: "PATCH",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${tk}`, "Content-Type": "application/json" },
       body: JSON.stringify({ candidateUserId: userId, patch: serverPatch }),
     }).catch(() => null);
+    let res = await doPatch(token);
+    // Self-heal a stale token: refresh the session once and retry before failing.
+    if (res && (res.status === 401 || res.status === 403)) {
+      try {
+        const { data } = await supabase.auth.refreshSession();
+        const fresh = data?.session?.access_token;
+        if (fresh) { setToken(fresh); res = await doPatch(fresh); }
+      } catch { /* fall through to the error path */ }
+    }
     if (!res || !res.ok) {
       setCandidates(prev);
       setErr(T("Could not save — try again.", "Konnte nicht speichern — erneut versuchen.", "Échec de l'enregistrement — réessayez."));
@@ -237,7 +257,7 @@ export default function AdminTrackerPage() {
                 <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px]" style={{ color: "var(--w3)" }}>
                   {(batch.agency || batch.employer) && <span>{[batch.agency, batch.employer].filter(Boolean).join(" → ")}</span>}
                   {fmtWindow(batch) && <span className="inline-flex items-center gap-1"><CalendarRange size={12} /> {fmtWindow(batch)}</span>}
-                  <span className="inline-flex items-center gap-1"><Users size={12} /> {batch.filled}/{batch.seats}</span>
+                  <span className="inline-flex items-center gap-1"><Users size={12} /> {members.length}/{batch.seats}</span>
                 </div>
               </div>
               <button onClick={() => setAddOpen((v) => !v)} className="bv-btn bv-btn-gold inline-flex flex-shrink-0">
