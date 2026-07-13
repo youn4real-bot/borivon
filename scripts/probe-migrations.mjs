@@ -21,6 +21,13 @@ const GATES = [
   { table: "documents", column: "superseded_at", file: "documents_superseded.sql", feature: "archiving documents" },
   { table: "candidate_pipeline", column: "employment_start", file: "candidate_pipeline_employment_dates.sql", feature: "employment/residence dates" },
   { table: "leads", column: "status", file: "leads_status.sql", feature: "lead lifecycle (status/convert)" },
+  { table: "assistant_reminders", column: "last_ping_message_id", file: "assistant_reminders_ping.sql", feature: "snooze a reminder by replying to its ping" },
+  // ── This session's new features ──
+  { table: "candidate_notes", column: "note", file: "candidate_notes.sql", feature: "candidate notes (the 'x NAME' dossier notes)" },
+  { table: "app_settings", column: "key", file: "app_settings.sql", feature: "Google Sheet candidate mirror" },
+  { table: "employer_batches", column: "id", file: "employer_batches.sql", feature: "Batch board / Batch Tracker (base table)" },
+  { table: "employer_batches", column: "org_id", file: "employer_batches_org.sql", feature: "agency on batches (Calmaroi → UKSH)" },
+  { table: "enterprise_leads", column: "id", file: "enterprise_leads.sql", feature: "v2 enterprise contact leads" },
 ];
 
 const isMissing = (e) => {

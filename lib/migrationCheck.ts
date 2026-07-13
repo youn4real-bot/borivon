@@ -23,6 +23,9 @@ const GATES: { table: string; column: string; file: string; feature: string }[] 
   { table: "candidate_pipeline", column: "employment_start", file: "candidate_pipeline_employment_dates.sql", feature: "employment/residence dates" },
   { table: "leads", column: "status", file: "leads_status.sql", feature: "lead lifecycle (status/convert)" },
   { table: "assistant_reminders", column: "last_ping_message_id", file: "assistant_reminders_ping.sql", feature: "snoozing a reminder by replying to its ping" },
+  { table: "candidate_notes", column: "note", file: "candidate_notes.sql", feature: "candidate notes (the 'x NAME' dossier notes)" },
+  { table: "app_settings", column: "key", file: "app_settings.sql", feature: "the Google Sheet candidate mirror" },
+  { table: "employer_batches", column: "org_id", file: "employer_batches_org.sql", feature: "the agency (Calmaroi) on a batch" },
 ];
 
 const isMissingErr = (error: unknown): boolean => {
