@@ -30,6 +30,7 @@ import { AUTOMATIONS, getAutomationFlags, setAutomation as persistAutomation, ty
 import { workspaceConfigured, workspaceServiceAccount, testWorkspace, WORKSPACE_SCOPES } from "@/lib/googleWorkspace";
 import { syncCandidateSheet } from "@/lib/googleSheets";
 import { setBotQuiet } from "@/lib/botQuiet";
+import { mirrorCandidateToDrive } from "@/lib/driveMirror";
 import { gmailSearch, gmailGet, gmailApiReady, listEmailAttachments, listDraftAttachments, gmailGetThread, gmailModify, gmailTrash } from "@/lib/gmailApi";
 import { getUsageSummary } from "@/lib/usage";
 import { stopFollowupsFor } from "@/lib/followups";
@@ -839,6 +840,27 @@ export function buildAssistantTools(
             : { error: "save_failed" };
         }
         return { saved: true, noteId: (data as { id: string } | null)?.id ?? null, name: m.candidate.name };
+      },
+    }),
+
+    mirrorCandidateDocsToDrive: tool({
+      description:
+        "Copy a candidate's document PDFs into the founder's Google Drive so he can SHARE them with someone without re-uploading. Creates/updates a folder 'Borivon Candidates / <name>' in his Drive with all their active PDFs, and returns the folder link. Use for 'put Amina's docs in my Drive', 'mirror X's files to Drive', 'I need to share Y's documents with someone'. Accepts a NAME or candidateUserId (ambiguous → show matches). Supreme-only. The founder shares the folder himself from Drive.",
+      inputSchema: z.object({ candidate: z.string().min(1).max(120).describe("the candidate's full name or candidateUserId") }),
+      execute: async ({ candidate }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const roster = await candidateRoster();
+        const m = pickCandidate(roster, candidate);
+        if (m.status === "not_found") return { status: "not_found" };
+        if (m.status === "ambiguous") return { status: "ambiguous", matches: m.matches.map((x) => ({ candidateUserId: x.userId, name: x.name })) };
+        const id = m.candidate.userId;
+        if (!(await canActOnCandidate(scope.role, scope.email, id))) return { error: "out_of_scope" };
+        const { data } = await db.from("documents").select("file_type, file_name, r2_key, superseded_at").eq("user_id", id);
+        const docs = activeDocs((data ?? []) as { file_type: string | null; file_name: string | null; r2_key: string | null; superseded_at?: string | null }[]).filter((d) => d.r2_key);
+        if (docs.length === 0) return { error: "no_documents" };
+        const res = await mirrorCandidateToDrive(docs.map((d) => ({ r2_key: d.r2_key, file_name: d.file_name, file_type: d.file_type })), m.candidate.name);
+        if (!res.ok) return { error: res.error, hint: res.hint };
+        return { mirrored: true, name: m.candidate.name, folderUrl: res.folderUrl, uploaded: res.uploaded, skipped: res.skipped };
       },
     }),
 

@@ -1346,6 +1346,21 @@ describe("Google Sheet candidate mirror (one-way)", () => {
     expect(r).toEqual({ error: "admin_only" });
   });
 
+  it("mirrorCandidateDocsToDrive → admin_only for a sub-admin", async () => {
+    const r = await run(buildAssistantTools(ORG_ADMIN), "mirrorCandidateDocsToDrive", { candidate: "Amina Test" });
+    expect(r).toEqual({ error: "admin_only" });
+  });
+
+  it("mirrorCandidateDocsToDrive → workspace_not_connected when Drive isn't configured (no throw)", async () => {
+    delete process.env.GOOGLE_WORKSPACE_CREDENTIALS;
+    delete process.env.GOOGLE_VERTEX_CREDENTIALS;
+    h.authUsers = [{ id: "cand-a", email: "a@cand.com", user_metadata: { full_name: "Amina Test" } }];
+    h.tables.candidate_profiles = { data: [{ user_id: "cand-a" }], error: null };
+    h.tables.documents = { data: [{ file_type: "passport", file_name: "amina_passport.pdf", r2_key: "candidates/cand-a/passport.pdf", superseded_at: null }], error: null };
+    const r = (await run(buildAssistantTools(SUPREME), "mirrorCandidateDocsToDrive", { candidate: "Amina Test" })) as { error?: string };
+    expect(r.error).toBe("workspace_not_connected");
+  });
+
   it("setQuietMode is supreme-only and returns the new state", async () => {
     h.tables.app_settings = { data: null, error: null };
     const denied = await run(buildAssistantTools(ORG_ADMIN), "setQuietMode", { on: true });
