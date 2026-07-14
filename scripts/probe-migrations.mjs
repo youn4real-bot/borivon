@@ -30,6 +30,7 @@ const GATES = [
   { table: "enterprise_leads", column: "id", file: "enterprise_leads.sql", feature: "v2 enterprise contact leads" },
   { table: "candidate_pipeline", column: "agreement_signed", file: "candidate_pipeline_agreement.sql", feature: "Agreement step in the Batch Tracker" },
   { table: "candidate_profiles", column: "workplace_pref", file: "candidate_workplace_pref.sql", feature: "Altenheim/Klinik preference + Sheet column" },
+  { table: "invite_tokens", column: "invited_email", file: "add_invite_email.sql", feature: "binding an invite link to a specific email" },
 ];
 
 const isMissing = (e) => {
