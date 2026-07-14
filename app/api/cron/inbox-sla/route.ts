@@ -10,6 +10,7 @@
 import { NextRequest } from "next/server";
 import { telegramConfigured } from "@/lib/telegram";
 import { runInboxSlaNudge } from "@/lib/inboxSlaRun";
+import { isBotQuiet } from "@/lib/botQuiet";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,5 +23,6 @@ export async function GET(req: NextRequest) {
   }
   const chatId = (process.env.TELEGRAM_CHAT_ID || "").trim();
   if (!telegramConfigured() || !chatId) return Response.json({ skipped: "telegram_not_configured" });
+  if (await isBotQuiet()) return Response.json({ skipped: "quiet" });
   return Response.json(await runInboxSlaNudge(chatId));
 }

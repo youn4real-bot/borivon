@@ -28,6 +28,7 @@ import { executeLatestPending, cancelLatestPending, autoApplyPending, getPending
 import { isConfirmText, isCancelText, isSendImperative, isResetText, isShowFilesText, isMuteDocReminders, isUnmuteDocReminders, isMinimalReminders, isBriefingSignalsOn, isSetReminder, parseReminderText, looksLikeDone, isSetRule, parseRuleText } from "@/lib/confirmIntent";
 import { createReminder, resolveDoneReminders, handleReminderPingReply } from "@/lib/reminderAuto";
 import { checkPendingMigrations } from "@/lib/migrationCheck";
+import { isBotQuiet, setBotQuiet } from "@/lib/botQuiet";
 import { parseReminderTime } from "@/lib/reminderTime";
 import { fireDueReminders } from "@/lib/reminderFire";
 import { listDraftAttachments } from "@/lib/gmailApi";
@@ -181,8 +182,8 @@ export async function POST(req: NextRequest) {
   // surfaces itself instead of the founder being the bug-finder. Fire-and-forget, never blocks.
   if (!migrationCheckRan) {
     migrationCheckRan = true;
-    void checkPendingMigrations().then((missing) => {
-      if (missing.length) {
+    void checkPendingMigrations().then(async (missing) => {
+      if (missing.length && !(await isBotQuiet())) {
         const lines = missing.map((m) => `- ${m.feature} → run supabase/${m.file}`).join("\n");
         void tgSend(chatId, `Heads up — these features need a 1-min SQL run in Supabase to work:\n${lines}`);
       }
@@ -464,6 +465,24 @@ export async function POST(req: NextRequest) {
         ? "⚠️ I can't switch document reminders back on yet — that needs the one-time automation_settings table set up in the database. Tell me to set it up and I'll give you the exact step."
         : err ? "⚠️ Couldn't save that just now — say it once more."
         : "Done — document-review reminders are back on.";
+      await tgSend(chatId, reply);
+      await saveChatTurns(scope.userId, [{ role: "user", content: text }, { role: "assistant", content: reply }]);
+      return ok();
+    }
+    // FULL QUIET: "stop all reminders" / "only answer when I ask" / "go quiet" →
+    // silence EVERY proactive message (briefings, nudges, reminders, chases,
+    // pings). Checked BEFORE minimal-mode + the "remind me to X" intercept so it
+    // takes priority and isn't mis-read as a task. He still gets full replies.
+    if (/\b(stop|silence|kill|no more|pause)\b.{0,14}\b(reminders?|notifications?|pings?|messages?|nudg\w+|automations?)\b|only (answer|reply|respond|talk).{0,12}when i ask|go (quiet|silent|dark)|be quiet|stop (bothering|messaging|pinging|texting|nudging) me/i.test(text)) {
+      await setBotQuiet(true);
+      const reply = "Done — going quiet. No briefings, nudges, reminders, chases, or pings. I'll only answer when you message me. Say \"resume reminders\" to turn it all back on.";
+      await tgSend(chatId, reply);
+      await saveChatTurns(scope.userId, [{ role: "user", content: text }, { role: "assistant", content: reply }]);
+      return ok();
+    }
+    if (/\b(resume|restart|re-?enable|turn (on|back on)|switch (on|back on)|start)\b.{0,16}\b(reminders?|notifications?|pings?|automations?|briefing)\b|reminders? back on|you can (talk|message|ping|remind) me again|stop being quiet/i.test(text)) {
+      await setBotQuiet(false);
+      const reply = "Done — reminders and automations are back on.";
       await tgSend(chatId, reply);
       await saveChatTurns(scope.userId, [{ role: "user", content: text }, { role: "assistant", content: reply }]);
       return ok();

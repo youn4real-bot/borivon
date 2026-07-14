@@ -13,6 +13,7 @@ import { NextRequest } from "next/server";
 import { computeBriefing } from "@/lib/briefing";
 import { tgSend, getAdminUserId, telegramConfigured } from "@/lib/telegram";
 import { isAutomationEnabled } from "@/lib/automationSettings";
+import { isBotQuiet } from "@/lib/botQuiet";
 import { runInboxSlaNudge } from "@/lib/inboxSlaRun";
 import { runFollowupChase } from "@/lib/followupsRun";
 import { fireDueReminders } from "@/lib/reminderFire";
@@ -29,6 +30,7 @@ export async function GET(req: NextRequest) {
 
   const chatId = (process.env.TELEGRAM_CHAT_ID || "").trim();
   if (!telegramConfigured() || !chatId) return Response.json({ skipped: "telegram_not_configured" });
+  if (await isBotQuiet()) return Response.json({ skipped: "quiet" });
 
   // Fire any now-due personal reminders first — independent of every toggle below.
   const reminders = await fireDueReminders(chatId, await getAdminUserId()).catch(() => ({ fired: 0 }));

@@ -29,6 +29,7 @@ import { stagePending, executeLatestPending, cancelLatestPending, prepareEmailDr
 import { AUTOMATIONS, getAutomationFlags, setAutomation as persistAutomation, type AutomationKey } from "@/lib/automationSettings";
 import { workspaceConfigured, workspaceServiceAccount, testWorkspace, WORKSPACE_SCOPES } from "@/lib/googleWorkspace";
 import { syncCandidateSheet } from "@/lib/googleSheets";
+import { setBotQuiet } from "@/lib/botQuiet";
 import { gmailSearch, gmailGet, gmailApiReady, listEmailAttachments, listDraftAttachments, gmailGetThread, gmailModify, gmailTrash } from "@/lib/gmailApi";
 import { getUsageSummary } from "@/lib/usage";
 import { stopFollowupsFor } from "@/lib/followups";
@@ -2251,6 +2252,17 @@ export function buildAssistantTools(
         const err = await persistAutomation(key, enabled);
         if (err) return { error: err };
         return { ok: true, key, enabled, label: AUTOMATIONS[key].label };
+      },
+    }),
+
+    setQuietMode: tool({
+      description:
+        "THE GLOBAL QUIET SWITCH — turn ALL proactive messages off or on in one shot. on=true silences EVERYTHING the bot sends on its own (morning briefing, midday/evening nudges, weekly report, auto-chase, inbox reminders, the 6h SLA, follow-up chase, and every personal-reminder ping) — the bot then ONLY answers when the founder messages it. on=false brings it all back. Use for 'stop all reminders', 'only answer when I ask', 'go quiet', 'stop bothering me' → on:true; 'resume reminders', 'turn everything back on' → on:false. This is broader than setAutomation (which flips ONE automation); use this when he wants total silence, not a single toggle.",
+      inputSchema: z.object({ on: z.boolean().describe("true = go silent (only answer when asked); false = resume all proactive messages") }),
+      execute: async ({ on }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        await setBotQuiet(on);
+        return { ok: true, quiet: on };
       },
     }),
 

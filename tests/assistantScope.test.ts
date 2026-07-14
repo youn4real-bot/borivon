@@ -1346,6 +1346,14 @@ describe("Google Sheet candidate mirror (one-way)", () => {
     expect(r).toEqual({ error: "admin_only" });
   });
 
+  it("setQuietMode is supreme-only and returns the new state", async () => {
+    h.tables.app_settings = { data: null, error: null };
+    const denied = await run(buildAssistantTools(ORG_ADMIN), "setQuietMode", { on: true });
+    expect(denied).toEqual({ error: "admin_only" });
+    const ok = await run(buildAssistantTools(SUPREME), "setQuietMode", { on: true });
+    expect(ok).toEqual({ ok: true, quiet: true });
+  });
+
   it("syncCandidatesSheet → workspace_not_connected when Google Workspace isn't configured (no throw)", async () => {
     // Force "not connected" deterministically — no real Google call from tests.
     delete process.env.GOOGLE_WORKSPACE_CREDENTIALS;

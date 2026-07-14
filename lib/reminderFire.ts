@@ -25,6 +25,7 @@
 import { getServiceSupabase } from "@/lib/supabase";
 import { tgSendReturningId } from "@/lib/telegram";
 import { nextFutureOccurrence, type Recurrence } from "@/lib/reminderTime";
+import { isBotQuiet } from "@/lib/botQuiet";
 
 type DueRow = { id: string; text: string; due_at: string; due_date?: string | null; recurrence?: string | null; remind_count?: number | null };
 
@@ -38,6 +39,9 @@ export type FireResult = { fired: number; skipped?: string };
 export async function fireDueReminders(chatId: string | number, ownerUserId?: string | null): Promise<FireResult> {
   const id = String(chatId ?? "").trim();
   if (!id) return { fired: 0, skipped: "no_chat" };
+  // Global quiet switch — when the founder silenced the bot, reminders don't ping
+  // (they stay open and un-notified, so they resume the moment he lifts quiet).
+  if (await isBotQuiet()) return { fired: 0, skipped: "quiet" };
   const db = getServiceSupabase();
   const nowIso = new Date().toISOString();
 

@@ -18,6 +18,7 @@
 import { NextRequest } from "next/server";
 import { getAdminUserId, telegramConfigured } from "@/lib/telegram";
 import { fireDueReminders } from "@/lib/reminderFire";
+import { isBotQuiet } from "@/lib/botQuiet";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,6 +34,7 @@ export async function GET(req: NextRequest) {
 
   const chatId = (process.env.TELEGRAM_CHAT_ID || "").trim();
   if (!telegramConfigured() || !chatId) return Response.json({ skipped: "telegram_not_configured" });
+  if (await isBotQuiet()) return Response.json({ skipped: "quiet" });
 
   const reminders = await fireDueReminders(chatId, await getAdminUserId()).catch(() => ({ fired: 0, skipped: "error" as const }));
   return Response.json({ ok: true, ...reminders });

@@ -10,6 +10,7 @@ import { NextRequest } from "next/server";
 import { computeBriefing } from "@/lib/briefing";
 import { tgSend, getAdminUserId, telegramConfigured } from "@/lib/telegram";
 import { isAutomationEnabled } from "@/lib/automationSettings";
+import { isBotQuiet } from "@/lib/botQuiet";
 import { runFollowupChase } from "@/lib/followupsRun";
 import { fireDueReminders } from "@/lib/reminderFire";
 
@@ -27,6 +28,7 @@ export async function GET(req: NextRequest) {
   if (!telegramConfigured() || !chatId) {
     return Response.json({ skipped: "telegram_not_configured" });
   }
+  if (await isBotQuiet()) return Response.json({ skipped: "quiet" }); // founder silenced all proactive messages
 
   // Fire any now-due personal reminders FIRST — independent of the briefing toggle
   // (a reminder isn't the briefing; it should ping even if the briefing is muted).

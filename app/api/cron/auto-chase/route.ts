@@ -9,6 +9,7 @@ import { NextRequest } from "next/server";
 import { computeStuckCandidates } from "@/lib/autoChase";
 import { tgSend, getAdminUserId, telegramConfigured } from "@/lib/telegram";
 import { isAutomationEnabled } from "@/lib/automationSettings";
+import { isBotQuiet } from "@/lib/botQuiet";
 import { fireDueReminders } from "@/lib/reminderFire";
 
 export const runtime = "nodejs";
@@ -25,6 +26,7 @@ export async function GET(req: NextRequest) {
   if (!telegramConfigured() || !chatId) {
     return Response.json({ skipped: "telegram_not_configured" });
   }
+  if (await isBotQuiet()) return Response.json({ skipped: "quiet" });
 
   // Fire any now-due personal reminders first — independent of the auto_chase toggle.
   const reminders = await fireDueReminders(chatId, await getAdminUserId()).catch(() => ({ fired: 0 }));

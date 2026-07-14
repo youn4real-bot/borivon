@@ -10,6 +10,7 @@ import { NextRequest } from "next/server";
 import { computeWeeklyReport } from "@/lib/weeklyReport";
 import { tgSend, telegramConfigured } from "@/lib/telegram";
 import { isAutomationEnabled } from "@/lib/automationSettings";
+import { isBotQuiet } from "@/lib/botQuiet";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -25,6 +26,7 @@ export async function GET(req: NextRequest) {
   if (!telegramConfigured() || !chatId) {
     return Response.json({ skipped: "telegram_not_configured" });
   }
+  if (await isBotQuiet()) return Response.json({ skipped: "quiet" });
   if (!(await isAutomationEnabled("weekly_report"))) {
     return Response.json({ skipped: "disabled" });
   }

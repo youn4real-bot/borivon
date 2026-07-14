@@ -3,6 +3,7 @@ import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { requireUser } from "@/lib/admin-auth";
 import { tgSend, telegramConfigured } from "@/lib/telegram";
 import { isAutomationEnabled } from "@/lib/automationSettings";
+import { isBotQuiet } from "@/lib/botQuiet";
 
 // Called client-side from /portal/auth/callback after a new user signs up.
 // Requires the caller's verified JWT — both name and email come from the verified
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest) {
   // automation switch). Never block the signup response on it.
   try {
     const chatId = (process.env.TELEGRAM_CHAT_ID || "").trim();
-    if (chatId && telegramConfigured() && (await isAutomationEnabled("signup_ping"))) {
+    if (chatId && telegramConfigured() && !(await isBotQuiet()) && (await isAutomationEnabled("signup_ping"))) {
       await tgSend(chatId, `🆕 New candidate signed up: ${displayName}${phone ? ` (${phone})` : ""} — ${auth.email}`);
     }
   } catch { /* never block signup on a ping failure */ }
