@@ -28,7 +28,7 @@ import { FUNNEL_STAGES, funnelLabel, type FunnelStageKey } from "@/lib/batchBoar
 import { stagePending, executeLatestPending, cancelLatestPending, prepareEmailDraft, precheckOutboundAttachments, getPendingDraft, MILESTONE_BOOL } from "@/lib/assistantWrites";
 import { AUTOMATIONS, getAutomationFlags, setAutomation as persistAutomation, type AutomationKey } from "@/lib/automationSettings";
 import { workspaceConfigured, workspaceServiceAccount, testWorkspace, WORKSPACE_SCOPES } from "@/lib/googleWorkspace";
-import { syncCandidateSheet, copyAndUpgradeSheet } from "@/lib/googleSheets";
+import { syncCandidateSheet, copyAndUpgradeSheet, cleanSheetHeaders } from "@/lib/googleSheets";
 import { setBotQuiet } from "@/lib/botQuiet";
 import { mirrorCandidateToDrive } from "@/lib/driveMirror";
 import { gmailSearch, gmailGet, gmailApiReady, listEmailAttachments, listDraftAttachments, gmailGetThread, gmailModify, gmailTrash } from "@/lib/gmailApi";
@@ -2799,6 +2799,23 @@ export function buildAssistantTools(
             };
           });
         return { count: rows.length, stage, minDays, candidates: rows };
+      },
+    }),
+
+    cleanSheetHeaders: tool({
+      description:
+        "CLEAN UP a Google Sheet's messy header, fully automatically. It reads the sheet itself, finds the stacked header rows (e.g. 'first' sitting above 'vorname'), collapses them into ONE fixed GERMAN title per column (Vorname, Nachname, E-Mail, Telefon, Geburtsdatum…), deletes the leftover header rows, drops EMPTY duplicate columns, and freezes the title row. Never touches the data or the colors. Use for 'clean up the sheet headers', 'fix the column titles', 'the titles are stacked/duplicated'. Returns what it changed. Supreme-only.",
+      inputSchema: z.object({ sheetUrl: z.string().min(10).describe("the Google Sheet URL to clean") }),
+      execute: async ({ sheetUrl }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const res = await cleanSheetHeaders(sheetUrl);
+        if (!res.ok) return { error: res.error, hint: res.hint };
+        return {
+          cleaned: true, url: res.url,
+          headerRowsFound: res.headerRowsFound, headerRowsDeleted: res.deletedHeaderRows,
+          duplicateColumnsDeleted: res.deletedColumns,
+          finalHeaders: res.after,
+        };
       },
     }),
 

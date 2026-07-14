@@ -43,6 +43,132 @@ const UPGRADE_HEADERS = [
   "Docs approved/total", "CV done", "Latest note", "Candidate ID", "Portal link",
 ];
 
+// Canonical GERMAN header per known variant. The sheet's header block often
+// stacks English + German ("first" above "vorname") — we collapse to ONE fixed
+// German title. Anything unknown keeps its own text (we never invent a label).
+const CANON: { de: string; match: RegExp }[] = [
+  { de: "Vorname", match: /^(first( ?name)?|prenom|prénom|vorname)$/i },
+  { de: "Nachname", match: /^(last( ?name)?|surname|family ?name|nom|nachname|familienname)$/i },
+  { de: "Name", match: /^(full ?name|name|nom complet)$/i },
+  { de: "E-Mail", match: /^(e-?mail|mail|courriel)$/i },
+  { de: "Telefon", match: /^(phone|tel(ephone)?|mobile|whatsapp|telefon|handy)$/i },
+  { de: "Geburtsdatum", match: /^(dob|date of birth|birth ?date|birthday|naissance|geburtsdatum|geburtstag)$/i },
+  { de: "Geschlecht", match: /^(sex|gender|geschlecht)$/i },
+  { de: "Nationalität", match: /^(nationality|nationalite|nationalité|nationalitat|nationalität|staatsangehörigkeit)$/i },
+  { de: "Adresse", match: /^(address|adresse)$/i },
+  { de: "Stadt", match: /^(city|ville|stadt|wohnort)$/i },
+  { de: "Land", match: /^(country|pays|land)$/i },
+  { de: "Reisepass", match: /^(passport( ?(no|number))?|passeport|reisepass|pass(nummer)?)$/i },
+  { de: "Reisepass gültig bis", match: /^(passport expiry|expiry|ablauf|gültig bis)$/i },
+  { de: "Deutsch (B2)", match: /^(b2|german|deutsch|sprache|language|niveau)$/i },
+  { de: "Prüfungstermin", match: /^(exam( date)?|prüfung(stermin)?|examen)$/i },
+  { de: "Impfung", match: /^(vaccine|vaccination|impfung|impfstatus)$/i },
+  { de: "Fachrichtung", match: /^(specialty|speciality|spezialisierung|fachrichtung)$/i },
+  { de: "Berufserfahrung", match: /^(experience|years( of)? experience|erfahrung|berufserfahrung)$/i },
+  { de: "Anerkennung", match: /^(recognition|anerkennung)$/i },
+  { de: "Vertrag", match: /^(contract|vertrag)$/i },
+  { de: "Visum", match: /^(visa|visum)$/i },
+  { de: "Flug", match: /^(flight|flug)$/i },
+  { de: "Status", match: /^(status|stand)$/i },
+  { de: "Bemerkung", match: /^(notes?|comment(s)?|remark|bemerkung|kommentar|notiz)$/i },
+];
+const canonical = (labels: string[]): string => {
+  for (const l of labels) { const hit = CANON.find((c) => c.match.test(l.trim())); if (hit) return hit.de; }
+  return labels.length ? labels[labels.length - 1].trim() : ""; // else the LAST label (the German one sits below)
+};
+// A row "looks like data" if it carries an email / phone / date / long number.
+const looksLikeData = (row: string[]): boolean =>
+  row.filter((c) => /@|^\+?\d[\d\s()-]{5,}$|^\d{1,4}[./-]\d{1,2}[./-]\d{1,4}$/.test(String(c ?? "").trim())).length >= 1;
+
+export type SheetCleanResult =
+  | { ok: true; url: string; headerRowsFound: number; before: string[][]; after: string[]; deletedColumns: string[]; deletedHeaderRows: number }
+  | { ok: false; error: "workspace_not_connected" | "bad_url" | "no_access" | "failed"; hint?: string };
+
+/**
+ * CLEAN a sheet's header, fully programmatically: detect the stacked header
+ * block (e.g. "first" over "vorname"), collapse it into ONE fixed German title
+ * row, delete the now-redundant header rows, drop EMPTY duplicate columns, and
+ * freeze the header. Never touches data rows or colors.
+ */
+export async function cleanSheetHeaders(sourceUrl: string): Promise<SheetCleanResult> {
+  const sheets = sheetsClient();
+  if (!sheets) return { ok: false, error: "workspace_not_connected" };
+  const m = sourceUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/) || sourceUrl.match(/^([a-zA-Z0-9_-]{25,})$/);
+  const id = m?.[1];
+  if (!id) return { ok: false, error: "bad_url", hint: "Send the full Google Sheet URL." };
+
+  try {
+    // Main tab = the one with the widest header.
+    const ss = await sheets.spreadsheets.get({ spreadsheetId: id, fields: "sheets(properties(sheetId,title))" });
+    let target = ss.data.sheets?.[0]?.properties, widest = -1;
+    for (const s of ss.data.sheets ?? []) {
+      const r = await sheets.spreadsheets.values.get({ spreadsheetId: id, range: `'${s.properties?.title}'!1:1` });
+      const n = (r.data.values?.[0] ?? []).filter((v) => String(v).trim() !== "").length;
+      if (n > widest) { widest = n; target = s.properties; }
+    }
+    const tab = target?.title as string;
+    const sheetId = target?.sheetId ?? 0;
+
+    // Read the top block + enough rows to judge which columns are empty.
+    const grid = await sheets.spreadsheets.values.get({ spreadsheetId: id, range: `'${tab}'!A1:BZ300` });
+    const rows: string[][] = (grid.data.values ?? []).map((r) => (r as unknown[]).map((c) => String(c ?? "")));
+    if (!rows.length) return { ok: false, error: "failed", hint: "That tab looks empty." };
+
+    // Header block = the rows above the first data-looking row (cap 6).
+    let dataStart = rows.findIndex((r, i) => i > 0 && looksLikeData(r));
+    if (dataStart < 1) dataStart = 1;           // no detectable data → treat row 1 as the only header
+    if (dataStart > 6) dataStart = 6;
+    const headerBlock = rows.slice(0, dataStart);
+    const width = Math.max(...headerBlock.map((r) => r.length), 0);
+
+    // One canonical German title per column.
+    const after: string[] = [];
+    for (let c = 0; c < width; c++) {
+      const labels = headerBlock.map((r) => (r[c] ?? "").trim()).filter((v) => v !== "");
+      after.push(canonical(labels));
+    }
+
+    // Empty duplicate columns → delete (keeps the first occurrence).
+    const body = rows.slice(dataStart);
+    const isEmptyCol = (c: number) => body.every((r) => String(r[c] ?? "").trim() === "");
+    const seen = new Set<string>();
+    const dropIdx: number[] = [];
+    const deletedColumns: string[] = [];
+    after.forEach((h, c) => {
+      const k = h.toLowerCase();
+      if (!k) return;
+      if (seen.has(k) && isEmptyCol(c)) { dropIdx.push(c); deletedColumns.push(h); }
+      else seen.add(k);
+    });
+
+    // 1) write the single canonical header row
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: id, range: `'${tab}'!A1`, valueInputOption: "RAW", requestBody: { values: [after] },
+    });
+
+    // 2) delete the redundant header rows, the duplicate columns, then freeze+bold
+    const requests: object[] = [];
+    if (dataStart > 1) requests.push({ deleteDimension: { range: { sheetId, dimension: "ROWS", startIndex: 1, endIndex: dataStart } } });
+    for (const c of [...dropIdx].sort((a, b) => b - a)) {
+      requests.push({ deleteDimension: { range: { sheetId, dimension: "COLUMNS", startIndex: c, endIndex: c + 1 } } });
+    }
+    requests.push(
+      { updateSheetProperties: { properties: { sheetId, gridProperties: { frozenRowCount: 1 } }, fields: "gridProperties.frozenRowCount" } },
+      { repeatCell: { range: { sheetId, startRowIndex: 0, endRowIndex: 1 }, cell: { userEnteredFormat: { textFormat: { bold: true }, verticalAlignment: "MIDDLE" } }, fields: "userEnteredFormat.textFormat.bold,userEnteredFormat.verticalAlignment" } },
+      { autoResizeDimensions: { dimensions: { sheetId, dimension: "COLUMNS", startIndex: 0, endIndex: Math.max(1, width) } } },
+    );
+    if (requests.length) await sheets.spreadsheets.batchUpdate({ spreadsheetId: id, requestBody: { requests } });
+
+    return {
+      ok: true, url: `https://docs.google.com/spreadsheets/d/${id}/edit`,
+      headerRowsFound: dataStart, before: headerBlock, after: after.filter((_, c) => !dropIdx.includes(c)),
+      deletedColumns, deletedHeaderRows: Math.max(0, dataStart - 1),
+    };
+  } catch (e) {
+    return { ok: false, error: "failed", hint: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 export type SheetUpgradeResult =
   | { ok: true; url: string; existingColumns: number; addedColumns: number; title: string }
   | { ok: false; error: "workspace_not_connected" | "bad_url" | "no_access" | "failed"; hint?: string };
