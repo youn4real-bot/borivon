@@ -49,11 +49,13 @@ export async function GET(req: NextRequest) {
   const organizations = (orgsData ?? []) as { id: string; name: string }[];
   const orgName = new Map<string, string>(organizations.map((o) => [o.id, o.name]));
 
-  // Candidate roster (scoped), minus staff.
-  let profQ = db.from("candidate_profiles").select("user_id, first_name, last_name");
+  // Candidate roster (scoped), minus staff. B2 (German exam) lives here too —
+  // the founder tracks who passes B2 by which date to weed out anyone who can't
+  // be ready in time for the batch window.
+  let profQ = db.from("candidate_profiles").select("user_id, first_name, last_name, b2_stage, b2_failed, b2_exam_date");
   if (visible !== null) profQ = profQ.in("user_id", visible.length ? visible : ["00000000-0000-0000-0000-000000000000"]);
   const { data: profs } = await profQ;
-  const profRows = (profs ?? []) as { user_id: string; first_name: string | null; last_name: string | null }[];
+  const profRows = (profs ?? []) as { user_id: string; first_name: string | null; last_name: string | null; b2_stage: string | null; b2_failed: boolean | null; b2_exam_date: string | null }[];
   const allIds = profRows.map((p) => p.user_id);
   const staff = allIds.length ? await getStaffUserIdsAmong(allIds) : new Set<string>();
   const realProfs = profRows.filter((p) => !staff.has(p.user_id));
@@ -80,6 +82,9 @@ export async function GET(req: NextRequest) {
       return {
         userId: p.user_id,
         name: profNames.get(p.user_id) || names[p.user_id]?.name || names[p.user_id]?.email || p.user_id,
+        b2Stage: p.b2_stage ?? null,
+        b2Failed: p.b2_failed === true,
+        b2ExamDate: p.b2_exam_date ?? null,
         batchId: (pr.batch_id as string | null) ?? null,
         funnelStage: (pr.funnel_stage as string | null) ?? null,
         interview1Status: (pr.interview1_status as string | null) ?? null,

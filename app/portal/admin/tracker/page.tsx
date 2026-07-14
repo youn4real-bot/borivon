@@ -16,6 +16,7 @@ import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
 import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
+import { b2StageLabel, b2StageColor, normalizeB2Stage } from "@/lib/b2Journey";
 import { ArrowLeft, Users, CalendarRange, Search, Plus, Check, X } from "lucide-react";
 
 type Batch = { id: string; name: string; agency: string | null; employer: string | null; seats: number; filled: number; targetStart: string | null; targetEnd: string | null };
@@ -23,6 +24,7 @@ type Employer = { id: string; name: string };
 type Org = { id: string; name: string };
 type Cand = {
   userId: string; name: string; batchId: string | null; funnelStage: string | null;
+  b2Stage: string | null; b2Failed: boolean; b2ExamDate: string | null;
   interview1Status: string | null; interview1Date: string | null;
   interview2Status: string | null; interview2Date: string | null;
   agreementSigned: boolean;
@@ -169,6 +171,13 @@ export default function AdminTrackerPage() {
   };
 
   const batch = useMemo(() => batches.find((b) => b.id === selectedBatch) ?? null, [batches, selectedBatch]);
+  // "Too late" = the B2 exam lands after this batch's window (they can't be ready
+  // in time), and they haven't already passed. The founder filters these out.
+  const b2Deadline = useMemo(() => (batch ? batch.targetEnd || batch.targetStart : null), [batch]);
+  const isB2Late = useCallback(
+    (c: Cand) => c.b2Stage !== "passed" && !!c.b2ExamDate && !!b2Deadline && c.b2ExamDate > b2Deadline,
+    [b2Deadline],
+  );
   const members = useMemo(
     () => candidates.filter((c) => c.batchId === selectedBatch).sort((a, b) => a.name.localeCompare(b.name)),
     [candidates, selectedBatch],
@@ -183,8 +192,10 @@ export default function AdminTrackerPage() {
 
   // Batch progress summary — leads with the beginning that matters most.
   const summary = useMemo(() => {
-    const s = { i1: 0, agreement: 0, i2: 0, contract: 0, visa: 0, arrived: 0 };
+    const s = { i1: 0, agreement: 0, i2: 0, contract: 0, visa: 0, arrived: 0, b2: 0, b2late: 0 };
     for (const c of members) {
+      if (c.b2Stage === "passed") s.b2++;
+      if (isB2Late(c)) s.b2late++;
       if (c.interview1Status === "passed") s.i1++;
       if (c.agreementSigned) s.agreement++;
       if (c.interview2Status === "passed") s.i2++;
@@ -193,11 +204,12 @@ export default function AdminTrackerPage() {
       if (c.arrivedDone) s.arrived++;
     }
     return s;
-  }, [members]);
+  }, [members, isB2Late]);
 
   if (loading) return <PageLoader />;
 
   const fmtWindow = (b: Batch) => [b.targetStart, b.targetEnd].filter(Boolean).join(" → ");
+  const fmtDay = (d: string) => new Date(d + "T00:00:00").toLocaleDateString(lang === "de" ? "de-DE" : lang === "fr" ? "fr-FR" : "en-GB", { day: "2-digit", month: "short", year: "numeric" });
 
   // One big, obvious step in the primary row (Interview 1 · Agreement · Interview 2).
   const Step = ({ label, tone, onClick }: { label: string; tone: Tone; onClick: () => void }) => {
@@ -276,6 +288,8 @@ export default function AdminTrackerPage() {
             </div>
             {/* progress chips — lead with the beginning */}
             <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px]" style={{ color: "var(--w2)" }}>
+              <span>{T("B2 passed", "B2 bestanden", "B2 réussi")}: <b style={{ color: "var(--w)" }}>{summary.b2}/{members.length}</b></span>
+              {summary.b2late > 0 && <span style={{ color: "#ef4444", fontWeight: 600 }}>{T("B2 too late", "B2 zu spät", "B2 trop tard")}: {summary.b2late}</span>}
               <span>{T("Interview 1", "Interview 1", "Entretien 1")}: <b style={{ color: "var(--w)" }}>{summary.i1}/{members.length}</b></span>
               <span>{T("Agreement", "Vereinbarung", "Accord")}: <b style={{ color: "var(--w)" }}>{summary.agreement}/{members.length}</b></span>
               <span>{T("Interview 2", "Interview 2", "Entretien 2")}: <b style={{ color: "var(--w)" }}>{summary.i2}/{members.length}</b></span>
@@ -327,8 +341,27 @@ export default function AdminTrackerPage() {
                   const agTone: Tone = c.agreementSigned ? "done" : c.interview1Status === "passed" ? "need" : "todo";
                   return (
                     <div key={c.userId} className="p-4" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-xl)" }}>
-                      <div className="flex items-center justify-between gap-3 mb-3">
-                        <p className="text-[14px] font-semibold min-w-0 truncate" style={{ color: "var(--w)" }}>{c.name}</p>
+                      <div className="flex items-start justify-between gap-3 mb-3">
+                        <div className="min-w-0">
+                          <p className="text-[14px] font-semibold truncate" style={{ color: "var(--w)" }}>{c.name}</p>
+                          {/* B2 readiness — status + the date they'll pass, flagged red if too late for the window */}
+                          {(() => {
+                            const stage = normalizeB2Stage(c.b2Stage);
+                            const passed = stage === "passed";
+                            const dot = passed ? "#16a34a" : b2StageColor(stage);
+                            const late = isB2Late(c);
+                            return (
+                              <div className="mt-1 flex items-center gap-2 flex-wrap text-[11px]">
+                                <span className="inline-flex items-center gap-1.5" style={{ color: "var(--w3)" }}>
+                                  <span aria-hidden style={{ width: 8, height: 8, borderRadius: 99, background: dot, boxShadow: c.b2Failed && !passed ? "0 0 0 2px rgba(239,68,68,0.55)" : "none" }} />
+                                  <span style={{ color: "var(--w2)" }}>B2: {c.b2Stage ? b2StageLabel(stage, lang) : T("not set", "offen", "non défini")}</span>
+                                  {c.b2ExamDate && <span>· {fmtDay(c.b2ExamDate)}</span>}
+                                </span>
+                                {late && <span className="px-1.5 py-px rounded-full font-semibold" style={{ background: "rgba(239,68,68,0.12)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.4)" }}>{T("too late", "zu spät", "trop tard")}</span>}
+                              </div>
+                            );
+                          })()}
+                        </div>
                         <button onClick={() => removeFromBatch(c)} className="text-[11px] flex-shrink-0 hover:opacity-70" style={{ color: "var(--w3)" }}>{T("Remove", "Entfernen", "Retirer")}</button>
                       </div>
 
