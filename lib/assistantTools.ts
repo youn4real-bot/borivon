@@ -864,6 +864,33 @@ export function buildAssistantTools(
       },
     }),
 
+    setWorkplacePreference: tool({
+      description:
+        "Record whether a candidate wants to work in an ALTENHEIM (nursing home) or a KLINIK (hospital/clinic) — or 'either'. Use for 'Amina wants Klinik', 'X prefers Altenheim', 'Y is open to both'. Accepts a NAME or candidateUserId (ambiguous → show matches). Applies immediately; shows in the candidate sheet. Supreme-only.",
+      inputSchema: z.object({
+        candidate: z.string().min(1).max(120).describe("the candidate's full name or candidateUserId"),
+        preference: z.string().min(1).max(40).describe("altenheim | klinik | either (or the founder's own words)"),
+      }),
+      execute: async ({ candidate, preference }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const roster = await candidateRoster();
+        const m = pickCandidate(roster, candidate);
+        if (m.status === "not_found") return { status: "not_found" };
+        if (m.status === "ambiguous") return { status: "ambiguous", matches: m.matches.map((x) => ({ candidateUserId: x.userId, name: x.name })) };
+        const id = m.candidate.userId;
+        if (!(await canActOnCandidate(scope.role, scope.email, id))) return { error: "out_of_scope" };
+        const pref = preference.trim().toLowerCase();
+        const { error } = await db.from("candidate_profiles").update({ workplace_pref: pref }).eq("user_id", id);
+        if (error) {
+          const missing = error.code === "42703" || error.code === "PGRST204" || /column .* does not exist|schema cache/i.test(error.message ?? "");
+          return missing
+            ? { error: "workplace_pref_not_set_up", hint: "Run supabase/candidate_workplace_pref.sql in the Supabase SQL editor first." }
+            : { error: "save_failed" };
+        }
+        return { saved: true, name: m.candidate.name, preference: pref };
+      },
+    }),
+
     listCandidateNotes: tool({
       description:
         "Read the saved OBSERVATIONS/notes on ONE candidate (newest first, each with its date + noteId) — the admin's own log ('passed external interview', 'bailed out'). Use for 'what do we know about X', 'my notes on X', 'X's story so far', or to get a noteId to delete. (getCandidateDossier already includes the latest notes — use this for the FULL history.) out_of_scope if you can't see them.",
@@ -2777,22 +2804,41 @@ export function buildAssistantTools(
 
     syncCandidatesSheet: tool({
       description:
-        "Push the WHOLE candidate base into the founder's Google Sheet — a live one-way mirror (one row per candidate: registration date, name, email, phone, funnel stage, interview 1 & 2, B2 stage, doc counts, and the latest saved note). Use for 'update the sheet', 'sync the candidates to Google Sheets', 'refresh my spreadsheet', 'put everyone in the sheet'. Creates the sheet on the FIRST run and reuses it after; reply with the returned link. It only writes its own columns (A–K), so any columns the founder added to the right are preserved. Supreme-only.",
+        "Push the WHOLE candidate base into the founder's Google Sheet — a clean, comprehensive one-way mirror. One row per candidate with everything Borivon tracks: registration date, name, email, phone, employer, batch, funnel stage, interview 1 & 2, agreement signed, B2 stage + B2 exam date, vaccines (Masern/Varizellen), workplace preference (Altenheim/Klinik), Anerkennung stage, specialty, passport expiry, doc counts, and the latest saved note. Use for 'update the sheet', 'sync the candidates to Google Sheets', 'refresh my spreadsheet', 'put everyone in the sheet'. Creates the sheet on the FIRST run and reuses it after; reply with the returned link. It only writes its own columns (A–T), so any columns the founder added to the right (his own manual tracking) are preserved. Supreme-only.",
       inputSchema: z.object({}),
       execute: async () => {
         if (scope.role !== "admin") return { error: "admin_only" };
         const roster = await candidateRoster();
         if (roster.length === 0) return { error: "no_candidates" };
         const ids = roster.map((r) => r.userId);
-        const [auth, profRes, pipeRes, docRes, notesRes] = await Promise.all([
+        // Fail-safe select: try the full column set; if a not-yet-migrated column
+        // (workplace_pref / agreement_signed) makes it error, retry without it so
+        // the sheet still works — that field just shows blank until the SQL is run.
+        const safeIn = async (table: string, full: string, fallback: string) => {
+          const r = await db.from(table).select(full).in("user_id", ids);
+          if (!r.error) return (r.data ?? []) as unknown as Record<string, unknown>[];
+          const r2 = await db.from(table).select(fallback).in("user_id", ids);
+          return (r2.data ?? []) as unknown as Record<string, unknown>[];
+        };
+        const [auth, profRows, pipeRows, docRes, notesRes, vaxRes, empRes, batchRes] = await Promise.all([
           authInfoMap(ids),
-          db.from("candidate_profiles").select("user_id, phone, b2_stage").in("user_id", ids),
-          db.from("candidate_pipeline").select("user_id, funnel_stage, interview1_status, interview2_status").in("user_id", ids),
+          safeIn("candidate_profiles",
+            "user_id, phone, b2_stage, b2_exam_date, workplace_pref, anerkennung_stage, nursing_specialty, passport_expiry, employer_id",
+            "user_id, phone, b2_stage, b2_exam_date, anerkennung_stage, nursing_specialty, passport_expiry, employer_id"),
+          safeIn("candidate_pipeline",
+            "user_id, funnel_stage, interview1_status, interview2_status, agreement_signed, batch_id",
+            "user_id, funnel_stage, interview1_status, interview2_status, batch_id"),
           db.from("documents").select("user_id, status, superseded_at").in("user_id", ids),
           db.from("candidate_notes").select("candidate_user_id, note, created_at").in("candidate_user_id", ids).order("created_at", { ascending: false }),
+          db.from("candidate_status").select("user_id, vaccines").in("user_id", ids),
+          db.from("employers").select("id, name"),
+          db.from("employer_batches").select("id, name"),
         ]);
-        const profById = new Map(((profRes.data ?? []) as { user_id: string; phone: string | null; b2_stage: string | null }[]).map((r) => [r.user_id, r]));
-        const pipeById = new Map(((pipeRes.data ?? []) as Record<string, unknown>[]).map((r) => [String(r.user_id), r]));
+        const profById = new Map(profRows.map((r) => [String(r.user_id), r]));
+        const pipeById = new Map(pipeRows.map((r) => [String(r.user_id), r]));
+        const empName = new Map(((empRes.data ?? []) as { id: string; name: string }[]).map((e) => [e.id, e.name]));
+        const batchName = new Map(((batchRes.data ?? []) as { id: string; name: string }[]).map((b) => [b.id, b.name]));
+        const vaxByUser = new Map(((vaxRes.data ?? []) as { user_id: string; vaccines: unknown }[]).map((v) => [v.user_id, v.vaccines]));
         // Doc counts per candidate (active only, LAW #33).
         const docsByUser = new Map<string, { total: number; approved: number }>();
         for (const d of activeDocs((docRes.data ?? []) as { user_id: string; status: string | null }[])) {
@@ -2800,11 +2846,17 @@ export function buildAssistantTools(
           c.total += 1; if (d.status === "approved") c.approved += 1;
           docsByUser.set(d.user_id, c);
         }
-        // Latest note per candidate (notes came back newest-first).
         const latestNote = new Map<string, string>();
         for (const n of ((notesRes.data ?? []) as { candidate_user_id: string; note: string }[])) {
           if (!latestNote.has(n.candidate_user_id)) latestNote.set(n.candidate_user_id, n.note);
         }
+        const vaxSummary = (v: unknown): string => {
+          const vac = v as Record<string, { doses?: { got?: boolean | null }[] }> | null | undefined;
+          if (!vac) return "";
+          const got = (k: string) => ((vac[k]?.doses ?? []) as { got?: boolean | null }[]).filter((d) => d?.got === true).length;
+          const m = got("masern"), z = got("varizell");
+          return (m === 0 && z === 0) ? "" : `Masern ${m}/2, Varizellen ${z}/2`;
+        };
 
         // Stable order: oldest registration first → new signups append at the bottom
         // so the founder's own side-columns stay row-aligned across syncs.
@@ -2813,21 +2865,37 @@ export function buildAssistantTools(
           .sort((a, b) => a.t - b.t)
           .map((x) => x.r);
 
-        const headers = ["Registered", "Name", "Email", "Phone", "Funnel stage", "Interview 1", "Interview 2", "B2", "Docs (approved/total)", "Latest note", "Candidate ID"];
+        const headers = [
+          "Registered", "Name", "Email", "Phone", "Employer", "Batch", "Funnel stage",
+          "Interview 1", "Interview 2", "Agreement", "B2 stage", "B2 exam date", "Vaccines",
+          "Workplace (Altenheim/Klinik)", "Anerkennung", "Specialty", "Passport expiry",
+          "Docs (approved/total)", "Latest note", "Candidate ID",
+        ];
+        const str = (v: unknown) => (v == null ? "" : String(v));
         const rows = ordered.map((r) => {
           const info = auth.get(r.userId);
-          const prof = profById.get(r.userId);
-          const p = (pipeById.get(r.userId) ?? {}) as { funnel_stage?: string | null; interview1_status?: string | null; interview2_status?: string | null };
+          const prof = (profById.get(r.userId) ?? {}) as Record<string, unknown>;
+          const p = (pipeById.get(r.userId) ?? {}) as Record<string, unknown>;
           const dc = docsByUser.get(r.userId) ?? { total: 0, approved: 0 };
+          const empId = str(prof.employer_id), batchId = str(p.batch_id);
           return [
             info?.createdAt ? info.createdAt.slice(0, 10) : "",
             r.name,
             info?.email ?? "",
-            prof?.phone ?? "",
-            p.funnel_stage ? funnelLabel(p.funnel_stage) : "",
-            p.interview1_status ?? "",
-            p.interview2_status ?? "",
-            prof?.b2_stage ?? "",
+            str(prof.phone),
+            empId ? empName.get(empId) ?? "" : "",
+            batchId ? batchName.get(batchId) ?? "" : "",
+            p.funnel_stage ? funnelLabel(str(p.funnel_stage)) : "",
+            str(p.interview1_status),
+            str(p.interview2_status),
+            p.agreement_signed === true ? "signed" : "",
+            str(prof.b2_stage),
+            str(prof.b2_exam_date),
+            vaxSummary(vaxByUser.get(r.userId)),
+            str(prof.workplace_pref),
+            str(prof.anerkennung_stage),
+            prof.nursing_specialty ? specialtyLabel(str(prof.nursing_specialty), "en") : "",
+            str(prof.passport_expiry),
             `${dc.approved}/${dc.total}`,
             latestNote.get(r.userId) ?? "",
             r.userId,

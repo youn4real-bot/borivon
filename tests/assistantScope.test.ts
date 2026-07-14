@@ -1361,6 +1361,16 @@ describe("Google Sheet candidate mirror (one-way)", () => {
     expect(r.error).toBe("workspace_not_connected");
   });
 
+  it("setWorkplacePreference saves altenheim/klinik for the supreme admin (and blocks sub-admins)", async () => {
+    h.authUsers = [{ id: "cand-w", email: "w@cand.com", user_metadata: { full_name: "Wafa Test" } }];
+    h.tables.candidate_profiles = { data: [{ user_id: "cand-w" }], error: null };
+    const denied = await run(buildAssistantTools(ORG_ADMIN), "setWorkplacePreference", { candidate: "Wafa Test", preference: "Klinik" });
+    expect(denied).toEqual({ error: "admin_only" });
+    const r = (await run(buildAssistantTools(SUPREME), "setWorkplacePreference", { candidate: "Wafa Test", preference: "Klinik" })) as { saved?: boolean; preference?: string };
+    expect(r.saved).toBe(true);
+    expect(r.preference).toBe("klinik");
+  });
+
   it("setQuietMode is supreme-only and returns the new state", async () => {
     h.tables.app_settings = { data: null, error: null };
     const denied = await run(buildAssistantTools(ORG_ADMIN), "setQuietMode", { on: true });

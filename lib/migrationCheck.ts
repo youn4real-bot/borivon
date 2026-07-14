@@ -27,6 +27,7 @@ const GATES: { table: string; column: string; file: string; feature: string }[] 
   { table: "app_settings", column: "key", file: "app_settings.sql", feature: "the Google Sheet candidate mirror" },
   { table: "employer_batches", column: "org_id", file: "employer_batches_org.sql", feature: "the agency (Calmaroi) on a batch" },
   { table: "candidate_pipeline", column: "agreement_signed", file: "candidate_pipeline_agreement.sql", feature: "the Agreement step in the Batch Tracker" },
+  { table: "candidate_profiles", column: "workplace_pref", file: "candidate_workplace_pref.sql", feature: "the Altenheim/Klinik preference (+ its Google-Sheet column)" },
 ];
 
 const isMissingErr = (error: unknown): boolean => {
