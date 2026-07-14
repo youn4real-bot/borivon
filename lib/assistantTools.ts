@@ -28,7 +28,7 @@ import { FUNNEL_STAGES, funnelLabel, type FunnelStageKey } from "@/lib/batchBoar
 import { stagePending, executeLatestPending, cancelLatestPending, prepareEmailDraft, precheckOutboundAttachments, getPendingDraft, MILESTONE_BOOL } from "@/lib/assistantWrites";
 import { AUTOMATIONS, getAutomationFlags, setAutomation as persistAutomation, type AutomationKey } from "@/lib/automationSettings";
 import { workspaceConfigured, workspaceServiceAccount, testWorkspace, WORKSPACE_SCOPES } from "@/lib/googleWorkspace";
-import { syncCandidateSheet } from "@/lib/googleSheets";
+import { syncCandidateSheet, copyAndUpgradeSheet } from "@/lib/googleSheets";
 import { setBotQuiet } from "@/lib/botQuiet";
 import { mirrorCandidateToDrive } from "@/lib/driveMirror";
 import { gmailSearch, gmailGet, gmailApiReady, listEmailAttachments, listDraftAttachments, gmailGetThread, gmailModify, gmailTrash } from "@/lib/gmailApi";
@@ -2799,6 +2799,18 @@ export function buildAssistantTools(
             };
           });
         return { count: rows.length, stage, minDays, candidates: rows };
+      },
+    }),
+
+    upgradeSheetFromUrl: tool({
+      description:
+        "Make a CLEAN, UPGRADED COPY of an existing Google Sheet the founder gives by URL. It COPIES the sheet into his Drive (keeping ALL his data + colors untouched), makes the header presentable (freezes the top row, adds a filter, auto-sizes columns), and APPENDS the full Borivon tracking column menu to the right (every column — he prunes later). Returns the new sheet's link. FIRST it checks access: if the sheet isn't reachable it returns no_access telling him to share it with youness.taoufiq@borivon.com. Use for 'copy my sheet and add all the columns', 'clone <sheet url> and upgrade it', 'make a cleaner version of this sheet'. Supreme-only.",
+      inputSchema: z.object({ sourceUrl: z.string().min(10).describe("the Google Sheet URL (or id) to copy and upgrade") }),
+      execute: async ({ sourceUrl }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        const res = await copyAndUpgradeSheet(sourceUrl);
+        if (!res.ok) return { error: res.error, hint: res.hint };
+        return { done: true, url: res.url, title: res.title, keptColumns: res.existingColumns, addedColumns: res.addedColumns };
       },
     }),
 
