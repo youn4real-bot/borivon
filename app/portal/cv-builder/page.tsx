@@ -3138,7 +3138,7 @@ function CVBuilderInner() {
     // license, departments) — scroll to their section, centered.
     const checks: { keys: string[]; id: string }[] = [
       { keys: ["photo"], id: "photo-section" },
-      { keys: ["firstName","lastName","birthDate","birthPlace","countryOfBirth","nationality","address","postalCode","city","countryOfResidence","phone","email","maritalStatus"], id: "personal-section" },
+      { keys: ["firstName","lastName","birthDate","birthPlace","countryOfBirth","nationality","address","postalCode","city","countryOfResidence","phone","email","maritalStatus","kidsAnswer","kidsAges"], id: "personal-section" },
       { keys: ["edu_"],          id: "education-section" },
       { keys: ["work_"],         id: "work-section" },
       { keys: ["lang_"],         id: "lang-section" },
@@ -3177,6 +3177,16 @@ function CVBuilderInner() {
     // ITU E.164: 7-15 digits. Morocco with country code: min 12 digits.
     if (_isMorocco ? _phoneDigits.length < 12 : (_phoneDigits.length < 7 || _phoneDigits.length > 15)) errors.add("phone");
     if (!cvData.maritalStatus?.trim()) errors.add("maritalStatus");
+    // Familienstand + Kinder are PFLICHT — no CV without them. The Kids question
+    // only exists for a non-ledig status (ledig ⇒ no kids block is shown), so it's
+    // required exactly when it's asked; "Ja" additionally needs every age filled.
+    {
+      const { base: _mBase, ages: _mAges } = parseMaritalStatus(cvData.maritalStatus);
+      if (_mBase && _mBase !== "ledig") {
+        if (kidsAnswer === "") errors.add("kidsAnswer");
+        if (kidsAnswer === "yes" && (_mAges.length === 0 || _mAges.some(a => !(a >= 0)))) errors.add("kidsAges");
+      }
+    }
 
     // 2. Photo
     if (!cvData.photo) errors.add("photo");
@@ -3647,7 +3657,7 @@ function CVBuilderInner() {
           id="personal-section"
           title={t.cvb_personalSection}
           kind="personal"
-          forceOpen={["firstName","lastName","birthDate","birthPlace","nationality","email","address","postalCode","city","phone","maritalStatus"].some(k => validationErrors.has(k))}
+          forceOpen={["firstName","lastName","birthDate","birthPlace","nationality","email","address","postalCode","city","phone","maritalStatus","kidsAnswer","kidsAges"].some(k => validationErrors.has(k))}
         >
           {autoFillDone && (
             <div className="mb-3 px-3 py-2 rounded-lg text-xs" style={{ background: "var(--success-bg)", color: "var(--success)", border: "1px solid var(--success-border)" }}>
@@ -3855,9 +3865,10 @@ function CVBuilderInner() {
                 return (
                   <div className="mt-4">
                     <p className="text-[12px] font-normal mb-2.5" style={{ color: "var(--w3)" }}>
-                      {labelHaveKids}
+                      {labelHaveKids} <span style={{ color: "var(--gold)" }}>*</span>
                     </p>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-2 gap-3"
+                      style={validationErrors.has("kidsAnswer") ? { outline: "1px solid var(--danger)", outlineOffset: "3px", borderRadius: "14px" } : {}}>
                       <button type="button"
                         onClick={() => {
                           setKidsAnswer("yes");
@@ -3913,6 +3924,7 @@ function CVBuilderInner() {
                                   set("maritalStatus", composeMaritalStatus(base, clean));
                                 }}
                                 numericOnly
+                                hasError={validationErrors.has("kidsAges") && !(age >= 0)}
                               />
                             </div>
                             {displayAges.length > 1 && (
