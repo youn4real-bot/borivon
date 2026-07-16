@@ -34,6 +34,7 @@ import { scrubPresencePayload, fullPresencePayload, isAdminRole } from "@/lib/co
 
 
 import { VISA_RECIPIENT_LINES, VISA_SUBJECT, VISA_PROMPT } from "@/lib/visaLetter";
+import { buildEmployerPrompt } from "@/lib/employerLetter";
 
 const BETREFF_PREFIX = "Betreff: Motivationsschreiben für eine Tätigkeit als Pflegekraft am";
 
@@ -429,9 +430,10 @@ function MotivationsschreibenPageInner() {
   }, []);
 
   // Prefetch the candidate's CV text (from cv_draft, any doc state) for the
-  // "Copy prompt" button. Borivon admins + visa only — gated like the button.
+  // "Copy prompt" button. Borivon admins only — gated like the button. Runs for
+  // BOTH letters now (visa → Embassy prompt, employer → employer-aligned prompt).
   useEffect(() => {
-    if (!visa || !isBorivonAdmin || !authToken) return;
+    if (!isBorivonAdmin || !authToken) return;
     const cid = adminCandidateId ?? userId;
     if (!cid) return;
     let cancelled = false;
@@ -446,7 +448,7 @@ function MotivationsschreibenPageInner() {
       } catch { /* leave cvText null → button copies the prompt with the placeholder */ }
     })();
     return () => { cancelled = true; };
-  }, [visa, isBorivonAdmin, authToken, adminCandidateId, userId]);
+  }, [isBorivonAdmin, authToken, adminCandidateId, userId]);
 
   const editorRef = useRef<HTMLDivElement>(null);
   const lastGoodHTML = useRef<string>("");
@@ -1305,26 +1307,29 @@ function MotivationsschreibenPageInner() {
                 <ArrowLeft size={13} strokeWidth={1.8} /> {t.back}
               </button>
               <div className="flex items-center gap-2">
-                {visa && isBorivonAdmin && (
+                {isBorivonAdmin && (
                   <button
                     type="button"
                     onClick={async () => {
                       // Inject the candidate's CV text into the prompt's placeholder
                       // so it's all one copy. Falls back to the placeholder if the CV
-                      // isn't built yet (cvText empty).
+                      // isn't built yet (cvText empty). VISA → Embassy prompt;
+                      // EMPLOYER → the same prompt aligned to the assigned employer.
                       const cv = (cvText ?? "").trim();
-                      const full = cv
-                        ? VISA_PROMPT.replace("[CANDIDATE PASTES CV HERE]", cv)
-                        : VISA_PROMPT;
+                      const full = visa
+                        ? (cv ? VISA_PROMPT.replace("[CANDIDATE PASTES CV HERE]", cv) : VISA_PROMPT)
+                        : buildEmployerPrompt(employerName, cv);
                       try {
                         await navigator.clipboard.writeText(full);
                         setPromptCopied(true);
                         setTimeout(() => setPromptCopied(false), 2000);
                       } catch { /* clipboard unavailable */ }
                     }}
-                    title={cvText && cvText.trim()
-                      ? "Copy the AI prompt WITH the candidate's CV (Borivon only)"
-                      : "Copy the AI prompt — CV not built yet, paste it manually (Borivon only)"}
+                    title={!visa && !employerName.trim()
+                      ? "Copy the AI prompt — no employer assigned yet, so it won't be employer-specific (Borivon only)"
+                      : cvText && cvText.trim()
+                        ? `Copy the AI prompt WITH the candidate's CV${visa ? "" : ` — aligned to ${employerName}`} (Borivon only)`
+                        : "Copy the AI prompt — CV not built yet, paste it manually (Borivon only)"}
                     className="bv-row-hover inline-flex items-center gap-1.5 text-[12px] font-semibold px-2.5 py-1 rounded-full transition-colors"
                     style={{
                       color: promptCopied ? "var(--success)" : "var(--gold)",
