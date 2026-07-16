@@ -2154,6 +2154,14 @@ function CVBuilderInner() {
   const lastLocalEditAt    = useRef<number>(0);
   const lastBroadcastSig   = useRef<string>("");
   const applyingRemoteRef  = useRef<boolean>(false);
+  // LAW #37 — an admin's edit is absolute and must NEVER revert. A local edit is
+  // "pending" from the keystroke until its PUT actually lands. While pending, no
+  // remote snapshot may be applied: the autosave debounce (800ms) + network is
+  // LONGER than the poll's 1.5s typing guard, so the 5s poll was re-reading the
+  // server BEFORE the write landed, getting the OLD draft, and overwriting the
+  // edit — the "it went back to the original after a few seconds" bug.
+  const pendingSaveRef = useRef<boolean>(false);
+  const editSeqRef     = useRef<number>(0);
   const collabChannelRef     = useRef<RealtimeChannel | null>(null);
   // `false` until the *second* cvData-effect tick — used to suppress the
   // bogus "user is typing" stamp that fires when the initial draft load
@@ -2187,7 +2195,10 @@ function CVBuilderInner() {
     // load applying to state, not a keystroke. Without this guard the
     // first inbound broadcast within 1.5 s of page-open was being treated
     // as conflicting with our "typing" and dropped.
-    if (!applyingRemoteRef.current && firstPostLoadRef.current) {
+    // A genuine local edit = not a remote apply, and not the initial draft
+    // restore. Only those get the "unsaved, don't let a re-read undo me" guard.
+    const isLocalEdit = !applyingRemoteRef.current && firstPostLoadRef.current;
+    if (isLocalEdit) {
       lastLocalEditAt.current = Date.now();
     }
     firstPostLoadRef.current = true;
@@ -2205,6 +2216,11 @@ function CVBuilderInner() {
       return;
     }
     // 3. Debounce the server write + collab broadcast.
+    // Mark this edit UNSAVED before anything can re-read the server. It stays
+    // pending until THIS edit's PUT succeeds — a newer keystroke bumps the seq,
+    // so an older in-flight response can never clear a fresher edit's guard.
+    if (isLocalEdit) pendingSaveRef.current = true;
+    const mySeq = ++editSeqRef.current;
     if (serverSaveTimer.current) clearTimeout(serverSaveTimer.current);
     serverSaveTimer.current = setTimeout(() => {
       const draftUrl = adminCandidateId
@@ -2218,6 +2234,9 @@ function CVBuilderInner() {
         .then(r => {
           if (r.ok) {
             setSavedAt(new Date());
+            // The server now HOLDS this edit — a re-read can no longer undo it.
+            // Only clear if no newer keystroke landed while this was in flight.
+            if (editSeqRef.current === mySeq) pendingSaveRef.current = false;
             // Live broadcast to every other editor in the channel. The
             // signature memo prevents an echo when WE'RE the one that
             // just applied a remote payload.
@@ -2644,6 +2663,11 @@ function CVBuilderInner() {
     let cancelled = false;
     const tick = async () => {
       if (document.hidden) return;
+      // LAW #37 — our own edit hasn't reached the server yet, so ANY read right
+      // now returns the pre-edit draft. Applying it would silently revert the
+      // admin's work. Skip entirely; once the PUT lands the server holds our
+      // value and the next tick is a harmless no-op.
+      if (pendingSaveRef.current) return;
       try {
         const r = await fetch(url, { headers: { Authorization: `Bearer ${authToken}` } });
         if (!r.ok) return;
@@ -2652,6 +2676,9 @@ function CVBuilderInner() {
         if (!remote) return;
         const sig = JSON.stringify(remote);
         if (sig === lastRemoteSnapshot.current) return;
+        // Re-check AFTER the await: an edit may have started mid-flight, which
+        // would make this response stale the moment it arrived.
+        if (pendingSaveRef.current) return;
         lastRemoteSnapshot.current = sig;
         if (Date.now() - lastLocalEditAt.current < 1500) return;
         // Local cvData already matches? Don't churn. Otherwise apply.
