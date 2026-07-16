@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
 
   const { data: batches, error: bErr } = await db
     .from("employer_batches")
-    .select("id, employer_id, org_id, name, seats, target_start, target_end, status")
+    .select("id, employer_id, org_id, name, seats, target_start, target_end, status, notes")
     .order("created_at", { ascending: false });
   if (bErr) return NextResponse.json({ error: "batches_unavailable" }, { status: 500 });
 
@@ -107,12 +107,15 @@ export async function GET(req: NextRequest) {
     employers: isSupreme ? employers : undefined,
     organizations: isSupreme ? organizations : undefined,
     batches: (batches ?? [])
-      .map((b) => b as { id: string; employer_id: string | null; org_id: string | null; name: string; seats: number; target_start: string | null; target_end: string | null; status: string })
+      .map((b) => b as { id: string; employer_id: string | null; org_id: string | null; name: string; seats: number; target_start: string | null; target_end: string | null; status: string; notes: string | null })
       .filter((b) => b.status === "open")
       .map((b) => ({
         id: b.id, name: b.name,
         agency: b.org_id ? orgName.get(b.org_id) ?? null : null,
         employer: b.employer_id ? empName.get(b.employer_id) ?? null : null,
+        // ids so the supreme admin's Edit form can prefill its dropdowns
+        orgId: b.org_id, employerId: b.employer_id,
+        notes: b.notes ?? "",
         seats: b.seats, filled: filled.get(b.id) ?? 0, targetStart: b.target_start, targetEnd: b.target_end,
       })),
     candidates,
@@ -123,6 +126,21 @@ export async function PATCH(req: NextRequest) {
   const auth = await requireAdminRole(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
   const body = await req.json().catch(() => ({}));
+
+  // ── BATCH NOTES ── a shared note on the batch itself. Writable by EVERY admin
+  // (supreme + sub-admins) — deliberately NOT routed through /api/portal/batches,
+  // which is supreme-only. Candidates can never reach this route at all.
+  if (typeof body.batchId === "string" && typeof body.notes === "string") {
+    if (!UUID_RE.test(body.batchId)) return NextResponse.json({ error: "Bad batch id" }, { status: 400 });
+    const notes = body.notes.trim().slice(0, 5000);
+    const { error } = await getServiceSupabase()
+      .from("employer_batches")
+      .update({ notes: notes || null })
+      .eq("id", body.batchId);
+    if (error) return NextResponse.json({ error: "update_failed" }, { status: 500 });
+    return NextResponse.json({ ok: true });
+  }
+
   const candidateUserId = typeof body.candidateUserId === "string" ? body.candidateUserId : "";
   if (!UUID_RE.test(candidateUserId)) return NextResponse.json({ error: "Bad candidate id" }, { status: 400 });
   // LAW #25 — a sub-admin/org-admin can only touch candidates they may act on.

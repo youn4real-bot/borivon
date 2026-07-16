@@ -17,9 +17,9 @@ import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
 import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
 import { b2StageLabel, b2StageColor, normalizeB2Stage } from "@/lib/b2Journey";
-import { ArrowLeft, Users, CalendarRange, Search, Plus, Check, X } from "lucide-react";
+import { ArrowLeft, Users, CalendarRange, Search, Plus, Check, X, Pencil, NotebookPen } from "lucide-react";
 
-type Batch = { id: string; name: string; agency: string | null; employer: string | null; seats: number; filled: number; targetStart: string | null; targetEnd: string | null };
+type Batch = { id: string; name: string; agency: string | null; employer: string | null; orgId: string | null; employerId: string | null; notes: string; seats: number; filled: number; targetStart: string | null; targetEnd: string | null };
 type Employer = { id: string; name: string };
 type Org = { id: string; name: string };
 type Cand = {
@@ -62,6 +62,12 @@ export default function AdminTrackerPage() {
   const [showNew, setShowNew] = useState(false);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({ name: "", seats: 12, orgId: "", employerId: "", targetStart: "", targetEnd: "" });
+  // Edit an EXISTING batch (fix the date, name, seats, agency, employer).
+  const [showEdit, setShowEdit] = useState(false);
+  const [editForm, setEditForm] = useState({ name: "", seats: 12, orgId: "", employerId: "", targetStart: "", targetEnd: "" });
+  // Batch notes — every admin (supreme + sub-admins) can write them.
+  const [showNotes, setShowNotes] = useState(false);
+  const [notesDraft, setNotesDraft] = useState("");
 
   const load = useCallback(async (tk: string) => {
     const res = await fetch("/api/portal/tracker", { headers: { Authorization: `Bearer ${tk}` } });
@@ -171,6 +177,51 @@ export default function AdminTrackerPage() {
   };
 
   const batch = useMemo(() => batches.find((b) => b.id === selectedBatch) ?? null, [batches, selectedBatch]);
+
+  // Batch notes — open prefilled, save through the all-admins tracker route.
+  const openNotes = () => { if (!batch) return; setNotesDraft(batch.notes ?? ""); setShowNotes(true); };
+  const saveNotes = async () => {
+    if (!batch || saving) return;
+    setSaving(true);
+    const res = await fetch("/api/portal/tracker", {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ batchId: batch.id, notes: notesDraft }),
+    }).catch(() => null);
+    setSaving(false);
+    if (res && res.ok) { setShowNotes(false); await load(token); }
+    else setErr(T("Could not save the note.", "Notiz konnte nicht gespeichert werden.", "Impossible d'enregistrer la note."));
+  };
+
+  // Open the edit modal prefilled with the selected batch's current values.
+  const openEdit = () => {
+    if (!batch) return;
+    setEditForm({
+      name: batch.name ?? "", seats: batch.seats ?? 12,
+      orgId: batch.orgId ?? "", employerId: batch.employerId ?? "",
+      targetStart: batch.targetStart ?? "", targetEnd: batch.targetEnd ?? "",
+    });
+    setShowEdit(true);
+  };
+
+  // Supreme-only: save the edits. Empty agency/employer/date clears that field.
+  const saveEdit = async () => {
+    if (!batch || !editForm.name.trim() || saving) return;
+    setSaving(true);
+    const res = await fetch("/api/portal/batches", {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        batchId: batch.id,
+        name: editForm.name.trim(), seats: editForm.seats,
+        orgId: editForm.orgId, employerId: editForm.employerId,
+        targetStart: editForm.targetStart, targetEnd: editForm.targetEnd,
+      }),
+    }).catch(() => null);
+    setSaving(false);
+    if (res && res.ok) { setShowEdit(false); await load(token); }
+    else setErr(T("Could not save the batch.", "Batch konnte nicht gespeichert werden.", "Impossible d'enregistrer le lot."));
+  };
   // "Too late" = the B2 exam lands after this batch's window (they can't be ready
   // in time), and they haven't already passed. The founder filters these out.
   const b2Deadline = useMemo(() => (batch ? batch.targetEnd || batch.targetStart : null), [batch]);
@@ -282,9 +333,22 @@ export default function AdminTrackerPage() {
                   <span className="inline-flex items-center gap-1"><Users size={12} /> {members.length}/{batch.seats}</span>
                 </div>
               </div>
-              <button onClick={() => setAddOpen((v) => !v)} className="bv-btn bv-btn-gold inline-flex flex-shrink-0">
-                <Plus size={15} strokeWidth={2} /> {T("Add candidate", "Kandidat hinzufügen", "Ajouter un candidat")}
-              </button>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {/* Batch note — every admin (supreme + sub-admins) can write it. */}
+                <button onClick={openNotes} className="bv-btn bv-btn-ghost inline-flex"
+                  title={T("Batch note", "Batch-Notiz", "Note du lot")}>
+                  <NotebookPen size={14} strokeWidth={2} style={batch.notes ? { color: "var(--gold)" } : undefined} />
+                  {T("Note", "Notiz", "Note")}
+                </button>
+                {isSupreme && (
+                  <button onClick={openEdit} className="bv-btn bv-btn-ghost inline-flex">
+                    <Pencil size={14} strokeWidth={2} /> {T("Edit", "Bearbeiten", "Modifier")}
+                  </button>
+                )}
+                <button onClick={() => setAddOpen((v) => !v)} className="bv-btn bv-btn-gold inline-flex">
+                  <Plus size={15} strokeWidth={2} /> {T("Add candidate", "Kandidat hinzufügen", "Ajouter un candidat")}
+                </button>
+              </div>
             </div>
             {/* progress chips — lead with the beginning */}
             <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11.5px]" style={{ color: "var(--w2)" }}>
@@ -295,6 +359,10 @@ export default function AdminTrackerPage() {
               <span>{T("Interview 2", "Interview 2", "Entretien 2")}: <b style={{ color: "var(--w)" }}>{summary.i2}/{members.length}</b></span>
               <span className="opacity-70">{T("Contract", "Vertrag", "Contrat")} {summary.contract} · {T("Visa", "Visum", "Visa")} {summary.visa} · {T("Arrived", "Angekommen", "Arrivés")} {summary.arrived}</span>
             </div>
+            {/* The batch note, shown inline so it's visible at a glance */}
+            {batch.notes && (
+              <p className="mt-3 pt-3 text-[12px] whitespace-pre-wrap" style={{ borderTop: "1px solid var(--border)", color: "var(--w2)" }}>{batch.notes}</p>
+            )}
           </div>
 
           {err && <p className="mb-3 text-[12px]" style={{ color: "#ef4444" }}>{err}</p>}
@@ -387,6 +455,73 @@ export default function AdminTrackerPage() {
           )}
         </>
       )}
+
+      {/* Batch note — supreme admin + sub-admins. Candidates never see this page. */}
+      <Modal open={showNotes} onClose={() => !saving && setShowNotes(false)} size="sm" busy={saving}
+        title={T("Batch note", "Batch-Notiz", "Note du lot")}
+        subtitle={batch ? batch.name : ""}
+        footer={<><GhostButton onClick={() => setShowNotes(false)} disabled={saving}>{T("Cancel", "Abbrechen", "Annuler")}</GhostButton>
+          <GoldButton onClick={saveNotes} disabled={saving}>{T("Save", "Speichern", "Enregistrer")}</GoldButton></>}>
+        <div className="px-5 py-4">
+          <textarea value={notesDraft} onChange={(e) => setNotesDraft(e.target.value)} rows={7} autoFocus
+            placeholder={T("Anything about this batch — what's agreed, what's pending, who to chase…", "Alles zu diesem Batch — was vereinbart ist, was offen ist, wer nachzufassen ist…", "Tout sur ce lot — ce qui est convenu, en attente, qui relancer…")}
+            className="w-full px-3 py-2 text-[14px] rounded-md outline-none resize-y"
+            style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)", minHeight: 150 }} />
+          <p className="mt-2 text-[11px]" style={{ color: "var(--w3)" }}>
+            {T("Visible to you and your sub-admins only.", "Nur für dich und deine Sub-Admins sichtbar.", "Visible seulement par vous et vos sous-admins.")}
+          </p>
+        </div>
+      </Modal>
+
+      {/* Supreme-only: EDIT this batch — fix the start date, name, seats, agency, employer. */}
+      <Modal open={showEdit} onClose={() => !saving && setShowEdit(false)} size="sm" busy={saving}
+        title={T("Edit batch", "Batch bearbeiten", "Modifier le lot")}
+        subtitle={T("Fix the dates, name, seats, agency or employer.", "Termine, Name, Plätze, Agentur oder Arbeitgeber korrigieren.", "Corrigez les dates, le nom, les places, l'agence ou l'employeur.")}
+        footer={<><GhostButton onClick={() => setShowEdit(false)} disabled={saving}>{T("Cancel", "Abbrechen", "Annuler")}</GhostButton>
+          <GoldButton onClick={saveEdit} disabled={saving || !editForm.name.trim()}>{T("Save", "Speichern", "Enregistrer")}</GoldButton></>}>
+        <div className="px-5 py-4 space-y-3">
+          <label className="block">
+            <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Name", "Name", "Nom")}</span>
+            <input value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+              className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }} />
+          </label>
+          <div className="flex gap-3">
+            <label className="block w-24">
+              <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Seats", "Plätze", "Places")}</span>
+              <input type="number" min={1} max={1000} value={editForm.seats} onChange={(e) => setEditForm({ ...editForm, seats: Math.max(1, Number(e.target.value) || 1) })}
+                className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }} />
+            </label>
+            <label className="block flex-1">
+              <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Agency (optional)", "Agentur (optional)", "Agence (optionnel)")}</span>
+              <select value={editForm.orgId} onChange={(e) => setEditForm({ ...editForm, orgId: e.target.value })}
+                className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }}>
+                <option value="">{T("— none —", "— keine —", "— aucune —")}</option>
+                {organizations.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+              </select>
+            </label>
+          </div>
+          <label className="block">
+            <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Employer (optional)", "Arbeitgeber (optional)", "Employeur (optionnel)")}</span>
+            <select value={editForm.employerId} onChange={(e) => setEditForm({ ...editForm, employerId: e.target.value })}
+              className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }}>
+              <option value="">{T("— none —", "— keiner —", "— aucun —")}</option>
+              {employers.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
+            </select>
+          </label>
+          <div className="flex gap-3">
+            <label className="block flex-1">
+              <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Window start", "Fenster-Start", "Début fenêtre")}</span>
+              <input type="date" value={editForm.targetStart} onChange={(e) => setEditForm({ ...editForm, targetStart: e.target.value })}
+                className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }} />
+            </label>
+            <label className="block flex-1">
+              <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Window end", "Fenster-Ende", "Fin fenêtre")}</span>
+              <input type="date" value={editForm.targetEnd} onChange={(e) => setEditForm({ ...editForm, targetEnd: e.target.value })}
+                className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }} />
+            </label>
+          </div>
+        </div>
+      </Modal>
 
       {/* Supreme-only: create a new batch — name + date window + agency + employer. */}
       <Modal open={showNew} onClose={() => !saving && setShowNew(false)} size="sm" busy={saving}
