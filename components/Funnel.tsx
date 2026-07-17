@@ -344,6 +344,41 @@ export function Funnel() {
     } catch { /* ignore corrupt saved state */ }
   }, []);
 
+  // ── Drain leads that failed to POST on a previous visit ──────────────────
+  // On a backend blip / offline submit, the payload was stashed under
+  // bv-lead-retry-* but NOTHING ever re-sent it, while the funnel still showed
+  // "ok" — so the lead was silently lost. Re-POST each stashed lead on mount and
+  // clear it only on a confirmed 2xx; leave it for the next visit otherwise.
+  // Kind-agnostic: the payload carries its own `kind` (person/org/work).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const keys: string[] = [];
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k && k.startsWith("bv-lead-retry-")) keys.push(k);
+        }
+      } catch { return; }
+      for (const k of keys) {
+        if (cancelled) return;
+        let payload: unknown = null;
+        try { payload = JSON.parse(localStorage.getItem(k) ?? "null"); } catch { /* corrupt */ }
+        if (!payload) { try { localStorage.removeItem(k); } catch { /* ignore */ } continue; }
+        try {
+          const res = await fetch("/api/leads", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          if (res.ok) { try { localStorage.removeItem(k); } catch { /* ignore */ } }
+          // non-ok → still failing; leave it stashed for the next visit
+        } catch { /* still offline → leave it stashed */ }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   // ── Persist state on every change ───────────────────────────────────────
   useEffect(() => {
     if (skipPersistOnce.current) { skipPersistOnce.current = false; return; }
