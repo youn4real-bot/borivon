@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { enforceRateLimit } from "@/lib/rateLimit";
-import { sanitizeLetterHtml } from "@/lib/sanitizeHtml";
+import { sanitizeLetterHtmlServer } from "@/lib/sanitizeHtmlServer";
 import { UUID_RE } from "@/lib/uuid";
 
 /**
@@ -101,7 +101,7 @@ export async function PUT(req: NextRequest) {
   // length AFTER sanitizing so a padded payload can't smuggle past the cap.
   let html: string | null = null;
   if (body.body === null || body.body === "") html = null;
-  else if (typeof body.body === "string") html = sanitizeLetterHtml(body.body).slice(0, MAX_BODY_BYTES);
+  else if (typeof body.body === "string") html = sanitizeLetterHtmlServer(body.body).slice(0, MAX_BODY_BYTES);
   else return NextResponse.json({ error: "body must be a string or null" }, { status: 400 });
 
   const col = bodyColumn(req);
