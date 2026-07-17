@@ -666,16 +666,26 @@ function MotivationsschreibenPageInner() {
         const lsKey = draftKey(bodyTarget);
         const lsSaved = localStorage.getItem(lsKey) ?? "";
         let serverBody: string | null = null;
+        // Distinguish "server says empty" from "we never got a clean answer".
+        // A non-ok GET (503 migration, 500) or a thrown fetch (offline) must
+        // NOT be read as an empty row — otherwise the adopt-on-open below would
+        // PUT this browser's stale local draft over a good server body the GET
+        // simply failed to fetch (e.g. an admin's rewrite, LAW #37). Adoption
+        // requires a CONFIRMED-empty server, never an unknown one.
+        let serverReached = false;
         try {
           const r = await fetch(`/api/portal/letter-body${letterApiQs}`, {
             headers: { Authorization: `Bearer ${session.access_token}` },
             cache: "no-store",
           });
           if (r.ok) {
-            const j = await r.json() as { body?: string | null };
+            const j = await r.json() as { body?: string | null; migrated?: boolean };
             serverBody = j.body ?? null;
+            // migrated:false = column not deployed → the row's true contents are
+            // unknown, so treat as NOT reached for adoption purposes.
+            serverReached = j.migrated !== false;
           }
-        } catch { /* offline — fall through to localStorage */ }
+        } catch { /* offline — fall through to localStorage, serverReached stays false */ }
         {
           // Prefer the server copy when it has content; otherwise fall
           // back to the local draft. Using explicit has-content checks
@@ -686,9 +696,12 @@ function MotivationsschreibenPageInner() {
           const serverHas = !!(serverBody && serverBody.trim());
           const lsHas      = !!(lsSaved && lsSaved.trim());
           const initial = serverHas ? serverBody! : lsHas ? lsSaved : "";
-          // Server had nothing but this browser holds a draft → the letter is
-          // private to this machine. Flag it for adoption (see adopt effect).
-          adoptLocalRef.current = !serverHas && lsHas;
+          // Adopt ONLY when the server was reached AND is confirmed empty AND
+          // this browser holds a draft — i.e. a genuinely browser-only letter.
+          // When the server was unreachable we still SHOW the local draft, but
+          // never push it (adoptLocalRef stays false; the drain marks it saved
+          // so the unload flush can't push it either — see the drain effect).
+          adoptLocalRef.current = serverReached && !serverHas && lsHas;
           // STASH it — the editor isn't mounted yet (PageLoader is up
           // while loading=true). The post-mount effect below writes it
           // into the editor once `loading` flips false and the div
@@ -1267,7 +1280,14 @@ function MotivationsschreibenPageInner() {
       form.append("fileType", visa ? "Motivationsschreiben Visum" : "Anschreiben");
       form.append("fileKey", visa ? "letter_visa" : "letter");
       form.append("userId", userId);
-      if (visa && adminCandidateId) form.append("forUserId", adminCandidateId);
+      // Admin-on-behalf: when an admin opened ?candidate=<uid>, the generated
+      // PDF must land in the CANDIDATE's dossier, not the admin's own. This
+      // override was previously sent ONLY for the visa letter, so an admin who
+      // generated an EMPLOYER letter filed it into their OWN dossier. The
+      // upload route gates forUserId (admin/sub_admin + canActOnCandidate,
+      // LAW #25) and stamps uploaded_by_admin, so widening it to both variants
+      // is safe.
+      if (adminCandidateId) form.append("forUserId", adminCandidateId);
       form.append("firstName", person.firstName);
       form.append("lastName", person.lastName);
       const { data: { session: freshSess } } = await supabase.auth.getSession();
