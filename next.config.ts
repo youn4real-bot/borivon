@@ -94,7 +94,20 @@ const nextConfig: NextConfig = {
       ? { exclude: ["error", "warn"] }
       : false,
   },
-  serverExternalPackages: ["@react-pdf/renderer"],
+  // @react-pdf/renderer + isomorphic-dompurify(→jsdom) must stay OUT of the
+  // serverless bundle. Vercel's @vercel/nft tracer can't follow jsdom's lazy
+  // require()s (it pulls optional native-ish deps like canvas via dynamic
+  // paths), so webpack-bundling it produces a function that throws at module
+  // load → every request to that route 500s. This silently killed
+  // /api/portal/letter-body for ~7 weeks (isomorphic-dompurify was added to
+  // that route on 2026-05-30): the client fell back to a localStorage draft
+  // so the letter looked saved to its author while every other admin saw a
+  // blank page and the server row stayed empty. Externalizing ships the whole
+  // package to the function as a plain node_module require, which works.
+  // Local `next start` never reproduced it — it resolves node_modules normally;
+  // only Vercel's per-function tracing does. Verify any change to this line on
+  // a Vercel PREVIEW deploy, not just locally.
+  serverExternalPackages: ["@react-pdf/renderer", "isomorphic-dompurify", "jsdom"],
   // Ensure font/logo files used by the PDF generator are included in the
   // serverless function bundle — Vercel's file tracer misses dynamic path.join refs.
   outputFileTracingIncludes: {
