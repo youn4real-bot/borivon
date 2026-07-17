@@ -467,6 +467,12 @@ function MotivationsschreibenPageInner() {
   // you navigate away (e.g. to fix passport data). That gap was the
   // "letter vanished after I edited the passport and came back" bug.
   const lastSavedSig = useRef("");
+  // True when the body we loaded came from the LEGACY localStorage draft
+  // because the server row was empty. Such a letter exists in exactly one
+  // browser: the author sees it, every other admin sees a blank page. The
+  // adopt effect below pushes it to the server so it becomes the shared
+  // copy (LAW #37 / "whoever typed the last word" — one letter, one truth).
+  const adoptLocalRef = useRef(false);
 
   const draftKey = useCallback((uid: string) => `bv_letter_body_${uid}${visa ? "_visa" : ""}`, [visa]);
 
@@ -680,6 +686,9 @@ function MotivationsschreibenPageInner() {
           const serverHas = !!(serverBody && serverBody.trim());
           const lsHas      = !!(lsSaved && lsSaved.trim());
           const initial = serverHas ? serverBody! : lsHas ? lsSaved : "";
+          // Server had nothing but this browser holds a draft → the letter is
+          // private to this machine. Flag it for adoption (see adopt effect).
+          adoptLocalRef.current = !serverHas && lsHas;
           // STASH it — the editor isn't mounted yet (PageLoader is up
           // while loading=true). The post-mount effect below writes it
           // into the editor once `loading` flips false and the div
@@ -718,7 +727,12 @@ function MotivationsschreibenPageInner() {
     el.innerHTML = sanitizeLetterHtml(pendingBodyRef.current); // XSS: body may be admin-rendered (LAW #37)
     lastGoodHTML.current = el.innerHTML;
     lastBroadcastSig.current = el.innerHTML;
-    lastSavedSig.current = el.innerHTML; // loaded body == what the server already has
+    // Only claim "the server already has this" when it actually came FROM the
+    // server. Marking a localStorage-loaded draft as saved was the bug that
+    // stranded letters in one browser: the unload flush compares against this
+    // sig, saw no difference, and never uploaded — so the author saw the
+    // letter and every other admin saw a blank page, forever.
+    lastSavedSig.current = adoptLocalRef.current ? "" : el.innerHTML;
     setWordCount(countWords(el.textContent ?? ""));
     pendingBodyRef.current = null;
   }, [loading]);
@@ -1009,6 +1023,21 @@ function MotivationsschreibenPageInner() {
       console.error("[letter-body PUT] error:", e);
     }
   }, [authToken, letterApiQs]);
+
+  // Adopt a browser-local-only letter onto the server, once, on open. Declared
+  // after putLetterBody so the dep array doesn't hit its TDZ. No typing needed
+  // — opening the letter is enough to make it shared, which is what makes
+  // "whoever typed the last word" true for letters written before server
+  // persistence existed (they lived only in their author's localStorage).
+  useEffect(() => {
+    if (loading || !adoptLocalRef.current || !authToken) return;
+    const el = editorRef.current;
+    if (!el) return;
+    const html = el.innerHTML;
+    adoptLocalRef.current = false;
+    if (!html.trim()) return;
+    void putLetterBody(html);
+  }, [loading, authToken, putLetterBody]);
 
   function scheduleSave() {
     const t = adminCandidateId ?? userId;
