@@ -354,7 +354,7 @@ function makeCVData(email = ""): CVData {
     // Country of birth + residence stay empty by default. They fill in
     // automatically when passport OCR extracts them on the dashboard.
     countryOfBirth: "", countryOfResidence: "",
-    nationality: "", maritalStatus: "",
+    nationality: "", maritalStatus: "", kidsAnswer: "",
     address: "", addressNumber: "", postalCode: "", city: "", phone: "", email,
     workEntries: [
       { id: `work-default-${Date.now()}`, isGap: false, title: "", employer: "", location: "", country: "Marokko", departments: [], taetigkeiten: [], start: { month: "", year: "" }, end: { month: "", year: "" }, gapReason: "" },
@@ -2075,40 +2075,25 @@ function CVBuilderInner() {
 
   // Validation errors — set of field keys that failed required check
   const [validationErrors, setValidationErrors] = useState<Set<string>>(new Set());
-  // Kids follow-up — three states: unanswered (""), explicitly "no", or "yes"
-  // with ages. We parse this out of the maritalStatus string on every render
-  // (no parallel state to drift), and write back through composeMaritalStatus.
-  const [kidsAnswer, setKidsAnswerState] = useState<"" | "yes" | "no">("");
-  // Persist the explicit Yes/No answer so a "No" choice survives reloads
-  // (the saved maritalStatus alone can't disambiguate "no" from "not yet answered").
-  const setKidsAnswer = (v: "" | "yes" | "no") => {
-    setKidsAnswerState(v);
-    if (typeof window !== "undefined" && userId) {
-      try {
-        if (v) localStorage.setItem(`bv-cv-kids-${userId}`, v);
-        else   localStorage.removeItem(`bv-cv-kids-${userId}`);
-      } catch { /* storage unavailable */ }
-    }
-  };
-
-  // When maritalStatus is loaded from draft/passport with parens (= "yes" with
-  // ages), sync the kidsAnswer state so the UI reflects the saved answer.
-  // Also restores the persisted "No" choice on first render.
-  useEffect(() => {
+  // Kids follow-up — three states: "" (unanswered), "yes", "no".
+  // The explicit choice is now a CVData FIELD (cvData.kidsAnswer), so it rides
+  // the server autosave + collab broadcast like every other field. Was a
+  // localStorage-only flag keyed by the SESSION user id, which (a) never
+  // reached the server — so another admin/device saw the question as
+  // unanswered and the Pflicht gate blocked CV generation on a question the
+  // candidate had already answered — and (b) leaked one candidate's answer
+  // onto the next (keyed by the admin's own id, not the viewed candidate).
+  // "yes" is ALSO derivable from ages, so old drafts saved before this field
+  // existed still show correctly; "no" (base non-ledig, ages cleared) is
+  // indistinguishable from unanswered in maritalStatus alone, which is exactly
+  // why it must be stored explicitly.
+  const kidsAnswer: "" | "yes" | "no" = (() => {
+    if (cvData.kidsAnswer === "yes" || cvData.kidsAnswer === "no") return cvData.kidsAnswer;
     const { base, ages } = parseMaritalStatus(cvData.maritalStatus);
-    if (base && base !== "ledig" && ages.length > 0 && kidsAnswer === "") {
-      setKidsAnswerState("yes");
-      return;
-    }
-    // Try restoring an explicit "No" from localStorage
-    if (kidsAnswer === "" && userId && typeof window !== "undefined") {
-      try {
-        const saved = localStorage.getItem(`bv-cv-kids-${userId}`) as "yes" | "no" | null;
-        if (saved === "no" && base && base !== "ledig") setKidsAnswerState("no");
-      } catch { /* ignore */ }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cvData.maritalStatus, userId]);
+    if (base && base !== "ledig" && ages.length > 0) return "yes";
+    return "";
+  })();
+  const setKidsAnswer = (v: "" | "yes" | "no") => set("kidsAnswer", v);
   // Auto-fill banner
   const [autoFillDone, setAutoFillDone] = useState(false);
   const [lockedPopupOpen, setLockedPopupOpen] = useState(false);

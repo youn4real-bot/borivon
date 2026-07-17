@@ -139,6 +139,14 @@ export interface CVData {
   nationality: string;
   additionalNationalities?: string[];
   maritalStatus: string;
+  /**
+   * Explicit answer to "do you have children?" — "" unanswered | "yes" | "no".
+   * Needed because a non-ledig maritalStatus with NO ages ("verheiratet") can't
+   * distinguish "no children" from "not yet answered". Persisted as a field so
+   * the answer reaches the server (was a browser-only localStorage flag). Not
+   * rendered on the PDF; the CV shows maritalStatus (+ ages) as before.
+   */
+  kidsAnswer?: "" | "yes" | "no";
   address: string;
   /** House number (kept separate so the PDF can prefix it with "Nr").
    *  The builder UI shows the plain combined address; only the generated
