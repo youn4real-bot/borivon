@@ -899,6 +899,13 @@ export default function AdminPage() {
   const [statusForm, setStatusForm]       = useState<CandStatus>(EMPTY_STATUS);
   const [statusLoading, setStatusLoading] = useState(false);
   const [statusAutoSaved, setStatusAutoSaved] = useState(false);
+  // True ONLY when the status GET actually succeeded (HTTP ok). The autosave is
+  // a FULL upsert — every column absent from the body is written null — so if
+  // the GET FAILED (500/403/network) the form is still all-null EMPTY_STATUS and
+  // one edit would wipe the candidate's real row. A successful GET that returns
+  // no row (new candidate) legitimately starts empty and DOES allow saving.
+  const statusLoadOkRef = useRef(false);
+  const [statusLoadFailed, setStatusLoadFailed] = useState(false);
   // Autosave plumbing (mirrors the passport autosave; LAW #37, last-write-
   // wins per the user's decision). Seed = the snapshot last persisted, so we
   // don't re-save the just-loaded state. Ref mirror lets close/switch flush
@@ -918,6 +925,8 @@ export default function AdminPage() {
     setAssignTypeUI(null);
     statusSeedRef.current = JSON.stringify(EMPTY_STATUS);
     statusFormRef.current = EMPTY_STATUS;
+    statusLoadOkRef.current = false;   // block autosave until a good load lands
+    setStatusLoadFailed(false);
     setStatusCvDraft(null);
     // Ensure canonical assignment is loaded (employer_id + employer list)
     // so the assign tab can derive its highlighted pill from real data.
@@ -927,24 +936,39 @@ export default function AdminPage() {
     // cv_draft hydrates the new read-only B1/B2 summary in the B2 tab.
     try {
       const [statusRes, draftRes] = await Promise.allSettled([
+        // Capture HTTP ok SEPARATELY from the payload: a non-ok response and an
+        // ok-but-empty row both used to collapse to null, so a failed load was
+        // indistinguishable from a new candidate — and the next edit's full
+        // upsert nulled the real row.
         fetch(`/api/portal/admin/candidate-status?userId=${selectedUser}`, {
           headers: { Authorization: `Bearer ${accessToken}` },
-        }).then(r => r.ok ? r.json() : null).catch(() => null),
+        }).then(async r => ({ ok: r.ok, json: r.ok ? await r.json().catch(() => null) : null }))
+          .catch(() => ({ ok: false, json: null })),
         fetch(`/api/portal/admin/cv-draft?candidateId=${selectedUser}`, {
           headers: { Authorization: `Bearer ${accessToken}` },
         }).then(r => r.ok ? r.json() : null).catch(() => null),
       ]);
-      if (statusRes.status === "fulfilled" && statusRes.value?.status) {
-        const j = statusRes.value;
-        const loaded = { ...EMPTY_STATUS, ...j.status, vaccines: normVaccines(j.status?.vaccines) };
-        setStatusForm(loaded);
-        statusFormRef.current = loaded;
-        statusSeedRef.current = JSON.stringify(loaded);
+      const statusOk = statusRes.status === "fulfilled" && statusRes.value?.ok === true;
+      if (statusOk) {
+        const j = statusRes.value.json as { status?: Record<string, unknown> | null } | null;
+        if (j?.status) {
+          const loaded = { ...EMPTY_STATUS, ...j.status, vaccines: normVaccines(j.status?.vaccines) };
+          setStatusForm(loaded);
+          statusFormRef.current = loaded;
+          statusSeedRef.current = JSON.stringify(loaded);
+        }
+        // ok + no row → genuinely new candidate; EMPTY_STATUS is correct.
       }
+      statusLoadOkRef.current = statusOk;   // gate the autosave — never clobber on a failed load
+      setStatusLoadFailed(!statusOk);
       if (draftRes.status === "fulfilled" && draftRes.value?.draft) {
         setStatusCvDraft(draftRes.value.draft as Record<string, unknown>);
       }
-    } catch { /* ignore — start blank */ }
+    } catch {
+      // Total failure — treat as unknown server state, block autosave.
+      statusLoadOkRef.current = false;
+      setStatusLoadFailed(true);
+    }
     setStatusLoading(false);
   }
 
@@ -981,6 +1005,7 @@ export default function AdminPage() {
   useEffect(() => {
     statusFormRef.current = statusForm;
     if (!statusOpen || statusLoading) return;
+    if (!statusLoadOkRef.current) return; // load failed → true server state unknown, never full-upsert nulls over it
     if (!selectedUser || !accessToken) return;
     if (JSON.stringify(statusForm) === statusSeedRef.current) return; // nothing changed
     if (statusSaveTimer.current) clearTimeout(statusSaveTimer.current);
@@ -3683,6 +3708,19 @@ export default function AdminPage() {
                         <p className="text-xs text-center py-6" style={{ color: "var(--w3)" }}>{L.loading}</p>
                       ) : (
                         <>
+                          {/* Load-failure banner: the status GET didn't succeed,
+                              so the real server row is unknown. Autosave is
+                              blocked (see statusLoadOkRef) to avoid nulling the
+                              row with a full upsert — tell the admin their edits
+                              aren't saving. */}
+                          {statusLoadFailed && (
+                            <div className="mb-4 rounded-xl px-3 py-2.5 text-[12px]"
+                              style={{ background: "rgba(239,68,68,0.12)", color: "#ef4444", border: "1px solid #ef4444" }}>
+                              {lang === "fr" ? "Impossible de charger le statut — vos modifications ne seront PAS enregistrées. Fermez puis rouvrez cette fenêtre."
+                                : lang === "de" ? "Status konnte nicht geladen werden — Änderungen werden NICHT gespeichert. Bitte schließen und erneut öffnen."
+                                : "Couldn't load the status — your edits will NOT be saved. Close and reopen this window."}
+                            </div>
+                          )}
                           {/* ── Documents: auto progress checklist (relocated
                               from the slide-in drawer). Read-only mirror of the
                               candidate's upload status — color only (LAW #4),
