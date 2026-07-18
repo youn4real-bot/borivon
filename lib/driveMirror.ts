@@ -16,6 +16,7 @@
 import { driveClient } from "@/lib/googleWorkspace";
 import { r2GetObject } from "@/lib/r2";
 import { Readable } from "node:stream";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 const ROOT_FOLDER = "Borivon Candidates";
 
@@ -72,6 +73,161 @@ export async function mirrorCandidateToDrive(docs: MirrorDoc[], candidateName: s
       uploaded++;
     }
     return { ok: true, folderUrl: `https://drive.google.com/drive/folders/${folderId}`, uploaded, skipped };
+  } catch (e) {
+    return { ok: false, error: "mirror_failed", hint: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Calmaroi auto-share — approved docs → Drive, on approval / assignment.
+// Folder tree the founder specified:
+//   "Calmaroi X Borivon" / "<batch e.g. UKSH_KIEL_APRIL_2027>" / "<Candidate>" / <docs>
+// ONLY for candidates assigned to a Calmaroi employer; ONLY approved docs; each
+// doc mirrored once (skipped while its file_sha256 is unchanged — no wasted API).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type ApprovedDoc = {
+  id: string;
+  file_name: string | null;
+  file_type: string | null;
+  r2_key: string | null;
+  file_sha256: string | null;
+  drive_mirror_id: string | null;
+  drive_mirror_sha256: string | null;
+  uploaded_at: string | null;
+};
+
+/**
+ * Collapse re-uploads: a candidate often has several APPROVED rows with the SAME
+ * file_name (old + new versions). They'd all map to one Drive file anyway, so
+ * keep only the newest per file_name — avoids N wasteful R2 reads + Drive writes.
+ * Pure (unit-tested).
+ */
+export function latestApprovedPerName(docs: ApprovedDoc[]): ApprovedDoc[] {
+  const byName = new Map<string, ApprovedDoc>();
+  for (const d of docs) {
+    if (!d.r2_key) continue;
+    const key = (d.file_name || d.file_type || d.id).toLowerCase();
+    const cur = byName.get(key);
+    const t = (x: ApprovedDoc) => (x.uploaded_at ? Date.parse(x.uploaded_at) : 0);
+    if (!cur || t(d) >= t(cur)) byName.set(key, d);
+  }
+  return [...byName.values()];
+}
+
+/** Agency root folder name, e.g. "Calmaroi" → "Calmaroi X Borivon". Pure. */
+export function agencyRootFolderName(orgName: string): string {
+  return `${(orgName || "Agentur").trim()} X Borivon`;
+}
+
+export type CalmaroiSyncResult =
+  | { ok: true; skipped_reason?: "unassigned" | "not_calmaroi"; folderUrl?: string; uploaded?: number; unchanged?: number }
+  | { ok: false; error: "workspace_not_connected" | "mirror_failed"; hint?: string };
+
+/**
+ * Mirror ONE candidate's approved docs into the Calmaroi Drive tree, if (and only
+ * if) they're assigned to a Calmaroi employer. Idempotent + cheap: skips any doc
+ * whose file_sha256 already equals its recorded drive_mirror_sha256. Fail-safe —
+ * returns a typed result, never throws (callers fire it best-effort so a Drive
+ * hiccup never blocks a doc approval or an assignment).
+ */
+export async function syncCalmaroiCandidateToDrive(
+  db: SupabaseClient,
+  userId: string,
+): Promise<CalmaroiSyncResult> {
+  try {
+    // 1. Calmaroi org (resolved by name so we never hardcode the UUID).
+    const { data: orgs } = await db.from("organizations").select("id,name").ilike("name", "calmaroi");
+    const calmaroi = (orgs ?? [])[0] as { id: string; name: string } | undefined;
+    if (!calmaroi) return { ok: true, skipped_reason: "not_calmaroi" };
+
+    // 2. Candidate → employer → is it a Calmaroi employer?
+    const { data: prof } = await db
+      .from("candidate_profiles")
+      .select("employer_id,first_name,last_name")
+      .eq("user_id", userId)
+      .maybeSingle();
+    const employerId = (prof as { employer_id?: string | null } | null)?.employer_id ?? null;
+    if (!employerId) return { ok: true, skipped_reason: "unassigned" };
+    const { data: emp } = await db
+      .from("employers")
+      .select("id,name,agency_id")
+      .eq("id", employerId)
+      .maybeSingle();
+    const employer = emp as { id: string; name: string | null; agency_id: string | null } | null;
+    if (!employer || employer.agency_id !== calmaroi.id) return { ok: true, skipped_reason: "not_calmaroi" };
+
+    // 3. Batch folder = the employer's batch name (e.g. UKSH_KIEL_APRIL_2027),
+    //    newest first; fall back to the employer name if no batch exists yet.
+    const { data: batches } = await db
+      .from("employer_batches")
+      .select("name,created_at")
+      .eq("employer_id", employerId)
+      .order("created_at", { ascending: false })
+      .limit(1);
+    const batchName = ((batches ?? [])[0] as { name?: string } | undefined)?.name
+      || employer.name
+      || "Batch";
+
+    // 4. Candidate display name — real name lives in auth metadata, profile is a fallback.
+    let candidateName = "";
+    try {
+      const { data: au } = await db.auth.admin.getUserById(userId);
+      candidateName = (au?.user?.user_metadata?.full_name as string | undefined)?.trim() || "";
+    } catch { /* fall through to profile name */ }
+    if (!candidateName) {
+      const p = prof as { first_name?: string | null; last_name?: string | null } | null;
+      candidateName = [p?.first_name, p?.last_name].filter(Boolean).join(" ").trim();
+    }
+    if (!candidateName) candidateName = `Kandidat ${userId.slice(0, 8)}`;
+
+    // 5. Approved docs with R2 bytes, newest-per-filename.
+    const { data: rawDocs } = await db
+      .from("documents")
+      .select("id,file_name,file_type,r2_key,file_sha256,drive_mirror_id,drive_mirror_sha256,uploaded_at")
+      .eq("user_id", userId)
+      .eq("status", "approved")
+      .is("superseded_at", null)
+      .not("r2_key", "is", null);
+    const docs = latestApprovedPerName((rawDocs ?? []) as ApprovedDoc[]);
+    if (docs.length === 0) return { ok: true, folderUrl: undefined, uploaded: 0, unchanged: 0 };
+
+    // 6. Drive tree + per-doc mirror (skip unchanged via the sha marker).
+    const drive = driveClient();
+    if (!drive) return { ok: false, error: "workspace_not_connected", hint: "Connect Google Workspace (the Drive scope)." };
+    const agencyId = await findOrCreateFolder(drive, agencyRootFolderName(calmaroi.name));
+    const batchId = await findOrCreateFolder(drive, batchName, agencyId);
+    const candFolderId = await findOrCreateFolder(drive, candidateName, batchId);
+
+    let uploaded = 0;
+    let unchanged = 0;
+    for (const d of docs) {
+      // Cheap skip: this exact file is already the mirrored copy → no R2 read, no Drive write.
+      if (d.drive_mirror_id && d.file_sha256 && d.drive_mirror_sha256 === d.file_sha256) { unchanged++; continue; }
+      const obj = await r2GetObject(d.r2_key!);
+      if (!obj) continue;
+      const name = d.file_name || `${d.file_type || "document"}.pdf`;
+      const media = { mimeType: obj.contentType || "application/pdf", body: Readable.from(obj.body) };
+      let fileId = d.drive_mirror_id ?? null;
+      // Trust the recorded id if we have one; else look for a same-name file to
+      // update (so pre-existing manual copies aren't duplicated), else create.
+      if (!fileId) {
+        const existing = await drive.files.list({
+          q: `name='${esc(name)}' and '${candFolderId}' in parents and trashed=false`,
+          fields: "files(id)", pageSize: 1,
+        });
+        fileId = existing.data.files?.[0]?.id ?? null;
+      }
+      if (fileId) {
+        try { await drive.files.update({ fileId, media }); }
+        catch { fileId = (await drive.files.create({ requestBody: { name, parents: [candFolderId] }, media, fields: "id" })).data.id as string; }
+      } else {
+        fileId = (await drive.files.create({ requestBody: { name, parents: [candFolderId] }, media, fields: "id" })).data.id as string;
+      }
+      await db.from("documents").update({ drive_mirror_id: fileId, drive_mirror_sha256: d.file_sha256 }).eq("id", d.id);
+      uploaded++;
+    }
+    return { ok: true, folderUrl: `https://drive.google.com/drive/folders/${candFolderId}`, uploaded, unchanged };
   } catch (e) {
     return { ok: false, error: "mirror_failed", hint: e instanceof Error ? e.message : String(e) };
   }

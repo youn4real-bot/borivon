@@ -17,7 +17,7 @@ import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
 import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
 import { b2StageLabel, b2StageColor, normalizeB2Stage } from "@/lib/b2Journey";
-import { ArrowLeft, Users, CalendarRange, Search, Plus, Check, X, Pencil, NotebookPen } from "lucide-react";
+import { ArrowLeft, Users, CalendarRange, Search, Plus, Check, X, Pencil, NotebookPen, FolderUp } from "lucide-react";
 
 type Batch = { id: string; name: string; agency: string | null; employer: string | null; orgId: string | null; employerId: string | null; notes: string; seats: number; filled: number; targetStart: string | null; targetEnd: string | null };
 type Employer = { id: string; name: string };
@@ -57,6 +57,8 @@ export default function AdminTrackerPage() {
   const [addQuery, setAddQuery] = useState("");
   const [err, setErr] = useState("");
   const [isSupreme, setIsSupreme] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState("");
   const [employers, setEmployers] = useState<Employer[]>([]);
   const [organizations, setOrganizations] = useState<Org[]>([]);
   const [showNew, setShowNew] = useState(false);
@@ -193,6 +195,31 @@ export default function AdminTrackerPage() {
     else setErr(T("Could not save the note.", "Notiz konnte nicht gespeichert werden.", "Impossible d'enregistrer la note."));
   };
 
+  // Calmaroi → Drive backfill (supreme only): copy every Calmaroi candidate's
+  // approved docs into the founder's Drive tree. Idempotent + cheap (sha-skip),
+  // so it's safe to click repeatedly. Going forward it's automatic on approval.
+  const syncCalmaroi = async () => {
+    if (syncing) return;
+    setSyncing(true); setSyncMsg("");
+    try {
+      const res = await fetch("/api/portal/admin/calmaroi-drive-sync", {
+        method: "POST", headers: { Authorization: `Bearer ${token}` },
+      });
+      const j = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setSyncMsg(T(
+          `Done — ${j.candidates} Calmaroi candidates: ${j.uploaded} files copied, ${j.unchanged} already up to date${j.errors?.length ? `, ${j.errors.length} errored` : ""}.`,
+          `Fertig — ${j.candidates} Calmaroi-Kandidaten: ${j.uploaded} Dateien kopiert, ${j.unchanged} bereits aktuell${j.errors?.length ? `, ${j.errors.length} Fehler` : ""}.`,
+          `Terminé — ${j.candidates} candidats Calmaroi : ${j.uploaded} fichiers copiés, ${j.unchanged} déjà à jour${j.errors?.length ? `, ${j.errors.length} en erreur` : ""}.`,
+        ) + (j.hint ? ` (${j.hint})` : ""));
+      } else {
+        setSyncMsg(j.error || T("Sync failed.", "Synchronisation fehlgeschlagen.", "Échec de la synchronisation."));
+      }
+    } catch {
+      setSyncMsg(T("Sync failed.", "Synchronisation fehlgeschlagen.", "Échec de la synchronisation."));
+    } finally { setSyncing(false); }
+  };
+
   // Open the edit modal prefilled with the selected batch's current values.
   const openEdit = () => {
     if (!batch) return;
@@ -313,8 +340,21 @@ export default function AdminTrackerPage() {
               <Plus size={15} strokeWidth={2} /> {T("New batch", "Neuer Batch", "Nouveau lot")}
             </button>
           )}
+          {isSupreme && (
+            <button onClick={syncCalmaroi} disabled={syncing} className="bv-btn bv-btn-ghost inline-flex"
+              title={T("Copy every Calmaroi candidate's approved docs into your Google Drive (Calmaroi X Borivon / batch / candidate). Runs automatically on approval too.",
+                       "Kopiert alle genehmigten Dokumente der Calmaroi-Kandidaten in dein Google Drive. Läuft auch automatisch bei Genehmigung.",
+                       "Copie les documents approuvés de chaque candidat Calmaroi dans ton Google Drive. S'exécute aussi automatiquement à l'approbation.")}>
+              <FolderUp size={15} strokeWidth={2} /> {syncing ? T("Syncing…", "Synchronisiere…", "Sync…") : T("Sync Calmaroi → Drive", "Calmaroi → Drive", "Calmaroi → Drive")}
+            </button>
+          )}
         </div>
       </div>
+      {syncMsg && (
+        <div className="mb-4 text-[13px] px-3 py-2 rounded-md" style={{ background: "var(--card)", color: "var(--w2)", border: "1px solid var(--border)" }}>
+          {syncMsg}
+        </div>
+      )}
 
       {!batch ? (
         <div className="text-center py-16 text-[14px]" style={{ color: "var(--w3)" }}>
