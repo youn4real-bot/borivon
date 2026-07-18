@@ -51,6 +51,18 @@ function saKey(): SaKey | null {
   return null;
 }
 
+/**
+ * The service-account key (client_email + private_key) already on the worker via
+ * GOOGLE_WORKSPACE_CREDENTIALS / GOOGLE_VERTEX_CREDENTIALS. Exposed so other
+ * Google APIs (e.g. Cloud Vision passport OCR) can reuse it instead of requiring
+ * a separate GOOGLE_SERVICE_ACCOUNT_EMAIL / GOOGLE_PRIVATE_KEY pair — one fewer
+ * secret to configure. Returns null if no valid credential is present.
+ */
+export function serviceAccountKey(): { client_email: string; private_key: string } | null {
+  const k = saKey();
+  return k ? { client_email: k.client_email, private_key: k.private_key } : null;
+}
+
 /** The founder's mailbox the service account impersonates. */
 function subjectEmail(): string {
   return (process.env.GOOGLE_WORKSPACE_SUBJECT || process.env.GMAIL_USER || process.env.ADMIN_EMAIL || "").trim();

@@ -12,11 +12,12 @@ export async function POST(req: NextRequest) {
 
   const secret = process.env.TURNSTILE_SECRET_KEY ?? "";
   if (!secret) {
-    // Always fail closed when the server isn't configured. Mis-configuring prod
-    // (e.g. NODE_ENV != "production" on a serverless deploy) must NOT silently
-    // disable CAPTCHA. Operators should set TURNSTILE_SECRET_KEY explicitly.
-    console.error("[Turnstile] TURNSTILE_SECRET_KEY is not set — failing closed");
-    return NextResponse.json({ success: false, error: "Server misconfigured" }, { status: 500 });
+    // CAPTCHA is intentionally OFF when no secret is configured (founder choice:
+    // keep signup friction-free and require no extra key to run on Cloudflare).
+    // Skip verification and allow the request. Re-enable bot protection anytime
+    // by setting TURNSTILE_SECRET_KEY — verification switches back on automatically.
+    console.warn("[Turnstile] TURNSTILE_SECRET_KEY not set — CAPTCHA disabled, allowing request");
+    return NextResponse.json({ success: true, skipped: true });
   }
 
   const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {

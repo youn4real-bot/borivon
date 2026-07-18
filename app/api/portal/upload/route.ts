@@ -187,8 +187,17 @@ const ON_WORKERS =
   (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
 
 async function getVisionToken(): Promise<string> {
-  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ?? "";
-  const key = (process.env.GOOGLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n");
+  let email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ?? "";
+  let key = (process.env.GOOGLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n");
+  // Fall back to the service-account key ALREADY on the worker
+  // (GOOGLE_VERTEX_CREDENTIALS / GOOGLE_WORKSPACE_CREDENTIALS) when the dedicated
+  // GOOGLE_SERVICE_ACCOUNT_EMAIL / GOOGLE_PRIVATE_KEY pair isn't set — so passport
+  // OCR needs NO extra secret. The JSON-sourced key already has real newlines.
+  if (!email || !key) {
+    const { serviceAccountKey } = await import("@/lib/googleWorkspace");
+    const sa = serviceAccountKey();
+    if (sa) { email = sa.client_email; key = sa.private_key; }
+  }
   // google-auth-library's JWT.getAccessToken() hits node:http.validateHeaderName
   // (unimplemented on workerd) and throws. On Workers mint the SA token via
   // WebCrypto instead (2-legged self-auth — no DWD subject), so passport OCR's
