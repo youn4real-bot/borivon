@@ -2291,6 +2291,32 @@ function CVBuilderInner() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authToken, cvData, loading]);
 
+  // ── Flush on true UNMOUNT (in-app navigation) ─────────────────────────────
+  // Clicking to another candidate / closing the editor / navigating away inside
+  // the SPA fires NEITHER pagehide NOR visibilitychange, and the autosave cleanup
+  // clears the pending debounce timer — so an edit made in the last ~800ms was
+  // lost (the "I edited, came back, it's gone" bug). Keep the latest draft in a
+  // ref (updated every render, no per-keystroke PUT) and flush it exactly once
+  // when the component leaves. LAW #37 — admin edits must persist.
+  const cvUnmountFlushRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    cvUnmountFlushRef.current = () => {
+      if (!authToken || loading || !userId) return;
+      const { photo, ...rest } = cvData;
+      void photo;
+      const url = adminCandidateId
+        ? `/api/portal/admin/cv-draft?candidateId=${adminCandidateId}`
+        : "/api/portal/me/cv-draft";
+      fetch(url, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+        body: JSON.stringify(rest),
+        keepalive: true,
+      }).catch(() => { /* best-effort */ });
+    };
+  });
+  useEffect(() => () => { cvUnmountFlushRef.current(); }, []);
+
   // ── Apply profile data (used by auto-fill button and on first load) ────────
   function applyProfile(profile: {
     first_name?: string | null;
@@ -3366,6 +3392,23 @@ function CVBuilderInner() {
       if (session?.access_token && session.access_token !== authToken) {
         setAuthToken(session.access_token);
       }
+      // LAW #37 — the version an admin GENERATES must stick. Persist the exact
+      // cvData that produces this PDF as the draft, AWAITED (not the debounced
+      // autosave, which can be lost to timing/navigation), so reopening the
+      // editor always matches the generated CV. Best-effort: a save hiccup must
+      // not block generation.
+      try {
+        const { photo: _p, ...draftRest } = cvData;
+        void _p;
+        const draftUrl = adminCandidateId
+          ? `/api/portal/admin/cv-draft?candidateId=${encodeURIComponent(adminCandidateId)}`
+          : "/api/portal/me/cv-draft";
+        await fetch(draftUrl, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${tok}` },
+          body: JSON.stringify(draftRest),
+        });
+      } catch { /* non-fatal — generation still proceeds */ }
       const genQp = [
         adminCandidateId ? `candidateId=${encodeURIComponent(adminCandidateId)}` : "",
         visaMode ? "variant=plain" : "",   // visa preview → no logo/footer
