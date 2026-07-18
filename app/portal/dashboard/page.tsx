@@ -1886,88 +1886,25 @@ export default function DashboardPage() {
                 <PhaseIcon kind="flight" size={24} style={{ color: "var(--gold)" }} />
               </span>
               <h3 className="text-[18px] font-semibold tracking-tight" style={{ color: "var(--w)" }}>
-                {lang === "de" ? "Premium-Plan erforderlich" : lang === "en" ? "Premium Plan Required" : "Plan Premium requis"}
+                {lang === "de" ? "Diese Funktion ist gesperrt" : lang === "en" ? "This feature is locked" : "Cette fonction est verrouillée"}
               </h3>
             </div>
-            {/* Price box — €19/month featured, €99 one-time underneath */}
-            <div className="mx-6 my-5 px-4 py-3 rounded-2xl flex items-center gap-2"
-              style={{ background: "var(--gdim)", border: "1px solid var(--border-gold)" }}>
-              <span className="flex items-center gap-1.5 text-[13px] font-semibold flex-shrink-0" style={{ color: "var(--gold)" }}>
-                <VerifiedBadge verified size="md" color="gold" />
-                {lang === "de" ? "Premium" : "Premium"}
-              </span>
-              <span className="flex-1" />
-              <div className="flex flex-col items-end leading-tight">
-                <span className="flex items-end gap-1 leading-none">
-                  <span className="text-[20px] font-bold tracking-tight leading-none" style={{ color: "var(--w)" }}>€19</span>
-                  <span className="text-[11px] leading-none pb-[2px]" style={{ color: "var(--w3)" }}>
-                    {lang === "de" ? "/Monat" : lang === "en" ? "/month" : "/mois"}
-                  </span>
-                </span>
-                <span className="text-[10.5px] mt-0.5 flex items-center gap-1" style={{ color: "var(--w3)" }}>
-                  {lang === "de" ? "oder €99 einmalig" : lang === "en" ? "or €99 one-time" : "ou 99€ unique"}
-                </span>
-              </div>
+            {/* Payments are OFF for now — no self-serve checkout. Access is granted
+                by the Borivon team only (admin sets payment_tier); the candidate
+                can't pay or unlock it themselves. */}
+            <div className="px-6 pt-3 pb-2">
+              <p className="text-[13px] leading-relaxed text-center" style={{ color: "var(--w2)" }}>
+                {lang === "de" ? "Diese Funktionen werden vom Borivon-Team freigeschaltet. Bitte kontaktieren Sie uns."
+                  : lang === "en" ? "These features are unlocked by the Borivon team. Please contact us."
+                  : "Ces fonctions sont débloquées par l'équipe Borivon. Veuillez nous contacter."}
+              </p>
             </div>
-            {/* Features */}
-            <div className="px-6 pb-2 space-y-2">
-              {([
-                lang === "de" ? "Interview-Vorbereitung & Termin" : lang === "en" ? "Interview scheduling & preparation" : "Planification et préparation d'entretien",
-                lang === "de" ? "Anerkennungs-Tracking" : lang === "en" ? "Recognition tracking" : "Suivi de reconnaissance",
-                lang === "de" ? "Botschafts-Vorbereitung" : lang === "en" ? "Embassy preparation" : "Préparation ambassade",
-                lang === "de" ? "Visum-Status-Updates" : lang === "en" ? "Visa status updates" : "Mises à jour du statut de visa",
-                lang === "de" ? "Flugbuchungs-Info" : lang === "en" ? "Flight booking info" : "Informations de vol",
-              ] as string[]).map((f, i) => (
-                <div key={i} className="flex items-start gap-2 text-[12.5px]" style={{ color: "var(--w2)" }}>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--success)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5"><polyline points="20 6 9 17 4 12"/></svg>
-                  <span>{f}</span>
-                </div>
-              ))}
-              {/* Gold verified badge row */}
-              <div className="flex items-start gap-2 text-[12.5px]" style={{ color: "var(--w2)" }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5"><polyline points="20 6 9 17 4 12"/></svg>
-                <span>{lang === "de" ? "Goldenes Abzeichen — Top-Priorität bei Einstellungen" : lang === "en" ? "Gold badge — top recruitment priority" : "Badge or — priorité maximale de recrutement"}</span>
-              </div>
-              {/* Refund — gold shimmer text */}
-              <style>{`@keyframes bvWave{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}`}</style>
-              <div className="flex items-start gap-2 text-[12.5px]">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--gold)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="flex-shrink-0 mt-0.5"><polyline points="20 6 9 17 4 12"/></svg>
-                <span className="font-semibold"
-                  style={{ background: "linear-gradient(90deg,var(--gold),#f0dfa0,var(--gold),#a07830)", backgroundSize: "200% auto", WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text", animation: "bvWave 2.5s linear infinite" }}>
-                  {lang === "de" ? "Rückerstattung, sobald Sie mit uns in Deutschland ankommen" : lang === "en" ? "Refundable once you land in Germany with us" : "Remboursable dès que vous arrivez en Allemagne avec nous"}
-                </span>
-              </div>
-            </div>
-            {/* CTAs — primary one-time (gold, save-13%) + secondary monthly (outline) */}
-            <div className="p-5 pt-4 flex flex-col gap-2">
+            <div className="p-5 pt-4">
               <button
-                onClick={() => handleUpgradeToPremium("premium_onetime")}
-                disabled={upgradeLoading}
-                className="bv-glow-gold bv-press w-full py-3 rounded-xl text-[14px] font-semibold tracking-tight inline-flex items-center justify-center gap-2"
-                style={{ background: "var(--gold)", color: "#131312", cursor: upgradeLoading ? "wait" : "pointer" }}>
-                {upgradeLoading
-                  ? (lang === "de" ? "Bitte warten…" : lang === "en" ? "Please wait…" : "Veuillez patienter…")
-                  : (
-                    <>
-                      {lang === "de" ? "€99 einmalig" : lang === "en" ? "€99 one-time" : "99€ unique"}
-                      <span className="text-[9.5px] font-bold uppercase px-1.5 py-0.5 rounded-full" style={{ background: "rgba(19,19,18,0.15)", color: "#131312", border: "1px solid rgba(19,19,18,0.25)" }}>
-                        -13%
-                      </span>
-                    </>
-                  )}
-              </button>
-              <button
-                onClick={() => handleUpgradeToPremium("premium_monthly")}
-                disabled={upgradeLoading}
-                className="w-full py-2.5 rounded-xl text-[13px] font-semibold transition-all hover:opacity-90 disabled:opacity-50"
-                style={{ background: "transparent", color: "var(--gold)", border: "1px solid var(--border-gold)", cursor: upgradeLoading ? "wait" : "pointer" }}>
-                {lang === "de" ? "€19/Monat — Abo" : lang === "en" ? "€19/month — subscribe" : "19€/mois — abonnement"}
-              </button>
-              <button
-                onClick={() => setUpgradeOpen(false)} disabled={upgradeLoading}
-                className="w-full py-2 text-[13px] disabled:opacity-40 disabled:cursor-not-allowed"
-                style={{ color: "var(--w3)", cursor: "pointer", background: "none", border: "none" }}>
-                {lang === "de" ? "Später" : lang === "en" ? "Maybe later" : "Plus tard"}
+                onClick={() => setUpgradeOpen(false)}
+                className="bv-press w-full py-3 rounded-xl text-[14px] font-semibold tracking-tight"
+                style={{ background: "var(--gold)", color: "#131312", cursor: "pointer" }}>
+                {lang === "de" ? "Verstanden" : lang === "en" ? "Got it" : "Compris"}
               </button>
             </div>
           </div>
