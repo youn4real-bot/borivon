@@ -95,12 +95,19 @@ export async function PUT(req: NextRequest) {
   try { body = JSON.parse(raw); } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
-  // Body is the contentEditable's innerHTML — string or empty/null to clear.
+  // Body is the contentEditable's innerHTML — string or explicit null.
   // SANITIZE before persist: this body is later rendered via innerHTML in the
   // admin's session (LAW #37 review) — unsanitized HTML = stored XSS. Cap
   // length AFTER sanitizing so a padded payload can't smuggle past the cap.
+  //
+  // NULL vs "" is SEMANTIC: NULL = the letter was never written (column default,
+  // never PUT); "" = a written letter that was deliberately EMPTIED (e.g. an
+  // admin cleared it, LAW #37). The editor bootstrap must be able to tell these
+  // apart, or reopening with a stale localStorage draft would resurrect a
+  // cleared letter over the deliberate empty. So an empty string is stored AS
+  // "", not coerced to NULL. Only a literal JSON null clears back to NULL.
   let html: string | null = null;
-  if (body.body === null || body.body === "") html = null;
+  if (body.body === null) html = null;
   else if (typeof body.body === "string") html = sanitizeLetterHtmlServer(body.body).slice(0, MAX_BODY_BYTES);
   else return NextResponse.json({ error: "body must be a string or null" }, { status: 400 });
 

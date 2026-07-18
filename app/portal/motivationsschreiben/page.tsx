@@ -708,13 +708,22 @@ function MotivationsschreibenPageInner() {
           // existed but was blank.
           const serverHas = !!(serverBody && serverBody.trim());
           const lsHas      = !!(lsSaved && lsSaved.trim());
-          const initial = serverHas ? serverBody! : lsHas ? lsSaved : "";
-          // Adopt ONLY when the server was reached AND is confirmed empty AND
-          // this browser holds a draft — i.e. a genuinely browser-only letter.
-          // When the server was unreachable we still SHOW the local draft, but
-          // never push it (adoptLocalRef stays false; the drain marks it saved
-          // so the unload flush can't push it either — see the drain effect).
-          adoptLocalRef.current = serverReached && !serverHas && lsHas;
+          // The server row is NULL only when the letter was NEVER written; an
+          // empty string "" means it was deliberately EMPTIED (admin clear,
+          // LAW #37). Honor an explicit clear over a stale local draft so the
+          // editor doesn't show a resurrected copy, and never adopt it.
+          const serverCleared = serverReached && serverBody === "";
+          const initial = serverHas ? serverBody!
+            : serverCleared ? ""
+            : lsHas ? lsSaved : "";
+          // Adopt ONLY a genuinely browser-only letter: server reached, row
+          // NEVER written (null, not ""), and this browser holds a draft. This
+          // is the fix for the LAW #37 revert — a deliberately-cleared letter
+          // (serverBody === "") must NOT be overwritten by an old local draft.
+          // On an unreachable server we still SHOW the local draft but never
+          // push it (adoptLocalRef stays false; the drain marks it saved so the
+          // unload flush can't push it either — see the drain effect).
+          adoptLocalRef.current = serverReached && serverBody === null && lsHas;
           // STASH it — the editor isn't mounted yet (PageLoader is up
           // while loading=true). The post-mount effect below writes it
           // into the editor once `loading` flips false and the div
