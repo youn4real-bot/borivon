@@ -492,6 +492,19 @@ function MotivationsschreibenPageInner() {
   const lastLocalEditAt  = useRef(0);
   const lastBroadcastSig = useRef("");
   const applyingRemoteRef = useRef(false);
+  // Divergence guards (mirror cv-builder). dirtyRef = there is an unsaved LOCAL
+  // edit; only a dirty body may be flushed on unload, so a peer-arrived body
+  // (never locally edited) can't be pushed back over a newer server copy.
+  // editSeqRef is bumped per local edit so a slow save completing after a newer
+  // keystroke can't wrongly clear the dirty flag.
+  const dirtyRef   = useRef(false);
+  const editSeqRef = useRef(0);
+  // When we last APPLIED a peer broadcast. The poll defers while this is fresh:
+  // a peer's PUT is debounced ~700ms behind their broadcast, so polling the
+  // server mid-broadcast could read a stale copy and revert the peer's edit.
+  // The poll only takes over once broadcasts go quiet — i.e. the socket dropped,
+  // which is exactly the divergence it exists to heal.
+  const lastRemoteAt = useRef(0);
 
   // Keep authToken state fresh across silent JWT refreshes (~55 min). Without
   // this the initial-mount token goes stale during long edits and every
@@ -890,6 +903,7 @@ function MotivationsschreibenPageInner() {
       if (Date.now() - lastLocalEditAt.current < 30) return;
       if (p.html === lastBroadcastSig.current) return;
       lastBroadcastSig.current = p.html;
+      lastRemoteAt.current = Date.now(); // channel is live — poll defers to it
       const el = editorRef.current;
       if (!el) return;
       // Snapshot caret position so we can restore it after innerHTML
@@ -1009,7 +1023,7 @@ function MotivationsschreibenPageInner() {
   // The actual server write — extracted so both the debounced autosave
   // AND the flush-on-unload path can call it. keepalive lets a save fire
   // even as the tab is being closed/refreshed.
-  const putLetterBody = React.useCallback(async (html: string, keepalive = false) => {
+  const putLetterBody = React.useCallback(async (html: string, keepalive = false, seq?: number) => {
     if (!authToken) return;
     try {
       const r = await fetch(`/api/portal/letter-body${letterApiQs}`, {
@@ -1022,6 +1036,10 @@ function MotivationsschreibenPageInner() {
         setSavedAt(new Date());
         setSaveError(false);
         lastSavedSig.current = html; // remember what's now safely on the server
+        // Clear dirty ONLY when no newer local edit happened since this save was
+        // scheduled — otherwise a slow save completing after a fresh keystroke
+        // would drop the guard while the newest text is still unsaved.
+        if (seq === undefined || seq === editSeqRef.current) dirtyRef.current = false;
       } else {
         // SURFACE the failure — a silent swallow here is exactly why
         // "I typed and it was gone" happened: a 503 (cover_letter_body
@@ -1052,6 +1070,103 @@ function MotivationsschreibenPageInner() {
     void putLetterBody(html);
   }, [loading, authToken, putLetterBody]);
 
+  // Caret-preserving apply of a server/peer body into the editor. Used by the
+  // 5s server-poll backstop below (the realtime broadcast handler has its own
+  // inline copy with the tighter same-tick guards — kept separate so the
+  // working live path is untouched).
+  const applyRemoteHtml = useCallback((html: string) => {
+    const el = editorRef.current;
+    if (!el) return;
+    const clean = sanitizeLetterHtml(html);
+    if (el.innerHTML === clean) return;
+    const sel = window.getSelection();
+    const focused = !!document.activeElement && el.contains(document.activeElement as Node);
+    let savedOffset = -1;
+    if (focused && sel && sel.rangeCount > 0 && el.contains(sel.anchorNode)) {
+      const range = document.createRange();
+      range.setStart(el, 0);
+      range.setEnd(sel.anchorNode!, sel.anchorOffset);
+      savedOffset = range.toString().length;
+    }
+    applyingRemoteRef.current = true;
+    el.innerHTML = clean; // XSS: sanitized at the render sink (LAW #37)
+    lastGoodHTML.current = el.innerHTML;
+    setWordCount(countWords(el.textContent ?? ""));
+    applyingRemoteRef.current = false;
+    if (focused && savedOffset >= 0) {
+      try {
+        const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+        let remaining = savedOffset;
+        let node: Text | null = null;
+        while (walker.nextNode()) {
+          const n = walker.currentNode as Text;
+          if (remaining <= n.length) { node = n; break; }
+          remaining -= n.length;
+        }
+        if (node) {
+          const r = document.createRange();
+          r.setStart(node, remaining);
+          r.collapse(true);
+          sel?.removeAllRanges();
+          sel?.addRange(r);
+        }
+      } catch { /* fall back to default cursor placement */ }
+    }
+  }, []);
+
+  // ── Server-poll backstop (5s) ─────────────────────────────────────────────
+  // Supabase realtime broadcasts have NO replay on reconnect, so a dropped
+  // socket (tab backgrounded, network blip) leaves two admins on the same
+  // letter permanently diverged — and the unload flush would then push the
+  // stale local copy over the newer server one (LAW #37 revert). Mirror the
+  // cv-builder poll: pull the server body every 5s and adopt it when we are NOT
+  // mid-edit, so a missed broadcast self-heals instead of clobbering.
+  useEffect(() => {
+    if (loading) return;
+    const t = adminCandidateId ?? userId;
+    if (!t || !authToken) return;
+    let cancelled = false;
+    const poll = async () => {
+      if (cancelled) return;
+      if (typeof document !== "undefined" && document.hidden) return;
+      if (dirtyRef.current) return;                                // unsaved local edit — our PUT wins
+      if (Date.now() - lastLocalEditAt.current < 1500) return;     // just typed
+      if (Date.now() - lastRemoteAt.current < 3000) return;        // live broadcast in progress — defer to it
+      let body: string | null = null;
+      try {
+        const r = await fetch(`/api/portal/letter-body${letterApiQs}`, {
+          headers: { Authorization: `Bearer ${authToken}` },
+          cache: "no-store",
+        });
+        if (!r.ok) return;
+        const j = await r.json() as { body?: string | null };
+        body = j.body ?? null;
+      } catch { return; }
+      if (cancelled || body === null) return;
+      // Re-check the anti-clobber guards AFTER the await — the user may have
+      // started typing, or a peer broadcast may have landed, while the GET was
+      // in flight.
+      if (dirtyRef.current
+        || Date.now() - lastLocalEditAt.current < 1500
+        || Date.now() - lastRemoteAt.current < 3000) return;
+      const el = editorRef.current;
+      if (!el) return;
+      const clean = sanitizeLetterHtml(body);
+      if (el.innerHTML === clean) { lastSavedSig.current = clean; return; }
+      applyRemoteHtml(body);
+      lastBroadcastSig.current = body;   // dedup a later broadcast of the same text
+      lastSavedSig.current = clean;      // now synced to the server copy
+    };
+    const id = setInterval(() => { void poll(); }, 5000);
+    const onVis = () => { if (!document.hidden) void poll(); };  // catch up the instant the tab returns
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [loading, adminCandidateId, userId, authToken, letterApiQs, applyRemoteHtml]);
+
   function scheduleSave() {
     const t = adminCandidateId ?? userId;
     if (!t) return;
@@ -1065,9 +1180,11 @@ function MotivationsschreibenPageInner() {
     //    editing a candidate's letter doesn't trample their own draft.
     try { localStorage.setItem(draftKey(t), html); } catch { /* quota */ }
     // 2. Server PUT — debounced, last-write-wins. Surfaces success /
-    //    failure to the autosave indicator.
+    //    failure to the autosave indicator. Capture the current edit seq so a
+    //    stale completion can't clear the dirty guard past a newer keystroke.
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => { void putLetterBody(html); }, 700);
+    const mySeq = editSeqRef.current;
+    saveTimer.current = setTimeout(() => { void putLetterBody(html, false, mySeq); }, 700);
   }
 
   // Flush the latest body to the server the instant the tab is hidden or
@@ -1083,11 +1200,13 @@ function MotivationsschreibenPageInner() {
       const html = el.innerHTML;
       const t = adminCandidateId ?? userId;
       if (t) { try { localStorage.setItem(draftKey(t), html); } catch { /* quota */ } }
-      // Flush whenever the editor differs from what's CONFIRMED on the server
-      // (or a prior save errored). Comparing against the saved sig — not the
-      // broadcast sig — guarantees the server gets the final text before the
-      // page unmounts (navigate to passport / refresh / close).
-      if (html !== lastSavedSig.current || saveError) {
+      // Flush ONLY when there's an unsaved LOCAL edit (dirtyRef) or a prior save
+      // errored. The old test — html !== lastSavedSig — also fired for a body
+      // that had arrived from a PEER and was never locally edited, so leaving
+      // the tab would push that stale copy back over the peer's newer server
+      // version (LAW #37 revert). A peer-applied body is never dirty, so it can
+      // no longer be flushed.
+      if (dirtyRef.current || saveError) {
         if (saveTimer.current) clearTimeout(saveTimer.current);
         void putLetterBody(html, true);
       }
@@ -1151,6 +1270,14 @@ function MotivationsschreibenPageInner() {
     // an incoming edit would re-broadcast back to the sender.
     const isRemote = applyingRemoteRef.current;
     applyingRemoteRef.current = false;
+
+    // LOCAL edit → mark dirty (only a dirty body may be flushed on unload) and
+    // bump the edit seq (guards stale save completions). Remote applies never
+    // reach here (innerHTML fires no input), but keep the guard for safety.
+    if (!isRemote) {
+      dirtyRef.current = true;
+      editSeqRef.current += 1;
+    }
 
     const words = countWords(el.textContent ?? "");
     lastGoodHTML.current = el.innerHTML;
