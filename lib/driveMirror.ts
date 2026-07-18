@@ -15,10 +15,16 @@
  */
 import { driveClient } from "@/lib/googleWorkspace";
 import { r2GetObject } from "@/lib/r2";
+import { isPreMatchDoc } from "@/lib/fileKeys";
 import { Readable } from "node:stream";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const ROOT_FOLDER = "Borivon Candidates";
+// Sub-folders inside each candidate folder. "Vor Matching" holds the Essentials
+// + Unterlagen dossier shared to find a match; "Nach Matching" is a placeholder
+// for the post-match docs (visa, contract, Bearbeitung) — populated later.
+const VOR_MATCHING = "Vor Matching";
+const NACH_MATCHING = "Nach Matching";
 
 export type MirrorDoc = { r2_key: string | null; file_name: string | null; file_type: string | null };
 export type MirrorResult =
@@ -187,7 +193,9 @@ export async function mirrorCandidateApprovedDocs(
       .eq("status", "approved")
       .is("superseded_at", null)
       .not("r2_key", "is", null);
-    const docs = latestApprovedPerName((rawDocs ?? []) as ApprovedDoc[]);
+    // Only the PRE-match dossier (Essentials + Unterlagen) goes to "Vor Matching".
+    // Post-match / Visum-phase docs are left for the "Nach Matching" folder (later).
+    const docs = latestApprovedPerName((rawDocs ?? []) as ApprovedDoc[]).filter((d) => isPreMatchDoc(d.file_type));
     // Decide what's new BEFORE touching Drive → nothing new = zero Drive calls.
     const isMirrored = (d: ApprovedDoc) => !!(d.drive_mirror_id && d.file_sha256 && d.drive_mirror_sha256 === d.file_sha256);
     const toUpload = docs.filter((d) => !isMirrored(d));
@@ -207,7 +215,10 @@ export async function mirrorCandidateApprovedDocs(
     }
     if (!candidateName) candidateName = `Kandidat ${userId.slice(0, 8)}`;
 
+    // <Candidate> / { Vor Matching (dossier) , Nach Matching (placeholder) }.
     const candFolderId = await findOrCreateFolder(drive, candidateName, batchFolderId);
+    const vorId = await findOrCreateFolder(drive, VOR_MATCHING, candFolderId);
+    await findOrCreateFolder(drive, NACH_MATCHING, candFolderId); // create the placeholder now
 
     let uploaded = 0;
     for (const d of toUpload) {
@@ -216,19 +227,20 @@ export async function mirrorCandidateApprovedDocs(
       const name = d.file_name || `${d.file_type || "document"}.pdf`;
       const media = { mimeType: obj.contentType || "application/pdf", body: Readable.from(obj.body) };
       let fileId = d.drive_mirror_id ?? null;
-      // Trust the recorded id; else find a same-name file to update (no dupes); else create.
+      // Trust the recorded id; else find a same-name file in Vor Matching to
+      // update (no dupes); else create.
       if (!fileId) {
         const existing = await drive.files.list({
-          q: `name='${esc(name)}' and '${candFolderId}' in parents and trashed=false`,
+          q: `name='${esc(name)}' and '${vorId}' in parents and trashed=false`,
           fields: "files(id)", pageSize: 1,
         });
         fileId = existing.data.files?.[0]?.id ?? null;
       }
       if (fileId) {
         try { await drive.files.update({ fileId, media }); }
-        catch { fileId = (await drive.files.create({ requestBody: { name, parents: [candFolderId] }, media, fields: "id" })).data.id as string; }
+        catch { fileId = (await drive.files.create({ requestBody: { name, parents: [vorId] }, media, fields: "id" })).data.id as string; }
       } else {
-        fileId = (await drive.files.create({ requestBody: { name, parents: [candFolderId] }, media, fields: "id" })).data.id as string;
+        fileId = (await drive.files.create({ requestBody: { name, parents: [vorId] }, media, fields: "id" })).data.id as string;
       }
       await db.from("documents").update({ drive_mirror_id: fileId, drive_mirror_sha256: d.file_sha256 }).eq("id", d.id);
       uploaded++;

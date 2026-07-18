@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { latestApprovedPerName, agencyRootFolderName, type ApprovedDoc } from "../lib/driveMirror";
+import { isPreMatchDoc } from "../lib/fileKeys";
 
 const doc = (o: Partial<ApprovedDoc>): ApprovedDoc => ({
   id: o.id ?? "id", file_name: o.file_name ?? null, file_type: o.file_type ?? null,
@@ -67,5 +68,28 @@ describe("latestApprovedPerName — dedup keeps newest per filename (saves API)"
     const out = latestApprovedPerName(docs);
     expect(out).toHaveLength(1);
     expect(out[0].id).toBe("b");
+  });
+});
+
+describe("isPreMatchDoc — Vor Matching (dossier) vs Nach Matching (visa/slots)", () => {
+  it("classifies the pre-match dossier as Vor Matching", () => {
+    for (const t of ["Lebenslauf (DE)", "Passeport", "Reisepass", "Diplom (DE)", "Anschreiben", "Autre", "Impfung"]) {
+      expect(isPreMatchDoc(t), t).toBe(true);
+    }
+  });
+  it("keeps the German B2 language cert in the dossier", () => {
+    expect(isPreMatchDoc("B2 Sprachzertifikat")).toBe(true);
+  });
+  it("classifies visa/Bearbeitung docs as post-match (NOT Vor Matching)", () => {
+    for (const t of ["Motivationsschreiben Visum", "EZB", "Zusatzblatt A", "Vorabzustimmung", "Arbeitsvertrag", "Defizitbescheid", "Videx", "Mawista", "Versicherung"]) {
+      expect(isPreMatchDoc(t), t).toBe(false);
+    }
+  });
+  it("treats a wizard-slot UUID file_type as post-match", () => {
+    expect(isPreMatchDoc("3caccf17-9740-440a-ab96-d74524ff75d7")).toBe(false);
+  });
+  it("treats an untyped doc as dossier (safe default)", () => {
+    expect(isPreMatchDoc("")).toBe(true);
+    expect(isPreMatchDoc(null)).toBe(true);
   });
 });

@@ -121,6 +121,37 @@ export function resolveFileKey(fileType: string | null | undefined): string {
   return LABEL_TO_FILE_KEY[v] ?? v;
 }
 
+/**
+ * POST-match / Visum-phase document keys — generated or collected AFTER a
+ * candidate is matched to an employer (visa CV + visa letter, EZB, Zusatzblatt,
+ * Vorabzustimmung, Arbeitsvertrag, insurance, TLS, etc.). Everything else — CV,
+ * passport, diploma, study programme, transcripts, Abitur, language cert, the
+ * (non-visa) Anschreiben, work certs/experience, vaccination, "other" — is the
+ * PRE-match dossier ("Essentials + Unterlagen" the founder shares to find a
+ * match). Mirrors the "Visum permanent document boxes" block above.
+ */
+export const POST_MATCH_FILE_KEYS = new Set<string>([
+  "letter_visa", "cv_visa", "ezb", "zusatzblatt_a", "defizitbescheid", "videx",
+  "bildungsplan", "vorabzustimmung", "arbeitsvertrag", "mawista", "versicherung",
+  "tls_rechnung", "tls_bestaetigungstermin", "berufserfahrung_visum",
+]);
+
+const SLOT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * True if a documents.file_type belongs to the PRE-match dossier (Essentials +
+ * Qualifications). False for Visum-phase boxes and Bearbeitung/Visum wizard slot
+ * docs (whose file_type is a phase_slots UUID) — those are post-match.
+ */
+export function isPreMatchDoc(fileType: string | null | undefined): boolean {
+  const v = (fileType ?? "").trim();
+  if (!v) return true;                     // untyped → treat as dossier
+  if (SLOT_UUID_RE.test(v)) return false;  // wizard slot doc → post-match
+  const key = resolveFileKey(v);
+  if (SLOT_UUID_RE.test(key)) return false;
+  return !POST_MATCH_FILE_KEYS.has(key);
+}
+
 /** fileKey → Set of all translated labels (every supported language).
  *  Used by admin + dashboard getDoc() to match docs regardless of upload language. */
 export const FILE_KEY_ALL_LABELS: Record<string, Set<string>> = {};
