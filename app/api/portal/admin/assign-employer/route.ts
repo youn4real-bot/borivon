@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { UUID_RE } from "@/lib/uuid";
-import { syncCalmaroiCandidateToDrive } from "@/lib/driveMirror";
 
 /**
  * Admin assigns the candidate's employer (canonical:
@@ -87,15 +86,7 @@ export async function POST(req: NextRequest) {
     console.error("[assign-employer] update failed:", error);
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
-
-  // Calmaroi auto-share: just assigned to an employer → if it's a Calmaroi
-  // employer, mirror the candidate's already-approved docs into the founder's
-  // Drive tree so a newly-assigned candidate appears without waiting for the
-  // next approval. No-op for non-Calmaroi / when clearing; never blocks.
-  if (employerId) {
-    try { await syncCalmaroiCandidateToDrive(db, uid); }
-    catch { /* fail-safe: assignment already persisted */ }
-  }
-
+  // NOTE: Calmaroi Drive mirroring is MANUAL — triggered only by the founder's
+  // "Sync Calmaroi → Drive" button, not automatically on assignment.
   return NextResponse.json({ success: true, employerId });
 }

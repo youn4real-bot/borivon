@@ -26,7 +26,6 @@ import { DOC_STATUSES } from "@/lib/constants";
 import { ALLOWED_PROFILE_FIELDS } from "@/lib/constants";
 import { sendDocApprovedEmail, sendDocRejectedEmail } from "@/lib/email";
 import { cvFieldsFromProfile, PASSPORT_DERIVED_COLUMNS, type ProfileLike } from "@/lib/personalData";
-import { syncCalmaroiCandidateToDrive } from "@/lib/driveMirror";
 
 type DB = ReturnType<typeof getServiceSupabase>;
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -102,17 +101,9 @@ export async function applyDocReview(
       if (status === "approved" && isPassportDoc) {
         await maybeGrantVerified(db, doc.user_id as string);
       }
-
-      // Calmaroi auto-share: a freshly GREEN-approved doc for a Calmaroi
-      // candidate → mirror their approved docs into the founder's Drive tree
-      // ("Calmaroi X Borivon / <batch> / <candidate>"). syncCalmaroi is a no-op
-      // for non-Calmaroi candidates and skips docs already mirrored (sha match),
-      // so it's cheap; it never throws, and we swallow anyway so a Drive hiccup
-      // can never fail the approval the admin/bot just made.
-      if (status === "approved") {
-        try { await syncCalmaroiCandidateToDrive(db, doc.user_id as string); }
-        catch { /* fail-safe: approval already persisted */ }
-      }
+      // NOTE: Calmaroi Drive mirroring is MANUAL by choice — the founder clicks
+      // "Sync Calmaroi → Drive" on the tracker when he wants it, so nothing
+      // touches his Drive on every approval. See POST /api/portal/admin/calmaroi-drive-sync.
     }
   }
 
