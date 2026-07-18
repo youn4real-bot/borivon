@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { sanitizeLetterHtml } from "../lib/sanitizeHtml";
-import { sanitizeLetterHtmlServer } from "../lib/sanitizeHtmlServer";
+import { sanitizeLetterHtmlServer, letterHtmlHasText } from "../lib/sanitizeHtmlServer";
 
 // Locks the cover-letter XSS fix: the body is rendered via innerHTML in the
 // admin's session (LAW #37 review) + live-broadcast to peers, so the sanitizer
@@ -64,5 +64,21 @@ describe.each(IMPLS)("sanitizeLetterHtml — %s", (_label, sanitize) => {
 
   it("returns plain text unchanged", () => {
     expect(sanitize("Sehr geehrte Damen und Herren")).toBe("Sehr geehrte Damen und Herren");
+  });
+});
+
+// letterHtmlHasText decides clear ("" stored) vs content — this is the LAW #37
+// fix: a deliberately-emptied letter must be storable as "" (distinct from a
+// never-written NULL) so a stale local draft can never resurrect it.
+describe("letterHtmlHasText — emptied editor counts as a clear", () => {
+  it("is false for structural-only / empty HTML (a clear)", () => {
+    for (const h of ["", "<br>", "<p></p>", "<div><br></div>", "&nbsp;", "  ", "<p>&nbsp;</p>", "<p><br></p>"]) {
+      expect(letterHtmlHasText(h), JSON.stringify(h)).toBe(false);
+    }
+  });
+  it("is true when there is real text", () => {
+    for (const h of ["<p>mit großer Motivation</p>", "hallo", "<b>x</b>", "<p>a</p><p>b</p>"]) {
+      expect(letterHtmlHasText(h), JSON.stringify(h)).toBe(true);
+    }
   });
 });

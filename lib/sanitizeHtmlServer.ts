@@ -29,6 +29,23 @@ const ALLOWED_TAGS = [
   "ul", "ol", "li", "h1", "h2", "h3", "blockquote",
 ];
 
+/**
+ * True if the (already-sanitized) letter HTML carries actual TEXT — false for an
+ * emptied editor that left only structural tags ("<br>", "<p></p>", &nbsp;).
+ *
+ * Used by the letter-body PUT to tell a DELIBERATE clear (store "") from real
+ * content (store the HTML). Storing "" — not NULL — for a clear is what lets the
+ * client distinguish "admin emptied this" from "never written", so a cleared
+ * letter is never resurrected by a stale per-browser draft (LAW #37).
+ */
+export function letterHtmlHasText(html: string): boolean {
+  return html
+    .replace(/<[^>]*>/g, "")     // drop tags
+    .replace(/&nbsp;/gi, " ")    // nbsp → space
+    .replace(/\s+/g, "")         // collapse remaining whitespace
+    .length > 0;
+}
+
 export function sanitizeLetterHtmlServer(html: string): string {
   return sanitizeHtml(html, {
     allowedTags: ALLOWED_TAGS,

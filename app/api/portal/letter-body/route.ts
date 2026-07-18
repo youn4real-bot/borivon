@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { enforceRateLimit } from "@/lib/rateLimit";
-import { sanitizeLetterHtmlServer } from "@/lib/sanitizeHtmlServer";
+import { sanitizeLetterHtmlServer, letterHtmlHasText } from "@/lib/sanitizeHtmlServer";
 import { UUID_RE } from "@/lib/uuid";
 
 /**
@@ -108,7 +108,13 @@ export async function PUT(req: NextRequest) {
   // "", not coerced to NULL. Only a literal JSON null clears back to NULL.
   let html: string | null = null;
   if (body.body === null) html = null;
-  else if (typeof body.body === "string") html = sanitizeLetterHtmlServer(body.body).slice(0, MAX_BODY_BYTES);
+  else if (typeof body.body === "string") {
+    const clean = sanitizeLetterHtmlServer(body.body).slice(0, MAX_BODY_BYTES);
+    // An emptied editor often leaves structural-only HTML ("<br>", "<p></p>") —
+    // that is a CLEAR, not content, so store "" (a written-but-empty letter),
+    // never let it read as content. letterHtmlHasText strips tags/nbsp to decide.
+    html = letterHtmlHasText(clean) ? clean : "";
+  }
   else return NextResponse.json({ error: "body must be a string or null" }, { status: 400 });
 
   const col = bodyColumn(req);
