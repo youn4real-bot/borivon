@@ -200,21 +200,43 @@ export default function AdminTrackerPage() {
   // so it's safe to click repeatedly. Going forward it's automatic on approval.
   const syncCalmaroi = async () => {
     if (syncing) return;
-    setSyncing(true); setSyncMsg("");
+    setSyncing(true);
+    setSyncMsg(T("Working…", "Arbeite…", "En cours…"));
+    let totalUploaded = 0;
+    let candidates = 0;
+    let hint = "";
+    const errUsers = new Set<string>();
     try {
-      const res = await fetch("/api/portal/admin/calmaroi-drive-sync", {
-        method: "POST", headers: { Authorization: `Bearer ${token}` },
-      });
-      const j = await res.json().catch(() => ({}));
-      if (res.ok) {
+      // The route is time-budgeted (Hobby's short function limit), so it may
+      // process only part of the batch per call and report done=false. Keep
+      // calling until it's done — already-mirrored candidates are skipped
+      // instantly on later passes, so this converges in a couple of rounds.
+      for (let pass = 0; pass < 15; pass++) {
+        const res = await fetch("/api/portal/admin/calmaroi-drive-sync", {
+          method: "POST", headers: { Authorization: `Bearer ${token}` },
+        });
+        const j = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          setSyncMsg(j.error || T("Sync failed.", "Synchronisation fehlgeschlagen.", "Échec de la synchronisation."));
+          setSyncing(false);
+          return;
+        }
+        totalUploaded += j.uploaded ?? 0;
+        candidates = j.candidates ?? candidates;
+        if (j.hint) hint = j.hint;
+        for (const e of (j.errors ?? [])) errUsers.add(e.userId);
         setSyncMsg(T(
-          `Done — ${j.candidates} Calmaroi candidates: ${j.uploaded} files copied, ${j.unchanged} already up to date${j.errors?.length ? `, ${j.errors.length} errored` : ""}.`,
-          `Fertig — ${j.candidates} Calmaroi-Kandidaten: ${j.uploaded} Dateien kopiert, ${j.unchanged} bereits aktuell${j.errors?.length ? `, ${j.errors.length} Fehler` : ""}.`,
-          `Terminé — ${j.candidates} candidats Calmaroi : ${j.uploaded} fichiers copiés, ${j.unchanged} déjà à jour${j.errors?.length ? `, ${j.errors.length} en erreur` : ""}.`,
-        ) + (j.hint ? ` (${j.hint})` : ""));
-      } else {
-        setSyncMsg(j.error || T("Sync failed.", "Synchronisation fehlgeschlagen.", "Échec de la synchronisation."));
+          `Working… ${totalUploaded} files copied so far`,
+          `Arbeite… ${totalUploaded} Dateien bisher kopiert`,
+          `En cours… ${totalUploaded} fichiers copiés`,
+        ));
+        if (j.done) break;
       }
+      setSyncMsg(T(
+        `Done — copied ${totalUploaded} files across ${candidates} Calmaroi candidates${errUsers.size ? `, ${errUsers.size} errored` : ""}. Check your Drive: "Calmaroi X Borivon".`,
+        `Fertig — ${totalUploaded} Dateien für ${candidates} Calmaroi-Kandidaten kopiert${errUsers.size ? `, ${errUsers.size} Fehler` : ""}. Prüfe dein Drive: "Calmaroi X Borivon".`,
+        `Terminé — ${totalUploaded} fichiers copiés pour ${candidates} candidats Calmaroi${errUsers.size ? `, ${errUsers.size} en erreur` : ""}. Vérifie ton Drive : "Calmaroi X Borivon".`,
+      ) + (hint ? ` (${hint})` : ""));
     } catch {
       setSyncMsg(T("Sync failed.", "Synchronisation fehlgeschlagen.", "Échec de la synchronisation."));
     } finally { setSyncing(false); }

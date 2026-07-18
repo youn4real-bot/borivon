@@ -3,6 +3,15 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole } from "@/lib/admin-auth";
 import { syncCalmaroiCandidateToDrive } from "@/lib/driveMirror";
 
+// Drive uploads are slow; give the function the Hobby-plan max. The route is also
+// time-budgeted + resumable, so even this ceiling can't strand it (see below).
+export const maxDuration = 60;
+
+// Stop well before maxDuration and report what's left so the client can call
+// again. Already-mirrored candidates are DB-only (no Drive calls) on the next
+// pass, so re-runs skip straight to the unfinished ones.
+const TIME_BUDGET_MS = 45_000;
+
 /**
  * One-click backfill: mirror EVERY current Calmaroi candidate's approved docs
  * into the founder's Drive tree ("Calmaroi X Borivon / <batch> / <candidate>").
@@ -40,10 +49,15 @@ export async function POST(req: NextRequest) {
 
   let uploaded = 0;
   let unchanged = 0;
+  let processed = 0;
   const errors: { userId: string; error: string }[] = [];
-  // Sequential on purpose — Drive API is rate-limited; a bulk parallel burst
-  // would trip 429s. There are ~21 Calmaroi candidates, so this is quick enough.
+  const startedAt = Date.now();
+  // Sequential on purpose — Drive API is rate-limited; a parallel burst trips
+  // 429s. Stop at the time budget and report how many are left; already-done
+  // candidates cost nothing on the next pass (no Drive calls), so the client
+  // just calls again until done=true.
   for (const uid of userIds) {
+    if (processed > 0 && Date.now() - startedAt > TIME_BUDGET_MS) break;
     const r = await syncCalmaroiCandidateToDrive(db, uid);
     if (r.ok) {
       uploaded += r.uploaded ?? 0;
@@ -51,11 +65,16 @@ export async function POST(req: NextRequest) {
     } else {
       errors.push({ userId: uid, error: `${r.error}${r.hint ? `: ${r.hint}` : ""}` });
     }
+    processed++;
   }
 
+  const done = processed >= userIds.length;
   return NextResponse.json({
     ok: true,
+    done,
     candidates: userIds.length,
+    processed,
+    remaining: userIds.length - processed,
     uploaded,
     unchanged,
     errors,

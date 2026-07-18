@@ -190,9 +190,17 @@ export async function syncCalmaroiCandidateToDrive(
       .is("superseded_at", null)
       .not("r2_key", "is", null);
     const docs = latestApprovedPerName((rawDocs ?? []) as ApprovedDoc[]);
-    if (docs.length === 0) return { ok: true, folderUrl: undefined, uploaded: 0, unchanged: 0 };
+    // Work out what actually needs uploading BEFORE touching Drive — a doc whose
+    // file_sha256 already matches its recorded drive_mirror_sha256 is done. If
+    // nothing's new, return WITHOUT a single Drive call, so re-runs (and the
+    // every-approval hook once a candidate is fully mirrored) are effectively
+    // free — just DB reads. This is what keeps the backfill cheap on repeat.
+    const isMirrored = (d: ApprovedDoc) => !!(d.drive_mirror_id && d.file_sha256 && d.drive_mirror_sha256 === d.file_sha256);
+    const toUpload = docs.filter((d) => !isMirrored(d));
+    const alreadyDone = docs.length - toUpload.length;
+    if (toUpload.length === 0) return { ok: true, uploaded: 0, unchanged: alreadyDone };
 
-    // 6. Drive tree + per-doc mirror (skip unchanged via the sha marker).
+    // 6. Drive tree + per-doc mirror (only the ones that changed / are new).
     const drive = driveClient();
     if (!drive) return { ok: false, error: "workspace_not_connected", hint: "Connect Google Workspace (the Drive scope)." };
     const agencyId = await findOrCreateFolder(drive, agencyRootFolderName(calmaroi.name));
@@ -200,10 +208,8 @@ export async function syncCalmaroiCandidateToDrive(
     const candFolderId = await findOrCreateFolder(drive, candidateName, batchId);
 
     let uploaded = 0;
-    let unchanged = 0;
-    for (const d of docs) {
-      // Cheap skip: this exact file is already the mirrored copy → no R2 read, no Drive write.
-      if (d.drive_mirror_id && d.file_sha256 && d.drive_mirror_sha256 === d.file_sha256) { unchanged++; continue; }
+    const unchanged = alreadyDone;
+    for (const d of toUpload) {
       const obj = await r2GetObject(d.r2_key!);
       if (!obj) continue;
       const name = d.file_name || `${d.file_type || "document"}.pdf`;
