@@ -195,25 +195,26 @@ export default function AdminTrackerPage() {
     else setErr(T("Could not save the note.", "Notiz konnte nicht gespeichert werden.", "Impossible d'enregistrer la note."));
   };
 
-  // Calmaroi → Drive backfill (supreme only): copy every Calmaroi candidate's
-  // approved docs into the founder's Drive tree. Idempotent + cheap (sha-skip),
-  // so it's safe to click repeatedly. Going forward it's automatic on approval.
-  const syncCalmaroi = async () => {
-    if (syncing) return;
+  // Sync the SELECTED batch → Drive (supreme only): copy every approved doc of
+  // every candidate in this batch into the founder's Drive tree
+  // ("<Agency> X Borivon / <Batch> / <Candidate>"). Idempotent + cheap (sha-skip),
+  // safe to click repeatedly; the route is time-budgeted so the button loops
+  // until it reports done.
+  const syncBatch = async () => {
+    if (syncing || !batch) return;
     setSyncing(true);
     setSyncMsg(T("Working…", "Arbeite…", "En cours…"));
     let totalUploaded = 0;
     let candidates = 0;
+    let folder = "";
     let hint = "";
     const errUsers = new Set<string>();
     try {
-      // The route is time-budgeted (Hobby's short function limit), so it may
-      // process only part of the batch per call and report done=false. Keep
-      // calling until it's done — already-mirrored candidates are skipped
-      // instantly on later passes, so this converges in a couple of rounds.
       for (let pass = 0; pass < 15; pass++) {
-        const res = await fetch("/api/portal/admin/calmaroi-drive-sync", {
-          method: "POST", headers: { Authorization: `Bearer ${token}` },
+        const res = await fetch("/api/portal/admin/batch-drive-sync", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ batchId: batch.id }),
         });
         const j = await res.json().catch(() => ({}));
         if (!res.ok) {
@@ -223,6 +224,7 @@ export default function AdminTrackerPage() {
         }
         totalUploaded += j.uploaded ?? 0;
         candidates = j.candidates ?? candidates;
+        if (j.folder) folder = j.folder;
         if (j.hint) hint = j.hint;
         for (const e of (j.errors ?? [])) errUsers.add(e.userId);
         setSyncMsg(T(
@@ -233,9 +235,9 @@ export default function AdminTrackerPage() {
         if (j.done) break;
       }
       setSyncMsg(T(
-        `Done — copied ${totalUploaded} files across ${candidates} Calmaroi candidates${errUsers.size ? `, ${errUsers.size} errored` : ""}. Check your Drive: "Calmaroi X Borivon".`,
-        `Fertig — ${totalUploaded} Dateien für ${candidates} Calmaroi-Kandidaten kopiert${errUsers.size ? `, ${errUsers.size} Fehler` : ""}. Prüfe dein Drive: "Calmaroi X Borivon".`,
-        `Terminé — ${totalUploaded} fichiers copiés pour ${candidates} candidats Calmaroi${errUsers.size ? `, ${errUsers.size} en erreur` : ""}. Vérifie ton Drive : "Calmaroi X Borivon".`,
+        `Done — copied ${totalUploaded} files across ${candidates} candidates${errUsers.size ? `, ${errUsers.size} errored` : ""}. In your Drive: "${folder || batch.name}".`,
+        `Fertig — ${totalUploaded} Dateien für ${candidates} Kandidaten kopiert${errUsers.size ? `, ${errUsers.size} Fehler` : ""}. In deinem Drive: "${folder || batch.name}".`,
+        `Terminé — ${totalUploaded} fichiers copiés pour ${candidates} candidats${errUsers.size ? `, ${errUsers.size} en erreur` : ""}. Dans ton Drive : "${folder || batch.name}".`,
       ) + (hint ? ` (${hint})` : ""));
     } catch {
       setSyncMsg(T("Sync failed.", "Synchronisation fehlgeschlagen.", "Échec de la synchronisation."));
@@ -363,11 +365,11 @@ export default function AdminTrackerPage() {
             </button>
           )}
           {isSupreme && (
-            <button onClick={syncCalmaroi} disabled={syncing} className="bv-btn bv-btn-ghost inline-flex"
-              title={T("Copy every Calmaroi candidate's approved docs into your Google Drive (Calmaroi X Borivon / batch / candidate). Runs automatically on approval too.",
-                       "Kopiert alle genehmigten Dokumente der Calmaroi-Kandidaten in dein Google Drive. Läuft auch automatisch bei Genehmigung.",
-                       "Copie les documents approuvés de chaque candidat Calmaroi dans ton Google Drive. S'exécute aussi automatiquement à l'approbation.")}>
-              <FolderUp size={15} strokeWidth={2} /> {syncing ? T("Syncing…", "Synchronisiere…", "Sync…") : T("Sync Calmaroi → Drive", "Calmaroi → Drive", "Calmaroi → Drive")}
+            <button onClick={syncBatch} disabled={syncing || !batch} className="bv-btn bv-btn-ghost inline-flex"
+              title={T("Copy this batch's candidates' approved docs into your Google Drive (Agency X Borivon / batch / candidate). Manual — only when you click.",
+                       "Kopiert die genehmigten Dokumente der Kandidaten dieses Batches in dein Google Drive. Manuell — nur auf Klick.",
+                       "Copie les documents approuvés des candidats de ce lot dans ton Google Drive. Manuel — seulement au clic.")}>
+              <FolderUp size={15} strokeWidth={2} /> {syncing ? T("Syncing…", "Synchronisiere…", "Sync…") : T("Sync this batch → Drive", "Batch → Drive", "Lot → Drive")}
             </button>
           )}
         </div>

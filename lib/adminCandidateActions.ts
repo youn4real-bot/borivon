@@ -101,9 +101,9 @@ export async function applyDocReview(
       if (status === "approved" && isPassportDoc) {
         await maybeGrantVerified(db, doc.user_id as string);
       }
-      // NOTE: Calmaroi Drive mirroring is MANUAL by choice — the founder clicks
-      // "Sync Calmaroi → Drive" on the tracker when he wants it, so nothing
-      // touches his Drive on every approval. See POST /api/portal/admin/calmaroi-drive-sync.
+      // NOTE: Drive mirroring is MANUAL by choice — the founder clicks
+      // "Sync this batch → Drive" on the tracker when he wants it, so nothing
+      // touches his Drive on every approval. See POST /api/portal/admin/batch-drive-sync.
     }
   }
 

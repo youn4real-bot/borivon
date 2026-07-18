@@ -120,68 +120,66 @@ export function agencyRootFolderName(orgName: string): string {
   return `${(orgName || "Agentur").trim()} X Borivon`;
 }
 
-export type CalmaroiSyncResult =
-  | { ok: true; skipped_reason?: "unassigned" | "not_calmaroi"; folderUrl?: string; uploaded?: number; unchanged?: number }
+/**
+ * Resolve everything a batch sync needs (works for ANY agency/employer, not just
+ * Calmaroi): the Drive root name ("<Agency> X Borivon", or the employer's name
+ * when the batch has no agency org), the batch folder name, and the user_ids of
+ * the candidates IN that batch (candidate_pipeline.batch_id — the exact set the
+ * tracker shows under the batch). Returns null if the batch doesn't exist.
+ */
+export async function resolveBatchSyncTargets(
+  db: SupabaseClient,
+  batchId: string,
+): Promise<{ agencyRootName: string; batchName: string; userIds: string[] } | null> {
+  const { data: batch } = await db
+    .from("employer_batches")
+    .select("id,name,org_id,employer_id")
+    .eq("id", batchId)
+    .maybeSingle();
+  const b = batch as { id: string; name: string | null; org_id: string | null; employer_id: string | null } | null;
+  if (!b) return null;
+
+  // Root = the agency (org) name; fall back to the employer name when the batch
+  // has no agency org, so direct-employer batches still group cleanly.
+  let rootBase = "";
+  if (b.org_id) {
+    const { data: org } = await db.from("organizations").select("name").eq("id", b.org_id).maybeSingle();
+    rootBase = (org as { name?: string } | null)?.name?.trim() || "";
+  }
+  if (!rootBase && b.employer_id) {
+    const { data: emp } = await db.from("employers").select("name").eq("id", b.employer_id).maybeSingle();
+    rootBase = (emp as { name?: string } | null)?.name?.trim() || "";
+  }
+
+  // Candidates in the batch = candidate_pipeline rows pointing at this batch.
+  const { data: pipe } = await db.from("candidate_pipeline").select("user_id").eq("batch_id", batchId);
+  const userIds = [...new Set((pipe ?? []).map((r) => (r as { user_id: string }).user_id))];
+
+  return { agencyRootName: agencyRootFolderName(rootBase), batchName: b.name || "Batch", userIds };
+}
+
+export type CandidateMirrorResult =
+  | { ok: true; uploaded: number; unchanged: number }
   | { ok: false; error: "workspace_not_connected" | "mirror_failed"; hint?: string };
 
 /**
- * Mirror ONE candidate's approved docs into the Calmaroi Drive tree, if (and only
- * if) they're assigned to a Calmaroi employer. Idempotent + cheap: skips any doc
- * whose file_sha256 already equals its recorded drive_mirror_sha256. Fail-safe —
- * returns a typed result, never throws (callers fire it best-effort so a Drive
- * hiccup never blocks a doc approval or an assignment).
+ * Mirror ONE candidate's approved docs into <batchFolderId>/<Candidate name>/.
+ * Idempotent + cheap: a doc whose file_sha256 already matches its recorded
+ * drive_mirror_sha256 is skipped with ZERO Drive calls (the candidate folder is
+ * only created when there's actually something to upload). Never throws.
+ *
+ * The caller (batch-drive-sync route) creates the shared agency + batch folders
+ * ONCE and passes batchFolderId here, so those lookups aren't repeated per
+ * candidate. `drive` is the DWD Drive client (impersonating the founder).
  */
-export async function syncCalmaroiCandidateToDrive(
+export async function mirrorCandidateApprovedDocs(
   db: SupabaseClient,
+  drive: Drive,
   userId: string,
-): Promise<CalmaroiSyncResult> {
+  batchFolderId: string,
+): Promise<CandidateMirrorResult> {
   try {
-    // 1. Calmaroi org (resolved by name so we never hardcode the UUID).
-    const { data: orgs } = await db.from("organizations").select("id,name").ilike("name", "calmaroi");
-    const calmaroi = (orgs ?? [])[0] as { id: string; name: string } | undefined;
-    if (!calmaroi) return { ok: true, skipped_reason: "not_calmaroi" };
-
-    // 2. Candidate → employer → is it a Calmaroi employer?
-    const { data: prof } = await db
-      .from("candidate_profiles")
-      .select("employer_id,first_name,last_name")
-      .eq("user_id", userId)
-      .maybeSingle();
-    const employerId = (prof as { employer_id?: string | null } | null)?.employer_id ?? null;
-    if (!employerId) return { ok: true, skipped_reason: "unassigned" };
-    const { data: emp } = await db
-      .from("employers")
-      .select("id,name,agency_id")
-      .eq("id", employerId)
-      .maybeSingle();
-    const employer = emp as { id: string; name: string | null; agency_id: string | null } | null;
-    if (!employer || employer.agency_id !== calmaroi.id) return { ok: true, skipped_reason: "not_calmaroi" };
-
-    // 3. Batch folder = the employer's batch name (e.g. UKSH_KIEL_APRIL_2027),
-    //    newest first; fall back to the employer name if no batch exists yet.
-    const { data: batches } = await db
-      .from("employer_batches")
-      .select("name,created_at")
-      .eq("employer_id", employerId)
-      .order("created_at", { ascending: false })
-      .limit(1);
-    const batchName = ((batches ?? [])[0] as { name?: string } | undefined)?.name
-      || employer.name
-      || "Batch";
-
-    // 4. Candidate display name — real name lives in auth metadata, profile is a fallback.
-    let candidateName = "";
-    try {
-      const { data: au } = await db.auth.admin.getUserById(userId);
-      candidateName = (au?.user?.user_metadata?.full_name as string | undefined)?.trim() || "";
-    } catch { /* fall through to profile name */ }
-    if (!candidateName) {
-      const p = prof as { first_name?: string | null; last_name?: string | null } | null;
-      candidateName = [p?.first_name, p?.last_name].filter(Boolean).join(" ").trim();
-    }
-    if (!candidateName) candidateName = `Kandidat ${userId.slice(0, 8)}`;
-
-    // 5. Approved docs with R2 bytes, newest-per-filename.
+    // Approved docs with R2 bytes, newest-per-filename.
     const { data: rawDocs } = await db
       .from("documents")
       .select("id,file_name,file_type,r2_key,file_sha256,drive_mirror_id,drive_mirror_sha256,uploaded_at")
@@ -190,33 +188,35 @@ export async function syncCalmaroiCandidateToDrive(
       .is("superseded_at", null)
       .not("r2_key", "is", null);
     const docs = latestApprovedPerName((rawDocs ?? []) as ApprovedDoc[]);
-    // Work out what actually needs uploading BEFORE touching Drive — a doc whose
-    // file_sha256 already matches its recorded drive_mirror_sha256 is done. If
-    // nothing's new, return WITHOUT a single Drive call, so re-runs (and the
-    // every-approval hook once a candidate is fully mirrored) are effectively
-    // free — just DB reads. This is what keeps the backfill cheap on repeat.
+    // Decide what's new BEFORE touching Drive → nothing new = zero Drive calls.
     const isMirrored = (d: ApprovedDoc) => !!(d.drive_mirror_id && d.file_sha256 && d.drive_mirror_sha256 === d.file_sha256);
     const toUpload = docs.filter((d) => !isMirrored(d));
-    const alreadyDone = docs.length - toUpload.length;
-    if (toUpload.length === 0) return { ok: true, uploaded: 0, unchanged: alreadyDone };
+    const unchanged = docs.length - toUpload.length;
+    if (toUpload.length === 0) return { ok: true, uploaded: 0, unchanged };
 
-    // 6. Drive tree + per-doc mirror (only the ones that changed / are new).
-    const drive = driveClient();
-    if (!drive) return { ok: false, error: "workspace_not_connected", hint: "Connect Google Workspace (the Drive scope)." };
-    const agencyId = await findOrCreateFolder(drive, agencyRootFolderName(calmaroi.name));
-    const batchId = await findOrCreateFolder(drive, batchName, agencyId);
-    const candFolderId = await findOrCreateFolder(drive, candidateName, batchId);
+    // Candidate display name — real name lives in auth metadata, profile is a fallback.
+    let candidateName = "";
+    try {
+      const { data: au } = await db.auth.admin.getUserById(userId);
+      candidateName = (au?.user?.user_metadata?.full_name as string | undefined)?.trim() || "";
+    } catch { /* fall through */ }
+    if (!candidateName) {
+      const { data: prof } = await db.from("candidate_profiles").select("first_name,last_name").eq("user_id", userId).maybeSingle();
+      const p = prof as { first_name?: string | null; last_name?: string | null } | null;
+      candidateName = [p?.first_name, p?.last_name].filter(Boolean).join(" ").trim();
+    }
+    if (!candidateName) candidateName = `Kandidat ${userId.slice(0, 8)}`;
+
+    const candFolderId = await findOrCreateFolder(drive, candidateName, batchFolderId);
 
     let uploaded = 0;
-    const unchanged = alreadyDone;
     for (const d of toUpload) {
       const obj = await r2GetObject(d.r2_key!);
       if (!obj) continue;
       const name = d.file_name || `${d.file_type || "document"}.pdf`;
       const media = { mimeType: obj.contentType || "application/pdf", body: Readable.from(obj.body) };
       let fileId = d.drive_mirror_id ?? null;
-      // Trust the recorded id if we have one; else look for a same-name file to
-      // update (so pre-existing manual copies aren't duplicated), else create.
+      // Trust the recorded id; else find a same-name file to update (no dupes); else create.
       if (!fileId) {
         const existing = await drive.files.list({
           q: `name='${esc(name)}' and '${candFolderId}' in parents and trashed=false`,
@@ -233,8 +233,19 @@ export async function syncCalmaroiCandidateToDrive(
       await db.from("documents").update({ drive_mirror_id: fileId, drive_mirror_sha256: d.file_sha256 }).eq("id", d.id);
       uploaded++;
     }
-    return { ok: true, folderUrl: `https://drive.google.com/drive/folders/${candFolderId}`, uploaded, unchanged };
+    return { ok: true, uploaded, unchanged };
   } catch (e) {
     return { ok: false, error: "mirror_failed", hint: e instanceof Error ? e.message : String(e) };
   }
+}
+
+/** Create the shared "<Agency> X Borivon" / "<Batch>" folders once; returns the batch folder id. */
+export async function ensureBatchFolder(drive: Drive, agencyRootName: string, batchName: string): Promise<string> {
+  const rootId = await findOrCreateFolder(drive, agencyRootName);
+  return findOrCreateFolder(drive, batchName, rootId);
+}
+
+/** The DWD Drive client, or null if Workspace/Drive isn't connected. */
+export function getDriveOrNull(): Drive | null {
+  return driveClient() ?? null;
 }
