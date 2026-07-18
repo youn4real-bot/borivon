@@ -3631,6 +3631,18 @@ function CVBuilderInner() {
           </div>
         </div>
 
+        {/* Top Generate button — same action as the sticky one at the bottom, so
+            you don't have to scroll all the way down to (re)generate the CV. */}
+        <div className="mb-7 text-center">
+          <button onClick={handleGenerate} disabled={generating}
+            className="bv-glow-gold bv-press inline-flex items-center gap-2 px-7 py-3.5 text-[13.5px] font-semibold tracking-tight disabled:opacity-50 w-full sm:w-auto justify-center"
+            style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-lg)", boxShadow: "var(--shadow-gold-lg)" }}>
+            {generating ? (
+              <><Spinner size="sm" color="#131312" /> {t.cvb_generating}</>
+            ) : <><FileText size={15} strokeWidth={1.8} /> {t.cvb_generateBtn}</>}
+          </button>
+        </div>
+
         {/* ── 1. Photo ── */}
         <SectionCard id="photo-section" title={t.cvb_photoSection} kind="photo"
           forceOpen={validationErrors.has("photo")}>
