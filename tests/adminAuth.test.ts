@@ -45,6 +45,7 @@ import {
   requireUser,
   canActOnCandidate,
   canActOnBatch,
+  canActOnOrg,
   getVisibleCandidateIds,
   getVisibleOrgIds,
   getStaffEmailSet,
@@ -306,6 +307,39 @@ describe("canActOnBatch (LAW #25 — batch/agency scope)", () => {
     h.tables.sub_admins = { data: [{ is_agency_admin: true }], error: null };
     h.tables.organization_members = { data: [], error: null };
     expect(await canActOnBatch("sub_admin", "a@x.com", "b1")).toBe(false);
+  });
+});
+
+describe("canActOnOrg (LAW #25 — shortlist/org scope)", () => {
+  it("supreme admin can act on any org (no DB lookup)", async () => {
+    expect(await canActOnOrg("admin", "admin@borivon.com", "o1")).toBe(true);
+    expect(await canActOnOrg("admin", "admin@borivon.com", null)).toBe(true);
+  });
+  it("true HQ sub-admin can act on any org (incl. null-org)", async () => {
+    h.tables.sub_admins = { data: [{ is_agency_admin: false }], error: null };
+    h.tables.organization_members = { data: [], error: null };
+    expect(await canActOnOrg("sub_admin", "a@x.com", "o1")).toBe(true);
+    expect(await canActOnOrg("sub_admin", "a@x.com", null)).toBe(true);
+  });
+  it("org admin CAN act on their own org", async () => {
+    h.tables.sub_admins = { data: [{ is_agency_admin: true }], error: null };
+    h.tables.organization_members = { data: [{ org_id: "o1" }], error: null };
+    expect(await canActOnOrg("sub_admin", "a@x.com", "o1")).toBe(true);
+  });
+  it("org admin CANNOT act on another org", async () => {
+    h.tables.sub_admins = { data: [{ is_agency_admin: true }], error: null };
+    h.tables.organization_members = { data: [{ org_id: "o1" }], error: null };
+    expect(await canActOnOrg("sub_admin", "a@x.com", "o2")).toBe(false);
+  });
+  it("org admin CANNOT act on a null-org (HQ) item", async () => {
+    h.tables.sub_admins = { data: [{ is_agency_admin: true }], error: null };
+    h.tables.organization_members = { data: [{ org_id: "o1" }], error: null };
+    expect(await canActOnOrg("sub_admin", "a@x.com", null)).toBe(false);
+  });
+  it("FAILS CLOSED when the org lookup errors", async () => {
+    h.tables.sub_admins = { data: [{ is_agency_admin: true }], error: null };
+    h.tables.organization_members = { data: null, error: { message: "blip" } };
+    expect(await canActOnOrg("sub_admin", "a@x.com", "o1")).toBe(false);
   });
 });
 

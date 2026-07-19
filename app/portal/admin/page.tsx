@@ -21,7 +21,7 @@ import {
   Lock, Unlock, IdCard, FileText, Folder, FilePen, Save, Eye,
   CheckCircle2, XCircle, AlertTriangle, PartyPopper,
 } from "@/components/PortalIcons";
-import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles, BarChart3, SlidersHorizontal } from "lucide-react";
+import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles, BarChart3, SlidersHorizontal, ClipboardList } from "lucide-react";
 import { specialtyLabel } from "@/lib/nurseSpecialties";
 import { b2StageLabel, normalizeB2Stage } from "@/lib/b2Journey";
 import { CandidateEngagementCard } from "@/components/CandidateEngagementCard";
@@ -7669,6 +7669,20 @@ export default function AdminPage() {
               <span className="flex-1 text-left min-w-0">
                 <span className="block text-[13px] font-semibold" style={{ color: "var(--w)" }}>{lang === "de" ? "Analytik" : lang === "fr" ? "Analytique" : "Analytics"}</span>
                 <span className="block text-[11px]" style={{ color: "var(--w3)" }}>{lang === "de" ? "Die gesamte Pipeline auf einen Blick" : lang === "fr" ? "Tout le pipeline en un coup d'œil" : "The whole pipeline at a glance"}</span>
+              </span>
+              <ChevronDown size={16} strokeWidth={2} className="-rotate-90 flex-shrink-0" style={{ color: "var(--gold)" }} />
+            </button>
+          )}
+
+          {/* ── Employer shortlists — curate candidates + share a read-only link. ── */}
+          {roleResolved && (
+            <button onClick={() => router.push("/portal/admin/shortlists")}
+              className="mt-3 w-full flex items-center gap-3 px-4 py-3.5 transition-opacity hover:opacity-90"
+              style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-xl)" }}>
+              <ClipboardList size={18} strokeWidth={1.8} style={{ color: "var(--gold)" }} />
+              <span className="flex-1 text-left min-w-0">
+                <span className="block text-[13px] font-semibold" style={{ color: "var(--w)" }}>{lang === "de" ? "Arbeitgeber-Listen" : lang === "fr" ? "Listes employeur" : "Employer shortlists"}</span>
+                <span className="block text-[11px]" style={{ color: "var(--w3)" }}>{lang === "de" ? "Kandidaten kuratieren + Link teilen" : lang === "fr" ? "Sélectionner des candidats + partager un lien" : "Curate candidates + share a link"}</span>
               </span>
               <ChevronDown size={16} strokeWidth={2} className="-rotate-90 flex-shrink-0" style={{ color: "var(--gold)" }} />
             </button>

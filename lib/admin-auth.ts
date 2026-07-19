@@ -291,6 +291,22 @@ export async function canActOnBatch(role: AdminRole, subAdminEmail: string, batc
 }
 
 /**
+ * May this (sub-)admin see/edit something scoped to a given org_id directly
+ * (e.g. an employer shortlist)? Same rule as canActOnBatch but the org_id is
+ * supplied by the caller (no lookup):
+ *   Supreme + true HQ sub-admin → yes for any org (incl. a null-org HQ item).
+ *   Org-scoped admin            → only their own orgs; a null-org item is denied.
+ * Fails CLOSED.
+ */
+export async function canActOnOrg(role: AdminRole, subAdminEmail: string, orgId: string | null): Promise<boolean> {
+  if (role === "admin") return true;
+  const scope = await getVisibleOrgIds(subAdminEmail);
+  if (scope === null) return true;   // true HQ sub-admin → all orgs
+  if (!orgId) return false;          // null-org (HQ) item — not visible to an org-scoped admin
+  return scope.includes(orgId);
+}
+
+/**
  * Every email that belongs to STAFF — the supreme admin, every sub-admin, and
  * every organization member — lowercased for case-insensitive comparison.
  *
