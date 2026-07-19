@@ -419,6 +419,11 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
     //   doc_type="sign_request" → legacy stand-alone sign_request → ?sign=<id>
     if (n.action === "sign_request") {
       const sid = n.doc_id ?? "";
+      // Interview self-scheduler proposal → open the dashboard picker.
+      if (n.doc_type === "interview_proposal") {
+        router.push(`/portal/dashboard${sid ? `?interview=${encodeURIComponent(sid)}` : ""}`);
+        return;
+      }
       const isSlot = n.doc_type.startsWith("slot_setup");
       const param = isSlot ? "slot" : "sign";
       router.push(`/portal/dashboard${sid ? `?${param}=${encodeURIComponent(sid)}` : ""}`);

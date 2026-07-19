@@ -44,6 +44,7 @@ import { VerifiedCelebration } from "@/components/VerifiedCelebration";
 import { PaymentCelebration } from "@/components/PaymentCelebration";
 import { PortalTopNav } from "@/components/PortalTopNav";
 import { PendingSignatures } from "@/components/PendingSignatures";
+import { InterviewPicker } from "@/components/InterviewPicker";
 import { PdfSignModal, type SignRequestFull } from "@/components/PdfSignModal";
 import { SIGN_FILL_ENABLED } from "@/lib/features";
 
@@ -2392,6 +2393,11 @@ export default function DashboardPage() {
               totalCount / pct in the local state in case other places
               start consuming them again. */}
         </div>
+
+        {/* Interview self-scheduler — a candidate picks a proposed interview
+            time (banner + modal); renders nothing when there's none pending.
+            Also consumes the ?interview=<id> bell deep-link. */}
+        <InterviewPicker authToken={authToken} />
 
         {/* Permanent "profile is verified" banner removed per request.
             Verification still works (badge on the public profile, celebration

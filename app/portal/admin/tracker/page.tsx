@@ -17,7 +17,7 @@ import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
 import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
 import { b2StageLabel, b2StageColor, normalizeB2Stage } from "@/lib/b2Journey";
-import { ArrowLeft, Users, CalendarRange, Search, Plus, Check, X, Pencil, NotebookPen, FolderUp } from "lucide-react";
+import { ArrowLeft, Users, CalendarRange, Search, Plus, Check, X, Pencil, NotebookPen, FolderUp, CalendarClock } from "lucide-react";
 
 type Batch = { id: string; name: string; agency: string | null; employer: string | null; orgId: string | null; employerId: string | null; notes: string; seats: number; filled: number; targetStart: string | null; targetEnd: string | null };
 type Employer = { id: string; name: string };
@@ -70,6 +70,13 @@ export default function AdminTrackerPage() {
   // Batch notes — every admin (supreme + sub-admins) can write them.
   const [showNotes, setShowNotes] = useState(false);
   const [notesDraft, setNotesDraft] = useState("");
+  // Interview self-scheduler — propose times to a candidate.
+  const [proposeFor, setProposeFor] = useState<Cand | null>(null);
+  const [proposeRound, setProposeRound] = useState<1 | 2>(1);
+  const [proposeSlots, setProposeSlots] = useState<string[]>(["", "", ""]);
+  const [proposeNote, setProposeNote] = useState("");
+  const [proposeMsg, setProposeMsg] = useState("");
+  const [proposing, setProposing] = useState(false);
 
   const load = useCallback(async (tk: string) => {
     const res = await fetch("/api/portal/tracker", { headers: { Authorization: `Bearer ${tk}` } });
@@ -193,6 +200,23 @@ export default function AdminTrackerPage() {
     setSaving(false);
     if (res && res.ok) { setShowNotes(false); await load(token); }
     else setErr(T("Could not save the note.", "Notiz konnte nicht gespeichert werden.", "Impossible d'enregistrer la note."));
+  };
+
+  // Interview self-scheduler — open the propose modal for a candidate.
+  const openPropose = (c: Cand) => { setProposeFor(c); setProposeRound(1); setProposeSlots(["", "", ""]); setProposeNote(""); setProposeMsg(""); };
+  const submitPropose = async () => {
+    if (!proposeFor || proposing) return;
+    const slots = proposeSlots.map((s) => s.trim()).filter(Boolean);
+    if (slots.length === 0) { setProposeMsg(T("Add at least one time.", "Mindestens einen Termin angeben.", "Ajoutez au moins un créneau.")); return; }
+    setProposing(true);
+    const res = await fetch("/api/portal/admin/interview-proposals", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ candidateUserId: proposeFor.userId, round: proposeRound, slots, note: proposeNote.trim() || undefined }),
+    }).catch(() => null);
+    setProposing(false);
+    if (res && res.ok) { setProposeMsg(T("Sent — the candidate can now pick a time.", "Gesendet — der Kandidat kann jetzt wählen.", "Envoyé — le candidat peut choisir.")); setTimeout(() => setProposeFor(null), 1200); }
+    else setProposeMsg(T("Could not send.", "Konnte nicht senden.", "Échec de l'envoi."));
   };
 
   // Sync the SELECTED batch → Drive (supreme only): copy every approved doc of
@@ -494,7 +518,12 @@ export default function AdminTrackerPage() {
                             );
                           })()}
                         </div>
-                        <button onClick={() => removeFromBatch(c)} className="text-[11px] flex-shrink-0 hover:opacity-70" style={{ color: "var(--w3)" }}>{T("Remove", "Entfernen", "Retirer")}</button>
+                        <div className="flex items-center gap-2.5 flex-shrink-0">
+                          <button onClick={() => openPropose(c)} title={T("Propose interview times", "Interview-Termine vorschlagen", "Proposer des créneaux d'entretien")} className="hover:opacity-70" style={{ color: "var(--w3)" }}>
+                            <CalendarClock size={15} />
+                          </button>
+                          <button onClick={() => removeFromBatch(c)} className="text-[11px] hover:opacity-70" style={{ color: "var(--w3)" }}>{T("Remove", "Entfernen", "Retirer")}</button>
+                        </div>
                       </div>
 
                       {/* The beginning that matters: Interview 1 → Agreement → Interview 2 */}
@@ -634,6 +663,38 @@ export default function AdminTrackerPage() {
                 className="w-full mt-1 px-3 py-2 text-[14px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }} />
             </label>
           </div>
+        </div>
+      </Modal>
+
+      {/* Interview self-scheduler — propose up to 3 times to the candidate. */}
+      <Modal open={!!proposeFor} onClose={() => !proposing && setProposeFor(null)} size="sm" busy={proposing}
+        title={T("Propose interview times", "Interview-Termine vorschlagen", "Proposer des créneaux")}
+        subtitle={proposeFor ? proposeFor.name : ""}
+        footer={<><GhostButton onClick={() => setProposeFor(null)} disabled={proposing}>{T("Cancel", "Abbrechen", "Annuler")}</GhostButton>
+          <GoldButton onClick={submitPropose} disabled={proposing}>{T("Send to candidate", "An Kandidat senden", "Envoyer au candidat")}</GoldButton></>}>
+        <div className="px-5 py-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Which interview", "Welches Interview", "Quel entretien")}:</span>
+            {([1, 2] as const).map((r) => (
+              <button key={r} onClick={() => setProposeRound(r)} className="px-3 py-1 text-[12px] font-semibold rounded-full"
+                style={proposeRound === r ? { background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" } : { background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}>
+                {r === 1 ? T("Interview 1", "Interview 1", "Entretien 1") : T("Interview 2", "Interview 2", "Entretien 2")}
+              </button>
+            ))}
+          </div>
+          <div className="space-y-2">
+            <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Offer up to 3 times", "Bis zu 3 Termine anbieten", "Proposez jusqu'à 3 créneaux")}</span>
+            {proposeSlots.map((s, i) => (
+              <input key={i} type="datetime-local" value={s} onChange={(e) => setProposeSlots((prev) => prev.map((v, j) => (j === i ? e.target.value : v)))}
+                className="w-full px-3 py-2 text-[13.5px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }} />
+            ))}
+          </div>
+          <label className="block">
+            <span className="text-[12px]" style={{ color: "var(--w3)" }}>{T("Note (optional)", "Notiz (optional)", "Note (optionnel)")}</span>
+            <input value={proposeNote} onChange={(e) => setProposeNote(e.target.value)} placeholder={T("e.g. video call, ~30 min", "z.B. Videoanruf, ~30 Min.", "p.ex. appel vidéo, ~30 min")}
+              className="w-full mt-1 px-3 py-2 text-[13.5px] rounded-md" style={{ background: "var(--bg2)", color: "var(--w)", border: "1px solid var(--border)" }} />
+          </label>
+          {proposeMsg && <p className="text-[12px]" style={{ color: "var(--w2)" }}>{proposeMsg}</p>}
         </div>
       </Modal>
     </main>
