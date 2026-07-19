@@ -15,6 +15,18 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const SLOT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/; // local wall-clock, no timezone
+// Shape AND real calendar validity — rejects month 13, Feb 30, hour 25, etc. so a
+// hand-crafted admin request can't store a value the pipeline `date` column would
+// later reject (which the candidate's pick would then silently fail to persist).
+function isRealSlot(s: unknown): s is string {
+  if (typeof s !== "string" || !SLOT_RE.test(s)) return false;
+  const [datePart, timePart] = s.split("T");
+  const [y, m, d] = datePart.split("-").map(Number);
+  const [hh, mm] = timePart.split(":").map(Number);
+  if (m < 1 || m > 12 || d < 1 || d > 31 || hh > 23 || mm > 59) return false;
+  const dt = new Date(y, m - 1, d, hh, mm);
+  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
+}
 
 export async function GET(req: NextRequest) {
   const auth = await requireAdminRole(req);
@@ -47,7 +59,7 @@ export async function POST(req: NextRequest) {
 
   const round = body?.round === 2 ? 2 : 1;
   const rawSlots = Array.isArray(body?.slots) ? body.slots : [];
-  const slots = [...new Set(rawSlots.filter((s: unknown): s is string => typeof s === "string" && SLOT_RE.test(s)))].slice(0, 6);
+  const slots = [...new Set(rawSlots.filter(isRealSlot))].slice(0, 6);
   if (slots.length === 0) return NextResponse.json({ error: "Give at least one valid time slot" }, { status: 400 });
   const note = typeof body?.note === "string" ? body.note.trim().slice(0, 500) : null;
 

@@ -15,7 +15,7 @@ import { b2StageLabel, normalizeB2Stage } from "@/lib/b2Journey";
 import { Check, ShieldCheck } from "lucide-react";
 
 type Cand = {
-  id: string; name: string; photo: string | null; verified: boolean;
+  name: string; photo: string | null; verified: boolean;
   nationality: string | null; city: string | null; profession: string | null;
   b2Stage: string | null; yearsExperience: number | null;
   docCount: number; docsOk: number; docsPending: number; hasCvDraft: boolean; adminNote: string;
@@ -81,7 +81,7 @@ export default function PublicShortlistPage() {
           {c.candidates.map((cand, i) => {
             const b2Passed = cand.b2Stage === "passed";
             return (
-              <div key={cand.id || i} className="p-4" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-xl)" }}>
+              <div key={i} className="p-4" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-xl)" }}>
                 <div className="flex items-center gap-3">
                   {cand.photo
                     ? <img src={cand.photo} alt="" className="w-12 h-12 rounded-full object-cover flex-shrink-0" />

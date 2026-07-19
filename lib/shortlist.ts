@@ -104,8 +104,9 @@ export async function getCandidateSummaries(userIds: string[]): Promise<Record<s
   return out;
 }
 
-/** Strip the admin-only fields (email) for the public shared view. */
-export function toPublicSummary(s: ShortlistCandidateSummary): Omit<ShortlistCandidateSummary, "email" | "userId"> & { id: string } {
-  const { email: _email, userId, ...rest } = s; // eslint-disable-line @typescript-eslint/no-unused-vars
-  return { id: userId, ...rest };
+/** Strip the identifying fields (email + the auth user_id) for the public view —
+ *  the shared page needs none of them (it keys off array index). */
+export function toPublicSummary(s: ShortlistCandidateSummary): Omit<ShortlistCandidateSummary, "email" | "userId"> {
+  const { email: _email, userId: _userId, ...rest } = s; // eslint-disable-line @typescript-eslint/no-unused-vars
+  return rest;
 }

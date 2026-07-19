@@ -7335,7 +7335,10 @@ export default function AdminPage() {
             const natOpts       = asOpts(distinct((p) => p.nationality));
             const sexOpts       = asOpts(distinct((p) => p.sex));
             const maritalOpts   = asOpts(distinct((p) => p.marital_status));
-            const b2Opts        = distinct((p) => p.b2_stage).map((k) => ({ value: k, label: b2StageLabel(normalizeB2Stage(k), lang) }));
+            // Normalize the b2 option VALUE (not just the label) so raw variants
+            // like 'not_started' fold into the same canonical stage the pipeline
+            // displays — one option per real stage, and it matches every row in it.
+            const b2Opts        = [...new Set(profVals.map((p) => p.b2_stage).filter((v): v is string => !!v).map((k) => normalizeB2Stage(k)))].map((st) => ({ value: st, label: b2StageLabel(st, lang) }));
             const specOpts      = distinct((p) => p.nursing_specialty).map((k) => ({ value: k, label: specialtyLabel(k, lang) }));
             const orgOpts = (() => { const m = new Map<string, string>(); for (const arr of Object.values(candidateOrgs)) for (const o of arr) m.set(o.id, o.name); return [...m.entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label)); })();
             const setF = (k: keyof typeof filters, v: string) => setFilters((prev) => ({ ...prev, [k]: v }));
@@ -7499,7 +7502,7 @@ export default function AdminPage() {
               if (f.nationality && norm(p?.nationality) !== norm(f.nationality)) return false;
               if (f.sex && norm(p?.sex) !== norm(f.sex)) return false;
               if (f.marital && norm(p?.marital_status) !== norm(f.marital)) return false;
-              if (f.b2 && (p?.b2_stage ?? "") !== f.b2) return false;
+              if (f.b2) { const raw = p?.b2_stage; if (!raw || normalizeB2Stage(raw) !== f.b2) return false; }
               if (f.specialty && (p?.nursing_specialty ?? "") !== f.specialty) return false;
               if (f.org && !(candidateOrgs[uid] ?? []).some((o) => o.id === f.org)) return false;
               if (f.minExp) { const y = p?.years_experience; if (y == null || Number(y) < Number(f.minExp)) return false; }

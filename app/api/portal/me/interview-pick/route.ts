@@ -48,20 +48,24 @@ export async function POST(req: NextRequest) {
   if (p.status !== "proposed") return NextResponse.json({ ok: false, error: "already_done" }, { status: 409 });
   if (!(p.proposed_slots ?? []).includes(slot)) return NextResponse.json({ ok: false, error: "slot_not_offered" }, { status: 400 });
 
-  // 1) Mark the proposal picked.
-  await db.from("interview_proposals").update({ picked_slot: slot, status: "picked", updated_at: new Date().toISOString() }).eq("id", p.id).eq("candidate_user_id", user.id);
-
-  // 2) Write the confirmed date into the pipeline (date part = wall-clock date).
+  // 1) Write the confirmed date into the pipeline FIRST (the critical write).
+  // Only once it PERSISTS do we mark the proposal picked + clear the bell — so a
+  // failed write leaves the proposal re-pickable instead of stranding the
+  // candidate (status='picked' would 409 every retry). Errors are surfaced, not
+  // swallowed, so the candidate is never told "success" on a silent failure.
   const dateOnly = slot.slice(0, 10);
   const patch = p.round === 2
     ? { interview2_date: dateOnly, interview2_date_confirmed: true, updated_at: new Date().toISOString() }
     : { interview1_date: dateOnly, interview1_date_confirmed: true, updated_at: new Date().toISOString() };
-  const { data: upd } = await db.from("candidate_pipeline").update(patch).eq("user_id", user.id).select("user_id");
+  const { data: upd, error: updErr } = await db.from("candidate_pipeline").update(patch).eq("user_id", user.id).select("user_id");
+  if (updErr) { console.error("[interview-pick] pipeline update failed:", updErr.message); return NextResponse.json({ ok: false, error: "save_failed" }, { status: 500 }); }
   if (!upd || upd.length === 0) {
-    await db.from("candidate_pipeline").insert({ user_id: user.id, ...patch });
+    const { error: insErr } = await db.from("candidate_pipeline").insert({ user_id: user.id, ...patch });
+    if (insErr) { console.error("[interview-pick] pipeline insert failed:", insErr.message); return NextResponse.json({ ok: false, error: "save_failed" }, { status: 500 }); }
   }
 
-  // 3) Clear the candidate's bell card for this proposal.
+  // 2) The date is saved — now safe to mark the proposal picked + clear the bell.
+  await db.from("interview_proposals").update({ picked_slot: slot, status: "picked", updated_at: new Date().toISOString() }).eq("id", p.id).eq("candidate_user_id", user.id);
   await db.from("notifications").update({ read: true }).eq("user_id", user.id).eq("doc_id", p.id).eq("doc_type", "interview_proposal");
 
   return NextResponse.json({ ok: true, pickedSlot: slot });
