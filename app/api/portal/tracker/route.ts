@@ -11,7 +11,7 @@
  *   PATCH → { candidateUserId, patch:{ curated fields } } — canActOnCandidate gate
  */
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdminRole, getVisibleCandidateIds, canActOnCandidate, resolveAuthNames, getStaffUserIdsAmong } from "@/lib/admin-auth";
+import { requireAdminRole, getVisibleCandidateIds, getVisibleOrgIds, canActOnCandidate, canActOnBatch, resolveAuthNames, getStaffUserIdsAmong } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { UUID_RE } from "@/lib/uuid";
 import { isFunnelStage } from "@/lib/batchBoard";
@@ -35,6 +35,9 @@ export async function GET(req: NextRequest) {
   const db = getServiceSupabase();
   // Supreme → all; regular sub-admin → all; org admin → only their org's candidates.
   const visible = auth.role === "admin" ? null : await getVisibleCandidateIds(auth.email);
+  // LAW #25 (agency dimension): scope the BATCH list the same way as candidates —
+  // an org admin must not see other agencies' batch names/employers. null = all.
+  const orgScope = auth.role === "admin" ? null : await getVisibleOrgIds(auth.email);
 
   const { data: batches, error: bErr } = await db
     .from("employer_batches")
@@ -109,6 +112,9 @@ export async function GET(req: NextRequest) {
     batches: (batches ?? [])
       .map((b) => b as { id: string; employer_id: string | null; org_id: string | null; name: string; seats: number; target_start: string | null; target_end: string | null; status: string; notes: string | null })
       .filter((b) => b.status === "open")
+      // org-scoped admins only see their own agency's batches (null-org HQ
+      // batches included in "all" for HQ, excluded for an org admin).
+      .filter((b) => orgScope === null || (b.org_id != null && orgScope.includes(b.org_id)))
       .map((b) => ({
         id: b.id, name: b.name,
         agency: b.org_id ? orgName.get(b.org_id) ?? null : null,
@@ -132,6 +138,8 @@ export async function PATCH(req: NextRequest) {
   // which is supreme-only. Candidates can never reach this route at all.
   if (typeof body.batchId === "string" && typeof body.notes === "string") {
     if (!UUID_RE.test(body.batchId)) return NextResponse.json({ error: "Bad batch id" }, { status: 400 });
+    // LAW #25 — an org admin can only edit notes on their OWN agency's batches.
+    if (!(await canActOnBatch(auth.role, auth.email, body.batchId))) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     const notes = body.notes.trim().slice(0, 5000);
     const { error } = await getServiceSupabase()
       .from("employer_batches")
@@ -172,6 +180,12 @@ export async function PATCH(req: NextRequest) {
     }
   }
   if (Object.keys(fields).length === 0) return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
+  // LAW #25 — assigning a candidate INTO a batch must respect batch scope too, or
+  // an org admin could move one of their candidates into another agency's batch.
+  // (Un-assigning — batch_id → null — is always allowed for a candidate in scope.)
+  if (typeof fields.batch_id === "string" && fields.batch_id) {
+    if (!(await canActOnBatch(auth.role, auth.email, fields.batch_id))) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
   fields.updated_at = new Date().toISOString();
 
   const db = getServiceSupabase();

@@ -230,6 +230,67 @@ export async function getVisibleCandidateIds(subAdminEmail: string): Promise<str
 }
 
 /**
+ * Batch (employer_batches) visibility scope — LAW #25 for the AGENCY dimension.
+ *
+ * Every batch carries an `org_id` (the agency it belongs to, e.g. Calmaroi). The
+ * candidate scope already hides other orgs' PEOPLE, but the batch LIST + batch
+ * notes + batch assignment must be scoped the same way, or an org admin sees /
+ * edits every other agency's batches.
+ *
+ *   null      → not org-scoped, sees ALL batches      [supreme + true HQ sub-admin]
+ *   string[]  → only batches whose org_id ∈ this set  (may be empty → no batches)
+ *
+ * Mirrors getVisibleCandidateIds' scoping trigger (org membership) exactly, and
+ * fails CLOSED to [] on any DB blip so a hiccup can never widen scope.
+ */
+export async function getVisibleOrgIds(subAdminEmail: string): Promise<string[] | null> {
+  const db = getServiceSupabase();
+
+  const { data: subRows, error: subErr } = await db
+    .from("sub_admins")
+    .select("is_agency_admin")
+    .ilike("email", ciEmail(subAdminEmail))
+    .limit(1);
+  if (subErr) return []; // FAIL CLOSED
+  const isAgencyAdmin = ((subRows ?? [])[0] as { is_agency_admin: boolean } | undefined)?.is_agency_admin ?? false;
+
+  const { data: myOrgsData, error: orgErr } = await db
+    .from("organization_members")
+    .select("org_id")
+    .ilike("sub_admin_email", ciEmail(subAdminEmail));
+  if (orgErr) return []; // FAIL CLOSED
+  const myOrgs = ((myOrgsData ?? []) as { org_id: string }[]).map(r => r.org_id);
+
+  // True Borivon HQ sub-admin (NOT agency-flagged AND in no org) → all batches.
+  if (!isAgencyAdmin && myOrgs.length === 0) return null;
+  return myOrgs; // org-scoped (possibly empty → sees no org batches)
+}
+
+/**
+ * May this (sub-)admin see / edit a specific batch?
+ *   Supreme + true HQ sub-admin → yes for every batch.
+ *   Org-scoped admin            → only batches whose org_id is one of their orgs.
+ * A null-org "HQ" batch is invisible to an org-scoped admin (they only own their
+ * agency's batches). Fails CLOSED. Used to gate batch-notes writes + candidate
+ * batch assignment so an org admin can't reach across into another org's batch.
+ */
+export async function canActOnBatch(role: AdminRole, subAdminEmail: string, batchId: string): Promise<boolean> {
+  if (role === "admin") return true;
+  if (!batchId) return false;
+  const scope = await getVisibleOrgIds(subAdminEmail);
+  if (scope === null) return true;        // true HQ sub-admin → all batches
+  if (scope.length === 0) return false;
+  const { data, error } = await getServiceSupabase()
+    .from("employer_batches")
+    .select("org_id")
+    .eq("id", batchId)
+    .maybeSingle();
+  if (error || !data) return false;
+  const orgId = (data as { org_id: string | null }).org_id;
+  return !!orgId && scope.includes(orgId);
+}
+
+/**
  * Every email that belongs to STAFF — the supreme admin, every sub-admin, and
  * every organization member — lowercased for case-insensitive comparison.
  *

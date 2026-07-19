@@ -44,7 +44,9 @@ import {
   requireAdminRole,
   requireUser,
   canActOnCandidate,
+  canActOnBatch,
   getVisibleCandidateIds,
+  getVisibleOrgIds,
   getStaffEmailSet,
   getStaffUserIdsAmong,
   roleByUserId,
@@ -234,6 +236,76 @@ describe("getVisibleCandidateIds (LAW #25)", () => {
     h.tables.sub_admins = { data: [{ is_agency_admin: false }], error: null };
     h.tables.organization_members = { data: null, error: { message: "blip" } };
     expect(await getVisibleCandidateIds("a@x.com")).toEqual([]);
+  });
+});
+
+describe("getVisibleOrgIds (LAW #25 — batch/agency scope)", () => {
+  it("FAILS CLOSED to [] on a sub_admins lookup error", async () => {
+    h.tables.sub_admins = { data: null, error: { message: "blip" } };
+    expect(await getVisibleOrgIds("a@x.com")).toEqual([]);
+  });
+  it("true HQ sub-admin (not agency-flagged, no org) → null (sees all batches)", async () => {
+    h.tables.sub_admins = { data: [{ is_agency_admin: false }], error: null };
+    h.tables.organization_members = { data: [], error: null };
+    expect(await getVisibleOrgIds("a@x.com")).toBeNull();
+  });
+  it("org admin → their org ids", async () => {
+    h.tables.sub_admins = { data: [{ is_agency_admin: true }], error: null };
+    h.tables.organization_members = { data: [{ org_id: "o1" }, { org_id: "o2" }], error: null };
+    expect(await getVisibleOrgIds("a@x.com")).toEqual(["o1", "o2"]);
+  });
+  it("a sub-admin who BELONGS to an org is scoped even with is_agency_admin=false", async () => {
+    h.tables.sub_admins = { data: [{ is_agency_admin: false }], error: null };
+    h.tables.organization_members = { data: [{ org_id: "o1" }], error: null };
+    expect(await getVisibleOrgIds("a@x.com")).toEqual(["o1"]);
+  });
+  it("FAILS CLOSED to [] on an organization_members lookup error", async () => {
+    h.tables.sub_admins = { data: [{ is_agency_admin: true }], error: null };
+    h.tables.organization_members = { data: null, error: { message: "blip" } };
+    expect(await getVisibleOrgIds("a@x.com")).toEqual([]);
+  });
+});
+
+describe("canActOnBatch (LAW #25 — batch/agency scope)", () => {
+  it("supreme admin can act on any batch (no DB lookup)", async () => {
+    expect(await canActOnBatch("admin", "admin@borivon.com", "b1")).toBe(true);
+  });
+  it("denies an empty batchId", async () => {
+    expect(await canActOnBatch("sub_admin", "a@x.com", "")).toBe(false);
+  });
+  it("true HQ sub-admin can act on any batch", async () => {
+    h.tables.sub_admins = { data: [{ is_agency_admin: false }], error: null };
+    h.tables.organization_members = { data: [], error: null };
+    expect(await canActOnBatch("sub_admin", "a@x.com", "b1")).toBe(true);
+  });
+  it("org admin CAN act on a batch belonging to their org", async () => {
+    h.tables.sub_admins = { data: [{ is_agency_admin: true }], error: null };
+    h.tables.organization_members = { data: [{ org_id: "o1" }], error: null };
+    h.tables.employer_batches = { data: { org_id: "o1" }, error: null };
+    expect(await canActOnBatch("sub_admin", "a@x.com", "b1")).toBe(true);
+  });
+  it("org admin CANNOT act on another org's batch", async () => {
+    h.tables.sub_admins = { data: [{ is_agency_admin: true }], error: null };
+    h.tables.organization_members = { data: [{ org_id: "o1" }], error: null };
+    h.tables.employer_batches = { data: { org_id: "o2" }, error: null };
+    expect(await canActOnBatch("sub_admin", "a@x.com", "b1")).toBe(false);
+  });
+  it("org admin CANNOT act on a null-org (HQ) batch", async () => {
+    h.tables.sub_admins = { data: [{ is_agency_admin: true }], error: null };
+    h.tables.organization_members = { data: [{ org_id: "o1" }], error: null };
+    h.tables.employer_batches = { data: { org_id: null }, error: null };
+    expect(await canActOnBatch("sub_admin", "a@x.com", "b1")).toBe(false);
+  });
+  it("denies when the batch does not exist", async () => {
+    h.tables.sub_admins = { data: [{ is_agency_admin: true }], error: null };
+    h.tables.organization_members = { data: [{ org_id: "o1" }], error: null };
+    h.tables.employer_batches = { data: null, error: null };
+    expect(await canActOnBatch("sub_admin", "a@x.com", "b1")).toBe(false);
+  });
+  it("org admin with no orgs is denied (never reaches the batch lookup)", async () => {
+    h.tables.sub_admins = { data: [{ is_agency_admin: true }], error: null };
+    h.tables.organization_members = { data: [], error: null };
+    expect(await canActOnBatch("sub_admin", "a@x.com", "b1")).toBe(false);
   });
 });
 
