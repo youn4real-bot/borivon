@@ -7537,6 +7537,20 @@ export default function AdminPage() {
             </button>
           )}
 
+          {/* ── Analytics — the aggregate funnel view (read-only). All admins (scoped). ── */}
+          {roleResolved && (
+            <button onClick={() => router.push("/portal/admin/analytics")}
+              className="mt-3 w-full flex items-center gap-3 px-4 py-3.5 transition-opacity hover:opacity-90"
+              style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-xl)" }}>
+              <BarChart3 size={18} strokeWidth={1.8} style={{ color: "var(--gold)" }} />
+              <span className="flex-1 text-left min-w-0">
+                <span className="block text-[13px] font-semibold" style={{ color: "var(--w)" }}>{lang === "de" ? "Analytik" : lang === "fr" ? "Analytique" : "Analytics"}</span>
+                <span className="block text-[11px]" style={{ color: "var(--w3)" }}>{lang === "de" ? "Die gesamte Pipeline auf einen Blick" : lang === "fr" ? "Tout le pipeline en un coup d'œil" : "The whole pipeline at a glance"}</span>
+              </span>
+              <ChevronDown size={16} strokeWidth={2} className="-rotate-90 flex-shrink-0" style={{ color: "var(--gold)" }} />
+            </button>
+          )}
+
           {/* ── Tools strip — invite + agencies ──
               Candidate invite: ALL admins (supreme + sub-admins).
               Org-admin + sub-admin invites: supreme only. ── */}
