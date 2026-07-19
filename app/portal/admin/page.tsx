@@ -21,7 +21,9 @@ import {
   Lock, Unlock, IdCard, FileText, Folder, FilePen, Save, Eye,
   CheckCircle2, XCircle, AlertTriangle, PartyPopper,
 } from "@/components/PortalIcons";
-import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles, BarChart3 } from "lucide-react";
+import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles, BarChart3, SlidersHorizontal } from "lucide-react";
+import { specialtyLabel } from "@/lib/nurseSpecialties";
+import { b2StageLabel, normalizeB2Stage } from "@/lib/b2Journey";
 import { CandidateEngagementCard } from "@/components/CandidateEngagementCard";
 import { ClassroomTesterToggle } from "@/components/ClassroomTesterToggle";
 import { DndContext, closestCenter, DragOverlay, closestCorners, pointerWithin, useDroppable, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors, type DragEndEvent, type DragOverEvent, type DragStartEvent, type CollisionDetection } from "@dnd-kit/core";
@@ -101,6 +103,13 @@ type CandidateProfile = {
   profile_photo: string | null;
   payment_tier: string | null;
   placement_ready: boolean | null;
+  // Structured facets used by the candidate Filter panel (may be absent on
+  // not-yet-migrated rows → optional; the filter treats missing as "unknown").
+  b2_stage?: string | null;
+  b2_failed?: boolean | null;
+  nursing_specialty?: string | null;
+  years_experience?: number | null;
+  workplace_pref?: string | null;
   // Admin-only CV branding override flags (LAW #37 owner override):
   //   agency=true + borivon=true  →  agency logo + footer (default)
   //   agency=false + borivon=true →  plain Borivon
@@ -658,6 +667,12 @@ export default function AdminPage() {
   // order; "newest" surfaces the last people who signed up; "inactive" surfaces
   // old signups who never uploaded a single document (the ghosts to chase).
   const [regView, setRegView]           = useState<"default" | "newest" | "inactive">("default");
+  // Attribute filter (client-side, over the already-scoped list — LAW #25 is
+  // enforced server-side so narrowing here is safe for every admin role).
+  const [filterOpen, setFilterOpen]     = useState(false);
+  const emptyFilters = { cityBirth: "", cityRes: "", nationality: "", sex: "", marital: "", b2: "", specialty: "", org: "", minExp: "", placementReady: "", verified: "", pending: "" };
+  const [filters, setFilters]           = useState<typeof emptyFilters>(emptyFilters);
+  const activeFilterCount = Object.values(filters).filter((v) => v !== "").length;
   const [pipeline, setPipeline]         = useState<AdminPipeline>(DEFAULT_PIPELINE);
   const [pipelineSaving, setPipelineSaving] = useState(false);
   const [pipelineLoaded, setPipelineLoaded] = useState(false);
@@ -7307,6 +7322,43 @@ export default function AdminPage() {
             }).length;
             const clearCount = archivedUserIds.length;
             const pendingCount = pendingUserIds.length;
+            // ── Attribute-filter options — distinct values from the loaded
+            // profiles, so only values that actually exist are offered (no
+            // free-text spelling drift). Labels via the shared catalogs. ──
+            const L = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
+            const profVals = Object.values(profiles);
+            const distinct = (get: (p: CandidateProfile) => string | null | undefined) =>
+              [...new Set(profVals.map(get).map((v) => (v ?? "").toString().trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+            const asOpts = (arr: string[]) => arr.map((s) => ({ value: s, label: s }));
+            const cityBirthOpts = asOpts(distinct((p) => p.city_of_birth));
+            const cityResOpts   = asOpts(distinct((p) => p.city_of_residence));
+            const natOpts       = asOpts(distinct((p) => p.nationality));
+            const sexOpts       = asOpts(distinct((p) => p.sex));
+            const maritalOpts   = asOpts(distinct((p) => p.marital_status));
+            const b2Opts        = distinct((p) => p.b2_stage).map((k) => ({ value: k, label: b2StageLabel(normalizeB2Stage(k), lang) }));
+            const specOpts      = distinct((p) => p.nursing_specialty).map((k) => ({ value: k, label: specialtyLabel(k, lang) }));
+            const orgOpts = (() => { const m = new Map<string, string>(); for (const arr of Object.values(candidateOrgs)) for (const o of arr) m.set(o.id, o.name); return [...m.entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label)); })();
+            const setF = (k: keyof typeof filters, v: string) => setFilters((prev) => ({ ...prev, [k]: v }));
+            const selStyle: React.CSSProperties = { background: "var(--card)", border: "1px solid var(--border)", color: "var(--w)", borderRadius: 8, height: 30, fontSize: "12.5px", padding: "0 8px", width: "100%" };
+            const field = (label: string, control: React.ReactNode) => (
+              <label className="flex flex-col gap-1 min-w-0">
+                <span className="text-[10px] font-semibold uppercase tracking-wide truncate" style={{ color: "var(--w3)" }}>{label}</span>
+                {control}
+              </label>
+            );
+            const dropdown = (key: keyof typeof filters, opts: { value: string; label: string }[]) => (
+              <select value={filters[key]} onChange={(e) => setF(key, e.target.value)} style={selStyle}>
+                <option value="">{L("Any", "Alle", "Tous")}</option>
+                {opts.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            );
+            const triState = (key: keyof typeof filters) => (
+              <select value={filters[key]} onChange={(e) => setF(key, e.target.value)} style={selStyle}>
+                <option value="">{L("Any", "Alle", "Tous")}</option>
+                <option value="yes">{L("Yes", "Ja", "Oui")}</option>
+                <option value="no">{L("No", "Nein", "Non")}</option>
+              </select>
+            );
             return (
               <div className="mb-3">
                 <div className="relative">
@@ -7349,7 +7401,53 @@ export default function AdminPage() {
                       </button>
                     );
                   })}
+                  {/* Attribute filter toggle — 4th pill, opens the panel below. */}
+                  <button type="button" onClick={() => setFilterOpen((v) => !v)}
+                    className="px-2.5 py-1 text-[11.5px] font-semibold transition-colors inline-flex items-center gap-1"
+                    style={{
+                      borderRadius: "999px",
+                      border: `1px solid ${filterOpen || activeFilterCount > 0 ? "var(--border-gold)" : "var(--border)"}`,
+                      background: filterOpen || activeFilterCount > 0 ? "var(--gdim)" : "transparent",
+                      color: filterOpen || activeFilterCount > 0 ? "var(--gold)" : "var(--w3)",
+                    }}>
+                    <SlidersHorizontal size={12} strokeWidth={2} />
+                    {L("Filter", "Filter", "Filtrer")}
+                    {activeFilterCount > 0 && <span className="ml-0.5 px-1.5 rounded-full text-[10px] font-bold" style={{ background: "var(--gold)", color: "#1a1205" }}>{activeFilterCount}</span>}
+                  </button>
                 </div>
+                {/* Collapsible attribute-filter panel — narrows the already-loaded,
+                    already-scoped list (LAW #25 handled server-side). */}
+                {filterOpen && (
+                  <div className="mt-2 p-3" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: 10 }}>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                      {field(L("City of birth", "Geburtsort", "Lieu de naissance"), dropdown("cityBirth", cityBirthOpts))}
+                      {field(L("City of living", "Wohnort", "Ville de résidence"), dropdown("cityRes", cityResOpts))}
+                      {field(L("Nationality", "Staatsangeh.", "Nationalité"), dropdown("nationality", natOpts))}
+                      {field(L("Profession", "Fachbereich", "Spécialité"), dropdown("specialty", specOpts))}
+                      {field(L("Min. experience (yrs)", "Min. Erfahrung (J.)", "Expérience min. (ans)"),
+                        <input type="number" min={0} max={60} value={filters.minExp} onChange={(e) => setF("minExp", e.target.value)} placeholder="0" style={selStyle} />)}
+                      {field(L("B2 German", "B2 Deutsch", "B2 allemand"), dropdown("b2", b2Opts))}
+                      {field(L("Sex", "Geschlecht", "Sexe"), dropdown("sex", sexOpts))}
+                      {field(L("Marital status", "Familienstand", "État civil"), dropdown("marital", maritalOpts))}
+                      {field(L("Agency / org", "Agentur / Org", "Agence / org"), dropdown("org", orgOpts))}
+                      {field(L("Placement ready", "Vermittlungsbereit", "Prêt au placement"), triState("placementReady"))}
+                      {field(L("Verified", "Verifiziert", "Vérifié"), triState("verified"))}
+                      {field(L("Pending docs", "Offene Dok.", "Docs en attente"), triState("pending"))}
+                    </div>
+                    <div className="mt-2.5 flex items-center justify-between">
+                      <span className="text-[11px]" style={{ color: "var(--w3)" }}>
+                        {activeFilterCount > 0
+                          ? L(`${activeFilterCount} active`, `${activeFilterCount} aktiv`, `${activeFilterCount} actif(s)`)
+                          : L("No filters set", "Keine Filter", "Aucun filtre")}
+                      </span>
+                      <button type="button" onClick={() => setFilters(emptyFilters)} disabled={activeFilterCount === 0}
+                        className="text-[11.5px] font-semibold px-2.5 py-1 rounded-md transition-opacity disabled:opacity-40"
+                        style={{ color: "var(--w2)", border: "1px solid var(--border)" }}>
+                        {L("Clear all", "Zurücksetzen", "Effacer")}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             );
           })()}
@@ -7389,9 +7487,34 @@ export default function AdminPage() {
             else                                visibleIds = archivedUserIds;
             visibleIds = visibleIds.filter(matchesSearch);
 
+            // Attribute filter — composes on top of the active search + lens.
+            // 'missing' counts as 'unknown' → excluded when a value is required
+            // (a candidate who hasn't done passport/CV yet simply won't match).
+            const norm = (s: string | number | null | undefined) => (s ?? "").toString().trim().toLowerCase();
+            const matchesFilters = (uid: string) => {
+              const p = profiles[uid];
+              const f = filters;
+              if (f.cityBirth && norm(p?.city_of_birth) !== norm(f.cityBirth)) return false;
+              if (f.cityRes && norm(p?.city_of_residence) !== norm(f.cityRes)) return false;
+              if (f.nationality && norm(p?.nationality) !== norm(f.nationality)) return false;
+              if (f.sex && norm(p?.sex) !== norm(f.sex)) return false;
+              if (f.marital && norm(p?.marital_status) !== norm(f.marital)) return false;
+              if (f.b2 && (p?.b2_stage ?? "") !== f.b2) return false;
+              if (f.specialty && (p?.nursing_specialty ?? "") !== f.specialty) return false;
+              if (f.org && !(candidateOrgs[uid] ?? []).some((o) => o.id === f.org)) return false;
+              if (f.minExp) { const y = p?.years_experience; if (y == null || Number(y) < Number(f.minExp)) return false; }
+              if (f.placementReady) { const v = p?.placement_ready === true; if ((f.placementReady === "yes") !== v) return false; }
+              if (f.verified) { const v = p?.manually_verified === true; if ((f.verified === "yes") !== v) return false; }
+              if (f.pending) { const has = (grouped[uid] ?? []).some((d) => d.status === "pending"); if ((f.pending === "yes") !== has) return false; }
+              return true;
+            };
+            if (activeFilterCount > 0) visibleIds = visibleIds.filter(matchesFilters);
+
             if (visibleIds.length === 0) {
-              if (q) {
-                return <EmptyState Icon={Search} title={t.adNoCandFound} sub={t.adNoMatchFor.replace("{q}", searchQuery)} />;
+              if (q || activeFilterCount > 0) {
+                return <EmptyState Icon={Search} title={t.adNoCandFound}
+                  sub={q ? t.adNoMatchFor.replace("{q}", searchQuery)
+                         : (lang === "de" ? "Kein Kandidat entspricht den Filtern." : lang === "fr" ? "Aucun candidat ne correspond aux filtres." : "No candidate matches the filters.")} />;
               }
               if (regView === "inactive") {
                 return <EmptyState Icon={CheckCircle2} tone="success"
