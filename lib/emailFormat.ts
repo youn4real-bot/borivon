@@ -51,3 +51,38 @@ export function stripFileDeliveryNoise(s: string): string {
     .replace(/\n{2,}/g, "\n")
     .trim();
 }
+
+/** Bare address out of "Name <a@b.com>" (lowercased). */
+function addrOf(a: string): string {
+  return (a.match(/<([^>]+)>/)?.[1] || a).trim().toLowerCase();
+}
+
+/**
+ * WHO a reply should actually be delivered to.
+ *
+ * Replying naively to `From` breaks when the last message in the thread is one
+ * the FOUNDER HIMSELF sent (he emails Abdelhak, then says "reply on that email"):
+ * `From` is then his own address, so the reply goes back to him. That is the real
+ * bug from his log — the confirm said "Reply to Youness Taoufiq" and it emailed
+ * him instead of the candidate.
+ *
+ * Rule: normally reply to the sender; if the sender IS us, reply to the original
+ * recipients instead (minus ourselves). An empty toList means "I cannot tell who
+ * this should go to" — callers MUST fail loudly rather than email the founder.
+ * Pure + tested: a silent wrong-recipient send is the worst possible outcome.
+ */
+export function resolveReplyRecipients(
+  from: string,
+  to: string,
+  selfEmail: string,
+): { toList: string[]; isFromSelf: boolean } {
+  const self = (selfEmail || "").trim().toLowerCase();
+  const isFromSelf = !!from && !!self && addrOf(from).includes(self);
+  if (!isFromSelf) return { toList: from && from.trim() ? [from.trim()] : [], isFromSelf };
+  const recipients = (to || "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .filter((a) => !self || !addrOf(a).includes(self));
+  return { toList: [...new Set(recipients)], isFromSelf };
+}

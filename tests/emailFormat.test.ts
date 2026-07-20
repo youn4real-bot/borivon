@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { stripMarkdown, stripEmailFormatting } from "../lib/emailFormat";
+import { stripMarkdown, stripEmailFormatting, resolveReplyRecipients } from "../lib/emailFormat";
 
 // stripMarkdown is the CODE-ENFORCED guarantee that the model's habitual
 // Markdown never reaches the user — not in a sent email, not in its preview,
@@ -50,5 +50,38 @@ describe("stripMarkdown — no markdown ever reaches the user", () => {
 
   it("stripEmailFormatting is the same function (alias kept for email call sites)", () => {
     expect(stripEmailFormatting).toBe(stripMarkdown);
+  });
+});
+
+// A reply going to the WRONG person is the worst bug in the send path. Real case
+// from the founder's log (2026-06-25): he replied on a thread HE had sent to
+// Abdelhak, and the reply was delivered to "Youness Taoufiq" (himself).
+describe("resolveReplyRecipients — who a reply actually goes to", () => {
+  const SELF = "youn4real@gmail.com";
+
+  it("normal inbound mail → replies to the sender", () => {
+    const r = resolveReplyRecipients("Anna <a.gombert@calmaroi.de>", `Youness <${SELF}>`, SELF);
+    expect(r.isFromSelf).toBe(false);
+    expect(r.toList).toEqual(["Anna <a.gombert@calmaroi.de>"]);
+  });
+
+  it("THE BUG: replying on his OWN sent mail goes to the original recipient, not himself", () => {
+    const r = resolveReplyRecipients(`Youness Taoufiq <${SELF}>`, "abenchiir@gmail.com", SELF);
+    expect(r.isFromSelf).toBe(true);
+    expect(r.toList).toEqual(["abenchiir@gmail.com"]);
+    expect(r.toList.join(",")).not.toContain(SELF);
+  });
+
+  it("own mail with several recipients keeps them all and strips himself", () => {
+    const r = resolveReplyRecipients(`<${SELF}>`, `abenchiir@gmail.com, Anna <a.gombert@calmaroi.de>, ${SELF}`, SELF);
+    expect(r.toList).toEqual(["abenchiir@gmail.com", "Anna <a.gombert@calmaroi.de>"]);
+  });
+
+  it("own mail addressed ONLY to himself → empty, so the caller fails loudly", () => {
+    expect(resolveReplyRecipients(`<${SELF}>`, SELF, SELF).toList).toEqual([]);
+  });
+
+  it("unreadable From → empty rather than guessing", () => {
+    expect(resolveReplyRecipients("", "", SELF).toList).toEqual([]);
   });
 });

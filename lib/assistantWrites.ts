@@ -25,7 +25,7 @@ import { bookWorkspaceEvent, cancelWorkspaceEvent, localToInstant } from "@/lib/
 import { reportError } from "@/lib/reportError";
 import { recordSentForFollowup } from "@/lib/followups";
 import { recentChatUploadAttachments } from "@/lib/chatUploads";
-import { stripMarkdown } from "@/lib/emailFormat";
+import { stripMarkdown, resolveReplyRecipients } from "@/lib/emailFormat";
 import { resolveFileKey } from "@/lib/fileKeys";
 import { r2GetObject } from "@/lib/r2";
 import { validateImageDataUrl } from "@/lib/validateDataUrl";
@@ -737,10 +737,25 @@ async function writeReplyEmail(scope: AssistantScope, opts: { messageId: string;
   if (!orig) return { ok: false, error: "original_not_found_or_not_connected" };
   const subject = /^re:/i.test(orig.subject.trim()) ? orig.subject : `Re: ${orig.subject}`;
   const self = OUTBOUND_FROM_EMAIL.toLowerCase();
+  const addrOf = (a: string) => (a.match(/<([^>]+)>/)?.[1] || a).trim().toLowerCase();
+  // WHO actually receives this reply. Replying to a message the FOUNDER HIMSELF
+  // sent (continuing his own thread — "reply on that email to Abdelhak") must go
+  // to the ORIGINAL RECIPIENTS, not back to him. The real bug from his log: a
+  // reply on his own sent mail was delivered to "Youness Taoufiq" (himself).
+  const { toList } = resolveReplyRecipients(orig.from, orig.to || "", self);
+  if (toList.length === 0) {
+    // No recoverable recipient (his own message, or an unreadable From) — fail
+    // LOUDLY rather than quietly emailing himself: a silent wrong-recipient send
+    // is the worst possible outcome here.
+    return { ok: false, error: "reply_recipient_unknown" };
+  }
+  const replyTo = toList.join(", ");
+
   let cc = "";
   if (opts.replyAll) {
+    const primary = new Set(replyTo.split(",").map((s) => addrOf(s)).filter(Boolean));
     const extra = [orig.to, orig.cc].join(",").split(",").map((s) => s.trim()).filter(Boolean)
-      .filter((a) => { const e = (a.match(/<([^>]+)>/)?.[1] || a).toLowerCase(); return !e.includes(self) && e !== orig.from; });
+      .filter((a) => { const e = addrOf(a); return !e.includes(self) && e !== addrOf(orig.from) && !primary.has(e); });
     cc = [...new Set(extra)].join(", ");
   }
   const references = [orig.references, orig.messageIdHeader].filter(Boolean).join(" ").trim();
@@ -755,17 +770,17 @@ async function writeReplyEmail(scope: AssistantScope, opts: { messageId: string;
   });
   if (missing.length) return { ok: false, error: `attachment_missing:${missing.slice(0, 8).join(",")}` };
   const res = await gmailSendRaw({
-    to: orig.from, cc: cc || undefined, subject, html, text,
+    to: replyTo, cc: cc || undefined, subject, html, text,
     fromName: OUTBOUND_FROM_NAME, fromEmail: OUTBOUND_FROM_EMAIL,
     inReplyTo: orig.messageIdHeader || undefined, references: references || undefined, threadId: orig.threadId || undefined,
     attachments: attachments.length ? attachments : undefined,
   });
   if (!res.ok) return { ok: false, error: res.error || "reply_failed" };
   // Track for the follow-up chase — if they don't reply, the bot will remind me.
-  void recordSentForFollowup(scope.userId, orig.from, subject);
+  void recordSentForFollowup(scope.userId, replyTo, subject);
   try {
     await getServiceSupabase().from("assistant_sent_emails").insert({
-      owner_user_id: scope.userId, to_email: orig.from, cc: cc || null, subject, body: cleanBody, channel: "gmail-api",
+      owner_user_id: scope.userId, to_email: replyTo, cc: cc || null, subject, body: cleanBody, channel: "gmail-api",
     });
   } catch { /* sent-email log not migrated → skip */ }
   return { ok: true };

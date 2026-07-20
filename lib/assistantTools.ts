@@ -20,7 +20,7 @@ import { specialtyLabel } from "@/lib/nurseSpecialties";
 import { signDlToken } from "@/lib/dlToken";
 import { UUID_RE } from "@/lib/uuid";
 import { germanSummary } from "@/lib/b2Detail";
-import { stripEmailFormatting } from "@/lib/emailFormat";
+import { stripEmailFormatting, resolveReplyRecipients } from "@/lib/emailFormat";
 import { computeBriefing } from "@/lib/briefing";
 import { localIsoToInstant, fmtWhen } from "@/lib/reminderTime";
 import { computeChecklist } from "@/lib/candidateChecklist";
@@ -1927,7 +1927,19 @@ export function buildAssistantTools(
         const docIds = (attachDocIds ?? "").split(",").map((s) => s.trim()).filter(Boolean);
         const emailFwdIds = (attachFromEmailIds ?? "").split(",").map((s) => s.trim()).filter(Boolean);
         const cleanBody = stripEmailFormatting(body);
-        const who = orig.fromName || orig.from;
+        // WHO this reply actually reaches. Replying to a message the FOUNDER HIMSELF
+        // sent (continuing his own thread — "reply on that email to Abdelhak") must
+        // target the ORIGINAL RECIPIENTS, not bounce back to him. Real bug from his
+        // log: the confirm read "↩️ Reply to Youness Taoufiq" and it emailed him.
+        // `who` is what he SEES on the confirm, so it must name the true recipient.
+        const addrOf = (a: string) => (a.match(/<([^>]+)>/)?.[1] || a).trim().toLowerCase();
+        const selfAddr = (scope.email || "").toLowerCase();
+        const { toList: replyTargets, isFromSelf: replyIsToSelf } = resolveReplyRecipients(orig.from, orig.to || "", selfAddr);
+        if (replyTargets.length === 0) {
+          return { error: "reply_recipient_unknown", hint: "The last message in that thread is your own and I can't tell who it went to — tell me who to reply to." };
+        }
+        const replyToStr = replyTargets.join(", ");
+        const who = replyIsToSelf ? replyToStr : (orig.fromName || orig.from);
         const subj = orig.subject || "";
         const names: string[] = [];
         for (const cid of candIds.slice(0, 10)) names.push(await displayName(cid));
@@ -1944,12 +1956,12 @@ export function buildAssistantTools(
         if (useDraft) {
           let cc: string[] = [];
           if (replyAll) {
-            const self = (scope.email || "").toLowerCase();
+            const primary = new Set(replyToStr.split(",").map((s) => addrOf(s)).filter(Boolean));
             cc = [...new Set([orig.to, orig.cc].join(",").split(",").map((s) => s.trim()).filter(Boolean)
-              .filter((aa) => { const e = (aa.match(/<([^>]+)>/)?.[1] || aa).toLowerCase(); return e && (!self || !e.includes(self)) && e !== orig.from.toLowerCase(); }))];
+              .filter((aa) => { const e = addrOf(aa); return e && (!selfAddr || !e.includes(selfAddr)) && e !== addrOf(orig.from) && !primary.has(e); }))];
           }
           const d = await prepareEmailDraft(scope, {
-            to: orig.from, cc, replyToMessageId: messageId, subject: subj, body: cleanBody,
+            to: replyToStr, cc, replyToMessageId: messageId, subject: subj, body: cleanBody,
             candidateIds: candIds, docIds, attachFromEmailIds: emailFwdIds, chatFiles: attachChatFiles === true,
           });
           if (!d.ok) return { error: d.error };
@@ -1957,7 +1969,7 @@ export function buildAssistantTools(
           const realNames = back ? back.attachments.map((a) => a.filename) : d.names;
           return stagePending(scope, {
             toolName: "sendDraft",
-            args: { draftId: d.draftId, draftMessageId: d.draftMessageId, to: orig.from, subject: d.subject },
+            args: { draftId: d.draftId, draftMessageId: d.draftMessageId, to: replyToStr, subject: d.subject },
             candidateUserId: null,
             summary: `↩️ Reply${replyAll ? " (all)" : ""} to ${who} — ${d.subject}\n📎 Attached (verified on the draft): ${realNames.length ? realNames.join(", ") : "none"}\n(say "show me the attached files" to pull them off the draft and double-check before you send)\n\n${cleanBody.slice(0, 600)}${cleanBody.length > 600 ? "…" : ""}`,
           });
