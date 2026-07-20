@@ -64,6 +64,29 @@ export async function POST(req: NextRequest) {
   const note = typeof body?.note === "string" ? body.note.trim().slice(0, 500) : null;
 
   const db = getServiceSupabase();
+  // Supersede any STILL-OPEN proposal for this candidate+round before inserting.
+  // Without this, re-proposing (e.g. fixing a typo) leaves the old invite live:
+  // the candidate sees both sets, can book a time that no longer exists, and that
+  // dead date lands in candidate_pipeline — corrupting the tracker + date radar.
+  const { data: stale } = await db
+    .from("interview_proposals")
+    .select("id")
+    .eq("candidate_user_id", candidateUserId)
+    .eq("round", round)
+    .eq("status", "proposed");
+  const staleIds = ((stale ?? []) as { id: string }[]).map((r) => r.id);
+  if (staleIds.length) {
+    await db.from("interview_proposals")
+      .update({ status: "cancelled", updated_at: new Date().toISOString() })
+      .in("id", staleIds);
+    // Clear their bell cards too, so no obsolete invite is tappable.
+    await db.from("notifications")
+      .update({ read: true })
+      .eq("user_id", candidateUserId)
+      .eq("doc_type", "interview_proposal")
+      .in("doc_id", staleIds);
+  }
+
   const { data, error } = await db
     .from("interview_proposals")
     .insert({ candidate_user_id: candidateUserId, round, proposed_slots: slots, status: "proposed", note, created_by: auth.email })

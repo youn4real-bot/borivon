@@ -10,6 +10,7 @@
  * confirmed date in the pipeline. Renders nothing when there's nothing to pick.
  */
 import { useEffect, useState, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import { useLang } from "@/components/LangContext";
 import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
 import { CalendarClock, Check } from "lucide-react";
@@ -24,6 +25,12 @@ export function InterviewPicker({ authToken }: { authToken: string | null }) {
   const [chosen, setChosen] = useState<string>("");
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<string | null>(null);
+  const [err, setErr] = useState("");
+  // Reactive to CLIENT-SIDE url changes. Reading window.location.search once on
+  // mount silently failed for the COMMON case: the candidate is already sitting
+  // on the dashboard, taps the bell, Next re-routes without remounting → the
+  // picker never opened.
+  const searchParams = useSearchParams();
 
   const load = useCallback(async () => {
     if (!authToken) return;
@@ -39,24 +46,36 @@ export function InterviewPicker({ authToken }: { authToken: string | null }) {
   // Bell deep-link: ?interview=<id> auto-opens that proposal, then strips the param.
   useEffect(() => {
     if (typeof window === "undefined" || proposals.length === 0) return;
-    const id = new URLSearchParams(window.location.search).get("interview");
+    const id = searchParams.get("interview");
     if (id && proposals.some((p) => p.id === id)) {
-      setOpenId(id); setChosen("");
+      setOpenId(id); setChosen(""); setErr("");
       const url = new URL(window.location.href); url.searchParams.delete("interview"); window.history.replaceState({}, "", url.toString());
     }
-  }, [proposals]);
+  }, [proposals, searchParams]);
 
   const active = proposals.find((p) => p.id === openId) ?? null;
 
   const submit = async () => {
     if (!active || !chosen || !authToken || busy) return;
-    setBusy(true);
+    setBusy(true); setErr("");
     try {
       const res = await fetch("/api/portal/me/interview-pick", {
         method: "POST", headers: { Authorization: `Bearer ${authToken}`, "Content-Type": "application/json" },
         body: JSON.stringify({ proposalId: active.id, slot: chosen }),
       });
-      if (res.ok) { setDone(chosen); setOpenId(null); setChosen(""); await load(); }
+      if (res.ok) { setDone(chosen); setOpenId(null); setChosen(""); await load(); return; }
+      // NEVER fail silently — a candidate tapping Confirm with nothing happening
+      // assumes the portal is broken and messages the founder instead of booking.
+      if (res.status === 409) {
+        setErr(T("This was already handled — refreshing.", "Bereits erledigt — wird aktualisiert.", "Déjà traité — actualisation."));
+        await load();
+      } else if (res.status === 401) {
+        setErr(T("Your session expired — please reload the page.", "Sitzung abgelaufen — bitte Seite neu laden.", "Session expirée — rechargez la page."));
+      } else {
+        setErr(T("Could not confirm — please try again.", "Konnte nicht bestätigen — bitte erneut versuchen.", "Impossible de confirmer — réessayez."));
+      }
+    } catch {
+      setErr(T("Connection problem — please try again.", "Verbindungsproblem — bitte erneut versuchen.", "Problème de connexion — réessayez."));
     } finally { setBusy(false); }
   };
 
@@ -102,6 +121,11 @@ export function InterviewPicker({ authToken }: { authToken: string | null }) {
         footer={<><GhostButton onClick={() => setOpenId(null)} disabled={busy}>{T("Cancel", "Abbrechen", "Annuler")}</GhostButton>
           <GoldButton onClick={submit} disabled={busy || !chosen}>{T("Confirm", "Bestätigen", "Confirmer")}</GoldButton></>}>
         <div className="px-5 py-4 space-y-2">
+          {err && (
+            <p className="text-[12.5px] mb-1 px-3 py-2 rounded-lg" style={{ background: "rgba(239,68,68,0.1)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.35)" }}>
+              {err}
+            </p>
+          )}
           {(active?.slots ?? []).map((s) => {
             const sel = chosen === s;
             return (

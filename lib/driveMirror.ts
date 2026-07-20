@@ -20,6 +20,11 @@ import { Readable } from "node:stream";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const ROOT_FOLDER = "Borivon Candidates";
+// The founder's top-level work location. Everything agency-facing lives INSIDE it:
+//   WORK / "<Agency> X Borivon" / "<Batch>" / "<Candidate>" / { Vor Matching, Nach Matching }
+// "WORK" may be a SHARED DRIVE or a plain folder — resolveWorkRootId handles both,
+// and never creates a duplicate when one already exists.
+const WORK_ROOT = "WORK";
 // Sub-folders inside each candidate folder. "Vor Matching" holds the Essentials
 // + Unterlagen dossier shared to find a match; "Nach Matching" is a placeholder
 // for the post-match docs (visa, contract, Bearbeitung) — populated later.
@@ -39,14 +44,47 @@ type Drive = NonNullable<ReturnType<typeof driveClient>>;
 async function findOrCreateFolder(drive: Drive, name: string, parentId?: string): Promise<string> {
   const parent = parentId ? `'${parentId}' in parents` : "'root' in parents";
   const q = `name='${esc(name)}' and mimeType='application/vnd.google-apps.folder' and trashed=false and ${parent}`;
-  const res = await drive.files.list({ q, fields: "files(id)", pageSize: 1, spaces: "drive" });
+  // supportsAllDrives/includeItemsFromAllDrives make this work when WORK is a
+  // SHARED DRIVE (harmless for ordinary My-Drive folders).
+  const res = await drive.files.list({
+    q, fields: "files(id)", pageSize: 1,
+    supportsAllDrives: true, includeItemsFromAllDrives: true,
+  });
   const found = res.data.files?.[0]?.id;
   if (found) return found;
   const created = await drive.files.create({
     requestBody: { name, mimeType: "application/vnd.google-apps.folder", parents: parentId ? [parentId] : undefined },
     fields: "id",
+    supportsAllDrives: true,
   });
   return created.data.id as string;
+}
+
+/**
+ * Resolve the founder's top-level "WORK" location, so agency folders land INSIDE
+ * it instead of at the Drive root. Order: an existing SHARED DRIVE named WORK →
+ * an existing FOLDER named WORK (anywhere, incl. shared drives) → create the
+ * folder at My Drive root. Never duplicates an existing WORK.
+ */
+async function resolveWorkRootId(drive: Drive): Promise<string> {
+  // 1) A Shared Drive literally named WORK.
+  try {
+    const sd = await drive.drives.list({ q: `name='${esc(WORK_ROOT)}'`, pageSize: 10, fields: "drives(id,name)" });
+    const hit = (sd.data.drives ?? []).find((d) => (d.name ?? "").trim().toUpperCase() === WORK_ROOT);
+    if (hit?.id) return hit.id;
+  } catch { /* no shared-drive access or none exist → fall through */ }
+  // 2) An existing folder named WORK anywhere he keeps it (not only My-Drive root).
+  try {
+    const f = await drive.files.list({
+      q: `name='${esc(WORK_ROOT)}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: "files(id,name)", pageSize: 5,
+      supportsAllDrives: true, includeItemsFromAllDrives: true,
+    });
+    const folder = f.data.files?.[0]?.id;
+    if (folder) return folder;
+  } catch { /* fall through to create */ }
+  // 3) Nothing found — create WORK at My Drive root.
+  return findOrCreateFolder(drive, WORK_ROOT);
 }
 
 /** Copy every doc's bytes (from R2) into the founder's Drive folder for `candidateName`. */
@@ -233,14 +271,15 @@ export async function mirrorCandidateApprovedDocs(
         const existing = await drive.files.list({
           q: `name='${esc(name)}' and '${vorId}' in parents and trashed=false`,
           fields: "files(id)", pageSize: 1,
+          supportsAllDrives: true, includeItemsFromAllDrives: true,
         });
         fileId = existing.data.files?.[0]?.id ?? null;
       }
       if (fileId) {
-        try { await drive.files.update({ fileId, media }); }
-        catch { fileId = (await drive.files.create({ requestBody: { name, parents: [vorId] }, media, fields: "id" })).data.id as string; }
+        try { await drive.files.update({ fileId, media, supportsAllDrives: true }); }
+        catch { fileId = (await drive.files.create({ requestBody: { name, parents: [vorId] }, media, fields: "id", supportsAllDrives: true })).data.id as string; }
       } else {
-        fileId = (await drive.files.create({ requestBody: { name, parents: [vorId] }, media, fields: "id" })).data.id as string;
+        fileId = (await drive.files.create({ requestBody: { name, parents: [vorId] }, media, fields: "id", supportsAllDrives: true })).data.id as string;
       }
       await db.from("documents").update({ drive_mirror_id: fileId, drive_mirror_sha256: d.file_sha256 }).eq("id", d.id);
       uploaded++;
@@ -251,9 +290,14 @@ export async function mirrorCandidateApprovedDocs(
   }
 }
 
-/** Create the shared "<Agency> X Borivon" / "<Batch>" folders once; returns the batch folder id. */
+/**
+ * Create WORK / "<Agency> X Borivon" / "<Batch>" once; returns the batch folder id.
+ * The agency folder is nested inside the founder's existing WORK drive/folder —
+ * that's where he actually looks for shared agency material.
+ */
 export async function ensureBatchFolder(drive: Drive, agencyRootName: string, batchName: string): Promise<string> {
-  const rootId = await findOrCreateFolder(drive, agencyRootName);
+  const workId = await resolveWorkRootId(drive);
+  const rootId = await findOrCreateFolder(drive, agencyRootName, workId);
   return findOrCreateFolder(drive, batchName, rootId);
 }
 

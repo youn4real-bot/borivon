@@ -72,7 +72,13 @@ export async function getCandidateSummaries(userIds: string[]): Promise<Record<s
   const profById = new Map<string, ProfRow>();
   for (const p of (profs ?? []) as ProfRow[]) profById.set(p.user_id, p);
 
-  const { data: docs } = await db.from("documents").select("user_id, status").in("user_id", ids);
+  // Exclude ARCHIVED (superseded) docs — otherwise a replaced file is still
+  // counted and the employer sees inflated "X docs / Y approved" numbers.
+  const { data: docs } = await db
+    .from("documents")
+    .select("user_id, status")
+    .in("user_id", ids)
+    .is("superseded_at", null);
   const docAgg: Record<string, { count: number; ok: number; pending: number }> = {};
   for (const d of (docs ?? []) as { user_id: string; status: string }[]) {
     const a = (docAgg[d.user_id] ??= { count: 0, ok: 0, pending: 0 });
