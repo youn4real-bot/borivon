@@ -59,6 +59,9 @@ export default function AdminTrackerPage() {
   const [isSupreme, setIsSupreme] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState("");
+  // Direct link to the Drive folder the sync actually wrote to — so "did it land
+  // in WORK?" is one click to verify instead of hunting through Drive.
+  const [syncUrl, setSyncUrl] = useState("");
   const [employers, setEmployers] = useState<Employer[]>([]);
   const [organizations, setOrganizations] = useState<Org[]>([]);
   const [showNew, setShowNew] = useState(false);
@@ -227,6 +230,7 @@ export default function AdminTrackerPage() {
   const syncBatch = async () => {
     if (syncing || !batch) return;
     setSyncing(true);
+    setSyncUrl("");
     setSyncMsg(T("Working…", "Arbeite…", "En cours…"));
     let totalUploaded = 0;
     let candidates = 0;
@@ -249,6 +253,7 @@ export default function AdminTrackerPage() {
         totalUploaded += j.uploaded ?? 0;
         candidates = j.candidates ?? candidates;
         if (j.folder) folder = j.folder;
+        if (j.folderUrl) setSyncUrl(String(j.folderUrl));
         if (j.hint) hint = j.hint;
         for (const e of (j.errors ?? [])) errUsers.add(e.userId);
         setSyncMsg(T(
@@ -401,6 +406,14 @@ export default function AdminTrackerPage() {
       {syncMsg && (
         <div className="mb-4 text-[13px] px-3 py-2 rounded-md" style={{ background: "var(--card)", color: "var(--w2)", border: "1px solid var(--border)" }}>
           {syncMsg}
+          {syncUrl && (
+            <>
+              {" "}
+              <a href={syncUrl} target="_blank" rel="noreferrer" className="font-semibold underline" style={{ color: "var(--gold)" }}>
+                {T("Open the folder →", "Ordner öffnen →", "Ouvrir le dossier →")}
+              </a>
+            </>
+          )}
         </div>
       )}
 

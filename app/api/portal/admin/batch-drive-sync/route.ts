@@ -67,6 +67,10 @@ export async function POST(req: NextRequest) {
     processed,
     remaining: targets.userIds.length - processed,
     uploaded, unchanged, errors,
-    folder: `${targets.agencyRootName} / ${targets.batchName}`,
+    // Show the FULL path (it now lives inside the founder's WORK drive) and a
+    // direct link to the exact folder that was written, so "did it land in the
+    // right place?" is one click to confirm instead of a hunt through Drive.
+    folder: `WORK / ${targets.agencyRootName} / ${targets.batchName}`,
+    folderUrl: `https://drive.google.com/drive/folders/${batchFolderId}`,
   });
 }
