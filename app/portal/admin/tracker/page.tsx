@@ -233,6 +233,7 @@ export default function AdminTrackerPage() {
     setSyncUrl("");
     setSyncMsg(T("Working…", "Arbeite…", "En cours…"));
     let totalUploaded = 0;
+    let totalArchived = 0; // outdated copies pulled out of the agency's view
     let candidates = 0;
     let folder = "";
     let hint = "";
@@ -251,6 +252,7 @@ export default function AdminTrackerPage() {
           return;
         }
         totalUploaded += j.uploaded ?? 0;
+        totalArchived += j.archived ?? 0;
         candidates = j.candidates ?? candidates;
         if (j.folder) folder = j.folder;
         if (j.folderUrl) setSyncUrl(String(j.folderUrl));
@@ -264,9 +266,9 @@ export default function AdminTrackerPage() {
         if (j.done) break;
       }
       setSyncMsg(T(
-        `Done — copied ${totalUploaded} files across ${candidates} candidates${errUsers.size ? `, ${errUsers.size} errored` : ""}. In your Drive: "${folder || batch.name}".`,
-        `Fertig — ${totalUploaded} Dateien für ${candidates} Kandidaten kopiert${errUsers.size ? `, ${errUsers.size} Fehler` : ""}. In deinem Drive: "${folder || batch.name}".`,
-        `Terminé — ${totalUploaded} fichiers copiés pour ${candidates} candidats${errUsers.size ? `, ${errUsers.size} en erreur` : ""}. Dans ton Drive : "${folder || batch.name}".`,
+        `Done — copied ${totalUploaded} files across ${candidates} candidates${totalArchived ? `, moved ${totalArchived} outdated to Archiv` : ""}${errUsers.size ? `, ${errUsers.size} errored` : ""}. In your Drive: "${folder || batch.name}".`,
+        `Fertig — ${totalUploaded} Dateien für ${candidates} Kandidaten kopiert${totalArchived ? `, ${totalArchived} veraltete ins Archiv verschoben` : ""}${errUsers.size ? `, ${errUsers.size} Fehler` : ""}. In deinem Drive: "${folder || batch.name}".`,
+        `Terminé — ${totalUploaded} fichiers copiés pour ${candidates} candidats${totalArchived ? `, ${totalArchived} obsolètes déplacés vers Archiv` : ""}${errUsers.size ? `, ${errUsers.size} en erreur` : ""}. Dans ton Drive : "${folder || batch.name}".`,
       ) + (hint ? ` (${hint})` : ""));
     } catch {
       setSyncMsg(T("Sync failed.", "Synchronisation fehlgeschlagen.", "Échec de la synchronisation."));

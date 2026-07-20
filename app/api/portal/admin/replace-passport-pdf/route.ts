@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PassThrough } from "stream";
+import { createHash } from "crypto";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole } from "@/lib/admin-auth";
 import { UUID_RE } from "@/lib/uuid";
@@ -150,10 +151,18 @@ export async function POST(req: NextRequest) {
   // ── Swap the file IN PLACE — keep status/feedback/passport data intact ────
   // rotation reset to 0: the new scan starts un-rotated; a stale rotation
   // from the old file must not be baked into the fresh one.
-  const { error: updErr } = await db
-    .from("documents")
-    .update({ drive_file_id: newDriveId, r2_key: r2Key, rotation: 0, uploaded_at: new Date().toISOString() })
-    .eq("id", docId);
+  // The sha MUST be recomputed: the agency Drive mirror skips any doc whose
+  // file_sha256 still matches its mirrored copy, so leaving the old hash here
+  // meant a replaced passport was never re-copied — the agency kept seeing the
+  // OLD scan forever. Same reason `rotation` resets: the row now describes new bytes.
+  const newSha = createHash("sha256").update(buffer).digest("hex");
+  const baseUpd = { drive_file_id: newDriveId, r2_key: r2Key, rotation: 0, uploaded_at: new Date().toISOString() };
+  let { error: updErr } = await db.from("documents").update({ ...baseUpd, file_sha256: newSha }).eq("id", docId);
+  if (updErr && /file_sha256|column .* does not exist|schema cache/i.test((updErr as { message?: string })?.message ?? "")) {
+    // Schema-tolerant (older deployments without the sha column): the swap
+    // itself must never fail just because the mirror optimisation can't record.
+    ({ error: updErr } = await db.from("documents").update(baseUpd).eq("id", docId));
+  }
   if (updErr) {
     console.error("[replace-passport-pdf] DB update failed:", updErr);
     return NextResponse.json({ error: "Erreur d'enregistrement." }, { status: 500 });

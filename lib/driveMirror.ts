@@ -30,6 +30,11 @@ const WORK_ROOT = "WORK";
 // for the post-match docs (visa, contract, Bearbeitung) — populated later.
 const VOR_MATCHING = "Vor Matching";
 const NACH_MATCHING = "Nach Matching";
+// Where a copy goes once the portal no longer considers it current (replaced,
+// rejected, archived). It is MOVED here, never deleted — mirroring LAW #33 and
+// making a mistake fully recoverable. The agency only ever reads "Vor Matching",
+// so it can never see a document the founder already threw away.
+const ARCHIV = "Archiv";
 
 export type MirrorDoc = { r2_key: string | null; file_name: string | null; file_type: string | null };
 export type MirrorResult =
@@ -203,8 +208,86 @@ export async function resolveBatchSyncTargets(
 }
 
 export type CandidateMirrorResult =
-  | { ok: true; uploaded: number; unchanged: number }
+  | { ok: true; uploaded: number; unchanged: number; archived: number }
   | { ok: false; error: "workspace_not_connected" | "mirror_failed"; hint?: string };
+
+/** Find a folder WITHOUT creating it (null when absent) — lets a candidate with
+ *  nothing to sync and no folder yet cost zero Drive writes. */
+async function findFolder(drive: Drive, name: string, parentId: string): Promise<string | null> {
+  const res = await drive.files.list({
+    q: `name='${esc(name)}' and mimeType='application/vnd.google-apps.folder' and trashed=false and '${parentId}' in parents`,
+    fields: "files(id)", pageSize: 1,
+    supportsAllDrives: true, includeItemsFromAllDrives: true,
+  });
+  return res.data.files?.[0]?.id ?? null;
+}
+
+/**
+ * RETRACTION. Everything in "Vor Matching" that the mirror itself put there but
+ * which the portal no longer treats as current (rejected, replaced, archived,
+ * or the candidate left the batch) is MOVED into "Archiv".
+ *
+ * Two hard safety rules:
+ *  • ONLY files carrying our `borivon_doc_id` marker are eligible. A file the
+ *    founder dragged into the folder by hand has no marker and is never touched.
+ *  • MOVE, never delete and never trash — Drive's trash auto-purges after ~30
+ *    days, which is just a delayed hard delete and would break LAW #33 at the
+ *    mirror boundary. A mistake here costs one drag-and-drop to undo.
+ *
+ * Returns how many copies were retracted. Never throws.
+ */
+export type MirrorFile = { id?: string | null; name?: string | null; appProperties?: Record<string, string> | null };
+
+/**
+ * Which mirrored files are no longer current and must be pulled out of the
+ * agency's view? PURE so the safety rule is testable in isolation:
+ *
+ *   a file is eligible ONLY if the portal itself placed it there
+ *   (appProperties.borivon_doc_id set by our own upload) AND that doc id is no
+ *   longer among the candidate's live approved docs.
+ *
+ * Anything the founder dropped into the folder by hand carries no marker and is
+ * therefore NEVER touched. Retraction = move to Archiv, never delete/trash
+ * (LAW #33 — Drive trash auto-purges at ~30d, which is a delayed hard delete).
+ */
+export function selectStaleMirrorFiles(files: MirrorFile[], currentDocIds: Iterable<string>): MirrorFile[] {
+  const live = new Set(currentDocIds);
+  return files.filter((f) => {
+    const docId = f.appProperties?.borivon_doc_id;
+    return !!f.id && !!docId && !live.has(docId); // unmarked = founder's own → skip
+  });
+}
+
+async function reconcileVorMatching(
+  drive: Drive,
+  currentDocs: ApprovedDoc[],
+  vorId: string,
+  candFolderId: string,
+): Promise<number> {
+  // Page through — a silent 200-file cap would leave stale copies visible.
+  const found: MirrorFile[] = [];
+  let pageToken: string | undefined;
+  do {
+    const res = await drive.files.list({
+      q: `'${vorId}' in parents and trashed=false`,
+      fields: "nextPageToken, files(id,name,appProperties)", pageSize: 200, pageToken,
+      supportsAllDrives: true, includeItemsFromAllDrives: true,
+    });
+    found.push(...(res.data.files ?? []));
+    pageToken = res.data.nextPageToken ?? undefined;
+  } while (pageToken);
+  const stale = selectStaleMirrorFiles(found, currentDocs.map((d) => d.id));
+  if (stale.length === 0) return 0;
+  const archivId = await findOrCreateFolder(drive, ARCHIV, candFolderId); // lazily, only when needed
+  let moved = 0;
+  for (const f of stale) {
+    try {
+      await drive.files.update({ fileId: f.id!, addParents: archivId, removeParents: vorId, supportsAllDrives: true });
+      moved++;
+    } catch { /* one stuck file must never abort the whole sync */ }
+  }
+  return moved;
+}
 
 /**
  * Mirror ONE candidate's approved docs into <batchFolderId>/<Candidate name>/.
@@ -238,7 +321,10 @@ export async function mirrorCandidateApprovedDocs(
     const isMirrored = (d: ApprovedDoc) => !!(d.drive_mirror_id && d.file_sha256 && d.drive_mirror_sha256 === d.file_sha256);
     const toUpload = docs.filter((d) => !isMirrored(d));
     const unchanged = docs.length - toUpload.length;
-    if (toUpload.length === 0) return { ok: true, uploaded: 0, unchanged };
+    // NOTE: deliberately NO early return when toUpload is empty — that is exactly
+    // the RETRACTION case (a doc was rejected/archived: nothing new to send, but a
+    // copy must be pulled out of the agency's view). The cheap path is preserved
+    // below instead: no folder yet + nothing to upload ⇒ zero Drive calls.
 
     // Candidate display name — real name lives in auth metadata, profile is a fallback.
     let candidateName = "";
@@ -254,9 +340,13 @@ export async function mirrorCandidateApprovedDocs(
     if (!candidateName) candidateName = `Kandidat ${userId.slice(0, 8)}`;
 
     // <Candidate> / { Vor Matching (dossier) , Nach Matching (placeholder) }.
-    const candFolderId = await findOrCreateFolder(drive, candidateName, batchFolderId);
+    // Look the folder up WITHOUT creating it: a candidate with nothing to upload
+    // and no folder yet has nothing stale either → return without a single write.
+    let candFolderId = await findFolder(drive, candidateName, batchFolderId);
+    if (!candFolderId && toUpload.length === 0) return { ok: true, uploaded: 0, unchanged, archived: 0 };
+    if (!candFolderId) candFolderId = await findOrCreateFolder(drive, candidateName, batchFolderId);
     const vorId = await findOrCreateFolder(drive, VOR_MATCHING, candFolderId);
-    await findOrCreateFolder(drive, NACH_MATCHING, candFolderId); // create the placeholder now
+    if (toUpload.length) await findOrCreateFolder(drive, NACH_MATCHING, candFolderId); // placeholder
 
     let uploaded = 0;
     for (const d of toUpload) {
@@ -264,6 +354,9 @@ export async function mirrorCandidateApprovedDocs(
       if (!obj) continue;
       const name = d.file_name || `${d.file_type || "document"}.pdf`;
       const media = { mimeType: obj.contentType || "application/pdf", body: Readable.from(obj.body) };
+      // OWNERSHIP MARKER — this is what lets the reconcile pass tell OUR copies
+      // from files the founder placed in the folder himself (which stay untouched).
+      const appProperties = { borivon_doc_id: d.id, borivon_user_id: userId, borivon_sha: d.file_sha256 ?? "" };
       let fileId = d.drive_mirror_id ?? null;
       // Trust the recorded id; else find a same-name file in Vor Matching to
       // update (no dupes); else create.
@@ -276,15 +369,21 @@ export async function mirrorCandidateApprovedDocs(
         fileId = existing.data.files?.[0]?.id ?? null;
       }
       if (fileId) {
-        try { await drive.files.update({ fileId, media, supportsAllDrives: true }); }
-        catch { fileId = (await drive.files.create({ requestBody: { name, parents: [vorId] }, media, fields: "id", supportsAllDrives: true })).data.id as string; }
+        try { await drive.files.update({ fileId, media, requestBody: { appProperties }, supportsAllDrives: true }); }
+        catch { fileId = (await drive.files.create({ requestBody: { name, parents: [vorId], appProperties }, media, fields: "id", supportsAllDrives: true })).data.id as string; }
       } else {
-        fileId = (await drive.files.create({ requestBody: { name, parents: [vorId] }, media, fields: "id", supportsAllDrives: true })).data.id as string;
+        fileId = (await drive.files.create({ requestBody: { name, parents: [vorId], appProperties }, media, fields: "id", supportsAllDrives: true })).data.id as string;
       }
       await db.from("documents").update({ drive_mirror_id: fileId, drive_mirror_sha256: d.file_sha256 }).eq("id", d.id);
       uploaded++;
     }
-    return { ok: true, uploaded, unchanged };
+
+    // RETRACT whatever the portal no longer treats as current. Runs on EVERY
+    // sync — including when nothing was uploaded — so a rejected/replaced doc
+    // stops being visible to the agency instead of lingering there forever.
+    const archived = await reconcileVorMatching(drive, docs, vorId, candFolderId);
+
+    return { ok: true, uploaded, unchanged, archived };
   } catch (e) {
     return { ok: false, error: "mirror_failed", hint: e instanceof Error ? e.message : String(e) };
   }

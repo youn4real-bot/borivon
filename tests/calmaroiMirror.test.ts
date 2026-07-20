@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { latestApprovedPerName, agencyRootFolderName, type ApprovedDoc } from "../lib/driveMirror";
+import { latestApprovedPerName, agencyRootFolderName, selectStaleMirrorFiles, type ApprovedDoc, type MirrorFile } from "../lib/driveMirror";
 import { isPreMatchDoc } from "../lib/fileKeys";
 
 const doc = (o: Partial<ApprovedDoc>): ApprovedDoc => ({
@@ -91,5 +91,42 @@ describe("isPreMatchDoc — Vor Matching (dossier) vs Nach Matching (visa/slots)
   it("treats an untyped doc as dossier (safe default)", () => {
     expect(isPreMatchDoc("")).toBe(true);
     expect(isPreMatchDoc(null)).toBe(true);
+  });
+});
+
+describe("selectStaleMirrorFiles — retraction safety (LAW #33)", () => {
+  const f = (id: string, docId?: string, name = `${id}.pdf`): MirrorFile =>
+    ({ id, name, appProperties: docId ? { borivon_doc_id: docId } : undefined });
+
+  it("NEVER touches a file the portal didn't place (no marker)", () => {
+    // The founder's own notes/contracts sitting in the same folder.
+    const files = [f("x", undefined, "meine_notizen.docx"), f("y", undefined, "vertrag.pdf")];
+    expect(selectStaleMirrorFiles(files, ["d1"])).toEqual([]);
+  });
+
+  it("leaves a mirrored copy alone while its doc is still live", () => {
+    expect(selectStaleMirrorFiles([f("x", "d1")], ["d1", "d2"])).toEqual([]);
+  });
+
+  it("retracts a mirrored copy whose doc is no longer current", () => {
+    // doc got rejected / superseded / swapped → its id drops out of the live set.
+    const out = selectStaleMirrorFiles([f("x", "d1"), f("y", "d2")], ["d2"]);
+    expect(out.map((o) => o.id)).toEqual(["x"]);
+  });
+
+  it("retracts everything mirrored when the candidate has no live docs left", () => {
+    const out = selectStaleMirrorFiles([f("x", "d1"), f("y", "d2")], []);
+    expect(out.map((o) => o.id)).toEqual(["x", "y"]);
+  });
+
+  it("skips entries with no file id (can't be moved)", () => {
+    const files: MirrorFile[] = [{ id: null, name: "ghost", appProperties: { borivon_doc_id: "gone" } }];
+    expect(selectStaleMirrorFiles(files, [])).toEqual([]);
+  });
+
+  it("mixes safely: retract ours, keep his, keep live", () => {
+    const files = [f("mine-stale", "d-old"), f("mine-live", "d-live"), f("his", undefined, "handout.pdf")];
+    const out = selectStaleMirrorFiles(files, ["d-live"]);
+    expect(out.map((o) => o.id)).toEqual(["mine-stale"]);
   });
 });
