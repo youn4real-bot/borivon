@@ -1,5 +1,24 @@
 import { describe, it, expect } from "vitest";
-import { isConfirmText, isCancelText, isSendImperative, isResetText, isShowFilesText, isMuteDocReminders, isUnmuteDocReminders, isMinimalReminders, isBriefingSignalsOn, isSetReminder, parseReminderText, looksLikeDone } from "../lib/confirmIntent";
+import { isConfirmText, isCancelText, isSendImperative, isResetText, isShowFilesText, isMuteDocReminders, isUnmuteDocReminders, isMinimalReminders, isBriefingSignalsOn, isSetReminder, parseReminderText, looksLikeDone, looksLikeEmailDraft } from "../lib/confirmIntent";
+
+// looksLikeEmailDraft decides whether a bare "send" is allowed to auto-apply the
+// send the model stages this turn. A false POSITIVE could fire an email the model
+// invented, so the already-sent "✅ Done" confirmation must never read as a draft.
+// Strings below are taken from the founder's REAL Telegram log (2026-06-25).
+describe("looksLikeEmailDraft — is a real draft on screen?", () => {
+  const REAL_DRAFT = 'To: abenchiir@gmail.com · Subject: Gute Nachrichten zur Anerkennung deines Bruders · 📎 — ——— Hallo Abdelhak, wir haben gute Nachrichten bezüglich der Anerkennung.';
+  const REAL_REPLY_DRAFT = 'To: abenchiir@gmail.com · Subject: Re: Gute Nachrichten zur Anerkennung deines Bruders · 📎 — ——— Hallo Abdelhak, hier ist ein neuer Anmeldelink.';
+  const ALREADY_SENT = '✅ Done — 📧 To: abenchiir@gmail.com Subject: Gute Nachrichten zur Anerkennung deines Bruders Attachments: none Hallo Abdelhak, wir haben gute Nachrichten.';
+  const DEAD_END = "Nothing's staged to send right now — if you just sent one, it already went out.";
+
+  it("detects a drafted email", () => expect(looksLikeEmailDraft(REAL_DRAFT)).toBe(true));
+  it("detects a drafted reply", () => expect(looksLikeEmailDraft(REAL_REPLY_DRAFT)).toBe(true));
+  it("does NOT treat an already-sent confirmation as a draft", () => expect(looksLikeEmailDraft(ALREADY_SENT)).toBe(false));
+  it("does NOT treat the dead-end notice as a draft", () => expect(looksLikeEmailDraft(DEAD_END)).toBe(false));
+  for (const t of ["", "ok", "You have 20 unanswered emails.", "Here's a new candidate signup link: https://www.borivon.com/join/candidate/abc"]) {
+    it(`not a draft: "${t.slice(0, 40)}"`, () => expect(looksLikeEmailDraft(t)).toBe(false));
+  }
+});
 
 // The bot's CODE-ENFORCED confirm path keys off these. If they regress, the
 // "say yes → it just re-asks forever" bug comes back, so the behaviour is pinned.

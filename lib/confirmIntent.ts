@@ -52,6 +52,29 @@ export function isSendImperative(t: string): boolean {
   return false;
 }
 
+/**
+ * True when an assistant message is an EMAIL DRAFT PREVIEW — the
+ * "To: … · Subject: … ——— body" shape the bot renders before sending.
+ *
+ * Why it exists: the real send-loop bug is that the model PREVIEWS an email as
+ * plain text without ever staging it, so the founder's "send" finds nothing armed
+ * and dead-ends ("Nothing's staged…") — he then repeats himself 4-5 times. This
+ * lets the webhook tell a REAL "send" (a draft is on screen, he means THAT one)
+ * from a stray "send" with nothing to send, so we can safely auto-apply the first
+ * case and NEVER fire an email the model invented. Pure + tested.
+ */
+export function looksLikeEmailDraft(s: string): boolean {
+  const t = (s || "").trim();
+  if (!t || t.length < 20) return false;
+  // An already-applied confirmation ("✅ Done — 📧 To: …") is NOT a pending draft.
+  if (/^\s*✅/.test(t) || /^\s*done\b/i.test(t)) return false;
+  if (/nothing'?s staged/i.test(t)) return false;
+  const hasRecipient = /(^|\n|\s|·)(to|an|à)\s*:\s*\S/i.test(t) || /↩️?\s*reply to\b/i.test(t);
+  const hasSubject = /(^|\s|·)(subject|betreff|objet)\s*:/i.test(t);
+  const hasDivider = /———|-{3,}\s*$/m.test(t);
+  return hasRecipient && (hasSubject || hasDivider);
+}
+
 /** True when the message is a plain "cancel the pending action" negation. */
 export function isCancelText(t: string): boolean {
   const n = normShort(t);

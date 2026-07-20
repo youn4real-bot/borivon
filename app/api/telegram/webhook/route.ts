@@ -25,7 +25,7 @@ import { transcribeVoice } from "@/lib/transcribeVoice";
 import { looksLikeCorrection, reflectAndLearn } from "@/lib/selfLearn";
 import { loadConversationContext, saveChatTurns, maybeCompact, resetConversation } from "@/lib/assistantChatHistory";
 import { executeLatestPending, cancelLatestPending, autoApplyPending, getPendingDraft, getPendingSendAttachments, expireStalePendingConfirms } from "@/lib/assistantWrites";
-import { isConfirmText, isCancelText, isSendImperative, isResetText, isShowFilesText, isMuteDocReminders, isUnmuteDocReminders, isMinimalReminders, isBriefingSignalsOn, isSetReminder, parseReminderText, looksLikeDone, isSetRule, parseRuleText } from "@/lib/confirmIntent";
+import { isConfirmText, isCancelText, isSendImperative, isResetText, isShowFilesText, isMuteDocReminders, isUnmuteDocReminders, isMinimalReminders, isBriefingSignalsOn, isSetReminder, parseReminderText, looksLikeDone, isSetRule, parseRuleText, looksLikeEmailDraft } from "@/lib/confirmIntent";
 import { createReminder, resolveDoneReminders, handleReminderPingReply } from "@/lib/reminderAuto";
 import { checkPendingMigrations } from "@/lib/migrationCheck";
 import { isBotQuiet, setBotQuiet } from "@/lib/botQuiet";
@@ -332,6 +332,12 @@ export async function POST(req: NextRequest) {
     return ok(); // don't save this turn → the next message begins truly clean
   }
 
+  // Set when the founder said "send" while a DRAFT was on screen but nothing was
+  // armed (the model previewed the email as text without staging it). His "send"
+  // IS the human OK, so the send this turn stages applies immediately instead of
+  // asking him again — that's what ends the "say send 4-5 times" loop.
+  let sendAuthorizedThisTurn = false;
+
   // 3.5) CODE-ENFORCED CONFIRM — apply/cancel a pending action without the model.
   // Only on a PLAIN text affirmation/negation (no file/voice attached). If there
   // is nothing pending, fall through to the model (the "yes" wasn't a confirm).
@@ -353,10 +359,32 @@ export async function POST(req: NextRequest) {
       // and can re-stage a DUPLICATE send (the real bug — an email went out twice). Tell the
       // founder plainly + stop. (A bare "yes"/"ok" still falls through; it may answer a question.)
       if (isSendImperative(text)) {
-        const reply = "Nothing's staged to send right now — if you just sent one, it already went out. To send a new email, tell me e.g. \"email Abdelhak that …\" and I'll draft it for your OK.";
-        await tgSend(chatId, reply);
-        await saveChatTurns(scope.userId, [{ role: "user", content: text }, { role: "assistant", content: reply }]);
-        return ok();
+        // Was a DRAFT actually on screen? The real bug: the model previews the email
+        // as plain TEXT and never stages it, so "send" dead-ends and he repeats
+        // himself 4-5x (verified in his own chat log). If a draft is showing, his
+        // "send" is the human OK → fall through so the model re-stages it and the
+        // send auto-applies this turn. If there is genuinely NOTHING to send, keep
+        // the honest dead-end so a stray "send" can never fire an invented email.
+        let draftOnScreen = false;
+        try {
+          const { data: recent } = await getServiceSupabase()
+            .from("assistant_chat_turns")
+            .select("role, content")
+            .eq("owner_user_id", scope.userId)
+            .order("created_at", { ascending: false })
+            .limit(4);
+          const lastAssistant = ((recent ?? []) as { role: string; content: string }[]).find((t) => t.role === "assistant");
+          draftOnScreen = looksLikeEmailDraft(lastAssistant?.content ?? "");
+        } catch { /* can't tell → fail CLOSED to the dead-end below */ }
+
+        if (draftOnScreen) {
+          sendAuthorizedThisTurn = true; // fall through to the model; its staged send applies immediately
+        } else {
+          const reply = "Nothing's staged to send right now — if you just sent one, it already went out. To send a new email, tell me e.g. \"email Abdelhak that …\" and I'll draft it for your OK.";
+          await tgSend(chatId, reply);
+          await saveChatTurns(scope.userId, [{ role: "user", content: text }, { role: "assistant", content: reply }]);
+          return ok();
+        }
       }
       // bare affirmation with nothing pending → not a confirm; let the model handle the "yes".
     } else if (isCancelText(text)) {
@@ -816,7 +844,9 @@ export async function POST(req: NextRequest) {
     // prompt never showed (the founder saw a bogus "Not done yet"). Gating on !done fixes that.
     if (!confirmOutcome?.done) {
       try {
-        const res = await autoApplyPending(scope);
+        // authorizeSends: he already said "send" with a draft on screen (3.5) — so the
+        // send the model stages in THIS turn applies now instead of asking again.
+        const res = await autoApplyPending(scope, { authorizeSends: sendAuthorizedThisTurn });
         if ("applied" in res) {
           if (res.failed.length) confirmOutcome = { error: res.failed.join("; "), partialApplied: res.applied.length ? res.applied.join("; ") : undefined };
           else if (res.applied.length) confirmOutcome = { done: true, summary: res.applied.join("; ") };

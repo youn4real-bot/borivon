@@ -2160,20 +2160,32 @@ async function findAwaitingConfirm(userId: string): Promise<AwaitingConfirm | nu
  * by the Telegram webhook right after the model runs, so the admin talks naturally
  * and non-send actions just happen — while a send always pauses for confirmation.
  */
-export async function autoApplyPending(scope: AssistantScope): Promise<AutoApplyResult> {
+export async function autoApplyPending(
+  scope: AssistantScope,
+  opts?: { authorizeSends?: boolean },
+): Promise<AutoApplyResult> {
   if (!scope.userId) return { skipped: "nothing", awaitingConfirm: null };
   const db = getServiceSupabase();
   const applied: string[] = [];
   const failed: string[] = [];
   // Drain EVERY pending NON-confirm action staged this turn (oldest first), so
   // "set B2 for these 3" applies them ALL. Sends + deletes are left pending.
+  //
+  // authorizeSends: the founder's message WAS an explicit send-imperative ("send",
+  // "send it") while a draft was on screen but nothing was armed — the model had
+  // previewed the email as TEXT without staging it. He already gave the human OK,
+  // so a send staged during THIS turn applies immediately instead of asking again.
+  // That's what breaks the real "say send 4-5 times and it still doesn't go" loop.
+  // DESTRUCTIVE + calendar-cancel actions are NEVER auto-authorized this way.
+  const canTake = (r: PendingRow) =>
+    !CONFIRM_TOOLS.has(r.tool_name) || (!!opts?.authorizeSends && SEND_TOOLS.has(r.tool_name));
   for (let i = 0; i < 20; i++) {
     const { data } = await db.from("assistant_pending_actions")
       .select("id, tool_name, args, candidate_user_id, summary, expires_at")
       .eq("owner_user_id", scope.userId).eq("status", "pending")
       .order("created_at", { ascending: true }).limit(20);
     const rows = ((data ?? []) as PendingRow[]).filter((r) => new Date(r.expires_at).getTime() >= Date.now());
-    const next = rows.find((r) => !CONFIRM_TOOLS.has(r.tool_name));
+    const next = rows.find(canTake);
     if (!next) break; // only confirm-required left (awaiting 'yes'), or nothing pending
     const r = await applyPendingRow(scope, next, { allowSameTurn: true });
     if ("done" in r) {
