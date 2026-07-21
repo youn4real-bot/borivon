@@ -234,7 +234,7 @@ export async function resolveBatchSyncTargets(
 }
 
 export type CandidateMirrorResult =
-  | { ok: true; uploaded: number; unchanged: number; archived: number }
+  | { ok: true; uploaded: number; unchanged: number; archived: number; missing: number }
   | { ok: false; error: "workspace_not_connected" | "mirror_failed"; hint?: string };
 
 /** Find a folder WITHOUT creating it (null when absent) — lets a candidate with
@@ -387,15 +387,23 @@ export async function mirrorCandidateApprovedDocs(
     // Look the folder up WITHOUT creating it: a candidate with nothing to upload
     // and no folder yet has nothing stale either → return without a single write.
     let candFolderId = await findFolder(drive, candidateName, batchFolderId);
-    if (!candFolderId && toUpload.length === 0) return { ok: true, uploaded: 0, unchanged, archived: 0 };
+    if (!candFolderId && toUpload.length === 0) return { ok: true, uploaded: 0, unchanged, archived: 0, missing: 0 };
     if (!candFolderId) candFolderId = await findOrCreateFolder(drive, candidateName, batchFolderId);
     const vorId = await findOrCreateFolder(drive, VOR_MATCHING, candFolderId);
     if (toUpload.length) await findOrCreateFolder(drive, NACH_MATCHING, candFolderId); // placeholder
 
     let uploaded = 0;
+    let missing = 0; // approved docs whose R2 bytes couldn't be fetched — must NOT be silent
     for (const d of toUpload) {
       const obj = await r2GetObject(d.r2_key!);
-      if (!obj) continue;
+      if (!obj) {
+        // The doc is approved and current but its stored file is unreadable, so
+        // the agency would silently be missing it. Count + log so the sync can
+        // report "N couldn't be copied" instead of a false "success".
+        missing++;
+        console.error("[driveMirror] approved doc has unreadable R2 bytes — not copied:", d.id, d.file_name, d.r2_key);
+        continue;
+      }
       const name = d.file_name || `${d.file_type || "document"}.pdf`;
       const media = { mimeType: obj.contentType || "application/pdf", body: Readable.from(obj.body) };
       // OWNERSHIP MARKER — this is what lets the reconcile pass tell OUR copies
@@ -435,7 +443,7 @@ export async function mirrorCandidateApprovedDocs(
     // stops being visible to the agency instead of lingering there forever.
     const archived = await reconcileVorMatching(db, drive, docs, vorId, candFolderId);
 
-    return { ok: true, uploaded, unchanged, archived };
+    return { ok: true, uploaded, unchanged, archived, missing };
   } catch (e) {
     return { ok: false, error: "mirror_failed", hint: e instanceof Error ? e.message : String(e) };
   }

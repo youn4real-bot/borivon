@@ -48,6 +48,7 @@ export async function POST(req: NextRequest) {
   let uploaded = 0;
   let unchanged = 0;
   let archived = 0; // copies RETRACTED into Archiv (no longer current in the portal)
+  let missing = 0;  // approved docs whose stored bytes were unreadable — surfaced, never silent
   let processed = 0;
   const errors: { userId: string; error: string }[] = [];
   const startedAt = Date.now();
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest) {
   for (const uid of targets.userIds) {
     if (processed > 0 && Date.now() - startedAt > TIME_BUDGET_MS) break;
     const r = await mirrorCandidateApprovedDocs(db, drive, uid, batchFolderId);
-    if (r.ok) { uploaded += r.uploaded; unchanged += r.unchanged; archived += r.archived; }
+    if (r.ok) { uploaded += r.uploaded; unchanged += r.unchanged; archived += r.archived; missing += r.missing; }
     else errors.push({ userId: uid, error: `${r.error}${r.hint ? `: ${r.hint}` : ""}` });
     processed++;
   }
@@ -67,7 +68,7 @@ export async function POST(req: NextRequest) {
     candidates: targets.userIds.length,
     processed,
     remaining: targets.userIds.length - processed,
-    uploaded, unchanged, archived, errors,
+    uploaded, unchanged, archived, missing, errors,
     // Show the FULL path (it now lives inside the founder's WORK drive) and a
     // direct link to the exact folder that was written, so "did it land in the
     // right place?" is one click to confirm instead of a hunt through Drive.

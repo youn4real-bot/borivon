@@ -234,6 +234,7 @@ export default function AdminTrackerPage() {
     setSyncMsg(T("Working…", "Arbeite…", "En cours…"));
     let totalUploaded = 0;
     let totalArchived = 0; // outdated copies pulled out of the agency's view
+    let totalMissing = 0;  // approved docs whose stored file couldn't be read — must be seen, not hidden
     let candidates = 0;
     let folder = "";
     let hint = "";
@@ -253,6 +254,7 @@ export default function AdminTrackerPage() {
         }
         totalUploaded += j.uploaded ?? 0;
         totalArchived += j.archived ?? 0;
+        totalMissing += j.missing ?? 0;
         candidates = j.candidates ?? candidates;
         if (j.folder) folder = j.folder;
         if (j.folderUrl) setSyncUrl(String(j.folderUrl));
@@ -266,9 +268,9 @@ export default function AdminTrackerPage() {
         if (j.done) break;
       }
       setSyncMsg(T(
-        `Done — copied ${totalUploaded} files across ${candidates} candidates${totalArchived ? `, moved ${totalArchived} outdated to Archiv` : ""}${errUsers.size ? `, ${errUsers.size} errored` : ""}. In your Drive: "${folder || batch.name}".`,
-        `Fertig — ${totalUploaded} Dateien für ${candidates} Kandidaten kopiert${totalArchived ? `, ${totalArchived} veraltete ins Archiv verschoben` : ""}${errUsers.size ? `, ${errUsers.size} Fehler` : ""}. In deinem Drive: "${folder || batch.name}".`,
-        `Terminé — ${totalUploaded} fichiers copiés pour ${candidates} candidats${totalArchived ? `, ${totalArchived} obsolètes déplacés vers Archiv` : ""}${errUsers.size ? `, ${errUsers.size} en erreur` : ""}. Dans ton Drive : "${folder || batch.name}".`,
+        `Done — copied ${totalUploaded} files across ${candidates} candidates${totalArchived ? `, moved ${totalArchived} outdated to Archiv` : ""}${totalMissing ? `, ⚠ ${totalMissing} could not be copied (missing file)` : ""}${errUsers.size ? `, ${errUsers.size} errored` : ""}. In your Drive: "${folder || batch.name}".`,
+        `Fertig — ${totalUploaded} Dateien für ${candidates} Kandidaten kopiert${totalArchived ? `, ${totalArchived} veraltete ins Archiv verschoben` : ""}${totalMissing ? `, ⚠ ${totalMissing} nicht kopierbar (Datei fehlt)` : ""}${errUsers.size ? `, ${errUsers.size} Fehler` : ""}. In deinem Drive: "${folder || batch.name}".`,
+        `Terminé — ${totalUploaded} fichiers copiés pour ${candidates} candidats${totalArchived ? `, ${totalArchived} obsolètes déplacés vers Archiv` : ""}${totalMissing ? `, ⚠ ${totalMissing} non copiés (fichier manquant)` : ""}${errUsers.size ? `, ${errUsers.size} en erreur` : ""}. Dans ton Drive : "${folder || batch.name}".`,
       ) + (hint ? ` (${hint})` : ""));
     } catch {
       setSyncMsg(T("Sync failed.", "Synchronisation fehlgeschlagen.", "Échec de la synchronisation."));
