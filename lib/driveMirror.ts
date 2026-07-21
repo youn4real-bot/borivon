@@ -285,6 +285,7 @@ export function selectStaleMirrorFiles(files: MirrorFile[], currentDocIds: Itera
 }
 
 async function reconcileVorMatching(
+  db: SupabaseClient,
   drive: Drive,
   currentDocs: ApprovedDoc[],
   vorId: string,
@@ -310,6 +311,20 @@ async function reconcileVorMatching(
     try {
       await drive.files.update({ fileId: f.id!, addParents: archivId, removeParents: vorId, supportsAllDrives: true });
       moved++;
+      // CRITICAL: sever this doc's mirror pointer. The row still carries
+      // drive_mirror_id/_sha256 pointing at the file we just moved to Archiv.
+      // If the doc later becomes live again (a rejected doc re-approved on the
+      // SAME row, unchanged bytes), isMirrored would be true → we'd upload
+      // nothing → the copy stays stranded in Archiv and the agency silently
+      // never gets it back. Nulling the pointer forces a fresh Vor-Matching
+      // upload next sync. (The archived file itself stays — LAW #33.)
+      const docId = f.appProperties?.borivon_doc_id;
+      if (docId) {
+        await db.from("documents")
+          .update({ drive_mirror_id: null, drive_mirror_sha256: null })
+          .eq("id", docId)
+          .then(undefined, () => { /* pointer reset is best-effort; retraction already happened */ });
+      }
     } catch { /* one stuck file must never abort the whole sync */ }
   }
   return moved;
@@ -418,7 +433,7 @@ export async function mirrorCandidateApprovedDocs(
     // RETRACT whatever the portal no longer treats as current. Runs on EVERY
     // sync — including when nothing was uploaded — so a rejected/replaced doc
     // stops being visible to the agency instead of lingering there forever.
-    const archived = await reconcileVorMatching(drive, docs, vorId, candFolderId);
+    const archived = await reconcileVorMatching(db, drive, docs, vorId, candFolderId);
 
     return { ok: true, uploaded, unchanged, archived };
   } catch (e) {

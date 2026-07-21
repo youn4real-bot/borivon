@@ -129,6 +129,17 @@ describe("selectStaleMirrorFiles — retraction safety (LAW #33)", () => {
     const out = selectStaleMirrorFiles(files, ["d-live"]);
     expect(out.map((o) => o.id)).toEqual(["mine-stale"]);
   });
+
+  it("reject→re-approve round-trip: stale while rejected, NOT stale once live again", () => {
+    // The doc's Drive copy carries its marker throughout. When the doc is
+    // rejected it drops out of the live set → selected for Archiv. When the SAME
+    // row is re-approved it's live again → must NOT be selected. (The companion
+    // pointer-null in reconcile is what makes the re-approval actually re-upload;
+    // this locks the classification half of that invariant.)
+    const file = f("copy", "doc-1");
+    expect(selectStaleMirrorFiles([file], []).map((o) => o.id)).toEqual(["copy"]);       // rejected
+    expect(selectStaleMirrorFiles([file], ["doc-1"]).map((o) => o.id)).toEqual([]);      // re-approved
+  });
 });
 
 describe("mirrorFingerprint — the sync must CONVERGE", () => {
