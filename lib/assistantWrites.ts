@@ -1762,6 +1762,47 @@ export async function executeLatestPending(
  *  + dispatch + mark confirmed. Shared by executeLatestPending (the human "yes"
  *  path) and autoApplyPending (which drains ALL non-destructive actions staged
  *  this turn, so a multi-action message — "message all 4" — applies every one). */
+/** Minimal shape of the conditional-update claim, so the race can be unit-tested.
+ *  PromiseLike (not Promise) — the real Supabase query builder is a thenable. */
+export type ClaimDb = {
+  from: (table: string) => {
+    update: (patch: { status: string }) => {
+      eq: (col: string, val: string) => {
+        eq: (col: string, val: string) => {
+          select: (cols: string) => PromiseLike<{ data: unknown; error: unknown }>;
+        };
+      };
+    };
+  };
+};
+
+/**
+ * Take exclusive ownership of a staged action before executing it.
+ *
+ * The whole duplicate-send fix lives here. `update … where id=? AND status='pending'`
+ * is atomic in Postgres, so of two concurrent runs exactly ONE gets a row back:
+ *   "claimed" → this run owns it, go execute
+ *   "taken"   → someone else already did it; do NOT execute (the duplicate we're killing)
+ *   "error"   → DB trouble; leave it pending for a later turn
+ *
+ * 'confirmed' doubles as the claim because the status CHECK constraint fixes the
+ * allowed values ('pending','confirmed','cancelled','expired') — so no migration.
+ */
+export async function claimPendingRow(db: ClaimDb, rowId: string): Promise<"claimed" | "taken" | "error"> {
+  try {
+    const { data, error } = await db
+      .from("assistant_pending_actions")
+      .update({ status: "confirmed" })
+      .eq("id", rowId)
+      .eq("status", "pending")
+      .select("id");
+    if (error) return "error";
+    return (data as { id: string }[] | null)?.length ? "claimed" : "taken";
+  } catch {
+    return "error";
+  }
+}
+
 async function applyPendingRow(
   scope: AssistantScope,
   row: PendingRow,
@@ -1786,6 +1827,21 @@ async function applyPendingRow(
     await db.from("assistant_pending_actions").update({ status: "cancelled" }).eq("id", row.id);
     return { error: "out_of_scope" };
   }
+  // ATOMIC CLAIM — flip pending→confirmed BEFORE doing the work, conditional on the
+  // row STILL being 'pending'. Without this the row was only marked AFTER the write,
+  // so two invocations could both read it as pending and both execute it: the founder
+  // saw one instruction send the SAME email twice (~a minute apart). That gap is
+  // Telegram's retry window — a turn that sends but dies before stamping responded_at
+  // is re-delivered after 65s and re-ran this row, still 'pending'. Same race for two
+  // near-simultaneous messages.
+  //
+  // Losing the claim means someone else already took it → never repeat the action.
+  // 'confirmed' doubles as the claim because the status CHECK constraint fixes the
+  // allowed values (no migration). A crash mid-write therefore leaves the row claimed
+  // and does NOT retry — the failure this code already prefers (see the webhook's
+  // responded_at stamp): a missing reply he can re-ask for beats a send he can't unsend.
+  const claim = await claimPendingRow(getServiceSupabase(), row.id);
+  if (claim !== "claimed") return { error: claim === "taken" ? "already_applied" : "claim_failed" };
   const a = row.args;
   let result: WriteResult = { ok: false, error: "unknown_tool" };
   if (row.tool_name === "setInterviewResult") {
@@ -2072,8 +2128,7 @@ async function applyPendingRow(
   } else if (row.tool_name === "nudgeStuckCandidates") {
     await stampTouch(Array.isArray(a.candidateIds) ? (a.candidateIds as unknown[]).map((x) => String(x)) : []);
   }
-  const db = getServiceSupabase();
-  await db.from("assistant_pending_actions").update({ status: "confirmed" }).eq("id", row.id);
+  // (No status write here — the atomic claim above already marked it 'confirmed'.)
   // Append any extra info the write produced (e.g. a freshly-minted Meet link).
   const summary = result.info ? `${row.summary}\n${result.info}` : row.summary;
   return { done: true, summary };
@@ -2205,6 +2260,17 @@ export async function autoApplyPending(
     const r = await applyPendingRow(scope, next, { allowSameTurn: true });
     if ("done" in r) {
       applied.push(next.summary);
+    } else if (r.error === "already_applied") {
+      // Another invocation (a Telegram retry, or a near-simultaneous message) won
+      // the claim and is executing this row. NOT a failure and NOT ours to cancel —
+      // cancelling here would sabotage the run that legitimately owns it. The row is
+      // no longer 'pending', so the next loop pass won't see it again.
+      continue;
+    } else if (r.error === "claim_failed") {
+      // Transient DB trouble claiming the row. It is still 'pending', so re-reading
+      // would spin — stop and leave it for a later turn rather than burn the loop.
+      failed.push(r.error);
+      break;
     } else {
       failed.push(r.error);
       await db.from("assistant_pending_actions").update({ status: "cancelled" }).eq("id", next.id);

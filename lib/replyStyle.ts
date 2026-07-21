@@ -79,6 +79,11 @@ export function humanizeWriteError(code: string): string {
     nothing_pending: "there was nothing pending to apply",
     confirm_in_new_message: 'send "yes" once more as its own message',
     email_not_configured: "email isn't configured right now",
+    // Lost the atomic claim: another run of the same turn (a Telegram retry, or two
+    // messages landing together) already executed it. Say "already done" — the founder
+    // must never be told it failed and re-trigger it, which is the duplicate we fixed.
+    already_applied: "that one already went through — nothing sent twice",
+    claim_failed: "the database was busy — try that once more",
   };
   return map[base] || map[c] || "something didn't go through — try once more";
 }
