@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { latestApprovedPerName, agencyRootFolderName, selectStaleMirrorFiles, type ApprovedDoc, type MirrorFile } from "../lib/driveMirror";
+import { latestApprovedPerName, agencyRootFolderName, selectStaleMirrorFiles, mirrorFingerprint, type ApprovedDoc, type MirrorFile } from "../lib/driveMirror";
 import { isPreMatchDoc } from "../lib/fileKeys";
 
 const doc = (o: Partial<ApprovedDoc>): ApprovedDoc => ({
@@ -128,5 +128,52 @@ describe("selectStaleMirrorFiles — retraction safety (LAW #33)", () => {
     const files = [f("mine-stale", "d-old"), f("mine-live", "d-live"), f("his", undefined, "handout.pdf")];
     const out = selectStaleMirrorFiles(files, ["d-live"]);
     expect(out.map((o) => o.id)).toEqual(["mine-stale"]);
+  });
+});
+
+describe("mirrorFingerprint — the sync must CONVERGE", () => {
+  // Reality check 2026-07-20 against the live DB: 195 of 231 live approved docs
+  // have file_sha256 = NULL. Under the old `file_sha256 === drive_mirror_sha256`
+  // rule every one of them re-uploaded on EVERY sync, forever.
+  const mirrored = (d: ApprovedDoc, fp: string | null) => !!(d.drive_mirror_id && fp && d.drive_mirror_sha256 === fp);
+
+  it("uses file_sha256 when present", () => {
+    expect(mirrorFingerprint(doc({ file_sha256: "abc", r2_key: "r2/x" }))).toBe("abc");
+  });
+
+  it("falls back to the r2 key when file_sha256 is missing", () => {
+    expect(mirrorFingerprint(doc({ file_sha256: null, r2_key: "candidates/u/1_cv.pdf" })))
+      .toBe("r2key:candidates/u/1_cv.pdf");
+  });
+
+  it("is null when there is nothing to identify the bytes by", () => {
+    expect(mirrorFingerprint(doc({ file_sha256: null, r2_key: null }))).toBeNull();
+  });
+
+  it("CONVERGES: a sha-less doc is skipped on the second sync", () => {
+    const d = doc({ id: "d1", file_sha256: null, r2_key: "candidates/u/1_cv.pdf" });
+    const fp = mirrorFingerprint(d);
+    expect(mirrored(d, fp)).toBe(false);                 // first sync: uploads
+    const after = { ...d, drive_mirror_id: "drive-1", drive_mirror_sha256: fp };
+    expect(mirrored(after, mirrorFingerprint(after))).toBe(true); // second sync: skipped
+  });
+
+  it("re-uploads when the bytes change, because a new upload mints a new r2 key", () => {
+    const before = doc({ id: "d1", file_sha256: null, r2_key: "candidates/u/1_cv.pdf",
+      drive_mirror_id: "drive-1", drive_mirror_sha256: "r2key:candidates/u/1_cv.pdf" });
+    expect(mirrored(before, mirrorFingerprint(before))).toBe(true);
+    const swapped = { ...before, r2_key: "candidates/u/2_cv.pdf" }; // CV regenerated
+    expect(mirrored(swapped, mirrorFingerprint(swapped))).toBe(false);
+  });
+
+  it("re-uploads when a real sha appears later (fingerprint changes shape)", () => {
+    const d = doc({ id: "d1", file_sha256: "realsha", r2_key: "candidates/u/1_cv.pdf",
+      drive_mirror_id: "drive-1", drive_mirror_sha256: "r2key:candidates/u/1_cv.pdf" });
+    expect(mirrored(d, mirrorFingerprint(d))).toBe(false); // one extra upload, then stable
+  });
+
+  it("never claims mirrored without a recorded drive file id", () => {
+    const d = doc({ file_sha256: "abc", drive_mirror_id: null, drive_mirror_sha256: "abc" });
+    expect(mirrored(d, mirrorFingerprint(d))).toBe(false);
   });
 });

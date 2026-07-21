@@ -911,6 +911,8 @@ export default function AdminPage() {
   // canonical assignment implies; admin can flip it manually to view the
   // other branch before picking. Cleared on modal close.
   const [assignTypeUI, setAssignTypeUI]   = useState<"agency" | "employer" | null>(null);
+  // "Regenerate agency CV" button state (Assign tab). idle → busy → ok/err.
+  const [cvPublishState, setCvPublishState] = useState<"idle" | "busy" | "ok" | "err">("idle");
   const [statusForm, setStatusForm]       = useState<CandStatus>(EMPTY_STATUS);
   const [statusLoading, setStatusLoading] = useState(false);
   const [statusAutoSaved, setStatusAutoSaved] = useState(false);
@@ -938,6 +940,7 @@ export default function AdminPage() {
     setStatusLoading(true);
     setStatusForm(EMPTY_STATUS);
     setAssignTypeUI(null);
+    setCvPublishState("idle");
     statusSeedRef.current = JSON.stringify(EMPTY_STATUS);
     statusFormRef.current = EMPTY_STATUS;
     statusLoadOkRef.current = false;   // block autosave until a good load lands
@@ -4203,6 +4206,66 @@ export default function AdminPage() {
                                       );
                                     })}
                                   </div>
+
+                                  {/* REGENERATE AGENCY CV — only when an agency is linked.
+                                      Publishes a fresh CV forced to the agency logo +
+                                      address (regardless of the picker above) and retires
+                                      the candidate's older CVs so nothing stale is left in
+                                      the portal or the agency Drive. */}
+                                  {hasAgency && (() => {
+                                    const busy = cvPublishState === "busy";
+                                    const Lgen = lang === "de" ? {
+                                      btn: `CV mit ${linkedOrg?.name ?? "Agentur"}-Branding neu erzeugen`,
+                                      busy: "Wird erzeugt…", ok: "✓ Neuer CV veröffentlicht", err: "Fehlgeschlagen — erneut versuchen",
+                                      note: "Ersetzt den aktuellen CV (Logo + Adresse der Agentur). Ältere CVs werden zurückgezogen.",
+                                    } : lang === "fr" ? {
+                                      btn: `Régénérer le CV avec le branding ${linkedOrg?.name ?? "agence"}`,
+                                      busy: "Génération…", ok: "✓ Nouveau CV publié", err: "Échec — réessayer",
+                                      note: "Remplace le CV actuel (logo + adresse de l'agence). Les anciens CV sont retirés.",
+                                    } : {
+                                      btn: `Regenerate CV with ${linkedOrg?.name ?? "agency"} branding`,
+                                      busy: "Generating…", ok: "✓ New CV published", err: "Failed — try again",
+                                      note: "Replaces the current CV (agency logo + address). Older CVs are retracted.",
+                                    };
+                                    const publish = async () => {
+                                      if (!selectedUser || !accessToken || busy) return;
+                                      setCvPublishState("busy");
+                                      try {
+                                        const r = await fetch("/api/portal/admin/cv/publish", {
+                                          method: "POST",
+                                          headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                                          body: JSON.stringify({ candidateUserId: selectedUser, branding: "agency" }),
+                                        });
+                                        setCvPublishState(r.ok ? "ok" : "err");
+                                        if (r.ok) {
+                                          // Pull the freshly-published CV into the dossier now (the
+                                          // realtime channel also catches it, but don't make the
+                                          // admin wait). Same shape as the live-docs refresh above.
+                                          const uid = selectedUser;
+                                          fetch(`/api/portal/admin?userId=${uid}`, { headers: { Authorization: `Bearer ${accessToken}` } })
+                                            .then(res => res.ok ? res.json() : null)
+                                            .then(j => { if (j?.docs) setDocs(prev => [...prev.filter(d => d.user_id !== uid), ...(j.docs as Doc[])]); })
+                                            .catch(() => { /* realtime will reconcile */ });
+                                        }
+                                      } catch { setCvPublishState("err"); }
+                                    };
+                                    return (
+                                      <div className="mt-3">
+                                        <button type="button" onClick={publish} disabled={busy}
+                                          className="w-full py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-opacity hover:opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
+                                          style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                                          {busy
+                                            ? <RotateCcw size={13} className="animate-spin" />
+                                            : <Sparkles size={13} />}
+                                          {busy ? Lgen.busy : Lgen.btn}
+                                        </button>
+                                        <p className="text-[10px] mt-1"
+                                           style={{ color: cvPublishState === "ok" ? "var(--gold)" : cvPublishState === "err" ? "#ef4444" : "var(--w3)" }}>
+                                          {cvPublishState === "ok" ? Lgen.ok : cvPublishState === "err" ? Lgen.err : Lgen.note}
+                                        </p>
+                                      </div>
+                                    );
+                                  })()}
                                 </div>
                               );
                             })()}

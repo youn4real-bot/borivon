@@ -53,23 +53,18 @@ export async function renderCvBuffer(data: CVData, brand?: CVBrand): Promise<Uin
 
 type RenderResult = { ok: true } | { ok: false; error: string };
 
-/** Org/agency branding for an admin-generated CV. {} = plain Borivon. */
-export async function resolveCvBrand(userId: string, byAdmin: boolean): Promise<CVBrand> {
-  if (!byAdmin) return {};
-  const db = getServiceSupabase();
+/** Explicit branding choice — overrides the candidate's stored flags. Used by the
+ *  "Regenerate agency CV" button so the result is deterministic (agency logo +
+ *  address) regardless of which mode the picker happens to be in. */
+export type CvBrandingMode = "agency" | "borivon" | "none";
 
-  const { data: prof } = await db
-    .from("candidate_profiles")
-    .select("employer_id, cv_use_agency_branding, cv_use_borivon_branding")
-    .eq("user_id", userId)
-    .maybeSingle();
-  const p = prof as { employer_id?: string | null; cv_use_agency_branding?: boolean | null; cv_use_borivon_branding?: boolean | null } | null;
-
-  if (p?.cv_use_borivon_branding === false) return { noBranding: true };
-  const useAgency = p?.cv_use_agency_branding;
-  if (useAgency === false) return {};
-  const empId = p?.employer_id ?? null;
-
+/** The assigned agency's logo + footer for a candidate, or {} if none is linked.
+ *  Pure of the cv_use_* flag gates — callers decide whether to consult the flags. */
+async function agencyBrandFor(
+  db: ReturnType<typeof getServiceSupabase>,
+  userId: string,
+  empId: string | null,
+): Promise<CVBrand> {
   let orgId: string | null = null;
   const { data: link } = await db
     .from("candidate_organizations")
@@ -119,10 +114,38 @@ export async function resolveCvBrand(userId: string, byAdmin: boolean): Promise<
   return brand;
 }
 
+/**
+ * Org/agency branding for an admin-generated CV. {} = plain Borivon.
+ *
+ * `force` overrides the candidate's stored cv_use_* flags entirely — the
+ * "Regenerate agency CV" button passes "agency" so the output is deterministic
+ * (agency logo + address) no matter what the branding picker is set to. The
+ * force short-circuits for "none"/"borivon" return before touching the DB, so
+ * they're pure and unit-testable.
+ */
+export async function resolveCvBrand(userId: string, byAdmin: boolean, force?: CvBrandingMode): Promise<CVBrand> {
+  if (force === "none") return { noBranding: true };
+  if (force === "borivon") return {};
+  if (!force && !byAdmin) return {};
+  const db = getServiceSupabase();
+  if (force === "agency") return agencyBrandFor(db, userId, null);
+
+  const { data: prof } = await db
+    .from("candidate_profiles")
+    .select("employer_id, cv_use_agency_branding, cv_use_borivon_branding")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const p = prof as { employer_id?: string | null; cv_use_agency_branding?: boolean | null; cv_use_borivon_branding?: boolean | null } | null;
+
+  if (p?.cv_use_borivon_branding === false) return { noBranding: true };
+  if (p?.cv_use_agency_branding === false) return {};
+  return agencyBrandFor(db, userId, p?.employer_id ?? null);
+}
+
 /** Render the candidate's STORED CV draft → PDF buffer. plain=true → no-logo Visum CV. */
 export async function renderCandidateCvPdf(
   userId: string,
-  opts: { plain?: boolean } = {},
+  opts: { plain?: boolean; branding?: CvBrandingMode } = {},
 ): Promise<{ bytes: Buffer; fileName: string } | null> {
   const db = getServiceSupabase();
   const { data: prof } = await db
@@ -146,7 +169,7 @@ export async function renderCandidateCvPdf(
   const photo = (prof as { profile_photo?: string | null } | null)?.profile_photo ?? null;
   if (photo) data.photo = photo;
 
-  const brand: CVBrand = opts.plain ? { noBranding: true } : await resolveCvBrand(userId, true);
+  const brand: CVBrand = opts.plain ? { noBranding: true } : await resolveCvBrand(userId, true, opts.branding);
   const buffer = await renderCvBuffer(data, brand);
 
   const fn = (data.firstName ?? "").trim().toLowerCase().replace(/\s+/g, "_") || "kandidat";
@@ -156,9 +179,10 @@ export async function renderCandidateCvPdf(
 }
 
 /** Render the essentials CV and publish it as the candidate's official cv_de
- *  document (R2 + documents row). status 'approved' — it's admin-generated. */
-export async function publishCandidateCv(userId: string): Promise<RenderResult> {
-  const rendered = await renderCandidateCvPdf(userId, { plain: false });
+ *  document (R2 + documents row). status 'approved' — it's admin-generated.
+ *  `branding` forces the CV's look (the agency-CV button passes "agency"). */
+export async function publishCandidateCv(userId: string, opts: { branding?: CvBrandingMode } = {}): Promise<RenderResult> {
+  const rendered = await renderCandidateCvPdf(userId, { plain: false, branding: opts.branding });
   if (!rendered) return { ok: false, error: "no_cv_data" };
 
   const db = getServiceSupabase();
@@ -191,18 +215,48 @@ export async function publishCandidateCv(userId: string): Promise<RenderResult> 
     status: "approved", // admin-generated CV is green immediately (LAW #15)
   };
   const sha = createHash("sha256").update(rendered.bytes).digest("hex");
-  const { error } = await db.from("documents").insert({ ...baseRow, file_sha256: sha });
-  if (error) {
-    const msg = (error as { message?: string })?.message ?? "";
+  const ins = await db.from("documents").insert({ ...baseRow, file_sha256: sha }).select("id").single();
+  let newId = ins.data?.id as string | undefined;
+  if (ins.error) {
+    const msg = (ins.error as { message?: string })?.message ?? "";
     // Schema-tolerant: retry WITHOUT file_sha256 but ALWAYS keep r2_key
     // (the store of record — incident 2026-06-09).
     if (/file_sha256|column .* does not exist|schema cache/i.test(msg)) {
-      const { error: retryErr } = await db.from("documents").insert(baseRow);
-      if (retryErr) return { ok: false, error: "write_failed" };
-      return { ok: true };
+      const retry = await db.from("documents").insert(baseRow).select("id").single();
+      if (retry.error) return { ok: false, error: "write_failed" };
+      newId = retry.data?.id as string | undefined;
+    } else if ((ins.error as { code?: string }).code === "PGRST205") {
+      return { ok: false, error: "documents_not_set_up" };
+    } else {
+      return { ok: false, error: "write_failed" };
     }
-    if ((error as { code?: string }).code === "PGRST205") return { ok: false, error: "documents_not_set_up" };
-    return { ok: false, error: "write_failed" };
   }
+
+  // NOTHING-LEFT-BEHIND: retire every PRIOR live CV for this candidate. Publishing
+  // used to only INSERT, so each regenerate stacked another approved cv_de row —
+  // 18 candidates already carry 2-7 of them. That litters the dashboard AND makes
+  // the agency-Drive mirror re-copy stale CVs. Marking the old ones superseded (a
+  // soft flag every CV reader already filters on: mirror dedup, sellable, journey,
+  // email-attach all take the newest) leaves exactly ONE current CV. Best-effort:
+  // the new CV is already safely stored, so a supersede hiccup must not fail here.
+  try {
+    let q = db
+      .from("documents")
+      .update({ superseded_at: new Date().toISOString() })
+      .eq("user_id", userId)
+      .in("file_type", CV_DE_FILE_TYPES as unknown as string[])
+      .is("superseded_at", null);
+    if (newId) q = q.neq("id", newId);
+    const { error: supErr } = await q;
+    // superseded_at may be un-migrated on an old deployment — that's fine, the old
+    // rows simply stay (the prior behaviour) and the mirror's filename-dedup still
+    // collapses same-named CVs to the newest. Never surface it as a publish failure.
+    if (supErr && !/superseded_at|column .* does not exist|schema cache/i.test(supErr.message ?? "")) {
+      console.warn("[publishCandidateCv] supersede prior CVs failed (non-fatal):", supErr.message);
+    }
+  } catch (e) {
+    console.warn("[publishCandidateCv] supersede prior CVs threw (non-fatal):", e instanceof Error ? e.message : e);
+  }
+
   return { ok: true };
 }

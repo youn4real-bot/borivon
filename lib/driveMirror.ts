@@ -164,6 +164,32 @@ export function latestApprovedPerName(docs: ApprovedDoc[]): ApprovedDoc[] {
   return [...byName.values()];
 }
 
+/**
+ * The value recorded in drive_mirror_sha256 — "what did we last send the agency?".
+ * PURE. Compared against itself on the next sync to decide skip-vs-re-upload.
+ *
+ * Prefers file_sha256, but MUST fall back to the r2_key, because file_sha256 is
+ * null on the large majority of existing rows (it was added later, and several
+ * insert paths drop it when the column isn't migrated). With a plain
+ * `file_sha256 === drive_mirror_sha256` check those rows are never considered
+ * mirrored, so every single sync re-downloaded and re-uploaded ALL of them
+ * forever — the sync could never converge and only got slower as the dossier grew.
+ *
+ * r2_key is a sound content identity here: every write path mints a fresh
+ * `candidates/<uid>/<timestamp>_<name>` key rather than overwriting (see the
+ * "Unique timestamped key per upload" comment in app/api/portal/upload/route.ts),
+ * so same key ⇒ same bytes, and changed bytes ⇒ changed key ⇒ re-upload.
+ *
+ * Deliberately does NOT write to file_sha256: that column is the LAW #39 passport
+ * tamper-detection hash consumed by ensurePassportIntegrity(). Back-filling it
+ * from whatever bytes happen to be in R2 today would bless any existing
+ * corruption and permanently disable that guard.
+ */
+export function mirrorFingerprint(d: Pick<ApprovedDoc, "file_sha256" | "r2_key">): string | null {
+  if (d.file_sha256) return d.file_sha256;
+  return d.r2_key ? `r2key:${d.r2_key}` : null;
+}
+
 /** Agency root folder name, e.g. "Calmaroi" → "Calmaroi X Borivon". Pure. */
 export function agencyRootFolderName(orgName: string): string {
   return `${(orgName || "Agentur").trim()} X Borivon`;
@@ -318,7 +344,10 @@ export async function mirrorCandidateApprovedDocs(
     // Post-match / Visum-phase docs are left for the "Nach Matching" folder (later).
     const docs = latestApprovedPerName((rawDocs ?? []) as ApprovedDoc[]).filter((d) => isPreMatchDoc(d.file_type));
     // Decide what's new BEFORE touching Drive → nothing new = zero Drive calls.
-    const isMirrored = (d: ApprovedDoc) => !!(d.drive_mirror_id && d.file_sha256 && d.drive_mirror_sha256 === d.file_sha256);
+    const isMirrored = (d: ApprovedDoc) => {
+      const fp = mirrorFingerprint(d);
+      return !!(d.drive_mirror_id && fp && d.drive_mirror_sha256 === fp);
+    };
     const toUpload = docs.filter((d) => !isMirrored(d));
     const unchanged = docs.length - toUpload.length;
     // NOTE: deliberately NO early return when toUpload is empty — that is exactly
@@ -356,7 +385,7 @@ export async function mirrorCandidateApprovedDocs(
       const media = { mimeType: obj.contentType || "application/pdf", body: Readable.from(obj.body) };
       // OWNERSHIP MARKER — this is what lets the reconcile pass tell OUR copies
       // from files the founder placed in the folder himself (which stay untouched).
-      const appProperties = { borivon_doc_id: d.id, borivon_user_id: userId, borivon_sha: d.file_sha256 ?? "" };
+      const appProperties = { borivon_doc_id: d.id, borivon_user_id: userId, borivon_sha: mirrorFingerprint(d) ?? "" };
       let fileId = d.drive_mirror_id ?? null;
       // Trust the recorded id; else find a same-name file in Vor Matching to
       // update (no dupes); else create.
@@ -374,7 +403,15 @@ export async function mirrorCandidateApprovedDocs(
       } else {
         fileId = (await drive.files.create({ requestBody: { name, parents: [vorId], appProperties }, media, fields: "id", supportsAllDrives: true })).data.id as string;
       }
-      await db.from("documents").update({ drive_mirror_id: fileId, drive_mirror_sha256: d.file_sha256 }).eq("id", d.id);
+      // Record what we mirrored. If THIS write is lost the sync never converges
+      // (every later run re-uploads the same bytes), so a failure is logged loudly
+      // rather than swallowed — it is the difference between a 5-second sync and
+      // a 5-minute one.
+      const { error: wbErr } = await db
+        .from("documents")
+        .update({ drive_mirror_id: fileId, drive_mirror_sha256: mirrorFingerprint(d) })
+        .eq("id", d.id);
+      if (wbErr) console.error("[driveMirror] mirror write-back failed for doc", d.id, "-", wbErr.message);
       uploaded++;
     }
 
