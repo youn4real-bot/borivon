@@ -16,6 +16,8 @@
 import { driveClient } from "@/lib/googleWorkspace";
 import { r2GetObject } from "@/lib/r2";
 import { isPreMatchDoc } from "@/lib/fileKeys";
+import { getServiceSupabase } from "@/lib/supabase";
+import { UUID_RE } from "@/lib/uuid";
 import { Readable } from "node:stream";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -463,4 +465,40 @@ export async function ensureBatchFolder(drive: Drive, agencyRootName: string, ba
 /** The DWD Drive client, or null if Workspace/Drive isn't connected. */
 export function getDriveOrNull(): Drive | null {
   return driveClient() ?? null;
+}
+
+/**
+ * Auto-mirror ONE candidate's dossier — the engine behind scheduleCandidateMirror.
+ *
+ * Runs whenever that candidate's pre-match dossier changes (a doc approved,
+ * rejected, replaced, re-generated) so the agency's Drive folder tracks the portal
+ * WITHOUT anyone clicking "Sync this batch → Drive". Because mirrorCandidateApprovedDocs
+ * is idempotent + sha-skips unchanged docs, one call handles BOTH directions: it
+ * uploads new/changed bytes AND its reconcile pass retracts anything no longer live
+ * into Archiv (LAW #33 — never delete/trash). Cost scales with docs CHANGED, not
+ * docs approved, so back-to-back approvals coalesce naturally.
+ *
+ * NEVER THROWS — it runs off the request's critical path (via after()), so a Drive
+ * outage or a candidate not in any batch is a silent no-op, never a failed approval.
+ * Returns nothing: the caller is fire-and-forget.
+ */
+export async function autoMirrorCandidate(userId: string): Promise<void> {
+  try {
+    if (!UUID_RE.test(userId)) return;
+    const db = getServiceSupabase();
+    // The mirror only exists for candidates placed in a batch (that's the folder
+    // it writes into). Not in a batch → nothing to mirror.
+    const { data: pipe } = await db
+      .from("candidate_pipeline").select("batch_id").eq("user_id", userId).maybeSingle();
+    const batchId = (pipe as { batch_id?: string | null } | null)?.batch_id;
+    if (!batchId) return;
+    const drive = getDriveOrNull();
+    if (!drive) return; // Workspace/Drive not connected — the manual sync will catch up later
+    const targets = await resolveBatchSyncTargets(db, batchId);
+    if (!targets) return;
+    const batchFolderId = await ensureBatchFolder(drive, targets.agencyRootName, targets.batchName);
+    await mirrorCandidateApprovedDocs(db, drive, userId, batchFolderId);
+  } catch (e) {
+    console.error("[autoMirrorCandidate] non-fatal:", e instanceof Error ? e.message : e);
+  }
 }

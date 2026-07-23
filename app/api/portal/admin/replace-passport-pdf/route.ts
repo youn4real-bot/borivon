@@ -11,6 +11,7 @@ import {
   makeDrivePublic,
 } from "@/lib/passport-pdf";
 import { r2Configured, r2Put, candidateKey } from "@/lib/r2";
+import { scheduleCandidateMirror } from "@/lib/scheduleMirror";
 
 const MAX_BYTES = 10 * 1024 * 1024;
 
@@ -182,6 +183,12 @@ export async function POST(req: NextRequest) {
       console.warn("[replace-passport-pdf] Storage cache backup failed (non-fatal):", cacheErr);
     }
   }
+
+  // AUTO-MIRROR: the passport is a pre-match dossier doc and its BYTES just changed
+  // (sha recomputed above), so the agency's Drive copy must refresh. Copying raw
+  // bytes is LAW #39-safe — the mirror never load+saves passport PDFs, it streams
+  // them verbatim.
+  scheduleCandidateMirror(userId);
 
   return NextResponse.json({ success: true, driveFileId: newDriveId });
 }

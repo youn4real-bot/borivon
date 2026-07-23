@@ -20,6 +20,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { sanitizeCvData } from "@/lib/cvSanitize";
 import { candidateKey, r2Put } from "@/lib/r2";
 import { FILE_KEY_LABELS } from "@/lib/fileKeys";
+import { scheduleCandidateMirror } from "@/lib/scheduleMirror";
 import { CV_DE_FILE_TYPES } from "@/lib/constants";
 
 // @react-pdf/renderer can't run on Cloudflare Workers (yoga-layout needs runtime
@@ -257,6 +258,11 @@ export async function publishCandidateCv(userId: string, opts: { branding?: CvBr
   } catch (e) {
     console.warn("[publishCandidateCv] supersede prior CVs threw (non-fatal):", e instanceof Error ? e.message : e);
   }
+
+  // AUTO-MIRROR: a fresh CV (the founder's key "nothing left behind when the CV
+  // changes" case) refreshes the agency's Drive folder — the new CV uploads and
+  // the just-superseded old ones get retracted into Archiv on the same pass.
+  scheduleCandidateMirror(userId);
 
   return { ok: true };
 }
