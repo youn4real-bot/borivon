@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
   // so the client loops. Already-mirrored candidates cost ~nothing next pass.
   for (const uid of targets.userIds) {
     if (processed > 0 && Date.now() - startedAt > TIME_BUDGET_MS) break;
-    const r = await mirrorCandidateApprovedDocs(db, drive, uid, batchFolderId);
+    const r = await mirrorCandidateApprovedDocs(db, drive, uid, batchFolderId, batchId);
     if (r.ok) { uploaded += r.uploaded; unchanged += r.unchanged; archived += r.archived; missing += r.missing; }
     else errors.push({ userId: uid, error: `${r.error}${r.hint ? `: ${r.hint}` : ""}` });
     processed++;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { latestApprovedPerName, agencyRootFolderName, selectStaleMirrorFiles, mirrorFingerprint, isNachMatchingDoc, type ApprovedDoc, type MirrorFile } from "../lib/driveMirror";
+import { latestApprovedPerName, agencyRootFolderName, selectStaleMirrorFiles, mirrorFingerprint, isNachMatchingDoc, isMirrorInWrongBatch, type ApprovedDoc, type MirrorFile } from "../lib/driveMirror";
 import { isPreMatchDoc } from "../lib/fileKeys";
 
 const doc = (o: Partial<ApprovedDoc>): ApprovedDoc => ({
@@ -7,6 +7,7 @@ const doc = (o: Partial<ApprovedDoc>): ApprovedDoc => ({
   // NB: use `in` not `??` so an explicit `r2_key: null` survives (?? would coalesce it).
   r2_key: "r2_key" in o ? o.r2_key! : "r2/key", file_sha256: o.file_sha256 ?? null,
   drive_mirror_id: o.drive_mirror_id ?? null, drive_mirror_sha256: o.drive_mirror_sha256 ?? null,
+  drive_mirror_batch_id: o.drive_mirror_batch_id ?? null,
   uploaded_at: o.uploaded_at ?? null,
 });
 
@@ -208,5 +209,29 @@ describe("isNachMatchingDoc — post-match docs route to Nach Matching", () => {
       // exactly one of the two predicates is true
       expect(isPreMatchDoc(t) !== isNachMatchingDoc(t), String(t)).toBe(true);
     }
+  });
+});
+
+describe("isMirrorInWrongBatch — candidate moved batches (feature #3)", () => {
+  const A = "11111111-1111-1111-1111-111111111111";
+  const B = "22222222-2222-2222-2222-222222222222";
+
+  it("flags a doc whose copy lives in a DIFFERENT batch than the current one", () => {
+    expect(isMirrorInWrongBatch({ drive_mirror_id: "f1", drive_mirror_batch_id: A }, B)).toBe(true);
+  });
+  it("does NOT flag a doc already in the current batch", () => {
+    expect(isMirrorInWrongBatch({ drive_mirror_id: "f1", drive_mirror_batch_id: A }, A)).toBe(false);
+  });
+  it("NEVER flags a legacy/unknown (NULL) batch — the safety default", () => {
+    // A NULL stamp must be treated as 'current' so pre-migration copies are not
+    // wrongly yanked out of the agency's folder on the first post-migration sync.
+    expect(isMirrorInWrongBatch({ drive_mirror_id: "f1", drive_mirror_batch_id: null }, B)).toBe(false);
+    expect(isMirrorInWrongBatch({ drive_mirror_id: "f1", drive_mirror_batch_id: null }, null)).toBe(false);
+  });
+  it("does not flag a doc that was never mirrored (no drive_mirror_id)", () => {
+    expect(isMirrorInWrongBatch({ drive_mirror_id: null, drive_mirror_batch_id: A }, B)).toBe(false);
+  });
+  it("flags a stamped doc when the candidate now has NO batch (offboarded)", () => {
+    expect(isMirrorInWrongBatch({ drive_mirror_id: "f1", drive_mirror_batch_id: A }, null)).toBe(true);
   });
 });

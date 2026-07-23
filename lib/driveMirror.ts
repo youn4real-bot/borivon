@@ -145,6 +145,7 @@ export type ApprovedDoc = {
   file_sha256: string | null;
   drive_mirror_id: string | null;
   drive_mirror_sha256: string | null;
+  drive_mirror_batch_id: string | null; // which batch folder the copy lives in (feature #3)
   uploaded_at: string | null;
 };
 
@@ -278,6 +279,24 @@ export type MirrorFile = { id?: string | null; name?: string | null; appProperti
  * therefore NEVER touched. Retraction = move to Archiv, never delete/trash
  * (LAW #33 — Drive trash auto-purges at ~30d, which is a delayed hard delete).
  */
+/**
+ * Does this doc's recorded Drive copy live in a DIFFERENT batch's folder than the
+ * candidate's current one? PURE — the batch-move safety rule, testable in isolation:
+ *
+ *   true ONLY if we HAVE a copy (drive_mirror_id) AND we KNOW which batch it's in
+ *   (drive_mirror_batch_id is set) AND that batch differs from the current one.
+ *
+ * A NULL drive_mirror_batch_id means "legacy / unknown" and is treated as
+ * "current" → the copy is NEVER wrongly retracted before the code has stamped it.
+ * When true, the old copy is moved to Archiv and the doc re-uploads to the new folder.
+ */
+export function isMirrorInWrongBatch(
+  d: Pick<ApprovedDoc, "drive_mirror_id" | "drive_mirror_batch_id">,
+  currentBatchId: string | null,
+): boolean {
+  return !!d.drive_mirror_id && d.drive_mirror_batch_id != null && d.drive_mirror_batch_id !== currentBatchId;
+}
+
 export function selectStaleMirrorFiles(files: MirrorFile[], currentDocIds: Iterable<string>): MirrorFile[] {
   const live = new Set(currentDocIds);
   return files.filter((f) => {
@@ -333,6 +352,54 @@ async function reconcileFolder(
 }
 
 /**
+ * Move ONE mirrored file into an "Archiv" folder beside it — used to retract a
+ * copy stranded in a PREVIOUS batch's folder after a candidate moved batches.
+ * The file's parent is a Vor/Nach folder; its grandparent is that batch's
+ * candidate folder, where the Archiv lives. Never throws (a deleted/foreign file
+ * just returns false). LAW #33: MOVE, never delete/trash.
+ */
+async function archiveMirroredFileById(drive: Drive, fileId: string): Promise<boolean> {
+  try {
+    const f = await drive.files.get({ fileId, fields: "parents", supportsAllDrives: true });
+    const parent = f.data.parents?.[0];
+    if (!parent) return false;
+    const pf = await drive.files.get({ fileId: parent, fields: "parents", supportsAllDrives: true });
+    const candFolder = pf.data.parents?.[0];
+    if (!candFolder) return false;
+    const archivId = await findOrCreateFolder(drive, ARCHIV, candFolder);
+    await drive.files.update({ fileId, addParents: archivId, removeParents: parent, supportsAllDrives: true });
+    return true;
+  } catch { return false; }
+}
+
+/**
+ * Retract every doc whose recorded copy lives in a DIFFERENT batch's folder (the
+ * candidate moved batches) OR whose candidate has no batch at all (offboarded).
+ * Each copy is moved to its OLD folder's Archiv and its mirror pointers nulled,
+ * so it re-uploads fresh to the current batch folder (or simply stops being
+ * visible to the old agency). Returns how many were retracted. Never throws.
+ */
+async function retractMovedDocs(db: SupabaseClient, drive: Drive, movedDocs: ApprovedDoc[]): Promise<number> {
+  let moved = 0;
+  for (const d of movedDocs) {
+    if (!d.drive_mirror_id) continue;
+    const ok = await archiveMirroredFileById(drive, d.drive_mirror_id);
+    // Null the pointers regardless: even if the file was already gone, the row
+    // must stop claiming a stale mirror so the current-batch upload runs.
+    let wb = await db.from("documents")
+      .update({ drive_mirror_id: null, drive_mirror_sha256: null, drive_mirror_batch_id: null })
+      .eq("id", d.id);
+    if (wb.error && /drive_mirror_batch_id|column .* does not exist|schema cache/i.test(wb.error.message ?? "")) {
+      wb = await db.from("documents")
+        .update({ drive_mirror_id: null, drive_mirror_sha256: null })
+        .eq("id", d.id);
+    }
+    if (ok) moved++;
+  }
+  return moved;
+}
+
+/**
  * Post-match doc types kept OUT of the agency's "Nach Matching" folder. Empty by
  * default → the whole visa-phase dossier is mirrored (that folder was designed
  * for exactly these docs). Add a fileKey here (e.g. "defizitbescheid") to hide
@@ -361,6 +428,7 @@ async function uploadDocsToFolder(
   docs: ApprovedDoc[],
   folderId: string,
   userId: string,
+  batchId: string | null,
 ): Promise<{ uploaded: number; missing: number }> {
   let uploaded = 0;
   let missing = 0;
@@ -391,14 +459,22 @@ async function uploadDocsToFolder(
     } else {
       fileId = (await drive.files.create({ requestBody: { name, parents: [folderId], appProperties }, media, fields: "id", supportsAllDrives: true })).data.id as string;
     }
-    // Record what we mirrored. If THIS write is lost the sync never converges
-    // (every later run re-uploads the same bytes), so log loudly — it is the
-    // difference between a 5-second re-sync and a 5-minute one.
-    const { error: wbErr } = await db
-      .from("documents")
-      .update({ drive_mirror_id: fileId, drive_mirror_sha256: mirrorFingerprint(d) })
+    // Record what we mirrored — including WHICH batch folder it now lives in, so
+    // a later batch move can find + retract this exact copy. If this write is
+    // lost the sync never converges (every run re-uploads the same bytes), so log
+    // loudly. Schema-tolerant: on a deployment without drive_mirror_batch_id, drop
+    // just that column and keep the sha/id write (the mirror still converges;
+    // batch tracking stays inactive until the migration is run).
+    const fp = mirrorFingerprint(d);
+    let wb = await db.from("documents")
+      .update({ drive_mirror_id: fileId, drive_mirror_sha256: fp, drive_mirror_batch_id: batchId })
       .eq("id", d.id);
-    if (wbErr) console.error("[driveMirror] mirror write-back failed for doc", d.id, "-", wbErr.message);
+    if (wb.error && /drive_mirror_batch_id|column .* does not exist|schema cache/i.test(wb.error.message ?? "")) {
+      wb = await db.from("documents")
+        .update({ drive_mirror_id: fileId, drive_mirror_sha256: fp })
+        .eq("id", d.id);
+    }
+    if (wb.error) console.error("[driveMirror] mirror write-back failed for doc", d.id, "-", wb.error.message);
     uploaded++;
   }
   return { uploaded, missing };
@@ -422,26 +498,40 @@ export async function mirrorCandidateApprovedDocs(
   drive: Drive,
   userId: string,
   batchFolderId: string,
+  currentBatchId: string | null,
 ): Promise<CandidateMirrorResult> {
   try {
-    // Approved docs with R2 bytes, newest-per-filename.
-    const { data: rawDocs } = await db
-      .from("documents")
-      .select("id,file_name,file_type,r2_key,file_sha256,drive_mirror_id,drive_mirror_sha256,uploaded_at")
-      .eq("user_id", userId)
-      .eq("status", "approved")
-      .is("superseded_at", null)
-      .not("r2_key", "is", null);
+    // Approved docs with R2 bytes, newest-per-filename. Schema-tolerant on the
+    // feature-#3 column: until supabase/drive_mirror_batch.sql is run, select
+    // WITHOUT it and treat every doc's batch as unknown (= current) so nothing is
+    // wrongly retracted — the mirror behaves exactly as it did before.
+    const BASE_COLS = "id,file_name,file_type,r2_key,file_sha256,drive_mirror_id,drive_mirror_sha256,uploaded_at";
+    const q = (cols: string) => db
+      .from("documents").select(cols)
+      .eq("user_id", userId).eq("status", "approved")
+      .is("superseded_at", null).not("r2_key", "is", null);
+    let res = await q(`${BASE_COLS},drive_mirror_batch_id`);
+    if (res.error && /drive_mirror_batch_id|column .* does not exist|schema cache/i.test(res.error.message ?? "")) {
+      res = await q(BASE_COLS);
+    }
+    const allDocs = latestApprovedPerName((res.data ?? []).map((r) => ({
+      drive_mirror_batch_id: null, ...(r as object),
+    })) as ApprovedDoc[]);
     // Split the dossier by phase: PRE-match → "Vor Matching", POST-match →
     // "Nach Matching". Dedup by filename per phase.
-    const allDocs = latestApprovedPerName((rawDocs ?? []) as ApprovedDoc[]);
     const preDocs  = allDocs.filter((d) => isPreMatchDoc(d.file_type));
     const postDocs = allDocs.filter((d) => isNachMatchingDoc(d.file_type));
     // Decide what's new BEFORE touching Drive → nothing new = zero Drive calls.
     const isMirrored = (d: ApprovedDoc) => {
+      if (isMirrorInWrongBatch(d, currentBatchId)) return false; // recorded elsewhere → re-upload here
       const fp = mirrorFingerprint(d);
       return !!(d.drive_mirror_id && fp && d.drive_mirror_sha256 === fp);
     };
+    // Retract copies stranded in a PREVIOUS batch's folder (move to that folder's
+    // Archiv, null the pointers) before anything else, so the re-upload below
+    // lands them fresh in the CURRENT batch folder.
+    const movedAway = allDocs.filter((d) => isMirrorInWrongBatch(d, currentBatchId));
+    let archived = await retractMovedDocs(db, drive, movedAway);
     const preToUpload  = preDocs.filter((d) => !isMirrored(d));
     const postToUpload = postDocs.filter((d) => !isMirrored(d));
     const unchanged = (preDocs.length - preToUpload.length) + (postDocs.length - postToUpload.length);
@@ -468,12 +558,11 @@ export async function mirrorCandidateApprovedDocs(
     // Look the folder up WITHOUT creating it: a candidate with nothing to upload
     // and no folder yet has nothing stale either → return without a single write.
     let candFolderId = await findFolder(drive, candidateName, batchFolderId);
-    if (!candFolderId && anyToUpload === 0) return { ok: true, uploaded: 0, unchanged, archived: 0, missing: 0 };
+    if (!candFolderId && anyToUpload === 0) return { ok: true, uploaded: 0, unchanged, archived, missing: 0 };
     if (!candFolderId) candFolderId = await findOrCreateFolder(drive, candidateName, batchFolderId);
 
     let uploaded = 0;
     let missing = 0;  // approved docs whose R2 bytes couldn't be fetched — never silent
-    let archived = 0;
 
     // ── Vor Matching (pre-match dossier) — the primary folder; ALWAYS reconcile.
     // Reconcile must run even when preDocs is empty: "every pre-match doc was
@@ -482,7 +571,7 @@ export async function mirrorCandidateApprovedDocs(
     // (or is a cheap create).
     const vorId = await findOrCreateFolder(drive, VOR_MATCHING, candFolderId);
     {
-      const r = await uploadDocsToFolder(db, drive, preToUpload, vorId, userId);
+      const r = await uploadDocsToFolder(db, drive, preToUpload, vorId, userId, currentBatchId);
       uploaded += r.uploaded; missing += r.missing;
     }
     archived += await reconcileFolder(db, drive, preDocs, vorId, candFolderId);
@@ -495,7 +584,7 @@ export async function mirrorCandidateApprovedDocs(
       ? await findOrCreateFolder(drive, NACH_MATCHING, candFolderId)
       : await findFolder(drive, NACH_MATCHING, candFolderId);
     if (nachId) {
-      const r = await uploadDocsToFolder(db, drive, postToUpload, nachId, userId);
+      const r = await uploadDocsToFolder(db, drive, postToUpload, nachId, userId, currentBatchId);
       uploaded += r.uploaded; missing += r.missing;
       archived += await reconcileFolder(db, drive, postDocs, nachId, candFolderId);
     }
@@ -541,19 +630,35 @@ export async function autoMirrorCandidate(userId: string): Promise<void> {
   try {
     if (!UUID_RE.test(userId)) return;
     const db = getServiceSupabase();
-    // The mirror only exists for candidates placed in a batch (that's the folder
-    // it writes into). Not in a batch → nothing to mirror.
     const { data: pipe } = await db
       .from("candidate_pipeline").select("batch_id").eq("user_id", userId).maybeSingle();
-    const batchId = (pipe as { batch_id?: string | null } | null)?.batch_id;
-    if (!batchId) return;
+    const batchId = (pipe as { batch_id?: string | null } | null)?.batch_id ?? null;
     const drive = getDriveOrNull();
     if (!drive) return; // Workspace/Drive not connected — the manual sync will catch up later
+
+    if (!batchId) {
+      // Candidate is in NO batch (never placed, or removed/offboarded). There is
+      // no current folder to write to, but any copies they had in a previous
+      // batch must stop being visible to that agency → retract them all to Archiv.
+      await retractAllCandidateMirrors(db, drive, userId);
+      return;
+    }
     const targets = await resolveBatchSyncTargets(db, batchId);
     if (!targets) return;
     const batchFolderId = await ensureBatchFolder(drive, targets.agencyRootName, targets.batchName);
-    await mirrorCandidateApprovedDocs(db, drive, userId, batchFolderId);
+    await mirrorCandidateApprovedDocs(db, drive, userId, batchFolderId, batchId);
   } catch (e) {
     console.error("[autoMirrorCandidate] non-fatal:", e instanceof Error ? e.message : e);
   }
+}
+
+/** Retract EVERY mirrored copy a candidate has (used when they're in no batch). */
+async function retractAllCandidateMirrors(db: SupabaseClient, drive: Drive, userId: string): Promise<number> {
+  const { data } = await db
+    .from("documents").select("id,drive_mirror_id")
+    .eq("user_id", userId).not("drive_mirror_id", "is", null);
+  const mirrored = (data ?? [])
+    .filter((r) => (r as { drive_mirror_id?: string | null }).drive_mirror_id)
+    .map((r) => ({ id: (r as { id: string }).id, drive_mirror_id: (r as { drive_mirror_id: string }).drive_mirror_id } as ApprovedDoc));
+  return retractMovedDocs(db, drive, mirrored);
 }

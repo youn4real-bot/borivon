@@ -15,6 +15,7 @@ import { requireAdminRole, getVisibleCandidateIds, getVisibleOrgIds, canActOnCan
 import { getServiceSupabase } from "@/lib/supabase";
 import { UUID_RE } from "@/lib/uuid";
 import { isFunnelStage } from "@/lib/batchBoard";
+import { scheduleCandidateMirror } from "@/lib/scheduleMirror";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -189,12 +190,46 @@ export async function PATCH(req: NextRequest) {
   fields.updated_at = new Date().toISOString();
 
   const db = getServiceSupabase();
+
+  // BATCH MOVE detection — read the OLD batch BEFORE the write so we can keep the
+  // agency Drive mirror honest: moving a candidate to a new batch must retract
+  // their old-batch folder AND re-fill the new one (feature #3). Only when the
+  // caller is actually changing batch_id.
+  const changingBatch = "batch_id" in fields;
+  let oldBatchId: string | null = null;
+  if (changingBatch) {
+    const { data: prev } = await db.from("candidate_pipeline").select("batch_id").eq("user_id", candidateUserId).maybeSingle();
+    oldBatchId = (prev as { batch_id?: string | null } | null)?.batch_id ?? null;
+  }
+
   // Update-then-insert (the pipeline row may not exist yet).
   const { data: upd, error } = await db.from("candidate_pipeline").update(fields).eq("user_id", candidateUserId).select("user_id");
   if (error) return NextResponse.json({ error: "update_failed" }, { status: 500 });
   if (!upd || upd.length === 0) {
     const { error: insErr } = await db.from("candidate_pipeline").insert({ user_id: candidateUserId, ...fields });
     if (insErr) return NextResponse.json({ error: "update_failed" }, { status: 500 });
+  }
+
+  // If the batch actually changed, refresh the Drive mirror. Stamp any of this
+  // candidate's still-mirrored-but-unstamped docs with the OLD batch id first, so
+  // the mirror recognises them as living in the previous folder and retracts them
+  // (legacy rows carry a NULL drive_mirror_batch_id = "unknown = current", which
+  // would otherwise hide the move). Best-effort + schema-tolerant: a deployment
+  // without the migration just skips this and the manual sync still works.
+  if (changingBatch && oldBatchId !== (fields.batch_id ?? null)) {
+    if (oldBatchId) {
+      try {
+        const r = await db.from("documents")
+          .update({ drive_mirror_batch_id: oldBatchId })
+          .eq("user_id", candidateUserId)
+          .not("drive_mirror_id", "is", null)
+          .is("drive_mirror_batch_id", null);
+        if (r.error && !/drive_mirror_batch_id|column .* does not exist|schema cache/i.test(r.error.message ?? "")) {
+          console.warn("[tracker] batch-stamp backfill failed:", r.error.message);
+        }
+      } catch { /* best-effort */ }
+    }
+    scheduleCandidateMirror(candidateUserId);
   }
   return NextResponse.json({ ok: true });
 }
