@@ -50,7 +50,7 @@ function LangSwitch({ lang, setLang }: { lang: Lang; setLang: (l: Lang) => void 
             aria-label={l.label}
             aria-pressed={active}
             title={l.label}
-            className="relative grid place-items-center rounded-full hover:opacity-100"
+            className="bv-touch relative grid place-items-center rounded-full hover:opacity-100"
             style={{ width: 26, height: 26, opacity: active ? 1 : 0.4 }}
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -87,13 +87,20 @@ export function V2Nav() {
   // Boolean toggle at a single threshold — debounced by nature, no per-pixel state.
   useMotionValueEvent(scrollY, "change", (y) => setCondensed(y > 40));
 
-  // Lock body scroll while the mobile menu is open (correctness, no jank).
+  // Lock body scroll while the mobile menu is open (correctness, no jank) +
+  // close on Escape (keyboard parity with the rest of the app's modals).
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => { document.body.style.overflow = prev; window.removeEventListener("keydown", onKey); };
   }, [open]);
+
+  // Any navigation closes the drawer — a browser back-gesture or hash change
+  // used to leave it hanging open over the new page.
+  useEffect(() => { setOpen(false); }, [pathname]);
 
   const links = [
     { href: "/v2/solutions", label: T(COPY.nav.business) },

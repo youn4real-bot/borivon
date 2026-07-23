@@ -129,8 +129,10 @@ export function PrimaryCTA({ href, children, big = false }: { href: string; chil
   return (
     <Link href={href} className="group bv-btn bv-btn-primary-lg bv-glow-gold bv-press relative overflow-hidden" style={{ padding: big ? "1rem 1.8rem" : "0.95rem 1.6rem", fontSize: big ? "1rem" : "0.98rem" }}>
       <span className="relative z-[1] inline-flex items-center gap-1.5">{children}</span>
-      {/* shine sweep on hover (the button itself never moves) */}
-      <span aria-hidden className="pointer-events-none absolute inset-y-0 -left-full w-1/2 -skew-x-12 transition-[left] duration-700 ease-out group-hover:left-[150%]" style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.45), transparent)" }} />
+      {/* shine sweep on hover (the button itself never moves). Animate transform,
+          not `left`: translateX is compositor-only, so the sweep can't cause a
+          per-frame layout on the button — visually identical, smoother on weak GPUs. */}
+      <span aria-hidden className="pointer-events-none absolute inset-y-0 left-0 w-1/2 -translate-x-full -skew-x-12 transition-transform duration-700 ease-out group-hover:translate-x-[220%]" style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.45), transparent)" }} />
     </Link>
   );
 }
@@ -439,7 +441,11 @@ export function PanelPhoto({ src, alt }: { src: string; alt: string }) {
     <>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={src} alt={alt} loading="lazy" decoding="async" className="absolute inset-0 h-full w-full object-cover" />
-      <div aria-hidden className="absolute inset-0" style={{ background: "linear-gradient(180deg, color-mix(in oklab, var(--bg) 12%, transparent) 0%, color-mix(in oklab, var(--bg) 55%, transparent) 50%, color-mix(in oklab, var(--bg) 88%, transparent) 100%)", borderTop: "1px solid var(--border-gold)" }} />
+      {/* Scrim MUST be theme-independent dark: this panel always carries WHITE
+          overlay text, but a var(--bg)-based scrim goes near-white in light mode
+          and the text vanished. Fixed black stops keep it legible in both themes
+          (near-identical to the old dark-mode look). */}
+      <div aria-hidden className="absolute inset-0" style={{ background: "linear-gradient(180deg, rgba(0,0,0,0.10) 0%, rgba(0,0,0,0.35) 50%, rgba(0,0,0,0.72) 100%)", borderTop: "1px solid var(--border-gold)" }} />
     </>
   );
 }

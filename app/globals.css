@@ -193,6 +193,7 @@ button, a, [role="button"], input, select, textarea {
 button:focus-visible,
 a:focus-visible,
 [role="button"]:focus-visible,
+summary:focus-visible,
 select:focus-visible,
 [tabindex]:focus-visible {
   outline: 2px solid var(--gold);
@@ -502,9 +503,20 @@ textarea::placeholder { color: var(--w3) !important; opacity: 0.4 !important; }
 .bv-enter-stagger > *:nth-child(7)  { animation-delay: 0.26s; }
 .bv-enter-stagger > *:nth-child(n+8){ animation-delay: 0.30s; }
 
-/* Press feedback — sub-pixel scale on active for tactile button response */
+/* Press feedback — sub-pixel scale on active for tactile button response.
+   NB: this transition must also list the OTHER animatable state properties.
+   The shorthand replaces (not merges with) any transition on the same element,
+   so a `transform`-only value here silently killed the box-shadow easing on every
+   gold CTA that also carries .bv-glow-gold — the signature glow SNAPPED on hover
+   instead of easing. Keeping transform on the snappy --dur-1 and shadow/colour on
+   --dur-2 restores the smooth glow with the same tactile press. */
 .bv-press {
-  transition: transform var(--dur-1) var(--ease);
+  transition:
+    transform var(--dur-1) var(--ease),
+    box-shadow var(--dur-2) var(--ease),
+    background-color var(--dur-1) var(--ease),
+    color var(--dur-1) var(--ease),
+    border-color var(--dur-1) var(--ease);
 }
 .bv-press:active:not(:disabled) { transform: scale(0.98); }
 
