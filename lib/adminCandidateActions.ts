@@ -22,7 +22,6 @@
  * LAW #39 is N/A here (no passport bytes are touched — only the DB row/status).
  */
 import { getServiceSupabase } from "@/lib/supabase";
-import { isPreMatchDoc } from "@/lib/fileKeys";
 import { scheduleCandidateMirror } from "@/lib/scheduleMirror";
 import { DOC_STATUSES } from "@/lib/constants";
 import { ALLOWED_PROFILE_FIELDS } from "@/lib/constants";
@@ -103,13 +102,14 @@ export async function applyDocReview(
       if (status === "approved" && isPassportDoc) {
         await maybeGrantVerified(db, doc.user_id as string);
       }
-      // AUTO-MIRROR: a pre-match dossier change (approve OR reject) now refreshes
-      // the agency's Drive folder automatically — best-effort, after the response,
-      // never on the critical path (see lib/scheduleMirror). Post-match / Visum-slot
-      // docs are skipped: they don't belong in the "Vor Matching" mirror. This one
+      // AUTO-MIRROR: any dossier change (approve OR reject) now refreshes the
+      // agency's Drive folder automatically — best-effort, after the response,
+      // never on the critical path (see lib/scheduleMirror). autoMirrorCandidate
+      // re-reads the whole dossier and routes each doc to Vor Matching (pre-match)
+      // or Nach Matching (post-match), so it fires for every doc type. This one
       // trigger covers BOTH the web admin route and the AI bot (both call here).
       // The manual "Sync this batch → Drive" button still exists as a full re-sync.
-      if (isPreMatchDoc(doc.file_type as string)) scheduleCandidateMirror(doc.user_id as string);
+      scheduleCandidateMirror(doc.user_id as string);
     }
   }
 

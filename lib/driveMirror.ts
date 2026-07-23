@@ -15,7 +15,7 @@
  */
 import { driveClient } from "@/lib/googleWorkspace";
 import { r2GetObject } from "@/lib/r2";
-import { isPreMatchDoc } from "@/lib/fileKeys";
+import { isPreMatchDoc, resolveFileKey } from "@/lib/fileKeys";
 import { getServiceSupabase } from "@/lib/supabase";
 import { UUID_RE } from "@/lib/uuid";
 import { Readable } from "node:stream";
@@ -286,11 +286,11 @@ export function selectStaleMirrorFiles(files: MirrorFile[], currentDocIds: Itera
   });
 }
 
-async function reconcileVorMatching(
+async function reconcileFolder(
   db: SupabaseClient,
   drive: Drive,
   currentDocs: ApprovedDoc[],
-  vorId: string,
+  folderId: string,
   candFolderId: string,
 ): Promise<number> {
   // Page through — a silent 200-file cap would leave stale copies visible.
@@ -298,7 +298,7 @@ async function reconcileVorMatching(
   let pageToken: string | undefined;
   do {
     const res = await drive.files.list({
-      q: `'${vorId}' in parents and trashed=false`,
+      q: `'${folderId}' in parents and trashed=false`,
       fields: "nextPageToken, files(id,name,appProperties)", pageSize: 200, pageToken,
       supportsAllDrives: true, includeItemsFromAllDrives: true,
     });
@@ -311,7 +311,7 @@ async function reconcileVorMatching(
   let moved = 0;
   for (const f of stale) {
     try {
-      await drive.files.update({ fileId: f.id!, addParents: archivId, removeParents: vorId, supportsAllDrives: true });
+      await drive.files.update({ fileId: f.id!, addParents: archivId, removeParents: folderId, supportsAllDrives: true });
       moved++;
       // CRITICAL: sever this doc's mirror pointer. The row still carries
       // drive_mirror_id/_sha256 pointing at the file we just moved to Archiv.
@@ -333,10 +333,85 @@ async function reconcileVorMatching(
 }
 
 /**
+ * Post-match doc types kept OUT of the agency's "Nach Matching" folder. Empty by
+ * default → the whole visa-phase dossier is mirrored (that folder was designed
+ * for exactly these docs). Add a fileKey here (e.g. "defizitbescheid") to hide
+ * that one doc type from the partner while still mirroring everything else.
+ */
+const NACH_MATCHING_EXCLUDE_KEYS = new Set<string>([]);
+
+/** A post-match doc that SHOULD reach the agency's Nach Matching folder. */
+export function isNachMatchingDoc(fileType: string | null | undefined): boolean {
+  if (isPreMatchDoc(fileType)) return false;            // pre-match → Vor Matching
+  return !NACH_MATCHING_EXCLUDE_KEYS.has(resolveFileKey((fileType ?? "").trim()));
+}
+
+/**
+ * Upload a set of docs into ONE folder (Vor or Nach Matching), returning the
+ * count uploaded + the count whose R2 bytes were unreadable (surfaced, never
+ * silent). Idempotent: an unchanged doc is skipped by the caller before it gets
+ * here; this reuses a recorded drive_mirror_id (update-in-place) or finds a
+ * same-name file (no dupes) or creates. Stamps the ownership marker so the
+ * reconcile pass can tell our copies from the founder's own files. Never throws
+ * per-file — one stuck upload must not abort the candidate.
+ */
+async function uploadDocsToFolder(
+  db: SupabaseClient,
+  drive: Drive,
+  docs: ApprovedDoc[],
+  folderId: string,
+  userId: string,
+): Promise<{ uploaded: number; missing: number }> {
+  let uploaded = 0;
+  let missing = 0;
+  for (const d of docs) {
+    const obj = await r2GetObject(d.r2_key!);
+    if (!obj) {
+      // Approved + current but its stored file is unreadable → the agency would
+      // silently be missing it. Count + log so the sync reports it truthfully.
+      missing++;
+      console.error("[driveMirror] approved doc has unreadable R2 bytes — not copied:", d.id, d.file_name, d.r2_key);
+      continue;
+    }
+    const name = d.file_name || `${d.file_type || "document"}.pdf`;
+    const media = { mimeType: obj.contentType || "application/pdf", body: Readable.from(obj.body) };
+    const appProperties = { borivon_doc_id: d.id, borivon_user_id: userId, borivon_sha: mirrorFingerprint(d) ?? "" };
+    let fileId = d.drive_mirror_id ?? null;
+    if (!fileId) {
+      const existing = await drive.files.list({
+        q: `name='${esc(name)}' and '${folderId}' in parents and trashed=false`,
+        fields: "files(id)", pageSize: 1,
+        supportsAllDrives: true, includeItemsFromAllDrives: true,
+      });
+      fileId = existing.data.files?.[0]?.id ?? null;
+    }
+    if (fileId) {
+      try { await drive.files.update({ fileId, media, requestBody: { appProperties }, supportsAllDrives: true }); }
+      catch { fileId = (await drive.files.create({ requestBody: { name, parents: [folderId], appProperties }, media, fields: "id", supportsAllDrives: true })).data.id as string; }
+    } else {
+      fileId = (await drive.files.create({ requestBody: { name, parents: [folderId], appProperties }, media, fields: "id", supportsAllDrives: true })).data.id as string;
+    }
+    // Record what we mirrored. If THIS write is lost the sync never converges
+    // (every later run re-uploads the same bytes), so log loudly — it is the
+    // difference between a 5-second re-sync and a 5-minute one.
+    const { error: wbErr } = await db
+      .from("documents")
+      .update({ drive_mirror_id: fileId, drive_mirror_sha256: mirrorFingerprint(d) })
+      .eq("id", d.id);
+    if (wbErr) console.error("[driveMirror] mirror write-back failed for doc", d.id, "-", wbErr.message);
+    uploaded++;
+  }
+  return { uploaded, missing };
+}
+
+/**
  * Mirror ONE candidate's approved docs into <batchFolderId>/<Candidate name>/.
- * Idempotent + cheap: a doc whose file_sha256 already matches its recorded
- * drive_mirror_sha256 is skipped with ZERO Drive calls (the candidate folder is
- * only created when there's actually something to upload). Never throws.
+ * The dossier is split by phase: the PRE-match dossier (Essentials + Unterlagen)
+ * goes to "Vor Matching"; the POST-match / Visum-phase docs (contract, EzB,
+ * Zusatzblatt, Vorabzustimmung, visa, insurance, …) go to "Nach Matching".
+ * Idempotent + cheap: a doc whose fingerprint already matches its recorded
+ * drive_mirror_sha256 is skipped with ZERO Drive calls (folders are only created
+ * when there's actually something to write). Never throws.
  *
  * The caller (batch-drive-sync route) creates the shared agency + batch folders
  * ONCE and passes batchFolderId here, so those lookups aren't repeated per
@@ -357,18 +432,22 @@ export async function mirrorCandidateApprovedDocs(
       .eq("status", "approved")
       .is("superseded_at", null)
       .not("r2_key", "is", null);
-    // Only the PRE-match dossier (Essentials + Unterlagen) goes to "Vor Matching".
-    // Post-match / Visum-phase docs are left for the "Nach Matching" folder (later).
-    const docs = latestApprovedPerName((rawDocs ?? []) as ApprovedDoc[]).filter((d) => isPreMatchDoc(d.file_type));
+    // Split the dossier by phase: PRE-match → "Vor Matching", POST-match →
+    // "Nach Matching". Dedup by filename per phase.
+    const allDocs = latestApprovedPerName((rawDocs ?? []) as ApprovedDoc[]);
+    const preDocs  = allDocs.filter((d) => isPreMatchDoc(d.file_type));
+    const postDocs = allDocs.filter((d) => isNachMatchingDoc(d.file_type));
     // Decide what's new BEFORE touching Drive → nothing new = zero Drive calls.
     const isMirrored = (d: ApprovedDoc) => {
       const fp = mirrorFingerprint(d);
       return !!(d.drive_mirror_id && fp && d.drive_mirror_sha256 === fp);
     };
-    const toUpload = docs.filter((d) => !isMirrored(d));
-    const unchanged = docs.length - toUpload.length;
-    // NOTE: deliberately NO early return when toUpload is empty — that is exactly
-    // the RETRACTION case (a doc was rejected/archived: nothing new to send, but a
+    const preToUpload  = preDocs.filter((d) => !isMirrored(d));
+    const postToUpload = postDocs.filter((d) => !isMirrored(d));
+    const unchanged = (preDocs.length - preToUpload.length) + (postDocs.length - postToUpload.length);
+    const anyToUpload = preToUpload.length + postToUpload.length;
+    // NOTE: deliberately NO early return when nothing is new — that is exactly
+    // the RETRACTION case (a doc was rejected/archived: nothing to send, but a
     // copy must be pulled out of the agency's view). The cheap path is preserved
     // below instead: no folder yet + nothing to upload ⇒ zero Drive calls.
 
@@ -385,65 +464,41 @@ export async function mirrorCandidateApprovedDocs(
     }
     if (!candidateName) candidateName = `Kandidat ${userId.slice(0, 8)}`;
 
-    // <Candidate> / { Vor Matching (dossier) , Nach Matching (placeholder) }.
+    // <Candidate> / { Vor Matching (pre-match) , Nach Matching (post-match) }.
     // Look the folder up WITHOUT creating it: a candidate with nothing to upload
     // and no folder yet has nothing stale either → return without a single write.
     let candFolderId = await findFolder(drive, candidateName, batchFolderId);
-    if (!candFolderId && toUpload.length === 0) return { ok: true, uploaded: 0, unchanged, archived: 0, missing: 0 };
+    if (!candFolderId && anyToUpload === 0) return { ok: true, uploaded: 0, unchanged, archived: 0, missing: 0 };
     if (!candFolderId) candFolderId = await findOrCreateFolder(drive, candidateName, batchFolderId);
-    const vorId = await findOrCreateFolder(drive, VOR_MATCHING, candFolderId);
-    if (toUpload.length) await findOrCreateFolder(drive, NACH_MATCHING, candFolderId); // placeholder
 
     let uploaded = 0;
-    let missing = 0; // approved docs whose R2 bytes couldn't be fetched — must NOT be silent
-    for (const d of toUpload) {
-      const obj = await r2GetObject(d.r2_key!);
-      if (!obj) {
-        // The doc is approved and current but its stored file is unreadable, so
-        // the agency would silently be missing it. Count + log so the sync can
-        // report "N couldn't be copied" instead of a false "success".
-        missing++;
-        console.error("[driveMirror] approved doc has unreadable R2 bytes — not copied:", d.id, d.file_name, d.r2_key);
-        continue;
-      }
-      const name = d.file_name || `${d.file_type || "document"}.pdf`;
-      const media = { mimeType: obj.contentType || "application/pdf", body: Readable.from(obj.body) };
-      // OWNERSHIP MARKER — this is what lets the reconcile pass tell OUR copies
-      // from files the founder placed in the folder himself (which stay untouched).
-      const appProperties = { borivon_doc_id: d.id, borivon_user_id: userId, borivon_sha: mirrorFingerprint(d) ?? "" };
-      let fileId = d.drive_mirror_id ?? null;
-      // Trust the recorded id; else find a same-name file in Vor Matching to
-      // update (no dupes); else create.
-      if (!fileId) {
-        const existing = await drive.files.list({
-          q: `name='${esc(name)}' and '${vorId}' in parents and trashed=false`,
-          fields: "files(id)", pageSize: 1,
-          supportsAllDrives: true, includeItemsFromAllDrives: true,
-        });
-        fileId = existing.data.files?.[0]?.id ?? null;
-      }
-      if (fileId) {
-        try { await drive.files.update({ fileId, media, requestBody: { appProperties }, supportsAllDrives: true }); }
-        catch { fileId = (await drive.files.create({ requestBody: { name, parents: [vorId], appProperties }, media, fields: "id", supportsAllDrives: true })).data.id as string; }
-      } else {
-        fileId = (await drive.files.create({ requestBody: { name, parents: [vorId], appProperties }, media, fields: "id", supportsAllDrives: true })).data.id as string;
-      }
-      // Record what we mirrored. If THIS write is lost the sync never converges
-      // (every later run re-uploads the same bytes), so a failure is logged loudly
-      // rather than swallowed — it is the difference between a 5-second sync and
-      // a 5-minute one.
-      const { error: wbErr } = await db
-        .from("documents")
-        .update({ drive_mirror_id: fileId, drive_mirror_sha256: mirrorFingerprint(d) })
-        .eq("id", d.id);
-      if (wbErr) console.error("[driveMirror] mirror write-back failed for doc", d.id, "-", wbErr.message);
-      uploaded++;
-    }
+    let missing = 0;  // approved docs whose R2 bytes couldn't be fetched — never silent
+    let archived = 0;
 
-    // RETRACT whatever the portal no longer treats as current. Runs on EVERY
-    // sync — including when nothing was uploaded — so a rejected/replaced doc
-    // stops being visible to the agency instead of lingering there forever.
-    const archived = await reconcileVorMatching(db, drive, docs, vorId, candFolderId);
+    // ── Vor Matching (pre-match dossier) — the primary folder; ALWAYS reconcile.
+    // Reconcile must run even when preDocs is empty: "every pre-match doc was
+    // rejected" is exactly when the stale copies need pulling into Archiv. We
+    // reach here only when the candidate folder exists, so Vor already does too
+    // (or is a cheap create).
+    const vorId = await findOrCreateFolder(drive, VOR_MATCHING, candFolderId);
+    {
+      const r = await uploadDocsToFolder(db, drive, preToUpload, vorId, userId);
+      uploaded += r.uploaded; missing += r.missing;
+    }
+    archived += await reconcileFolder(db, drive, preDocs, vorId, candFolderId);
+
+    // ── Nach Matching (post-match / Visum-phase docs) ─────────────────────────
+    // Create it when there are post docs to place; otherwise only reconcile it
+    // if it already exists (so retraction works when every post doc was removed,
+    // without minting an empty folder for pre-match-only candidates).
+    const nachId = postToUpload.length
+      ? await findOrCreateFolder(drive, NACH_MATCHING, candFolderId)
+      : await findFolder(drive, NACH_MATCHING, candFolderId);
+    if (nachId) {
+      const r = await uploadDocsToFolder(db, drive, postToUpload, nachId, userId);
+      uploaded += r.uploaded; missing += r.missing;
+      archived += await reconcileFolder(db, drive, postDocs, nachId, candFolderId);
+    }
 
     return { ok: true, uploaded, unchanged, archived, missing };
   } catch (e) {

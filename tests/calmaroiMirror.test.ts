@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { latestApprovedPerName, agencyRootFolderName, selectStaleMirrorFiles, mirrorFingerprint, type ApprovedDoc, type MirrorFile } from "../lib/driveMirror";
+import { latestApprovedPerName, agencyRootFolderName, selectStaleMirrorFiles, mirrorFingerprint, isNachMatchingDoc, type ApprovedDoc, type MirrorFile } from "../lib/driveMirror";
 import { isPreMatchDoc } from "../lib/fileKeys";
 
 const doc = (o: Partial<ApprovedDoc>): ApprovedDoc => ({
@@ -186,5 +186,27 @@ describe("mirrorFingerprint — the sync must CONVERGE", () => {
   it("never claims mirrored without a recorded drive file id", () => {
     const d = doc({ file_sha256: "abc", drive_mirror_id: null, drive_mirror_sha256: "abc" });
     expect(mirrored(d, mirrorFingerprint(d))).toBe(false);
+  });
+});
+
+describe("isNachMatchingDoc — post-match docs route to Nach Matching", () => {
+  it("routes visa-phase docs to Nach Matching (partner-shareable)", () => {
+    for (const t of ["Motivationsschreiben Visum", "EZB", "Zusatzblatt A", "Vorabzustimmung", "Arbeitsvertrag", "Mawista", "Versicherung", "Videx"]) {
+      expect(isNachMatchingDoc(t), t).toBe(true);
+    }
+  });
+  it("does NOT route pre-match dossier docs to Nach Matching", () => {
+    for (const t of ["Lebenslauf (DE)", "Reisepass", "Diplom (DE)", "Anschreiben", "B2 Sprachzertifikat", "Impfung", "Autre"]) {
+      expect(isNachMatchingDoc(t), t).toBe(false);
+    }
+  });
+  it("routes a wizard-slot UUID doc (post-match) to Nach Matching", () => {
+    expect(isNachMatchingDoc("3caccf17-9740-440a-ab96-d74524ff75d7")).toBe(true);
+  });
+  it("pre and post are mutually exclusive (every doc goes to exactly one folder)", () => {
+    for (const t of ["Lebenslauf (DE)", "Reisepass", "EZB", "Arbeitsvertrag", "", null, "3caccf17-9740-440a-ab96-d74524ff75d7"]) {
+      // exactly one of the two predicates is true
+      expect(isPreMatchDoc(t) !== isNachMatchingDoc(t), String(t)).toBe(true);
+    }
   });
 });

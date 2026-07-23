@@ -7,7 +7,7 @@ import { google } from "googleapis";
 import { JWT } from "google-auth-library";
 import { makeDrivePublic } from "@/lib/passport-pdf";
 import { natToLang } from "@/lib/countries";
-import { LABEL_TO_FILE_KEY, isPreMatchDoc } from "@/lib/fileKeys";
+import { LABEL_TO_FILE_KEY } from "@/lib/fileKeys";
 import { scheduleCandidateMirror } from "@/lib/scheduleMirror";
 import { PassThrough } from "stream";
 import { createHash } from "crypto";
@@ -1251,8 +1251,9 @@ export async function POST(req: NextRequest) {
   // AUTO-MIRROR: an admin upload lands as "approved" WITHOUT going through
   // applyDocReview, so it needs its own trigger to refresh the agency's Drive
   // folder. Candidate uploads are "pending" → they mirror later, on approval.
-  // Gated on pre-match so Bearbeitung/Visum slot uploads don't hit the mirror.
-  if (uploadedByAdmin && isPreMatchDoc(fileType)) scheduleCandidateMirror(userId);
+  // autoMirrorCandidate routes each doc to Vor/Nach Matching, so this fires for
+  // any doc type (pre- or post-match).
+  if (uploadedByAdmin) scheduleCandidateMirror(userId);
 
   // Passport FILE re-upload by a candidate does NOT reopen the DATA review
   // (user decision): if passport_status was "approved", the previously
