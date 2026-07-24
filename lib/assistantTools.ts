@@ -2342,6 +2342,50 @@ export function buildAssistantTools(
       },
     }),
 
+    listOpenCommitments: tool({
+      description:
+        "What OTHER PEOPLE promised ME and haven't delivered. This answers 'what is everyone owing me?', 'who still owes me something?', 'did Anna ever send the Fahrplan?', 'what am I still waiting for?'. These are CONTENT-level promises pulled out of their emails ('I'll send the contract Friday') — a DIFFERENT thing from listFollowUps, which only looks at who sent the last message in a thread. Use THIS when the question is about an undelivered THING; use listFollowUps when it's about an unanswered MESSAGE. Returns who, what they promised, and when it was due/promised — most overdue first. Read-only, supreme-only. Works even while the bot is quiet.",
+      inputSchema: z.object({
+        limit: z.number().int().min(1).max(50).optional().describe("max results (default 25)"),
+      }),
+      execute: async ({ limit }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!scope.userId) return { error: "no_owner" };
+        const { listOpenCommitments: listFn, isCommitmentOverdue } = await import("@/lib/commitments");
+        const rows = await listFn(scope.userId, limit ?? 25);
+        if (!rows.length) return { count: 0, items: [], note: "Nothing outstanding." };
+        const now = Date.now();
+        return {
+          count: rows.length,
+          items: rows.map((c) => ({
+            id: c.id,
+            who: c.who_name || c.who_email,
+            what: c.what,
+            due: c.due_at ? c.due_at.slice(0, 10) : null,
+            promisedOn: c.promised_at.slice(0, 10),
+            overdue: isCommitmentOverdue(c, now),
+            subject: c.source_subject,
+          })),
+        };
+      },
+    }),
+
+    resolveCommitment: tool({
+      description:
+        "Close out a promise from listOpenCommitments — use when the founder says it arrived ('Anna sent the Fahrplan', 'got it') → status 'done', or that it's not coming / no longer needed ('forget it', 'drop that one') → status 'dropped'. Takes the id from listOpenCommitments. Supreme-only.",
+      inputSchema: z.object({
+        id: z.number().int().describe("the commitment id from listOpenCommitments"),
+        status: z.enum(["done", "dropped"]).describe("'done' = they delivered it; 'dropped' = write it off"),
+      }),
+      execute: async ({ id, status }) => {
+        if (scope.role !== "admin") return { error: "admin_only" };
+        if (!scope.userId) return { error: "no_owner" };
+        const { resolveCommitment: resolveFn } = await import("@/lib/commitments");
+        const ok = await resolveFn(scope.userId, id, status);
+        return ok ? { ok: true, id, status } : { error: "not_found" };
+      },
+    }),
+
     listFollowUps: tool({
       description:
         "THE follow-up tool — find emails that need a FOLLOW-UP, in EITHER direction, over ANY timeframe. This is how you answer 'who hasn't replied to me?', 'which emails I SENT got no reply?', 'what do I still owe a reply to?', 'show me follow-ups for the last month', 'did the client ever reply?'. direction: 'awaiting_them' = emails I SENT where the OTHER person hasn't replied yet (chase THEM — the classic 'they went quiet'); 'i_owe' = emails people sent ME that I haven't replied to (I owe THEM); 'both' = everything needing a follow-up (default). days = how far back (default 7; pass 30 for 'last month', 90 for 'last 3 months', up to 365). Optional query = a Gmail filter to narrow — a person ('from:anna' or their email) OR an exact window ('after:2026/05/01 before:2026/06/01'). Works off the REAL state of each conversation (who sent the last message), not just unread, so it catches threads you read but never answered. Returns who + subject + days since the last message + which way the follow-up goes, most-overdue first. Read-only, supreme-only. NEVER tell me you can't list unanswered or sent-but-unreplied emails — call THIS.",

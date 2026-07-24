@@ -15,6 +15,7 @@ import { tgSend, getAdminUserId, telegramConfigured } from "@/lib/telegram";
 import { isAutomationEnabled } from "@/lib/automationSettings";
 import { isBotQuiet } from "@/lib/botQuiet";
 import { runInboxSlaNudge } from "@/lib/inboxSlaRun";
+import { runCommitmentScan, runCommitmentChase } from "@/lib/commitmentsRun";
 import { runFollowupChase } from "@/lib/followupsRun";
 import { fireDueReminders } from "@/lib/reminderFire";
 
@@ -41,16 +42,27 @@ export async function GET(req: NextRequest) {
   const sla = await runInboxSlaNudge(chatId).catch(() => ({ sent: false, count: 0, skipped: "error" as const }));
   // Outbound follow-up chase — also rides this pass (its own ~12h gate + toggle).
   const followups = await runFollowupChase(chatId).catch(() => ({ sent: false, nudged: 0, resolved: 0, skipped: "error" as const }));
+  // DROPPED PROMISES — scan recent inbound mail for things people promised the
+  // founder, then chase the ones past due. Rides this pass like the two above
+  // (own toggle + gate + cap). The scan runs on the EVENING pass only: it costs a
+  // model call per email, and once a day is plenty to notice a new promise.
+  const commitAdminId = (await getAdminUserId()) ?? "";
+  if (commitAdminId && (req.nextUrl.searchParams.get("slot") || "").toLowerCase() === "evening") {
+    await runCommitmentScan(commitAdminId).catch(() => 0);
+  }
+  const commitments = commitAdminId
+    ? await runCommitmentChase(chatId, commitAdminId).catch(() => ({ sent: false, count: 0, skipped: "error" as const }))
+    : { sent: false, count: 0, skipped: "no_admin" as const };
 
   // The all-day nudge is the same "what needs you today" list re-pinged — it
   // rides on the briefing switch, so turning the briefing off silences it too.
-  if (!(await isAutomationEnabled("daily_briefing"))) return Response.json({ skipped: "disabled", sla, followups, reminders });
+  if (!(await isAutomationEnabled("daily_briefing"))) return Response.json({ skipped: "disabled", sla, followups, commitments, reminders });
 
   const slot = (req.nextUrl.searchParams.get("slot") || "").toLowerCase();
   const adminUserId = await getAdminUserId();
   const { text, count } = await computeBriefing(adminUserId);
   // Silence = you cleared it. Only re-ping while something's still open.
-  if (count === 0) return Response.json({ sent: false, count: 0, slot, sla, followups, reminders });
+  if (count === 0) return Response.json({ sent: false, count: 0, slot, sla, followups, commitments, reminders });
 
   const prefix = slot === "evening"
     ? "🌙 End of day — still open. Clear these before you log off:\n\n"

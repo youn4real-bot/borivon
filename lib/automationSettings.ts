@@ -12,7 +12,7 @@
  */
 import { getServiceSupabase } from "@/lib/supabase";
 
-export type AutomationKey = "daily_briefing" | "weekly_report" | "signup_ping" | "auto_chase" | "inbox_reminder" | "inbox_sla" | "followup_chase" | "doc_reminders" | "briefing_extras";
+export type AutomationKey = "daily_briefing" | "weekly_report" | "signup_ping" | "auto_chase" | "inbox_reminder" | "inbox_sla" | "followup_chase" | "doc_reminders" | "briefing_extras" | "commitments";
 
 export const AUTOMATIONS: Record<AutomationKey, { label: string; default: boolean; desc: string }> = {
   daily_briefing: { label: "Daily morning briefing — \"what needs you today\"", default: true, desc: "Every morning, ONE message with everything that needs you: documents to review, passports expiring, B2 exams coming up, your due reminders, candidates who may need a nudge, and unanswered emails. The complete daily triage." },
@@ -23,6 +23,7 @@ export const AUTOMATIONS: Record<AutomationKey, { label: string; default: boolea
   inbox_sla:      { label: "6-hour reply SLA", default: true, desc: "At the midday + evening check, pings you about any email left unanswered for 6h+ — so a same-day email gets surfaced while there's still time to reply. Each email is nudged once. (Needs the inbox_sla_nudges migration run.)" },
   followup_chase: { label: "Outbound follow-up chase", default: true, desc: "When you send an external email, the bot watches for a reply — if none, it reminds you to follow up (morning + evening, ~every 12h, up to 8 times) and auto-stops the moment they reply. (Needs the email_followup_chase migration run.)" },
   doc_reminders:  { label: "Document-review reminders in the briefing", default: false, desc: "The '👀 N documents waiting for your review' section of the daily briefing + the midday/evening nudges. Default OFF (the founder repeatedly asked to silence it) — even without the automation_settings table the briefing fail-safes to this default, so it's muted now. Say 'remind me about docs again' to turn it back on (needs the automation_settings migration run to persist)." },
+  commitments:    { label: "Dropped-promise chase", default: true, desc: "Reads recent inbound email for promises OTHER people made you (\"I'll send the Fahrplan Friday\") and pings you when one goes past due — the gap neither the outbound follow-up chase nor the thread-position follow-ups can see, because the promise arrives in THEIR message. Ask \"what is everyone owing me?\" any time, even while the bot is quiet. (Needs the assistant_commitments migration run.)" },
   briefing_extras: { label: "Auto-signals in the briefing (passports / B2 / stuck / emails / batch)", default: false, desc: "When OFF (the DEFAULT — the founder wants to be reminded ONLY of tasks he dictates), the daily briefing + midday/evening nudges show ONLY the reminders he explicitly told the bot to keep ('remind me to …') — nothing auto-generated. When ON, the briefing also surfaces passports expiring, B2 exams due, stuck candidates, unanswered emails, and batch tasks. He can still ASK for any of those on demand at any time; this only controls what gets PUSHED unsolicited. Say 'turn the briefing signals back on' to enable." },
 };
 
