@@ -36,6 +36,15 @@
   "triggers": {
     "crons": ["0 6 * * *", "0 12 * * *", "0 17 * * *", "0 7 * * 1", "0 8 * * *", "30 8 * * *"]
   },
+  // CUTOVER 2026-07-24 — the scheduled() handler in cf-worker.ts stayed dormant
+  // while Vercel was still running the same crons (firing both = double pings).
+  // The domain now serves from this worker and vercel.json's "crons" have been
+  // removed, so Cloudflare owns the schedule. Plain var, NOT a secret — it's a
+  // boolean feature flag, so it belongs in version control where the state is
+  // visible. Set to "false" to park the schedule again without a code change.
+  "vars": {
+    "CF_CRONS_ENABLED": "true"
+  },
   "observability": {
     "enabled": true
   }

@@ -3,30 +3,43 @@
   "buildCommand": "npm run build",
   "outputDirectory": ".next",
   "installCommand": "npm install",
-  "crons": [
-    { "path": "/api/cron/briefing", "schedule": "0 6 * * *" },
-    { "path": "/api/cron/nudge?slot=midday", "schedule": "0 12 * * *" },
-    { "path": "/api/cron/nudge?slot=evening", "schedule": "0 17 * * *" },
-    { "path": "/api/cron/weekly-report", "schedule": "0 7 * * 1" },
-    { "path": "/api/cron/auto-chase", "schedule": "0 8 * * *" },
-    { "path": "/api/cron/inbox-reminder", "schedule": "30 8 * * *" }
-  ],
   "headers": [
     {
       "source": "/api/portal/file",
       "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "X-Frame-Options", "value": "SAMEORIGIN" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "SAMEORIGIN"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        }
       ]
     },
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "X-XSS-Protection", "value": "1; mode=block" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
         {
           "key": "Permissions-Policy",
           "value": "camera=(self), microphone=(self), geolocation=()"
@@ -48,7 +61,10 @@
     {
       "source": "/(.*)\\.(ico|png|svg|jpg|jpeg|webp|woff2|woff)",
       "headers": [
-        { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
       ]
     }
   ]
