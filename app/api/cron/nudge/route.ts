@@ -31,7 +31,20 @@ export async function GET(req: NextRequest) {
 
   const chatId = (process.env.TELEGRAM_CHAT_ID || "").trim();
   if (!telegramConfigured() || !chatId) return Response.json({ skipped: "telegram_not_configured" });
-  if (await isBotQuiet()) return Response.json({ skipped: "quiet" });
+
+  // DROPPED-PROMISE SCAN — runs BEFORE the quiet gate ON PURPOSE. It is SILENT
+  // (it only records what people promised; it never messages anyone), and the
+  // founder can ask "what is everyone owing me?" at any time — including while
+  // the bot is quiet. Gating it behind quiet would leave that question answering
+  // "nothing" forever, because no promise would ever have been captured.
+  // The CHASE (which does ping) stays suppressed — runCommitmentChase checks
+  // isBotQuiet itself. Evening pass only: it costs a model call per email.
+  const commitAdminId = (await getAdminUserId()) ?? "";
+  if (commitAdminId && (req.nextUrl.searchParams.get("slot") || "").toLowerCase() === "evening") {
+    await runCommitmentScan(commitAdminId).catch(() => 0);
+  }
+
+  if (await isBotQuiet()) return Response.json({ skipped: "quiet", scanned: !!commitAdminId });
 
   // Fire any now-due personal reminders first — independent of every toggle below.
   const reminders = await fireDueReminders(chatId, await getAdminUserId()).catch(() => ({ fired: 0 }));
@@ -42,14 +55,8 @@ export async function GET(req: NextRequest) {
   const sla = await runInboxSlaNudge(chatId).catch(() => ({ sent: false, count: 0, skipped: "error" as const }));
   // Outbound follow-up chase — also rides this pass (its own ~12h gate + toggle).
   const followups = await runFollowupChase(chatId).catch(() => ({ sent: false, nudged: 0, resolved: 0, skipped: "error" as const }));
-  // DROPPED PROMISES — scan recent inbound mail for things people promised the
-  // founder, then chase the ones past due. Rides this pass like the two above
-  // (own toggle + gate + cap). The scan runs on the EVENING pass only: it costs a
-  // model call per email, and once a day is plenty to notice a new promise.
-  const commitAdminId = (await getAdminUserId()) ?? "";
-  if (commitAdminId && (req.nextUrl.searchParams.get("slot") || "").toLowerCase() === "evening") {
-    await runCommitmentScan(commitAdminId).catch(() => 0);
-  }
+  // Chase the promises that went past due (the scan already ran above, before
+  // the quiet gate). Own toggle + 20h gate + 4-nudge cap.
   const commitments = commitAdminId
     ? await runCommitmentChase(chatId, commitAdminId).catch(() => ({ sent: false, count: 0, skipped: "error" as const }))
     : { sent: false, count: 0, skipped: "no_admin" as const };
