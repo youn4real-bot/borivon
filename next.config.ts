@@ -110,8 +110,26 @@ const nextConfig: NextConfig = {
     "/api/portal/letter/generate": ["./public/fonts/**"],
   },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  webpack: (config: any) => {
+  webpack: (config: any, { isServer }: { isServer: boolean }) => {
     config.resolve.alias.canvas = false;
+    // PERF (Cloudflare Workers) — keep jsdom OUT of the server bundle.
+    //
+    // lib/sanitizeHtml.ts only `require("isomorphic-dompurify")` in its BROWSER
+    // branch (the server branch delegates to the jsdom-free sanitizeHtmlServer),
+    // but webpack statically analyses a literal require() and bundles the module
+    // regardless of whether it can ever execute. Result: jsdom's whole tree —
+    // 635 references, including a single 2.2MB CSSStyleProperties.js — was baked
+    // into the 44MB server bundle. On Vercel that is harmless (big Node lambda);
+    // on Workers the isolate must PARSE that script on every cold start, which is
+    // what made every page take ~1.7s.
+    //
+    // Aliasing to false on the server is provably safe here: the only require is
+    // guarded by `typeof window === "undefined"` returning first, so this code
+    // path is unreachable on the server. The browser bundle is untouched.
+    if (isServer) {
+      config.resolve.alias["isomorphic-dompurify"] = false;
+      config.resolve.alias.jsdom = false;
+    }
     return config;
   },
   async headers() {

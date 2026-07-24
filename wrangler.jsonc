@@ -12,6 +12,14 @@
   // it the Telegram webhook route 500s with "WeakRef is not defined". Surgical flag so the rest
   // of the runtime stays exactly as the working homepage deploy.
   "compatibility_flags": ["nodejs_compat", "enable_weak_ref"],
+  // SMART PLACEMENT — run the worker near the DATA, not near the visitor.
+  // Default Workers placement runs at the edge closest to the user (e.g. Casablanca),
+  // but every authed portal page makes several sequential Supabase round-trips, so
+  // each hop pays the Casablanca↔Supabase distance and the page feels sluggish.
+  // Smart placement lets Cloudflare relocate the isolate next to the origin it
+  // talks to most, collapsing those round-trips. Static assets are unaffected —
+  // they're still served from the edge.
+  "placement": { "mode": "smart" },
   "assets": {
     "binding": "ASSETS",
     "directory": ".open-next/assets"
