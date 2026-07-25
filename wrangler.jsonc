@@ -11,7 +11,19 @@
   // date 2025-05-05; we're earlier). A bot dependency (ai-sdk / google-auth) needs it — without
   // it the Telegram webhook route 500s with "WeakRef is not defined". Surgical flag so the rest
   // of the runtime stays exactly as the working homepage deploy.
-  "compatibility_flags": ["nodejs_compat", "enable_weak_ref"],
+  // enable_nodejs_http_modules: gives workerd its NATIVE node:http / node:https.
+  // Without it @cloudflare/unenv-preset stubs both (dist/index.mjs:129-137 gates
+  // them on compatibility_date >= "2025-08-15" OR this flag — ours is 2025-03-25),
+  // and the stub's validateHeaderName THROWS. googleapis reaches it via
+  // gaxios -> node-fetch, so on Workers every Drive / Docs / Sheets call died with
+  // "validateHeaderName not implemented". Gmail + Calendar had been rescued with
+  // fetch+WebCrypto shims (lib/googleRestShim.ts) but Drive never was — which
+  // silently broke the ENTIRE agency Drive mirror (batch sync, auto-sync, Nach
+  // Matching, batch-move) plus the candidate Google Sheet, on Cloudflare only.
+  // Chosen over bumping compatibility_date so the rest of the runtime stays
+  // byte-identical to the deploy that is already proven good — the same surgical
+  // approach used for enable_weak_ref.
+  "compatibility_flags": ["nodejs_compat", "enable_weak_ref", "enable_nodejs_http_modules"],
   // SMART PLACEMENT — run the worker near the DATA, not near the visitor.
   // Default Workers placement runs at the edge closest to the user (e.g. Casablanca),
   // but every authed portal page makes several sequential Supabase round-trips, so

@@ -22,6 +22,8 @@ type Info = {
   onCloudflare: boolean; onVercel: boolean;
   pendingUpdates: number; lastError: string | null; canonical: string;
 };
+/** Read-only Drive connectivity probe — proves the agency mirror can actually reach Drive. */
+type DriveInfo = { ok: boolean; connectedAs?: string | null; reason?: string; detail?: string; hint?: string };
 
 export default function AdminBotPage() {
   const router = useRouter();
@@ -30,6 +32,7 @@ export default function AdminBotPage() {
   const [loading, setLoading] = useState(true);
   const [token, setToken] = useState("");
   const [info, setInfo] = useState<Info | null>(null);
+  const [drive, setDrive] = useState<DriveInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
 
@@ -39,6 +42,16 @@ export default function AdminBotPage() {
     const j = await res.json().catch(() => null);
     if (j && !j.error) setInfo(j as Info);
     else setMsg(j?.hint || j?.error || T("Couldn't read the webhook.", "Webhook nicht lesbar.", "Impossible de lire le webhook."));
+
+    // Drive probe rides the same load — read-only, and it proves the agency
+    // mirror can actually REACH Drive. It silently could not on Workers until the
+    // enable_nodejs_http_modules flag was added (googleapis -> node:http stub),
+    // and a batch sync reported success while copying nothing.
+    try {
+      const dr = await fetch("/api/portal/admin/batch-drive-sync", { headers: { Authorization: `Bearer ${tk}` } });
+      const dj = await dr.json().catch(() => null);
+      if (dj) setDrive(dj as DriveInfo);
+    } catch { /* leave null — the card just won't render */ }
   }, [router, T]);
 
   useEffect(() => {
@@ -137,6 +150,26 @@ export default function AdminBotPage() {
               {T("Nothing to do — Vercel can be safely deleted.", "Nichts zu tun — Vercel kann sicher gelöscht werden.", "Rien à faire — Vercel peut être supprimé en toute sécurité.")}
             </p>
           )}
+        </div>
+      )}
+
+      {drive && (
+        <div className="mt-4 rounded-2xl p-5" style={{ background: "var(--card)", border: `1px solid ${drive.ok ? "rgba(22,163,74,0.4)" : "rgba(239,68,68,0.45)"}` }}>
+          <div className="flex items-center gap-2">
+            {drive.ok ? <CheckCircle2 size={20} style={{ color: "#16a34a" }} /> : <AlertTriangle size={20} style={{ color: "#ef4444" }} />}
+            <span className="font-medium" style={{ color: "var(--w)" }}>
+              {drive.ok
+                ? T("Google Drive connected", "Google Drive verbunden", "Google Drive connecté")
+                : T("Google Drive NOT reachable", "Google Drive NICHT erreichbar", "Google Drive INACCESSIBLE")}
+            </span>
+          </div>
+          <div className="mt-2 text-sm" style={{ color: "var(--w2)" }}>
+            {drive.ok
+              ? <>{T("Candidate files can be copied to the agency folder.", "Kandidatendateien können in den Agenturordner kopiert werden.", "Les fichiers candidats peuvent être copiés vers le dossier de l'agence.")}{drive.connectedAs ? <> <code style={{ color: "var(--gold)" }}>{drive.connectedAs}</code></> : null}</>
+              : T("The batch sync would copy nothing. Tell Claude — this needs a fix.", "Die Batch-Synchronisierung würde nichts kopieren. Sag Claude Bescheid.", "La synchronisation ne copierait rien. Préviens Claude.")}
+          </div>
+          {!drive.ok && drive.detail && <div className="mt-2 text-xs" style={{ color: "var(--w3)" }}>{drive.detail}</div>}
+          {!drive.ok && drive.hint && <div className="mt-2 text-xs" style={{ color: "var(--w3)" }}>{drive.hint}</div>}
         </div>
       )}
 

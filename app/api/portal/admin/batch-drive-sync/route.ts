@@ -17,6 +17,43 @@ import { resolveBatchSyncTargets, ensureBatchFolder, mirrorCandidateApprovedDocs
 export const maxDuration = 60;
 const TIME_BUDGET_MS = 45_000;
 
+/**
+ * READ-ONLY Drive connectivity probe (supreme admin only).
+ *
+ * Exists because there was no way to answer "does Drive actually work?" without
+ * running a real mutating sync. That mattered during the Cloudflare migration:
+ * googleapis reaches node:http via gaxios, workerd stubbed node:http unless the
+ * enable_nodejs_http_modules flag is set, and the stub throws — so every Drive
+ * call died on Workers while Gmail/Calendar (which have fetch shims) kept
+ * working. The failure was invisible: mirrorCandidateApprovedDocs catches and
+ * logs, so a sync reported success while copying nothing.
+ *
+ * about.get is the lightest possible call and touches no files.
+ */
+export async function GET(req: NextRequest) {
+  const auth = await requireAdminRole(req);
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+  if (auth.role !== "admin") return NextResponse.json({ error: "Supreme admin only" }, { status: 403 });
+
+  const drive = getDriveOrNull();
+  if (!drive) {
+    return NextResponse.json({ ok: false, reason: "not_configured", hint: "Google Workspace credentials aren't set on this deployment." });
+  }
+  try {
+    const me = await drive.about.get({ fields: "user(emailAddress)" });
+    return NextResponse.json({ ok: true, connectedAs: me.data.user?.emailAddress ?? null });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({
+      ok: false,
+      reason: "call_failed",
+      // Surfaced verbatim: "validateHeaderName is not implemented" is the exact
+      // signature of the node:http stub, i.e. the compatibility flag is missing.
+      detail: msg.slice(0, 300),
+    });
+  }
+}
+
 export async function POST(req: NextRequest) {
   const auth = await requireAdminRole(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
