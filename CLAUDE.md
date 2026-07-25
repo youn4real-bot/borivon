@@ -16,7 +16,8 @@ npm run start          # serve a built app
 npm run lint           # next lint (deprecated upstream; use sparingly)
 npm test               # run Vitest unit tests (tests/**)
 npx tsc --noEmit       # type-check the whole tree without emitting
-npx vercel --prod      # ship to prod (aliased to www.borivon.com)
+npm run cf:build       # build for Cloudflare Workers (OpenNext adapter)
+npm run cf:deploy      # SHIP TO PROD → www.borivon.com (Cloudflare Worker "borivon")
 ```
 
 **Vitest** is configured (`tests/**`, run `npm test`). It covers the security-critical invariants — passport gate (LAW #39), download-token auth, soft-delete gate, R2 path-safety, legacy-alias resolution, and the `lib/admin-auth` access-control core (LAW #25). Verification = `npx tsc --noEmit` + `npm test` + manual smoke through the dev server. When you touch any of those invariants, add/extend the matching test.
