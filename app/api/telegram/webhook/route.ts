@@ -43,7 +43,16 @@ import { randomUUID, createHash } from "crypto";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Vercel-only export — INERT on Cloudflare Workers (kept harmlessly in case the
+// app is ever run on a Node/serverless host again). Nothing may assume a 60s
+// wall-clock kill any more; see DEAD_TURN_MS.
 export const maxDuration = 60;
+
+/** How long a claimed-but-unanswered turn must be silent before a Telegram retry
+ *  may re-claim it. MUST stay above the platform's real ceiling — on Cloudflare
+ *  that is the ~100s edge timeout, not the inert maxDuration above. Too low and
+ *  a still-running turn gets executed a second time. */
+const DEAD_TURN_MS = 180_000;
 
 const BASE_URL = process.env.PUBLIC_BASE_URL || "https://www.borivon.com";
 
@@ -196,11 +205,21 @@ export async function POST(req: NextRequest) {
   // DEDUPE: Telegram RE-SENDS an update if our webhook is slow to 2xx (a heavy
   // multi-tool turn can run long), which caused DOUBLE replies. Claim this update_id
   // once; a retry of the same update hits the PK conflict. BUT a heavy turn can also
-  // DIE (60s function cap / crash) BEFORE replying — and dropping the retry then meant
+  // DIE (crash / platform kill) BEFORE replying — and dropping the retry then meant
   // the founder's message was silently LOST. So on a conflict we recover: if the prior
-  // claim never stamped responded_at AND is older than the 65s cap (so it can't still be
-  // running → it died), we RE-CLAIM and re-process the retry. Fail-safe: if the table or
-  // the responded_at column isn't migrated, fall through to today's behaviour (drop).
+  // claim never stamped responded_at AND is old enough that it CANNOT still be running,
+  // we RE-CLAIM and re-process the retry. Fail-safe: if the table or the responded_at
+  // column isn't migrated, fall through to today's behaviour (drop).
+  //
+  // DEAD_TURN_MS was 65s, derived from Vercel's 60s function cap: past the cap the old
+  // attempt was guaranteed dead, so re-claiming was safe. That guarantee DIED with the
+  // Cloudflare migration — `maxDuration = 60` below is a Vercel export and is inert on
+  // Workers, which impose no 60s wall-clock kill on an I/O-bound turn. A slow turn (many
+  // Gemini + Google API calls) can therefore still be ALIVE at 65s, and re-claiming it
+  // would run the same message TWICE — duplicate reminders, duplicate notes, the exact
+  // duplicate-action class the founder has already been burned by. Raised past
+  // Cloudflare's own ~100s edge timeout (524), so anything silent this long is genuinely
+  // dead, while a live turn is never raced.
   if (typeof update.update_id === "number") {
     const db = getServiceSupabase();
     try {
@@ -211,7 +230,7 @@ export async function POST(req: NextRequest) {
           const { data: ex } = await db.from("telegram_updates")
             .select("created_at, responded_at").eq("update_id", update.update_id).maybeSingle();
           const row = ex as { created_at?: string | null; responded_at?: string | null } | null;
-          if (row && !row.responded_at && row.created_at && Date.now() - new Date(row.created_at).getTime() > 65_000) {
+          if (row && !row.responded_at && row.created_at && Date.now() - new Date(row.created_at).getTime() > DEAD_TURN_MS) {
             // The earlier attempt died without answering → take over this retry.
             await db.from("telegram_updates").update({ created_at: new Date().toISOString() }).eq("update_id", update.update_id);
             reclaimed = true;

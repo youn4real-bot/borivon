@@ -1,0 +1,52 @@
+# Cloudflare Workers static-asset headers.
+#
+# WHY THIS FILE EXISTS — two regressions the Vercel -> Cloudflare cutover
+# introduced, both measured on prod, both invisible (nothing errors):
+#
+#  1. CACHING. Every file under /_next/static/ came back as
+#     `cache-control: public, max-age=0, must-revalidate` — Cloudflare's DEFAULT
+#     for Workers static assets. vercel.json used to serve these (and the images
+#     and fonts) with a one-year immutable policy. The effect of the default: a
+#     returning visitor re-validates EVERY chunk, font and image on EVERY page
+#     load. The edge answers 304 fast, but on Moroccan mobile data that is still
+#     a round-trip per asset before the page can run.
+#
+#  2. SECURITY HEADERS. next.config.ts's headers() only decorates responses that
+#     go THROUGH the worker. Static assets are served directly by the ASSETS
+#     binding and bypass it entirely, so they lost `nosniff` and HSTS. Defence in
+#     depth, but free to restore here.
+#
+# CACHE POLICY IS DELIBERATELY SPLIT BY WHETHER THE FILENAME IS CONTENT-HASHED:
+#   • /_next/static/*  -> immutable, 1 year. SAFE: Next puts a content hash in
+#     every filename (webpack-0a1ca1996446a3be.js), so a new build = a new URL
+#     and a cached copy can never be stale. Same policy Vercel used.
+#   • everything else  -> 1 day. These filenames are STABLE (favicon.png, the
+#     TTFs, pdfjs wasm/cmaps/standard_fonts, logos), so `immutable` would pin a
+#     stale copy in browsers for a year after a logo swap or a pdfjs-dist
+#     upgrade. CLAUDE.md warns the pdfjs assets auto-resync on postinstall
+#     precisely so they can't go stale — a 1-year pin would defeat that. One day
+#     removes essentially all the repeat-visit cost while keeping updates same-day.
+
+/*
+  X-Content-Type-Options: nosniff
+  Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+
+# Content-hashed by Next — a new build always produces a new filename.
+/_next/static/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Stable filenames: cache hard, but let a new version through within a day.
+/pdfjs/*
+  Cache-Control: public, max-age=86400
+/fonts/*
+  Cache-Control: public, max-age=86400
+/logos/*
+  Cache-Control: public, max-age=86400
+/avatars/*
+  Cache-Control: public, max-age=86400
+/embedpdf/*
+  Cache-Control: public, max-age=86400
+/mediapipe/*
+  Cache-Control: public, max-age=86400
+/favicon.png
+  Cache-Control: public, max-age=86400
