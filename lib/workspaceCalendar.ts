@@ -248,18 +248,32 @@ export async function listTodayEvents(): Promise<{ time: string; title: string; 
   }
 }
 
+/** One event as returned by `listEventsInWindow`. `end` + `transparent` exist so the
+ *  public booking page can treat this as a real BUSY interval — a "Show as: Free"
+ *  event is on the calendar but must not block a slot. */
+export type CalendarWindowEvent = {
+  eventId: string;
+  title: string;
+  start: string | null;
+  end: string | null;
+  allDay: boolean;
+  hasAttendees: boolean;
+  transparent: boolean;
+  recurringEventId?: string;
+};
+
 /** EVERY event in a window (paginated, NO 50-cap) — the server-side basis for bulk ops like
  *  "cancel all events today". Returns id + title + start + whether it has attendees (so
  *  "remove all INVITES" can target only events with guests). Fail-safe → {ok:false}. */
 export async function listEventsInWindow(opts: { from: string; to: string; query?: string }): Promise<
-  { ok: true; events: { eventId: string; title: string; start: string | null; allDay: boolean; hasAttendees: boolean; recurringEventId?: string }[] } | { ok: false; error: string }
+  { ok: true; events: CalendarWindowEvent[] } | { ok: false; error: string }
 > {
   const cal = calendarClient();
   if (!cal) return { ok: false, error: "workspace_not_connected" };
   const timeMin = localToInstant(opts.from).toISOString();
   const timeMax = localToInstant(opts.to).toISOString();
   try {
-    const out: { eventId: string; title: string; start: string | null; allDay: boolean; hasAttendees: boolean; recurringEventId?: string }[] = [];
+    const out: CalendarWindowEvent[] = [];
     let pageToken: string | undefined;
     for (let page = 0; page < 20; page++) { // hard guard: ≤20 pages (×250 = 5000 events)
       const res: { data: calendar_v3.Schema$Events } = await cal.events.list({
@@ -271,8 +285,11 @@ export async function listEventsInWindow(opts: { from: string; to: string; query
           eventId: e.id ?? "",
           title: e.summary ?? "(no title)",
           start: e.start?.dateTime ?? e.start?.date ?? null,
+          end: e.end?.dateTime ?? e.end?.date ?? null,
           allDay: !e.start?.dateTime,
           hasAttendees: (e.attendees ?? []).some((a) => a.email),
+          // Google's "Show as: Free" — on the calendar, but not actually busy.
+          transparent: e.transparency === "transparent",
           recurringEventId: e.recurringEventId ?? undefined,
         });
       }

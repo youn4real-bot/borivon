@@ -195,6 +195,7 @@ export function ProfileIcon() {
   useEffect(() => {
     if (!open || !user?.isAdmin) return;
     const routes = ["/portal/admin", "/portal/admin/pipeline", "/portal/admin/progress", "/portal/admin/b2-status", "/portal/admin/leads", "/portal/admin/expiry"];
+    if (!user.isOrgAdmin) routes.push("/portal/admin/bookings");
     if (user.isSuperAdmin) routes.push("/portal/admin/organizations", "/portal/admin/manage", "/portal/admin/employers", "/portal/admin/online-courses", "/portal/admin/academy", "/portal/admin/batches");
     for (const r of routes) { try { router.prefetch(r); } catch { /* ignore */ } }
   }, [open, user, router]);
@@ -648,6 +649,23 @@ export function ProfileIcon() {
                     <path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>
                   </svg>
                   {lang === "fr" ? "Prospects" : lang === "de" ? "Anfragen" : "Leads"}
+                </button>
+              )}
+              {/* Bookings from /book + manually-added calls. Same gate as the API:
+                  admin + plain sub-admins, but NOT org admins — another agency's
+                  staff has no business in Borivon's own sales pipeline. */}
+              {user.isAdmin && !user.isOrgAdmin && (
+                <button
+                  onClick={() => { setOpen(false); router.push("/portal/admin/bookings"); }}
+                  className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
+                  style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
+                  onMouseEnter={e => { e.currentTarget.style.background = "var(--bg2)"; e.currentTarget.style.color = "var(--w)"; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--w2)"; }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="m9 16 2 2 4-4"/>
+                  </svg>
+                  {lang === "fr" ? "Rendez-vous" : lang === "de" ? "Termine" : "Bookings"}
                 </button>
               )}
               {/* Batch Board (employer intakes + funnel). Supreme-admin only. */}

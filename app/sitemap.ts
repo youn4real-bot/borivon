@@ -18,6 +18,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
       priority: 1,
       alternates: { languages: langs },
     },
+    // The booking page — a conversion entry point, so it ranks just under home.
+    {
+      url: `${base}/book`,
+      lastModified: now,
+      changeFrequency: "weekly",
+      priority: 0.9,
+    },
     // Static marketing / legal pages — all crawlable, low change frequency.
     // These were missing from the sitemap → Google never linked them as
     // sibling pages of the home, even though they exist and are stable.

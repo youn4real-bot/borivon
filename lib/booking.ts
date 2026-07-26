@@ -44,6 +44,33 @@ export const DEFAULT_AVAILABILITY: Availability = {
 const MIN = 60_000;
 const DAY = 24 * 60 * MIN;
 
+/**
+ * The REAL UTC offset (in minutes) of an IANA zone at a given instant.
+ *
+ * Morocco sits at UTC+1 but drops to UTC+0 for Ramadan every year. A hardcoded
+ * +60 would mislabel every slot on the page for those weeks — the visitor books
+ * "10:00" and the calendar invite says 09:00. Resolving it against the real zone
+ * keeps the page and the invite telling the same story.
+ */
+export function zoneOffsetMinutes(tz: string, at: number = Date.now()): number {
+  try {
+    const d = new Date(at);
+    const p = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz, hourCycle: "h23",
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit",
+    }).formatToParts(d).reduce((a, x) => {
+      if (x.type !== "literal") a[x.type] = x.value;
+      return a;
+    }, {} as Record<string, string>);
+    const asUtc = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+    const mins = Math.round((asUtc - d.getTime()) / MIN);
+    return Number.isFinite(mins) ? mins : DEFAULT_AVAILABILITY.tzOffsetMinutes;
+  } catch {
+    return DEFAULT_AVAILABILITY.tzOffsetMinutes;
+  }
+}
+
 /** "HH:MM" → minutes past midnight, or null if malformed. */
 export function parseHm(hm: string): number | null {
   const m = /^(\d{1,2}):(\d{2})$/.exec(hm.trim());

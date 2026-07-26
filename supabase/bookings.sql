@@ -35,7 +35,7 @@ create table if not exists public.bookings (
   status            text        not null default 'booked'
                       check (status in ('booked','held','no_show','cancelled')),
   outcome           text,                       -- free text after the call
-  lead_id           bigint,                     -- the leads row created alongside
+  lead_id           uuid,                       -- the leads row created alongside (leads.id is uuid)
   -- HOW it got here. Plenty of people never touch the booking page — they agree
   -- a time over WhatsApp or on a call. Those still have to land in the system,
   -- because the follow-up chain is the whole point and it can't start from a

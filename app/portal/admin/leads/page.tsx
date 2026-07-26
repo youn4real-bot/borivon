@@ -24,6 +24,10 @@ const KIND_LABEL: Record<string, { en: string; de: string; fr: string }> = {
   work:        { en: "Work in Germany", de: "Arbeiten in DE",  fr: "Travailler en All." },
   general:     { en: "General enquiry", de: "Allg. Anfrage",   fr: "Demande générale" },
   fachkraefte: { en: "Skilled workers", de: "Fachkräfte",      fr: "Personnel qualifié" },
+  // From the public booking page (/book) — these arrive with a call already in the diary.
+  nurse:       { en: "Nurse — booked",  de: "Pflegekraft — Termin", fr: "Infirmier — RDV" },
+  clinic:      { en: "Clinic — booked", de: "Einrichtung — Termin", fr: "Établissement — RDV" },
+  company:     { en: "Company — booked", de: "Unternehmen — Termin", fr: "Entreprise — RDV" },
 };
 
 export default function AdminLeadsPage() {

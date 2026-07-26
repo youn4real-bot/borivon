@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   generateSlots, groupByDay, slotLabel, parseHm, overlaps, looksLikeEmail, followUpsFor,
-  DEFAULT_AVAILABILITY, type Availability,
+  zoneOffsetMinutes, DEFAULT_AVAILABILITY, type Availability,
 } from "../lib/booking";
 
 const MIN = 60_000, HOUR = 60 * MIN, DAY = 24 * HOUR;
@@ -92,6 +92,31 @@ describe("groupByDay / slotLabel — what the picker renders", () => {
   it("labels in business time, not UTC", () => {
     expect(slotLabel(MON, 60)).toBe("09:00"); // 08:00 UTC is 09:00 in Casablanca
     expect(slotLabel(MON, 0)).toBe("08:00");
+  });
+});
+
+describe("zoneOffsetMinutes — the page and the invite must agree", () => {
+  it("resolves a real zone against a real instant", () => {
+    // A fixed August instant: UTC is 0, Berlin is on summer time (+120).
+    const aug = Date.UTC(2026, 7, 3, 12, 0, 0);
+    expect(zoneOffsetMinutes("UTC", aug)).toBe(0);
+    expect(zoneOffsetMinutes("Europe/Berlin", aug)).toBe(120);
+    // …and the same zone in January is +60. A hardcoded offset can't do this,
+    // which is exactly the bug this exists to prevent.
+    expect(zoneOffsetMinutes("Europe/Berlin", Date.UTC(2026, 0, 3, 12, 0, 0))).toBe(60);
+  });
+
+  it("tracks Morocco's Ramadan shift instead of assuming +1", () => {
+    // Morocco is UTC+1 year-round EXCEPT during Ramadan, when it drops to UTC+0.
+    // Ramadan 2026 runs roughly 17 Feb – 19 Mar.
+    const ramadan = zoneOffsetMinutes("Africa/Casablanca", Date.UTC(2026, 2, 1, 12, 0, 0));
+    const normal  = zoneOffsetMinutes("Africa/Casablanca", Date.UTC(2026, 6, 1, 12, 0, 0));
+    expect(normal).toBe(60);
+    expect(ramadan).toBe(0);
+  });
+
+  it("falls back to the default rather than throwing on a bogus zone", () => {
+    expect(zoneOffsetMinutes("Not/AZone", Date.UTC(2026, 7, 3))).toBe(DEFAULT_AVAILABILITY.tzOffsetMinutes);
   });
 });
 
