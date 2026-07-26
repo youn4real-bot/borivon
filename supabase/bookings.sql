@@ -21,7 +21,10 @@ create table if not exists public.bookings (
   -- who booked, and which conversation they want
   kind              text        not null check (kind in ('nurse','clinic','company')),
   name              text        not null,
-  email             text        not null,
+  -- Nullable ON PURPOSE. The public form requires an email (that's where the
+  -- invite goes), but plenty of WhatsApp leads only ever give a phone number,
+  -- and refusing to record those would defeat the point of manual scheduling.
+  email             text,
   phone             text,
   note              text,                       -- admin-added bookings only; the public form has no free-text field
   company           text,                       -- organisation name (clinic / company kinds)
