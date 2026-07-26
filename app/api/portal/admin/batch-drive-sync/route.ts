@@ -40,7 +40,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, reason: "not_configured", hint: "Google Workspace credentials aren't set on this deployment." });
   }
   try {
-    const me = await drive.about.get({ fields: "user(emailAddress)" });
+    // HARD TIMEOUT. A hanging Google call must never hold this open: the admin
+    // page awaited this probe and a slow Drive left the whole page on a spinner
+    // with nothing rendered. Answering "slow/unreachable" beats answering never.
+    const me = await Promise.race([
+      drive.about.get({ fields: "user(emailAddress)" }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Drive did not answer within 10s")), 10_000)),
+    ]);
     return NextResponse.json({ ok: true, connectedAs: me.data.user?.emailAddress ?? null });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

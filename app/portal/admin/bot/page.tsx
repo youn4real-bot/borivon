@@ -42,16 +42,6 @@ export default function AdminBotPage() {
     const j = await res.json().catch(() => null);
     if (j && !j.error) setInfo(j as Info);
     else setMsg(j?.hint || j?.error || T("Couldn't read the webhook.", "Webhook nicht lesbar.", "Impossible de lire le webhook."));
-
-    // Drive probe rides the same load — read-only, and it proves the agency
-    // mirror can actually REACH Drive. It silently could not on Workers until the
-    // enable_nodejs_http_modules flag was added (googleapis -> node:http stub),
-    // and a batch sync reported success while copying nothing.
-    try {
-      const dr = await fetch("/api/portal/admin/batch-drive-sync", { headers: { Authorization: `Bearer ${tk}` } });
-      const dj = await dr.json().catch(() => null);
-      if (dj) setDrive(dj as DriveInfo);
-    } catch { /* leave null — the card just won't render */ }
   }, [router, T]);
 
   useEffect(() => {
@@ -71,6 +61,25 @@ export default function AdminBotPage() {
     })();
     return () => { cancelled = true; };
   }, [router, load]);
+
+  // Drive probe runs AFTER the page is on screen, deliberately NOT inside load().
+  // It calls Google, and when it was awaited during the initial load a slow or
+  // hanging Drive call left the whole page on a spinner with nothing rendered.
+  // The webhook card must never wait on Google.
+  useEffect(() => {
+    if (loading || !token || drive !== null) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch("/api/portal/admin/batch-drive-sync", { headers: { Authorization: `Bearer ${token}` } });
+        const j = await r.json().catch(() => null);
+        if (!cancelled) setDrive(j ? (j as DriveInfo) : { ok: false, reason: "call_failed", detail: "No response from the Drive check." });
+      } catch {
+        if (!cancelled) setDrive({ ok: false, reason: "call_failed", detail: "The Drive check could not be reached." });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [loading, token, drive]);
 
   const repoint = useCallback(async () => {
     if (!token) return;
@@ -153,6 +162,11 @@ export default function AdminBotPage() {
         </div>
       )}
 
+      {!drive && (
+        <div className="mt-4 rounded-2xl p-5 text-[13px]" style={{ background: "var(--card)", border: "1px solid var(--border)", color: "var(--w3)" }}>
+          {T("Checking Google Drive…", "Prüfe Google Drive…", "Vérification de Google Drive…")}
+        </div>
+      )}
       {drive && (
         <div className="mt-4 rounded-2xl p-5" style={{ background: "var(--card)", border: `1px solid ${drive.ok ? "rgba(22,163,74,0.4)" : "rgba(239,68,68,0.45)"}` }}>
           <div className="flex items-center gap-2">
