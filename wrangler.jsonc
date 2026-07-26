@@ -46,7 +46,14 @@
   // midday/evening nudges, weekly report, auto-chase, inbox reminder + the riding SLA/follow-up
   // chase) runs on Cloudflare too. cf-worker.ts's scheduled() maps each → its /api/cron/* route.
   "triggers": {
-    "crons": ["0 6 * * *", "0 12 * * *", "0 17 * * *", "0 7 * * 1", "0 8 * * *", "30 8 * * *"]
+    // "* * * * *" drives the TIME-PRECISE reminder trigger — something Vercel
+    // Hobby could not do (crons there run at most once a DAY, which is why
+    // app/api/cron/reminders documents needing an external pinger or pg_cron).
+    // Cloudflare allows per-minute triggers at no extra cost, so "remind me at
+    // 3pm" now actually fires at 3pm. MUST stay byte-identical to CRON_ROUTES
+    // in cf-worker.ts — Cloudflare passes the matched string verbatim, so one
+    // character of drift silently maps a live schedule to nothing.
+    "crons": ["* * * * *", "0 6 * * *", "0 12 * * *", "0 17 * * *", "0 7 * * 1", "0 8 * * *", "30 8 * * *"]
   },
   // CUTOVER 2026-07-24 — the scheduled() handler in cf-worker.ts stayed dormant
   // while Vercel was still running the same crons (firing both = double pings).

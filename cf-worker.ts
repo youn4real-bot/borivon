@@ -18,6 +18,16 @@ export { DOQueueHandler, DOShardedTagCache, BucketCachePurge } from "./.open-nex
 // cron strings in wrangler.jsonc triggers.crons (Cloudflare passes the matched string), and
 // mirror vercel.json "crons" so both platforms run the same scheduled work.
 const CRON_ROUTES = {
+  // EVERY MINUTE — the time-precise reminder trigger. This is something Vercel
+  // could NOT do: on the Hobby plan crons run at most once a DAY, so "remind me
+  // at 3pm" only landed whenever a daily cron happened to run or the founder
+  // next messaged the bot. The route's own header documents the workarounds that
+  // needed (an external uptime pinger, or Supabase pg_cron). Cloudflare allows
+  // per-minute triggers at no extra cost, so the reminder now fires ON TIME with
+  // no third-party pinger and no extra infrastructure. Cheap: the handler exits
+  // immediately when Telegram isn't configured, the bot is quiet, or nothing is
+  // due — ~2 light DB reads a minute.
+  "* * * * *": "/api/cron/reminders",
   "0 6 * * *": "/api/cron/briefing",
   "0 12 * * *": "/api/cron/nudge?slot=midday",
   "0 17 * * *": "/api/cron/nudge?slot=evening",
@@ -25,6 +35,42 @@ const CRON_ROUTES = {
   "0 8 * * *": "/api/cron/auto-chase",
   "30 8 * * *": "/api/cron/inbox-reminder",
 };
+
+/**
+ * Tell the founder a scheduled job broke.
+ *
+ * Until now a cron failure only did console.error — and NOBODY reads Worker logs.
+ * On Vercel the dashboard surfaced failing crons; that dashboard is gone with the
+ * project. So a dead briefing / nudge / chase could stay dead for weeks with the
+ * only symptom being "the bot went quiet", which is indistinguishable from a
+ * normal quiet day. This closes that hole: silence now genuinely means healthy.
+ *
+ * Deliberately NOT lib/reportError.ts — that runs inside a Next request scope
+ * (its keepAlive needs after()); here we are in the raw Worker scheduled()
+ * handler, so the caller registers this with ctx.waitUntil instead.
+ *
+ * Message is minimalist by the founder's standing rule: the facts, nothing else.
+ * Never throws — the alerter must never be the thing that breaks the cron.
+ */
+async function alertCronFailure(env, cron, path, detail) {
+  const token = env.TELEGRAM_BOT_TOKEN;
+  const chat = env.TELEGRAM_CHAT_ID;
+  if (!token || !chat) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chat,
+        text: `Scheduled job failed: ${path}\n${String(detail).slice(0, 300)}`,
+        disable_web_page_preview: true,
+      }),
+      signal: AbortSignal.timeout(5000),
+    });
+  } catch {
+    /* the alerter must never throw */
+  }
+}
 
 export default {
   fetch: handler.fetch,
@@ -39,7 +85,11 @@ export default {
     }
     const path = CRON_ROUTES[event.cron];
     if (!path) {
+      // A trigger exists in wrangler.jsonc with no matching CRON_ROUTES entry —
+      // Cloudflare passes the matched string verbatim, so a single character of
+      // drift silently maps a real schedule to nothing. Worth waking someone for.
       console.error("[cron] no route mapped for", event.cron);
+      ctx.waitUntil(alertCronFailure(env, event.cron, event.cron, "no route mapped for this schedule"));
       return;
     }
     const secret = env.CRON_SECRET;
@@ -51,11 +101,20 @@ export default {
     ctx.waitUntil(
       handler
         .fetch(req, env, ctx)
-        .then((res) => {
-          if (!res || !res.ok) console.error(`[cron] ${event.cron} → ${path} failed: ${res ? res.status : "no response"}`);
-          else console.log(`[cron] ${event.cron} → ${path} ok`);
+        .then(async (res) => {
+          if (!res || !res.ok) {
+            const status = res ? res.status : "no response";
+            console.error(`[cron] ${event.cron} → ${path} failed: ${status}`);
+            await alertCronFailure(env, event.cron, path, `HTTP ${status}`);
+            return;
+          }
+          console.log(`[cron] ${event.cron} → ${path} ok`);
         })
-        .catch((e) => console.error(`[cron] ${event.cron} → ${path} threw:`, e instanceof Error ? e.message : e)),
+        .catch(async (e) => {
+          const msg = e instanceof Error ? e.message : String(e);
+          console.error(`[cron] ${event.cron} → ${path} threw:`, msg);
+          await alertCronFailure(env, event.cron, path, msg);
+        }),
     );
   },
 };
