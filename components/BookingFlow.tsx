@@ -200,7 +200,18 @@ export function BookingFlow() {
     const chosen = at != null ? new Date(at) : null;
     const loc = lang === "de" ? "de-DE" : lang === "fr" ? "fr-FR" : "en-GB";
     return (
-      <main className="mx-auto px-5 py-20 bv-page-bottom bv-enter" style={{ maxWidth: 560 }}>
+      // The whole <main> is swapped out on success. Without a live region and a
+      // focus target, a keyboard or screen-reader user gets silence — they hit
+      // "Confirm" and are never told it worked. tabIndex={-1} + autofocus moves
+      // the caret here so the confirmation is the next thing announced.
+      <main
+        className="mx-auto px-5 py-20 bv-page-bottom bv-enter"
+        style={{ maxWidth: 560 }}
+        role="status"
+        aria-live="polite"
+        tabIndex={-1}
+        ref={(el) => { el?.focus(); }}
+      >
         <div className="bv-card p-8 text-center" style={{ borderRadius: 20 }}>
           <div
             className="mx-auto mb-5 grid place-items-center"

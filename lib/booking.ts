@@ -22,8 +22,14 @@ export type Availability = {
   /** How far ahead the page offers. */
   horizonDays: number;
   /** Business timezone offset in minutes (Casablanca = UTC+1). Kept explicit
-   *  rather than reading the server's clock, which on Workers is UTC. */
+   *  rather than reading the server's clock, which on Workers is UTC. Used as
+   *  the fallback when `tz` is not set. */
   tzOffsetMinutes: number;
+  /** IANA zone name. When set, the offset is resolved PER DAY instead of once,
+   *  so days on the far side of a clock change keep the real working hours.
+   *  Morocco flips UTC+1 → UTC+0 for Ramadan and back, and the offer horizon is
+   *  14 days, so a single request routinely spans a transition. */
+  tz?: string;
 };
 
 /** Borivon's default: weekdays 09:00–18:00, half-hour calls, a day's notice. */
@@ -104,13 +110,26 @@ export function generateSlots(opts: {
   const out: number[] = [];
 
   for (let d = 0; d <= av.horizonDays; d++) {
-    // Midnight of day d in the BUSINESS timezone, expressed as a UTC instant.
-    const shifted = new Date(now + d * DAY + av.tzOffsetMinutes * MIN);
+    const base = now + d * DAY;
+    // Resolve the offset for THIS day, not once for the whole horizon. With a
+    // single offset, every day beyond a clock change comes out an hour off the
+    // real working window — Morocco shifts twice a year and the horizon is 14
+    // days, so a fortnight of slots would sit outside business hours (09:00
+    // offered at 08:00, or a last slot running to 19:00).
+    let off = av.tz ? zoneOffsetMinutes(av.tz, base) : av.tzOffsetMinutes;
+    const shifted = new Date(base + off * MIN);
     const dow = shifted.getUTCDay();
     const windows = av.week[dow] ?? [];
     if (!windows.length) continue;
-    const dayStartUtc = Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate())
-      - av.tzOffsetMinutes * MIN;
+    const Y = shifted.getUTCFullYear(), M = shifted.getUTCMonth(), D = shifted.getUTCDate();
+    let dayStartUtc = Date.UTC(Y, M, D) - off * MIN;
+    if (av.tz) {
+      // `base` is "now + d days", which can still land on the near side of a
+      // transition that the DAY itself is past. Transitions happen at 02:00/
+      // 03:00 local, so midday of the day in question is always unambiguous.
+      const midday = zoneOffsetMinutes(av.tz, dayStartUtc + 12 * 60 * MIN);
+      if (midday !== off) { off = midday; dayStartUtc = Date.UTC(Y, M, D) - off * MIN; }
+    }
 
     for (const w of windows) {
       const [fromRaw, toRaw] = w.split("-");
@@ -307,10 +326,13 @@ export function followUpsFor(opts: {
   startsAt: number;
   name: string;
   kind: BookingKind;
+  /** Now, so reminders that are ALREADY overdue can be dropped. Omit only in
+   *  tests that are asserting the raw schedule. */
+  now?: number;
 }): { dueAt: number; text: string }[] {
   const { startsAt, name, kind } = opts;
   const who = `${name} (${KIND_SHORT[kind]})`;
-  return [
+  const all = [
     // The day before — so it isn't a surprise.
     { dueAt: startsAt - DAY, text: `Call tomorrow: ${who}` },
     // Right after it should have ended — while it's fresh.
@@ -318,4 +340,15 @@ export function followUpsFor(opts: {
     // Two days later — the one that actually converts.
     { dueAt: startsAt + 2 * DAY, text: `Follow up: ${who}` },
   ];
+  if (opts.now == null) return all;
+
+  // Drop anything already past. The reminder runner fires everything with
+  // due_at <= now on the very next tick, so a past-due row is not a reminder —
+  // it's an instant Telegram ping. The public form's minimum notice is 12h,
+  // which is LESS than the 24h day-before lead time, so without this every
+  // booking on the earliest slot pings "Call tomorrow" within minutes for a
+  // call that's still half a day out — and burns the real nudge, because the
+  // runner then stamps notified_at and never sends it again. Worse for a
+  // manual booking recorded after the fact: all three would fire at once.
+  return all.filter((f) => f.dueAt > opts.now!);
 }

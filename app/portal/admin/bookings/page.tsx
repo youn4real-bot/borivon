@@ -91,12 +91,18 @@ export default function AdminBookingsPage() {
     return () => data.subscription.unsubscribe();
   }, []);
 
-  const { upcoming, past } = useMemo(() => {
+  // Three buckets, not two. A cancelled call that is still in the FUTURE is
+  // neither upcoming nor past — filing it under "Past" put a future date under
+  // a heading that says it already happened.
+  const { upcoming, cancelled, past } = useMemo(() => {
     const now = Date.now();
-    const up = rows.filter((b) => Date.parse(b.starts_at) >= now && b.status !== "cancelled")
-      .sort((a, b) => Date.parse(a.starts_at) - Date.parse(b.starts_at));
-    const pa = rows.filter((b) => !up.includes(b));
-    return { upcoming: up, past: pa };
+    const future = (b: Booking) => Date.parse(b.starts_at) >= now;
+    const byStart = (a: Booking, b: Booking) => Date.parse(a.starts_at) - Date.parse(b.starts_at);
+    return {
+      upcoming: rows.filter((b) => future(b) && b.status !== "cancelled").sort(byStart),
+      cancelled: rows.filter((b) => future(b) && b.status === "cancelled").sort(byStart),
+      past: rows.filter((b) => !future(b)).sort((a, b) => byStart(b, a)),
+    };
   }, [rows]);
 
   async function patch(id: number, body: Record<string, unknown>) {
@@ -154,6 +160,13 @@ export default function AdminBookingsPage() {
           {!!upcoming.length && (
             <Section title={T("Upcoming", "Anstehend", "À venir")}>
               {upcoming.map((b) => (
+                <Row key={b.id} b={b} T={T} lang={lang} fmt={fmt} busy={busyId === b.id} onPatch={patch} />
+              ))}
+            </Section>
+          )}
+          {!!cancelled.length && (
+            <Section title={T("Cancelled", "Abgesagt", "Annulés")}>
+              {cancelled.map((b) => (
                 <Row key={b.id} b={b} T={T} lang={lang} fmt={fmt} busy={busyId === b.id} onPatch={patch} />
               ))}
             </Section>
@@ -390,7 +403,9 @@ function AddBookingModal({
         </>
       }
     >
-      <div className="grid gap-4">
+      {/* px-5 py-4 like every other Modal caller — Modal doesn't pad its own
+          children, so without this the form sits flush against the edges. */}
+      <div className="grid gap-4 px-5 py-4">
         <p className="text-[13px]" style={{ color: "var(--w3)" }}>
           {T("For calls agreed on WhatsApp or by phone. They get the same follow-up reminders as a self-booked call.",
              "Für Termine, die per WhatsApp oder Telefon vereinbart wurden. Sie erhalten dieselben Follow-up-Erinnerungen wie selbst gebuchte.",

@@ -30,14 +30,41 @@ const KINDS: BookingKind[] = ["nurse", "clinic", "company"];
 const STATUSES = ["booked", "held", "no_show", "cancelled"] as const;
 type Status = (typeof STATUSES)[number];
 
-/** Supreme admin or a plain sub-admin — never an org-scoped agency admin. */
+/**
+ * Supreme admin or a TRUE Borivon HQ sub-admin. Never anyone attached to an
+ * agency.
+ *
+ * The trigger is org MEMBERSHIP, not the `is_agency_admin` flag — that is the
+ * rule lib/admin-auth.ts applies everywhere else ("Anyone who belongs to an
+ * organization is restricted to that org's candidates — regardless of the
+ * is_agency_admin flag ... there's no leak window before the flag is set").
+ * Gating on the flag alone would have let an org member whose flag isn't set
+ * read every booking: the name, email and phone of every clinic and nurse
+ * lead Borivon has. These are Borivon's own inbound calls; no agency staff
+ * belongs in them.
+ */
 async function gate(req: NextRequest) {
   const auth = await requireAdminRole(req);
   if (!auth.ok) return { ok: false as const, res: NextResponse.json({ error: auth.error }, { status: auth.status }) };
-  if (auth.role === "sub_admin" && auth.isAgencyAdmin) {
+  if (auth.role === "sub_admin" && (auth.isAgencyAdmin || auth.agencyId)) {
+    return { ok: false as const, res: NextResponse.json({ error: "forbidden" }, { status: 403 }) };
+  }
+  if (auth.role === "sub_admin" && (await isInAnyOrganization(auth.email))) {
     return { ok: false as const, res: NextResponse.json({ error: "forbidden" }, { status: 403 }) };
   }
   return { ok: true as const, auth };
+}
+
+/** Does this sub-admin belong to any organization? Fails CLOSED — a DB blip
+ *  must never widen access to Borivon's own pipeline. */
+async function isInAnyOrganization(email: string): Promise<boolean> {
+  const { data, error } = await getServiceSupabase()
+    .from("organization_members")
+    .select("org_id")
+    .ilike("sub_admin_email", email.trim().toLowerCase())
+    .limit(1);
+  if (error) return true;
+  return (data ?? []).length > 0;
 }
 
 export async function GET(req: NextRequest) {
@@ -127,8 +154,9 @@ export async function POST(req: NextRequest) {
     try {
       const owner = await getAdminUserId();
       if (owner) {
-        await db.from("assistant_reminders").insert(
-          followUpsFor({ startsAt: at, name: company || name, kind: kind as BookingKind }).map((f) => ({
+        const due = followUpsFor({ startsAt: at, name: company || name, kind: kind as BookingKind, now: Date.now() });
+        if (due.length) await db.from("assistant_reminders").insert(
+          due.map((f) => ({
             owner_user_id: owner,
             text: f.text,
             due_at: new Date(f.dueAt).toISOString(),

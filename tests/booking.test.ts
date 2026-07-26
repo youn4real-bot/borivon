@@ -82,6 +82,39 @@ describe("generateSlots — what may actually be offered", () => {
   });
 });
 
+describe("generateSlots across a Morocco clock change", () => {
+  // Africa/Casablanca is UTC+1 but drops to UTC+0 for Ramadan and back. The
+  // offer horizon is 14 days, so a single request routinely spans a transition.
+  // Resolving ONE offset for the whole horizon put a fortnight of slots an hour
+  // outside business hours — 09:00 offered at 08:00, last slot running to 19:00.
+  const inCasablanca = (ms: number) =>
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Africa/Casablanca", hourCycle: "h23", hour: "2-digit", minute: "2-digit",
+    }).format(new Date(ms));
+
+  it("keeps every slot inside 09:00–17:30 real Casablanca time across a transition", () => {
+    for (const start of [Date.UTC(2027, 1, 1, 10), Date.UTC(2027, 2, 8, 10), Date.UTC(2028, 0, 18, 10)]) {
+      const slots = generateSlots({
+        now: start,
+        availability: { ...DEFAULT_AVAILABILITY, tz: "Africa/Casablanca" },
+        busy: [],
+      });
+      expect(slots.length, `no slots for ${new Date(start).toISOString()}`).toBeGreaterThan(0);
+      for (const s of slots) {
+        const hm = inCasablanca(s);
+        expect(hm >= "09:00" && hm <= "17:30", `${new Date(s).toISOString()} → ${hm} Casablanca`).toBe(true);
+        expect(hm === "13:00" || hm === "13:30", `${hm} is inside the lunch gap`).toBe(false);
+      }
+    }
+  });
+
+  it("still honours a fixed offset when no tz is given (existing callers unchanged)", () => {
+    const fixed = generateSlots({ now: MON, availability: av(), busy: [] });
+    expect(fixed.length).toBeGreaterThan(0);
+    expect(slotLabel(fixed[0], 60)).toBe("09:00");
+  });
+});
+
 describe("groupByDay / slotLabel — what the picker renders", () => {
   it("groups into ascending days", () => {
     const slots = generateSlots({ now: MON, availability: av({ horizonDays: 2 }), busy: [] });
@@ -240,6 +273,31 @@ describe("followUpsFor — where bookings actually become business", () => {
     const co = followUpsFor({ startsAt: START, name: "UKSH", kind: "company" });
     expect(co[2].text).toContain("company");
   });
+  it("DROPS reminders that are already overdue", () => {
+    // The runner fires everything with due_at <= now on the next tick, so a
+    // past-due row is an instant ping, not a reminder — and it burns the real
+    // nudge by stamping notified_at.
+    const soon = START;
+    // Booked 6h before the call: the day-before reminder is 18h in the past.
+    const f = followUpsFor({ startsAt: soon, name: "Anna", kind: "nurse", now: soon - 6 * HOUR });
+    expect(f.map((x) => x.text.split(":")[0])).toEqual(["Log the call outcome", "Follow up"]);
+    expect(f.every((x) => x.dueAt > soon - 6 * HOUR)).toBe(true);
+  });
+
+  it("keeps the day-before reminder when there IS a day", () => {
+    const f = followUpsFor({ startsAt: START, name: "Anna", kind: "nurse", now: START - 5 * DAY });
+    expect(f).toHaveLength(3);
+  });
+
+  it("returns nothing for a call recorded after it already happened", () => {
+    // Admin logging a past WhatsApp call: every reminder would otherwise fire at once.
+    expect(followUpsFor({ startsAt: START, name: "Anna", kind: "nurse", now: START + 10 * DAY })).toEqual([]);
+  });
+
+  it("without `now`, returns the raw schedule unchanged", () => {
+    expect(followUpsFor({ startsAt: START, name: "Anna", kind: "nurse" })).toHaveLength(3);
+  });
+
   it("stays minimalist — no emojis, per the standing rule", () => {
     for (const f of followUpsFor({ startsAt: START, name: "Anna", kind: "nurse" })) {
       expect(f.text).not.toMatch(/[\u{1F300}-\u{1FAFF}]/u);

@@ -49,16 +49,40 @@ describe("enforceUserRateLimit (Postgres-backed shared counter, per identity)", 
 });
 
 describe("requestIp (trusted IP extraction)", () => {
-  it("prefers the un-spoofable x-vercel-forwarded-for", () => {
-    expect(requestIp(reqWith({ "x-vercel-forwarded-for": "9.9.9.9, 1.1.1.1" }))).toBe("9.9.9.9");
-  });
-  it("falls back to x-real-ip", () => {
-    expect(requestIp(reqWith({ "x-real-ip": "8.8.8.8" }))).toBe("8.8.8.8");
-  });
   it("uses cf-connecting-ip on Cloudflare Workers (un-spoofable edge IP)", () => {
     expect(requestIp(reqWith({ "cf-connecting-ip": "7.7.7.7" }))).toBe("7.7.7.7");
   });
+
+  // THE bypass this ordering exists to stop. We run only on Cloudflare now, and
+  // Cloudflare does not strip an inbound x-real-ip / x-vercel-forwarded-for —
+  // so those are attacker input. While they were checked FIRST, one header per
+  // request bought a fresh bucket and the limiter did nothing.
+  it("IGNORES attacker-supplied x-real-ip / x-vercel-forwarded-for when behind Cloudflare", () => {
+    const spoofed = reqWith({
+      "cf-connecting-ip": "7.7.7.7",
+      "x-real-ip": "1.2.3.4",
+      "x-vercel-forwarded-for": "5.6.7.8",
+      "x-forwarded-for": "6.6.6.6, 5.5.5.5",
+    });
+    expect(requestIp(spoofed)).toBe("7.7.7.7");
+  });
+
+  it("a rotating spoofed header cannot mint a new bucket per request", () => {
+    const keys = new Set(
+      ["1.1.1.1", "2.2.2.2", "3.3.3.3"].map((fake) =>
+        requestIp(reqWith({ "cf-connecting-ip": "7.7.7.7", "x-real-ip": fake })),
+      ),
+    );
+    expect(keys.size).toBe(1); // all collapse onto the real edge IP
+  });
+
   it("prefers cf-connecting-ip over the client-influenceable x-forwarded-for", () => {
     expect(requestIp(reqWith({ "cf-connecting-ip": "7.7.7.7", "x-forwarded-for": "6.6.6.6, 5.5.5.5" }))).toBe("7.7.7.7");
+  });
+
+  // Local dev / no edge in front — these remain as a fallback only.
+  it("falls back to the Vercel headers when there is no Cloudflare edge", () => {
+    expect(requestIp(reqWith({ "x-vercel-forwarded-for": "9.9.9.9, 1.1.1.1" }))).toBe("9.9.9.9");
+    expect(requestIp(reqWith({ "x-real-ip": "8.8.8.8" }))).toBe("8.8.8.8");
   });
 });

@@ -33,7 +33,10 @@ export const dynamic = "force-dynamic";
 /** Availability resolved against the REAL Casablanca offset at request time, so
  *  the page never shifts by an hour during Morocco's Ramadan clock change. */
 function availability(): Availability {
-  return { ...DEFAULT_AVAILABILITY, tzOffsetMinutes: zoneOffsetMinutes(BORIVON_TZ) };
+  // `tz` makes generateSlots resolve the offset PER DAY, so the fortnight of
+  // slots either side of a Ramadan clock change still lands inside 09:00–18:00
+  // Casablanca. tzOffsetMinutes stays as the fallback for labelling.
+  return { ...DEFAULT_AVAILABILITY, tz: BORIVON_TZ, tzOffsetMinutes: zoneOffsetMinutes(BORIVON_TZ) };
 }
 const KINDS: BookingKind[] = ["nurse", "clinic", "company"];
 const isKind = (k: unknown): k is BookingKind => typeof k === "string" && (KINDS as string[]).includes(k);
@@ -57,19 +60,36 @@ async function busyIntervals(from: number, to: number): Promise<Interval[]> {
   }
 }
 
-/** Slots already taken in our own table (the calendar may lag, and admin-made
- *  bookings might have no calendar event at all). */
-async function takenSlots(from: number, to: number): Promise<Set<number>> {
+/**
+ * Existing bookings as BUSY INTERVALS — not just their start instants.
+ *
+ * A manual booking can be any length (the admin picks 15/30/45/60/90), and an
+ * admin-made one may have no calendar event at all, so it won't appear in the
+ * Google busy list either. Keying only on the exact `starts_at` left a 60-min
+ * call blocking its first half-hour and quietly re-offering the second — a
+ * guaranteed double-book that the unique index does NOT catch, because the two
+ * bookings have different start instants.
+ *
+ * Widened by one slot length at the front so a booking that STARTS before the
+ * window but overlaps into it is still counted.
+ */
+async function bookedIntervals(from: number, to: number, slotMs: number): Promise<Interval[]> {
   try {
     const { data } = await getServiceSupabase()
       .from("bookings")
-      .select("starts_at,status")
-      .gte("starts_at", new Date(from).toISOString())
+      .select("starts_at,ends_at,status")
+      .gte("starts_at", new Date(from - Math.max(slotMs, 4 * 3_600_000)).toISOString())
       .lte("starts_at", new Date(to).toISOString());
-    return new Set((data ?? [])
+    return (data ?? [])
       .filter((b) => (b as { status?: string }).status !== "cancelled")
-      .map((b) => Date.parse((b as { starts_at: string }).starts_at)));
-  } catch { return new Set(); }
+      .map((b) => {
+        const row = b as { starts_at: string; ends_at: string | null };
+        const start = Date.parse(row.starts_at);
+        const end = row.ends_at ? Date.parse(row.ends_at) : NaN;
+        return { start, end: Number.isFinite(end) && end > start ? end : start + slotMs };
+      })
+      .filter((i) => Number.isFinite(i.start));
+  } catch { return []; }
 }
 
 export async function GET(req: NextRequest) {
@@ -79,15 +99,23 @@ export async function GET(req: NextRequest) {
   const av = availability();
   const now = Date.now();
   const horizonEnd = now + (av.horizonDays + 1) * 86_400_000;
-  const [busy, taken] = await Promise.all([busyIntervals(now, horizonEnd), takenSlots(now, horizonEnd)]);
-  const slots = generateSlots({ now, availability: av, busy }).filter((s) => !taken.has(s));
+  const slotMs = av.slotMinutes * 60_000;
+  const [cal, booked] = await Promise.all([
+    busyIntervals(now, horizonEnd),
+    bookedIntervals(now, horizonEnd, slotMs),
+  ]);
+  const slots = generateSlots({ now, availability: av, busy: [...cal, ...booked] });
 
+  // `at` is the contract — the client re-labels every slot in the VISITOR's own
+  // timezone. These Casablanca labels are for anyone reading the API directly,
+  // so each is resolved against its OWN instant rather than one shared offset,
+  // which would drift by an hour across a clock change.
   return NextResponse.json({
     tzOffsetMinutes: av.tzOffsetMinutes,
     slotMinutes: av.slotMinutes,
     days: groupByDay(slots, av.tzOffsetMinutes).map((d) => ({
       day: d.day,
-      slots: d.slots.map((s) => ({ at: s, label: slotLabel(s, av.tzOffsetMinutes) })),
+      slots: d.slots.map((s) => ({ at: s, label: slotLabel(s, zoneOffsetMinutes(BORIVON_TZ, s)) })),
     })),
   });
 }
@@ -128,8 +156,12 @@ export async function POST(req: NextRequest) {
   const av = availability();
   const now = Date.now();
   const horizonEnd = now + (av.horizonDays + 1) * 86_400_000;
-  const [busy, taken] = await Promise.all([busyIntervals(now, horizonEnd), takenSlots(now, horizonEnd)]);
-  const offered = generateSlots({ now, availability: av, busy }).filter((s) => !taken.has(s));
+  const slotMs = av.slotMinutes * 60_000;
+  const [cal, booked] = await Promise.all([
+    busyIntervals(now, horizonEnd),
+    bookedIntervals(now, horizonEnd, slotMs),
+  ]);
+  const offered = generateSlots({ now, availability: av, busy: [...cal, ...booked] });
   if (!offered.includes(at)) {
     return NextResponse.json({ error: "slot_unavailable", message: "That time was just taken. Please pick another." }, { status: 409 });
   }
@@ -217,7 +249,7 @@ export async function POST(req: NextRequest) {
       const owner = await getAdminUserId();
       if (owner) {
         await db.from("assistant_reminders").insert(
-          followUpsFor({ startsAt: at, name: company || name, kind }).map((f) => ({
+          followUpsFor({ startsAt: at, name: company || name, kind, now: Date.now() }).map((f) => ({
             owner_user_id: owner,
             text: f.text,
             due_at: new Date(f.dueAt).toISOString(),
