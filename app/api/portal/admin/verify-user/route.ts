@@ -1,3 +1,4 @@
+import { keepAlive } from "@/lib/keepAlive";
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole } from "@/lib/admin-auth";
@@ -69,18 +70,23 @@ export async function POST(req: NextRequest) {
         read:     false,
       });
 
-      // Fire verified email (fire-and-forget). Log failures so silent
-      // breakages (auth lookup down, email service down) are visible in the
-      // server logs rather than disappearing.
-      db.auth.admin.getUserById(userId).then(({ data }) => {
-        const email = data?.user?.email;
-        if (!email) {
-          console.warn("[verify-user] no email for user, skipping verified email", userId);
-          return;
+      // keepAlive, not fire-and-forget: on Workers the isolate dies with the
+      // response and this chain was cancelled, so a newly-verified candidate
+      // never received the email. Failures still log.
+      keepAlive(async () => {
+        try {
+          const { data } = await db.auth.admin.getUserById(userId);
+          const email = data?.user?.email;
+          if (!email) {
+            console.warn("[verify-user] no email for user, skipping verified email", userId);
+            return;
+          }
+          const firstName = (data?.user?.user_metadata?.full_name ?? "").split(" ")[0];
+          await sendVerifiedEmail(email, firstName);
+        } catch (err) {
+          console.error("[verify-user] verified email lookup failed:", err);
         }
-        const firstName = (data?.user?.user_metadata?.full_name ?? "").split(" ")[0];
-        sendVerifiedEmail(email, firstName);
-      }).catch(err => console.error("[verify-user] verified email lookup failed:", err));
+      });
     }
   }
 

@@ -23,6 +23,7 @@
  */
 import { getServiceSupabase } from "@/lib/supabase";
 import { scheduleCandidateMirror } from "@/lib/scheduleMirror";
+import { keepAlive } from "@/lib/keepAlive";
 import { DOC_STATUSES } from "@/lib/constants";
 import { ALLOWED_PROFILE_FIELDS } from "@/lib/constants";
 import { sendDocApprovedEmail, sendDocRejectedEmail } from "@/lib/email";
@@ -91,12 +92,18 @@ export async function applyDocReview(
           feedback: typeof feedback === "string" ? feedback : null,
           read: false,
         });
-        db.auth.admin.getUserById(doc.user_id as string).then(({ data }) => {
+        // keepAlive, not a floating .then(): on Workers the isolate is torn down
+        // when the response returns, so this chain was cancelled mid-flight and
+        // the candidate NEVER got the "document approved/rejected" email — while
+        // the admin's UI happily said the review was saved. Also await the sends
+        // themselves, so they're inside the kept-alive window too.
+        keepAlive(async () => {
+          const { data } = await db.auth.admin.getUserById(doc.user_id as string);
           const email = data?.user?.email;
           if (!email) return;
-          if (status === "approved") sendDocApprovedEmail(email, doc.file_type as string);
-          else sendDocRejectedEmail(email, doc.file_type as string, typeof feedback === "string" ? feedback : null);
-        }).catch(() => {});
+          if (status === "approved") await sendDocApprovedEmail(email, doc.file_type as string);
+          else await sendDocRejectedEmail(email, doc.file_type as string, typeof feedback === "string" ? feedback : null);
+        });
       }
 
       if (status === "approved" && isPassportDoc) {
@@ -237,11 +244,14 @@ export async function applyCandidateProfilePatch(
       feedback: (cleanProfile.passport_feedback as string | null) ?? null,
       read: false,
     });
-    db.auth.admin.getUserById(userId).then(({ data }) => {
+    // keepAlive: a floating chain here was cancelled at response end on Workers,
+    // so the candidate never learned their passport was rejected.
+    keepAlive(async () => {
+      const { data } = await db.auth.admin.getUserById(userId);
       const email = data?.user?.email;
       if (!email) return;
-      sendDocRejectedEmail(email, passDoc?.file_type ?? "Passport", (cleanProfile.passport_feedback as string | null) ?? null);
-    }).catch(() => {});
+      await sendDocRejectedEmail(email, passDoc?.file_type ?? "Passport", (cleanProfile.passport_feedback as string | null) ?? null);
+    });
     await db.from("candidate_profiles").update({ placement_ready: false }).eq("user_id", userId);
   }
 
@@ -309,10 +319,12 @@ async function maybeNotifyPassportApproved(db: DB, userId: string) {
     feedback: null,
     read: false,
   });
-  db.auth.admin.getUserById(userId).then(({ data }) => {
+  // keepAlive — see above; without it the passport-approved email died on Workers.
+  keepAlive(async () => {
+    const { data } = await db.auth.admin.getUserById(userId);
     const email = data?.user?.email;
-    if (email) sendDocApprovedEmail(email, passDoc.file_type as string);
-  }).catch(() => {});
+    if (email) await sendDocApprovedEmail(email, passDoc.file_type as string);
+  });
 }
 
 /** When a candidate becomes placement_ready, insert suggested_matches rows for
