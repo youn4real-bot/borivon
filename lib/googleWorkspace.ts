@@ -16,6 +16,7 @@
 import { google } from "googleapis";
 import type { JWT } from "google-auth-library";
 import { makeGmailRestClient, makeCalendarRestClient } from "@/lib/googleRestShim";
+import { makeDriveRestClient } from "@/lib/googleDriveShim";
 
 // On Cloudflare Workers, googleapis (→ google-auth-library → node:http) 500s with
 // "validateHeaderName not implemented". We swap in fetch+WebCrypto REST shims that mimic the
@@ -108,6 +109,16 @@ export function calendarClient() {
   return auth ? google.calendar({ version: "v3", auth }) : null;
 }
 export function driveClient() {
+  // Drive was the LAST Google client still on the googleapis SDK after the move
+  // to Workers. googleapis reaches node:http via gaxios, which workerd can't
+  // serve — and every Drive caller catches + logs, so syncs reported success
+  // while copying nothing. No document reached Drive between the migration and
+  // this shim. Same fetch-based treatment Gmail and Calendar already had.
+  if (ON_WORKERS) {
+    const k = saKey(); const sub = subjectEmail();
+    if (!k || !sub) return null;
+    return makeDriveRestClient({ key: k, subject: sub, scopes: WORKSPACE_SCOPES }) as unknown as ReturnType<typeof google.drive>;
+  }
   const auth = getWorkspaceAuth();
   return auth ? google.drive({ version: "v3", auth }) : null;
 }
