@@ -16,9 +16,20 @@ npm run start          # serve a built app
 npm run lint           # next lint (deprecated upstream; use sparingly)
 npm test               # run Vitest unit tests (tests/**)
 npx tsc --noEmit       # type-check the whole tree without emitting
-npm run cf:build       # build for Cloudflare Workers (OpenNext adapter)
+npm run cf:build       # build for Cloudflare Workers (OpenNext adapter) → .open-next/
 npm run cf:deploy      # SHIP TO PROD → www.borivon.com (Cloudflare Worker "borivon")
 ```
+
+**`cf:deploy` does NOT build.** It is bare `opennextjs-cloudflare deploy` — it uploads whatever already sits
+in `.open-next/`. Running it alone silently ships the *previous* build: the deploy reports success, prints a
+new Version ID, and your new routes 404 in prod. Shipping is always **both**, in order:
+
+```bash
+npm run cf:build && npm run cf:deploy
+```
+
+Then prove the new code is actually live — a 200 on a new page proves nothing, because `app/[slug]/page.tsx`
+catches unknown paths and returns 200 HTML. Curl a new *API* route and check it returns JSON, not markup.
 
 **Vitest** is configured (`tests/**`, run `npm test`). It covers the security-critical invariants — passport gate (LAW #39), download-token auth, soft-delete gate, R2 path-safety, legacy-alias resolution, and the `lib/admin-auth` access-control core (LAW #25). Verification = `npx tsc --noEmit` + `npm test` + manual smoke through the dev server. When you touch any of those invariants, add/extend the matching test.
 
