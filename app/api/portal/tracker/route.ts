@@ -24,7 +24,12 @@ const PROGRESS_COLS =
   "user_id, funnel_stage, batch_id, interview1_status, interview1_date, interview2_status, interview2_date, agreement_signed, contract_done, visa_appt_date, visa_granted, arrived_done";
 
 // Editable fields the tracker exposes (deliberately NOT the supreme-only stage locks).
-const BOOL_FIELDS = new Set(["agreement_signed", "contract_done", "visa_granted", "arrived_done"]);
+// Editable booleans. The pool_* four are the PRE-batch journey (contacted ->
+// onboarding call -> free CV -> medical) for candidates who have no batch yet.
+const BOOL_FIELDS = new Set([
+  "agreement_signed", "contract_done", "visa_granted", "arrived_done",
+  "pool_contacted", "pool_call_done", "pool_cv_done", "pool_medical_done",
+]);
 const DATE_FIELDS = new Set(["interview1_date", "interview2_date", "visa_appt_date"]);
 const STATUS_FIELDS = new Set(["interview1_status", "interview2_status"]);
 const VALID_STATUS = new Set(["pending", "passed", "failed"]);
@@ -71,9 +76,19 @@ export async function GET(req: NextRequest) {
 
   const realIds = realProfs.map((p) => p.user_id);
   type Pipe = Record<string, string | boolean | null>;
-  const pipe = realIds.length
-    ? ((await db.from("candidate_pipeline").select(PROGRESS_COLS).in("user_id", realIds)).data ?? [])
-    : [];
+  // board_order is schema-tolerant: until supabase/board_order.sql is run the
+  // column doesn't exist, so fall back to the base columns and the board simply
+  // keeps its previous (name) ordering.
+  let pipe: unknown[] = [];
+  if (realIds.length) {
+    const EXTRA = "board_order, pool_contacted, pool_call_done, pool_cv_done, pool_medical_done";
+    const withOrder = await db.from("candidate_pipeline").select(`${PROGRESS_COLS}, ${EXTRA}`).in("user_id", realIds);
+    if (withOrder.error && /board_order|pool_|column .* does not exist|schema cache/i.test(withOrder.error.message ?? "")) {
+      pipe = (await db.from("candidate_pipeline").select(PROGRESS_COLS).in("user_id", realIds)).data ?? [];
+    } else {
+      pipe = withOrder.data ?? [];
+    }
+  }
   const pipeById = new Map<string, Pipe>();
   for (const r of pipe as Pipe[]) pipeById.set(String(r.user_id), r);
 
@@ -95,6 +110,11 @@ export async function GET(req: NextRequest) {
         interview1Date: (pr.interview1_date as string | null) ?? null,
         interview2Status: (pr.interview2_status as string | null) ?? null,
         interview2Date: (pr.interview2_date as string | null) ?? null,
+        boardOrder: typeof pr.board_order === "number" ? pr.board_order : null,
+        poolContacted: pr.pool_contacted === true,
+        poolCallDone: pr.pool_call_done === true,
+        poolCvDone: pr.pool_cv_done === true,
+        poolMedicalDone: pr.pool_medical_done === true,
         agreementSigned: pr.agreement_signed === true,
         contractDone: pr.contract_done === true,
         visaApptDate: (pr.visa_appt_date as string | null) ?? null,
@@ -148,6 +168,42 @@ export async function PATCH(req: NextRequest) {
       .eq("id", body.batchId);
     if (error) return NextResponse.json({ error: "update_failed" }, { status: 500 });
     return NextResponse.json({ ok: true });
+  }
+
+  // ── BOARD ORDER ── the drag-and-drop order of candidates on the tracker.
+  // Sent as the full ordered list of user ids for the batch, so one drop = one
+  // request and the result can't end up half-applied.
+  if (Array.isArray(body.reorder)) {
+    const ids = (body.reorder as unknown[])
+      .filter((x): x is string => typeof x === "string" && UUID_RE.test(x))
+      .slice(0, 500);
+    if (ids.length === 0) return NextResponse.json({ error: "Nothing to reorder" }, { status: 400 });
+    // LAW #25 — every candidate in the list must be one this admin may act on,
+    // or a sub-admin could reorder (and therefore probe) someone else's board.
+    // Checked BEFORE any write so a single bad id changes nothing.
+    for (const id of ids) {
+      if (!(await canActOnCandidate(auth.role, auth.email, id))) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+    }
+    const db = getServiceSupabase();
+    let failed = false;
+    for (let i = 0; i < ids.length; i++) {
+      const { error } = await db.from("candidate_pipeline")
+        .update({ board_order: i }).eq("user_id", ids[i]);
+      if (error) {
+        // Schema-tolerant: until supabase/board_order.sql is run the column
+        // doesn't exist — the drop just doesn't persist, which is exactly the
+        // pre-migration behaviour. Anything else is a real failure.
+        if (/board_order|column .* does not exist|schema cache/i.test(error.message ?? "")) {
+          return NextResponse.json({ ok: true, persisted: false, hint: "Run supabase/board_order.sql to keep this order." });
+        }
+        failed = true;
+        break;
+      }
+    }
+    if (failed) return NextResponse.json({ error: "update_failed" }, { status: 500 });
+    return NextResponse.json({ ok: true, persisted: true });
   }
 
   const candidateUserId = typeof body.candidateUserId === "string" ? body.candidateUserId : "";

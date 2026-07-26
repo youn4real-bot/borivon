@@ -17,7 +17,35 @@ import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
 import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
 import { b2StageLabel, b2StageColor, normalizeB2Stage } from "@/lib/b2Journey";
-import { ArrowLeft, Users, CalendarRange, Search, Plus, Check, X, Pencil, NotebookPen, FolderUp, CalendarClock } from "lucide-react";
+import { ArrowLeft, Users, CalendarRange, Search, Plus, Check, X, Pencil, NotebookPen, FolderUp, CalendarClock, GripVertical } from "lucide-react";
+import { DndContext, closestCenter, PointerSensor, KeyboardSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy, useSortable, sortableKeyboardCoordinates, arrayMove } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+
+/** Sortable wrapper for one tracker row. Render-prop so the card can place the
+ *  drag HANDLE itself — dragging is handle-only, or every tap on a step button
+ *  would start a drag instead of setting the step. */
+function SortableRow({ id, children }: { id: string; children: (h: { listeners: Record<string, unknown> | undefined; isDragging: boolean }) => React.ReactNode }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  return (
+    <div ref={setNodeRef} {...attributes}
+      style={{
+        transform: CSS.Transform.toString(transform), transition,
+        opacity: isDragging ? 0.6 : 1,
+        zIndex: isDragging ? 20 : undefined,
+        position: "relative",
+      }}>
+      {children({ listeners: listeners as Record<string, unknown> | undefined, isDragging })}
+    </div>
+  );
+}
+
+/** Initials for the little profile avatar — first + last, never more than 2. */
+function initialsOf(name: string): string {
+  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  return ((parts[0][0] ?? "") + (parts.length > 1 ? parts[parts.length - 1][0] ?? "" : "")).toUpperCase();
+}
 
 type Batch = { id: string; name: string; agency: string | null; employer: string | null; orgId: string | null; employerId: string | null; notes: string; seats: number; filled: number; targetStart: string | null; targetEnd: string | null };
 type Employer = { id: string; name: string };
@@ -27,6 +55,8 @@ type Cand = {
   b2Stage: string | null; b2Failed: boolean; b2ExamDate: string | null;
   interview1Status: string | null; interview1Date: string | null;
   interview2Status: string | null; interview2Date: string | null;
+  boardOrder: number | null;
+  poolContacted: boolean; poolCallDone: boolean; poolCvDone: boolean; poolMedicalDone: boolean;
   agreementSigned: boolean;
   contractDone: boolean; visaApptDate: string | null; visaGranted: boolean; arrivedDone: boolean;
 };
@@ -80,6 +110,9 @@ export default function AdminTrackerPage() {
   const [proposeNote, setProposeNote] = useState("");
   const [proposeMsg, setProposeMsg] = useState("");
   const [proposing, setProposing] = useState(false);
+  // Pool panel — collapsed by default so the batch stays the focus.
+  const [poolOpen, setPoolOpen] = useState(false);
+  const [poolQuery, setPoolQuery] = useState("");
 
   const load = useCallback(async (tk: string) => {
     const res = await fetch("/api/portal/tracker", { headers: { Authorization: `Bearer ${tk}` } });
@@ -314,7 +347,15 @@ export default function AdminTrackerPage() {
     [b2Deadline],
   );
   const members = useMemo(
-    () => candidates.filter((c) => c.batchId === selectedBatch).sort((a, b) => a.name.localeCompare(b.name)),
+    // Board order first (what the founder dragged), name as the stable fallback
+    // so an un-dragged board looks exactly as it always did.
+    () => candidates.filter((c) => c.batchId === selectedBatch).sort((a, b) => {
+      const ao = a.boardOrder, bo = b.boardOrder;
+      if (ao != null && bo != null) return ao - bo;
+      if (ao != null) return -1;
+      if (bo != null) return 1;
+      return a.name.localeCompare(b.name);
+    }),
     [candidates, selectedBatch],
   );
   const addable = useMemo(() => {
@@ -324,6 +365,25 @@ export default function AdminTrackerPage() {
       .filter((c) => !q || c.name.toLowerCase().includes(q))
       .slice(0, 40);
   }, [candidates, selectedBatch, addQuery]);
+
+  // ── THE POOL ── candidates with NO batch yet: the warm bench. A nurse messages
+  // on WhatsApp, we do an onboarding call and make her a free CV + medical; months
+  // later a hospital calls with slots and she remembers who treated her well. They
+  // were previously invisible on this board (17 of 76 candidates were in a batch),
+  // so the majority of the database had nowhere to be seen or worked.
+  const poolReady = (c: Cand) => c.poolContacted && c.poolCallDone && c.poolCvDone && c.poolMedicalDone;
+  const poolDoneCount = (c: Cand) =>
+    (c.poolContacted ? 1 : 0) + (c.poolCallDone ? 1 : 0) + (c.poolCvDone ? 1 : 0) + (c.poolMedicalDone ? 1 : 0);
+  const pool = useMemo(() => {
+    const q = poolQuery.trim().toLowerCase();
+    return candidates
+      .filter((c) => !c.batchId)
+      .filter((c) => !q || c.name.toLowerCase().includes(q))
+      // READY FIRST — the whole point: when a hospital calls, the people you can
+      // offer today are at the top. Then most-progressed, then alphabetical.
+      .sort((a, b) => (poolDoneCount(b) - poolDoneCount(a)) || a.name.localeCompare(b.name));
+  }, [candidates, poolQuery]);
+  const poolReadyCount = useMemo(() => pool.filter(poolReady).length, [pool]);
 
   // Batch progress summary — leads with the beginning that matters most.
   const summary = useMemo(() => {
@@ -345,6 +405,47 @@ export default function AdminTrackerPage() {
 
   const fmtWindow = (b: Batch) => [b.targetStart, b.targetEnd].filter(Boolean).join(" → ");
   const fmtDay = (d: string) => new Date(d + "T00:00:00").toLocaleDateString(lang === "de" ? "de-DE" : lang === "fr" ? "fr-FR" : "en-GB", { day: "2-digit", month: "short", year: "numeric" });
+
+  // Drag to reorder the board. Handle-only (see SortableRow) with a small
+  // activation distance, so a tap on a step button is never mistaken for a drag
+  // — on a touch screen that difference is the whole usability of the page.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const onDragEnd = useCallback((e: DragEndEvent) => {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const ids = members.map((m) => m.userId);
+    const from = ids.indexOf(String(active.id));
+    const to = ids.indexOf(String(over.id));
+    if (from < 0 || to < 0) return;
+    const next = arrayMove(ids, from, to);
+    // Optimistic: stamp the new position locally so the list settles instantly,
+    // then persist the whole order in ONE request (never half-applied).
+    setCandidates((cs) => cs.map((c) => {
+      const i = next.indexOf(c.userId);
+      return i >= 0 ? { ...c, boardOrder: i } : c;
+    }));
+    fetch("/api/portal/tracker", {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ reorder: next }),
+    })
+      .then(async (r) => {
+        const j = await r.json().catch(() => ({}));
+        // Tell the truth if the order won't survive a reload (migration not run).
+        if (r.ok && j?.persisted === false) {
+          setErr(T("Order shown but not saved — run the board_order migration.",
+                   "Reihenfolge angezeigt, aber nicht gespeichert — board_order-Migration ausführen.",
+                   "Ordre affiché mais non enregistré — exécute la migration board_order."));
+        } else if (!r.ok) {
+          setErr(T("Could not save the new order.", "Reihenfolge konnte nicht gespeichert werden.", "Impossible d'enregistrer l'ordre."));
+        }
+      })
+      .catch(() => setErr(T("Could not save the new order.", "Reihenfolge konnte nicht gespeichert werden.", "Impossible d'enregistrer l'ordre.")));
+  }, [members, token, T]);
 
   // One big, obvious step in the primary row (Interview 1 · Agreement · Interview 2).
   const Step = ({ label, tone, onClick }: { label: string; tone: Tone; onClick: () => void }) => {
@@ -502,64 +603,184 @@ export default function AdminTrackerPage() {
           ) : (
             <>
               <p className="mb-2.5 text-[11.5px]" style={{ color: "var(--w3)" }}>
-                {T("Tap a step to set it — green = done, red = failed. The agreement is signed right after Interview 1.",
-                   "Tippe auf einen Schritt — grün = erledigt, rot = nicht bestanden. Die Vereinbarung wird direkt nach Interview 1 unterschrieben.",
+                {T("Tap a step to set it — green = done, red = failed. Drag the handle to reorder. The agreement is signed right after Interview 1.",
+                   "Tippe auf einen Schritt — grün = erledigt, rot = nicht bestanden. Zum Umsortieren am Griff ziehen. Die Vereinbarung wird direkt nach Interview 1 unterschrieben.",
                    "Touchez une étape — vert = fait, rouge = échoué. L'accord se signe juste après l'entretien 1.")}
               </p>
-              <div className="space-y-2.5">
-                {members.map((c) => {
-                  const i1tone: Tone = c.interview1Status === "passed" ? "done" : c.interview1Status === "failed" ? "fail" : "todo";
-                  const i2tone: Tone = c.interview2Status === "passed" ? "done" : c.interview2Status === "failed" ? "fail" : "todo";
-                  // Agreement is REQUIRED after Interview 1 → amber "need" once I1 passed but not yet signed.
-                  const agTone: Tone = c.agreementSigned ? "done" : c.interview1Status === "passed" ? "need" : "todo";
-                  return (
-                    <div key={c.userId} className="p-4" style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-xl)" }}>
-                      <div className="flex items-start justify-between gap-3 mb-3">
-                        <div className="min-w-0">
-                          <p className="text-[14px] font-semibold truncate" style={{ color: "var(--w)" }}>{c.name}</p>
-                          {/* B2 readiness — status + the date they'll pass, flagged red if too late for the window */}
-                          {(() => {
-                            const stage = normalizeB2Stage(c.b2Stage);
-                            const passed = stage === "passed";
-                            const dot = passed ? "#16a34a" : b2StageColor(stage);
-                            const late = isB2Late(c);
-                            return (
-                              <div className="mt-1 flex items-center gap-2 flex-wrap text-[11px]">
-                                <span className="inline-flex items-center gap-1.5" style={{ color: "var(--w3)" }}>
-                                  <span aria-hidden style={{ width: 8, height: 8, borderRadius: 99, background: dot, boxShadow: c.b2Failed && !passed ? "0 0 0 2px rgba(239,68,68,0.55)" : "none" }} />
-                                  <span style={{ color: "var(--w2)" }}>B2: {c.b2Stage ? b2StageLabel(stage, lang) : T("not set", "offen", "non défini")}</span>
-                                  {c.b2ExamDate && <span>· {fmtDay(c.b2ExamDate)}</span>}
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+                <SortableContext items={members.map((m) => m.userId)} strategy={verticalListSortingStrategy}>
+                  <div className="space-y-2">
+                    {members.map((c) => {
+                      const i1tone: Tone = c.interview1Status === "passed" ? "done" : c.interview1Status === "failed" ? "fail" : "todo";
+                      const i2tone: Tone = c.interview2Status === "passed" ? "done" : c.interview2Status === "failed" ? "fail" : "todo";
+                      // Agreement is REQUIRED after Interview 1 → amber "need" once I1 passed but not yet signed.
+                      const agTone: Tone = c.agreementSigned ? "done" : c.interview1Status === "passed" ? "need" : "todo";
+                      const stage = normalizeB2Stage(c.b2Stage);
+                      const passed = stage === "passed";
+                      const dot = passed ? "#16a34a" : b2StageColor(stage);
+                      const late = isB2Late(c);
+                      return (
+                        <SortableRow key={c.userId} id={c.userId}>
+                          {({ listeners, isDragging }) => (
+                            <div className="group px-3 py-3 sm:px-3.5 transition-shadow" style={{
+                              background: "var(--card)",
+                              border: `1px solid ${isDragging ? "var(--border-gold)" : "var(--border)"}`,
+                              borderRadius: "var(--r-xl)",
+                              boxShadow: isDragging ? "var(--shadow-md)" : "none",
+                            }}>
+                              {/* ── identity row: handle · avatar · name+B2 · actions ── */}
+                              <div className="flex items-center gap-2.5">
+                                {/* Handle: dragging is handle-only so taps on steps stay taps.
+                                    bv-touch gives it a 44px hit area on phones. */}
+                                <button {...listeners} aria-label={T("Reorder", "Verschieben", "Réordonner")}
+                                  className="bv-touch flex-shrink-0 -ml-1 p-0.5 rounded-md opacity-40 group-hover:opacity-100 transition-opacity"
+                                  style={{ color: "var(--w3)", cursor: isDragging ? "grabbing" : "grab", touchAction: "none" }}>
+                                  <GripVertical size={16} />
+                                </button>
+
+                                {/* Minimal profile avatar — initials, no photo to load */}
+                                <span aria-hidden className="flex-shrink-0 grid place-items-center rounded-full text-[11px] font-bold"
+                                  style={{ width: 32, height: 32, background: "var(--bg2)", color: "var(--gold)", border: "1px solid var(--border)" }}>
+                                  {initialsOf(c.name)}
                                 </span>
-                                {late && <span className="px-1.5 py-px rounded-full font-semibold" style={{ background: "rgba(239,68,68,0.12)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.4)" }}>{T("too late", "zu spät", "trop tard")}</span>}
+
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-[13.5px] font-semibold truncate leading-tight" style={{ color: "var(--w)" }}>{c.name}</p>
+                                  <div className="mt-0.5 flex items-center gap-1.5 flex-wrap text-[11px] leading-tight">
+                                    <span aria-hidden style={{ width: 7, height: 7, borderRadius: 99, background: dot, boxShadow: c.b2Failed && !passed ? "0 0 0 2px rgba(239,68,68,0.55)" : "none" }} />
+                                    <span style={{ color: "var(--w3)" }}>
+                                      B2: {c.b2Stage ? b2StageLabel(stage, lang) : T("not set", "offen", "non défini")}
+                                      {c.b2ExamDate && <> · {fmtDay(c.b2ExamDate)}</>}
+                                    </span>
+                                    {late && <span className="px-1.5 rounded-full font-semibold" style={{ background: "rgba(239,68,68,0.12)", color: "#ef4444", border: "1px solid rgba(239,68,68,0.4)" }}>{T("too late", "zu spät", "trop tard")}</span>}
+                                  </div>
+                                </div>
+
+                                {/* Actions stay quiet until you hover the card — less noise per row */}
+                                <div className="flex items-center gap-1 flex-shrink-0 opacity-55 group-hover:opacity-100 transition-opacity">
+                                  <button onClick={() => openPropose(c)} title={T("Propose interview times", "Interview-Termine vorschlagen", "Proposer des créneaux d'entretien")}
+                                    className="bv-touch grid place-items-center rounded-lg h-8 w-8 hover:[background:var(--bg2)]" style={{ color: "var(--w3)" }}>
+                                    <CalendarClock size={15} />
+                                  </button>
+                                  <button onClick={() => removeFromBatch(c)} title={T("Remove from batch", "Aus Batch entfernen", "Retirer du lot")}
+                                    className="bv-touch grid place-items-center rounded-lg h-8 w-8 hover:[background:var(--bg2)]" style={{ color: "var(--w3)" }}>
+                                    <X size={15} />
+                                  </button>
+                                </div>
                               </div>
-                            );
-                          })()}
-                        </div>
-                        <div className="flex items-center gap-2.5 flex-shrink-0">
-                          <button onClick={() => openPropose(c)} title={T("Propose interview times", "Interview-Termine vorschlagen", "Proposer des créneaux d'entretien")} className="hover:opacity-70" style={{ color: "var(--w3)" }}>
-                            <CalendarClock size={15} />
-                          </button>
-                          <button onClick={() => removeFromBatch(c)} className="text-[11px] hover:opacity-70" style={{ color: "var(--w3)" }}>{T("Remove", "Entfernen", "Retirer")}</button>
-                        </div>
-                      </div>
 
-                      {/* The beginning that matters: Interview 1 → Agreement → Interview 2 */}
-                      <div className="flex items-stretch gap-2">
-                        <Step label={`${T("Interview", "Interview", "Entretien")} 1`} tone={i1tone} onClick={() => cycleInterview(c, 1)} />
-                        <Step label={T("Agreement", "Vereinbarung", "Accord")} tone={agTone} onClick={() => toggleAgreement(c)} />
-                        <Step label={`${T("Interview", "Interview", "Entretien")} 2`} tone={i2tone} onClick={() => cycleInterview(c, 2)} />
-                      </div>
+                              {/* ── the three steps that matter: Interview 1 → Agreement → Interview 2 ── */}
+                              <div className="mt-2.5 flex items-stretch gap-1.5">
+                                <Step label={`${T("Interview", "Interview", "Entretien")} 1`} tone={i1tone} onClick={() => cycleInterview(c, 1)} />
+                                <Step label={T("Agreement", "Vereinbarung", "Accord")} tone={agTone} onClick={() => toggleAgreement(c)} />
+                                <Step label={`${T("Interview", "Interview", "Entretien")} 2`} tone={i2tone} onClick={() => cycleInterview(c, 2)} />
+                              </div>
 
-                      {/* Later stages — smaller and muted; the beginning is what counts */}
-                      <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                        <span className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: "var(--w3)" }}>{T("Later", "Später", "Ensuite")}</span>
-                        <Pill active={c.contractDone} onClick={() => apply(c.userId, { contractDone: !c.contractDone }, { contract_done: !c.contractDone })}>{T("Contract", "Vertrag", "Contrat")}</Pill>
-                        <Pill active={c.visaGranted} onClick={() => apply(c.userId, { visaGranted: !c.visaGranted }, { visa_granted: !c.visaGranted })}>{T("Visa", "Visum", "Visa")}</Pill>
-                        <Pill active={c.arrivedDone} onClick={() => apply(c.userId, { arrivedDone: !c.arrivedDone }, { arrived_done: !c.arrivedDone })}>{T("Arrived", "Angekommen", "Arrivé")}</Pill>
-                      </div>
+                              {/* ── later stages: muted, and out of the way until they matter ── */}
+                              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                                <span className="text-[9.5px] font-semibold uppercase tracking-wider mr-0.5" style={{ color: "var(--w3)" }}>{T("Later", "Später", "Ensuite")}</span>
+                                <Pill active={c.contractDone} onClick={() => apply(c.userId, { contractDone: !c.contractDone }, { contract_done: !c.contractDone })}>{T("Contract", "Vertrag", "Contrat")}</Pill>
+                                <Pill active={c.visaGranted} onClick={() => apply(c.userId, { visaGranted: !c.visaGranted }, { visa_granted: !c.visaGranted })}>{T("Visa", "Visum", "Visa")}</Pill>
+                                <Pill active={c.arrivedDone} onClick={() => apply(c.userId, { arrivedDone: !c.arrivedDone }, { arrived_done: !c.arrivedDone })}>{T("Arrived", "Angekommen", "Arrivé")}</Pill>
+                              </div>
+                            </div>
+                          )}
+                        </SortableRow>
+                      );
+                    })}
+                  </div>
+                </SortableContext>
+              </DndContext>
+
+              {/* ── THE POOL ── everyone with no batch yet. This is the bench you
+                  draw from the day a hospital calls with slots, so the people who
+                  are actually offerable (all four steps green) sit at the top. */}
+              <div className="mt-6 rounded-2xl overflow-hidden" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+                <button onClick={() => setPoolOpen((v) => !v)}
+                  className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:[background:var(--bg2)] transition-colors">
+                  <span className="flex items-center gap-2 min-w-0">
+                    <Users size={15} style={{ color: "var(--gold)" }} />
+                    <span className="text-[13.5px] font-semibold" style={{ color: "var(--w)" }}>
+                      {T("Pool", "Pool", "Vivier")}
+                    </span>
+                    <span className="text-[12px]" style={{ color: "var(--w3)" }}>
+                      {pool.length} {T("waiting for a place", "warten auf einen Platz", "en attente d'une place")}
+                    </span>
+                    {poolReadyCount > 0 && (
+                      <span className="px-1.5 py-px rounded-full text-[11px] font-semibold"
+                        style={{ background: "rgba(22,163,74,0.12)", color: "#16a34a", border: "1px solid rgba(22,163,74,0.38)" }}>
+                        {poolReadyCount} {T("ready", "bereit", "prêts")}
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-[12px] flex-shrink-0" style={{ color: "var(--w3)" }}>{poolOpen ? "▲" : "▼"}</span>
+                </button>
+
+                {poolOpen && (
+                  <div className="px-3 pb-3 sm:px-3.5">
+                    <p className="mb-2.5 text-[11.5px] leading-relaxed" style={{ color: "var(--w3)" }}>
+                      {T("Nurses who reached out but have no place yet. Do the onboarding call, give them the free CV and medical — then when a hospital calls, offer the ones who are ready.",
+                         "Pflegekräfte ohne Platz. Onboarding-Call machen, kostenlosen Lebenslauf + Medical geben — wenn dann ein Krankenhaus anruft, bietest du die Bereiten an.",
+                         "Infirmières sans place. Fais l'appel d'intégration, offre le CV et le médical — quand un hôpital appelle, propose celles qui sont prêtes.")}
+                    </p>
+                    <div className="mb-2.5 flex items-center gap-2 px-2.5 py-1.5 rounded-lg" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+                      <Search size={14} style={{ color: "var(--w3)" }} />
+                      <input value={poolQuery} onChange={(e) => setPoolQuery(e.target.value)}
+                        placeholder={T("Search the pool…", "Pool durchsuchen…", "Rechercher…")}
+                        className="w-full bg-transparent outline-none text-[13px]" style={{ color: "var(--w)" }} />
                     </div>
-                  );
-                })}
+
+                    {pool.length === 0 ? (
+                      <p className="py-6 text-center text-[13px]" style={{ color: "var(--w3)" }}>
+                        {T("Nobody waiting.", "Niemand wartet.", "Personne en attente.")}
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {pool.map((c) => {
+                          const ready = poolReady(c);
+                          return (
+                            <div key={c.userId} className="group px-3 py-2.5 rounded-xl" style={{
+                              background: "var(--bg2)",
+                              border: `1px solid ${ready ? "rgba(22,163,74,0.38)" : "var(--border)"}`,
+                            }}>
+                              <div className="flex items-center gap-2.5">
+                                <span aria-hidden className="flex-shrink-0 grid place-items-center rounded-full text-[10.5px] font-bold"
+                                  style={{ width: 28, height: 28, background: "var(--card)", color: ready ? "#16a34a" : "var(--gold)", border: "1px solid var(--border)" }}>
+                                  {initialsOf(c.name)}
+                                </span>
+                                <p className="flex-1 min-w-0 text-[13px] font-semibold truncate" style={{ color: "var(--w)" }}>{c.name}</p>
+                                {ready && (
+                                  <span className="flex-shrink-0 inline-flex items-center gap-1 text-[11px] font-semibold" style={{ color: "#16a34a" }}>
+                                    <Check size={12} strokeWidth={2.6} />{T("ready", "bereit", "prêt")}
+                                  </span>
+                                )}
+                                {selectedBatch && (
+                                  <button onClick={() => addToBatch(c)}
+                                    title={T("Add to this batch", "Zu diesem Batch hinzufügen", "Ajouter à ce lot")}
+                                    className="bv-touch flex-shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11.5px] font-semibold opacity-70 group-hover:opacity-100 transition-opacity"
+                                    style={{ background: "var(--card)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                                    <Plus size={12} strokeWidth={2.6} />{T("Place", "Platzieren", "Placer")}
+                                  </button>
+                                )}
+                              </div>
+                              {/* The pre-batch journey: contact → call → free CV → medical */}
+                              <div className="mt-2 flex items-stretch gap-1.5">
+                                <Step label={T("Contact", "Kontakt", "Contact")} tone={c.poolContacted ? "done" : "todo"}
+                                  onClick={() => apply(c.userId, { poolContacted: !c.poolContacted }, { pool_contacted: !c.poolContacted })} />
+                                <Step label={T("Call", "Anruf", "Appel")} tone={c.poolCallDone ? "done" : "todo"}
+                                  onClick={() => apply(c.userId, { poolCallDone: !c.poolCallDone }, { pool_call_done: !c.poolCallDone })} />
+                                <Step label={T("CV", "Lebenslauf", "CV")} tone={c.poolCvDone ? "done" : "todo"}
+                                  onClick={() => apply(c.userId, { poolCvDone: !c.poolCvDone }, { pool_cv_done: !c.poolCvDone })} />
+                                <Step label={T("Medical", "Medical", "Médical")} tone={c.poolMedicalDone ? "done" : "todo"}
+                                  onClick={() => apply(c.userId, { poolMedicalDone: !c.poolMedicalDone }, { pool_medical_done: !c.poolMedicalDone })} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </>
           )}
