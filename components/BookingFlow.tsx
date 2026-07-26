@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLang } from "@/components/LangContext";
 import { PhoneInput } from "@/components/PhoneInput";
+import { QUESTIONS, type Selections } from "@/lib/booking";
 import {
   Stethoscope, Building2, GraduationCap, ArrowLeft, ArrowRight,
   Loader2, Check, CalendarDays, Clock, Video,
@@ -26,8 +27,6 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const tr = (l: string, en: string, de: string, fr: string) => (l === "de" ? de : l === "fr" ? fr : en);
 
 type Kind = "nurse" | "clinic" | "company";
-type Slot = { at: number; label: string };
-type Day = { day: string; slots: Slot[] };
 
 const KINDS: { v: Kind; Icon: typeof Stethoscope; en: string; de: string; fr: string; subEn: string; subDe: string; subFr: string }[] = [
   {
@@ -53,15 +52,39 @@ const KINDS: { v: Kind; Icon: typeof Stethoscope; en: string; de: string; fr: st
   },
 ];
 
-/** "Mon 3 Aug" in the visitor's language, from a plain YYYY-MM-DD key. */
-function dayLabel(key: string, lang: string): { weekday: string; date: string } {
-  const [y, m, d] = key.split("-").map(Number);
-  const dt = new Date(Date.UTC(y, (m || 1) - 1, d || 1));
-  const loc = lang === "de" ? "de-DE" : lang === "fr" ? "fr-FR" : "en-GB";
-  return {
-    weekday: dt.toLocaleDateString(loc, { weekday: "short", timeZone: "UTC" }),
-    date: dt.toLocaleDateString(loc, { day: "numeric", month: "short", timeZone: "UTC" }),
-  };
+const locOf = (lang: string) => (lang === "de" ? "de-DE" : lang === "fr" ? "fr-FR" : "en-GB");
+
+/**
+ * Regroup the offered instants into the VISITOR's own days and times.
+ *
+ * The server groups by Morocco days because that's where the availability
+ * windows live, but showing Morocco time to a clinic in Kiel means they pick
+ * "14:00" and the confirmation — and the Google invite — say 15:00. Everything
+ * the visitor sees is their own clock; only the instants cross the wire.
+ */
+function localDays(instants: number[], lang: string): { key: string; weekday: string; date: string; slots: { at: number; label: string }[] }[] {
+  const loc = locOf(lang);
+  const byDay = new Map<string, number[]>();
+  for (const at of instants) {
+    const d = new Date(at);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    if (!byDay.has(key)) byDay.set(key, []);
+    byDay.get(key)!.push(at);
+  }
+  return [...byDay.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([key, list]) => {
+      const first = new Date(list[0]);
+      return {
+        key,
+        weekday: first.toLocaleDateString(loc, { weekday: "short" }),
+        date: first.toLocaleDateString(loc, { day: "numeric", month: "short" }),
+        slots: list.sort((a, b) => a - b).map((at) => ({
+          at,
+          label: new Date(at).toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit" }),
+        })),
+      };
+    });
 }
 
 export function BookingFlow() {
@@ -70,7 +93,7 @@ export function BookingFlow() {
 
   const [step, setStep] = useState(0);          // 0 who · 1 when · 2 details
   const [loading, setLoading] = useState(true);
-  const [days, setDays] = useState<Day[]>([]);
+  const [instants, setInstants] = useState<number[]>([]);
   const [tz, setTz] = useState("");
   const [slotMinutes, setSlotMinutes] = useState(30);
 
@@ -82,7 +105,7 @@ export function BookingFlow() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("+212 ");
   const [company, setCompany] = useState("");
-  const [note, setNote] = useState("");
+  const [selections, setSelections] = useState<Selections>({});
 
   const [touched, setTouched] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -93,12 +116,17 @@ export function BookingFlow() {
     try {
       const r = await fetch("/api/book", { cache: "no-store" });
       const j = await r.json().catch(() => ({}));
-      const list: Day[] = Array.isArray(j?.days) ? j.days : [];
-      setDays(list);
+      // Only the INSTANTS cross the wire. The server groups by Morocco days
+      // because that's where the availability lives; we regroup into the
+      // visitor's own days below so nothing they see is in a foreign clock.
+      type RawDay = { slots?: { at?: unknown }[] };
+      const list = (Array.isArray(j?.days) ? (j.days as RawDay[]) : [])
+        .flatMap((d) => (d.slots ?? []).map((s) => Number(s?.at)))
+        .filter((n) => Number.isFinite(n));
+      setInstants(list);
       setSlotMinutes(Number(j?.slotMinutes) || 30);
-      setDayKey((cur) => (cur && list.some((d) => d.day === cur) ? cur : list[0]?.day ?? null));
     } catch {
-      setDays([]);
+      setInstants([]);
     } finally {
       setLoading(false);
     }
@@ -112,7 +140,11 @@ export function BookingFlow() {
     try { setTz(Intl.DateTimeFormat().resolvedOptions().timeZone ?? ""); } catch { /* older browser */ }
   }, []);
 
-  const selectedDay = useMemo(() => days.find((d) => d.day === dayKey) ?? null, [days, dayKey]);
+  const days = useMemo(() => localDays(instants, lang), [instants, lang]);
+  const selectedDay = useMemo(
+    () => days.find((d) => d.key === dayKey) ?? days[0] ?? null,
+    [days, dayKey],
+  );
   const isOrg = kind === "clinic" || kind === "company";
   const emailBad = !EMAIL_RE.test(email.trim());
   const nameBad = name.trim().length < 2;
@@ -130,7 +162,7 @@ export function BookingFlow() {
           kind, at, name: name.trim(), email: email.trim(),
           phone: phone.replace(/^\+\d+\s*$/, "").trim() ? phone.trim() : "",
           company: isOrg ? company.trim() : "",
-          note: note.trim(),
+          selections,
         }),
       });
       const j = await r.json().catch(() => ({}));
@@ -294,18 +326,20 @@ export function BookingFlow() {
             </div>
           ) : (
             <>
-              {/* days */}
-              <div className="flex gap-2 overflow-x-auto pb-3 bv-scroll" role="tablist" aria-label={T("Day", "Tag", "Jour")}>
-                {days.map((d) => {
-                  const { weekday, date } = dayLabel(d.day, lang);
-                  const on = d.day === dayKey;
+              {/* days — plain toggle buttons, NOT role="tab": there is no tabpanel
+                  here, and the time grid below is a sibling, not a panel. */}
+              <div className="flex gap-2 overflow-x-auto pb-3 bv-scroll" role="group" aria-label={T("Day", "Tag", "Jour")}>
+                {days.map(({ key, weekday, date }) => {
+                  const on = key === selectedDay?.key;
                   return (
                     <button
-                      key={d.day}
+                      key={key}
                       type="button"
-                      role="tab"
-                      aria-selected={on}
-                      onClick={() => { setDayKey(d.day); setAt(null); }}
+                      // The visible label is split across two spans, which gives
+                      // screen readers nothing useful — name it explicitly.
+                      aria-label={`${weekday} ${date}`}
+                      aria-pressed={on}
+                      onClick={() => { setDayKey(key); setAt(null); }}
                       className="bv-tap flex-shrink-0 px-4 py-2.5 text-center"
                       style={{
                         borderRadius: 12, minWidth: 76,
@@ -323,8 +357,10 @@ export function BookingFlow() {
               {/* times */}
               <p className="flex items-center gap-2 text-[12.5px] mt-4 mb-3" style={{ color: "var(--w3)" }}>
                 <Clock size={13} aria-hidden />
-                {T(`${slotMinutes} minutes · Morocco time`, `${slotMinutes} Minuten · Zeit Marokko`, `${slotMinutes} minutes · heure du Maroc`)}
-                {tz && tz !== "Africa/Casablanca" ? ` (${tz})` : ""}
+                {T(`${slotMinutes} minutes · your local time`,
+                   `${slotMinutes} Minuten · Ihre Ortszeit`,
+                   `${slotMinutes} minutes · votre heure locale`)}
+                {tz ? ` (${tz})` : ""}
               </p>
               <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(92px, 1fr))" }}>
                 {(selectedDay?.slots ?? []).map((s) => {
@@ -417,14 +453,62 @@ export function BookingFlow() {
             </div>
           )}
 
-          <div>
-            <label className="bv-label" htmlFor="bk-note">
-              {T("Anything we should know?", "Was sollten wir wissen?", "Quelque chose à nous dire ?")}{" "}
-              <span style={{ color: "var(--w3)" }}>({T("optional", "optional", "facultatif")})</span>
-            </label>
-            <textarea id="bk-note" className="bv-input" rows={3} value={note}
-              onChange={(e) => setNote(e.target.value)} maxLength={1000} style={{ resize: "vertical" }} />
-          </div>
+          {/* Everything below is a TAP. Nobody types an answer on this form —
+              free-text boxes get skipped or answered in one word, and can't be
+              counted. A fixed option list means every booking arrives sorted. */}
+          {(kind ? QUESTIONS[kind] : []).map((q) => {
+            const picked = selections[q.id] ?? [];
+            return (
+              <fieldset key={q.id} style={{ border: 0, padding: 0, margin: 0 }}>
+                <legend className="bv-label" style={{ padding: 0 }}>
+                  {tr(lang, q.en, q.de, q.fr)}{" "}
+                  <span style={{ color: "var(--w3)" }}>({T("optional", "optional", "facultatif")})</span>
+                </legend>
+                <div className="flex flex-wrap gap-2 mt-1.5">
+                  {q.options.map((o) => {
+                    const on = picked.includes(o.id);
+                    return (
+                      <button
+                        key={o.id}
+                        type="button"
+                        aria-pressed={on}
+                        onClick={() => setSelections((s) => {
+                          const cur = s[q.id] ?? [];
+                          const next = q.multi
+                            ? (cur.includes(o.id) ? cur.filter((x) => x !== o.id) : [...cur, o.id])
+                            : (cur[0] === o.id ? [] : [o.id]);   // tapping the chosen one clears it
+                          const copy = { ...s };
+                          if (next.length) copy[q.id] = next; else delete copy[q.id];
+                          return copy;
+                        })}
+                        className="bv-tap flex items-center gap-2 px-3 py-2 text-[13.5px] text-left"
+                        style={{
+                          borderRadius: 10,
+                          border: `1px solid ${on ? "var(--border-gold)" : "var(--border)"}`,
+                          background: on ? "rgba(212,175,55,.10)" : "var(--card)",
+                          color: on ? "var(--w)" : "var(--w2)",
+                        }}
+                      >
+                        <span
+                          aria-hidden
+                          className="grid place-items-center flex-shrink-0"
+                          style={{
+                            width: 16, height: 16,
+                            borderRadius: q.multi ? 5 : 999,
+                            border: `1px solid ${on ? "var(--gold)" : "var(--border)"}`,
+                            background: on ? "var(--gold)" : "transparent",
+                          }}
+                        >
+                          {on && <Check size={11} strokeWidth={3} style={{ color: "var(--bg)" }} />}
+                        </span>
+                        {tr(lang, o.en, o.de, o.fr)}
+                      </button>
+                    );
+                  })}
+                </div>
+              </fieldset>
+            );
+          })}
 
           {err && <p className="text-[13px]" style={{ color: "#ef4444" }} role="alert">{err}</p>}
 

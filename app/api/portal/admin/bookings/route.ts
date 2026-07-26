@@ -46,7 +46,7 @@ export async function GET(req: NextRequest) {
 
   const { data, error } = await getServiceSupabase()
     .from("bookings")
-    .select("id,kind,name,email,phone,company,note,starts_at,ends_at,meet_link,status,outcome,source,created_at")
+    .select("id,kind,name,email,phone,company,note,selections,starts_at,ends_at,meet_link,status,outcome,source,created_at")
     .order("starts_at", { ascending: false })
     .limit(500);
 

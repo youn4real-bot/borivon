@@ -6,7 +6,8 @@ import { keepAlive } from "@/lib/keepAlive";
 import { getAdminUserId } from "@/lib/telegram";
 import {
   DEFAULT_AVAILABILITY, generateSlots, groupByDay, slotLabel, looksLikeEmail,
-  followUpsFor, zoneOffsetMinutes, type Availability, type BookingKind, type Interval,
+  followUpsFor, zoneOffsetMinutes, sanitizeSelections, describeSelections,
+  type Availability, type BookingKind, type Interval,
 } from "@/lib/booking";
 
 /**
@@ -113,9 +114,11 @@ export async function POST(req: NextRequest) {
   const email = String(body?.email ?? "").trim().slice(0, 254).toLowerCase();
   const phone = String(body?.phone ?? "").trim().slice(0, 40) || null;
   const company = String(body?.company ?? "").trim().slice(0, 160) || null;
-  const note = String(body?.note ?? "").trim().slice(0, 1000) || null;
 
   if (!isKind(kind)) return NextResponse.json({ error: "bad_kind" }, { status: 400 });
+  // Tap-only answers. Whitelisted against the catalog, so the one public write
+  // in the system can't smuggle arbitrary JSON into a column the admin renders.
+  const selections = sanitizeSelections(kind, body?.selections);
   if (name.length < 2) return NextResponse.json({ error: "bad_name" }, { status: 400 });
   if (!looksLikeEmail(email)) return NextResponse.json({ error: "bad_email" }, { status: 400 });
   if (!Number.isFinite(at)) return NextResponse.json({ error: "bad_slot" }, { status: 400 });
@@ -138,7 +141,7 @@ export async function POST(req: NextRequest) {
   // two simultaneous bookings safe — the loser gets 23505 here, before we've
   // created a calendar event or emailed anybody.
   const ins = await db.from("bookings").insert({
-    kind, name, email, phone, company, note,
+    kind, name, email, phone, company, selections,
     starts_at: new Date(at).toISOString(),
     ends_at: new Date(endsAt).toISOString(),
     source: "public",
@@ -158,6 +161,9 @@ export async function POST(req: NextRequest) {
     clinic: `Borivon — ${company || name} (clinic, needs nurses)`,
     company: `Borivon — ${company || name} (German training)`,
   };
+  // German, because it's the founder's own calendar and these are German terms
+  // of art — "Ambulanter Pflegedienst" says more than "outpatient care service".
+  const answers = describeSelections(kind, selections, "de");
 
   // Calendar + lead + reminders run AFTER the response on Workers (keepAlive →
   // waitUntil), so the visitor gets their confirmation immediately instead of
@@ -170,7 +176,7 @@ export async function POST(req: NextRequest) {
         title: TITLES[kind],
         startsAt: new Date(at).toISOString(),
         endsAt: new Date(endsAt).toISOString(),
-        description: [company ? `Organisation: ${company}` : null, phone ? `Phone: ${phone}` : null, note ? `Note: ${note}` : null]
+        description: [company ? `Organisation: ${company}` : null, phone ? `Telefon: ${phone}` : null, answers || null]
           .filter(Boolean).join("\n") || undefined,
         addMeet: true,
         attendees: [email],
@@ -191,8 +197,15 @@ export async function POST(req: NextRequest) {
       const lead = await db.from("leads").insert({
         kind, email,
         name, phone: phone ?? "",
-        message: [company ? `Org: ${company}` : null, note].filter(Boolean).join(" — ") || `Booked a ${kind} call`,
-        details: { source: "booking", company: company ?? "", at: new Date(at).toISOString() },
+        message: [company ? `Org: ${company}` : null, answers || null].filter(Boolean).join(" — ") || `Booked a ${kind} call`,
+        // The raw ids too, so these stay findable later ("every nurse who
+        // ticked Intensivpflege"). Joined into strings because the admin Leads
+        // page renders each `details` value directly — an array would come out
+        // as "klinikaltenheim".
+        details: {
+          source: "booking", company: company ?? "", at: new Date(at).toISOString(),
+          ...Object.fromEntries(Object.entries(selections).map(([k, v]) => [k, v.join(", ")])),
+        },
       }).select("id").single();
       if (lead.data?.id) await db.from("bookings").update({ lead_id: lead.data.id }).eq("id", bookingId);
     } catch (e) {

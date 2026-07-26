@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   generateSlots, groupByDay, slotLabel, parseHm, overlaps, looksLikeEmail, followUpsFor,
-  zoneOffsetMinutes, DEFAULT_AVAILABILITY, type Availability,
+  zoneOffsetMinutes, sanitizeSelections, describeSelections, QUESTIONS,
+  DEFAULT_AVAILABILITY, type Availability, type BookingKind,
 } from "../lib/booking";
 
 const MIN = 60_000, HOUR = 60 * MIN, DAY = 24 * HOUR;
@@ -126,6 +127,87 @@ describe("looksLikeEmail — we only ever SEND to it", () => {
   });
   it("rejects junk", () => {
     for (const e of ["", "a@b", "no-at.com", "a b@c.de", "@b.co", "a@.co"]) expect(looksLikeEmail(e), e).toBe(false);
+  });
+});
+
+describe("sanitizeSelections — the ONLY gate on public-form answers", () => {
+  it("keeps what the catalog offers", () => {
+    const s = sanitizeSelections("nurse", { setting: ["klinik", "ambulant"], german: ["b1"] });
+    expect(s).toEqual({ setting: ["klinik", "ambulant"], german: ["b1"] });
+  });
+
+  it("drops unknown option ids — the form is the whitelist", () => {
+    // This is the attack: the endpoint is public and `selections` lands in a
+    // jsonb column the admin panel renders. Nothing off-menu may survive.
+    const s = sanitizeSelections("nurse", {
+      setting: ["klinik", "<script>alert(1)</script>", "DROP TABLE bookings"],
+      german: ["c2-fake"],
+      not_a_question: ["anything"],
+      __proto__: ["polluted"],
+    });
+    expect(s).toEqual({ setting: ["klinik"] });
+    expect(Object.keys(s)).not.toContain("not_a_question");
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  it("keeps a single-answer question to ONE answer", () => {
+    const s = sanitizeSelections("nurse", { german: ["b1", "b2plus", "none"] });
+    expect(s.german).toHaveLength(1);
+    expect(s.german[0]).toBe("b1");
+  });
+
+  it("dedupes, and accepts a bare string as well as an array", () => {
+    expect(sanitizeSelections("clinic", { roles: ["op", "op", "op"] }).roles).toEqual(["op"]);
+    expect(sanitizeSelections("clinic", { headcount: "6-20" }).headcount).toEqual(["6-20"]);
+  });
+
+  it("never throws on junk, and returns nothing for it", () => {
+    for (const junk of [null, undefined, 42, "nope", [], { setting: 5 }, { setting: [null, {}] }]) {
+      expect(sanitizeSelections("nurse", junk), JSON.stringify(junk)).toEqual({});
+    }
+  });
+
+  it("won't let one kind's options leak into another", () => {
+    // "op" (OP-Pflege) is a clinic option; a nurse booking must not carry it.
+    expect(sanitizeSelections("nurse", { roles: ["op"] })).toEqual({});
+    expect(sanitizeSelections("company", { setting: ["klinik"] })).toEqual({});
+  });
+});
+
+describe("the question catalog itself", () => {
+  it("has unique ids everywhere — a duplicate would silently overwrite an answer", () => {
+    for (const kind of ["nurse", "clinic", "company"] as BookingKind[]) {
+      const qIds = QUESTIONS[kind].map((q) => q.id);
+      expect(new Set(qIds).size, `${kind} question ids`).toBe(qIds.length);
+      for (const q of QUESTIONS[kind]) {
+        const oIds = q.options.map((o) => o.id);
+        expect(new Set(oIds).size, `${kind}.${q.id} option ids`).toBe(oIds.length);
+      }
+    }
+  });
+
+  it("is fully trilingual — LAW #19, no half-translated option", () => {
+    for (const kind of ["nurse", "clinic", "company"] as BookingKind[]) {
+      for (const q of QUESTIONS[kind]) {
+        for (const l of ["en", "de", "fr"] as const) {
+          expect(q[l].trim().length, `${kind}.${q.id}.${l}`).toBeGreaterThan(0);
+          for (const o of q.options) expect(o[l].trim().length, `${kind}.${q.id}.${o.id}.${l}`).toBeGreaterThan(0);
+        }
+      }
+    }
+  });
+});
+
+describe("describeSelections — what the founder reads before the call", () => {
+  it("renders German care terms, which is the point of asking", () => {
+    const sel = sanitizeSelections("nurse", { setting: ["klinik", "ambulant"], german: ["b1"] });
+    const line = describeSelections("nurse", sel, "de");
+    expect(line).toContain("Klinik / Krankenhaus");
+    expect(line).toContain("Ambulanter Pflegedienst");
+    expect(line).toContain("B1");
+  });
+  it("is empty when nothing was ticked — every question is optional", () => {
+    expect(describeSelections("nurse", {}, "de")).toBe("");
   });
 });
 

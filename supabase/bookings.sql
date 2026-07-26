@@ -23,8 +23,13 @@ create table if not exists public.bookings (
   name              text        not null,
   email             text        not null,
   phone             text,
-  note              text,
+  note              text,                       -- admin-added bookings only; the public form has no free-text field
   company           text,                       -- organisation name (clinic / company kinds)
+  -- Tap-only answers from the public form: {"setting":["klinik","altenheim"],
+  -- "german":["b1"]}. Nobody types anything but their name, email and phone —
+  -- free-text boxes get skipped or answered in one word, and can't be counted.
+  -- Keys + values are whitelisted server-side against lib/booking.ts QUESTIONS.
+  selections        jsonb       not null default '{}'::jsonb,
   -- when (UTC instants; the picker works in Africa/Casablanca and converts)
   starts_at         timestamptz not null,
   ends_at           timestamptz not null,
@@ -59,3 +64,11 @@ create index if not exists bookings_upcoming_idx
   on public.bookings (starts_at desc);
 create index if not exists bookings_status_idx
   on public.bookings (status, starts_at);
+
+-- SERVICE-ROLE ONLY. Both the public booking endpoint and the admin list go
+-- through the service key (the admin one behind requireAdminRole), so no policy
+-- is needed for the app to work — and with RLS on and no policy, PostgREST
+-- refuses every anon/authenticated read. Without this, ANY logged-in candidate
+-- could query /rest/v1/bookings with their own JWT and walk off with every
+-- lead's name, email and phone number. Same posture as `leads`.
+alter table public.bookings enable row level security;

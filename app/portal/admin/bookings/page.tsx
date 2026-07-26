@@ -20,6 +20,7 @@ import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
 import { Modal } from "@/components/ui/Modal";
+import { QUESTIONS, type Selections } from "@/lib/booking";
 import {
   ArrowLeft, Plus, Video, Phone, Mail, Loader2, Check, X, CalendarDays, Building2,
 } from "lucide-react";
@@ -29,7 +30,7 @@ type Status = "booked" | "held" | "no_show" | "cancelled";
 
 type Booking = {
   id: number; kind: Kind; name: string; email: string | null; phone: string | null;
-  company: string | null; note: string | null;
+  company: string | null; note: string | null; selections: Selections | null;
   starts_at: string; ends_at: string; meet_link: string | null;
   status: Status; outcome: string | null; source: "public" | "admin"; created_at: string;
 };
@@ -243,6 +244,30 @@ function Row({
             )}
             {b.note && <span className="mt-1" style={{ color: "var(--w3)" }}>{b.note}</span>}
           </div>
+
+          {/* What they ticked — the reason the form asks in taps instead of prose. */}
+          {!!b.selections && Object.keys(b.selections).length > 0 && (
+            <div className="grid gap-2">
+              {(QUESTIONS[b.kind] ?? []).map((q) => {
+                const ids = b.selections?.[q.id];
+                if (!ids?.length) return null;
+                const labels = ids
+                  .map((id) => q.options.find((o) => o.id === id))
+                  .filter((o): o is NonNullable<typeof o> => !!o)
+                  .map((o) => (lang === "de" ? o.de : lang === "fr" ? o.fr : o.en));
+                return (
+                  <div key={q.id}>
+                    <p className="text-[11px] uppercase mb-1" style={{ color: "var(--w3)", letterSpacing: ".06em" }}>
+                      {lang === "de" ? q.de : lang === "fr" ? q.fr : q.en}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {labels.map((l) => <span key={l} className="bv-chip bv-chip-gold">{l}</span>)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {/* What happened — the field the follow-ups actually feed on. */}
           {past && (
