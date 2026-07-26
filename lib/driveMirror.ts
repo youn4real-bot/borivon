@@ -32,11 +32,26 @@ const WORK_ROOT = "WORK";
 // for the post-match docs (visa, contract, Bearbeitung) — populated later.
 const VOR_MATCHING = "Vor Matching";
 const NACH_MATCHING = "Nach Matching";
-// Where a copy goes once the portal no longer considers it current (replaced,
-// rejected, archived). It is MOVED here, never deleted — mirroring LAW #33 and
-// making a mistake fully recoverable. The agency only ever reads "Vor Matching",
-// so it can never see a document the founder already threw away.
-const ARCHIV = "Archiv";
+/**
+ * Where retracted copies go. NOT inside the candidate folder any more.
+ *
+ * Retraction previously moved a stale file to "<Batch>/<Candidate>/Archiv" —
+ * still INSIDE the folder tree shared with the agency. So a document the portal
+ * had explicitly pulled back (rejected, replaced, superseded, or belonging to a
+ * candidate who moved away) stayed readable to that agency through inherited
+ * sharing, and through any link they already held. "Retracted" has to mean
+ * retracted, so Archiv now lives at the WORK root, one level ABOVE every
+ * "<Agency> X Borivon" folder — outside whatever is shared, however it is
+ * shared. Files are still only MOVED, never deleted or trashed (LAW #33).
+ */
+const ARCHIV_ROOT = "_Archiv (Borivon intern)";
+
+/** WORK / _Archiv (Borivon intern) / <Candidate> — created only when needed. */
+async function resolveArchivFolder(drive: Drive, candidateName: string): Promise<string> {
+  const workId = await resolveWorkRootId(drive);
+  const rootId = await findOrCreateFolder(drive, ARCHIV_ROOT, workId);
+  return findOrCreateFolder(drive, candidateName || "Unbekannt", rootId);
+}
 
 export type MirrorDoc = { r2_key: string | null; file_name: string | null; file_type: string | null };
 export type MirrorResult =
@@ -310,7 +325,7 @@ async function reconcileFolder(
   drive: Drive,
   currentDocs: ApprovedDoc[],
   folderId: string,
-  candFolderId: string,
+  candidateName: string,
 ): Promise<number> {
   // Page through — a silent 200-file cap would leave stale copies visible.
   const found: MirrorFile[] = [];
@@ -326,7 +341,8 @@ async function reconcileFolder(
   } while (pageToken);
   const stale = selectStaleMirrorFiles(found, currentDocs.map((d) => d.id));
   if (stale.length === 0) return 0;
-  const archivId = await findOrCreateFolder(drive, ARCHIV, candFolderId); // lazily, only when needed
+  // Lazily — and OUTSIDE the agency-shared tree (see ARCHIV_ROOT).
+  const archivId = await resolveArchivFolder(drive, candidateName);
   let moved = 0;
   for (const f of stale) {
     try {
@@ -354,19 +370,21 @@ async function reconcileFolder(
 /**
  * Move ONE mirrored file into an "Archiv" folder beside it — used to retract a
  * copy stranded in a PREVIOUS batch's folder after a candidate moved batches.
- * The file's parent is a Vor/Nach folder; its grandparent is that batch's
- * candidate folder, where the Archiv lives. Never throws (a deleted/foreign file
- * just returns false). LAW #33: MOVE, never delete/trash.
+ * The file's parent is a Vor/Nach folder; its GRANDPARENT is that batch's
+ * candidate folder — we read its NAME so the file lands under the same person in
+ * the shared root archive (outside every agency folder). Never throws (a
+ * deleted/foreign file just returns false). LAW #33: MOVE, never delete/trash.
  */
 async function archiveMirroredFileById(drive: Drive, fileId: string): Promise<boolean> {
   try {
     const f = await drive.files.get({ fileId, fields: "parents", supportsAllDrives: true });
     const parent = f.data.parents?.[0];
     if (!parent) return false;
-    const pf = await drive.files.get({ fileId: parent, fields: "parents", supportsAllDrives: true });
+    const pf = await drive.files.get({ fileId: parent, fields: "parents,name", supportsAllDrives: true });
     const candFolder = pf.data.parents?.[0];
     if (!candFolder) return false;
-    const archivId = await findOrCreateFolder(drive, ARCHIV, candFolder);
+    const cf = await drive.files.get({ fileId: candFolder, fields: "name", supportsAllDrives: true });
+    const archivId = await resolveArchivFolder(drive, cf.data.name || "Unbekannt");
     await drive.files.update({ fileId, addParents: archivId, removeParents: parent, supportsAllDrives: true });
     return true;
   } catch { return false; }
@@ -574,7 +592,7 @@ export async function mirrorCandidateApprovedDocs(
       const r = await uploadDocsToFolder(db, drive, preToUpload, vorId, userId, currentBatchId);
       uploaded += r.uploaded; missing += r.missing;
     }
-    archived += await reconcileFolder(db, drive, preDocs, vorId, candFolderId);
+    archived += await reconcileFolder(db, drive, preDocs, vorId, candidateName);
 
     // ── Nach Matching (post-match / Visum-phase docs) ─────────────────────────
     // Create it when there are post docs to place; otherwise only reconcile it
@@ -586,7 +604,7 @@ export async function mirrorCandidateApprovedDocs(
     if (nachId) {
       const r = await uploadDocsToFolder(db, drive, postToUpload, nachId, userId, currentBatchId);
       uploaded += r.uploaded; missing += r.missing;
-      archived += await reconcileFolder(db, drive, postDocs, nachId, candFolderId);
+      archived += await reconcileFolder(db, drive, postDocs, nachId, candidateName);
     }
 
     return { ok: true, uploaded, unchanged, archived, missing };
