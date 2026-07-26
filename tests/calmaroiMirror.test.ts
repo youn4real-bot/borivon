@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { latestApprovedPerName, agencyRootFolderName, selectStaleMirrorFiles, mirrorFingerprint, isNachMatchingDoc, isMirrorInWrongBatch, type ApprovedDoc, type MirrorFile } from "../lib/driveMirror";
+import { latestApprovedPerName, agencyRootFolderName, selectStaleMirrorFiles, mirrorFingerprint, isNachMatchingDoc, isMirrorInWrongBatch, safeAppProperties, type ApprovedDoc, type MirrorFile } from "../lib/driveMirror";
 import { isPreMatchDoc } from "../lib/fileKeys";
 
 const doc = (o: Partial<ApprovedDoc>): ApprovedDoc => ({
@@ -233,5 +233,51 @@ describe("isMirrorInWrongBatch — candidate moved batches (feature #3)", () => 
   });
   it("flags a stamped doc when the candidate now has NO batch (offboarded)", () => {
     expect(isMirrorInWrongBatch({ drive_mirror_id: "f1", drive_mirror_batch_id: A }, null)).toBe(true);
+  });
+});
+
+describe("safeAppProperties — Drive's 124-byte cap rejects the WHOLE upload", () => {
+  const bytes = (s: string) => new TextEncoder().encode(s).length;
+  const within = (o: Record<string, string>) =>
+    Object.entries(o).every(([k, v]) => bytes(k) + bytes(v) <= 124);
+
+  it("passes normal markers through untouched", () => {
+    const props = {
+      borivon_doc_id: "6f1d0a5e-6c22-4a1b-9a55-2f7f4a8b1c33",
+      borivon_user_id: "1abc67bf-a718-4d5f-83a2-6a7c87f67103",
+      borivon_sha: "a".repeat(64), // a sha256 hex — 11 + 64 = 75 bytes, fits
+    };
+    expect(safeAppProperties(props)).toEqual(props);
+  });
+
+  it("clamps the r2key fallback fingerprint that caused the real 403", () => {
+    // A REAL key shape from production (documents whose R2 object is still named
+    // after its old Drive file id). Measured against the live DB, borivon_sha for
+    // these came to 137-139 bytes — which is what 403'd the whole upload.
+    const long = mirrorFingerprint({
+      file_sha256: null,
+      r2_key: "candidates/1abc67bf-a718-4d5f-83a2-6a7c87f67103/1yRUiEeh5H92ur3YZZLCSRrvC0cUlI9aB_ayoub_hamdaoui_pflegekraft_diplom_uebersetzt.pdf",
+    })!;
+    expect(bytes("borivon_sha") + bytes(long)).toBeGreaterThan(124); // the bug
+    const out = safeAppProperties({ borivon_doc_id: "d1", borivon_sha: long });
+    expect(within(out)).toBe(true);
+    expect(out.borivon_doc_id).toBe("d1");          // the marker we MATCH on is untouched
+    expect(out.borivon_sha.startsWith("r2key:")).toBe(true); // still recognisable
+  });
+
+  it("never splits a multi-byte character when trimming", () => {
+    const out = safeAppProperties({ k: "é".repeat(200) });
+    expect(within(out)).toBe(true);
+    expect(out.k).not.toContain("\uFFFD");
+    expect(out.k.length).toBeGreaterThan(0);
+  });
+
+  it("drops an entry whose key alone can't fit, rather than sending it", () => {
+    const out = safeAppProperties({ ["k".repeat(130)]: "v", ok: "fine" });
+    expect(Object.keys(out)).toEqual(["ok"]);
+  });
+
+  it("tolerates empty values", () => {
+    expect(safeAppProperties({ borivon_sha: "" }).borivon_sha).toBe("");
   });
 });

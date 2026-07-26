@@ -208,6 +208,42 @@ export function mirrorFingerprint(d: Pick<ApprovedDoc, "file_sha256" | "r2_key">
   return d.r2_key ? `r2key:${d.r2_key}` : null;
 }
 
+/**
+ * Clamp appProperties to Drive's hard limit: 124 bytes UTF-8 per entry, counting
+ * the KEY AND THE VALUE together. Over that, Google rejects the whole upload with
+ * a 403 and the document silently never mirrors.
+ *
+ * This bites on `borivon_sha`: mirrorFingerprint falls back to `r2key:<path>` for
+ * any document without a file_sha256, and an R2 key is a long path — key + value
+ * sails past 124. A sha256 (75 bytes with its key) fits comfortably, which is why
+ * only some documents failed.
+ *
+ * Truncating is safe because `borivon_sha` is written for humans only — nothing
+ * reads it back. The value that MATTERS for change detection is the full
+ * fingerprint in documents.drive_mirror_sha256, which has no length limit, and
+ * the marker we actually match on is `borivon_doc_id` (a uuid, always fits).
+ * Entries whose key alone exceeds the limit are dropped rather than sent.
+ */
+export function safeAppProperties(props: Record<string, string>): Record<string, string> {
+  const LIMIT = 124;
+  const enc = new TextEncoder();
+  const out: Record<string, string> = {};
+  for (const [k, raw] of Object.entries(props)) {
+    const keyBytes = enc.encode(k).length;
+    if (keyBytes >= LIMIT) continue; // no room for any value — omit entirely
+    const budget = LIMIT - keyBytes;
+    let v = raw ?? "";
+    if (enc.encode(v).length > budget) {
+      // Trim by BYTES, then drop any trailing partial UTF-8 sequence so the
+      // value stays valid text (an R2 key can contain non-ASCII).
+      const bytes = enc.encode(v).slice(0, budget);
+      v = new TextDecoder("utf-8", { fatal: false }).decode(bytes).replace(/�+$/, "");
+    }
+    out[k] = v;
+  }
+  return out;
+}
+
 /** Agency root folder name, e.g. "Calmaroi" → "Calmaroi X Borivon". Pure. */
 export function agencyRootFolderName(orgName: string): string {
   return `${(orgName || "Agentur").trim()} X Borivon`;
@@ -461,7 +497,11 @@ async function uploadDocsToFolder(
     }
     const name = d.file_name || `${d.file_type || "document"}.pdf`;
     const media = { mimeType: obj.contentType || "application/pdf", body: Readable.from(obj.body) };
-    const appProperties = { borivon_doc_id: d.id, borivon_user_id: userId, borivon_sha: mirrorFingerprint(d) ?? "" };
+    // Clamped: Drive rejects the WHOLE upload with a 403 if any single entry
+    // exceeds 124 bytes of key+value, and the r2key fallback fingerprint does.
+    const appProperties = safeAppProperties({
+      borivon_doc_id: d.id, borivon_user_id: userId, borivon_sha: mirrorFingerprint(d) ?? "",
+    });
     let fileId = d.drive_mirror_id ?? null;
     if (!fileId) {
       const existing = await drive.files.list({

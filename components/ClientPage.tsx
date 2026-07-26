@@ -115,6 +115,26 @@ function PageInner() {
         {/* Funnel card */}
         <Funnel />
 
+        {/* Book a call — the alternative to filling in the form. Some visitors
+            (especially clinics and companies) would rather just talk, and the
+            booking page was unreachable from anywhere on the site until now. */}
+        <a
+          href="/book"
+          className="mt-5 inline-flex items-center gap-2 bv-tap hover:opacity-85 transition-opacity no-underline"
+          style={{ color: "var(--w2)", fontSize: "13.5px" }}
+        >
+          <span
+            aria-hidden
+            style={{ width: 6, height: 6, borderRadius: 999, background: "var(--gold)", display: "inline-block" }}
+          />
+          {lang === "de"
+            ? "Lieber sprechen? Termin buchen"
+            : lang === "en"
+              ? "Prefer to talk? Book a call"
+              : "Vous préférez parler ? Réserver un appel"}
+          <span style={{ color: "var(--gold)" }}>→</span>
+        </a>
+
         {/* Login link — returning users */}
         <p
           className="mt-6 text-center text-[13px]"
