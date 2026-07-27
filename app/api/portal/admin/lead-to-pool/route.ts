@@ -52,10 +52,62 @@ export async function POST(req: NextRequest) {
   if (auth.role !== "admin") return NextResponse.json({ error: "Supreme admin only" }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));
-  const leadId = String(body?.leadId ?? "").trim();
+  const db = getServiceSupabase();
+
+  // Two ways in: straight from the Leads list, or from a booking. A booking is
+  // just a lead who also picked a time, so it resolves to the same path — and
+  // if it has no lead row yet (an admin-entered WhatsApp booking never creates
+  // one), we mint it, so EVERY pool candidate still traces back to a lead.
+  let leadId = String(body?.leadId ?? "").trim();
+  const bookingId = Number(body?.bookingId);
+
+  if (!leadId && Number.isInteger(bookingId) && bookingId > 0) {
+    const { data: bk } = await db
+      .from("bookings")
+      .select("id,kind,name,email,phone,company,lead_id,starts_at")
+      .eq("id", bookingId)
+      .maybeSingle();
+    if (!bk) return NextResponse.json({ error: "booking_not_found" }, { status: 404 });
+    const b = bk as {
+      id: number; kind: string; name: string; email: string | null;
+      phone: string | null; company: string | null; lead_id: string | null; starts_at: string;
+    };
+    // Only a NURSE belongs in the candidate pool. A clinic or a company is a
+    // counterparty, not somebody we place.
+    if (b.kind !== "nurse") {
+      return NextResponse.json({
+        error: "not_a_candidate",
+        message: "Only nurse bookings can join the candidate pool.",
+      }, { status: 400 });
+    }
+    if (b.lead_id) {
+      leadId = b.lead_id;
+    } else {
+      if (!looksLikeEmail((b.email ?? "").trim().toLowerCase())) {
+        return NextResponse.json({
+          error: "no_email",
+          message: "This booking has no usable email, so no portal account can be made yet.",
+        }, { status: 400 });
+      }
+      const made = await db.from("leads").insert({
+        kind: "nurse",
+        email: (b.email ?? "").trim().toLowerCase(),
+        name: b.name ?? "",
+        phone: (b.phone ?? "") || "",
+        message: `Booked a call ${b.starts_at.slice(0, 16).replace("T", " ")}`,
+        details: { source: "booking", at: b.starts_at },
+      }).select("id").single();
+      if (made.error || !made.data) {
+        console.error("[lead-to-pool] lead insert from booking failed:", made.error?.message);
+        return NextResponse.json({ error: "lead_failed" }, { status: 500 });
+      }
+      leadId = made.data.id as string;
+      await db.from("bookings").update({ lead_id: leadId }).eq("id", b.id);
+    }
+  }
+
   if (!UUID_RE.test(leadId)) return NextResponse.json({ error: "bad_lead" }, { status: 400 });
 
-  const db = getServiceSupabase();
   const { data: lead, error: le } = await db
     .from("leads")
     .select("id,kind,email,name,phone,candidate_user_id,converted_at")
@@ -71,7 +123,7 @@ export async function POST(req: NextRequest) {
   // Already converted → return the existing link rather than making a second
   // account. The button is safe to press twice.
   if (row.candidate_user_id) {
-    return NextResponse.json({ ok: true, alreadyConverted: true, userId: row.candidate_user_id });
+    return NextResponse.json({ ok: true, alreadyConverted: true, userId: row.candidate_user_id, leadId: row.id });
   }
 
   const email = (row.email ?? "").trim().toLowerCase();

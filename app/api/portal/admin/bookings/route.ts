@@ -71,9 +71,10 @@ export async function GET(req: NextRequest) {
   const g = await gate(req);
   if (!g.ok) return g.res;
 
-  const { data, error } = await getServiceSupabase()
+  const db = getServiceSupabase();
+  const { data, error } = await db
     .from("bookings")
-    .select("id,kind,name,email,phone,company,note,selections,starts_at,ends_at,meet_link,status,outcome,source,created_at")
+    .select("id,kind,name,email,phone,company,note,selections,starts_at,ends_at,meet_link,status,outcome,source,created_at,lead_id")
     .order("starts_at", { ascending: false })
     .limit(500);
 
@@ -81,7 +82,22 @@ export async function GET(req: NextRequest) {
     console.error("[admin/bookings] list failed:", error.message);
     return NextResponse.json({ error: "load_failed", bookings: [] }, { status: 500 });
   }
-  return NextResponse.json({ bookings: data ?? [] });
+
+  // Which of these already became Pool candidates? One extra query keyed on the
+  // lead ids we already have — not a per-row lookup.
+  const rows = (data ?? []) as ({ lead_id?: string | null })[];
+  const leadIds = [...new Set(rows.map((b) => b.lead_id).filter((v): v is string => !!v))];
+  let pooled = new Map<string, string>();
+  if (leadIds.length) {
+    const { data: ls } = await db.from("leads").select("id,candidate_user_id").in("id", leadIds);
+    pooled = new Map(((ls ?? []) as { id: string; candidate_user_id: string | null }[])
+      .filter((l) => l.candidate_user_id)
+      .map((l) => [l.id, l.candidate_user_id as string]));
+  }
+
+  return NextResponse.json({
+    bookings: rows.map((b) => ({ ...b, pooled_user_id: b.lead_id ? pooled.get(b.lead_id) ?? null : null })),
+  });
 }
 
 export async function POST(req: NextRequest) {

@@ -23,7 +23,7 @@ import { Modal } from "@/components/ui/Modal";
 import { QUESTIONS, type Selections } from "@/lib/booking";
 import {
   ArrowLeft, Plus, Video, Phone, Mail, Loader2, Check, X, CalendarDays, Building2,
-  SlidersHorizontal, Link2,
+  SlidersHorizontal, Link2, UserPlus, UserCheck,
 } from "lucide-react";
 
 type Kind = "nurse" | "clinic" | "company";
@@ -34,6 +34,8 @@ type Booking = {
   company: string | null; note: string | null; selections: Selections | null;
   starts_at: string; ends_at: string; meet_link: string | null;
   status: Status; outcome: string | null; source: "public" | "admin"; created_at: string;
+  /** Set once this booking's person has been made a Pool candidate. */
+  pooled_user_id?: string | null;
 };
 
 const KIND_LABEL: Record<Kind, { en: string; de: string; fr: string }> = {
@@ -61,6 +63,7 @@ export default function AdminBookingsPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [availOpen, setAvailOpen] = useState(false);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const [poolErr, setPoolErr] = useState<string | null>(null);
 
   const load = useCallback(async (tk: string) => {
     const r = await fetch("/api/portal/admin/bookings", { headers: { Authorization: `Bearer ${tk}` }, cache: "no-store" });
@@ -121,6 +124,36 @@ export default function AdminBookingsPage() {
     }
   }
 
+  /** Turn a nurse booking into a Pool candidate — the same bridge the Leads
+   *  page uses, so a booked call and a WhatsApp lead end up in one place. */
+  async function pool(id: number) {
+    setBusyId(id);
+    setPoolErr(null);
+    try {
+      const r = await fetch("/api/portal/admin/lead-to-pool", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ bookingId: id }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setPoolErr(j?.error === "no_email"
+          ? T("This booking has no email, so no account can be created yet.",
+              "Dieser Termin hat keine E-Mail — es kann noch kein Konto angelegt werden.",
+              "Ce rendez-vous n'a pas d'e-mail — aucun compte ne peut être créé.")
+          : j?.error === "Supreme admin only"
+            ? T("Only the main admin can do this.", "Nur der Hauptadmin kann das.", "Seul l'administrateur principal peut le faire.")
+            : T("Couldn't add to the pool.", "Konnte nicht zum Pool hinzugefügt werden.", "Impossible d'ajouter au vivier."));
+        return;
+      }
+      await load(token);
+    } catch {
+      setPoolErr(T("Network error.", "Netzwerkfehler.", "Erreur réseau."));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   if (loading) return <PageLoader />;
 
   const fmt = (iso: string) => {
@@ -153,6 +186,10 @@ export default function AdminBookingsPage() {
         </div>
       </div>
 
+      {poolErr && (
+        <p className="text-[13px] mb-4" style={{ color: "#ef4444" }} role="alert">{poolErr}</p>
+      )}
+
       {!rows.length ? (
         <div className="bv-card p-8 text-center" style={{ borderRadius: 18 }}>
           <CalendarDays size={22} style={{ color: "var(--w3)" }} className="mx-auto mb-3" />
@@ -167,21 +204,21 @@ export default function AdminBookingsPage() {
           {!!upcoming.length && (
             <Section title={T("Upcoming", "Anstehend", "À venir")}>
               {upcoming.map((b) => (
-                <Row key={b.id} b={b} T={T} lang={lang} fmt={fmt} busy={busyId === b.id} onPatch={patch} />
+                <Row key={b.id} b={b} T={T} lang={lang} fmt={fmt} busy={busyId === b.id} onPatch={patch} onPool={pool} />
               ))}
             </Section>
           )}
           {!!cancelled.length && (
             <Section title={T("Cancelled", "Abgesagt", "Annulés")}>
               {cancelled.map((b) => (
-                <Row key={b.id} b={b} T={T} lang={lang} fmt={fmt} busy={busyId === b.id} onPatch={patch} />
+                <Row key={b.id} b={b} T={T} lang={lang} fmt={fmt} busy={busyId === b.id} onPatch={patch} onPool={pool} />
               ))}
             </Section>
           )}
           {!!past.length && (
             <Section title={T("Past", "Vergangen", "Passés")}>
               {past.map((b) => (
-                <Row key={b.id} b={b} T={T} lang={lang} fmt={fmt} busy={busyId === b.id} onPatch={patch} />
+                <Row key={b.id} b={b} T={T} lang={lang} fmt={fmt} busy={busyId === b.id} onPatch={patch} onPool={pool} />
               ))}
             </Section>
           )}
@@ -436,7 +473,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function Row({
-  b, T, lang, fmt, busy, onPatch,
+  b, T, lang, fmt, busy, onPatch, onPool,
 }: {
   b: Booking;
   T: (en: string, de: string, fr: string) => string;
@@ -444,6 +481,7 @@ function Row({
   fmt: (iso: string) => string;
   busy: boolean;
   onPatch: (id: number, body: Record<string, unknown>) => Promise<void>;
+  onPool: (id: number) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   const [outcome, setOutcome] = useState(b.outcome ?? "");
@@ -558,6 +596,23 @@ function Row({
               >
                 {T("Cancel", "Absagen", "Annuler")}
               </button>
+            )}
+            {/* A nurse who books is exactly the person the Pool is for. Clinics
+                and companies are counterparties, not candidates — no button. */}
+            {b.kind === "nurse" && (
+              b.pooled_user_id ? (
+                <span className="inline-flex items-center gap-1.5 text-[13px]" style={{ color: "#16a34a" }}>
+                  <UserCheck size={13} aria-hidden /> {T("In the pool", "Im Pool", "Dans le vivier")}
+                </span>
+              ) : (
+                <button
+                  onClick={() => onPool(b.id)}
+                  disabled={busy}
+                  className="bv-btn bv-btn-ghost bv-tap inline-flex items-center gap-1.5 text-[13px]"
+                >
+                  <UserPlus size={13} aria-hidden /> {T("Add to pool", "In den Pool", "Ajouter au vivier")}
+                </button>
+              )
             )}
             {busy && <Loader2 size={14} className="animate-spin" style={{ color: "var(--w3)" }} aria-hidden />}
           </div>
