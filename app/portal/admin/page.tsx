@@ -21,7 +21,7 @@ import {
   Lock, Unlock, IdCard, FileText, Folder, FilePen, Save, Eye,
   CheckCircle2, XCircle, AlertTriangle, PartyPopper,
 } from "@/components/PortalIcons";
-import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles, BarChart3, SlidersHorizontal, ClipboardList } from "lucide-react";
+import { X as XIcon, RotateCcw, Download, Upload, ArrowLeft, MoreHorizontal, ChevronDown, Search, Trash2, Building2, Plus, Send, User, Save as SaveIcon, Zap, GraduationCap, Syringe, NotebookPen, ListChecks, Clock as ClockIcon, Minus as MinusIcon, Route as RouteIcon, Pencil, Sparkles, BarChart3, SlidersHorizontal, ClipboardList, CalendarCheck } from "lucide-react";
 import { specialtyLabel } from "@/lib/nurseSpecialties";
 import { b2StageLabel, normalizeB2Stage } from "@/lib/b2Journey";
 import { CandidateEngagementCard } from "@/components/CandidateEngagementCard";
@@ -7711,6 +7711,23 @@ export default function AdminPage() {
             </div>
             );
           })()}
+
+          {/* ── Bookings — calls from /book AND the "add by hand" button. Sat only
+                 in the profile dropdown, where the founder could not find it:
+                 he asked outright where to create one. A thing you use daily
+                 belongs on the page you open daily. ── */}
+          {roleResolved && (
+            <button onClick={() => router.push("/portal/admin/bookings")}
+              className="mt-4 w-full flex items-center gap-3 px-4 py-3.5 transition-opacity hover:opacity-90"
+              style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-xl)" }}>
+              <CalendarCheck size={18} strokeWidth={1.8} style={{ color: "var(--gold)" }} />
+              <span className="flex-1 text-left min-w-0">
+                <span className="block text-[13px] font-semibold" style={{ color: "var(--w)" }}>{lang === "de" ? "Termine" : lang === "fr" ? "Rendez-vous" : "Bookings"}</span>
+                <span className="block text-[11px]" style={{ color: "var(--w3)" }}>{lang === "de" ? "Anstehende Anrufe · manuell eintragen · Zeiten festlegen" : lang === "fr" ? "Appels à venir · ajouter manuellement · définir vos horaires" : "Upcoming calls · add one by hand · set your hours"}</span>
+              </span>
+              <ChevronDown size={16} strokeWidth={2} className="-rotate-90 flex-shrink-0" style={{ color: "var(--gold)" }} />
+            </button>
+          )}
 
           {/* ── Batch Tracker — the ritual board. All admins (scoped). ── */}
           {roleResolved && (

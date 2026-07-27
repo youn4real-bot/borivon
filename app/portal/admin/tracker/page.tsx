@@ -401,11 +401,11 @@ export default function AdminTrackerPage() {
     return s;
   }, [members, isB2Late]);
 
-  if (loading) return <PageLoader />;
-
-  const fmtWindow = (b: Batch) => [b.targetStart, b.targetEnd].filter(Boolean).join(" → ");
-  const fmtDay = (d: string) => new Date(d + "T00:00:00").toLocaleDateString(lang === "de" ? "de-DE" : lang === "fr" ? "fr-FR" : "en-GB", { day: "2-digit", month: "short", year: "numeric" });
-
+  // HOOKS MUST ALL RUN BEFORE THE `loading` EARLY RETURN BELOW.
+  // These three (useSensors + useSensor x2 + useCallback) used to sit AFTER it,
+  // so the first render — while loading — ran fewer hooks than the second, and
+  // React threw #310 ("rendered more hooks than during the previous render") the
+  // instant the data arrived. The whole Batch Tracker page died on load.
   // Drag to reorder the board. Handle-only (see SortableRow) with a small
   // activation distance, so a tap on a step button is never mistaken for a drag
   // — on a touch screen that difference is the whole usability of the page.
@@ -446,6 +446,12 @@ export default function AdminTrackerPage() {
       })
       .catch(() => setErr(T("Could not save the new order.", "Reihenfolge konnte nicht gespeichert werden.", "Impossible d'enregistrer l'ordre.")));
   }, [members, token, T]);
+
+  if (loading) return <PageLoader />;
+
+  const fmtWindow = (b: Batch) => [b.targetStart, b.targetEnd].filter(Boolean).join(" → ");
+  const fmtDay = (d: string) => new Date(d + "T00:00:00").toLocaleDateString(lang === "de" ? "de-DE" : lang === "fr" ? "fr-FR" : "en-GB", { day: "2-digit", month: "short", year: "numeric" });
+
 
   // One big, obvious step in the primary row (Interview 1 · Agreement · Interview 2).
   const Step = ({ label, tone, onClick }: { label: string; tone: Tone; onClick: () => void }) => {
