@@ -35,6 +35,12 @@ catches unknown paths and returns 200 HTML. Curl a new *API* route and check it 
 
 SQL migrations live in `supabase/*.sql`. The user runs them by hand in the Supabase SQL editor — never ship a feature that depends on a new column without also writing the migration file and telling the user to run it before deploy.
 
+**Always PASTE the full SQL into the chat** as one copy-pasteable ```sql block (comments stripped — the file keeps
+those). Never reply with `cat supabase/foo.sql` or just a path: he runs these by hand and every extra step is
+friction. Several migrations outstanding → one combined block in dependency order. Also write the feature so a
+**missing** migration degrades gracefully (schema-tolerant insert / fail-open read) rather than 500-ing — losing a
+nicety is fine, losing a lead is not.
+
 ## Tech Stack
 
 - **Next.js 15** App Router, all pages are client components under `app/portal/**`.
