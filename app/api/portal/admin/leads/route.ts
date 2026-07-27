@@ -14,7 +14,7 @@ export async function GET(req: NextRequest) {
   const db = getServiceSupabase();
   const { data, error } = await db
     .from("leads")
-    .select("id, kind, email, name, phone, message, details, created_at")
+    .select("id, kind, email, name, phone, message, details, created_at, candidate_user_id")
     .order("created_at", { ascending: false })
     .limit(1000);
 

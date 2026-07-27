@@ -10,11 +10,13 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
-import { ArrowLeft, Mail, Phone, Clock, MessageSquare } from "lucide-react";
+import { ArrowLeft, Mail, Phone, Clock, MessageSquare, UserPlus, UserCheck, Loader2 } from "lucide-react";
 
 type Lead = {
   id: string; kind: string; email: string; name: string; phone: string;
   message: string; details: Record<string, string> | null; created_at: string;
+  /** Set once the lead has been turned into a Pool candidate. */
+  candidate_user_id?: string | null;
 };
 
 // Friendly label per funnel kind (trilingual).
@@ -36,6 +38,38 @@ export default function AdminLeadsPage() {
   const T = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
   const [loading, setLoading] = useState(true);
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [token, setToken] = useState("");
+  const [poolBusy, setPoolBusy] = useState<string | null>(null);
+  const [poolErr, setPoolErr] = useState<string | null>(null);
+
+  async function addToPool(leadId: string) {
+    setPoolBusy(leadId);
+    setPoolErr(null);
+    try {
+      const r = await fetch("/api/portal/admin/lead-to-pool", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ leadId }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setPoolErr(j?.error === "no_email"
+          ? T("This lead has no usable email, so no account can be created yet.",
+              "Diese Anfrage hat keine brauchbare E-Mail — es kann noch kein Konto angelegt werden.",
+              "Cette demande n'a pas d'e-mail exploitable — aucun compte ne peut être créé.")
+          : j?.error === "Supreme admin only"
+            ? T("Only the main admin can do this.", "Nur der Hauptadmin kann das.", "Seul l'administrateur principal peut le faire.")
+            : T("Couldn't add to the pool.", "Konnte nicht zum Pool hinzugefügt werden.", "Impossible d'ajouter au vivier."));
+        return;
+      }
+      // Reflect it immediately — no reload needed.
+      setLeads((ls) => ls.map((l) => (l.id === leadId ? { ...l, candidate_user_id: j.userId } : l)));
+    } catch {
+      setPoolErr(T("Network error.", "Netzwerkfehler.", "Erreur réseau."));
+    } finally {
+      setPoolBusy(null);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -43,13 +77,14 @@ export default function AdminLeadsPage() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) { router.replace("/portal"); return; }
       // Fresh token (same stale-token guard as the other portal pages).
-      let token = session.access_token ?? "";
+      let tk = session.access_token ?? "";
       const expMs = (session.expires_at ?? 0) * 1000;
       if (!expMs || expMs - Date.now() < 60_000) {
-        try { const { data: r } = await supabase.auth.refreshSession(); if (r?.session?.access_token) token = r.session.access_token; } catch { /* keep token */ }
+        try { const { data: r } = await supabase.auth.refreshSession(); if (r?.session?.access_token) tk = r.session.access_token; } catch { /* keep token */ }
         if (cancelled) return;
       }
-      const res = await fetch("/api/portal/admin/leads", { headers: { Authorization: `Bearer ${token}` } });
+      setToken(tk);   // kept so the "Add to pool" action can authenticate too
+      const res = await fetch("/api/portal/admin/leads", { headers: { Authorization: `Bearer ${tk}` } });
       if (res.status === 401 || res.status === 403) { router.replace("/portal/dashboard"); return; }
       const j = await res.json().catch(() => ({ leads: [] }));
       if (cancelled) return;
@@ -58,6 +93,13 @@ export default function AdminLeadsPage() {
     })();
     return () => { cancelled = true; };
   }, [router]);
+
+  // JWTs refresh roughly hourly — without this, the pool button 401s on a page
+  // left open past the expiry.
+  useEffect(() => {
+    const { data } = supabase.auth.onAuthStateChange((_e, s) => { if (s?.access_token) setToken(s.access_token); });
+    return () => data.subscription.unsubscribe();
+  }, []);
 
   if (loading) return <PageLoader />;
 
@@ -90,6 +132,9 @@ export default function AdminLeadsPage() {
         </div>
       ) : (
         <div className="space-y-3">
+          {poolErr && (
+            <p className="text-[13px] pb-1" style={{ color: "#ef4444" }} role="alert">{poolErr}</p>
+          )}
           {leads.map((l) => {
             const extras = Object.entries(l.details ?? {}).filter(([, v]) => !!v);
             return (
@@ -120,6 +165,30 @@ export default function AdminLeadsPage() {
                     <span className="inline-flex items-center gap-1.5 text-[11.5px]" style={{ color: "var(--w3)" }}>
                       <Clock size={12} /> {fmt(l.created_at)}
                     </span>
+                    {/* The missing hop: a lead is somebody who reached out, but
+                        the Pool lives in candidate_pipeline and only holds real
+                        accounts — so until now every lead had to be re-created
+                        by hand. One press puts them in the Pool. */}
+                    {l.candidate_user_id ? (
+                      <button
+                        onClick={() => router.push(`/portal/admin?candidate=${l.candidate_user_id}`)}
+                        className="bv-btn bv-btn-ghost bv-tap text-[12px] inline-flex items-center gap-1.5"
+                      >
+                        <UserCheck size={12} strokeWidth={2} style={{ color: "#16a34a" }} />
+                        {T("In the pool", "Im Pool", "Dans le vivier")}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => addToPool(l.id)}
+                        disabled={poolBusy === l.id}
+                        className="bv-btn bv-btn-ghost bv-tap text-[12px] inline-flex items-center gap-1.5"
+                      >
+                        {poolBusy === l.id
+                          ? <Loader2 size={12} className="animate-spin" aria-hidden />
+                          : <UserPlus size={12} strokeWidth={2} />}
+                        {T("Add to pool", "In den Pool", "Ajouter au vivier")}
+                      </button>
+                    )}
                   </div>
                 </div>
                 {extras.length > 0 && (
