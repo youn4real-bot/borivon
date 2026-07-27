@@ -259,10 +259,19 @@ export function BookingFlow() {
       <h1 className="text-[clamp(1.6rem,3.4vw,2.2rem)] font-medium mb-2" style={{ color: "var(--w)", letterSpacing: "-0.02em" }}>
         {T("Let's talk", "Sprechen wir", "Parlons-en")}
       </h1>
-      <p className="text-[15px] mb-8 bv-measure" style={{ color: "var(--w3)" }}>
-        {T("Pick a time that suits you. It takes about 30 seconds.",
-           "Wählen Sie einen passenden Termin. Dauert etwa 30 Sekunden.",
-           "Choisissez un créneau qui vous convient. Environ 30 secondes.")}
+      {/* Say the three things a hesitant visitor needs BEFORE they commit: it
+          costs nothing, it's short, and it's a real conversation with a person.
+          "Takes 30 seconds" alone was ambiguous — it reads as the length of the
+          CALL rather than of the booking. */}
+      <p className="text-[15px] mb-3 bv-measure" style={{ color: "var(--w3)" }}>
+        {T(`A free ${slotMinutes}-minute video call with the Borivon team — no obligation.`,
+           `Ein kostenloses ${slotMinutes}-minütiges Videogespräch mit dem Borivon-Team — unverbindlich.`,
+           `Un appel vidéo gratuit de ${slotMinutes} minutes avec l'équipe Borivon — sans engagement.`)}
+      </p>
+      <p className="text-[13.5px] mb-8 bv-measure" style={{ color: "var(--w3)" }}>
+        {T("Booking takes about 30 seconds.",
+           "Die Buchung dauert etwa 30 Sekunden.",
+           "La réservation prend environ 30 secondes.")}
       </p>
 
       {/* step rail */}
@@ -294,6 +303,9 @@ export function BookingFlow() {
             <button
               key={v}
               type="button"
+              // The label sits in two nested spans, so the accessible name comes
+              // out empty — a screen reader announced three unnamed buttons.
+              aria-label={`${tr(lang, en, de, fr)} — ${tr(lang, subEn, subDe, subFr)}`}
               onClick={() => { setKind(v); setStep(1); }}
               className="bv-choice bv-tap text-left flex items-center gap-4 p-4 w-full"
               style={{
@@ -351,7 +363,7 @@ export function BookingFlow() {
                       aria-label={`${weekday} ${date}`}
                       aria-pressed={on}
                       onClick={() => { setDayKey(key); setAt(null); }}
-                      className="bv-tap flex-shrink-0 px-4 py-2.5 text-center"
+                      className="bv-tap bv-touch flex-shrink-0 px-4 py-2.5 text-center"
                       style={{
                         borderRadius: 12, minWidth: 76,
                         border: `1px solid ${on ? "var(--border-gold)" : "var(--border)"}`,
@@ -381,7 +393,7 @@ export function BookingFlow() {
                       key={s.at}
                       type="button"
                       onClick={() => { setAt(s.at); setErr(null); }}
-                      className="bv-tap py-2.5 text-[14px]"
+                      className="bv-tap bv-touch py-2.5 text-[14px]"
                       style={{
                         borderRadius: 10,
                         border: `1px solid ${on ? "var(--border-gold)" : "var(--border)"}`,
@@ -402,14 +414,14 @@ export function BookingFlow() {
           {err && <p className="text-[13px] mt-4" style={{ color: "#ef4444" }} role="alert">{err}</p>}
 
           <div className="flex items-center gap-3 mt-8">
-            <button type="button" onClick={() => setStep(0)} className="bv-btn bv-btn-ghost bv-tap flex items-center gap-2">
+            <button type="button" onClick={() => setStep(0)} className="bv-btn bv-btn-ghost bv-tap bv-touch flex items-center gap-2">
               <ArrowLeft size={15} aria-hidden /> {T("Back", "Zurück", "Retour")}
             </button>
             <button
               type="button"
               disabled={at == null}
               onClick={() => setStep(2)}
-              className="bv-btn bv-btn-primary bv-tap flex items-center gap-2"
+              className="bv-btn bv-btn-primary bv-tap bv-touch flex items-center gap-2"
               style={{ opacity: at == null ? 0.45 : 1 }}
             >
               {T("Continue", "Weiter", "Continuer")} <ArrowRight size={15} aria-hidden />
@@ -492,7 +504,7 @@ export function BookingFlow() {
                           if (next.length) copy[q.id] = next; else delete copy[q.id];
                           return copy;
                         })}
-                        className="bv-tap flex items-center gap-2 px-3 py-2 text-[13.5px] text-left"
+                        className="bv-tap bv-touch flex items-center gap-2 px-3 py-2 text-[13.5px] text-left"
                         style={{
                           borderRadius: 10,
                           border: `1px solid ${on ? "var(--border-gold)" : "var(--border)"}`,
@@ -525,11 +537,11 @@ export function BookingFlow() {
 
           <div className="flex items-center gap-3 mt-2">
             <button type="button" onClick={() => setStep(1)} disabled={submitting}
-              className="bv-btn bv-btn-ghost bv-tap flex items-center gap-2">
+              className="bv-btn bv-btn-ghost bv-tap bv-touch flex items-center gap-2">
               <ArrowLeft size={15} aria-hidden /> {T("Back", "Zurück", "Retour")}
             </button>
             <button type="button" onClick={submit} disabled={submitting}
-              className="bv-btn bv-btn-primary bv-tap flex items-center gap-2">
+              className="bv-btn bv-btn-primary bv-tap bv-touch flex items-center gap-2">
               {submitting
                 ? <><Loader2 size={15} className="animate-spin" aria-hidden /> {T("Booking…", "Wird gebucht…", "Réservation…")}</>
                 : <>{T("Confirm booking", "Termin bestätigen", "Confirmer le rendez-vous")} <Check size={15} aria-hidden /></>}

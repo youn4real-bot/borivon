@@ -233,7 +233,7 @@ export function BookingManage({ token }: { token: string }) {
                   return (
                     <button key={key} type="button" aria-label={`${weekday} ${date}`} aria-pressed={on}
                       onClick={() => { setDayKey(key); setAt(null); }}
-                      className="bv-tap flex-shrink-0 px-4 py-2.5 text-center"
+                      className="bv-tap bv-touch flex-shrink-0 px-4 py-2.5 text-center"
                       style={{
                         borderRadius: 12, minWidth: 76,
                         border: `1px solid ${on ? "var(--border-gold)" : "var(--border)"}`,
@@ -251,7 +251,7 @@ export function BookingManage({ token }: { token: string }) {
                   return (
                     <button key={s.at} type="button" aria-pressed={on}
                       onClick={() => { setAt(s.at); setErr(null); }}
-                      className="bv-tap py-2.5 text-[14px]"
+                      className="bv-tap bv-touch py-2.5 text-[14px]"
                       style={{
                         borderRadius: 10,
                         border: `1px solid ${on ? "var(--border-gold)" : "var(--border)"}`,
