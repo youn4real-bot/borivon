@@ -143,6 +143,8 @@ export async function POST(req: NextRequest) {
   const email = String(body?.email ?? "").trim().slice(0, 254).toLowerCase();
   const phone = String(body?.phone ?? "").trim().slice(0, 40) || null;
   const company = String(body?.company ?? "").trim().slice(0, 160) || null;
+  // Page language, whitelisted. Anything else falls back to English.
+  const lang: "fr" | "en" | "de" = body?.lang === "de" ? "de" : body?.lang === "fr" ? "fr" : "en";
 
   if (!isKind(kind)) return NextResponse.json({ error: "bad_kind" }, { status: 400 });
   // Tap-only answers. Whitelisted against the catalog, so the one public write
@@ -186,13 +188,30 @@ export async function POST(req: NextRequest) {
     ends_at: new Date(endsAt).toISOString(),
     source: "public",
   };
-  let ins = await db.from("bookings").insert({ ...row, manage_token: manageToken }).select("id").single();
+  let ins = await db.from("bookings").insert({ ...row, manage_token: manageToken, lang }).select("id").single();
 
-  // SCHEMA-TOLERANT: booking_maxx.sql may not have been run yet. Losing the
-  // self-service link is a missing nicety; losing the BOOKING is a lost lead —
-  // so fall back to an insert without the column rather than 500 the visitor.
-  if (ins.error && /manage_token|column .* does not exist|schema cache/i.test(ins.error.message ?? "")) {
-    console.warn("[book] manage_token column missing — run supabase/booking_maxx.sql");
+  /*
+   * SCHEMA-TOLERANT, IN TIERS — and the tiers matter.
+   *
+   * A missing column must cost only ITS OWN feature. A single all-or-nothing
+   * fallback to the bare row was wrong: with booking_maxx.sql already run but
+   * booking_lang.sql not yet, the absent `lang` failed the first insert and the
+   * retry dropped `manage_token` as well — so every booking silently lost its
+   * reschedule link, which is the whole no-show defence, over a missing
+   * translation hint. (Measured: token came back null.)
+   *
+   * So: drop `lang` first, and only then, if the token column is genuinely
+   * absent too, drop that. A lost BOOKING is the one outcome never acceptable.
+   */
+  const missingCol = (msg: string | undefined, col: string) =>
+    new RegExp(`${col}|column .* does not exist|schema cache`, "i").test(msg ?? "");
+
+  if (ins.error && missingCol(ins.error.message, "lang")) {
+    console.warn("[book] `lang` column missing — run supabase/booking_lang.sql");
+    ins = await db.from("bookings").insert({ ...row, manage_token: manageToken }).select("id").single();
+  }
+  if (ins.error && missingCol(ins.error.message, "manage_token")) {
+    console.warn("[book] `manage_token` column missing — run supabase/booking_maxx.sql");
     manageToken = null;
     ins = await db.from("bookings").insert(row).select("id").single();
   }
@@ -247,7 +266,7 @@ export async function POST(req: NextRequest) {
     if (manageToken) {
       try {
         await sendBookingConfirmedEmail({
-          to: email, name, startsAt: new Date(at).toISOString(), meetLink: meet, manageToken,
+          to: email, name, startsAt: new Date(at).toISOString(), meetLink: meet, manageToken, lang,
         });
       } catch (e) {
         console.error("[book] confirmation email failed:", e instanceof Error ? e.message : e);

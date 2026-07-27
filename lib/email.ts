@@ -13,6 +13,13 @@ function getResend(): Resend | null {
 }
 
 const FROM = "Borivon <noreply@borivon.com>";
+/**
+ * Where a reply actually goes. Booking mail is a CONVERSATION starter — "I'll be
+ * 15 minutes late", "can my head of nursing join?", "the video link won't open".
+ * Sending those from noreply@ with no reply-to leaves the person two options,
+ * and both hurt: cancel, or silently not turn up.
+ */
+const REPLY_TO = (process.env.CONTACT_EMAIL || "contact@borivon.com").trim();
 const BASE = process.env.NEXT_PUBLIC_BASE_URL ?? "https://www.borivon.com";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -256,6 +263,7 @@ export async function sendBookingConfirmedEmail(opts: {
     await r.emails.send({
       from: FROM,
       to: opts.to,
+      replyTo: REPLY_TO,
       subject: subj(T("Your call with Borivon is confirmed", "Ihr Termin bei Borivon ist bestätigt", "Votre rendez-vous Borivon est confirmé")),
       html: baseHtml(`
         <h1 style="margin:0 0 12px;font-size:20px;font-weight:700;color:#fff;">
@@ -294,6 +302,7 @@ export async function sendBookingReminderEmail(opts: {
     await r.emails.send({
       from: FROM,
       to: opts.to,
+      replyTo: REPLY_TO,
       subject: subj(T("Tomorrow: your call with Borivon", "Morgen: Ihr Termin bei Borivon", "Demain : votre rendez-vous Borivon")),
       html: baseHtml(`
         <h1 style="margin:0 0 12px;font-size:20px;font-weight:700;color:#fff;">
@@ -328,6 +337,7 @@ export async function sendBookingChangedEmail(opts: {
     await r.emails.send({
       from: FROM,
       to: opts.to,
+      replyTo: REPLY_TO,
       subject: subj(opts.cancelled
         ? T("Your Borivon call is cancelled", "Ihr Borivon-Termin ist abgesagt", "Votre rendez-vous Borivon est annulé")
         : T("Your Borivon call has moved", "Ihr Borivon-Termin wurde verschoben", "Votre rendez-vous Borivon a été déplacé")),

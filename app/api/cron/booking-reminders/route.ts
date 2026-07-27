@@ -33,9 +33,13 @@ export async function GET(req: NextRequest) {
   const db = getServiceSupabase();
   const now = Date.now();
 
-  const { data, error } = await db
+  // Same tiering as the manage lookup: asking for `lang` before
+  // booking_lang.sql is run must not silence the whole sweep — that would stop
+  // every reminder going out over a missing translation hint.
+  const BASE = "id,name,email,starts_at,meet_link,manage_token,status,reminded_at";
+  const due = (cols: string) => db
     .from("bookings")
-    .select("id,name,email,starts_at,meet_link,manage_token,status,reminded_at")
+    .select(cols)
     .eq("status", "booked")
     .is("reminded_at", null)
     .gte("starts_at", new Date(now).toISOString())
@@ -43,10 +47,15 @@ export async function GET(req: NextRequest) {
     .order("starts_at")
     .limit(50);
 
+  let { data, error } = await due(`${BASE},lang`);
+  if (error && /lang|column .* does not exist|schema cache/i.test(error.message ?? "")) {
+    ({ data, error } = await due(BASE));
+  }
+
   // The columns only exist after supabase/booking_maxx.sql — until then this is
   // a clean no-op rather than a red cron.
   if (error) {
-    const notMigrated = /reminded_at|manage_token|column .* does not exist|schema cache/i.test(error.message ?? "");
+    const notMigrated = /reminded_at|manage_token|lang|column .* does not exist|schema cache/i.test(error.message ?? "");
     if (notMigrated) return Response.json({ skipped: "not_migrated" });
     console.error("[cron/booking-reminders] query failed:", error.message);
     return Response.json({ error: "query_failed" }, { status: 500 });
@@ -55,8 +64,9 @@ export async function GET(req: NextRequest) {
   type Row = {
     id: number; name: string; email: string | null; starts_at: string;
     meet_link: string | null; manage_token: string | null;
+    lang: "fr" | "en" | "de" | null;
   };
-  const rows = (data ?? []) as Row[];
+  const rows = ((data ?? []) as unknown) as Row[];
   let sent = 0, skipped = 0;
 
   for (const b of rows) {
@@ -80,6 +90,7 @@ export async function GET(req: NextRequest) {
       await sendBookingReminderEmail({
         to: b.email, name: b.name, startsAt: b.starts_at,
         meetLink: b.meet_link, manageToken: b.manage_token,
+        lang: b.lang ?? undefined,
       });
       sent++;
     } catch (e) {

@@ -58,6 +58,10 @@ export function BookingManage({ token }: { token: string }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<"cancelled" | "moved" | null>(null);
+  // Cancelling is FINAL — it drops the Google event for both sides, emails them,
+  // and deletes the founder's follow-up chase. There is no undo anywhere, and
+  // the button sits a thumb-width from "Move to another time". So: two taps.
+  const [confirming, setConfirming] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -206,16 +210,38 @@ export function BookingManage({ token }: { token: string }) {
         )}
       </div>
 
-      {!locked && !picking && (
+      {!locked && !picking && !confirming && (
         <div className="flex items-center gap-3 flex-wrap">
-          <button onClick={() => setPicking(true)} className="bv-btn bv-btn-primary bv-tap">
+          <button onClick={() => setPicking(true)} className="bv-btn bv-btn-primary bv-tap bv-touch">
             {T("Move to another time", "Termin verschieben", "Déplacer le rendez-vous")}
           </button>
-          <button onClick={() => act("cancel")} disabled={busy}
-            className="bv-btn bv-btn-ghost bv-tap inline-flex items-center gap-2" style={{ color: "var(--w3)" }}>
-            {busy ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <X size={14} aria-hidden />}
+          <button onClick={() => setConfirming(true)}
+            className="bv-btn bv-btn-ghost bv-tap bv-touch inline-flex items-center gap-2" style={{ color: "var(--w3)" }}>
+            <X size={14} aria-hidden />
             {T("Cancel it", "Absagen", "Annuler")}
           </button>
+        </div>
+      )}
+
+      {/* Safe choice on the LEFT, destructive on the RIGHT — the same order as
+          Back / "Confirm new time" below, and the question above pushes the row
+          down a line so a double-tap can't land on the confirm button. */}
+      {!locked && !picking && confirming && (
+        <div className="bv-enter-soft">
+          <p className="text-[15px] mb-4" style={{ color: "var(--w)" }}>
+            {T("Cancel this appointment?", "Diesen Termin absagen?", "Annuler ce rendez-vous ?")}
+          </p>
+          <div className="flex items-center gap-3 flex-wrap">
+            <button onClick={() => setConfirming(false)} disabled={busy}
+              className="bv-btn bv-btn-ghost bv-tap bv-touch">
+              {T("Keep it", "Behalten", "Le garder")}
+            </button>
+            <button onClick={() => act("cancel")} disabled={busy}
+              className="bv-btn bv-btn-danger bv-tap bv-touch inline-flex items-center gap-2">
+              {busy ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <X size={14} aria-hidden />}
+              {T("Yes, cancel", "Ja, absagen", "Oui, annuler")}
+            </button>
+          </div>
         </div>
       )}
 

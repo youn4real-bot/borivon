@@ -32,18 +32,32 @@ type Row = {
   id: number; kind: BookingKind; name: string; email: string | null; company: string | null;
   starts_at: string; ends_at: string; status: string; meet_link: string | null;
   calendar_event_id: string | null;
+  /** The language they booked in. Null for admin-entered bookings → English. */
+  lang: "fr" | "en" | "de" | null;
 };
 
 const NOT_FOUND = NextResponse.json({ error: "not_found" }, { status: 404 });
 
+const BASE_COLS = "id,kind,name,email,company,starts_at,ends_at,status,meet_link,calendar_event_id";
+
+/**
+ * The booking behind a token.
+ *
+ * SELECTING `lang` MUST NOT BE ABLE TO KILL THIS. Before booking_lang.sql is
+ * run, asking for that column errors the whole query — which returned null,
+ * which the caller reads as "no such booking". Every reschedule/cancel link in
+ * existence would have shown "Link not valid" over a missing translation hint,
+ * taking out the entire no-show defence. (Measured: the page said exactly that.)
+ * So the language is a second, optional attempt on top of a query that works.
+ */
 async function findByToken(token: string): Promise<Row | null> {
-  const { data, error } = await getServiceSupabase()
-    .from("bookings")
-    .select("id,kind,name,email,company,starts_at,ends_at,status,meet_link,calendar_event_id")
-    .eq("manage_token", token)
-    .maybeSingle();
-  if (error || !data) return null;
-  return data as Row;
+  const db = getServiceSupabase();
+  const withLang = await db.from("bookings").select(`${BASE_COLS},lang`).eq("manage_token", token).maybeSingle();
+  if (!withLang.error) return (withLang.data as Row | null) ?? null;
+
+  const bare = await db.from("bookings").select(BASE_COLS).eq("manage_token", token).maybeSingle();
+  if (bare.error || !bare.data) return null;
+  return { ...(bare.data as Omit<Row, "lang">), lang: null };
 }
 
 /** Busy = the founder's real calendar, minus THIS booking's own event (moving a
@@ -156,6 +170,7 @@ export async function POST(req: NextRequest) {
         try {
           await sendBookingChangedEmail({
             to: row.email, name: row.name, startsAt: row.starts_at, cancelled: true, manageToken: token,
+            lang: row.lang ?? undefined,
           });
         } catch { /* the booking is already cancelled; the email is a courtesy */ }
       }
@@ -250,6 +265,7 @@ export async function POST(req: NextRequest) {
       try {
         await sendBookingChangedEmail({
           to: row.email, name: row.name, startsAt: new Date(at).toISOString(), cancelled: false, manageToken: token,
+          lang: row.lang ?? undefined,
         });
       } catch { /* the move already stands; the email is a courtesy */ }
     }

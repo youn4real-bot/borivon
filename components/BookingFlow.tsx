@@ -163,6 +163,9 @@ export function BookingFlow() {
           phone: phone.replace(/^\+\d+\s*$/, "").trim() ? phone.trim() : "",
           company: isOrg ? company.trim() : "",
           selections,
+          // So the confirmation, reminder and any cancellation come back in the
+          // language they actually booked in.
+          lang,
         }),
       });
       const j = await r.json().catch(() => ({}));
