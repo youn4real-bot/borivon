@@ -304,3 +304,45 @@ describe("followUpsFor — where bookings actually become business", () => {
     }
   });
 });
+
+describe("buffer + days off — the founder's real constraints", () => {
+  it("keeps a gap on BOTH sides of anything already booked", () => {
+    const busyStart = MON + 2 * HOUR;                       // 11:00 Casablanca
+    const busy = [{ start: busyStart, end: busyStart + 30 * MIN }];  // 11:00-11:30
+    const noBuf = generateSlots({ now: MON, availability: av(), busy })
+      .filter((s) => s < MON + DAY).map((s) => slotLabel(s, 60));
+    const withBuf = generateSlots({ now: MON, availability: av({ bufferMinutes: 15 }), busy })
+      .filter((s) => s < MON + DAY).map((s) => slotLabel(s, 60));
+
+    // Without a buffer, 10:30 (ends exactly at 11:00) and 11:30 (starts exactly
+    // when it ends) are both fine — back to back with no breathing room.
+    expect(noBuf).toContain("10:30");
+    expect(noBuf).toContain("11:30");
+    // With 15 minutes, both are gone; the neighbours further out survive.
+    expect(withBuf).not.toContain("10:30");
+    expect(withBuf).not.toContain("11:30");
+    expect(withBuf).toContain("10:00");
+    expect(withBuf).toContain("12:00");
+  });
+
+  it("offers nothing at all on a day off", () => {
+    const all = generateSlots({ now: MON, availability: av({ horizonDays: 2 }), busy: [] });
+    expect(all.some((s) => s < MON + DAY)).toBe(true);      // Monday is normally open
+    const off = generateSlots({
+      now: MON, availability: av({ horizonDays: 2, blackoutDates: ["2026-08-03"] }), busy: [],
+    });
+    expect(off.some((s) => s < MON + DAY)).toBe(false);     // …and now it isn't
+    expect(off.length).toBeGreaterThan(0);                  // other days unaffected
+  });
+
+  it("a zero buffer behaves exactly as before (no accidental narrowing)", () => {
+    const a = generateSlots({ now: MON, availability: av(), busy: [] });
+    const b = generateSlots({ now: MON, availability: av({ bufferMinutes: 0 }), busy: [] });
+    expect(b).toEqual(a);
+  });
+
+  it("ignores blackout entries that aren't real dates", () => {
+    const out = generateSlots({ now: MON, availability: av({ blackoutDates: ["nope", "", "03-08-2026"] }), busy: [] });
+    expect(out.length).toBeGreaterThan(0);
+  });
+});

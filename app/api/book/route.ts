@@ -4,10 +4,13 @@ import { enforceRateLimitDistributed } from "@/lib/rateLimit";
 import { bookWorkspaceEvent, listEventsInWindow, BORIVON_TZ } from "@/lib/workspaceCalendar";
 import { keepAlive } from "@/lib/keepAlive";
 import { getAdminUserId } from "@/lib/telegram";
+import { tgSend } from "@/lib/telegram";
+import { sendBookingConfirmedEmail } from "@/lib/email";
+import { loadBookingConfig, newManageToken } from "@/lib/bookingConfig";
 import {
-  DEFAULT_AVAILABILITY, generateSlots, groupByDay, slotLabel, looksLikeEmail,
+  generateSlots, groupByDay, slotLabel, looksLikeEmail,
   followUpsFor, zoneOffsetMinutes, sanitizeSelections, describeSelections,
-  type Availability, type BookingKind, type Interval,
+  type BookingKind, type Interval,
 } from "@/lib/booking";
 
 /**
@@ -30,14 +33,6 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Availability resolved against the REAL Casablanca offset at request time, so
- *  the page never shifts by an hour during Morocco's Ramadan clock change. */
-function availability(): Availability {
-  // `tz` makes generateSlots resolve the offset PER DAY, so the fortnight of
-  // slots either side of a Ramadan clock change still lands inside 09:00–18:00
-  // Casablanca. tzOffsetMinutes stays as the fallback for labelling.
-  return { ...DEFAULT_AVAILABILITY, tz: BORIVON_TZ, tzOffsetMinutes: zoneOffsetMinutes(BORIVON_TZ) };
-}
 const KINDS: BookingKind[] = ["nurse", "clinic", "company"];
 const isKind = (k: unknown): k is BookingKind => typeof k === "string" && (KINDS as string[]).includes(k);
 
@@ -96,7 +91,12 @@ export async function GET(req: NextRequest) {
   const rl = await enforceRateLimitDistributed(req, "book-slots", { limit: 60, windowMs: 60_000 });
   if (!rl.ok) return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
-  const av = availability();
+  const { availability: av, accepting } = await loadBookingConfig();
+  // The founder can close the page entirely (holiday, full diary) without
+  // deleting anything — the picker then shows its "write to us" empty state.
+  if (!accepting) {
+    return NextResponse.json({ tzOffsetMinutes: av.tzOffsetMinutes, slotMinutes: av.slotMinutes, days: [], accepting: false });
+  }
   const now = Date.now();
   const horizonEnd = now + (av.horizonDays + 1) * 86_400_000;
   const slotMs = av.slotMinutes * 60_000;
@@ -113,6 +113,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     tzOffsetMinutes: av.tzOffsetMinutes,
     slotMinutes: av.slotMinutes,
+    accepting: true,
     days: groupByDay(slots, av.tzOffsetMinutes).map((d) => ({
       day: d.day,
       slots: d.slots.map((s) => ({ at: s, label: slotLabel(s, zoneOffsetMinutes(BORIVON_TZ, s)) })),
@@ -153,7 +154,10 @@ export async function POST(req: NextRequest) {
 
   // The slot must be one we CURRENTLY offer. Without this a crafted POST could
   // put any timestamp — 3am, a Sunday, next year — into the founder's calendar.
-  const av = availability();
+  const { availability: av, accepting } = await loadBookingConfig();
+  if (!accepting) {
+    return NextResponse.json({ error: "not_accepting", message: "Bookings are closed right now." }, { status: 409 });
+  }
   const now = Date.now();
   const horizonEnd = now + (av.horizonDays + 1) * 86_400_000;
   const slotMs = av.slotMinutes * 60_000;
@@ -169,15 +173,29 @@ export async function POST(req: NextRequest) {
   const endsAt = at + av.slotMinutes * 60_000;
   const db = getServiceSupabase();
 
+  // The credential on their "reschedule or cancel" link. Generated before the
+  // insert so it lands in the same row — no second write to lose.
+  let manageToken: string | null = newManageToken();
+
   // Claim the slot FIRST. The partial unique index on starts_at is what makes
   // two simultaneous bookings safe — the loser gets 23505 here, before we've
   // created a calendar event or emailed anybody.
-  const ins = await db.from("bookings").insert({
+  const row = {
     kind, name, email, phone, company, selections,
     starts_at: new Date(at).toISOString(),
     ends_at: new Date(endsAt).toISOString(),
     source: "public",
-  }).select("id").single();
+  };
+  let ins = await db.from("bookings").insert({ ...row, manage_token: manageToken }).select("id").single();
+
+  // SCHEMA-TOLERANT: booking_maxx.sql may not have been run yet. Losing the
+  // self-service link is a missing nicety; losing the BOOKING is a lost lead —
+  // so fall back to an insert without the column rather than 500 the visitor.
+  if (ins.error && /manage_token|column .* does not exist|schema cache/i.test(ins.error.message ?? "")) {
+    console.warn("[book] manage_token column missing — run supabase/booking_maxx.sql");
+    manageToken = null;
+    ins = await db.from("bookings").insert(row).select("id").single();
+  }
 
   if (ins.error) {
     if ((ins.error as { code?: string }).code === "23505") {
@@ -221,6 +239,42 @@ export async function POST(req: NextRequest) {
       }
     } catch (e) {
       console.error("[book] calendar event failed:", e instanceof Error ? e.message : e);
+    }
+
+    // Our own confirmation — Google's invite is plain and easy to miss, and only
+    // ours carries the reschedule/cancel link. Sent AFTER the calendar step so
+    // the Meet link is already known and can go in the email.
+    if (manageToken) {
+      try {
+        await sendBookingConfirmedEmail({
+          to: email, name, startsAt: new Date(at).toISOString(), meetLink: meet, manageToken,
+        });
+      } catch (e) {
+        console.error("[book] confirmation email failed:", e instanceof Error ? e.message : e);
+      }
+    }
+
+    // Telegram, because that's where the founder actually lives. A clinic
+    // booking is a high-value B2B lead and shouldn't wait for him to open a
+    // browser. Minimalist per the standing rule: the facts, nothing else.
+    try {
+      const chatId = (process.env.TELEGRAM_CHAT_ID || "").trim();
+      if (chatId) {
+        const when = new Intl.DateTimeFormat("en-GB", {
+          weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+          timeZone: BORIVON_TZ,
+        }).format(new Date(at));
+        await tgSend(chatId, [
+          `New booking — ${kind}`,
+          `${company || name}${company ? ` (${name})` : ""}`,
+          when,
+          email,
+          phone || null,
+          answers || null,
+        ].filter(Boolean).join("\n"));
+      }
+    } catch (e) {
+      console.error("[book] telegram ping failed:", e instanceof Error ? e.message : e);
     }
 
     // Into the existing funnel. `leads` declares name/phone/message/details as

@@ -216,3 +216,144 @@ export async function sendUnreadMessagesReminderEmail(to: string, firstName: str
     return true;
   } catch (e) { console.warn("[email] sendUnreadMessagesReminderEmail failed:", e); return false; }
 }
+
+/* ── Booking emails ────────────────────────────────────────────────────────────
+ * The Google Calendar invite Google sends is plain and easy to miss. These are
+ * the Borivon-branded ones, and — critically — they carry the reschedule/cancel
+ * link. Someone who can move their own call reschedules instead of not turning
+ * up, which is the single biggest lever on no-shows.
+ * ---------------------------------------------------------------------------- */
+
+/** Long local date+time, in the recipient's language. */
+function whenLine(startsAt: string, lang: "fr" | "en" | "de"): string {
+  const loc = lang === "de" ? "de-DE" : lang === "fr" ? "fr-FR" : "en-GB";
+  try {
+    return new Intl.DateTimeFormat(loc, {
+      weekday: "long", day: "numeric", month: "long",
+      hour: "2-digit", minute: "2-digit", timeZone: "Africa/Casablanca",
+    }).format(new Date(startsAt)) + (lang === "de" ? " (Marokko)" : lang === "fr" ? " (Maroc)" : " (Morocco)");
+  } catch { return startsAt; }
+}
+
+function manageBlock(token: string, lang: "fr" | "en" | "de"): string {
+  const label = lang === "de" ? "Termin verschieben oder absagen"
+    : lang === "fr" ? "Reporter ou annuler le rendez-vous"
+    : "Reschedule or cancel";
+  return `
+    <p style="margin:22px 0 0;font-size:13px;color:#7a7a74;line-height:1.6;">
+      <a href="${BASE}/book/manage/${esc(token)}" style="color:#c9a240;text-decoration:none;">${label} →</a>
+    </p>`;
+}
+
+export async function sendBookingConfirmedEmail(opts: {
+  to: string; name: string; startsAt: string; meetLink: string | null;
+  manageToken: string; lang?: "fr" | "en" | "de";
+}): Promise<void> {
+  const r = getResend(); if (!r) return;
+  const lang = opts.lang ?? "en";
+  const T = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
+  try {
+    await r.emails.send({
+      from: FROM,
+      to: opts.to,
+      subject: subj(T("Your call with Borivon is confirmed", "Ihr Termin bei Borivon ist bestätigt", "Votre rendez-vous Borivon est confirmé")),
+      html: baseHtml(`
+        <h1 style="margin:0 0 12px;font-size:20px;font-weight:700;color:#fff;">
+          ${T("You're booked", "Termin bestätigt", "Rendez-vous confirmé")}
+        </h1>
+        <p style="margin:0 0 6px;font-size:14px;color:#a0a09a;line-height:1.6;">
+          ${T("Hi", "Hallo", "Bonjour")} ${esc(opts.name)},
+        </p>
+        <p style="margin:0 0 18px;font-size:16px;color:#fff;font-weight:600;">
+          ${esc(whenLine(opts.startsAt, lang))}
+        </p>
+        ${opts.meetLink ? `
+        <a href="${esc(opts.meetLink)}" style="display:inline-block;background:#c9a240;color:#131312;font-size:14px;font-weight:700;padding:12px 28px;border-radius:12px;text-decoration:none;">
+          ${T("Join the video call", "Zum Videoanruf", "Rejoindre la visio")} →
+        </a>
+        <p style="margin:16px 0 0;font-size:12px;color:#7a7a74;">
+          ${T("The same link is in your calendar invitation.", "Derselbe Link steht in Ihrer Kalendereinladung.", "Le même lien figure dans votre invitation.")}
+        </p>` : `
+        <p style="margin:0;font-size:13px;color:#a0a09a;line-height:1.6;">
+          ${T("A calendar invitation with the video link is on its way.", "Eine Kalendereinladung mit dem Video-Link folgt.", "Une invitation avec le lien visio arrive.")}
+        </p>`}
+        ${manageBlock(opts.manageToken, lang)}
+      `),
+    });
+  } catch (e) { console.warn("[email] sendBookingConfirmedEmail failed:", e); }
+}
+
+export async function sendBookingReminderEmail(opts: {
+  to: string; name: string; startsAt: string; meetLink: string | null;
+  manageToken: string; lang?: "fr" | "en" | "de";
+}): Promise<void> {
+  const r = getResend(); if (!r) return;
+  const lang = opts.lang ?? "en";
+  const T = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
+  try {
+    await r.emails.send({
+      from: FROM,
+      to: opts.to,
+      subject: subj(T("Tomorrow: your call with Borivon", "Morgen: Ihr Termin bei Borivon", "Demain : votre rendez-vous Borivon")),
+      html: baseHtml(`
+        <h1 style="margin:0 0 12px;font-size:20px;font-weight:700;color:#fff;">
+          ${T("See you tomorrow", "Bis morgen", "À demain")}
+        </h1>
+        <p style="margin:0 0 18px;font-size:16px;color:#fff;font-weight:600;">
+          ${esc(whenLine(opts.startsAt, lang))}
+        </p>
+        ${opts.meetLink ? `
+        <a href="${esc(opts.meetLink)}" style="display:inline-block;background:#c9a240;color:#131312;font-size:14px;font-weight:700;padding:12px 28px;border-radius:12px;text-decoration:none;">
+          ${T("Join the video call", "Zum Videoanruf", "Rejoindre la visio")} →
+        </a>` : ""}
+        <p style="margin:20px 0 0;font-size:13px;color:#a0a09a;line-height:1.6;">
+          ${T("If the time no longer suits you, please move it rather than missing it — it takes ten seconds.",
+              "Falls der Termin nicht mehr passt, verschieben Sie ihn bitte, statt ihn ausfallen zu lassen — es dauert zehn Sekunden.",
+              "Si l'horaire ne vous convient plus, déplacez-le plutôt que de le manquer — cela prend dix secondes.")}
+        </p>
+        ${manageBlock(opts.manageToken, lang)}
+      `),
+    });
+  } catch (e) { console.warn("[email] sendBookingReminderEmail failed:", e); }
+}
+
+export async function sendBookingChangedEmail(opts: {
+  to: string; name: string; startsAt: string; cancelled: boolean;
+  manageToken: string; lang?: "fr" | "en" | "de";
+}): Promise<void> {
+  const r = getResend(); if (!r) return;
+  const lang = opts.lang ?? "en";
+  const T = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
+  try {
+    await r.emails.send({
+      from: FROM,
+      to: opts.to,
+      subject: subj(opts.cancelled
+        ? T("Your Borivon call is cancelled", "Ihr Borivon-Termin ist abgesagt", "Votre rendez-vous Borivon est annulé")
+        : T("Your Borivon call has moved", "Ihr Borivon-Termin wurde verschoben", "Votre rendez-vous Borivon a été déplacé")),
+      html: baseHtml(`
+        <h1 style="margin:0 0 12px;font-size:20px;font-weight:700;color:#fff;">
+          ${opts.cancelled
+            ? T("Cancelled", "Abgesagt", "Annulé")
+            : T("New time confirmed", "Neuer Termin bestätigt", "Nouvel horaire confirmé")}
+        </h1>
+        ${opts.cancelled ? `
+        <p style="margin:0 0 20px;font-size:14px;color:#a0a09a;line-height:1.6;">
+          ${T("Your call has been cancelled. You're welcome to book another time whenever suits you.",
+              "Ihr Termin wurde abgesagt. Sie können jederzeit einen neuen buchen.",
+              "Votre rendez-vous a été annulé. Vous pouvez en réserver un autre quand vous voulez.")}
+        </p>
+        <a href="${BASE}/book" style="display:inline-block;background:#c9a240;color:#131312;font-size:14px;font-weight:700;padding:12px 28px;border-radius:12px;text-decoration:none;">
+          ${T("Book another time", "Neuen Termin buchen", "Réserver un autre créneau")} →
+        </a>` : `
+        <p style="margin:0 0 18px;font-size:16px;color:#fff;font-weight:600;">
+          ${esc(whenLine(opts.startsAt, lang))}
+        </p>
+        <p style="margin:0;font-size:13px;color:#a0a09a;line-height:1.6;">
+          ${T("Your calendar invitation has been updated.", "Ihre Kalendereinladung wurde aktualisiert.", "Votre invitation a été mise à jour.")}
+        </p>
+        ${manageBlock(opts.manageToken, lang)}`}
+      `),
+    });
+  } catch (e) { console.warn("[email] sendBookingChangedEmail failed:", e); }
+}

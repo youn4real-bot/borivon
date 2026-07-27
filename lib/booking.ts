@@ -30,6 +30,13 @@ export type Availability = {
    *  Morocco flips UTC+1 → UTC+0 for Ramadan and back, and the offer horizon is
    *  14 days, so a single request routinely spans a transition. */
   tz?: string;
+  /** Breathing room around every existing commitment. A call that ends at 11:00
+   *  should not be followed by one starting at 11:00 — you need a minute to
+   *  write the notes and take a breath. Applied to BOTH sides of anything busy. */
+  bufferMinutes?: number;
+  /** Days off, as "YYYY-MM-DD" in the business timezone: holidays, Aïd, travel.
+   *  Nothing is offered on these days at all. */
+  blackoutDates?: string[];
 };
 
 /** Borivon's default: weekdays 09:00–18:00, half-hour calls, a day's notice. */
@@ -109,6 +116,14 @@ export function generateSlots(opts: {
   const earliest = now + av.minNoticeHours * 60 * MIN;
   const out: number[] = [];
 
+  // Grow every busy block by the buffer on BOTH sides, once, up front. Doing it
+  // here rather than per-slot keeps the collision test below a plain overlap.
+  const pad = Math.max(0, av.bufferMinutes ?? 0) * MIN;
+  const blocked: Interval[] = pad
+    ? busy.map((b) => ({ start: b.start - pad, end: b.end + pad }))
+    : busy;
+  const closed = new Set(av.blackoutDates ?? []);
+
   for (let d = 0; d <= av.horizonDays; d++) {
     const base = now + d * DAY;
     // Resolve the offset for THIS day, not once for the whole horizon. With a
@@ -122,6 +137,8 @@ export function generateSlots(opts: {
     const windows = av.week[dow] ?? [];
     if (!windows.length) continue;
     const Y = shifted.getUTCFullYear(), M = shifted.getUTCMonth(), D = shifted.getUTCDate();
+    // Days off (holidays, Aïd, travel) — offer nothing at all.
+    if (closed.has(`${Y}-${String(M + 1).padStart(2, "0")}-${String(D).padStart(2, "0")}`)) continue;
     let dayStartUtc = Date.UTC(Y, M, D) - off * MIN;
     if (av.tz) {
       // `base` is "now + d days", which can still land on the near side of a
@@ -139,7 +156,7 @@ export function generateSlots(opts: {
         const start = dayStartUtc + t * MIN;
         if (start < earliest) continue;
         const slot = { start, end: start + slotMs };
-        if (busy.some((b) => overlaps(slot, b))) continue;
+        if (blocked.some((b) => overlaps(slot, b))) continue;
         out.push(start);
       }
     }

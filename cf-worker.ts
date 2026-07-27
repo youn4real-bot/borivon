@@ -34,6 +34,11 @@ const CRON_ROUTES = {
   "0 7 * * 1": "/api/cron/weekly-report",
   "0 8 * * *": "/api/cron/auto-chase",
   "30 8 * * *": "/api/cron/inbox-reminder",
+  // Day-before nudge to whoever booked a call, carrying the reschedule link.
+  // 09:00 UTC = 10:00 Casablanca — late enough to be read, early enough that
+  // someone who needs to move tomorrow's call still can. The route's window is
+  // 36h, so a booking falling between two runs is never skipped.
+  "0 9 * * *": "/api/cron/booking-reminders",
 };
 
 /**

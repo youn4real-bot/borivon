@@ -23,6 +23,7 @@ import { Modal } from "@/components/ui/Modal";
 import { QUESTIONS, type Selections } from "@/lib/booking";
 import {
   ArrowLeft, Plus, Video, Phone, Mail, Loader2, Check, X, CalendarDays, Building2,
+  SlidersHorizontal, Link2,
 } from "lucide-react";
 
 type Kind = "nurse" | "clinic" | "company";
@@ -58,6 +59,7 @@ export default function AdminBookingsPage() {
   const [token, setToken] = useState("");
   const [rows, setRows] = useState<Booking[]>([]);
   const [addOpen, setAddOpen] = useState(false);
+  const [availOpen, setAvailOpen] = useState(false);
   const [busyId, setBusyId] = useState<number | null>(null);
 
   const load = useCallback(async (tk: string) => {
@@ -141,9 +143,14 @@ export default function AdminBookingsPage() {
             {upcoming.length} {T("upcoming", "anstehend", "à venir")} · {rows.length} {T("total", "gesamt", "au total")}
           </p>
         </div>
-        <button onClick={() => setAddOpen(true)} className="bv-btn bv-btn-primary bv-tap inline-flex items-center gap-2">
-          <Plus size={15} strokeWidth={2} /> {T("Add by hand", "Manuell eintragen", "Ajouter manuellement")}
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button onClick={() => setAvailOpen(true)} className="bv-btn bv-btn-ghost bv-tap inline-flex items-center gap-2">
+            <SlidersHorizontal size={15} strokeWidth={2} /> {T("My availability", "Meine Zeiten", "Mes disponibilités")}
+          </button>
+          <button onClick={() => setAddOpen(true)} className="bv-btn bv-btn-primary bv-tap inline-flex items-center gap-2">
+            <Plus size={15} strokeWidth={2} /> {T("Add by hand", "Manuell eintragen", "Ajouter manuellement")}
+          </button>
+        </div>
       </div>
 
       {!rows.length ? (
@@ -189,7 +196,233 @@ export default function AdminBookingsPage() {
           onSaved={async () => { setAddOpen(false); await load(token); }}
         />
       )}
+
+      {availOpen && <AvailabilityModal token={token} T={T} onClose={() => setAvailOpen(false)} />}
     </main>
+  );
+}
+
+/* ── My availability ──────────────────────────────────────────────────────────
+ * Working hours, appointment length, buffer, notice, horizon and days off — the
+ * things that were hardcoded in lib/booking.ts until now.
+ * -------------------------------------------------------------------------- */
+
+const DAY_KEYS = [1, 2, 3, 4, 5, 6, 0] as const; // Mon-first, the way a week reads
+const DAY_NAME: Record<number, { en: string; de: string; fr: string }> = {
+  1: { en: "Monday", de: "Montag", fr: "Lundi" },
+  2: { en: "Tuesday", de: "Dienstag", fr: "Mardi" },
+  3: { en: "Wednesday", de: "Mittwoch", fr: "Mercredi" },
+  4: { en: "Thursday", de: "Donnerstag", fr: "Jeudi" },
+  5: { en: "Friday", de: "Freitag", fr: "Vendredi" },
+  6: { en: "Saturday", de: "Samstag", fr: "Samedi" },
+  0: { en: "Sunday", de: "Sonntag", fr: "Dimanche" },
+};
+
+function AvailabilityModal({
+  token, T, onClose,
+}: {
+  token: string;
+  T: (en: string, de: string, fr: string) => string;
+  onClose: () => void;
+}) {
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const [week, setWeek] = useState<Record<number, string>>({});   // day → "09:00-13:00, 14:00-18:00"
+  const [slot, setSlot] = useState(30);
+  const [buffer, setBuffer] = useState(0);
+  const [notice, setNotice] = useState(12);
+  const [horizon, setHorizon] = useState(14);
+  const [accepting, setAccepting] = useState(true);
+  const [blackout, setBlackout] = useState("");                   // one YYYY-MM-DD per line
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch("/api/portal/admin/booking-availability", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
+        const j = await r.json().catch(() => ({}));
+        const a = j?.availability ?? {};
+        const w: Record<number, string> = {};
+        for (const [k, v] of Object.entries(a.week ?? {})) {
+          if (Array.isArray(v)) w[Number(k)] = v.join(", ");
+        }
+        setWeek(w);
+        setSlot(Number(a.slot_minutes) || 30);
+        setBuffer(Number(a.buffer_minutes) || 0);
+        setNotice(Number(a.min_notice_hours) ?? 12);
+        setHorizon(Number(a.horizon_days) || 14);
+        setAccepting(a.accepting !== false);
+        setBlackout((Array.isArray(a.blackout_dates) ? a.blackout_dates : []).join("\n"));
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [token]);
+
+  async function save() {
+    setSaving(true);
+    setErr(null);
+    setSaved(false);
+    try {
+      const weekOut: Record<number, string[]> = {};
+      for (const [k, raw] of Object.entries(week)) {
+        const windows = raw.split(",").map((s) => s.trim()).filter(Boolean);
+        if (windows.length) weekOut[Number(k)] = windows;
+      }
+      const r = await fetch("/api/portal/admin/booking-availability", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          week: weekOut, slot_minutes: slot, buffer_minutes: buffer,
+          min_notice_hours: notice, horizon_days: horizon, accepting,
+          blackout_dates: blackout.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean),
+        }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setErr(j?.error === "not_migrated"
+          ? T("Run supabase/booking_maxx.sql first.", "Bitte zuerst supabase/booking_maxx.sql ausführen.", "Exécutez d'abord supabase/booking_maxx.sql.")
+          : j?.error === "bad_week"
+            ? T("Check the hours — each one must look like 09:00-13:00.",
+                "Zeiten prüfen — jede muss wie 09:00-13:00 aussehen.",
+                "Vérifiez les horaires — chacun doit ressembler à 09:00-13:00.")
+            : T("Couldn't save.", "Konnte nicht gespeichert werden.", "Échec de l'enregistrement."));
+        return;
+      }
+      setSaved(true);
+    } catch {
+      setErr(T("Network error.", "Netzwerkfehler.", "Erreur réseau."));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const dayName = (d: number) => T(DAY_NAME[d].en, DAY_NAME[d].de, DAY_NAME[d].fr);
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      busy={saving}
+      size="md"
+      title={T("My availability", "Meine Zeiten", "Mes disponibilités")}
+      footer={
+        <>
+          <button onClick={onClose} disabled={saving} className="bv-btn bv-btn-ghost bv-tap">
+            {T("Close", "Schließen", "Fermer")}
+          </button>
+          <button onClick={save} disabled={saving || loading} className="bv-btn bv-btn-primary bv-tap inline-flex items-center gap-2">
+            {saving ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Check size={14} aria-hidden />}
+            {T("Save", "Speichern", "Enregistrer")}
+          </button>
+        </>
+      }
+    >
+      <div className="grid gap-4 px-5 py-4">
+        {loading ? (
+          <div className="bv-skeleton" style={{ height: 260, borderRadius: 14 }} aria-busy="true" />
+        ) : (
+          <>
+            <label className="flex items-center gap-2.5 text-[13.5px] bv-tap" style={{ color: "var(--w2)" }}>
+              <input type="checkbox" checked={accepting} onChange={(e) => setAccepting(e.target.checked)} />
+              {T("Accepting bookings", "Termine annehmen", "Accepter les réservations")}
+            </label>
+            {!accepting && (
+              <p className="text-[12.5px] -mt-2" style={{ color: "var(--w3)" }}>
+                {T("/book will show no times and invite people to email instead. Nothing is deleted.",
+                   "/book zeigt keine Zeiten und bittet um eine E-Mail. Es wird nichts gelöscht.",
+                   "/book n'affichera aucun créneau et invitera à écrire. Rien n'est supprimé.")}
+              </p>
+            )}
+
+            <div>
+              <p className="bv-label mb-2">{T("Working hours", "Arbeitszeiten", "Heures de travail")}</p>
+              <div className="grid gap-2">
+                {DAY_KEYS.map((d) => (
+                  <div key={d} className="flex items-center gap-3">
+                    <span className="text-[12.5px] flex-shrink-0" style={{ color: "var(--w3)", width: 84 }}>{dayName(d)}</span>
+                    <input
+                      className="bv-input flex-1"
+                      value={week[d] ?? ""}
+                      placeholder={T("closed", "geschlossen", "fermé")}
+                      onChange={(e) => setWeek((w) => ({ ...w, [d]: e.target.value }))}
+                      aria-label={dayName(d)}
+                    />
+                  </div>
+                ))}
+              </div>
+              <p className="text-[12px] mt-2" style={{ color: "var(--w3)" }}>
+                {T("Comma-separated, e.g. 09:00-13:00, 14:00-18:00. Leave a day empty to close it.",
+                   "Kommagetrennt, z. B. 09:00-13:00, 14:00-18:00. Leer lassen = geschlossen.",
+                   "Séparés par des virgules, ex. 09:00-13:00, 14:00-18:00. Laissez vide pour fermer.")}
+              </p>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="bv-label" htmlFor="av-slot">{T("Appointment length", "Termindauer", "Durée du rendez-vous")}</label>
+                <select id="av-slot" className="bv-input" value={slot} onChange={(e) => setSlot(Number(e.target.value))}>
+                  {[15, 20, 30, 45, 60].map((m) => <option key={m} value={m}>{m} min</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="bv-label" htmlFor="av-buffer">{T("Gap between calls", "Puffer zwischen Terminen", "Pause entre les appels")}</label>
+                <select id="av-buffer" className="bv-input" value={buffer} onChange={(e) => setBuffer(Number(e.target.value))}>
+                  {[0, 5, 10, 15, 30].map((m) => (
+                    <option key={m} value={m}>{m === 0 ? T("none", "keiner", "aucune") : `${m} min`}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="bv-label" htmlFor="av-notice">{T("Minimum notice", "Mindestvorlauf", "Préavis minimum")}</label>
+                <select id="av-notice" className="bv-input" value={notice} onChange={(e) => setNotice(Number(e.target.value))}>
+                  {[0, 2, 4, 12, 24, 48].map((h) => (
+                    <option key={h} value={h}>{h === 0 ? T("none", "keiner", "aucun") : `${h} h`}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="bv-label" htmlFor="av-horizon">{T("Book up to", "Buchbar bis", "Réservable jusqu'à")}</label>
+                <select id="av-horizon" className="bv-input" value={horizon} onChange={(e) => setHorizon(Number(e.target.value))}>
+                  {[7, 14, 21, 30, 60].map((d) => (
+                    <option key={d} value={d}>{d} {T("days ahead", "Tage im Voraus", "jours à l'avance")}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="bv-label" htmlFor="av-blackout">{T("Days off", "Freie Tage", "Jours de congé")}</label>
+              <textarea
+                id="av-blackout" className="bv-input" rows={3} value={blackout}
+                onChange={(e) => setBlackout(e.target.value)} style={{ resize: "vertical" }}
+                placeholder="2026-08-15&#10;2026-12-25"
+              />
+              <p className="text-[12px] mt-1" style={{ color: "var(--w3)" }}>
+                {T("One date per line (YYYY-MM-DD). Nothing is offered on these days.",
+                   "Ein Datum pro Zeile (JJJJ-MM-TT). An diesen Tagen wird nichts angeboten.",
+                   "Une date par ligne (AAAA-MM-JJ). Aucun créneau ces jours-là.")}
+              </p>
+            </div>
+
+            <a href="/book" target="_blank" rel="noopener noreferrer" className="bv-link text-[13px] inline-flex items-center gap-2">
+              <Link2 size={13} aria-hidden /> {T("Preview the booking page", "Buchungsseite ansehen", "Voir la page de réservation")}
+            </a>
+
+            {err && <p className="text-[13px]" style={{ color: "#ef4444" }} role="alert">{err}</p>}
+            {saved && (
+              <p className="text-[13px]" style={{ color: "#16a34a" }} role="status">
+                {T("Saved — the booking page is live with these hours.",
+                   "Gespeichert — die Buchungsseite nutzt diese Zeiten.",
+                   "Enregistré — la page de réservation utilise ces horaires.")}
+              </p>
+            )}
+          </>
+        )}
+      </div>
+    </Modal>
   );
 }
 
