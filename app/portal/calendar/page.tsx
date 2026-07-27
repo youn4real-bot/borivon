@@ -61,6 +61,28 @@ type Ev = {
   starts_at: string; ends_at: string | null;
   image_url: string; link_url: string; location: string;
   vip_only: boolean; locked: boolean; attendee_ids?: string[];
+  /** Which calendar this came from. Absent on legacy rows → treated as portal. */
+  source?: "portal" | "booking" | "google";
+  /** Lives in Google; the portal can show it but never edit or delete it. */
+  readOnly?: boolean;
+  /** Present on source==="booking": who booked, and how to reach them. */
+  booking?: {
+    id: number; kind: string; name: string; company: string | null;
+    email: string | null; phone: string | null; status: string;
+    meetLink: string | null; addedByHand: boolean;
+  };
+};
+
+/**
+ * One dot per source, so the merged diary reads at a glance:
+ *   gold  = a Borivon community event (what this page always showed)
+ *   green = somebody booked a call — click through for the Meet link
+ *   grey  = the founder's own Google Workspace time; the slot is simply taken
+ */
+const SOURCE_DOT: Record<NonNullable<Ev["source"]>, string> = {
+  portal: "var(--gold)",
+  booking: "#16a34a",
+  google: "var(--w3)",
 };
 
 type TaggedPerson = { id: string; name: string };
@@ -201,6 +223,10 @@ export default function CalendarPage() {
   const [loading, setLoading] = useState(true);
   const [events, setEvents] = useState<Ev[]>([]);
   const [canManage, setCanManage] = useState(false);
+  // Staff = supreme admin or a Borivon (non-agency) sub-admin. They get the
+  // MERGED diary — community events + booked calls + the founder's Google time —
+  // and can put an appointment straight into it from here.
+  const [isStaff, setIsStaff] = useState(false);
   const [view, setView] = useState<"month" | "list">("month");
   const [now, setNow] = useState<Date>(() => new Date());
 
@@ -253,6 +279,7 @@ export default function CalendarPage() {
     setEvents((j.events ?? []) as Ev[]);
     // Never let a server hiccup turn OFF the admin "+" — OR it with the cache-seeded value.
     setCanManage((prev) => prev || !!j.canManage);
+    setIsStaff((prev) => prev || !!j.isStaff);
     if (j.feedToken) setFeedToken(j.feedToken as string);
     if (j.googleSync) setGoogleSync(j.googleSync);
   }, [authedFetch, router]);
@@ -531,6 +558,18 @@ export default function CalendarPage() {
             <CalendarCheck size={14} /> <span className="hidden sm:inline">{T("Sync", "Sync", "Sync")}</span>
           </button>
           {Toggle}
+          {/* Two different things, deliberately two buttons: an EVENT is a
+              Borivon happening on the community calendar; an APPOINTMENT is a
+              call with one person, which creates the Google invite, the Meet
+              link and the follow-up chase. Merging them into one control would
+              hide that difference. */}
+          {isStaff && (
+            <button onClick={() => router.push("/portal/admin/bookings")}
+              className="bv-press inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-3.5 py-1.5"
+              style={{ background: "rgba(22,163,74,.14)", color: "#16a34a", border: "1px solid rgba(22,163,74,.38)", borderRadius: "var(--r-md)" }}>
+              <CalendarPlus size={15} strokeWidth={2.2} /> {T("Appointment", "Termin buchen", "Rendez-vous")}
+            </button>
+          )}
           {canManage && (
             <button onClick={() => openAdd()} className="bv-glow-gold bv-press inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-3.5 py-1.5"
               style={{ background: "var(--gold)", color: "#131312", borderRadius: "var(--r-md)", boxShadow: "var(--shadow-gold-sm)" }}>
@@ -581,11 +620,13 @@ export default function CalendarPage() {
                         onClick={(ev) => { ev.stopPropagation(); setDetail(e); }}
                         className="hidden sm:flex items-center gap-1 px-1.5 py-1 rounded-[6px] text-[10.5px] font-medium truncate cursor-pointer"
                         style={{
-                          background: e.locked ? "var(--bg2)" : "color-mix(in srgb, var(--gold) 16%, transparent)",
-                          color: e.locked ? "var(--w3)" : "var(--gold)",
-                          border: "1px solid color-mix(in srgb, var(--gold) 26%, transparent)",
+                          // Colour carries the SOURCE — gold community event,
+                          // green booked call, grey the founder's own Google time.
+                          background: e.locked ? "var(--bg2)" : `color-mix(in srgb, ${SOURCE_DOT[e.source ?? "portal"]} 16%, transparent)`,
+                          color: e.locked ? "var(--w3)" : SOURCE_DOT[e.source ?? "portal"],
+                          border: `1px solid color-mix(in srgb, ${SOURCE_DOT[e.source ?? "portal"]} 26%, transparent)`,
                         }}>
-                        {e.locked ? <Lock size={9} strokeWidth={2.4} className="flex-shrink-0" /> : <span className="flex-shrink-0" style={{ width: 5, height: 5, borderRadius: 999, background: "var(--gold)" }} />}
+                        {e.locked ? <Lock size={9} strokeWidth={2.4} className="flex-shrink-0" /> : <span className="flex-shrink-0" style={{ width: 5, height: 5, borderRadius: 999, background: SOURCE_DOT[e.source ?? "portal"] }} />}
                         <span className="truncate">{fmtTime(e.starts_at)} {e.title}</span>
                       </span>
                     ))}
@@ -598,7 +639,7 @@ export default function CalendarPage() {
                     {dayEvents.length > 0 && (
                       <span className="flex sm:hidden items-center gap-0.5 flex-wrap">
                         {dayEvents.slice(0, 4).map((e) => (
-                          <span key={e.id} style={{ width: 5, height: 5, borderRadius: 999, background: e.locked ? "var(--w3)" : "var(--gold)" }} />
+                          <span key={e.id} style={{ width: 5, height: 5, borderRadius: 999, background: e.locked ? "var(--w3)" : SOURCE_DOT[e.source ?? "portal"] }} />
                         ))}
                       </span>
                     )}
@@ -738,6 +779,50 @@ export default function CalendarPage() {
                   </span>
                 )}
               </div>
+
+              {/* A booked call — who it is with, how to reach them, and the Meet
+                  link, so the diary is something you can ACT on rather than just
+                  read. Only staff ever receive these rows from the API. */}
+              {detail.source === "booking" && detail.booking && (
+                <div className="rounded-[14px] p-4 flex flex-col gap-2"
+                  style={{ background: "rgba(22,163,74,.08)", border: "1px solid rgba(22,163,74,.32)" }}>
+                  <span className="text-[11px] uppercase font-semibold" style={{ color: "#16a34a", letterSpacing: ".06em" }}>
+                    {T("Booked call", "Gebuchter Termin", "Rendez-vous réservé")}
+                    {detail.booking.addedByHand ? ` · ${T("added by hand", "manuell", "ajouté à la main")}` : ""}
+                  </span>
+                  <span className="text-[14px] font-medium" style={{ color: "var(--w)" }}>
+                    {detail.booking.company || detail.booking.name}
+                  </span>
+                  <div className="flex flex-col gap-1 text-[13px]" style={{ color: "var(--w2)" }}>
+                    {detail.booking.company && <span>{detail.booking.name}</span>}
+                    {detail.booking.email && <a className="bv-link" href={`mailto:${detail.booking.email}`}>{detail.booking.email}</a>}
+                    {detail.booking.phone && <a className="bv-link" href={`tel:${detail.booking.phone.replace(/\s/g, "")}`}>{detail.booking.phone}</a>}
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap mt-1">
+                    {detail.booking.meetLink && (
+                      <a href={detail.booking.meetLink} target="_blank" rel="noopener noreferrer"
+                        className="bv-press inline-flex items-center gap-1.5 text-[13px] font-semibold px-4 py-2"
+                        style={{ background: "#16a34a", color: "#fff", borderRadius: "var(--r-md)" }}>
+                        <Video size={15} /> {T("Join the call", "Zum Termin", "Rejoindre l'appel")}
+                      </a>
+                    )}
+                    <button onClick={() => { setDetail(null); router.push("/portal/admin/bookings"); }}
+                      className="bv-btn bv-btn-ghost bv-tap text-[12.5px]">
+                      {T("Manage", "Verwalten", "Gérer")}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* The founder's own Workspace time. Shown so nobody double-books
+                  him; it belongs to Google and the portal never edits it. */}
+              {detail.source === "google" && (
+                <p className="text-[13px] rounded-[14px] p-3" style={{ color: "var(--w3)", background: "var(--bg2)", border: "1px solid var(--border)" }}>
+                  {T("From the Borivon Google Workspace calendar — this time is taken.",
+                     "Aus dem Borivon-Google-Workspace-Kalender — diese Zeit ist belegt.",
+                     "Depuis l'agenda Google Workspace de Borivon — ce créneau est pris.")}
+                </p>
+              )}
 
               {detail.locked ? (
                 <div className="rounded-[14px] p-4 text-center" style={{ background: "color-mix(in srgb, var(--gold) 10%, transparent)", border: "1px solid var(--border-gold)" }}>

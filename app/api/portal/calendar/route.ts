@@ -5,6 +5,23 @@ import { enforceRateLimit, enforceUserRateLimit } from "@/lib/rateLimit";
 import { UUID_RE } from "@/lib/uuid";
 import { signFeedToken } from "@/lib/calendarFeed";
 import { googleStatus, fanOutUpsert, fanOutDelete, type PushEvent } from "@/lib/googleCalendar";
+import { listEventsInWindow, BORIVON_TZ } from "@/lib/workspaceCalendar";
+
+/**
+ * ONE CALENDAR. Three sources, merged in the GET below for staff:
+ *   portal   — community events in `calendar_events` (what this page always was)
+ *   booking  — somebody who booked at /book, or an admin-entered call. Carries
+ *              who booked and the Google Meet link, so the diary is actionable
+ *              rather than just informative.
+ *   google   — the founder's real Workspace calendar, so a slot filled ANYWHERE
+ *              shows up here and staff never double-book him.
+ *
+ * PRIVACY: a Google event's real title is only ever sent to the supreme admin.
+ * To any other staff member it arrives as "Busy" with no description, no
+ * location and no link — enough to see the diary is full, nothing more. His
+ * personal appointments are not the team's business.
+ */
+type MergedSource = "portal" | "booking" | "google";
 
 /**
  * Community calendar (the "Calendar" tab).
@@ -146,7 +163,117 @@ export async function GET(req: NextRequest) {
       };
     });
 
-  return NextResponse.json({ events, premium, canManage, feedToken: signFeedToken(auth.userId), googleSync });
+  // ── Merge in bookings + the real Google diary, for STAFF only ──────────────
+  // Candidates see the community calendar exactly as before; nothing below is
+  // ever sent to them.
+  const staff = await staffView(req);
+  const merged: unknown[] = events.map((e) => ({ ...e, source: "portal" as MergedSource }));
+
+  if (staff.isStaff) {
+    const from = Date.now() - 30 * 86_400_000;
+    const to = Date.now() + 120 * 86_400_000;
+
+    const [bookingRows, gcal] = await Promise.all([
+      // Wrapped so a missing table (bookings.sql not run) degrades to an empty
+      // list instead of taking the whole calendar down.
+      (async () => {
+        try {
+          const r = await db.from("bookings")
+            .select("id,kind,name,company,email,phone,starts_at,ends_at,status,meet_link,source")
+            .gte("starts_at", new Date(from).toISOString())
+            .lte("starts_at", new Date(to).toISOString())
+            .neq("status", "cancelled")
+            .order("starts_at");
+          return r.error ? [] : (r.data ?? []);
+        } catch { return []; }
+      })(),
+      (async () => {
+        try {
+          const r = await listEventsInWindow({ from: new Date(from).toISOString(), to: new Date(to).toISOString() });
+          return r.ok ? r.events : [];
+        } catch { return []; }
+      })(),
+    ]);
+
+    type BRow = {
+      id: number; kind: string; name: string; company: string | null; email: string | null;
+      phone: string | null; starts_at: string; ends_at: string | null; status: string;
+      meet_link: string | null; source: string;
+    };
+    for (const b of bookingRows as BRow[]) {
+      merged.push({
+        id: `booking:${b.id}`,
+        source: "booking" as MergedSource,
+        title: `${b.company || b.name} — ${b.kind}`,
+        description: [b.email, b.phone].filter(Boolean).join(" · "),
+        starts_at: b.starts_at,
+        ends_at: b.ends_at,
+        image_url: null, link_url: b.meet_link ?? "", location: "",
+        vip_only: false, locked: false,
+        booking: {
+          id: b.id, kind: b.kind, name: b.name, company: b.company,
+          email: b.email, phone: b.phone, status: b.status,
+          meetLink: b.meet_link, addedByHand: b.source === "admin",
+        },
+      });
+    }
+
+    // The founder's own Workspace events. Skip anything we already show as a
+    // booking (those created the Google event in the first place) so one call
+    // never appears twice in the same grid.
+    const bookedStarts = new Set((bookingRows as BRow[]).map((b) => Date.parse(b.starts_at)));
+    for (const g of gcal) {
+      if (!g.start || g.allDay) continue;
+      const startMs = Date.parse(g.start);
+      if (!Number.isFinite(startMs) || bookedStarts.has(startMs)) continue;
+      merged.push({
+        id: `google:${g.eventId}`,
+        source: "google" as MergedSource,
+        // Only the supreme admin sees what it actually is.
+        title: staff.isSupreme ? (g.title || "(no title)") : "Busy",
+        description: "", image_url: null, link_url: "", location: "",
+        starts_at: g.start, ends_at: g.end,
+        vip_only: false, locked: false,
+        readOnly: true,   // lives in Google; the portal doesn't own it
+      });
+    }
+  }
+
+  return NextResponse.json({
+    events: merged,
+    premium,
+    canManage,
+    // Staff get the merged diary + the ability to add a booking from it.
+    isStaff: staff.isStaff,
+    isSupreme: staff.isSupreme,
+    feedToken: signFeedToken(auth.userId),
+    googleSync,
+    tz: BORIVON_TZ,
+  });
+}
+
+/**
+ * Who is allowed to see the merged diary.
+ *
+ * Supreme admin and Borivon's own sub-admins — never an agency's staff, who
+ * have no business seeing when the founder is free or who booked him. Fails
+ * CLOSED: any error resolves to "not staff", i.e. the plain community calendar.
+ */
+async function staffView(req: NextRequest): Promise<{ isStaff: boolean; isSupreme: boolean }> {
+  try {
+    const a = await requireAdminRole(req);
+    if (!a.ok) return { isStaff: false, isSupreme: false };
+    if (a.role === "admin") return { isStaff: true, isSupreme: true };
+    if (a.role === "sub_admin" && !a.isAgencyAdmin && !a.agencyId) {
+      const { data } = await getServiceSupabase()
+        .from("organization_members").select("org_id")
+        .ilike("sub_admin_email", a.email.trim().toLowerCase()).limit(1);
+      if (!(data ?? []).length) return { isStaff: true, isSupreme: false };
+    }
+    return { isStaff: false, isSupreme: false };
+  } catch {
+    return { isStaff: false, isSupreme: false };
+  }
 }
 
 // ── POST: create event (supreme admin) ───────────────────────────────────────
