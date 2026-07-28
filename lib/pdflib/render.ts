@@ -207,32 +207,81 @@ export class Surface {
   }
 }
 
+/** No image on a CV is worth more than a few MB or a few seconds. */
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+const IMAGE_FETCH_TIMEOUT_MS = 8_000;
+
 /**
- * Embed a base64 data-URI image ("data:image/png;base64,…" or jpeg) into `doc`.
- * Returns the PDFImage plus its intrinsic pixel size, or null if it can't be
- * decoded (caller then just omits the image — never throws on a bad photo/logo).
+ * Embed an image into `doc` from EITHER a base64 data-URI or an http(s) URL.
+ *
+ * THE URL CASE IS NOT OPTIONAL. Every candidate photo is stored as a Supabase
+ * Storage URL — measured against the live DB: 56 of 56 profiles — and this
+ * accepted data URIs only, so it returned null for every one of them and each
+ * generated CV came out with no photo at all. @react-pdf/renderer fetched URLs
+ * itself; when the CV was ported to pdf-lib that fetch had to come with it, and
+ * didn't. Nothing threw, so the CVs just quietly lost their faces.
+ *
+ * The caller re-injects the TRUSTED stored photo after sanitising (lib/cvRender
+ * .ts), so this is our own storage URL, not something a candidate can set.
+ * Capped and timed out anyway: a hung fetch would hold a PDF request open, and
+ * an enormous file would sit in Worker memory.
+ *
+ * Returns the PDFImage plus its intrinsic pixel size, or null if it cannot be
+ * fetched or decoded — a broken photo must never fail the whole CV.
  */
 export async function embedDataUriImage(
   doc: PDFDocument,
-  dataUri: string | null | undefined,
+  src: string | null | undefined,
 ): Promise<{ image: PDFImage; width: number; height: number } | null> {
-  if (!dataUri || typeof dataUri !== "string") return null;
-  const m = /^data:(image\/[a-z0-9.+-]+)?;base64,(.+)$/i.exec(dataUri.trim());
-  if (!m) return null;
-  let bytes: Uint8Array;
-  try {
-    const bin = atob(m[2]);
-    bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  } catch {
-    return null;
+  if (!src || typeof src !== "string") return null;
+  const raw = src.trim();
+  let bytes: Uint8Array | null = null;
+
+  const m = /^data:(image\/[a-z0-9.+-]+)?;base64,(.+)$/i.exec(raw);
+  if (m) {
+    try {
+      const bin = atob(m[2]);
+      bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    } catch {
+      return null;
+    }
+  } else if (/^https?:\/\//i.test(raw)) {
+    bytes = await fetchImageBytes(raw);
   }
+
+  if (!bytes || !bytes.length) return null;
+
   try {
+    // Sniff the real format rather than trusting a mime label or extension — a
+    // .png that is actually a JPEG would otherwise throw and drop the photo.
     const isPng = bytes[0] === 0x89 && bytes[1] === 0x50; // \x89PNG
     const image = isPng ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
     return { image, width: image.width, height: image.height };
   } catch {
     return null;
+  }
+}
+
+/** GET an image URL with a hard timeout and a size cap. Never throws. */
+async function fetchImageBytes(url: string): Promise<Uint8Array | null> {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), IMAGE_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: ac.signal, redirect: "follow" });
+    if (!res.ok) return null;
+    // Storage sometimes serves octet-stream, and the magic-byte sniff above is
+    // the real gate — so only reject what is definitely NOT an image.
+    const type = (res.headers.get("content-type") ?? "").toLowerCase();
+    if (type && !type.startsWith("image/") && !type.includes("octet-stream")) return null;
+    const declared = Number(res.headers.get("content-length") ?? 0);
+    if (declared && declared > MAX_IMAGE_BYTES) return null;
+    const buf = new Uint8Array(await res.arrayBuffer());
+    return buf.length && buf.length <= MAX_IMAGE_BYTES ? buf : null;
+  } catch {
+    return null;   // timeout, DNS, TLS, 404 — the CV renders without the photo
+  } finally {
+    clearTimeout(timer);
   }
 }
 
