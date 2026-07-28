@@ -62,9 +62,17 @@ export function IosPdfFrame({
   // Sprachzertifikat) — only our own floating toolbar shows. Honored by
   // Chromium (Chrome/Edge/Android); Safari/iOS never render that bar anyway.
   // The hash MUST be the very last URL segment (after the query string).
-  const bustedSrc =
-    src + (src.includes("?") ? "&" : "?") + "_v=" + bustRef.current +
-    "#toolbar=0&navpanes=0&scrollbar=0";
+  //
+  // A blob: URL takes the hash but NEVER the query. Blob URLs are opaque
+  // paths looked up by exact string in the browser's blob store; appending
+  // "?_v=…" produces a path that matches no entry, so the iframe loads
+  // nothing at all. There is also nothing to bust — a blob is freshly minted
+  // for each generation and its URL is unique already.
+  const isBlob = src.startsWith("blob:");
+  const bustedSrc = isBlob
+    ? src + "#toolbar=0&navpanes=0&scrollbar=0"
+    : src + (src.includes("?") ? "&" : "?") + "_v=" + bustRef.current +
+      "#toolbar=0&navpanes=0&scrollbar=0";
 
   // Measure the available area so a 90°/270° rotation can swap W/H and still
   // fill the popup (instead of overflowing).
