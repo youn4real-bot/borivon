@@ -22,6 +22,8 @@ import { useLang } from "@/components/LangContext";
 import { PortalTopNav } from "@/components/PortalTopNav";
 import { PageLoader, AutosaveIndicator, Spinner } from "@/components/ui/states";
 import { PdfViewer } from "@/components/PdfViewer";
+import { IosPdfFrame } from "@/components/IosPdfFrame";
+import { isIOSDevice } from "@/lib/platform";
 import {
   ArrowLeft, Lock, FileText, Upload, X as XIcon, Download,
   CheckCircle2, AlertTriangle, FilePen, Hourglass, Copy, Check,
@@ -1761,7 +1763,15 @@ function MotivationsschreibenPageInner() {
               </div>
             </div>
             <div className="flex-1 min-h-0">
-              <PdfViewer src={pdfUrl} />
+              {/* WebKit will not paint a pdf.js canvas on iPhone/iPad, so this
+                  preview was simply blank there — the candidate generated their
+                  Motivationsschreiben and got an empty grey panel with no error.
+                  iOS gets the OS engine instead. `pdfUrl` is already a blob
+                  (URL.createObjectURL above), which an iframe loads happily and
+                  which carries no credential, so nothing else has to change. */}
+              {isIOSDevice()
+                ? <IosPdfFrame src={pdfUrl} title="Motivationsschreiben" />
+                : <PdfViewer src={pdfUrl} />}
             </div>
           </div>
         </div>,
