@@ -121,9 +121,18 @@ export function AdminDocPreviewModal({
   // Authenticated fetch via our API → blob URL. Used for both the viewer
   // and the download button (no need to refetch).
   useEffect(() => {
-    // iOS renders PDFs via the native iframe (server URL) — no blob needed.
-    // Skip the blob fetch so a large PDF isn't downloaded twice on mobile.
-    if (isIOSDevice() && (doc.file_name.split(".").pop() ?? "").toLowerCase() === "pdf") return;
+    // iOS renders a STORED pdf via the native iframe straight off the server
+    // URL, so no blob is needed and skipping it avoids downloading a large
+    // file twice on mobile.
+    //
+    // A GENERATED preview (overrideFetchUrl — the merged original+translation,
+    // the no-logo Visa CV) is the exception and MUST still be fetched here.
+    // Those routes authenticate by Authorization header only; a top-level
+    // iframe cannot send one, so the iframe is given this blob instead. Before,
+    // the skip applied to them too while `nativePdf` was false for them — so
+    // neither renderer ever mounted and the modal sat on its spinner forever
+    // on iPhone and iPad. Preview and download were both dead there.
+    if (isIOSDevice() && !overrideFetchUrl && (doc.file_name.split(".").pop() ?? "").toLowerCase() === "pdf") return;
     setRenderedName(null);
     // Stable doc id → server resolves the CURRENT drive_file_id (never the
     // archived old one after a replace). Same rule as fileBase below.
@@ -234,13 +243,24 @@ export function AdminDocPreviewModal({
   // CSS rotation from the same `doc.rotation`.
   const isPdfDoc      = (doc.file_name.split(".").pop() ?? "").toLowerCase() === "pdf";
   const isPassportDoc = /pass/i.test(doc.file_type);
-  // Desktop stored PDFs render in EmbedPdfViewer (PDFium-WASM canvas: correct
-  // render + our floating bottom zoom/rotate bar, no top bar; auto-falls back
-  // to the native PDFium iframe if the canvas can't draw). iOS stays on the
-  // native frame (no blob fetched there). The generated Visa-CV
-  // (overrideFetchUrl) stays on the in-app pdf.js viewer (clean PDF, renders
-  // fine, and its route needs a Bearer the iframe can't send).
-  const nativePdf     = isPdfDoc && !overrideFetchUrl && iosMode;
+  // TWO ENGINES, AND THE SPLIT IS FORCED — it is a platform limit, not taste.
+  //
+  //   iOS → IosPdfFrame: the OS engine (WebKit/PDFKit) in an iframe, with our
+  //         own floating CSS zoom/rotate bar. Required, because WebKit refuses
+  //         to paint a pdf.js canvas on iPhone/iPad no matter the mime type.
+  //   Everything else → EmbedPdfViewer, which is a thin pass-through to
+  //         PdfViewer, i.e. pdf.js. (Earlier comments here described it as a
+  //         "PDFium-WASM canvas" that "auto-falls back to a native iframe".
+  //         Neither is true: components/EmbedPdfViewer.tsx just forwards to
+  //         PdfViewer, there is no PDFium anywhere in the repo, and the
+  //         onError fallback PdfViewer exposes is not wired up.)
+  //
+  // EVERY pdf goes native on iOS now, generated previews included. It used to
+  // read `&& !overrideFetchUrl`, which meant the merged document and the Visa
+  // CV fell through to the pdf.js branch on an iPhone — where the blob had
+  // deliberately not been fetched, so nothing rendered at all. See the effect
+  // above; those two now get a blob and the frame renders it.
+  const nativePdf     = isPdfDoc && iosMode;
   // iOS file URLs carry a short-lived signed token (?dlt=), never the raw JWT.
   // The native frame is a top-level <iframe> request that can't send an
   // Authorization header, so it needs the same signed token on desktop too.
@@ -256,8 +276,15 @@ export function AdminDocPreviewModal({
       ? `/api/portal/file?docId=${encodeURIComponent(doc.id)}`
       : `/api/portal/file?id=${encodeURIComponent(doc.drive_file_id ?? "")}`);
   const withQ = (u: string, qs: string) => u + (u.includes("?") ? "&" : "?") + qs;
-  const iosPreviewUrl  = dlt ? withDlt(fileBase, dlt) : "";
-  const iosDownloadUrl = dlt ? withDlt(withQ(fileBase, `dl=1&name=${encodeURIComponent(doc.file_name)}`), dlt) : "";
+  // A GENERATED preview is served from the blob we already fetched with the
+  // Bearer. Its route accepts no ?dlt= at all, so a token-signed URL would just
+  // 403 — which is what the iOS download button was quietly doing. A blob: URL
+  // is same-origin and carries no credential, so the frame and the download
+  // both work from it.
+  const iosPreviewUrl  = overrideFetchUrl ? (blobUrl ?? "") : (dlt ? withDlt(fileBase, dlt) : "");
+  const iosDownloadUrl = overrideFetchUrl
+    ? (blobUrl ?? "")
+    : (dlt ? withDlt(withQ(fileBase, `dl=1&name=${encodeURIComponent(doc.file_name)}`), dlt) : "");
 
   // Portal to document.body so this modal always escapes any ancestor
   // stacking-context created by backdrop-filter (e.g. the mobile bottom bar).
@@ -468,24 +495,22 @@ export function AdminDocPreviewModal({
               // passports — LAW #39 means we serve pristine passport bytes and
               // pdf.js only renders them (never mutates). Passport rotation is
               // seeded from doc.rotation since the server doesn't bake it in.
-              return nativePdf
-                ? (iosPreviewUrl
-                    ? <IosPdfFrame
-                        src={iosPreviewUrl}
-                        title={doc.file_name}
-                        initialRotation={doc.rotation ?? 0}
-                        onRotate={persistRotate} />
-                    : <div className="w-full h-full flex items-center justify-center"><Spinner /></div>)
-                // UNIFIED: stored docs AND the generated CV/letter
-                // (overrideFetchUrl) both render through EmbedPdfViewer (PDFium)
-                // — one viewer, one zoom/rotate behavior. (persistRotate is a
-                // no-op for overrideFetchUrl docs, which have no stored row.)
-                : <EmbedPdfViewer
-                    src={blobUrl}
-                    docId={doc.id}
-                    onRotate={persistRotate}
-                    initialRotation={doc.rotation ?? 0}
-                  />;
+              // Non-iOS only: the `nativePdf` case already returned far above
+              // (the outer branch at the top of this body). A second
+              // `nativePdf ? <IosPdfFrame…>` used to sit here and could never
+              // run — and it was doubly dead, since it read `blobUrl`, which is
+              // null on the only platform that could have reached it.
+              //
+              // Stored docs and the generated CV/letter (overrideFetchUrl) both
+              // render here through pdf.js — one viewer, one zoom/rotate
+              // behaviour. persistRotate is a no-op for overrideFetchUrl docs,
+              // which have no stored row to persist against.
+              return <EmbedPdfViewer
+                  src={blobUrl}
+                  docId={doc.id}
+                  onRotate={persistRotate}
+                  initialRotation={doc.rotation ?? 0}
+                />;
             }
             if (ext === "docx") return <DocxViewer src={blobUrl} fileName={doc.file_name} />;
             if (["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext)) {

@@ -2247,13 +2247,22 @@ export default function DashboardPage() {
               // passports so the orientation persists exactly like every
               // other doc.
               const _docRotation = ((previewDoc as { rotation?: number | null }).rotation ?? 0);
-              // Stored PDFs render via the browser's native PDFium viewer
-              // (IosPdfFrame, #toolbar=0 → no browser bar): it draws scanned
-              // agency forms correctly where pdf.js paints them faint. Desktop
-              // + iOS. The generated Visa-CV (__renderUrl) stays on pdf.js.
-              const _nativePdf = ext === "pdf" && !previewDoc.__renderUrl && _isIOS;
+              // On iOS EVERY pdf goes through the OS engine (IosPdfFrame,
+              // #toolbar=0 → no browser bar). That is not a preference: WebKit
+              // will not paint a pdf.js canvas on iPhone/iPad, so anything that
+              // falls through to the pdf.js branch there renders BLANK.
+              //
+              // The generated Visa-CV (__renderUrl) used to be excluded here
+              // and did exactly that — a candidate opening their visa CV on an
+              // iPhone got an empty grey viewer. It renders from the blob that
+              // was already fetched with the Bearer just above, because its
+              // route accepts no ?dlt= token an iframe could carry.
+              const _nativePdf = ext === "pdf" && _isIOS;
+              const _iosSrc = previewDoc.__renderUrl
+                ? previewBlobUrl
+                : (previewDoc.id && dlt ? withDlt(`/api/portal/file?docId=${encodeURIComponent(previewDoc.id)}`, dlt) : "");
               if (_nativePdf) {
-                if (!(previewDoc.id && authToken && dlt)) {
+                if (!_iosSrc || !authToken) {
                   return (
                     <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#525659" }}>
                       <Spinner size="md" />
@@ -2263,10 +2272,13 @@ export default function DashboardPage() {
                 return (
                   <div style={{ position: "absolute", inset: 0 }}>
                     <IosPdfFrame
-                      src={withDlt(`/api/portal/file?docId=${encodeURIComponent(previewDoc.id)}`, dlt)}
+                      src={_iosSrc}
                       title={previewDoc.file_name}
                       initialRotation={_docRotation}
                       onRotate={() => {
+                        // A generated preview has no stored row to persist a
+                        // rotation against — rotating it is view-only.
+                        if (previewDoc.__renderUrl || !previewDoc.id) return;
                         fetch(`/api/portal/documents/${previewDoc.id}`, {
                           method: "PATCH",
                           headers: {
