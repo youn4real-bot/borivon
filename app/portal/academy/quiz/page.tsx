@@ -31,6 +31,8 @@ type Result = { score: number; passed: boolean; pointsEarned?: number; perQuesti
 
 function QuizInner() {
   const { lang } = useLang();
+  /** LAW #19 — every visible string in all three languages. */
+  const T = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
   const router = useRouter();
   const quizId = useSearchParams().get("id") ?? "";
 
@@ -63,6 +65,9 @@ function QuizInner() {
   const [answers, setAnswers] = useState<Record<string, number>>({});
   const [combo, setCombo] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+  /** Set when a submit fails, so the nurse is told instead of the screen just
+   *  sitting there. Cleared on each new attempt. */
+  const [submitErr, setSubmitErr] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
 
   useEffect(() => {
@@ -105,14 +110,36 @@ function QuizInner() {
   async function submit() {
     if (!quiz || submitting) return;
     setSubmitting(true);
+    setSubmitErr(null);
     const payload = { id: quiz.id, answers: Object.entries(answers).map(([questionId, choice]) => ({ questionId, choice })) };
-    const r = await fetch("/api/portal/academy/quiz", {
-      method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify(payload),
-    });
-    const j = await r.json().catch(() => null);
-    setSubmitting(false);
-    if (j && typeof j.score === "number") setResult(j as Result);
+    try {
+      const r = await fetch("/api/portal/academy/quiz", {
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      });
+      const j = await r.json().catch(() => null);
+      if (r.ok && j && typeof j.score === "number") { setResult(j as Result); return; }
+      // Nothing used to happen here. The spinner stopped, the screen stayed on
+      // the last question with the button still offering to submit, and every
+      // answer was gone. Supabase rotates the JWT roughly hourly, so a 401 on
+      // an exam a nurse has been working through for an hour is the LIKELY
+      // case, not an edge one — and she had no way to know it had failed.
+      //
+      // `answers` is untouched, so retrying re-sends the whole set.
+      setSubmitErr(r.status === 401
+        ? T("Your session expired. Reload the page — your answers are still here — then submit again.",
+            "Ihre Sitzung ist abgelaufen. Laden Sie die Seite neu — Ihre Antworten sind noch da — und senden Sie erneut.",
+            "Votre session a expiré. Rechargez la page — vos réponses sont conservées — puis renvoyez.")
+        : T("Couldn't send your answers. They're still here — try again.",
+            "Ihre Antworten konnten nicht gesendet werden. Sie sind noch da — bitte erneut versuchen.",
+            "Impossible d'envoyer vos réponses. Elles sont conservées — réessayez."));
+    } catch {
+      setSubmitErr(T("Network error. Your answers are still here — try again.",
+        "Netzwerkfehler. Ihre Antworten sind noch da — bitte erneut versuchen.",
+        "Erreur réseau. Vos réponses sont conservées — réessayez."));
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   if (loading) return <PageLoader />;
@@ -214,6 +241,12 @@ function QuizInner() {
               {submitting ? "…" : (locked && instant) ? L.continue : (i + 1 >= quiz.questions.length ? L.submit : (instant ? L.checkIt : L.continue))}
               {locked && instant && <ChevronRight size={18} strokeWidth={2.5} />}
             </button>
+
+            {submitErr && (
+              <p role="alert" className="mt-3 text-[13px] text-center px-2" style={{ color: "var(--danger)" }}>
+                {submitErr}
+              </p>
+            )}
           </>
         ) : (
           /* ── reward / result screen ───────────────────────────────────────── */

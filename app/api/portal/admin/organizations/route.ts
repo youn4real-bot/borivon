@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
-import { requireAdminRole } from "@/lib/admin-auth";
+import { requireAdminRole, getVisibleOrgIds } from "@/lib/admin-auth";
 
 // Avoid 0/O, 1/I/L — easier to dictate over the phone
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
@@ -31,9 +31,25 @@ export async function GET(req: NextRequest) {
 
   const db = getServiceSupabase();
 
+  // SCOPE BY MEMBERSHIP, NOT BY agency_id.
+  //
+  // `auth.agencyId ? .eq("agency_id", …) : orgsBase` was inert for a real org
+  // admin — agency_id is set on the sub_admins row, not derived from the orgs
+  // they actually belong to — so the else-branch ran and returned EVERY
+  // organization. Together with member_invite_code in the select, that handed
+  // a partner agency's admin the code that makes someone an admin of any other
+  // agency: paste it into /api/portal/invite/<code> and the LAW #25 scope that
+  // is supposed to separate two competing businesses is simply gone.
+  //
+  // getVisibleOrgIds returns null for the supreme admin and for a true HQ
+  // sub-admin (both legitimately see everything), and the concrete list for an
+  // org-scoped admin.
+  const visibleOrgIds = auth.role === "admin" ? null : await getVisibleOrgIds(auth.email);
   const orgsBase = db.from("organizations").select("id, name, invite_code, member_invite_code, notes, logo_filename, footer_text, vaccine_req, created_at").order("created_at", { ascending: true });
   const [{ data: orgs }, { data: members }, { data: links }] = await Promise.all([
-    auth.agencyId ? orgsBase.eq("agency_id", auth.agencyId) : orgsBase,
+    visibleOrgIds === null
+      ? orgsBase
+      : orgsBase.in("id", visibleOrgIds.length ? visibleOrgIds : ["00000000-0000-0000-0000-000000000000"]),
     db.from("organization_members").select("org_id, sub_admin_email, role"),
     db.from("candidate_organizations").select("org_id, status"),
   ]);

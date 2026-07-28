@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
-import { requireAdminRole } from "@/lib/admin-auth";
+import { requireAdminRole, canActOnOrg } from "@/lib/admin-auth";
 import { UUID_RE } from "@/lib/uuid";
 
 export async function GET(req: NextRequest) {
@@ -12,6 +12,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "slotId required" }, { status: 400 });
 
   const db   = getServiceSupabase();
+
+  // SAME SCOPE AS THE UPLOAD BELOW. Reading was left open while writing was
+  // gated, so an org admin at one agency could pull another agency's template
+  // PDFs — their Arbeitsvertrag, Vorabzustimmung, EzB — complete with employer
+  // name, Betriebsnummer and contract terms, just by passing a slotId. The ids
+  // are not secret; the slot list hands them out.
+  const { data: slot } = await db.from("phase_slots").select("org_id").eq("id", slotId).maybeSingle();
+  if (!slot) return new NextResponse("Not found", { status: 404 });
+  if (!(await canActOnOrg(auth.role, auth.email, (slot as { org_id: string | null }).org_id))) {
+    return new NextResponse("Not found", { status: 404 }); // 404, not 403 — don't confirm the slot exists
+  }
+
   const path = `slot-templates/${slotId}.pdf`;
 
   const { data: blob, error } = await db.storage.from(BUCKET).download(path);

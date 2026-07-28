@@ -2001,10 +2001,24 @@ export default function AdminPage() {
         setDocs(prev => prev.map(d => d.id === docId ? { ...d, status, feedback: fb } : d));
         setFeedbacks(f => ({ ...f, [docId]: fb || "" }));
         setDirtyFeedbacks(d => { const n = new Set(d); n.delete(docId); return n; });
+        return true;
       }
+      // There was no else. A 403 (LAW #25 scope) or a 500 resolved normally, so
+      // this branch was skipped in silence: the reject modal closed, the typed
+      // rejection reason was discarded, the row kept its old colour, and the
+      // admin moved on believing the review had landed while the candidate was
+      // still waiting. Only a thrown fetch — DNS, offline — ever surfaced.
+      //
+      // Returns a boolean rather than throwing: eleven call sites invoke this
+      // straight from an onClick without awaiting, and a rejected promise there
+      // would just trade a silent failure for an unhandled one.
+      console.error("Review failed:", res.status);
+      showError(t.adErrDocStatus);
+      return false;
     } catch (err) {
       console.error("Review error:", err);
       showError(t.adErrDocStatus);
+      return false;
     } finally {
       setSaving(s => ({ ...s, [docId]: false }));
     }
@@ -2103,8 +2117,26 @@ export default function AdminPage() {
     setEditingSlotId(null);
   }
 
-  async function deletePhaseSlot(slotId: string, phase: string) {
+  async function deletePhaseSlot(slotId: string, phase: string, label?: string) {
     if (!accessToken) return;
+    // CONFIRM FIRST. phase_slots rows are shared templates, not per-candidate:
+    // deleting one removes that step for EVERY candidate in scope and orphans
+    // whatever they already uploaded against it. The menu item sits directly
+    // above "Move to → <category>", so a slip of one row was enough to wipe a
+    // Visum step for a whole intake, with no dialog and no undo.
+    //
+    // The guard lives here rather than at the call sites so a future third
+    // caller cannot miss it.
+    const what = label?.trim()
+      ? `"${label.trim()}"`
+      : (lang === "de" ? "diesen Schritt" : lang === "fr" ? "cette étape" : "this step");
+    if (!window.confirm(
+      lang === "de"
+        ? `${what} für ALLE Kandidaten löschen? Bereits hochgeladene Dateien für diesen Schritt verlieren ihren Platz. Das lässt sich nicht rückgängig machen.`
+        : lang === "fr"
+          ? `Supprimer ${what} pour TOUS les candidats ? Les fichiers déjà envoyés pour cette étape perdront leur emplacement. Action irréversible.`
+          : `Delete ${what} for EVERY candidate? Files already uploaded against this step lose their place. This cannot be undone.`,
+    )) return;
     // Optimistic remove — but REVERSIBLE. The response was never inspected and
     // errors were swallowed, so a 401 on a stale token, or a server refusal,
     // left the slot gone from the screen and still very much in the database.
@@ -2682,7 +2714,11 @@ export default function AdminPage() {
   async function submitReject(text: string, shot: string | null) {
     if (!rejectTarget) return;
     if (rejectTarget.kind === "doc") {
-      await review(rejectTarget.docId, "rejected", text);
+      // Keep the modal open and the typed reason intact when the save fails.
+      // Closing regardless is how a rejection reason the admin had written out
+      // — mandatory under LAW #20 — used to vanish on a 403 or a 500.
+      const ok = await review(rejectTarget.docId, "rejected", text);
+      if (!ok) return;
     } else {
       setPassportDataFeedback(text);
       await reviewPassport("rejected", text);
@@ -3545,7 +3581,18 @@ export default function AdminPage() {
                           {passportInfoSaving ? "…" : <><CheckCircle2 size={13} strokeWidth={1.8} /> Approve</>}
                         </button>
                         <button
-                          onClick={() => reviewPassport("rejected")}
+                          // LAW #20: a rejection ALWAYS carries a reason. This
+                          // called reviewPassport("rejected") with no feedback
+                          // and never opened AdminRejectModal, so the candidate
+                          // got a red badge and a notification with a null
+                          // feedback field — told she was rejected, never told
+                          // why, and with nothing to act on. Route it through
+                          // the same modal every other rejection uses.
+                          onClick={() => openRejectModal({
+                            kind: "passport",
+                            label: lang === "de" ? "Passdaten" : lang === "fr" ? "Données du passeport" : "Passport data",
+                            initialFeedback: passportDataFeedback,
+                          })}
                           disabled={passportInfoSaving || pst === "rejected"}
                           className="flex-1 py-2 rounded-xl text-xs font-semibold transition-opacity hover:opacity-80 disabled:opacity-40 inline-flex items-center justify-center gap-1.5"
                           style={{ background: "var(--danger-bg)", color: "var(--danger)" }}>
@@ -4754,7 +4801,7 @@ export default function AdminPage() {
                                                       </>
                                                     )}
                                                     <button
-                                                      onClick={e => { e.stopPropagation(); setRevokeMenu(null); deletePhaseSlot(slot.id, slotPhase); }}
+                                                      onClick={e => { e.stopPropagation(); setRevokeMenu(null); deletePhaseSlot(slot.id, slotPhase, slot.label); }}
                                                       className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
                                                       style={{ color: "var(--danger)" }}>
                                                       <Trash2 size={11} strokeWidth={1.8} /> Delete slot
@@ -4905,7 +4952,7 @@ export default function AdminPage() {
                                                 </>
                                               )}
                                               <button
-                                                onClick={e => { e.stopPropagation(); setRevokeMenu(null); deletePhaseSlot(slot.id, slotPhase); }}
+                                                onClick={e => { e.stopPropagation(); setRevokeMenu(null); deletePhaseSlot(slot.id, slotPhase, slot.label); }}
                                                 className="bv-row-hover w-full text-left px-3 py-2.5 text-[11px] font-medium inline-flex items-center gap-1.5"
                                                 style={{ color: "var(--danger)" }}>
                                                 <Trash2 size={11} strokeWidth={1.8} /> Delete slot
