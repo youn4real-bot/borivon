@@ -19,12 +19,13 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { cachedRole } from "@/lib/myRole";
 import { useLang } from "@/components/LangContext";
+import { AddBookingModal } from "@/components/AddBookingModal";
 import { PageLoader } from "@/components/ui/states";
 import { Modal, GoldButton, GhostButton } from "@/components/ui/Modal";
 import { DropdownMenu } from "@/components/ui/DropdownMenu";
 import {
   ChevronLeft, ChevronRight, CalendarDays, List, Lock, Plus,
-  Trash2, MapPin, Video, Clock, CalendarPlus, Crown, Repeat, Users, Pencil, ChevronDown, CalendarCheck, ExternalLink,
+  Trash2, MapPin, Video, Clock, CalendarPlus, Crown, Repeat, Users, Pencil, ChevronDown, CalendarCheck, ExternalLink, Loader2,
 } from "lucide-react";
 
 const TZ = "Africa/Casablanca";
@@ -227,6 +228,15 @@ export default function CalendarPage() {
   // MERGED diary — community events + booked calls + the founder's Google time —
   // and can put an appointment straight into it from here.
   const [isStaff, setIsStaff] = useState(false);
+  // Appointment modal — opens ON the day you clicked, so booking a call is done
+  // where you were already looking instead of on another page.
+  const [apptWhen, setApptWhen] = useState<string | null>(null);
+  // The booking modal does its own POST, so it needs a bearer token of its own
+  // (authedFetch resolves one per call and can't hand it out).
+  const [apptToken, setApptToken] = useState("");
+  // Moving / cancelling one of the founder's own Google events from here.
+  const [gEditBusy, setGEditBusy] = useState(false);
+  const [gEditErr, setGEditErr] = useState<string | null>(null);
   const [view, setView] = useState<"month" | "list">("month");
   const [now, setNow] = useState<Date>(() => new Date());
 
@@ -298,6 +308,20 @@ export default function CalendarPage() {
     } catch { /* ignore */ }
   }, [authedFetch]);
   useEffect(() => { if (canManage && !peopleLoaded) void fetchPeople(); }, [canManage, peopleLoaded, fetchPeople]);
+
+  // Keep a fresh token for the booking modal. JWTs roll about hourly, so a
+  // calendar left open overnight must not hand the modal a dead one.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!cancelled && session?.access_token) setApptToken(session.access_token);
+    })();
+    const { data } = supabase.auth.onAuthStateChange((_e, sess) => {
+      if (sess?.access_token) setApptToken(sess.access_token);
+    });
+    return () => { cancelled = true; data.subscription.unsubscribe(); };
+  }, []);
 
   // Bootstrap
   useEffect(() => {
@@ -373,6 +397,71 @@ export default function CalendarPage() {
       return { ymd, day: dt.getUTCDate(), inMonth: m === cursor.m };
     });
   }, [cursor]);
+
+  /** ISO instant → the "YYYY-MM-DDTHH:mm" a datetime-local input wants, in the
+   *  viewer's own clock (which is what they are about to type in). */
+  function toLocalInput(iso: string): string {
+    const d = new Date(iso);
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+  /** Holds whatever the admin typed into the move field, without re-rendering
+   *  the modal on every keystroke. */
+  const gMoveRef = useRef<string>("");
+
+  /** Move one of the founder's own Google events. Duration is preserved server
+   *  side when no end is sent, so a 2h meeting never shrinks to 1h. */
+  async function moveGoogle(ev: Ev) {
+    const raw = gMoveRef.current;
+    const at = Date.parse(raw);
+    if (!raw || !Number.isFinite(at)) {
+      setGEditErr(T("Pick a new date and time first.", "Bitte zuerst Datum und Uhrzeit wählen.", "Choisissez d'abord une date et une heure."));
+      return;
+    }
+    setGEditBusy(true); setGEditErr(null);
+    try {
+      const r = await authedFetch("/api/portal/calendar/google", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId: ev.id.replace(/^google:/, ""), startsAt: at }),
+      });
+      if (!r.ok) {
+        setGEditErr(T("Google refused the change.", "Google hat die Änderung abgelehnt.", "Google a refusé la modification."));
+        return;
+      }
+      setDetail(null); gMoveRef.current = ""; await load();
+    } catch {
+      setGEditErr(T("Network error.", "Netzwerkfehler.", "Erreur réseau."));
+    } finally { setGEditBusy(false); }
+  }
+
+  /** Cancel a Google event. Confirmed first — it emails any attendees and there
+   *  is no undo from here. */
+  async function cancelGoogle(ev: Ev) {
+    if (!window.confirm(T("Cancel this event in Google Calendar?", "Diesen Termin im Google Kalender absagen?", "Annuler cet événement dans Google Agenda ?"))) return;
+    setGEditBusy(true); setGEditErr(null);
+    try {
+      const r = await authedFetch(`/api/portal/calendar/google?eventId=${encodeURIComponent(ev.id.replace(/^google:/, ""))}`, { method: "DELETE" });
+      if (!r.ok) {
+        setGEditErr(T("Google refused the cancellation.", "Google hat die Absage abgelehnt.", "Google a refusé l'annulation."));
+        return;
+      }
+      setDetail(null); await load();
+    } catch {
+      setGEditErr(T("Network error.", "Netzwerkfehler.", "Erreur réseau."));
+    } finally { setGEditBusy(false); }
+  }
+
+  /** datetime-local string for the appointment modal: a given day at 10:00,
+   *  or the next round hour when no day was clicked. */
+  function apptWhenFor(ymd?: string): string {
+    if (ymd) return `${ymd}T10:00`;
+    const d = new Date(Date.now() + 60 * 60 * 1000);
+    d.setMinutes(0, 0, 0);
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:00`;
+  }
+  const defaultApptWhen = () => apptWhenFor();
 
   const eventsByDay = useMemo(() => {
     const map: Record<string, Ev[]> = {};
@@ -564,7 +653,7 @@ export default function CalendarPage() {
               link and the follow-up chase. Merging them into one control would
               hide that difference. */}
           {isStaff && (
-            <button onClick={() => router.push("/portal/admin/bookings")}
+            <button onClick={() => setApptWhen(defaultApptWhen())}
               className="bv-press inline-flex items-center gap-1.5 text-[12.5px] font-semibold px-3.5 py-1.5"
               style={{ background: "rgba(22,163,74,.14)", color: "#16a34a", border: "1px solid rgba(22,163,74,.38)", borderRadius: "var(--r-md)" }}>
               <CalendarPlus size={15} strokeWidth={2.2} /> {T("Appointment", "Termin buchen", "Rendez-vous")}
@@ -594,10 +683,17 @@ export default function CalendarPage() {
             {grid.map((cell, i) => {
               const dayEvents = eventsByDay[cell.ymd] ?? [];
               const isToday = cell.ymd === todayYMD;
-              const clickable = dayEvents.length > 0 || canManage;
+              const clickable = dayEvents.length > 0 || canManage || isStaff;
               return (
                 <button key={cell.ymd + i} disabled={!clickable}
-                  onClick={() => { if (dayEvents.length) setDayPanel(cell.ymd); else if (canManage) openAdd(cell.ymd); }}
+                  // Empty day: the supreme admin gets the community-event form
+                  // (his page); other staff get the appointment form, since
+                  // booking a call is the thing THEY come here to do.
+                  onClick={() => {
+                    if (dayEvents.length) setDayPanel(cell.ymd);
+                    else if (canManage) openAdd(cell.ymd);
+                    else if (isStaff) setApptWhen(apptWhenFor(cell.ymd));
+                  }}
                   className="relative text-left p-1.5 sm:p-2 flex flex-col gap-1 transition-colors disabled:cursor-default"
                   style={{
                     minHeight: "clamp(74px, 13vw, 116px)",
@@ -736,6 +832,19 @@ export default function CalendarPage() {
       </Modal>
 
       {/* ── Event detail modal ────────────────────────────────────────────────── */}
+      {/* Book an appointment right here — same form, same Google event, Meet
+          link, invite and follow-up chase as the Bookings page. Opening it on
+          the day you clicked is the whole point of putting it in the calendar. */}
+      {apptWhen !== null && (
+        <AddBookingModal
+          token={apptToken}
+          T={T}
+          presetWhen={apptWhen}
+          onClose={() => setApptWhen(null)}
+          onSaved={async () => { setApptWhen(null); await load(); }}
+        />
+      )}
+
       <Modal open={!!detail} onClose={() => setDetail(null)} size="md" chromeless>
         {detail && (
           <div className="flex flex-col">
@@ -817,11 +926,44 @@ export default function CalendarPage() {
               {/* The founder's own Workspace time. Shown so nobody double-books
                   him; it belongs to Google and the portal never edits it. */}
               {detail.source === "google" && (
-                <p className="text-[13px] rounded-[14px] p-3" style={{ color: "var(--w3)", background: "var(--bg2)", border: "1px solid var(--border)" }}>
-                  {T("From the Borivon Google Workspace calendar — this time is taken.",
-                     "Aus dem Borivon-Google-Workspace-Kalender — diese Zeit ist belegt.",
-                     "Depuis l'agenda Google Workspace de Borivon — ce créneau est pris.")}
-                </p>
+                <div className="rounded-[14px] p-3 flex flex-col gap-3" style={{ background: "var(--bg2)", border: "1px solid var(--border)" }}>
+                  <p className="text-[13px]" style={{ color: "var(--w3)" }}>
+                    {T("From the Borivon Google Workspace calendar — this time is taken.",
+                       "Aus dem Borivon-Google-Workspace-Kalender — diese Zeit ist belegt.",
+                       "Depuis l'agenda Google Workspace de Borivon — ce créneau est pris.")}
+                  </p>
+                  {/* Seeing a clash and still having to open Google in another
+                      tab defeats the point of one calendar. Supreme admin only:
+                      other staff see these as "Busy" with no title, and moving
+                      something you cannot read is indefensible. */}
+                  {canManage && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <input
+                        type="datetime-local"
+                        className="bv-input"
+                        style={{ maxWidth: 220 }}
+                        defaultValue={toLocalInput(detail.starts_at)}
+                        onChange={(e) => { gMoveRef.current = e.target.value; }}
+                        aria-label={T("New time", "Neue Zeit", "Nouvel horaire")}
+                      />
+                      <button
+                        disabled={gEditBusy}
+                        onClick={() => moveGoogle(detail)}
+                        className="bv-btn bv-btn-ghost bv-tap text-[12.5px] inline-flex items-center gap-1.5">
+                        {gEditBusy ? <Loader2 size={13} className="animate-spin" aria-hidden /> : null}
+                        {T("Move", "Verschieben", "Déplacer")}
+                      </button>
+                      <button
+                        disabled={gEditBusy}
+                        onClick={() => cancelGoogle(detail)}
+                        className="bv-btn bv-btn-ghost bv-tap text-[12.5px]"
+                        style={{ color: "var(--w3)" }}>
+                        {T("Cancel event", "Termin absagen", "Annuler")}
+                      </button>
+                    </div>
+                  )}
+                  {gEditErr && <p className="text-[12.5px]" style={{ color: "#ef4444" }} role="alert">{gEditErr}</p>}
+                </div>
               )}
 
               {detail.locked ? (

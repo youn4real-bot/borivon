@@ -75,6 +75,23 @@ function startOfTodayTz(): Date {
   return localToInstant(`${todayIso}T00:00:00`);
 }
 
+
+/**
+ * Did Google say "gone"?
+ *
+ * The googleapis client set a numeric `code`; the fetch shim we run on Workers
+ * throws an Error whose MESSAGE carries the status ("google_rest 404 …"). Only
+ * checking `code` meant a deleted event surfaced as a generic 502 "Google
+ * refused the change" instead of "that event no longer exists" — and a cancel
+ * of an already-gone event reported failure rather than success.
+ */
+function isGone(e: unknown): boolean {
+  const code = (e as { code?: number })?.code;
+  if (code === 404 || code === 410) return true;
+  const msg = e instanceof Error ? e.message : String(e ?? "");
+  return /(404|410)/.test(msg) && /google_rest|calendar\/v3/i.test(msg);
+}
+
 export type BookEventResult =
   | { ok: true; id: string; htmlLink?: string; meetLink?: string }
   | { ok: false; error: string };
@@ -359,8 +376,7 @@ export async function updateWorkspaceEvent(opts: {
     const meetLink = res.data.hangoutLink || res.data.conferenceData?.entryPoints?.find((e) => e.entryPointType === "video")?.uri || undefined;
     return { ok: true, id: res.data.id ?? opts.eventId, htmlLink: res.data.htmlLink ?? undefined, meetLink };
   } catch (e) {
-    const code = (e as { code?: number })?.code;
-    if (code === 404 || code === 410) return { ok: false, error: "event_not_found" };
+    if (isGone(e)) return { ok: false, error: "event_not_found" };
     console.error("[workspaceCalendar] update failed:", e instanceof Error ? e.message : e);
     return { ok: false, error: e instanceof Error ? e.message : "update_failed" };
   }
@@ -382,8 +398,7 @@ export async function cancelWorkspaceEvent(eventId: string, wholeSeries?: boolea
     await cal.events.delete({ calendarId: "primary", eventId: target, sendUpdates: "all" });
     return { ok: true };
   } catch (e) {
-    const code = (e as { code?: number })?.code;
-    if (code === 404 || code === 410) return { ok: true }; // already gone
+    if (isGone(e)) return { ok: true }; // already gone — cancelling it is a no-op, not a failure
     console.error("[workspaceCalendar] cancel failed:", e instanceof Error ? e.message : e);
     return { ok: false, error: e instanceof Error ? e.message : "cancel_failed" };
   }
