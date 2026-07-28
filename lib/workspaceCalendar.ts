@@ -15,6 +15,7 @@
 import { calendarClient } from "@/lib/googleWorkspace";
 import type { calendar_v3 } from "googleapis";
 import { randomUUID } from "node:crypto";
+import { dtf, dtfParts } from "@/lib/intlCache";
 
 /** The founder's timezone (Morocco). Override with CALENDAR_TZ if they relocate. */
 export const BORIVON_TZ = (process.env.CALENDAR_TZ || "Africa/Casablanca").trim();
@@ -35,10 +36,10 @@ function calTime(iso: string): { dateTime: string; timeZone?: string } {
  *  Google REQUIRES an IANA timeZone on BOTH start and end for any event carrying an RRULE;
  *  a Z-suffixed dateTime alone (no timeZone) makes the recurring insert 400. */
 function localCalTime(instant: Date): { dateTime: string; timeZone: string } {
-  const p = new Intl.DateTimeFormat("en-CA", {
+  const p = dtfParts("en-CA", {
     timeZone: BORIVON_TZ, hourCycle: "h23",
     year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
-  }).formatToParts(instant).reduce((a, x) => { if (x.type !== "literal") a[x.type] = x.value; return a; }, {} as Record<string, string>);
+  }, instant);
   return { dateTime: `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}`, timeZone: BORIVON_TZ };
 }
 
@@ -50,10 +51,10 @@ function ensureTz(ct: { dateTime: string; timeZone?: string }): { dateTime: stri
 
 /** ms offset of `tz` from UTC at a given instant (handles DST / Morocco's Ramadan shift). */
 function tzOffsetMs(date: Date, tz: string): number {
-  const parts = new Intl.DateTimeFormat("en-US", {
+  const parts = dtfParts("en-US", {
     timeZone: tz, hourCycle: "h23",
     year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
-  }).formatToParts(date).reduce((a, p) => { if (p.type !== "literal") a[p.type] = p.value; return a; }, {} as Record<string, string>);
+  }, date);
   const asUTC = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second);
   return asUTC - date.getTime();
 }
@@ -71,7 +72,7 @@ export function localToInstant(iso: string): Date {
 
 /** Start of "today" in BORIVON_TZ, as a UTC instant (B16 default window floor). */
 function startOfTodayTz(): Date {
-  const todayIso = new Intl.DateTimeFormat("en-CA", { timeZone: BORIVON_TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  const todayIso = dtf("en-CA", { timeZone: BORIVON_TZ, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
   return localToInstant(`${todayIso}T00:00:00`);
 }
 
@@ -79,17 +80,49 @@ function startOfTodayTz(): Date {
 /**
  * Did Google say "gone"?
  *
- * The googleapis client set a numeric `code`; the fetch shim we run on Workers
- * throws an Error whose MESSAGE carries the status ("google_rest 404 …"). Only
- * checking `code` meant a deleted event surfaced as a generic 502 "Google
- * refused the change" instead of "that event no longer exists" — and a cancel
- * of an already-gone event reported failure rather than success.
+ * Getting this wrong is why a deleted event surfaced as a generic 502 "Google
+ * refused the change" instead of "that event no longer exists", and why
+ * cancelling an already-gone event reported failure rather than the no-op it is.
+ *
+ * The previous version could never fire. Its regex literal held two LITERAL
+ * BACKSPACE BYTES (0x08) where the word-boundary escape \b was meant, so it
+ * only matched a message containing an actual control character — which no
+ * Google error has ever contained. It read correctly on screen, which is
+ * precisely why it survived: the bug was in the bytes, not the logic.
+ *
+ * Two clients throw two different shapes and BOTH must be recognised:
+ *
+ *  • the Workers fetch shim (lib/googleRestShim) throws a plain Error whose
+ *    message starts "google_rest 404 <url> <body>";
+ *  • googleapis on Node throws a GaxiosError whose message is just "Not Found"
+ *    — no digits at all — carrying the status on `.code` (sometimes the STRING
+ *    "404"), on `.status`, or on `.response.status`, with the machine-readable
+ *    cause in `.errors[0].reason`.
+ *
+ * Exported so the tests can pin the real shapes rather than a retyped copy of
+ * the predicate — retyping it is how the backspaces went unnoticed.
  */
-function isGone(e: unknown): boolean {
-  const code = (e as { code?: number })?.code;
-  if (code === 404 || code === 410) return true;
-  const msg = e instanceof Error ? e.message : String(e ?? "");
-  return /(404|410)/.test(msg) && /google_rest|calendar\/v3/i.test(msg);
+export function isGone(e: unknown): boolean {
+  if (!e) return false;
+  const err = e as {
+    code?: number | string;
+    status?: number | string;
+    response?: { status?: number };
+    errors?: Array<{ reason?: string }>;
+  };
+  const statusOf = (v: unknown) =>
+    typeof v === "number" ? v : typeof v === "string" && /^[0-9]+$/.test(v) ? Number(v) : NaN;
+  for (const raw of [err.code, err.status, err.response?.status]) {
+    const n = statusOf(raw);
+    if (n === 404 || n === 410) return true;
+  }
+  const reason = err.errors?.[0]?.reason;
+  if (reason === "notFound" || reason === "deleted") return true;
+
+  // Anchored to where the status actually SITS in a shim error, rather than a
+  // loose digit run a URL or a response body could supply by accident.
+  const msg = e instanceof Error ? e.message : String(e);
+  return /^google_rest (?:404|410)(?![0-9])/.test(msg);
 }
 
 export type BookEventResult =
@@ -252,7 +285,7 @@ export async function listTodayEvents(): Promise<{ time: string; title: string; 
       if (!iso) return "";
       const t = Date.parse(iso);
       if (!Number.isFinite(t)) return "";
-      return new Intl.DateTimeFormat("en-GB", { timeZone: BORIVON_TZ, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(t));
+      return dtf("en-GB", { timeZone: BORIVON_TZ, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(t));
     };
     return res.events.map((e) => ({
       time: e.allDay ? "all day" : fmtTime(e.start),

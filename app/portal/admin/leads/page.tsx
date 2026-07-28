@@ -171,13 +171,17 @@ export default function AdminLeadsPage() {
                         by hand. One press puts them in the Pool. */}
                     {l.candidate_user_id ? (
                       <button
-                        onClick={() => router.push(`/portal/admin?candidate=${l.candidate_user_id}`)}
+                        // nav_user_id, not candidate — the admin panel reads the
+                        // former (page.tsx:1388) and has never read the latter,
+                        // so this button dropped the founder onto the panel with
+                        // nobody selected and no hint which person it meant.
+                        onClick={() => router.push(`/portal/admin?nav_user_id=${l.candidate_user_id}`)}
                         className="bv-btn bv-btn-ghost bv-tap text-[12px] inline-flex items-center gap-1.5"
                       >
                         <UserCheck size={12} strokeWidth={2} style={{ color: "#16a34a" }} />
                         {T("In the pool", "Im Pool", "Dans le vivier")}
                       </button>
-                    ) : (
+                    ) : l.kind === "nurse" ? (
                       <button
                         onClick={() => addToPool(l.id)}
                         disabled={poolBusy === l.id}
@@ -188,7 +192,10 @@ export default function AdminLeadsPage() {
                           : <UserPlus size={12} strokeWidth={2} />}
                         {T("Add to pool", "In den Pool", "Ajouter au vivier")}
                       </button>
-                    )}
+                    ) : null /* Only nurses go in the candidate pool. A clinic or
+                        a company is a counterparty, not somebody we place, and
+                        offering the button on their row invited a click that
+                        would have made them a candidate account. */}
                   </div>
                 </div>
                 {extras.length > 0 && (

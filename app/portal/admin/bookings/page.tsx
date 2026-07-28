@@ -267,6 +267,9 @@ function AvailabilityModal({
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  /** Set when the CURRENT availability could not be read. While it is set the
+   *  form is not trustworthy, so saving is blocked — see the loader below. */
+  const [loadErr, setLoadErr] = useState<string | null>(null);
 
   const [week, setWeek] = useState<Record<number, string>>({});   // day → "09:00-13:00, 14:00-18:00"
   const [slot, setSlot] = useState(30);
@@ -281,7 +284,22 @@ function AvailabilityModal({
       try {
         const r = await fetch("/api/portal/admin/booking-availability", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
         const j = await r.json().catch(() => ({}));
-        const a = j?.availability ?? {};
+        // A failed load must NOT fall through to an empty form. It did: the body
+        // was swallowed, `a` became {}, every field reset to its default, the
+        // week rendered blank — and the founder's next Save would have written
+        // that blank week straight over their real availability. An expired
+        // token on a page left open is enough to trigger it.
+        if (!r.ok || !j?.availability) {
+          setLoadErr(r.status === 401 || r.status === 403
+            ? T("Your session expired — reload the page before changing anything.",
+                "Ihre Sitzung ist abgelaufen — laden Sie die Seite neu, bevor Sie etwas ändern.",
+                "Votre session a expiré — rechargez la page avant de modifier quoi que ce soit.")
+            : T("Couldn't load your availability. Reload before editing, so you don't overwrite it.",
+                "Verfügbarkeit konnte nicht geladen werden. Vor dem Bearbeiten neu laden, um sie nicht zu überschreiben.",
+                "Impossible de charger vos disponibilités. Rechargez avant de modifier, pour ne pas les écraser."));
+          return;
+        }
+        const a = j.availability ?? {};
         const w: Record<number, string> = {};
         for (const [k, v] of Object.entries(a.week ?? {})) {
           if (Array.isArray(v)) w[Number(k)] = v.join(", ");
@@ -293,6 +311,10 @@ function AvailabilityModal({
         setHorizon(Number(a.horizon_days) || 14);
         setAccepting(a.accepting !== false);
         setBlackout((Array.isArray(a.blackout_dates) ? a.blackout_dates : []).join("\n"));
+      } catch {
+        setLoadErr(T("Couldn't load your availability. Reload before editing, so you don't overwrite it.",
+          "Verfügbarkeit konnte nicht geladen werden. Vor dem Bearbeiten neu laden, um sie nicht zu überschreiben.",
+          "Impossible de charger vos disponibilités. Rechargez avant de modifier, pour ne pas les écraser."));
       } finally {
         setLoading(false);
       }
@@ -320,12 +342,18 @@ function AvailabilityModal({
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) {
+        // The server now names the exact value it rejected. Show that instead of
+        // a generic "check the hours" — the founder should not have to hunt
+        // through seven days to find the one they mistyped.
+        const details: string[] = Array.isArray(j?.details) ? j.details : [];
         setErr(j?.error === "not_migrated"
           ? T("Run supabase/booking_maxx.sql first.", "Bitte zuerst supabase/booking_maxx.sql ausführen.", "Exécutez d'abord supabase/booking_maxx.sql.")
           : j?.error === "bad_week"
-            ? T("Check the hours — each one must look like 09:00-13:00.",
-                "Zeiten prüfen — jede muss wie 09:00-13:00 aussehen.",
-                "Vérifiez les horaires — chacun doit ressembler à 09:00-13:00.")
+            ? (details.length
+                ? details.slice(0, 4).join(" ")
+                : T("Check the hours — each one must look like 09:00-13:00.",
+                    "Zeiten prüfen — jede muss wie 09:00-13:00 aussehen.",
+                    "Vérifiez les horaires — chacun doit ressembler à 09:00-13:00."))
             : T("Couldn't save.", "Konnte nicht gespeichert werden.", "Échec de l'enregistrement."));
         return;
       }
@@ -351,7 +379,10 @@ function AvailabilityModal({
           <button onClick={onClose} disabled={saving} className="bv-btn bv-btn-ghost bv-tap">
             {T("Close", "Schließen", "Fermer")}
           </button>
-          <button onClick={save} disabled={saving || loading} className="bv-btn bv-btn-primary bv-tap inline-flex items-center gap-2">
+          {/* Saving is blocked while the current availability is unknown — the
+              form would be showing defaults, not their hours, and Save would
+              write those defaults over the real thing. */}
+          <button onClick={save} disabled={saving || loading || !!loadErr} className="bv-btn bv-btn-primary bv-tap inline-flex items-center gap-2">
             {saving ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Check size={14} aria-hidden />}
             {T("Save", "Speichern", "Enregistrer")}
           </button>
@@ -359,6 +390,15 @@ function AvailabilityModal({
       }
     >
       <div className="grid gap-4 px-5 py-4">
+        {loadErr ? (
+          <div
+            role="alert"
+            className="rounded-xl px-4 py-3 text-[13px]"
+            style={{ background: "rgba(239,68,68,.08)", border: "1px solid rgba(239,68,68,.35)", color: "var(--w)" }}
+          >
+            {loadErr}
+          </div>
+        ) : null}
         {loading ? (
           <div className="bv-skeleton" style={{ height: 260, borderRadius: 14 }} aria-busy="true" />
         ) : (
@@ -590,7 +630,20 @@ function Row({
             )}
             {b.status !== "cancelled" && (
               <button
-                onClick={() => onPatch(b.id, { status: "cancelled" })}
+                onClick={() => {
+                  // Confirm first: this is not a local state change. The server
+                  // deletes the Google event, emails the person that their call
+                  // is off and drops their follow-ups — and there is no undo.
+                  // It sat one stray click away from a real customer being told
+                  // their appointment was cancelled.
+                  const who = b.name || b.email || T("this person", "diese Person", "cette personne");
+                  if (!window.confirm(T(
+                    `Cancel this booking? ${who} will be emailed that it's off, and the calendar event is removed.`,
+                    `Diese Buchung absagen? ${who} erhält eine E-Mail über die Absage, und der Kalendereintrag wird entfernt.`,
+                    `Annuler cette réservation ? ${who} recevra un e-mail d'annulation et l'événement sera supprimé du calendrier.`,
+                  ))) return;
+                  onPatch(b.id, { status: "cancelled" });
+                }}
                 disabled={busy}
                 className="bv-btn bv-btn-ghost bv-tap text-[13px]"
                 style={{ color: "var(--w3)" }}

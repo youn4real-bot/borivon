@@ -122,11 +122,32 @@ export function driveClient() {
   const auth = getWorkspaceAuth();
   return auth ? google.drive({ version: "v3", auth }) : null;
 }
+/**
+ * Docs and Sheets have NO Workers REST shim yet — unlike Gmail, Calendar and
+ * Drive above. Returning the raw googleapis client on workerd hands the caller
+ * something that throws "validateHeaderName is not implemented" deep inside
+ * google-auth-library the moment it is used, which surfaces to the founder as
+ * an unexplained failure.
+ *
+ * Returning null instead routes into each caller's existing
+ * `workspace_not_connected` branch, which is a clean, typed refusal they
+ * already handle. `sheetsShimMissing()` lets those callers say WHY rather than
+ * implying the Workspace connection is broken, because it is not.
+ */
+export const SHEETS_ON_WORKERS_UNSUPPORTED =
+  typeof navigator !== "undefined" && (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
+
+export function sheetsShimMissing(): boolean {
+  return SHEETS_ON_WORKERS_UNSUPPORTED;
+}
+
 export function docsClient() {
+  if (SHEETS_ON_WORKERS_UNSUPPORTED) return null;
   const auth = getWorkspaceAuth();
   return auth ? google.docs({ version: "v1", auth }) : null;
 }
 export function sheetsClient() {
+  if (SHEETS_ON_WORKERS_UNSUPPORTED) return null;
   const auth = getWorkspaceAuth();
   return auth ? google.sheets({ version: "v4", auth }) : null;
 }

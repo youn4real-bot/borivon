@@ -21,6 +21,7 @@ import { requireAdminRole, canActOnCandidate, ciEmail, getVisibleCandidateIds } 
 import { getServiceSupabase } from "@/lib/supabase";
 import { awardPoints } from "@/lib/academyPoints";
 import { serverBroadcast } from "@/lib/serverBroadcast";
+import { keepAlive } from "@/lib/keepAlive";
 import { createRoom } from "@/lib/daily";
 import { enforceRateLimit } from "@/lib/rateLimit";
 
@@ -336,7 +337,7 @@ export async function POST(req: NextRequest) {
         { onConflict: "candidate_user_id,type,source_kind,source_id", ignoreDuplicates: false },
       );
       written++;
-      serverBroadcast(`academy:${cid}`, "points", { reason: "attendance" }).catch(() => {});
+      keepAlive(() => serverBroadcast(`academy:${cid}`, "points", { reason: "attendance" }));
     }
     return NextResponse.json({ ok: true, marked: written });
   }
@@ -362,7 +363,7 @@ export async function POST(req: NextRequest) {
       });
       if (isNew) {
         sent++;
-        serverBroadcast(`academy:${a.candidate_user_id}`, "points", { reason: "class_bonus", points }).catch(() => {});
+        keepAlive(() => serverBroadcast(`academy:${a.candidate_user_id}`, "points", { reason: "class_bonus", points }));
       }
     }
     return NextResponse.json({ ok: true, sent, total: rewardable.length });
@@ -448,7 +449,7 @@ export async function POST(req: NextRequest) {
     const lvls = LEVELS as readonly string[];
     if (lvls.indexOf(level) > lvls.indexOf(oldLevel) && LEVEL_UP_EVENT[level]) {
       await awardPoints({ candidateUserId: cid, cohortId, type: "level_up", sourceKind: "system", sourceId: LEVEL_UP_EVENT[level], meta: { level } });
-      serverBroadcast(`academy:${cid}`, "points", { reason: "level_up", level }).catch(() => {});
+      keepAlive(() => serverBroadcast(`academy:${cid}`, "points", { reason: "level_up", level }));
     }
     return NextResponse.json({ ok: true });
   }

@@ -40,6 +40,7 @@ import { tightenReply, humanizeWriteError, stripInviteFooterClaim } from "@/lib/
 import { tgSend, tgSendNatural, tgSendDocument, tgGetFileBytes, tgTypingLoop, tgSendChatAction, splitOnDivider, getAdminUserId, telegramConfigured } from "@/lib/telegram";
 import { r2Configured, r2Put } from "@/lib/r2";
 import { randomUUID, createHash } from "crypto";
+import { keepAlive } from "@/lib/keepAlive";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -194,12 +195,17 @@ export async function POST(req: NextRequest) {
   // surfaces itself instead of the founder being the bug-finder. Fire-and-forget, never blocks.
   if (!migrationCheckRan) {
     migrationCheckRan = true;
-    void checkPendingMigrations().then(async (missing) => {
+    // keepAlive: this ends in a real message TO the founder, and on Workers a
+    // floating chain like this is cancelled at response end — so the one warning
+    // that an unrun migration is quietly disabling a feature never arrived. It
+    // is also once-per-isolate (migrationCheckRan), so there is no second try.
+    keepAlive(async () => {
+      const missing = await checkPendingMigrations();
       if (missing.length && !(await isBotQuiet())) {
         const lines = missing.map((m) => `- ${m.feature} → run supabase/${m.file}`).join("\n");
-        void tgSend(chatId, `Heads up — these features need a 1-min SQL run in Supabase to work:\n${lines}`);
+        await tgSend(chatId, `Heads up — these features need a 1-min SQL run in Supabase to work:\n${lines}`);
       }
-    }).catch(() => {});
+    });
   }
 
   // DEDUPE: Telegram RE-SENDS an update if our webhook is slow to 2xx (a heavy
@@ -783,7 +789,7 @@ export async function POST(req: NextRequest) {
 
     // Track token consumption for getApiUsage (best-effort, fail-safe, non-blocking).
     // Prefer the multi-step total — the agent loop can take several steps per turn.
-    void logUsage((result as { totalUsage?: unknown }).totalUsage ?? result.usage, "claude", "telegram");
+    keepAlive(() => Promise.resolve(logUsage((result as { totalUsage?: unknown }).totalUsage ?? result.usage, "claude", "telegram")));
 
     // TRUNCATION HONESTY (multi-intent#4): the agent loop is capped at 20 steps. If it hit
     // the cap while the model still wanted to call tools, the turn was cut short — some of a

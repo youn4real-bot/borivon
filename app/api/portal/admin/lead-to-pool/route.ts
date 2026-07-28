@@ -126,6 +126,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, alreadyConverted: true, userId: row.candidate_user_id, leadId: row.id });
   }
 
+  // Only a NURSE belongs in the candidate pool. This guard existed on the
+  // booking path but not here, while the Leads page shows "Add to pool" on
+  // every row — so one click on a clinic or a company enquiry would have made a
+  // portal account for a hospital and filed it as somebody we are placing.
+  if (row.kind !== "nurse") {
+    return NextResponse.json({
+      error: "not_a_candidate",
+      message: "Only nurse enquiries can join the candidate pool — a clinic or a company is a counterparty, not someone we place.",
+    }, { status: 400 });
+  }
+
   const email = (row.email ?? "").trim().toLowerCase();
   if (!looksLikeEmail(email)) {
     return NextResponse.json({
@@ -162,7 +173,47 @@ export async function POST(req: NextRequest) {
     created = true;
   }
 
-  // 3. Put them in the POOL: a pipeline row with NO batch. `pool_contacted` is
+  // 3. GIVE THEM A PROFILE ROW, or they are invisible.
+  //
+  //    Every candidate board — the Pool, the Batch Tracker, the admin roster —
+  //    builds its list from `candidate_profiles` and then joins the pipeline on
+  //    to it (app/api/portal/tracker/route.ts:64). A pipeline row on its own
+  //    renders nowhere. So "Add to pool" appeared to work, the lead was marked
+  //    converted and vanished from Leads, and the person was in no list at all.
+  //    Measured before the fix: three pipeline rows already in exactly that
+  //    state, all in the Pool, none of them displayable.
+  //
+  //    An UPDATE-then-INSERT rather than an upsert: someone who registered on
+  //    their own already has a profile they filled in, and their real name must
+  //    not be overwritten by whatever was typed into a lead form.
+  {
+    const { data: prof } = await db
+      .from("candidate_profiles").select("user_id").eq("user_id", userId).maybeSingle();
+    if (!prof) {
+      const full = (row.name ?? "").trim();
+      const [fn, ...rest] = full.split(/\s+/).filter(Boolean);
+      const seed: Record<string, unknown> = {
+        user_id: userId,
+        first_name: fn || null,
+        last_name: rest.join(" ") || null,
+        phone: (row.phone ?? "").trim() || null,
+      };
+      const made = await db.from("candidate_profiles").insert(seed);
+      if (made.error) {
+        // Schema-tolerant: if this deployment's profile table lacks `phone`,
+        // still create the row — a nameless entry the founder can edit beats a
+        // person who exists nowhere.
+        const missingCol = /column .* does not exist|schema cache|phone|first_name|last_name/i.test(made.error.message ?? "");
+        const retry = missingCol ? await db.from("candidate_profiles").insert({ user_id: userId }) : made;
+        if (retry.error) {
+          console.error("[lead-to-pool] profile insert failed:", retry.error.message);
+          return NextResponse.json({ error: "profile_failed" }, { status: 500 });
+        }
+      }
+    }
+  }
+
+  // 4. Put them in the POOL: a pipeline row with NO batch. `pool_contacted` is
   //    true by definition — a lead is somebody who already reached out.
   //
   //    CRUCIALLY, only INSERT a batch_id when there is no row yet. A blind

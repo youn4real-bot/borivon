@@ -286,7 +286,15 @@ async function maybeGrantVerified(db: DB, userId: string) {
     .eq("user_id", userId).not("placement_ready", "is", true).select("user_id");
   if (!updated?.length) return;
 
-  maybeCreateMatches(db, userId).catch((e) => console.warn("[maybeCreateMatches]", e));
+  // keepAlive, not a bare floating promise. On Workers the request context dies
+  // with the response and this chain — three reads plus the suggested_matches
+  // insert — was cancelled part-way through, silently. And it could never
+  // recover: the update just above is guarded by .not("placement_ready","is",true),
+  // so once the flag has flipped, every later approval returns at the line above
+  // and never reaches here again. The candidate ended up placement-ready with
+  // permanently empty match suggestions. (The other three background calls in
+  // this file were already converted; this one was missed.)
+  keepAlive(() => maybeCreateMatches(db, userId).catch((e) => console.warn("[maybeCreateMatches]", e)));
 }
 
 /** Send the candidate's "passport approved" notification ONLY when BOTH the

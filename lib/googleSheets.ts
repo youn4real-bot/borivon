@@ -17,10 +17,13 @@
  * app_settings table hasn't been migrated yet; nothing throws.
  *
  * NOTE (Cloudflare): sheetsClient() builds a real googleapis JWT client, which
- * runs on Vercel (Node) but not yet on Workers (only Gmail/Calendar have REST
- * shims). The bot runs on Vercel today; a Sheets shim is a later cutover task.
+ * runs on Node but NOT on Workers — only Gmail, Calendar and Drive have REST
+ * shims. The whole app, bot included, now runs on Workers, so sheetsClient()
+ * deliberately returns null there and every function below refuses with a
+ * hint that says exactly that. Writing a Sheets shim is the outstanding work;
+ * until it exists, failing clearly beats crashing inside google-auth-library.
  */
-import { sheetsClient, driveClient } from "@/lib/googleWorkspace";
+import { sheetsClient, driveClient, sheetsShimMissing } from "@/lib/googleWorkspace";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 const SHEET_KEY = "candidates_sheet_id";
@@ -92,7 +95,7 @@ export type SheetCleanResult =
  */
 export async function cleanSheetHeaders(sourceUrl: string): Promise<SheetCleanResult> {
   const sheets = sheetsClient();
-  if (!sheets) return { ok: false, error: "workspace_not_connected" };
+  if (!sheets) return { ok: false, error: "workspace_not_connected", hint: sheetsShimMissing() ? "Google Sheets isn't wired up on the Cloudflare deployment yet (Gmail, Calendar and Drive are). Nothing is broken — this one feature is still to be ported." : "Google Workspace isn't connected." };
   const m = sourceUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/) || sourceUrl.match(/^([a-zA-Z0-9_-]{25,})$/);
   const id = m?.[1];
   if (!id) return { ok: false, error: "bad_url", hint: "Send the full Google Sheet URL." };
@@ -184,7 +187,7 @@ export type SheetUpgradeResult =
 export async function copyAndUpgradeSheet(sourceUrl: string): Promise<SheetUpgradeResult> {
   const sheets = sheetsClient();
   const drive = driveClient();
-  if (!sheets || !drive) return { ok: false, error: "workspace_not_connected", hint: "Google Workspace isn't connected." };
+  if (!sheets || !drive) return { ok: false, error: "workspace_not_connected", hint: sheetsShimMissing() ? "Google Sheets isn't wired up on the Cloudflare deployment yet (Gmail, Calendar and Drive are). Nothing is broken — this one feature is still to be ported." : "Google Workspace isn't connected." };
   const m = sourceUrl.match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/) || sourceUrl.match(/^([a-zA-Z0-9_-]{25,})$/);
   const sourceId = m?.[1];
   if (!sourceId) return { ok: false, error: "bad_url", hint: "Send the full Google Sheet URL." };
@@ -260,7 +263,7 @@ export type SheetSyncResult =
  */
 export async function syncCandidateSheet(db: DB, headers: string[], rows: string[][]): Promise<SheetSyncResult> {
   const sheets = sheetsClient();
-  if (!sheets) return { ok: false, error: "workspace_not_connected", hint: "Connect Google Workspace (domain-wide delegation) first — the same one Gmail uses." };
+  if (!sheets) return { ok: false, error: "workspace_not_connected", hint: sheetsShimMissing() ? "Google Sheets isn't wired up on the Cloudflare deployment yet (Gmail, Calendar and Drive are). Nothing is broken — this one feature is still to be ported." : "Connect Google Workspace (domain-wide delegation) first — the same one Gmail uses." };
 
   // Resolve the spreadsheet id (persisted). A missing table = migration not run.
   let spreadsheetId: string | null = null;

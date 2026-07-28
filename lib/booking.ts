@@ -65,14 +65,35 @@ const DAY = 24 * 60 * MIN;
  * "10:00" and the calendar invite says 09:00. Resolving it against the real zone
  * keeps the page and the invite telling the same story.
  */
-export function zoneOffsetMinutes(tz: string, at: number = Date.now()): number {
-  try {
-    const d = new Date(at);
-    const p = new Intl.DateTimeFormat("en-US", {
+/**
+ * One formatter per timezone, kept for the life of the isolate.
+ *
+ * `new Intl.DateTimeFormat(...)` is expensive — it loads and configures ICU
+ * data — and this function is called ONCE PER SLOT when the booking API labels
+ * its response, so a two-week horizon built roughly 160 of them per request.
+ * Measured on production: the calendar fetch took 0.6–2.0s while the whole
+ * handler took 2.4–4.7s, and that ~2s gap was almost entirely this. The
+ * formatter itself is stateless — the instant is an argument to formatToParts —
+ * so there is nothing to invalidate and one instance serves every call.
+ */
+const OFFSET_FORMATTERS = new Map<string, Intl.DateTimeFormat>();
+function offsetFormatter(tz: string): Intl.DateTimeFormat {
+  let f = OFFSET_FORMATTERS.get(tz);
+  if (!f) {
+    f = new Intl.DateTimeFormat("en-US", {
       timeZone: tz, hourCycle: "h23",
       year: "numeric", month: "2-digit", day: "2-digit",
       hour: "2-digit", minute: "2-digit", second: "2-digit",
-    }).formatToParts(d).reduce((a, x) => {
+    });
+    OFFSET_FORMATTERS.set(tz, f);
+  }
+  return f;
+}
+
+export function zoneOffsetMinutes(tz: string, at: number = Date.now()): number {
+  try {
+    const d = new Date(at);
+    const p = offsetFormatter(tz).formatToParts(d).reduce((a, x) => {
       if (x.type !== "literal") a[x.type] = x.value;
       return a;
     }, {} as Record<string, string>);

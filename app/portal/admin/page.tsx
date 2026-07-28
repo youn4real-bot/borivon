@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
@@ -2105,15 +2105,32 @@ export default function AdminPage() {
 
   async function deletePhaseSlot(slotId: string, phase: string) {
     if (!accessToken) return;
-    // Optimistic remove
+    // Optimistic remove — but REVERSIBLE. The response was never inspected and
+    // errors were swallowed, so a 401 on a stale token, or a server refusal,
+    // left the slot gone from the screen and still very much in the database.
+    // The admin moves on believing it is deleted; it reappears on the next
+    // load, or worse, the candidate still sees a slot the admin thinks is gone.
+    const before = phaseSlots[phase] ?? [];
     setPhaseSlots(prev => ({ ...prev, [phase]: (prev[phase] ?? []).filter(s => s.id !== slotId) }));
+    const restore = () => setPhaseSlots(prev => ({ ...prev, [phase]: before }));
     try {
-      await fetch("/api/portal/phase-slots", {
+      const r = await fetch("/api/portal/phase-slots", {
         method: "DELETE",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ id: slotId }),
       });
-    } catch { /* network error */ }
+      if (!r.ok) {
+        restore();
+        alert(lang === "de" ? "Der Schritt konnte nicht gelöscht werden — er ist noch vorhanden."
+          : lang === "fr" ? "Impossible de supprimer cette étape — elle est toujours là."
+          : "Couldn't delete that step — it's still there.");
+      }
+    } catch {
+      restore();
+      alert(lang === "de" ? "Netzwerkfehler — der Schritt wurde nicht gelöscht."
+        : lang === "fr" ? "Erreur réseau — l'étape n'a pas été supprimée."
+        : "Network error — the step was not deleted.");
+    }
   }
 
   function openAdminUploadPicker(slotId: string) {

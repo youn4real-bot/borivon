@@ -3,6 +3,7 @@ import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { uploadPassportPdfToDrive } from "@/lib/passport-pdf";
 import { enforceRateLimit } from "@/lib/rateLimit";
 import { normalizeSex } from "@/lib/sex";
+import { keepAlive } from "@/lib/keepAlive";
 
 // DD.MM.YYYY → YYYY-MM-DD for Postgres date columns
 function toIso(s: string | null | undefined): string | null {
@@ -220,8 +221,14 @@ export async function POST(req: NextRequest) {
   // /api/portal/upload) — file + data together = the real submission. Fire
   // ONLY on the actual transition into "pending" so autosaves (drafts) and
   // no-op re-saves that don't re-enter review never spam the bell.
+  // keepAlive, not a floating void: on Workers this was cancelled the moment the
+  // response returned, so no admin was ever told the passport data had arrived.
+  // And it is one-shot — the upsert above has already set passport_status to
+  // "pending", so a re-save is no longer a transition and the bell can never
+  // fire for this submission again. A candidate sat waiting on a review nobody
+  // knew to do.
   if (!isDraft && passportStatusToSave === "pending" && existing?.passport_status !== "pending") {
-    void (async () => {
+    keepAlive(async () => {
       try {
         const { data: passDocs } = await db
           .from("documents")
@@ -249,18 +256,20 @@ export async function POST(req: NextRequest) {
       } catch (e) {
         console.error("[passport] admin notify error:", e);
       }
-    })();
+    });
   }
 
   // Drive PDF generation only on the explicit Submit — never on autosave.
+  // Same conversion, same reason: as a floating void this never survived the
+  // response on Workers, so the passport-data PDF simply was not being produced.
   if (!isDraft) {
-    void (async () => {
+    keepAlive(async () => {
       try {
         await uploadPassportPdfToDrive({ ...profilePayload, nationality: nationalityDe, country_of_birth: countryDe });
       } catch (driveErr) {
         console.error("Auto Drive passport PDF upload failed:", driveErr);
       }
-    })();
+    });
   }
 
   return NextResponse.json({ success: true });

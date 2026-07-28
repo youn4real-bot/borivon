@@ -34,6 +34,7 @@ import { UUID_RE } from "@/lib/uuid";
 import { serverBroadcast, ASSIGNMENTS_TOPIC } from "@/lib/serverBroadcast";
 import { normalizeReq } from "@/lib/impfungJourney";
 import type { AssistantScope } from "@/lib/assistantScope";
+import { keepAlive } from "@/lib/keepAlive";
 
 const MIME_EXT: Record<string, string> = {
   "image/jpeg": "jpg", "image/jpg": "jpg", "image/png": "png", "image/webp": "webp",
@@ -664,7 +665,7 @@ async function writeExternalEmail(
   const res = await sendOutboundEmail({ to: opts.to, toName: opts.toName, cc: opts.cc, bcc: opts.bcc, subject: opts.subject, body: opts.body, attachments });
   if (!res.ok) return { ok: false, error: res.error };
   // Track for the follow-up chase — if they don't reply, the bot will remind me.
-  void recordSentForFollowup(scope.userId, opts.to, opts.subject);
+  keepAlive(() => recordSentForFollowup(scope.userId, opts.to, opts.subject));
   // Log it so the bot can recall / resend it later ("resend yesterday's email").
   // Best-effort: if the table isn't migrated yet, the send still succeeds.
   try {
@@ -777,7 +778,7 @@ async function writeReplyEmail(scope: AssistantScope, opts: { messageId: string;
   });
   if (!res.ok) return { ok: false, error: res.error || "reply_failed" };
   // Track for the follow-up chase — if they don't reply, the bot will remind me.
-  void recordSentForFollowup(scope.userId, replyTo, subject);
+  keepAlive(() => recordSentForFollowup(scope.userId, replyTo, subject));
   try {
     await getServiceSupabase().from("assistant_sent_emails").insert({
       owner_user_id: scope.userId, to_email: replyTo, cc: cc || null, subject, body: cleanBody, channel: "gmail-api",
@@ -830,7 +831,7 @@ async function writeForwardEmail(scope: AssistantScope, opts: { messageId: strin
     attachments: attachments.length ? attachments : undefined,
   });
   if (!res.ok) return { ok: false, error: res.error || "forward_failed" };
-  void recordSentForFollowup(scope.userId, to, subject);
+  keepAlive(() => recordSentForFollowup(scope.userId, to, subject));
   try {
     await getServiceSupabase().from("assistant_sent_emails").insert({
       owner_user_id: scope.userId, to_email: to, cc: null, subject, body: cleanBody.slice(0, 4000), channel: "gmail-api",
@@ -1458,7 +1459,7 @@ async function writeAcademyLevel(userId: string, level: string): Promise<WriteRe
     try {
       const { awardPoints } = await import("@/lib/academyPoints");
       await awardPoints({ candidateUserId: userId, cohortId: m.cohort_id, type: "level_up", sourceKind: "system", sourceId: LEVEL_UP_EVENT[level], meta: { level } });
-      serverBroadcast(`academy:${userId}`, "points", { reason: "level_up", level }).catch(() => {});
+      keepAlive(() => serverBroadcast(`academy:${userId}`, "points", { reason: "level_up", level }));
     } catch { /* points are best-effort — the level change already persisted */ }
   }
   return { ok: true };
@@ -1955,7 +1956,7 @@ async function applyPendingRow(
   } else if (row.tool_name === "sendDraft") {
     // Send the already-prepared Gmail draft EXACTLY as-is (attachments baked in).
     result = await writeSendDraft(String(a.draftId ?? ""));
-    if (result.ok && a.to) void recordSentForFollowup(scope.userId, String(a.to), String(a.subject ?? ""));
+    if (result.ok && a.to) keepAlive(() => recordSentForFollowup(scope.userId, String(a.to), String(a.subject ?? "")));
   } else if (row.tool_name === "sendCalendarInvite") {
     const emails = String(a.attendees ?? "").split(",").map((s) => s.trim()).filter(Boolean);
     result = await writeCalendarInvite({

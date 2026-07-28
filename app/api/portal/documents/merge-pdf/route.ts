@@ -167,6 +167,21 @@ export async function GET(req: NextRequest) {
       loadBytes(origMeta),
     ]);
 
+    // Refuse before pdf-lib gets involved. Each source is capped at 10 MB on
+    // upload, but nothing capped the PAIR — and merging holds both parsed
+    // documents, the copied pages and the saved output at once, several times
+    // the input in peak memory. Two large scans were enough to push a Workers
+    // isolate over its limit, which surfaces as an opaque failure rather than a
+    // message anyone can act on. Say so instead.
+    const MAX_COMBINED = 16 * 1024 * 1024;
+    const combined = transBytes.length + origBytes.length;
+    if (combined > MAX_COMBINED) {
+      return NextResponse.json({
+        error: "too_large",
+        message: `These two files come to ${(combined / 1048576).toFixed(1)} MB together, which is too much to merge in one go. Download them separately.`,
+      }, { status: 413 });
+    }
+
     // Merge: translated pages first, then original pages
     const merged = await PDFDocument.create();
 

@@ -36,18 +36,48 @@ export const dynamic = "force-dynamic";
 const KINDS: BookingKind[] = ["nurse", "clinic", "company"];
 const isKind = (k: unknown): k is BookingKind => typeof k === "string" && (KINDS as string[]).includes(k);
 
-/** The founder's real calendar for the offer window, as busy intervals. */
-async function busyIntervals(from: number, to: number): Promise<Interval[]> {
+/**
+ * The founder's Google calendar, cached in-isolate for a minute.
+ *
+ * Measured on production: the slot list took 2.4–4.3s, and essentially all of it
+ * was this one call — a Google `events.list` across the whole ~3-week horizon,
+ * paginated, on every single page load. The page itself renders in 0.2s, so a
+ * visitor sat looking at a spinner for four seconds before seeing a single time.
+ * That is the worst possible place to be slow: it is the first thing a nurse or
+ * a clinic ever asks of us.
+ *
+ * A booked slot disappears the instant it is taken, because `bookings` is always
+ * read fresh — only the founder's OWN diary can be up to 60s stale, and the only
+ * consequence is that a meeting they created seconds ago might still show its
+ * time as free for a moment. The POST path deliberately bypasses this cache
+ * entirely (`fresh: true`), so the actual claim is always checked against the
+ * real calendar. Stale reads, never a stale write.
+ *
+ * The window is padded 10 minutes past the horizon so an entry cached a minute
+ * ago still covers the slightly-later window the next request asks for.
+ */
+const BUSY_TTL_MS = 60_000;
+const BUSY_PAD_MS = 10 * 60_000;
+let busyCache: { fetchedAt: number; from: number; to: number; intervals: Interval[] } | null = null;
+
+async function busyIntervals(from: number, to: number, opts?: { fresh?: boolean }): Promise<Interval[]> {
+  if (!opts?.fresh) {
+    const c = busyCache;
+    if (c && Date.now() - c.fetchedAt < BUSY_TTL_MS && c.from <= from && c.to >= to) return c.intervals;
+  }
+  const windowTo = to + BUSY_PAD_MS;
   try {
-    const res = await listEventsInWindow({ from: new Date(from).toISOString(), to: new Date(to).toISOString() });
+    const res = await listEventsInWindow({ from: new Date(from).toISOString(), to: new Date(windowTo).toISOString() });
     if (!res.ok) return [];
-    return res.events
+    const intervals = res.events
       // All-day entries ("Ramadan", "Youness in Berlin") and "Show as: Free"
       // events are on the calendar but are not meetings — they must not close
       // the whole day. Only real timed, busy events block.
       .filter((e) => !e.allDay && !e.transparent && e.start && e.end)
       .map((e) => ({ start: Date.parse(e.start!), end: Date.parse(e.end!) }))
       .filter((i) => Number.isFinite(i.start) && Number.isFinite(i.end) && i.end > i.start);
+    busyCache = { fetchedAt: Date.now(), from, to: windowTo, intervals };
+    return intervals;
   } catch {
     // Calendar unreachable → offer the plain schedule rather than nothing. A
     // rare double-book the founder can move beats a booking page that is dead.
@@ -87,11 +117,67 @@ async function bookedIntervals(from: number, to: number, slotMs: number): Promis
   } catch { return []; }
 }
 
+/**
+ * The slot list is IDENTICAL for every visitor, so it belongs in the edge cache.
+ *
+ * Everything else here only helps a WARM isolate: on a page this quiet, a good
+ * share of requests land on a cold one where both in-memory caches start empty
+ * and the full Google round-trip runs again. Measured on production after the
+ * other fixes: warm ~1.1s, cold ~4-5s. Cloudflare's cache lives in the colo and
+ * outlives isolates, so it is the only thing that helps the visitor who arrives
+ * first — which is every visitor, on a page nobody reloads.
+ *
+ * The response carries no per-visitor content: `at` is an absolute instant and
+ * the client re-labels every slot in its own timezone. Nothing personal is
+ * cached, and there is no auth on this route to leak.
+ *
+ * 45 seconds of staleness costs at most a slot shown as free moments after
+ * someone took it. The POST re-checks against the live calendar and the unique
+ * index before claiming anything, so the worst case is the "that time was just
+ * taken, pick another" message every booking page in the world shows.
+ */
+const EDGE_TTL_SECONDS = 45;
+
+/** The cache key: fixed, because the response does not vary by visitor or query. */
+function slotsCacheKey(req: NextRequest): Request {
+  return new Request(new URL("/api/book/__slots-v1", req.nextUrl.origin).toString(), { method: "GET" });
+}
+
+/** Cloudflare's per-colo cache. Absent off-Workers (dev, tests) — then we simply
+ *  compute every time, exactly as before. */
+function edgeCache(): Cache | null {
+  try {
+    const c = (globalThis as { caches?: { default?: Cache } }).caches?.default;
+    return c ?? null;
+  } catch { return null; }
+}
+
 export async function GET(req: NextRequest) {
+  const t0 = Date.now();
+
+  const cache = edgeCache();
+  if (cache) {
+    try {
+      const hit = await cache.match(slotsCacheKey(req));
+      if (hit) {
+        const res = new NextResponse(hit.body, hit);
+        res.headers.set("Server-Timing", `edge;desc=hit, total;dur=${Date.now() - t0}`);
+        return res;
+      }
+    } catch { /* a cache miss must never be an outage — fall through and compute */ }
+  }
+
+  // The rate-limit write and the availability read are two independent round
+  // trips to the same database, and running them back to back put a whole extra
+  // one on the critical path of every page load. Start both at once; the
+  // limiter still gates the response exactly as before.
+  const configP = loadBookingConfig();
+  configP.catch(() => {}); // it can't reject, but an unhandled one is fatal on Workers
+
   const rl = await enforceRateLimitDistributed(req, "book-slots", { limit: 60, windowMs: 60_000 });
   if (!rl.ok) return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
-  const { availability: av, accepting } = await loadBookingConfig();
+  const { availability: av, accepting } = await configP;
   // The founder can close the page entirely (holiday, full diary) without
   // deleting anything — the picker then shows its "write to us" empty state.
   if (!accepting) {
@@ -100,25 +186,55 @@ export async function GET(req: NextRequest) {
   const now = Date.now();
   const horizonEnd = now + (av.horizonDays + 1) * 86_400_000;
   const slotMs = av.slotMinutes * 60_000;
+  const tCal = Date.now();
   const [cal, booked] = await Promise.all([
     busyIntervals(now, horizonEnd),
     bookedIntervals(now, horizonEnd, slotMs),
   ]);
+  const calMs = Date.now() - tCal;
   const slots = generateSlots({ now, availability: av, busy: [...cal, ...booked] });
 
   // `at` is the contract — the client re-labels every slot in the VISITOR's own
   // timezone. These Casablanca labels are for anyone reading the API directly,
   // so each is resolved against its OWN instant rather than one shared offset,
   // which would drift by an hour across a clock change.
-  return NextResponse.json({
+  const fresh = NextResponse.json({
     tzOffsetMinutes: av.tzOffsetMinutes,
     slotMinutes: av.slotMinutes,
     accepting: true,
-    days: groupByDay(slots, av.tzOffsetMinutes).map((d) => ({
-      day: d.day,
-      slots: d.slots.map((s) => ({ at: s, label: slotLabel(s, zoneOffsetMinutes(BORIVON_TZ, s)) })),
-    })),
+    // The offset is resolved ONCE PER DAY, not once per slot. Every slot in a
+    // day shares it — a clock change happens at 02:00/03:00 local, nowhere near
+    // bookable hours — and it is the same midday-resolved offset generateSlots
+    // used to place them, so the labels cannot disagree with the times. Doing
+    // it per slot meant ~160 timezone resolutions on every page load.
+    days: groupByDay(slots, av.tzOffsetMinutes).map((d) => {
+      const dayOffset = d.slots.length ? zoneOffsetMinutes(BORIVON_TZ, d.slots[0]) : av.tzOffsetMinutes;
+      return {
+        day: d.day,
+        slots: d.slots.map((s) => ({ at: s, label: slotLabel(s, dayOffset) })),
+      };
+    }),
+  }, {
+    headers: {
+      // Public because it genuinely is: no auth, no per-visitor content. This is
+      // also what lets the edge (and the browser) hold it at all.
+      "Cache-Control": `public, max-age=${EDGE_TTL_SECONDS}, s-maxage=${EDGE_TTL_SECONDS}`,
+      // So this page's latency stays measurable from outside without a deploy
+      // to add logging. `cal` is the calendar+bookings fan-out, which is where
+      // the time went before it was cached.
+      "Server-Timing": `edge;desc=miss, cal;dur=${calMs}, total;dur=${Date.now() - t0}`,
+    },
   });
+
+  if (cache) {
+    // keepAlive, or the put is cancelled with the request context and the cache
+    // stays permanently empty — the exact Workers trap this codebase has been
+    // fixing all session. The response must be cloned: a body can only be read
+    // once, and the visitor is about to read this one.
+    const toStore = fresh.clone();
+    keepAlive(() => cache.put(slotsCacheKey(req), toStore));
+  }
+  return fresh;
 }
 
 export async function POST(req: NextRequest) {
@@ -164,7 +280,10 @@ export async function POST(req: NextRequest) {
   const horizonEnd = now + (av.horizonDays + 1) * 86_400_000;
   const slotMs = av.slotMinutes * 60_000;
   const [cal, booked] = await Promise.all([
-    busyIntervals(now, horizonEnd),
+    // `fresh` — deliberately NOT the cached calendar the GET serves. Showing a
+    // slot that a just-created meeting has taken is a cosmetic lag; CLAIMING it
+    // is a double-booked founder. The write path always checks reality.
+    busyIntervals(now, horizonEnd, { fresh: true }),
     bookedIntervals(now, horizonEnd, slotMs),
   ]);
   const offered = generateSlots({ now, availability: av, busy: [...cal, ...booked] });
@@ -334,6 +453,16 @@ export async function POST(req: NextRequest) {
       console.error("[book] follow-up reminders failed:", e instanceof Error ? e.message : e);
     }
   });
+
+  // Drop the cached slot list so the time just taken stops being offered right
+  // away, rather than lingering for the rest of the 45s window. Best-effort: if
+  // this fails the cache simply expires on its own, and the POST path re-checks
+  // against the live calendar regardless, so nothing can actually be
+  // double-booked either way.
+  {
+    const cache = edgeCache();
+    if (cache) keepAlive(() => cache.delete(slotsCacheKey(req)));
+  }
 
   return NextResponse.json({ ok: true, at, endsAt, kind });
 }

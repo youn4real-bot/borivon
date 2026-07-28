@@ -18,6 +18,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { verifyDailyWebhook, webhookConfigured } from "@/lib/daily";
 import { serverBroadcast } from "@/lib/serverBroadcast";
+import { keepAlive } from "@/lib/keepAlive";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const LATE_GRACE_SEC = 10 * 60; // joined >10 min after start → "late"
@@ -86,6 +87,6 @@ export async function POST(req: NextRequest) {
     { onConflict: "candidate_user_id,type,source_kind,source_id", ignoreDuplicates: false },
   );
 
-  serverBroadcast(`academy:${candidateId}`, "points", { reason: "attendance_auto" }).catch(() => {});
+  keepAlive(() => serverBroadcast(`academy:${candidateId}`, "points", { reason: "attendance_auto" }));
   return NextResponse.json({ ok: true });
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { enforceRateLimit } from "@/lib/rateLimit";
+import { enforceRateLimitDistributed } from "@/lib/rateLimit";
 import { sendOutboundEmail } from "@/lib/outboundEmail";
 import { getServiceSupabase } from "@/lib/supabase";
 import { tgSend } from "@/lib/telegram";
@@ -20,9 +20,24 @@ const clip = (s: unknown, n: number) => (typeof s === "string" ? s.trim().slice(
 
 export async function POST(req: NextRequest) {
   // 5 submissions / minute / IP — generous for a human, brutal for a bot.
-  const rl = enforceRateLimit(req, "v2-contact", { limit: 5, windowMs: 60_000 });
+  //
+  // DISTRIBUTED (Postgres-backed), like every other public form here. The
+  // in-process limiter keeps its counter in a per-isolate Map, which held across
+  // requests on a warm Vercel lambda but means almost nothing on Cloudflare,
+  // where consecutive requests land in different short-lived isolates. The
+  // documented cap was therefore barely enforced — and each request that slips
+  // through costs a database insert, a Telegram ping to the founder's phone and
+  // a Resend send. It falls back to the in-process limiter if the RPC is
+  // unavailable, so the worst case is exactly today's behaviour.
+  const rl = await enforceRateLimitDistributed(req, "v2-contact", { limit: 5, windowMs: 60_000 });
   if (!rl.ok) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
+  }
+
+  // A real enquiry is a few hundred bytes. Cap the body before parsing it, the
+  // same way /api/leads and /api/online-courses/register already do.
+  if (Number(req.headers.get("content-length") ?? 0) > 8 * 1024) {
+    return NextResponse.json({ error: "Too large" }, { status: 413 });
   }
 
   const body = await req.json().catch(() => ({}));

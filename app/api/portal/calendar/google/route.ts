@@ -47,6 +47,21 @@ async function bookingFor(eventId: string): Promise<number | null> {
   } catch { return null; }
 }
 
+/**
+ * The few outcomes the browser is allowed to be told apart.
+ *
+ * `updateWorkspaceEvent` returns the raw thrown message on an unrecognised
+ * failure, and on the Workers path that message is the full shim error — the
+ * internal Google URL plus a slice of Google's response body. That went
+ * straight into the JSON the browser received. Nothing catastrophic, but it is
+ * our infrastructure leaking into a client for no benefit: the UI can only act
+ * on the category, and the detail is already in the server log above.
+ */
+const KNOWN_ERRORS = new Set(["event_not_found", "workspace_not_connected", "end_before_start"]);
+const publicError = (e?: string) => (e && KNOWN_ERRORS.has(e) ? e : "google_error");
+const statusFor = (e?: string) =>
+  e === "event_not_found" ? 404 : e === "end_before_start" ? 400 : 502;
+
 async function supremeOnly(req: NextRequest) {
   const auth = await requireAdminRole(req);
   if (!auth.ok) return { ok: false as const, res: NextResponse.json({ error: auth.error }, { status: auth.status }) };
@@ -88,9 +103,8 @@ export async function PATCH(req: NextRequest) {
   });
 
   if (!res.ok) {
-    const notFound = res.error === "event_not_found";
     console.error("[calendar/google] move failed:", res.error);
-    return NextResponse.json({ error: res.error }, { status: notFound ? 404 : 502 });
+    return NextResponse.json({ error: publicError(res.error) }, { status: statusFor(res.error) });
   }
   return NextResponse.json({ ok: true, id: res.id });
 }
@@ -115,7 +129,7 @@ export async function DELETE(req: NextRequest) {
   const res = await cancelWorkspaceEvent(eventId);
   if (!res.ok) {
     console.error("[calendar/google] cancel failed:", res.error);
-    return NextResponse.json({ error: res.error ?? "cancel_failed" }, { status: 502 });
+    return NextResponse.json({ error: publicError(res.error) }, { status: statusFor(res.error) });
   }
   return NextResponse.json({ ok: true });
 }

@@ -409,6 +409,42 @@ export default function CalendarPage() {
    *  the modal on every keystroke. */
   const gMoveRef = useRef<string>("");
 
+  /**
+   * Say what actually went wrong, instead of blaming Google for everything.
+   *
+   * Both handlers used to show one flat "Google refused the change" for any
+   * failure. The most likely failure by far is the 409 on a booked call — where
+   * Google refused nothing, the PORTAL did, on purpose, because moving the
+   * Google side alone would leave the booker's confirmation, reminder and
+   * follow-ups pinned to the old time. Telling the founder that Google said no
+   * sends them to the wrong place; telling them to use Bookings gets it done.
+   */
+  async function googleEditError(r: Response, op: "move" | "cancel"): Promise<string> {
+    const code = await r.json().then((j) => String(j?.error ?? "")).catch(() => "");
+    if (code === "belongs_to_booking") {
+      return op === "move"
+        ? T("This is a booked call — reschedule it from Bookings so the person is told and their reminders move too.",
+            "Das ist ein gebuchtes Gespräch — verschieben Sie es unter Buchungen, damit die Person informiert wird und ihre Erinnerungen mitwandern.",
+            "C'est un appel réservé — reprogrammez-le depuis Réservations pour que la personne soit prévenue et que ses rappels suivent.")
+        : T("This is a booked call — cancel it from Bookings so the person is told and their follow-ups stop.",
+            "Das ist ein gebuchtes Gespräch — sagen Sie es unter Buchungen ab, damit die Person informiert wird und die Nachfassungen stoppen.",
+            "C'est un appel réservé — annulez-le depuis Réservations pour que la personne soit prévenue et que les relances s'arrêtent.");
+    }
+    if (r.status === 404 || code === "event_not_found") {
+      return T("That event no longer exists in Google Calendar.",
+        "Dieser Termin existiert nicht mehr im Google Kalender.",
+        "Cet événement n'existe plus dans Google Agenda.");
+    }
+    if (code === "workspace_not_connected") {
+      return T("Google Calendar isn't connected right now.",
+        "Google Kalender ist derzeit nicht verbunden.",
+        "Google Agenda n'est pas connecté pour le moment.");
+    }
+    return op === "move"
+      ? T("Google refused the change.", "Google hat die Änderung abgelehnt.", "Google a refusé la modification.")
+      : T("Google refused the cancellation.", "Google hat die Absage abgelehnt.", "Google a refusé l'annulation.");
+  }
+
   /** Move one of the founder's own Google events. Duration is preserved server
    *  side when no end is sent, so a 2h meeting never shrinks to 1h. */
   async function moveGoogle(ev: Ev) {
@@ -426,7 +462,7 @@ export default function CalendarPage() {
         body: JSON.stringify({ eventId: ev.id.replace(/^google:/, ""), startsAt: at }),
       });
       if (!r.ok) {
-        setGEditErr(T("Google refused the change.", "Google hat die Änderung abgelehnt.", "Google a refusé la modification."));
+        setGEditErr(await googleEditError(r, "move"));
         return;
       }
       setDetail(null); gMoveRef.current = ""; await load();
@@ -443,7 +479,7 @@ export default function CalendarPage() {
     try {
       const r = await authedFetch(`/api/portal/calendar/google?eventId=${encodeURIComponent(ev.id.replace(/^google:/, ""))}`, { method: "DELETE" });
       if (!r.ok) {
-        setGEditErr(T("Google refused the cancellation.", "Google hat die Absage abgelehnt.", "Google a refusé l'annulation."));
+        setGEditErr(await googleEditError(r, "cancel"));
         return;
       }
       setDetail(null); await load();

@@ -122,7 +122,33 @@ function toBase64Url(message: string): string {
  * boundary tokens (which don't affect parsing). Gmail assigns Date + Message-ID, so
  * we omit them; In-Reply-To / References drive threading and are included verbatim.
  */
+/**
+ * The most attachment bytes this builder will accept in one message.
+ *
+ * Building a MIME message is memory-hungry out of all proportion to its input:
+ * the latin1 intermediate string, the base64 of it, the 76-column wrap, the
+ * join of the whole message, and then a second full base64 pass over that —
+ * peak usage lands somewhere around a dozen times the attachment bytes. A
+ * Workers isolate has a hard memory limit and dies without a usable error, so
+ * an over-large send used to look like the bot silently failing. Refusing with
+ * a message the caller can relay is strictly better than that.
+ *
+ * 6 MB of attachments is comfortably more than any CV, contract or passport
+ * scan the bot sends, and leaves real headroom under the isolate limit.
+ */
+export const MAX_ATTACHMENT_BYTES = 6 * 1024 * 1024;
+
 export function buildMimeBase64Url(opts: MimeOpts): string {
+  const totalAttachmentBytes = (opts.attachments ?? [])
+    .reduce((n, a) => n + (a.content?.byteLength ?? 0), 0);
+  if (totalAttachmentBytes > MAX_ATTACHMENT_BYTES) {
+    throw new Error(
+      `attachments_too_large: ${(totalAttachmentBytes / 1048576).toFixed(1)} MB of attachments ` +
+      `exceeds the ${(MAX_ATTACHMENT_BYTES / 1048576).toFixed(0)} MB this can send in one email — ` +
+      `send fewer files, or share a link instead.`,
+    );
+  }
+
   const headers: string[] = [];
   headers.push(`From: ${formatFrom(opts.fromName, opts.fromEmail)}`);
   headers.push(`To: ${cleanHeader(opts.to)}`);

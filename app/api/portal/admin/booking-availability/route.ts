@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole } from "@/lib/admin-auth";
-import { parseWeek } from "@/lib/bookingConfig";
+import { validateWeek } from "@/lib/bookingConfig";
 
 /**
  * The founder's own booking availability — working hours, appointment length,
@@ -53,10 +53,15 @@ export async function PUT(req: NextRequest) {
 
   const body = await req.json().catch(() => ({}));
 
-  // Validate BEFORE writing: a malformed week would empty the booking page, and
-  // the visitor would just see "no times available" with no idea why.
-  const week = parseWeek(body?.week);
-  if (!week) return NextResponse.json({ error: "bad_week" }, { status: 400 });
+  // Validate BEFORE writing, and REFUSE rather than trim. This used parseWeek,
+  // which filters bad windows out and returns the survivors — so a mistyped
+  // window vanished on the way to the database and the founder got a 200 for
+  // hours that were never stored. Now the save fails and says which value.
+  const checked = validateWeek(body?.week);
+  if (!checked.ok) {
+    return NextResponse.json({ error: "bad_week", details: checked.errors }, { status: 400 });
+  }
+  const week = checked.week;
 
   const blackout = (Array.isArray(body?.blackout_dates) ? body.blackout_dates : [])
     .filter((d: unknown): d is string => typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d.trim()))

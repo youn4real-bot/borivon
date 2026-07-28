@@ -915,6 +915,19 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Refuse an oversized body BEFORE parsing it. `req.formData()` buffers the
+  // whole multipart payload into the isolate, and the 10 MB file.size check is
+  // ~100 lines further down — so on Workers a 300 MB post was fully materialised
+  // in memory and blew the isolate's limit before anything ever looked at the
+  // size. On Vercel the platform capped the body first and hid this.
+  //
+  // Generous headroom over MAX_SIZE_BYTES for multipart framing and the other
+  // form fields; the exact per-file limit is still enforced below.
+  const declared = Number(req.headers.get("content-length") ?? 0);
+  if (Number.isFinite(declared) && declared > MAX_SIZE_BYTES + 2 * 1024 * 1024) {
+    return NextResponse.json({ error: "Fichier trop volumineux. Maximum 10 Mo." }, { status: 413 });
+  }
+
   const formData = await req.formData();
   const file      = formData.get("file")     as File | null;
   const fileType  = (formData.get("fileType")  as string) ?? "Autre";

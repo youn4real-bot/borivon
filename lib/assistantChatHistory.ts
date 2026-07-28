@@ -26,6 +26,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { vertexModel } from "@/lib/vertexModel";
 import { generateText } from "ai";
 import { stripInviteFooterClaim } from "@/lib/replyStyle";
+import { keepAlive } from "@/lib/keepAlive";
 
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
@@ -88,7 +89,7 @@ export async function loadConversationContext(
     // fallen behind). Fire a catch-up compaction (fire-and-forget, self-throttled, swallows
     // its own errors) so the watermark advances and the overflow is summarised next turn
     // instead of being silently dropped.
-    if (data.length >= TAIL_TURNS) void maybeCompact(ownerUserId);
+    if (data.length >= TAIL_TURNS) keepAlive(() => maybeCompact(ownerUserId));
     const turns = (data as ChatTurn[])
       .filter((t) => (t.role === "user" || t.role === "assistant") && typeof t.content === "string" && t.content.trim())
       .map(cleanHistoricalTurn) // retroactively strip the footer-lie from old assistant turns
