@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { google } from "googleapis";
-import { PDFDocument, degrees } from "pdf-lib";
 import { createHash } from "crypto";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate, roleByUserId } from "@/lib/admin-auth";
@@ -9,6 +8,7 @@ import { dlTokenUserId } from "@/lib/dlToken";
 import { isPassportFileType } from "@/lib/passportFile";
 import { r2GetObject } from "@/lib/r2";
 import { enforceRateLimitDistributed } from "@/lib/rateLimit";
+import { safeRotatePdf } from "@/lib/pdfRotate";
 
 // On Cloudflare Workers the googleapis Drive client crashes (google-auth-library →
 // node:http.validateHeaderName, unimplemented by unenv). Files are R2-primary now and the
@@ -68,41 +68,6 @@ async function ensurePassportIntegrity(
     console.error("[file-proxy] LAW #39 fallback fetch threw:", e);
   }
   return served; // last-resort: something > nothing
-}
-
-/**
- * Apply a view rotation to a PDF — but NEVER at the cost of the file's
- * content. pdf-lib's load()→save() round-trip silently drops page content
- * for some scanner-produced PDFs (object-stream/incremental-update layouts
- * common in phone passport scans) → the candidate's passport rendered blank
- * ("the data got erased"). This bug is intermittent because it only triggers
- * on those specific PDFs once a rotation is set.
- *
- * Rule: the uploaded PDF must come back EXACTLY as uploaded. If the rotate
- * re-save throws, OR yields an empty/degenerate result (no pages, or the
- * byte size collapsed — the tell-tale of dropped image/content streams),
- * we return the ORIGINAL bytes untouched. Worst case: that one view isn't
- * rotated; the passport is never erased.
- */
-async function safeRotatePdf(original: Buffer, rotation: number): Promise<Buffer> {
-  if (rotation === 0) return original;
-  try {
-    const pdfDoc = await PDFDocument.load(original, { ignoreEncryption: true, updateMetadata: false });
-    const pages = pdfDoc.getPages();
-    if (pages.length === 0) return original;
-    for (const page of pages) {
-      const cur = page.getRotation().angle;
-      page.setRotation(degrees((cur + rotation) % 360));
-    }
-    const out = Buffer.from(await pdfDoc.save());
-    // Degenerate-output guard: a correct rotate-only re-save is ~the same
-    // size (images are kept by reference). A large size collapse means
-    // pdf-lib dropped content → serve the untouched original instead.
-    if (out.length < 1024 || out.length < original.length * 0.5) return original;
-    return out;
-  } catch {
-    return original; // encrypted / unsupported / parse failure → never erase
-  }
 }
 
 function getDriveClient() {
