@@ -1,64 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { drive_v3 } from "googleapis";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate, roleByUserId } from "@/lib/admin-auth";
 import { dlTokenUserId } from "@/lib/dlToken";
 import { PDFDocument } from "pdf-lib";
 import { r2GetObject } from "@/lib/r2";
 import { UUID_RE } from "@/lib/uuid";
-
-// googleapis Drive can't run on Cloudflare Workers (node:http.validateHeaderName).
-// R2 is the store of record; on Workers we never fall back to Drive — an un-migrated
-// doc (NULL r2_key) returns a clear 409 instead of a doomed Drive call, and the
-// signed-bytes write-back to Drive is skipped (R2 holds the signed copy).
-const ON_WORKERS =
-  typeof navigator !== "undefined" &&
-  (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
-
-async function getDriveClient(): Promise<drive_v3.Drive> {
-  // googleapis is imported lazily: it is by far the heaviest dependency in the
-  // Workers bundle, and a top-level import makes every request to this route pay
-  // for parsing it at cold start even though only the Drive fallback paths below
-  // ever need it.
-  const { google } = await import("googleapis");
-  const auth = new google.auth.GoogleAuth({
-    credentials: {
-      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      private_key: (process.env.GOOGLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n"),
-    },
-    scopes: ["https://www.googleapis.com/auth/drive"],
-  });
-  return google.drive({ version: "v3", auth });
-}
-
-async function fetchPdfBuffer(fileId: string): Promise<Buffer> {
-  const drive = await getDriveClient();
-  const res = await drive.files.get(
-    { fileId, alt: "media", supportsAllDrives: true },
-    { responseType: "stream" }
-  );
-  const stream = res.data as NodeJS.ReadableStream;
-  const chunks: Buffer[] = [];
-  await new Promise<void>((resolve, reject) => {
-    stream.on("data", (c: Buffer) => chunks.push(c));
-    stream.on("end", resolve);
-    stream.on("error", reject);
-  });
-  return Buffer.concat(chunks);
-}
-
-async function updateDriveFile(fileId: string, buffer: Buffer): Promise<void> {
-  const drive = await getDriveClient();
-  const { PassThrough } = await import("stream");
-  const stream = new PassThrough();
-  stream.end(buffer);
-  await drive.files.update({
-    fileId,
-    supportsAllDrives: true,
-    requestBody: {},
-    media: { mimeType: "application/pdf", body: stream },
-  });
-}
 
 const MAX_PDF_BYTES = 10_000_000; // 10 MB
 const BUCKET = "sign-documents";
@@ -242,20 +188,18 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // If we don't have the bytes yet, fetch them — R2 first (by the doc's
-  // r2_key), falling back to Drive for anything not yet migrated.
+  // If we don't have the bytes yet, fetch them from R2 by the doc's r2_key.
+  // R2 is the only store of record; a doc with no r2_key gets a precise 409 so
+  // the caller can tell "not migrated" apart from a genuine fetch failure. The
+  // `return` deliberately sits inside the try — turning it into a throw would
+  // downgrade that 409 into the generic 502 below.
   if (!pdfBuffer && driveFileId) {
     try {
       const dbk = getServiceSupabase();
       const { data: keyRow } = await dbk.from("documents").select("r2_key").eq("drive_file_id", driveFileId).maybeSingle();
       const r2k = (keyRow as { r2_key?: string | null } | null)?.r2_key ?? null;
       if (r2k) { const o = await r2GetObject(r2k); if (o) pdfBuffer = o.body; }
-      if (!pdfBuffer) {
-        // On Workers the Drive fallback can't run — surface a precise "not migrated"
-        // error rather than attempt a doomed googleapis call.
-        if (ON_WORKERS) return NextResponse.json({ error: "Document not yet migrated to R2" }, { status: 409 });
-        pdfBuffer = await fetchPdfBuffer(driveFileId);
-      }
+      if (!pdfBuffer) return NextResponse.json({ error: "Document not yet migrated to R2" }, { status: 409 });
     } catch (err) {
       console.error("[sign-request POST] fetch error:", err);
       return NextResponse.json({ error: "Could not fetch the file" }, { status: 502 });
@@ -338,16 +282,6 @@ export async function POST(req: NextRequest) {
         console.error("[sign-request POST] org stamp error:", e);
         return NextResponse.json({ error: "Could not stamp org signature onto PDF." }, { status: 422 });
       }
-    }
-  }
-
-  // Write signed bytes back to the original Drive file so the "normal pdf popup" shows
-  // signatures. Skipped on Workers (Drive unavailable; R2 holds the signed copy below).
-  if (driveFileId && (adminOnly || adminSave) && !ON_WORKERS) {
-    try {
-      await updateDriveFile(driveFileId, pdfBuffer!);
-    } catch (e) {
-      console.warn("[sign-request POST] Drive write-back failed (non-fatal):", e);
     }
   }
 

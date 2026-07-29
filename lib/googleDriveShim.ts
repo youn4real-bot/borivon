@@ -17,7 +17,14 @@ import { mintGoogleAccessToken, type GoogleSaKey } from "@/lib/googleAuthWebCryp
 const DRIVE_BASE = "https://www.googleapis.com/drive/v3";
 const DRIVE_UPLOAD = "https://www.googleapis.com/upload/drive/v3/files";
 
-export type DriveShimOpts = { key: GoogleSaKey; subject: string; scopes: string[] };
+/**
+ * `subject` is optional because not every Drive caller impersonates a Workspace
+ * user. The legacy candidate-document tree is owned by the standalone service
+ * account in GOOGLE_SERVICE_ACCOUNT_EMAIL and lives in its own shared folder, so
+ * those callers must self-auth (no `sub` claim) — impersonating the founder would
+ * act as a different identity that has no access to that folder.
+ */
+export type DriveShimOpts = { key: GoogleSaKey; subject?: string; scopes: string[] };
 
 async function authedFetch(opts: DriveShimOpts, url: string, init?: RequestInit): Promise<Response> {
   const token = await mintGoogleAccessToken({ key: opts.key, subject: opts.subject, scopes: opts.scopes });

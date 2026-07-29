@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { drive_v3 } from "googleapis";
 import { createHash } from "crypto";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate, roleByUserId } from "@/lib/admin-auth";
@@ -9,12 +8,6 @@ import { isPassportFileType } from "@/lib/passportFile";
 import { r2GetObject } from "@/lib/r2";
 import { enforceRateLimitDistributed } from "@/lib/rateLimit";
 import { safeRotatePdf } from "@/lib/pdfRotate";
-
-// On Cloudflare Workers the googleapis Drive client crashes (google-auth-library →
-// node:http.validateHeaderName, unimplemented by unenv). Files are R2-primary now and the
-// Supabase Storage backup (fetch-based) works on workerd — so on Workers we SKIP the Drive
-// fallback and fall straight through to the Storage backup (or 404). Vercel keeps Drive.
-const ON_WORKERS = typeof navigator !== "undefined" && (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
 
 const BUCKET = "sign-documents";
 
@@ -68,21 +61,6 @@ async function ensurePassportIntegrity(
     console.error("[file-proxy] LAW #39 fallback fetch threw:", e);
   }
   return served; // last-resort: something > nothing
-}
-
-async function getDriveClient(): Promise<drive_v3.Drive> {
-  // googleapis is imported lazily because it is the single biggest thing in the
-  // Workers bundle, and pulling it in at module scope makes every route pay a
-  // multi-second cold start even though only this Drive fallback ever needs it.
-  const { google } = await import("googleapis");
-  const auth = new google.auth.GoogleAuth({
-    credentials: {
-      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      private_key: (process.env.GOOGLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n"),
-    },
-    scopes: ["https://www.googleapis.com/auth/drive"],
-  });
-  return google.drive({ version: "v3", auth });
 }
 
 async function isAuthorised(
@@ -249,7 +227,7 @@ export async function GET(req: NextRequest) {
   //  • DOWNLOAD (?dl=1), non-passport → bake the persisted rotation into the
   //    SERVED COPY so the saved file opens already-rotated. This reads the
   //    ORIGINAL stored bytes and rotates a TRANSIENT copy — the stored file in
-  //    R2/Drive/Storage is NEVER mutated, so unlike the old LAW #39 bug this can
+  //    R2/Storage is NEVER mutated, so unlike the old LAW #39 bug this can
   //    never destroy the source (worst case: re-download the original).
   //    safeRotatePdf returns the original untouched if the re-save is degenerate
   //    (throws / pages dropped / size collapsed), so the download is never
@@ -281,7 +259,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Prefer Cloudflare R2 (free egress, no Drive rate limits). If the object
-  // isn't there yet (old file not migrated), fall through to Drive/Storage.
+  // isn't there yet (old file not migrated), fall through to the Storage mirror.
   if (r2Key) {
     const obj = await r2GetObject(r2Key);
     if (obj) {
@@ -304,92 +282,40 @@ export async function GET(req: NextRequest) {
 
   if (!fileId) return new NextResponse("File not found", { status: 404 });
 
+  // Legacy pre-R2 rows: the bytes live in the Supabase Storage mirror that the
+  // upload route writes alongside every Drive file (doc-cache/{driveFileId}).
+  // The Google Drive read that used to sit in front of this is gone: it has been
+  // unreachable on workerd since the migration (googleapis → gaxios → node:http),
+  // the identity that owns those old files is the bare service account rather
+  // than the founder, and R2 above is the store of record for everything
+  // uploaded since. So the mirror is the direct path now, not a rescue after a
+  // thrown Drive call. The try/catch stays so a Storage throw still 404s.
   try {
-    // On Workers, the googleapis Drive client can't run — skip it and let the catch fall
-    // through to the Supabase Storage backup (which works on workerd). R2 already handled
-    // the common case above; this only matters for un-migrated (no-r2_key) files.
-    if (ON_WORKERS) throw new Error("drive_unavailable_on_workers");
-    const drive = await getDriveClient();
-
-    const meta = await drive.files.get({
-      fileId,
-      fields: "mimeType,name",
-      supportsAllDrives: true,
-    });
-    const mimeType = meta.data.mimeType ?? "application/octet-stream";
-
-    const res = await drive.files.get(
-      { fileId, alt: "media", supportsAllDrives: true },
-      { responseType: "stream" }
-    );
-
-    const stream = res.data as NodeJS.ReadableStream;
-    const chunks: Buffer[] = [];
-    await new Promise<void>((resolve, reject) => {
-      stream.on("data", (chunk: Buffer) => chunks.push(chunk));
-      stream.on("end", resolve);
-      stream.on("error", reject);
-    });
-
-    const srcBuf = Buffer.concat(chunks);
-
-    // If this is a PDF with a saved rotation, apply it — but safeRotatePdf
-    // guarantees the original is returned untouched if the re-save would
-    // corrupt/blank it (the scanned-passport "data erased" bug).
-    // effectiveRotation is 0 for passport files so they never re-save.
-    const outBuf = mimeType === "application/pdf"
-      ? await safeRotatePdf(srcBuf, effectiveRotation)
-      : srcBuf;
-
-    // LAW #39 integrity audit on Drive-sourced passport serves. If the
-    // bytes don't match the hash we recorded on upload, fall back to the
-    // Storage backup and log loudly so the corrupting code path is
-    // findable in the server log.
-    const verified = isPassportFileType(fileType) && mimeType === "application/pdf"
-      ? await ensurePassportIntegrity(outBuf, fileSha256, fileId, "drive")
+    const { data: blob, error: dlErr } = await db.storage
+      .from("sign-documents")
+      .download(`doc-cache/${fileId}`);
+    if (dlErr || !blob) {
+      console.error("[file proxy] Storage fallback failed:", dlErr);
+      return new NextResponse("File not found", { status: 404 });
+    }
+    const srcBuf = Buffer.from(await blob.arrayBuffer());
+    const outBuf = await safeRotatePdf(srcBuf, effectiveRotation);
+    // LAW #39: audit passport bytes here too. The storage backup SHOULD
+    // match the upload hash (mirrored at upload time); a divergence would
+    // mean even the backup got corrupted, which is the kind of edge we
+    // want to know about loudly.
+    const verified = isPassportFileType(fileType)
+      ? await ensurePassportIntegrity(outBuf, fileSha256, fileId, "storage-fallback")
       : outBuf;
-
     return new NextResponse(new Uint8Array(verified), {
       headers: {
-        "Content-Type": ctype(req, mimeType),
+        "Content-Type": ctype(req, "application/pdf"),
         "Content-Disposition": disposition(req, "document"),
-        // Don't cache — rotation can change at any time.
         "Cache-Control": "private, no-store, must-revalidate",
       },
     });
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn("[file proxy] Drive fetch failed, trying Storage fallback:", msg);
-
-    // Storage fallback — uploads route mirrors PDFs to sign-documents/doc-cache/{driveFileId}
-    // so the file is still retrievable when the Drive file is deleted/inaccessible.
-    try {
-      const { data: blob, error: dlErr } = await db.storage
-        .from("sign-documents")
-        .download(`doc-cache/${fileId}`);
-      if (dlErr || !blob) {
-        console.error("[file proxy] Storage fallback also failed:", dlErr);
-        return new NextResponse("File not found", { status: 404 });
-      }
-      const srcBuf = Buffer.from(await blob.arrayBuffer());
-      const outBuf = await safeRotatePdf(srcBuf, effectiveRotation);
-      // LAW #39: even in the Drive-failed fallback, audit passport bytes.
-      // The storage backup SHOULD match the upload hash (mirrored at
-      // upload time); a divergence here would mean even the backup got
-      // corrupted, which is the kind of edge we want to know about loudly.
-      const verified = isPassportFileType(fileType)
-        ? await ensurePassportIntegrity(outBuf, fileSha256, fileId, "storage-fallback")
-        : outBuf;
-      return new NextResponse(new Uint8Array(verified), {
-        headers: {
-          "Content-Type": ctype(req, "application/pdf"),
-          "Content-Disposition": disposition(req, "document"),
-          "Cache-Control": "private, no-store, must-revalidate",
-        },
-      });
-    } catch (fallbackErr) {
-      console.error("[file proxy] Both Drive and Storage failed:", fallbackErr);
-      return new NextResponse("File not found", { status: 404 });
-    }
+  } catch (fallbackErr) {
+    console.error("[file proxy] Storage fallback threw:", fallbackErr);
+    return new NextResponse("File not found", { status: 404 });
   }
 }

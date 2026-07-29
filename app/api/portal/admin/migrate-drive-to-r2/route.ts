@@ -58,14 +58,13 @@ export async function POST(req: NextRequest) {
         { fileId: driveId, alt: "media", supportsAllDrives: true },
         { responseType: "stream" },
       );
-      const stream = res.data as NodeJS.ReadableStream;
-      const chunks: Buffer[] = [];
-      await new Promise<void>((resolve, reject) => {
-        stream.on("data", (c: Buffer) => chunks.push(c));
-        stream.on("end", () => resolve());
-        stream.on("error", reject);
-      });
-      const buf = Buffer.concat(chunks);
+      // The Drive client is now the fetch shim, so `res.data` is a WEB
+      // ReadableStream, not a Node one. The previous code cast it to
+      // NodeJS.ReadableStream and called .on("data") — which type-checks
+      // happily and throws "stream.on is not a function" at runtime, inside a
+      // per-row catch. The migration would have reported every row as failed
+      // and copied nothing, while looking like it ran.
+      const buf = Buffer.from(await new Response(res.data as unknown as ReadableStream).arrayBuffer());
       if (buf.length === 0) { fail("Drive file is empty (0 bytes) — broken before migration"); continue; }
 
       // 2) Write into R2 under a stable, collision-proof key.

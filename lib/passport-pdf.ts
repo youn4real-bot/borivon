@@ -1,15 +1,12 @@
-import type { drive_v3 } from "googleapis";
 import { r2Configured, r2Put, candidateKey } from "@/lib/r2";
-import { PassThrough } from "stream";
+import { makeDriveRestClient } from "@/lib/googleDriveShim";
 
 // @react-pdf/renderer does runtime WASM codegen (yoga) at MODULE LOAD, which
 // Cloudflare Workers ban — so it is NOT imported at top level. It is loaded LAZILY
 // inside generatePassportPdf only on the Vercel branch; on Workers we render the
 // same sheet with pure pdf-lib (lib/pdflib/passportSheet). This is the cutover-audit
-// fix: importing this module (e.g. /api/portal/upload imports makeDrivePublic from
-// here) no longer drags @react-pdf into the worker and crashes it at load.
-// (`import { google } from "googleapis"` IS import-safe on workerd — only its
-// runtime network calls throw, and those are gated/try-caught by callers.)
+// fix: the routes that import a Drive helper from this module no longer drag
+// @react-pdf into the worker with it and crash it at load.
 const ON_WORKERS =
   typeof navigator !== "undefined" &&
   (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
@@ -198,21 +195,65 @@ export async function generatePassportPdf(profile: any): Promise<Buffer> {
 }
 
 // ── Google Drive helpers ──────────────────────────────────────────────────────
-// The googleapis package ships generated clients for hundreds of APIs we never
-// touch, and pulling it in at module load is what makes the Workers bundle huge
-// and every cold start slow. Importing it here means the cost is only paid when
-// a request actually reaches the (legacy) Drive path.
-export async function getDriveClient(): Promise<drive_v3.Drive> {
-  const { google } = await import("googleapis");
-  const auth = new google.auth.GoogleAuth({
-    credentials: {
-      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+type DriveClient = ReturnType<typeof makeDriveRestClient>;
+
+/**
+ * Plain-fetch Drive client. googleapis is gone from this module entirely: it
+ * ships generated clients for hundreds of APIs we never touch, and deferring it
+ * behind `await import()` bought nothing because OpenNext inlines dynamic
+ * imports into the one worker bundle — the parse cost is paid on every cold
+ * start whether the Drive path runs or not. The only fix is absence.
+ *
+ * Deliberately NO `subject`: this is 2-legged self-auth as the service account
+ * in GOOGLE_SERVICE_ACCOUNT_EMAIL, exactly the identity the GoogleAuth client
+ * used. GOOGLE_DRIVE_FOLDER_ID is a folder shared with that account, and the
+ * candidate folders under it are owned by it — impersonating a Workspace user
+ * would act as someone who cannot see that tree and would quietly build a
+ * second one under a different owner.
+ */
+export async function getDriveClient(): Promise<DriveClient> {
+  return makeDriveRestClient({
+    key: {
+      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ?? "",
       private_key:  (process.env.GOOGLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n"),
     },
     scopes: ["https://www.googleapis.com/auth/drive"],
   });
-  return google.drive({ version: "v3", auth });
 }
+
+/**
+ * The two helpers below name only the Drive methods they actually call rather
+ * than a whole client type. Callers hand them a client built elsewhere, and a
+ * structural shape accepts any of them — including a googleapis client, should
+ * a Node-only path ever want one — without this module importing googleapis
+ * merely for the type. Naming the calls also makes the LAW #33 surface obvious:
+ * there is no delete here, only list and create.
+ */
+type DrivePermissionsApi = {
+  permissions: {
+    create(params: {
+      fileId: string;
+      requestBody: { role: string; type: string };
+      supportsAllDrives?: boolean;
+    }): Promise<unknown>;
+  };
+};
+
+type DriveFilesApi = {
+  files: {
+    list(params: {
+      q?: string;
+      fields?: string;
+      includeItemsFromAllDrives?: boolean;
+      supportsAllDrives?: boolean;
+    }): Promise<{ data: { files?: { id?: string | null }[] | null } }>;
+    create(params: {
+      requestBody: { name: string; mimeType?: string; parents?: string[] };
+      fields?: string;
+      supportsAllDrives?: boolean;
+    }): Promise<{ data: { id?: string | null } }>;
+  };
+};
 
 export const ROOT_FOLDER_ID = () => process.env.GOOGLE_DRIVE_FOLDER_ID ?? "";
 
@@ -223,7 +264,7 @@ export const ROOT_FOLDER_ID = () => process.env.GOOGLE_DRIVE_FOLDER_ID ?? "";
  * permission failure doesn't fail the surrounding upload.
  */
 export async function makeDrivePublic(
-  drive: drive_v3.Drive,
+  drive: DrivePermissionsApi,
   fileId: string
 ): Promise<void> {
   try {
@@ -246,7 +287,7 @@ function escapeDriveQ(s: string): string {
 }
 
 export async function getOrCreateFolder(
-  drive: drive_v3.Drive,
+  drive: DriveFilesApi,
   name: string,
   parentId: string
 ): Promise<string> {
@@ -274,18 +315,21 @@ export function buildPdfFilename(profile: { first_name?: string | null; last_nam
 }
 
 /**
- * Generate the passport-data PDF and store it. R2 is the store of record; Google
- * Drive is legacy and only used when R2 isn't configured. NEVER throws — a
- * storage hiccup (or a suspended Google account) must not break the passport
- * save (the caller already treats this as best-effort). Returns the Drive id
- * when a legacy Drive upload happened, else "".
+ * Generate the passport-data PDF and store it in R2, the store of record. NEVER
+ * throws — a storage hiccup must not break the passport save (the caller already
+ * treats this as best-effort).
+ *
+ * The name is historical: nothing here writes to Drive any more. The Drive
+ * fallback that used to follow was unreachable on Cloudflare — r2Configured() is
+ * hard-true on workerd (native R2 binding), so the R2 branch always returned
+ * first — and Workers is the only runtime left. The return value is kept as ""
+ * because /api/portal/passport ignores it.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function uploadPassportPdfToDrive(profile: any): Promise<string> {
   const buffer   = await generatePassportPdf(profile);
   const filename = buildPdfFilename(profile);
 
-  // R2 — primary. Best-effort.
   if (r2Configured()) {
     try {
       const uid = String(profile.user_id ?? "");
@@ -293,26 +337,6 @@ export async function uploadPassportPdfToDrive(profile: any): Promise<string> {
     } catch (e) {
       console.error("[passport-pdf] R2 put failed (non-fatal):", e instanceof Error ? e.message : e);
     }
-    return "";
   }
-
-  // Google Drive — legacy, only when R2 isn't set up. Non-fatal.
-  try {
-    const drive    = await getDriveClient();
-    const rootId   = ROOT_FOLDER_ID();
-    const folderName = [profile.first_name?.trim(), profile.last_name?.trim()].filter(Boolean).join(" ") || String(profile.user_id ?? "unknown");
-    const folderId = await getOrCreateFolder(drive, folderName, rootId);
-    const stream = new PassThrough();
-    stream.end(buffer);
-    const driveRes = await drive.files.create({
-      requestBody: { name: filename, parents: [folderId] },
-      media:       { mimeType: "application/pdf", body: stream },
-      fields:      "id",
-      supportsAllDrives: true,
-    });
-    return driveRes.data.id ?? "";
-  } catch (e) {
-    console.error("[passport-pdf] Drive (legacy) failed (non-fatal):", e instanceof Error ? e.message : e);
-    return "";
-  }
+  return "";
 }

@@ -3,13 +3,8 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { canActOnCandidate } from "@/lib/admin-auth";
 import { createClient } from "@supabase/supabase-js";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
-import type { drive_v3 } from "googleapis";
-import { JWT } from "google-auth-library";
-import { makeDrivePublic } from "@/lib/passport-pdf";
 import { natToLang } from "@/lib/countries";
-import { LABEL_TO_FILE_KEY } from "@/lib/fileKeys";
 import { scheduleCandidateMirror } from "@/lib/scheduleMirror";
-import { PassThrough } from "stream";
 import { createHash } from "crypto";
 import { r2Configured, r2Put, candidateKey } from "@/lib/r2";
 import { pdfPageLimit } from "@/lib/pdfPageLimits";
@@ -37,7 +32,6 @@ const ALLOWED_TYPES = [
 ];
 
 const MAX_SIZE_BYTES = 10 * 1024 * 1024;
-const ROOT_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID ?? "";
 
 // Passport OCR can hit Azure Computer Vision + Google Vision fallback +
 // embedded-JPEG retry path — 20-40s worst-case on a noisy phone scan. Pin
@@ -169,30 +163,6 @@ function slugifyGerman(s: string): string {
 /** Module-level UUID regex for detecting wizard slot fileKeys. */
 const UPLOAD_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-async function getDriveClient(): Promise<drive_v3.Drive> {
-  // googleapis ships generated clients for hundreds of APIs we never call, and a
-  // top-level import drags all of them into the Workers bundle — that alone is
-  // most of the 37 MB and the 2-5s cold start on EVERY route. Importing it here
-  // means the cost is only paid when the legacy Drive path actually runs (it
-  // doesn't in prod, where R2 is configured).
-  const { google } = await import("googleapis");
-  const auth = new google.auth.GoogleAuth({
-    credentials: {
-      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      private_key: (process.env.GOOGLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n"),
-    },
-    scopes: ["https://www.googleapis.com/auth/drive"],
-  });
-  return google.drive({ version: "v3", auth });
-}
-
-// On Cloudflare Workers googleapis/google-auth-library's HTTP layer is unavailable
-// (node:http.validateHeaderName). Drive calls here are already gated behind
-// !r2Configured() (R2 is hard-true on Workers); this gates the Vision OCR token.
-const ON_WORKERS =
-  typeof navigator !== "undefined" &&
-  (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
-
 async function getVisionToken(): Promise<string> {
   let email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ?? "";
   let key = (process.env.GOOGLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n");
@@ -205,46 +175,19 @@ async function getVisionToken(): Promise<string> {
     const sa = serviceAccountKey();
     if (sa) { email = sa.client_email; key = sa.private_key; }
   }
-  // google-auth-library's JWT.getAccessToken() hits node:http.validateHeaderName
-  // (unimplemented on workerd) and throws. On Workers mint the SA token via
-  // WebCrypto instead (2-legged self-auth — no DWD subject), so passport OCR's
-  // Google Vision fallback works there too (not just when Azure is configured).
-  if (ON_WORKERS) {
-    const { mintGoogleAccessToken } = await import("@/lib/googleAuthWebCrypto");
-    const token = await mintGoogleAccessToken({
-      key: { client_email: email, private_key: key },
-      scopes: ["https://www.googleapis.com/auth/cloud-vision"],
-    });
-    if (!token) throw new Error("Could not obtain Vision API access token (Workers)");
-    return token;
-  }
-  const jwt = new JWT({ email, key, scopes: ["https://www.googleapis.com/auth/cloud-vision"] });
-  const res = await jwt.getAccessToken();
-  if (!res.token) throw new Error("Could not obtain Vision API access token");
-  return res.token;
-}
-
-/** Escape a string for safe inclusion in a Drive `q` query (single-quote delimited). */
-function escapeDriveQ(s: string): string {
-  return s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
-}
-
-async function getOrCreateFolder(drive: drive_v3.Drive, name: string, parentId: string): Promise<string> {
-  const safeName = escapeDriveQ(name);
-  const safeParent = escapeDriveQ(parentId);
-  const res = await drive.files.list({
-    q: `name='${safeName}' and mimeType='application/vnd.google-apps.folder' and '${safeParent}' in parents and trashed=false`,
-    fields: "files(id)",
-    includeItemsFromAllDrives: true,
-    supportsAllDrives: true,
+  // Mint the service-account token with WebCrypto rather than google-auth-library's
+  // JWT client: the latter signs through gtoken/jws, which reaches for
+  // node:http.validateHeaderName and throws on workerd, and pulling it in
+  // statically anchors google-auth-library (and transitively googleapis) into the
+  // worker bundle. This is 2-legged self-auth (no DWD subject) and crypto.subtle
+  // exists on both Node 18+ and Workers, so one path serves every runtime.
+  const { mintGoogleAccessToken } = await import("@/lib/googleAuthWebCrypto");
+  const token = await mintGoogleAccessToken({
+    key: { client_email: email, private_key: key },
+    scopes: ["https://www.googleapis.com/auth/cloud-vision"],
   });
-  if (res.data.files && res.data.files.length > 0) return res.data.files[0].id!;
-  const folder = await drive.files.create({
-    requestBody: { name, mimeType: "application/vnd.google-apps.folder", parents: [parentId] },
-    fields: "id",
-    supportsAllDrives: true,
-  });
-  return folder.data.id!;
+  if (!token) throw new Error("Could not obtain Vision API access token");
+  return token;
 }
 
 // ── Country display name → ISO 3166-1 alpha-3 ────────────────────────────────
@@ -1082,30 +1025,6 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Lookup existing Drive file for this slot (for cleanup after re-upload) ──
-  // Only for single-slot doc types (not "other" which accumulates multiple files).
-  let oldDriveFileId: string | null = null;
-  if (fileKey !== "other") {
-    const dbLookup = getServiceSupabase();
-    // LAW #33: match the prior file by the STABLE fileKey, not the volatile
-    // translated `file_type` label. The passport label is language-dependent
-    // ("Reisepass"/"Passport"/"Passeport"); if the candidate re-uploads in a
-    // different UI language than the first upload, an `.eq("file_type", …)`
-    // lookup misses → old Drive file orphaned + a duplicate row. Resolve
-    // every label back to its fileKey and take the newest match.
-    const { data: rows } = await dbLookup
-      .from("documents")
-      .select("drive_file_id, file_type, uploaded_at")
-      .eq("user_id", userId)
-      .order("uploaded_at", { ascending: false })
-      .limit(50);
-    const prior = (rows ?? []).find(d => {
-      const fk = LABEL_TO_FILE_KEY[d.file_type] ?? d.file_type;
-      return fk === fileKey && !!d.drive_file_id;
-    });
-    oldDriveFileId = prior?.drive_file_id ?? null;
-  }
-
   // ── Build the structured filename — storage-agnostic (needed by R2) ─────────
   // LAW #35 naming. None of this needs Google Drive, so it always runs even when
   // Drive is gone.
@@ -1142,10 +1061,25 @@ export async function POST(req: NextRequest) {
     structuredName = buildFileName(firstName, lastName, fileKey, ext);
   }
 
-  // ── Cloudflare R2 — PRIMARY + store of record ───────────────────────────────
+  // ── Cloudflare R2 — the ONLY store of record ────────────────────────────────
   // Unique timestamped key per upload → re-uploads never overwrite older bytes
-  // (LAW #33: old bytes preserved, just orphaned). Failing here IS fatal — R2 is
-  // the only store now (Google Drive is legacy/off).
+  // (LAW #33: old bytes preserved, just orphaned). Failing here IS fatal.
+  //
+  // The legacy Google Drive fallback that used to follow this block is gone. It
+  // was already unreachable in production: `r2Configured()` is hard-true on
+  // Cloudflare Workers (the only runtime we ship to), so `!r2Configured()` never
+  // opened. Keeping the dead branch cost the whole app, because it was the last
+  // thing in this route holding a reference to googleapis — a package whose
+  // generated clients for hundreds of APIs we never call dominated the 37 MB
+  // worker bundle and the 2-5s cold start on EVERY route (making the import
+  // dynamic changed nothing; OpenNext inlines it into the one bundle). It was
+  // deleted rather than ported to the fetch-based Drive shim on purpose: the
+  // shim acts as the founder via domain-wide delegation, while this code
+  // authenticated as the bare service account that owns GOOGLE_DRIVE_FOLDER_ID,
+  // so a "port" would quietly change which Google account owns the files.
+  //
+  // Consequence for local dev: a box with no R2_* vars now gets a 500 here
+  // instead of silently falling back to Drive. Set the R2_* vars in .env.local.
   let r2Key: string | null = null;
   if (r2Configured()) {
     const key = candidateKey(userId, `${Date.now()}_${structuredName}`);
@@ -1159,74 +1093,37 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Google Drive — LEGACY. Only runs when R2 is NOT configured, so once R2 is
-  // set up (it is, in prod) Google is never called and a suspended Google account
-  // can't break uploads. Fully non-fatal. ────────────────────────────────────
-  let driveFileId: string | null = null;
-  if (!r2Configured()) {
-    try {
-      const drive = await getDriveClient();
-      const folderName = firstName && lastName ? `${firstName.trim()} ${lastName.trim()}` : userId;
-      const candidateFolderId = await getOrCreateFolder(drive, folderName, ROOT_FOLDER_ID);
-      let folderId = candidateFolderId;
-      if (fileKey === "other") folderId = await getOrCreateFolder(drive, "sonstiges", candidateFolderId);
-      const stream = new PassThrough();
-      stream.end(buffer);
-      const r = await drive.files.create({
-        requestBody: { name: structuredName, parents: [folderId] },
-        media: { mimeType: file.type, body: stream },
-        fields: "id",
-        supportsAllDrives: true,
-      });
-      driveFileId = r.data.id ?? null;
-      if (driveFileId) await makeDrivePublic(drive, driveFileId);
-      if (oldDriveFileId) {
-        const archiveFolderId = await getOrCreateFolder(drive, "archive", candidateFolderId);
-        await drive.files.update({ fileId: oldDriveFileId, addParents: archiveFolderId, removeParents: candidateFolderId, supportsAllDrives: true, fields: "id" });
-      }
-    } catch (err) {
-      console.error("[upload] Drive (legacy) error — ignored, R2 is primary:", err instanceof Error ? err.message : err);
-    }
-  }
-
-  // ── Supabase Storage doc-cache — LAW #39 integrity fallback, keyed by
-  // driveFileId (what ensurePassportIntegrity looks up). Only relevant in the
-  // legacy Drive path; R2 serves byte-identical originals (passport rotation is
-  // client-side, so the server never mutates them → no fallback needed). ──────
-  if (driveFileId && file.type === "application/pdf") {
-    try {
-      const sb = getServiceSupabase();
-      await sb.storage.from("sign-documents").upload(`doc-cache/${driveFileId}`, buffer, { contentType: "application/pdf", upsert: true });
-    } catch (cacheErr) {
-      console.warn("[upload] Storage backup failed (non-fatal):", cacheErr);
-    }
-  }
+  // The Supabase Storage doc-cache write that used to sit here is gone with the
+  // Drive path: it was keyed by the Drive file id (what ensurePassportIntegrity
+  // looks up) and therefore only ever fired on the legacy branch. R2 serves
+  // byte-identical originals — passport rotation is client-side, the server
+  // never mutates the bytes (LAW #39) — so there is nothing to fall back to.
 
   // LAW #39 belt-and-suspenders: snapshot the upload's sha256 BEFORE any
   // downstream processing reads the buffer. Stored alongside the row so
   // /api/portal/file can detect a regression that mutates passport bytes
-  // anywhere in the pipeline — divergent hash on serve falls back to the
-  // Storage doc-cache (which holds the original upload). Computed for
-  // every doctype, used today only for passports; available for future
-  // integrity checks on other doctypes without a re-migration.
+  // anywhere in the pipeline — a divergent hash on serve is the alarm.
+  // Computed for every doctype, used today only for passports; available
+  // for future integrity checks on other doctypes without a re-migration.
   const fileSha256 = createHash("sha256").update(buffer).digest("hex");
 
   // ── Supabase insert ───────────────────────────────────────────────────────────
   const db = getServiceSupabase();
 
   // Belt-and-suspenders: NEVER persist a documents row that points at no stored
-  // bytes. If R2 is unconfigured AND the legacy Drive write threw (e.g. Google
-  // suspended), both ids are null → the file is nowhere and would serve as a
+  // bytes. Without an R2 key the file is nowhere and the row would serve as a
   // broken/empty "PDF". Fail loudly so the candidate re-uploads instead.
-  if (!r2Key && !driveFileId) {
-    console.error("[upload] No storage backend captured the file (r2Key + driveFileId both null) — refusing to insert a phantom row.");
+  if (!r2Key) {
+    console.error("[upload] R2 did not capture the file (r2Key null) — refusing to insert a phantom row.");
     return NextResponse.json({ error: "Speicherung fehlgeschlagen — bitte erneut versuchen." }, { status: 500 });
   }
 
   const { error: dbErr } = await db.from("documents").insert({
     user_id: userId, file_name: structuredName,
     file_path: `gdrive/${userId}/${Date.now()}`,
-    file_type: fileType, drive_file_id: driveFileId, r2_key: r2Key,
+    // drive_file_id stays in the row (and in the schema) so every existing
+    // reader of legacy rows keeps working; nothing writes a Drive id any more.
+    file_type: fileType, drive_file_id: null, r2_key: r2Key,
     uploaded_by_admin: uploadedByAdmin,
     file_sha256: fileSha256,
     // LAW #15: admin-uploaded docs (no candidate action) → immediately
@@ -1253,7 +1150,7 @@ export async function POST(req: NextRequest) {
       const { error: retryErr } = await db.from("documents").insert({
         user_id: userId, file_name: structuredName,
         file_path: `gdrive/${userId}/${Date.now()}`,
-        file_type: fileType, drive_file_id: driveFileId, r2_key: r2Key,
+        file_type: fileType, drive_file_id: null, r2_key: r2Key,
         uploaded_by_admin: uploadedByAdmin,
         status: uploadedByAdmin ? "approved" : "pending",
       });

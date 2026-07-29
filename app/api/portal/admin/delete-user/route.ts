@@ -1,28 +1,39 @@
 import { NextRequest } from "next/server";
 import { requireAdminRole } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
-import type { drive_v3 } from "googleapis";
+import { makeDriveRestClient } from "@/lib/googleDriveShim";
 import { UUID_RE } from "@/lib/uuid";
 
 const ROOT_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID ?? "";
 
-async function getDriveClient(): Promise<drive_v3.Drive> {
-  // googleapis is imported lazily: it is by far the heaviest dependency in the
-  // Workers bundle, and a top-level import makes every request to this route
-  // pay its evaluation cost on a cold start even when no Drive call happens.
-  const { google } = await import("googleapis");
-  const auth = new google.auth.GoogleAuth({
-    credentials: {
-      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+type DriveClient = ReturnType<typeof makeDriveRestClient>;
+
+/**
+ * Plain-fetch Drive client. `googleapis` is gone from this route entirely: it
+ * reaches node:http through gaxios, which workerd cannot serve, and making the
+ * import lazy did nothing because OpenNext inlines dynamic imports into the one
+ * worker bundle — the parse cost on every cold start only goes away when the
+ * dependency is absent.
+ *
+ * No `subject`: this is 2-legged self-auth as the service account itself, the
+ * identity the googleapis client used here. The legacy candidate files under
+ * GOOGLE_DRIVE_FOLDER_ID are owned by that account, and re-parenting a file
+ * needs edit rights on the file and on both folders — impersonating a Workspace
+ * user through domain-wide delegation would be a different identity that may
+ * hold none of them.
+ */
+function getDriveClient(): DriveClient {
+  return makeDriveRestClient({
+    key: {
+      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ?? "",
       private_key: (process.env.GOOGLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n"),
     },
     scopes: ["https://www.googleapis.com/auth/drive"],
   });
-  return google.drive({ version: "v3", auth });
 }
 
 async function getOrCreateDeletedDataFolder(
-  drive: drive_v3.Drive,
+  drive: DriveClient,
 ): Promise<string> {
   const res = await drive.files.list({
     q: `name = 'DELETED USERS' and '${ROOT_FOLDER_ID}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
@@ -81,7 +92,7 @@ export async function POST(req: NextRequest) {
 
   if (docs?.length && ROOT_FOLDER_ID) {
     try {
-      const drive = await getDriveClient();
+      const drive = getDriveClient();
       const deletedRootId = await getOrCreateDeletedDataFolder(drive);
 
       // Create per-user sub-folder: "FirstName LastName (abc12345)"

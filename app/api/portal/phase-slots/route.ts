@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { drive_v3 } from "googleapis";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { requireAdminRole } from "@/lib/admin-auth";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
@@ -7,13 +6,6 @@ import { UUID_RE } from "@/lib/uuid";
 
 const VALID_PHASES = ["bearbeitung", "visum"] as const;
 const VALID_TYPES  = ["simple", "dual"] as const;
-
-// googleapis Drive can't run on Cloudflare Workers. On Workers the slot-rename
-// updates the DB file_name (what's shown) and skips the Drive file rename — the R2
-// object key is internal/opaque so a stale physical name has no user-facing effect.
-const ON_WORKERS =
-  typeof navigator !== "undefined" &&
-  (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
 
 /** Mirrors lib in app/api/portal/upload/route.ts — kept inline to avoid a
  *  bigger shared-lib refactor for one cross-route use. */
@@ -27,26 +19,17 @@ function slugifyGerman(s: string): string {
     || "dokument";
 }
 
-async function getDriveClient(): Promise<drive_v3.Drive> {
-  // googleapis ships generated clients for hundreds of APIs we never call, and a
-  // top-level import drags all of it into the Worker bundle, which is what makes
-  // every route pay a multi-second cold start. Loading it here keeps the cost on
-  // the one path that actually talks to Drive.
-  const { google } = await import("googleapis");
-  const auth = new google.auth.GoogleAuth({
-    credentials: {
-      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      private_key: (process.env.GOOGLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n"),
-    },
-    scopes: ["https://www.googleapis.com/auth/drive"],
-  });
-  return google.drive({ version: "v3", auth });
-}
-
 /**
  * Rename every already-submitted document whose file_type points at this slot
- * so its filename reflects the slot's new label. Touches both the Drive file
- * (drive.files.update with new `name`) and the documents.file_name column.
+ * so its filename reflects the slot's new label. This writes documents.file_name,
+ * which is the name every surface actually shows — the portal, the download
+ * headers, and the agency Drive mirror all read it, while the physical R2 object
+ * key stays internal and opaque.
+ *
+ * There is deliberately no Drive call here. Files have been R2-primary since the
+ * cutover, so no document written on Workers carries a drive_file_id, and the
+ * googleapis client that used to rename the pre-migration Drive copies was the
+ * single reason this route pulled googleapis into the Worker bundle.
  *
  * Failure on any single doc is logged + skipped — we don't roll back the
  * label change because partial rename is still better than a partial roll-back.
@@ -56,14 +39,13 @@ async function renameSlotDocs(slotId: string, newLabel: string): Promise<void> {
     const db = getServiceSupabase();
     const { data: docs } = await db
       .from("documents")
-      .select("id, user_id, drive_file_id, file_name")
+      .select("id, user_id, file_name")
       .eq("file_type", slotId);
     if (!docs || docs.length === 0) return;
 
     const slug = slugifyGerman(newLabel);
-    const drive = ON_WORKERS ? null : await getDriveClient();
 
-    for (const raw of docs as { id: string; user_id: string; drive_file_id: string | null; file_name: string | null }[]) {
+    for (const raw of docs as { id: string; user_id: string; file_name: string | null }[]) {
       // Look up candidate first/last for the filename prefix
       const { data: prof } = await db
         .from("candidate_profiles")
@@ -76,19 +58,6 @@ async function renameSlotDocs(slotId: string, newLabel: string): Promise<void> {
       // Preserve the existing extension if we can read it; default to "pdf".
       const ext = (raw.file_name ?? "").split(".").pop()?.toLowerCase() || "pdf";
       const newName = `${fn}_${ln}_pflegekraft_${slug}.${ext}`;
-
-      if (raw.drive_file_id && drive) {
-        try {
-          await drive.files.update({
-            fileId: raw.drive_file_id,
-            requestBody: { name: newName },
-            supportsAllDrives: true,
-            fields: "id, name",
-          });
-        } catch (driveErr) {
-          console.warn(`[renameSlotDocs] Drive rename failed for ${raw.id}:`, driveErr);
-        }
-      }
 
       const { error: updErr } = await db
         .from("documents")
@@ -511,10 +480,10 @@ export async function PATCH(req: NextRequest) {
     }
   }
 
-  // When the slot's label changes, every already-submitted document under
-  // this slot is renamed to match (Drive + DB) so file names always reflect
-  // the current admin-defined label. Best-effort — failure logs but doesn't
-  // roll back the label change.
+  // When the slot's label changes, every already-submitted document under this
+  // slot is renamed to match so file names always reflect the current
+  // admin-defined label. Best-effort — failure logs but doesn't roll back the
+  // label change.
   if (body.label !== undefined) {
     await renameSlotDocs(body.id, body.label.trim());
   }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { drive_v3 } from "googleapis";
+import { makeDriveRestClient } from "@/lib/googleDriveShim";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
@@ -10,27 +10,35 @@ import { UUID_RE } from "@/lib/uuid";
 // skipped while the DB row was still deleted (LAW #33 silent-loss bug).
 const ROOT_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID ?? "";
 
-async function getDriveClient(): Promise<drive_v3.Drive> {
-  // `googleapis` is imported lazily: it is by far the heaviest dependency in the
-  // Workers bundle, and a top-level import makes every request to this route pay
-  // for parsing it at cold start even when no Drive call is made (the archive
-  // step below is skipped whenever the doc has no Drive file).
-  const { google } = await import("googleapis");
-  const auth = new google.auth.GoogleAuth({
-    credentials: {
-      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
+type DriveClient = ReturnType<typeof makeDriveRestClient>;
+
+/**
+ * Plain-fetch Drive client. `googleapis` is gone from this route entirely: it
+ * reaches node:http through gaxios, which is the wrong shape for workerd, and
+ * lazily importing it did not help because OpenNext inlines dynamic imports into
+ * the single worker bundle — the only way to stop paying its parse cost on every
+ * cold start is for it not to be there at all.
+ *
+ * No `subject`: this is 2-legged self-auth as the service account itself, the
+ * same identity the googleapis client used. The legacy candidate folders under
+ * GOOGLE_DRIVE_FOLDER_ID are owned by that account, so impersonating a Workspace
+ * user here would look for (and create) a second folder tree it can actually see.
+ */
+function getDriveClient(): DriveClient {
+  return makeDriveRestClient({
+    key: {
+      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ?? "",
       private_key: (process.env.GOOGLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n"),
     },
     scopes: ["https://www.googleapis.com/auth/drive"],
   });
-  return google.drive({ version: "v3", auth });
 }
 
 function escapeDriveQ(s: string) {
   return s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
-async function getOrCreateFolder(drive: drive_v3.Drive, name: string, parentId: string): Promise<string> {
+async function getOrCreateFolder(drive: DriveClient, name: string, parentId: string): Promise<string> {
   const safeName = escapeDriveQ(name);
   const safeParent = escapeDriveQ(parentId);
   const res = await drive.files.list({
@@ -83,7 +91,7 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
   // LAW #33: move to archive instead of permanently deleting
   if (d.drive_file_id && ROOT_FOLDER_ID) {
     try {
-      const drive = await getDriveClient();
+      const drive = getDriveClient();
       // Candidate name lives in `candidate_profiles` keyed by `user_id`
       // (the `profiles` table does not exist → lookup always returned null →
       // file got archived under a raw-UUID folder instead of the real one).
@@ -98,6 +106,22 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
         : auth.userId;
       const candidateFolderId = await getOrCreateFolder(drive, folderName, ROOT_FOLDER_ID);
       const archiveFolderId = await getOrCreateFolder(drive, "archive", candidateFolderId);
+      // ADD the archive folder as a parent; never REMOVE the original one.
+      //
+      // A `removeParents` version of this was written and pulled back out. It
+      // would have made the archive a true move, but the folder it moves INTO
+      // is resolved from candidate_profiles.first_name/last_name, and those are
+      // frequently empty — the real name lives in the auth user's metadata. An
+      // empty profile therefore yields a folder named with a raw UUID, and with
+      // the original parent stripped the document ends up somewhere nobody
+      // looks. LAW #33 says a candidate document is never lost; a file that
+      // technically still exists in a folder named by a UUID is lost in every
+      // sense that matters.
+      //
+      // Adding a parent is strictly safe: worst case an unused folder is
+      // created and the file stays exactly where it was. Making this a real
+      // move is worth doing, but only together with the same multi-source name
+      // resolution the upload path uses.
       await drive.files.update({
         fileId: d.drive_file_id,
         addParents: archiveFolderId,

@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import type { drive_v3 } from "googleapis";
 import { PDFDocument, degrees } from "pdf-lib";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
@@ -8,42 +7,6 @@ import { dlTokenUserId } from "@/lib/dlToken";
 import { r2GetObject } from "@/lib/r2";
 import { isPassportFileType } from "@/lib/passportFile";
 import { enforceRateLimitDistributed } from "@/lib/rateLimit";
-
-// googleapis Drive crashes on Cloudflare Workers (google-auth-library →
-// node:http.validateHeaderName). Files are R2-primary (r2_key backfilled), so on Workers we
-// serve merge sources from R2 only; if one isn't in R2 we error rather than hit Drive.
-const ON_WORKERS = typeof navigator !== "undefined" && (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
-
-async function getDriveClient(): Promise<drive_v3.Drive> {
-  // googleapis is imported lazily because it is by far the largest dependency in the
-  // Workers bundle, and a top-level import makes every route pay to evaluate it on a cold
-  // start even though only the Drive fallback below ever needs it.
-  const { google } = await import("googleapis");
-  const auth = new google.auth.GoogleAuth({
-    credentials: {
-      client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      private_key: (process.env.GOOGLE_PRIVATE_KEY ?? "").replace(/\\n/g, "\n"),
-    },
-    scopes: ["https://www.googleapis.com/auth/drive"],
-  });
-  return google.drive({ version: "v3", auth });
-}
-
-async function fetchPdfBuffer(fileId: string): Promise<Buffer> {
-  const drive = await getDriveClient();
-  const res = await drive.files.get(
-    { fileId, alt: "media", supportsAllDrives: true },
-    { responseType: "stream" }
-  );
-  const stream = res.data as NodeJS.ReadableStream;
-  const chunks: Buffer[] = [];
-  await new Promise<void>((resolve, reject) => {
-    stream.on("data", (c: Buffer) => chunks.push(c));
-    stream.on("end", resolve);
-    stream.on("error", reject);
-  });
-  return Buffer.concat(chunks);
-}
 
 async function resolveFileMeta(
   db: ReturnType<typeof getServiceSupabase>,
@@ -136,7 +99,10 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // Resolve doc IDs to drive file IDs + per-doc rotation.
+  // Resolve doc IDs to storage keys + per-doc rotation. The bytes only ever come from R2, but a
+  // legacy row that still carries a drive_file_id and no r2_key deliberately passes this guard:
+  // "the document exists, its bytes are missing" is a 500 further down, not a 404 here. Treating
+  // it as a 404 would tell the caller the document is gone, which is a different and wrong claim.
   const db = getServiceSupabase();
   const [origMeta, transMeta] = await Promise.all([
     resolveFileMeta(db, origId, origDocId),
@@ -152,16 +118,18 @@ export async function GET(req: NextRequest) {
   if (isPassportFileType(origMeta.fileType) || isPassportFileType(transMeta.fileType))
     return new NextResponse("Passport documents cannot be merged", { status: 400 });
 
-  // R2 first (free egress, no Drive throttle); fall back to Drive.
-  const loadBytes = async (m: { fileId: string | null; r2Key: string | null }): Promise<Buffer> => {
+  // R2 is the store of record. A Drive fallback used to live here, but googleapis crashes on
+  // Cloudflare Workers (google-auth-library → node:http.validateHeaderName), so it was already
+  // guarded off in production and could never run — while still dragging by far the heaviest
+  // dependency in the app into the worker bundle and taxing every route's cold start. A source
+  // that isn't in R2 therefore fails exactly as it did before: this throws, and the caller's
+  // catch turns it into a 500.
+  const loadBytes = async (m: { r2Key: string | null }): Promise<Buffer> => {
     if (m.r2Key) {
       const o = await r2GetObject(m.r2Key);
       if (o) return o.body;
     }
-    // On Workers the Drive fallback can't run — R2 is the store of record (keys backfilled).
-    if (ON_WORKERS) throw new Error("file not found (R2 only on Workers)");
-    if (!m.fileId) throw new Error("file not found");
-    return fetchPdfBuffer(m.fileId);
+    throw new Error("file not found (R2 only)");
   };
 
   try {

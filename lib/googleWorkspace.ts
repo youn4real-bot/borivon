@@ -1,80 +1,37 @@
 /**
  * NATIVE Google Workspace access for the bot (SERVER ONLY) — ONE service account
  * with DOMAIN-WIDE DELEGATION, impersonating the founder, gives native access to
- * Gmail, Calendar, Drive, Docs and Sheets through the official `googleapis` lib.
- * No App Password, no per-user OAuth, no token expiry — set it up once in the
- * Google Workspace Admin console and every Google API is available.
+ * Gmail, Calendar and Drive. No App Password, no per-user OAuth, no token expiry
+ * — set it up once in the Google Workspace Admin console and every Google API is
+ * available.
  *
  * Reuses the existing service-account key in GOOGLE_VERTEX_CREDENTIALS (override
  * with GOOGLE_WORKSPACE_CREDENTIALS) and impersonates GOOGLE_WORKSPACE_SUBJECT
  * (defaults to GMAIL_USER / ADMIN_EMAIL — the founder's mailbox).
  *
+ * NOTHING HERE LOADS `googleapis` ANY MORE — the only mention left is an erased
+ * `import type`. The one runtime is Cloudflare Workers, and on workerd the SDK
+ * never ran: it reaches node:http through gaxios, so every client was long ago
+ * replaced by a fetch + WebCrypto REST shim (lib/googleRestShim.ts for Gmail and
+ * Calendar, lib/googleDriveShim.ts for Drive). The SDK branch that sat beside
+ * each shim was unreachable code that still cost the whole bundle — googleapis
+ * ships hundreds of generated API clients (dfareporting, Google's ad-reporting
+ * API, among them) and that weight is what makes every cold start 2-5s.
+ * Deferring the import did nothing, because OpenNext inlines dynamic imports
+ * into the single worker bundle; only deleting the import removes the bytes.
+ *
  * FAIL-SAFE: every getter returns null until domain-wide delegation is granted,
- * so callers fall back to the existing App-Password paths — nothing breaks before
- * the one-time setup is done.
+ * so callers fall back to their existing "not connected" paths — nothing throws
+ * before the one-time setup is done.
  */
-import type { calendar_v3, drive_v3, gmail_v1 } from "googleapis";
-import type { JWT } from "google-auth-library";
+// TYPE-ONLY, and it must stay that way. `import type` is erased by TypeScript, so
+// it contributes nothing to the bundle — but it is what lets the shims keep the
+// exact client surface every caller (lib/gmailApi.ts, lib/workspaceCalendar.ts,
+// lib/driveMirror.ts, lib/googleSheets.ts) already compiles against. Dropping it
+// and exposing the shims' own narrower types instead breaks those four files.
+import type { calendar_v3, drive_v3, gmail_v1, sheets_v4 } from "googleapis";
 import { makeGmailRestClient, makeCalendarRestClient } from "@/lib/googleRestShim";
 import { makeDriveRestClient } from "@/lib/googleDriveShim";
-
-// On Cloudflare Workers, googleapis (→ google-auth-library → node:http) 500s with
-// "validateHeaderName not implemented". We swap in fetch+WebCrypto REST shims that mimic the
-// googleapis surface, so gmailApi.ts / workspaceCalendar.ts run unchanged. Vercel (Node) keeps
-// the real googleapis client (this is false there).
-const ON_WORKERS = typeof navigator !== "undefined" && (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
-
-/**
- * The googleapis SDK, loaded ONLY on the Node path and never on Workers.
- *
- * Every getter below returns a fetch shim (or null) when ON_WORKERS, so the SDK
- * is unreachable there — but a top-level `import` would still drag its hundreds
- * of generated API clients into the Workers bundle and make every route pay for
- * them at cold start.
- *
- * `getSync()` is deliberately NOT a `require()`. An earlier attempt used one and
- * it was wrong twice over: `require` does not exist in this ESM module outside
- * webpack's CJS interop (any getter would throw "require is not defined" under
- * Vitest), and — per this repo's own finding in next.config.ts — a literal
- * `require()` is statically analysed and bundled regardless of whether it can
- * ever execute, so it defers evaluation without removing a single byte. Bundle
- * size is the thing driving the 2-5s cold start, so that bought nothing.
- *
- * Instead the module is primed asynchronously on the Node path and cached. The
- * getters stay synchronous because all five have sync callers across the repo,
- * and on Node the priming import resolves long before any real Google call.
- */
-type GoogleSdk = typeof import("googleapis").google;
-let _googleSdk: GoogleSdk | null = null;
-let _priming: Promise<void> | null = null;
-
-/** Kick off the load (Node only). Idempotent; safe to call from anywhere. */
-function primeGoogleSdk(): Promise<void> {
-  if (ON_WORKERS) return Promise.resolve();
-  if (!_priming) {
-    _priming = import("googleapis")
-      .then((m) => { _googleSdk = m.google; })
-      .catch((e) => { console.error("[googleWorkspace] googleapis load failed:", e); });
-  }
-  return _priming;
-}
-
-/** The SDK if it is already loaded. Null on Workers, and null on Node until the
- *  priming import settles — callers there fall into their existing
- *  "not connected" branch rather than throwing, which is the same fail-safe
- *  posture the rest of this file has always had. */
-function googleSdk(): GoogleSdk | null {
-  if (ON_WORKERS) return null;
-  void primeGoogleSdk();
-  return _googleSdk;
-}
-
-/** Await the SDK on the Node path — for callers that can afford to. */
-export async function googleSdkReady(): Promise<GoogleSdk | null> {
-  if (ON_WORKERS) return null;
-  await primeGoogleSdk();
-  return _googleSdk;
-}
 
 // Scopes the bot needs across Workspace. These must ALSO be pasted into the
 // Admin console domain-wide-delegation grant for the service account (same list).
@@ -134,34 +91,21 @@ export function workspaceServiceAccount(): { clientEmail: string; clientId: stri
   return { clientEmail: k.client_email, clientId: k.client_id ?? null, subject: subjectEmail() };
 }
 
-/** A delegated JWT auth client (impersonating the founder), or null if unconfigured. */
-export function getWorkspaceAuth(scopes: string[] = WORKSPACE_SCOPES): JWT | null {
-  const k = saKey();
-  const sub = subjectEmail();
-  if (!k || !sub) return null;
-  const sdk = googleSdk(); if (!sdk) return null;
-  return new (sdk.auth.JWT)({ email: k.client_email, key: k.private_key, scopes, subject: sub });
-}
-
+/**
+ * Every client below mints its own domain-wide-delegation access token per call
+ * (lib/googleAuthWebCrypto), impersonating `subjectEmail()`. That is the same
+ * identity the deleted SDK path used, so anything the bot writes to Drive is
+ * still owned by the founder — lib/driveMirror.ts depends on that.
+ */
 export function gmailClient() {
-  if (ON_WORKERS) {
-    const k = saKey(); const sub = subjectEmail();
-    if (!k || !sub) return null;
-    return makeGmailRestClient({ key: k, subject: sub, scopes: WORKSPACE_SCOPES }) as unknown as gmail_v1.Gmail;
-  }
-  const auth = getWorkspaceAuth();
-  const sdk = googleSdk();
-  return auth && sdk ? sdk.gmail({ version: "v1", auth }) : null;
+  const k = saKey(); const sub = subjectEmail();
+  if (!k || !sub) return null;
+  return makeGmailRestClient({ key: k, subject: sub, scopes: WORKSPACE_SCOPES }) as unknown as gmail_v1.Gmail;
 }
 export function calendarClient() {
-  if (ON_WORKERS) {
-    const k = saKey(); const sub = subjectEmail();
-    if (!k || !sub) return null;
-    return makeCalendarRestClient({ key: k, subject: sub, scopes: WORKSPACE_SCOPES }) as unknown as calendar_v3.Calendar;
-  }
-  const auth = getWorkspaceAuth();
-  const sdk = googleSdk();
-  return auth && sdk ? sdk.calendar({ version: "v3", auth }) : null;
+  const k = saKey(); const sub = subjectEmail();
+  if (!k || !sub) return null;
+  return makeCalendarRestClient({ key: k, subject: sub, scopes: WORKSPACE_SCOPES }) as unknown as calendar_v3.Calendar;
 }
 export function driveClient() {
   // Drive was the LAST Google client still on the googleapis SDK after the move
@@ -169,45 +113,34 @@ export function driveClient() {
   // serve — and every Drive caller catches + logs, so syncs reported success
   // while copying nothing. No document reached Drive between the migration and
   // this shim. Same fetch-based treatment Gmail and Calendar already had.
-  if (ON_WORKERS) {
-    const k = saKey(); const sub = subjectEmail();
-    if (!k || !sub) return null;
-    return makeDriveRestClient({ key: k, subject: sub, scopes: WORKSPACE_SCOPES }) as unknown as drive_v3.Drive;
-  }
-  const auth = getWorkspaceAuth();
-  const sdk = googleSdk();
-  return auth && sdk ? sdk.drive({ version: "v3", auth }) : null;
+  const k = saKey(); const sub = subjectEmail();
+  if (!k || !sub) return null;
+  return makeDriveRestClient({ key: k, subject: sub, scopes: WORKSPACE_SCOPES }) as unknown as drive_v3.Drive;
 }
+
 /**
- * Docs and Sheets have NO Workers REST shim yet — unlike Gmail, Calendar and
- * Drive above. Returning the raw googleapis client on workerd hands the caller
- * something that throws "validateHeaderName is not implemented" deep inside
- * google-auth-library the moment it is used, which surfaces to the founder as
- * an unexplained failure.
+ * Docs and Sheets have NO REST shim — unlike Gmail, Calendar and Drive above.
+ * They therefore have no client at all now that the SDK is gone, which is a
+ * statement of fact rather than a regression: on workerd the SDK client threw
+ * "validateHeaderName is not implemented" deep inside google-auth-library the
+ * moment it was used, so these two getters already returned null in production.
  *
- * Returning null instead routes into each caller's existing
- * `workspace_not_connected` branch, which is a clean, typed refusal they
- * already handle. `sheetsShimMissing()` lets those callers say WHY rather than
- * implying the Workspace connection is broken, because it is not.
+ * Returning null routes into each caller's existing `workspace_not_connected`
+ * branch, which is a clean, typed refusal they already handle.
+ * `sheetsShimMissing()` lets those callers say WHY rather than implying the
+ * Workspace connection is broken, because it is not — see lib/googleSheets.ts.
  */
-export const SHEETS_ON_WORKERS_UNSUPPORTED =
-  typeof navigator !== "undefined" && (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
-
 export function sheetsShimMissing(): boolean {
-  return SHEETS_ON_WORKERS_UNSUPPORTED;
+  return true;
 }
 
-export function docsClient() {
-  if (SHEETS_ON_WORKERS_UNSUPPORTED) return null;
-  const auth = getWorkspaceAuth();
-  const sdk = googleSdk();
-  return auth && sdk ? sdk.docs({ version: "v1", auth }) : null;
+export function docsClient(): null {
+  return null;
 }
-export function sheetsClient() {
-  if (SHEETS_ON_WORKERS_UNSUPPORTED) return null;
-  const auth = getWorkspaceAuth();
-  const sdk = googleSdk();
-  return auth && sdk ? sdk.sheets({ version: "v4", auth }) : null;
+// Typed `sheets_v4.Sheets | null` rather than plain `null` so lib/googleSheets.ts
+// still narrows to a usable client after its null check instead of to `never`.
+export function sheetsClient(): sheets_v4.Sheets | null {
+  return null;
 }
 
 /** Live check: can we actually impersonate + reach Gmail + Calendar? Returns the
