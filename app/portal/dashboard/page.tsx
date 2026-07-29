@@ -3441,9 +3441,22 @@ export default function DashboardPage() {
         </div>{/* end flex gap-4 row */}
       </div>{/* end max-w-[780px] container */}
 
+      {/* PHOTOS, not only PDFs — she is on a phone.
+          `accept=".pdf"` does not merely filter the list: on iOS and Android it
+          removes Camera and Photo Library from the picker entirely. So the very
+          first thing the onboarding tour tells her to do — "start with your
+          passport" — was impossible from a phone. She has no PDF of her
+          passport; she has a passport. Photographing it was not offered.
+          The SERVER has always accepted images here: ALLOWED_TYPES, and
+          ALLOWED_ID specifically for the passport, in
+          app/api/portal/upload/route.ts. Only this picker disagreed with it.
+          Word documents stay confined to the Sonstiges slots, where they are
+          actually expected. */}
       <input ref={fileInputRef} type="file" className="hidden"
         accept={
-          activeKey && OTHER_KEYS.includes(activeKey) ? ".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx" : ".pdf"
+          activeKey && OTHER_KEYS.includes(activeKey)
+            ? ".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx"
+            : ".pdf,.jpg,.jpeg,.png,.webp"
         }
         onChange={onFileChange} />
 
