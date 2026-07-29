@@ -13,7 +13,7 @@
  * so callers fall back to the existing App-Password paths — nothing breaks before
  * the one-time setup is done.
  */
-import { google } from "googleapis";
+import type { calendar_v3, drive_v3, gmail_v1 } from "googleapis";
 import type { JWT } from "google-auth-library";
 import { makeGmailRestClient, makeCalendarRestClient } from "@/lib/googleRestShim";
 import { makeDriveRestClient } from "@/lib/googleDriveShim";
@@ -23,6 +23,58 @@ import { makeDriveRestClient } from "@/lib/googleDriveShim";
 // googleapis surface, so gmailApi.ts / workspaceCalendar.ts run unchanged. Vercel (Node) keeps
 // the real googleapis client (this is false there).
 const ON_WORKERS = typeof navigator !== "undefined" && (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
+
+/**
+ * The googleapis SDK, loaded ONLY on the Node path and never on Workers.
+ *
+ * Every getter below returns a fetch shim (or null) when ON_WORKERS, so the SDK
+ * is unreachable there — but a top-level `import` would still drag its hundreds
+ * of generated API clients into the Workers bundle and make every route pay for
+ * them at cold start.
+ *
+ * `getSync()` is deliberately NOT a `require()`. An earlier attempt used one and
+ * it was wrong twice over: `require` does not exist in this ESM module outside
+ * webpack's CJS interop (any getter would throw "require is not defined" under
+ * Vitest), and — per this repo's own finding in next.config.ts — a literal
+ * `require()` is statically analysed and bundled regardless of whether it can
+ * ever execute, so it defers evaluation without removing a single byte. Bundle
+ * size is the thing driving the 2-5s cold start, so that bought nothing.
+ *
+ * Instead the module is primed asynchronously on the Node path and cached. The
+ * getters stay synchronous because all five have sync callers across the repo,
+ * and on Node the priming import resolves long before any real Google call.
+ */
+type GoogleSdk = typeof import("googleapis").google;
+let _googleSdk: GoogleSdk | null = null;
+let _priming: Promise<void> | null = null;
+
+/** Kick off the load (Node only). Idempotent; safe to call from anywhere. */
+function primeGoogleSdk(): Promise<void> {
+  if (ON_WORKERS) return Promise.resolve();
+  if (!_priming) {
+    _priming = import("googleapis")
+      .then((m) => { _googleSdk = m.google; })
+      .catch((e) => { console.error("[googleWorkspace] googleapis load failed:", e); });
+  }
+  return _priming;
+}
+
+/** The SDK if it is already loaded. Null on Workers, and null on Node until the
+ *  priming import settles — callers there fall into their existing
+ *  "not connected" branch rather than throwing, which is the same fail-safe
+ *  posture the rest of this file has always had. */
+function googleSdk(): GoogleSdk | null {
+  if (ON_WORKERS) return null;
+  void primeGoogleSdk();
+  return _googleSdk;
+}
+
+/** Await the SDK on the Node path — for callers that can afford to. */
+export async function googleSdkReady(): Promise<GoogleSdk | null> {
+  if (ON_WORKERS) return null;
+  await primeGoogleSdk();
+  return _googleSdk;
+}
 
 // Scopes the bot needs across Workspace. These must ALSO be pasted into the
 // Admin console domain-wide-delegation grant for the service account (same list).
@@ -87,26 +139,29 @@ export function getWorkspaceAuth(scopes: string[] = WORKSPACE_SCOPES): JWT | nul
   const k = saKey();
   const sub = subjectEmail();
   if (!k || !sub) return null;
-  return new google.auth.JWT({ email: k.client_email, key: k.private_key, scopes, subject: sub });
+  const sdk = googleSdk(); if (!sdk) return null;
+  return new (sdk.auth.JWT)({ email: k.client_email, key: k.private_key, scopes, subject: sub });
 }
 
 export function gmailClient() {
   if (ON_WORKERS) {
     const k = saKey(); const sub = subjectEmail();
     if (!k || !sub) return null;
-    return makeGmailRestClient({ key: k, subject: sub, scopes: WORKSPACE_SCOPES }) as unknown as ReturnType<typeof google.gmail>;
+    return makeGmailRestClient({ key: k, subject: sub, scopes: WORKSPACE_SCOPES }) as unknown as gmail_v1.Gmail;
   }
   const auth = getWorkspaceAuth();
-  return auth ? google.gmail({ version: "v1", auth }) : null;
+  const sdk = googleSdk();
+  return auth && sdk ? sdk.gmail({ version: "v1", auth }) : null;
 }
 export function calendarClient() {
   if (ON_WORKERS) {
     const k = saKey(); const sub = subjectEmail();
     if (!k || !sub) return null;
-    return makeCalendarRestClient({ key: k, subject: sub, scopes: WORKSPACE_SCOPES }) as unknown as ReturnType<typeof google.calendar>;
+    return makeCalendarRestClient({ key: k, subject: sub, scopes: WORKSPACE_SCOPES }) as unknown as calendar_v3.Calendar;
   }
   const auth = getWorkspaceAuth();
-  return auth ? google.calendar({ version: "v3", auth }) : null;
+  const sdk = googleSdk();
+  return auth && sdk ? sdk.calendar({ version: "v3", auth }) : null;
 }
 export function driveClient() {
   // Drive was the LAST Google client still on the googleapis SDK after the move
@@ -117,10 +172,11 @@ export function driveClient() {
   if (ON_WORKERS) {
     const k = saKey(); const sub = subjectEmail();
     if (!k || !sub) return null;
-    return makeDriveRestClient({ key: k, subject: sub, scopes: WORKSPACE_SCOPES }) as unknown as ReturnType<typeof google.drive>;
+    return makeDriveRestClient({ key: k, subject: sub, scopes: WORKSPACE_SCOPES }) as unknown as drive_v3.Drive;
   }
   const auth = getWorkspaceAuth();
-  return auth ? google.drive({ version: "v3", auth }) : null;
+  const sdk = googleSdk();
+  return auth && sdk ? sdk.drive({ version: "v3", auth }) : null;
 }
 /**
  * Docs and Sheets have NO Workers REST shim yet — unlike Gmail, Calendar and
@@ -144,12 +200,14 @@ export function sheetsShimMissing(): boolean {
 export function docsClient() {
   if (SHEETS_ON_WORKERS_UNSUPPORTED) return null;
   const auth = getWorkspaceAuth();
-  return auth ? google.docs({ version: "v1", auth }) : null;
+  const sdk = googleSdk();
+  return auth && sdk ? sdk.docs({ version: "v1", auth }) : null;
 }
 export function sheetsClient() {
   if (SHEETS_ON_WORKERS_UNSUPPORTED) return null;
   const auth = getWorkspaceAuth();
-  return auth ? google.sheets({ version: "v4", auth }) : null;
+  const sdk = googleSdk();
+  return auth && sdk ? sdk.sheets({ version: "v4", auth }) : null;
 }
 
 /** Live check: can we actually impersonate + reach Gmail + Calendar? Returns the

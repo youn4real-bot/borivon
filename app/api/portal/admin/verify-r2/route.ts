@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     .range(offset, offset + BATCH - 1);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const drive = getDriveClient();
+  const drive = await getDriveClient();
   let verified = 0;
   const missingInR2: Tag[] = [];
   const sizeMismatch: (Tag & { r2: number; drive: number })[] = [];

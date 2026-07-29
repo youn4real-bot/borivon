@@ -3,7 +3,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { canActOnCandidate } from "@/lib/admin-auth";
 import { createClient } from "@supabase/supabase-js";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
-import { google } from "googleapis";
+import type { drive_v3 } from "googleapis";
 import { JWT } from "google-auth-library";
 import { makeDrivePublic } from "@/lib/passport-pdf";
 import { natToLang } from "@/lib/countries";
@@ -169,7 +169,13 @@ function slugifyGerman(s: string): string {
 /** Module-level UUID regex for detecting wizard slot fileKeys. */
 const UPLOAD_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function getDriveClient() {
+async function getDriveClient(): Promise<drive_v3.Drive> {
+  // googleapis ships generated clients for hundreds of APIs we never call, and a
+  // top-level import drags all of them into the Workers bundle — that alone is
+  // most of the 37 MB and the 2-5s cold start on EVERY route. Importing it here
+  // means the cost is only paid when the legacy Drive path actually runs (it
+  // doesn't in prod, where R2 is configured).
+  const { google } = await import("googleapis");
   const auth = new google.auth.GoogleAuth({
     credentials: {
       client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
@@ -223,7 +229,7 @@ function escapeDriveQ(s: string): string {
   return s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
-async function getOrCreateFolder(drive: ReturnType<typeof google.drive>, name: string, parentId: string): Promise<string> {
+async function getOrCreateFolder(drive: drive_v3.Drive, name: string, parentId: string): Promise<string> {
   const safeName = escapeDriveQ(name);
   const safeParent = escapeDriveQ(parentId);
   const res = await drive.files.list({
@@ -1159,7 +1165,7 @@ export async function POST(req: NextRequest) {
   let driveFileId: string | null = null;
   if (!r2Configured()) {
     try {
-      const drive = getDriveClient();
+      const drive = await getDriveClient();
       const folderName = firstName && lastName ? `${firstName.trim()} ${lastName.trim()}` : userId;
       const candidateFolderId = await getOrCreateFolder(drive, folderName, ROOT_FOLDER_ID);
       let folderId = candidateFolderId;

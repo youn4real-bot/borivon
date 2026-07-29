@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { google } from "googleapis";
+import type { drive_v3 } from "googleapis";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate, roleByUserId } from "@/lib/admin-auth";
 import { dlTokenUserId } from "@/lib/dlToken";
@@ -15,7 +15,12 @@ const ON_WORKERS =
   typeof navigator !== "undefined" &&
   (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
 
-function getDriveClient() {
+async function getDriveClient(): Promise<drive_v3.Drive> {
+  // googleapis is imported lazily: it is by far the heaviest dependency in the
+  // Workers bundle, and a top-level import makes every request to this route pay
+  // for parsing it at cold start even though only the Drive fallback paths below
+  // ever need it.
+  const { google } = await import("googleapis");
   const auth = new google.auth.GoogleAuth({
     credentials: {
       client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
@@ -27,7 +32,7 @@ function getDriveClient() {
 }
 
 async function fetchPdfBuffer(fileId: string): Promise<Buffer> {
-  const drive = getDriveClient();
+  const drive = await getDriveClient();
   const res = await drive.files.get(
     { fileId, alt: "media", supportsAllDrives: true },
     { responseType: "stream" }
@@ -43,7 +48,7 @@ async function fetchPdfBuffer(fileId: string): Promise<Buffer> {
 }
 
 async function updateDriveFile(fileId: string, buffer: Buffer): Promise<void> {
-  const drive = getDriveClient();
+  const drive = await getDriveClient();
   const { PassThrough } = await import("stream");
   const stream = new PassThrough();
   stream.end(buffer);

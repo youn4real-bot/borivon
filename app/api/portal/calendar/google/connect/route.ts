@@ -12,5 +12,5 @@ export async function GET(req: NextRequest) {
   if (!googleOAuthConfigured()) return NextResponse.json({ error: "not_configured" }, { status: 503 });
   const rl = await enforceUserRateLimit("gcal", `u:${auth.userId}`, { limit: 5, windowMs: 60000 });
   if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
-  return NextResponse.json({ url: buildAuthUrl(signFeedToken(auth.userId)) });
+  return NextResponse.json({ url: await buildAuthUrl(signFeedToken(auth.userId)) });
 }

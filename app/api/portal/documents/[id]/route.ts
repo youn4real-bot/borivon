@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { google } from "googleapis";
+import type { drive_v3 } from "googleapis";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
@@ -10,7 +10,12 @@ import { UUID_RE } from "@/lib/uuid";
 // skipped while the DB row was still deleted (LAW #33 silent-loss bug).
 const ROOT_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID ?? "";
 
-function getDriveClient() {
+async function getDriveClient(): Promise<drive_v3.Drive> {
+  // `googleapis` is imported lazily: it is by far the heaviest dependency in the
+  // Workers bundle, and a top-level import makes every request to this route pay
+  // for parsing it at cold start even when no Drive call is made (the archive
+  // step below is skipped whenever the doc has no Drive file).
+  const { google } = await import("googleapis");
   const auth = new google.auth.GoogleAuth({
     credentials: {
       client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
@@ -25,7 +30,7 @@ function escapeDriveQ(s: string) {
   return s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 }
 
-async function getOrCreateFolder(drive: ReturnType<typeof google.drive>, name: string, parentId: string): Promise<string> {
+async function getOrCreateFolder(drive: drive_v3.Drive, name: string, parentId: string): Promise<string> {
   const safeName = escapeDriveQ(name);
   const safeParent = escapeDriveQ(parentId);
   const res = await drive.files.list({
@@ -78,7 +83,7 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
   // LAW #33: move to archive instead of permanently deleting
   if (d.drive_file_id && ROOT_FOLDER_ID) {
     try {
-      const drive = getDriveClient();
+      const drive = await getDriveClient();
       // Candidate name lives in `candidate_profiles` keyed by `user_id`
       // (the `profiles` table does not exist → lookup always returned null →
       // file got archived under a raw-UUID folder instead of the real one).

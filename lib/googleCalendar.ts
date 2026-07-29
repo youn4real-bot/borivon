@@ -1,4 +1,3 @@
-import { google } from "googleapis";
 import type { OAuth2Client } from "google-auth-library";
 import { getServiceSupabase } from "@/lib/supabase";
 
@@ -27,7 +26,12 @@ export function googleOAuthConfigured(): boolean {
   return !!(process.env.GOOGLE_OAUTH_CLIENT_ID && process.env.GOOGLE_OAUTH_CLIENT_SECRET);
 }
 
-function oauthClient(): OAuth2Client {
+// `googleapis` is enormous and it dominates the Workers bundle, so we pull it in
+// on demand rather than at module load. Nothing here runs unless a user actually
+// connects or syncs a calendar, and every other route pays a 2-5s cold start for
+// it otherwise.
+async function oauthClient(): Promise<OAuth2Client> {
+  const { google } = await import("googleapis");
   return new google.auth.OAuth2(
     process.env.GOOGLE_OAUTH_CLIENT_ID,
     process.env.GOOGLE_OAUTH_CLIENT_SECRET,
@@ -36,8 +40,8 @@ function oauthClient(): OAuth2Client {
 }
 
 /** The Google consent URL. `state` is a signed userId (CSRF-safe round-trip). */
-export function buildAuthUrl(state: string): string {
-  return oauthClient().generateAuthUrl({
+export async function buildAuthUrl(state: string): Promise<string> {
+  return (await oauthClient()).generateAuthUrl({
     access_type: "offline",
     prompt: "consent", // force a refresh_token on every grant
     scope: SCOPES,
@@ -57,7 +61,7 @@ function emailFromIdToken(idToken?: string | null): string | null {
 
 /** Exchange the auth code for tokens and store them. Returns the Google email. */
 export async function completeConnect(userId: string, code: string, seesAll: boolean): Promise<string | null> {
-  const { tokens } = await oauthClient().getToken(code);
+  const { tokens } = await (await oauthClient()).getToken(code);
   const email = emailFromIdToken(tokens.id_token);
   const row: Record<string, unknown> = {
     user_id: userId,
@@ -106,8 +110,8 @@ type TokenRow = { user_id: string; refresh_token: string | null; access_token: s
 // the same Google event without a mapping table.
 const gid = (borivonId: string) => borivonId.replace(/-/g, "");
 
-function clientFromRow(row: TokenRow): OAuth2Client {
-  const c = oauthClient();
+async function clientFromRow(row: TokenRow): Promise<OAuth2Client> {
+  const c = await oauthClient();
   c.setCredentials({
     refresh_token: row.refresh_token ?? undefined,
     access_token: row.access_token ?? undefined,
@@ -145,6 +149,8 @@ function statusOf(e: unknown): number | undefined {
 }
 
 async function upsertViaClient(client: OAuth2Client, ev: PushEvent): Promise<void> {
+  // Lazy for the same bundle/cold-start reason as oauthClient above.
+  const { google } = await import("googleapis");
   const cal = google.calendar({ version: "v3", auth: client });
   const requestBody = bodyFor(ev);
   try {
@@ -160,6 +166,8 @@ async function upsertViaClient(client: OAuth2Client, ev: PushEvent): Promise<voi
 }
 
 async function deleteViaClient(client: OAuth2Client, borivonId: string): Promise<void> {
+  // Lazy for the same bundle/cold-start reason as oauthClient above.
+  const { google } = await import("googleapis");
   const cal = google.calendar({ version: "v3", auth: client });
   try {
     await cal.events.delete({ calendarId: "primary", eventId: gid(borivonId) });
@@ -185,7 +193,7 @@ export async function fanOutUpsert(events: PushEvent[]): Promise<void> {
   if (!rows.length) return;
   const tasks: Promise<void>[] = [];
   for (const row of rows) {
-    const client = clientFromRow(row);
+    const client = await clientFromRow(row);
     for (const ev of events) {
       const att = ev.attendee_ids ?? [];
       const sees = row.sees_all || att.length === 0 || att.includes(row.user_id);
@@ -200,5 +208,5 @@ export async function fanOutDelete(borivonId: string): Promise<void> {
   if (!googleOAuthConfigured()) return;
   let rows: TokenRow[];
   try { rows = await connectedRows(); } catch { return; }
-  await Promise.allSettled(rows.map((row) => deleteViaClient(clientFromRow(row), borivonId)));
+  await Promise.allSettled(rows.map(async (row) => deleteViaClient(await clientFromRow(row), borivonId)));
 }

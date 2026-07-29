@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const ids = Array.from(new Set((data ?? []).map(r => r.drive_file_id).filter(Boolean) as string[]));
-  const drive = getDriveClient();
+  const drive = await getDriveClient();
 
   let done = 0;
   for (const id of ids) {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { google } from "googleapis";
+import type { drive_v3 } from "googleapis";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { requireAdminRole } from "@/lib/admin-auth";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
@@ -27,7 +27,12 @@ function slugifyGerman(s: string): string {
     || "dokument";
 }
 
-function getDriveClient() {
+async function getDriveClient(): Promise<drive_v3.Drive> {
+  // googleapis ships generated clients for hundreds of APIs we never call, and a
+  // top-level import drags all of it into the Worker bundle, which is what makes
+  // every route pay a multi-second cold start. Loading it here keeps the cost on
+  // the one path that actually talks to Drive.
+  const { google } = await import("googleapis");
   const auth = new google.auth.GoogleAuth({
     credentials: {
       client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
@@ -56,7 +61,7 @@ async function renameSlotDocs(slotId: string, newLabel: string): Promise<void> {
     if (!docs || docs.length === 0) return;
 
     const slug = slugifyGerman(newLabel);
-    const drive = ON_WORKERS ? null : getDriveClient();
+    const drive = ON_WORKERS ? null : await getDriveClient();
 
     for (const raw of docs as { id: string; user_id: string; drive_file_id: string | null; file_name: string | null }[]) {
       // Look up candidate first/last for the filename prefix

@@ -1,12 +1,16 @@
 import { NextRequest } from "next/server";
 import { requireAdminRole } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
-import { google } from "googleapis";
+import type { drive_v3 } from "googleapis";
 import { UUID_RE } from "@/lib/uuid";
 
 const ROOT_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID ?? "";
 
-function getDriveClient() {
+async function getDriveClient(): Promise<drive_v3.Drive> {
+  // googleapis is imported lazily: it is by far the heaviest dependency in the
+  // Workers bundle, and a top-level import makes every request to this route
+  // pay its evaluation cost on a cold start even when no Drive call happens.
+  const { google } = await import("googleapis");
   const auth = new google.auth.GoogleAuth({
     credentials: {
       client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
@@ -18,7 +22,7 @@ function getDriveClient() {
 }
 
 async function getOrCreateDeletedDataFolder(
-  drive: ReturnType<typeof getDriveClient>,
+  drive: drive_v3.Drive,
 ): Promise<string> {
   const res = await drive.files.list({
     q: `name = 'DELETED USERS' and '${ROOT_FOLDER_ID}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
@@ -77,7 +81,7 @@ export async function POST(req: NextRequest) {
 
   if (docs?.length && ROOT_FOLDER_ID) {
     try {
-      const drive = getDriveClient();
+      const drive = await getDriveClient();
       const deletedRootId = await getOrCreateDeletedDataFolder(drive);
 
       // Create per-user sub-folder: "FirstName LastName (abc12345)"

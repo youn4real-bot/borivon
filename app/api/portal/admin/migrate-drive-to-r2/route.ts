@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     .limit(BATCH);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const drive = getDriveClient();
+  const drive = await getDriveClient();
   let copied = 0;
   const failed: { id: string; reason: string; name: string | null; type: string | null }[] = [];
 

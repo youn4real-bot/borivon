@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { google } from "googleapis";
+import type { drive_v3 } from "googleapis";
 import { createHash } from "crypto";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate, roleByUserId } from "@/lib/admin-auth";
@@ -70,7 +70,11 @@ async function ensurePassportIntegrity(
   return served; // last-resort: something > nothing
 }
 
-function getDriveClient() {
+async function getDriveClient(): Promise<drive_v3.Drive> {
+  // googleapis is imported lazily because it is the single biggest thing in the
+  // Workers bundle, and pulling it in at module scope makes every route pay a
+  // multi-second cold start even though only this Drive fallback ever needs it.
+  const { google } = await import("googleapis");
   const auth = new google.auth.GoogleAuth({
     credentials: {
       client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
@@ -305,7 +309,7 @@ export async function GET(req: NextRequest) {
     // through to the Supabase Storage backup (which works on workerd). R2 already handled
     // the common case above; this only matters for un-migrated (no-r2_key) files.
     if (ON_WORKERS) throw new Error("drive_unavailable_on_workers");
-    const drive = getDriveClient();
+    const drive = await getDriveClient();
 
     const meta = await drive.files.get({
       fileId,

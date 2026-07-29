@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
   // ── Drive: new file in the candidate folder, archive the old one ──────────
   let newDriveId: string | null = null;
   try {
-    const drive  = getDriveClient();
+    const drive  = await getDriveClient();
     const rootId = ROOT_FOLDER_ID();
 
     const { data: profile } = await db

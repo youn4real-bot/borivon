@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
   let driveFileId: string | null = null;
   if (!r2Configured()) {
     try {
-      const drive      = getDriveClient();
+      const drive      = await getDriveClient();
       const rootId     = ROOT_FOLDER_ID();
       const folderName = [profile.first_name?.trim(), profile.last_name?.trim()].filter(Boolean).join(" ") || userId;
       const folderId   = await getOrCreateFolder(drive, folderName, rootId);

@@ -1,4 +1,4 @@
-import { google } from "googleapis";
+import type { drive_v3 } from "googleapis";
 import { r2Configured, r2Put, candidateKey } from "@/lib/r2";
 import { PassThrough } from "stream";
 
@@ -198,7 +198,12 @@ export async function generatePassportPdf(profile: any): Promise<Buffer> {
 }
 
 // ── Google Drive helpers ──────────────────────────────────────────────────────
-export function getDriveClient() {
+// The googleapis package ships generated clients for hundreds of APIs we never
+// touch, and pulling it in at module load is what makes the Workers bundle huge
+// and every cold start slow. Importing it here means the cost is only paid when
+// a request actually reaches the (legacy) Drive path.
+export async function getDriveClient(): Promise<drive_v3.Drive> {
+  const { google } = await import("googleapis");
   const auth = new google.auth.GoogleAuth({
     credentials: {
       client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
@@ -218,7 +223,7 @@ export const ROOT_FOLDER_ID = () => process.env.GOOGLE_DRIVE_FOLDER_ID ?? "";
  * permission failure doesn't fail the surrounding upload.
  */
 export async function makeDrivePublic(
-  drive: ReturnType<typeof google.drive>,
+  drive: drive_v3.Drive,
   fileId: string
 ): Promise<void> {
   try {
@@ -241,7 +246,7 @@ function escapeDriveQ(s: string): string {
 }
 
 export async function getOrCreateFolder(
-  drive: ReturnType<typeof google.drive>,
+  drive: drive_v3.Drive,
   name: string,
   parentId: string
 ): Promise<string> {
@@ -293,7 +298,7 @@ export async function uploadPassportPdfToDrive(profile: any): Promise<string> {
 
   // Google Drive — legacy, only when R2 isn't set up. Non-fatal.
   try {
-    const drive    = getDriveClient();
+    const drive    = await getDriveClient();
     const rootId   = ROOT_FOLDER_ID();
     const folderName = [profile.first_name?.trim(), profile.last_name?.trim()].filter(Boolean).join(" ") || String(profile.user_id ?? "unknown");
     const folderId = await getOrCreateFolder(drive, folderName, rootId);

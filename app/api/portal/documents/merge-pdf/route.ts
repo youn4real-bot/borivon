@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { google } from "googleapis";
+import type { drive_v3 } from "googleapis";
 import { PDFDocument, degrees } from "pdf-lib";
 import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
@@ -14,7 +14,11 @@ import { enforceRateLimitDistributed } from "@/lib/rateLimit";
 // serve merge sources from R2 only; if one isn't in R2 we error rather than hit Drive.
 const ON_WORKERS = typeof navigator !== "undefined" && (navigator as { userAgent?: string }).userAgent === "Cloudflare-Workers";
 
-function getDriveClient() {
+async function getDriveClient(): Promise<drive_v3.Drive> {
+  // googleapis is imported lazily because it is by far the largest dependency in the
+  // Workers bundle, and a top-level import makes every route pay to evaluate it on a cold
+  // start even though only the Drive fallback below ever needs it.
+  const { google } = await import("googleapis");
   const auth = new google.auth.GoogleAuth({
     credentials: {
       client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
@@ -26,7 +30,7 @@ function getDriveClient() {
 }
 
 async function fetchPdfBuffer(fileId: string): Promise<Buffer> {
-  const drive = getDriveClient();
+  const drive = await getDriveClient();
   const res = await drive.files.get(
     { fileId, alt: "media", supportsAllDrives: true },
     { responseType: "stream" }
