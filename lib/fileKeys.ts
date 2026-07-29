@@ -75,18 +75,39 @@ for (const [key, tKey] of Object.entries(KEY_TO_TKEY)) {
   // pre-rename label as an alias so old rows still resolve, and keep the two
   // internal file_type tags DISTINCT so the reverse lookup tells Essentials
   // (letter → "Anschreiben") from Visum (letter_visa → "Motivationsschreiben
-  // Visum") apart. The bare "Motivationsschreiben" alias on letter_visa rescues
-  // a brief earlier build that stored the visa tag without the "Visum" suffix;
-  // KEY_TO_TKEY lists letter before letter_visa, so it resolves to letter_visa.
+  // Visum") apart.
+  //
+  // letter_visa MUST NOT claim the bare "Motivationsschreiben". That string is
+  // pTypeLetter — the Essentials label in all three languages — so with it
+  // listed here the reverse map (built in key order, letter before letter_visa,
+  // last write wins) resolved every Essentials motivation letter to the VISA
+  // key. The consequence was not cosmetic: driveMirror's isPreMatchDoc said
+  // false, so the letter was filed under "Nach Matching" and went MISSING from
+  // the pre-matching dossier sent to German clinics; the Visum box showed an
+  // embassy letter that did not exist; and re-upload could not find the prior
+  // row, so the LAW #33 archive step was skipped.
+  //
+  // It was added to rescue a brief earlier build that stored the visa tag
+  // without the "Visum" suffix. Measured against the live database before
+  // removing it: ZERO rows carry the bare label (Essentials letters are stored
+  // as "Anschreiben"/"Lettre de motivation", visa ones as "Motivationsschreiben
+  // Visum"), so it rescued nothing and cost the common case.
   if (key === "letter")            { labels.add("Anschreiben"); labels.add("Lettre de motivation"); labels.add("Cover letter"); }
-  if (key === "letter_visa")       { labels.add("Anschreiben Visum"); labels.add("Motivationsschreiben Visum"); labels.add("Motivationsschreiben"); }
+  if (key === "letter_visa")       { labels.add("Anschreiben Visum"); labels.add("Motivationsschreiben Visum"); }
   FILE_KEY_LABELS[key] = [...labels];
 }
 
-/** label (any language) → fileKey (reverse lookup) */
+/** label (any language) → fileKey (reverse lookup)
+ *
+ *  FIRST WRITE WINS. The old `LABEL_TO_FILE_KEY[lbl] = key` let a later key
+ *  silently steal a label an earlier one already owned, which is exactly how
+ *  "Motivationsschreiben" — the Essentials label — ended up resolving to
+ *  letter_visa. A canonical label is now unstealable: whichever key declares it
+ *  first keeps it, and tests/fileKeysCollision.test.ts fails the build if two
+ *  keys ever declare the same label at all. */
 export const LABEL_TO_FILE_KEY: Record<string, string> = {};
 for (const [key, labels] of Object.entries(FILE_KEY_LABELS)) {
-  for (const lbl of labels) LABEL_TO_FILE_KEY[lbl] = key;
+  for (const lbl of labels) if (!(lbl in LABEL_TO_FILE_KEY)) LABEL_TO_FILE_KEY[lbl] = key;
 }
 
 /** Translate a stored document label (in whatever language the candidate

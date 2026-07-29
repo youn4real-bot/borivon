@@ -291,18 +291,46 @@ async function notifyFounder(headline: string, row: Row, at: number): Promise<vo
   } catch { /* a missed ping must never fail the change itself */ }
 }
 
-/** Remove the not-yet-sent chase for a booking whose time changed or vanished. */
+/**
+ * Remove the not-yet-sent chase for THIS booking — and only this one.
+ *
+ * It used to match on the person's name alone (`ilike text %Name (kind)%`),
+ * which is identical for every booking that person ever makes. So a clinic that
+ * had an intro call and a second call, cancelling or moving the first, lost the
+ * pending chase for the SECOND as well — and only the changed booking's chase
+ * was re-armed. The founder simply never got the day-before ping, the
+ * log-the-outcome ping or the two-day follow-up for the other call, which is
+ * the entire point of the feature.
+ *
+ * `bookings_slot_unique` (supabase/bookings.sql) guarantees no two live
+ * bookings share a `starts_at`, so the exact due instants that followUpsFor
+ * derives from a start identify one booking's reminders and no other. On the
+ * reschedule path `row` is still the pre-update row, so `row.starts_at` is the
+ * OLD start — precisely the rows to remove.
+ *
+ * The name stays in the filter as a second condition, with LIKE wildcards
+ * escaped: a booker called "50%_off" must not widen the match.
+ */
 async function dropFollowUps(row: Row): Promise<void> {
   try {
     const owner = await getAdminUserId();
     if (!owner) return;
-    const who = `${row.company || row.name} (${row.kind})`;
+    const startedAt = Date.parse(row.starts_at);
+    if (!Number.isFinite(startedAt)) return;
+
+    // Same derivation addFollowUps used to create them. No `now`, so an
+    // already-past due time is still returned and therefore still cleaned up.
+    const mine = followUpsFor({ startsAt: startedAt, name: row.company || row.name, kind: row.kind });
+    if (!mine.length) return;
+
+    const who = `${row.company || row.name} (${row.kind})`.replace(/[\\%_]/g, (c) => `\\${c}`);
     await getServiceSupabase().from("assistant_reminders")
       .delete()
       .eq("owner_user_id", owner)
       .eq("done", false)
       .is("notified_at", null)          // never delete one already sent
-      .ilike("text", `%${who}%`);
+      .ilike("text", `%${who}%`)
+      .in("due_at", mine.map((f) => new Date(f.dueAt).toISOString()));
   } catch (e) {
     console.error("[book/manage] drop follow-ups failed:", e instanceof Error ? e.message : e);
   }

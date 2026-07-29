@@ -1838,9 +1838,12 @@ export default function DashboardPage() {
     s === "rejected"  ? { bg: "var(--danger-bg)", text: "var(--danger)", border: "var(--danger-border)" } :
     { bg: "var(--warning-bg)", text: "var(--warning)", border: "var(--warning-border)" };
 
-  const statusLabel = (s: string) =>
-    s === "approved" ? t.pStatusApproved :
-    s === "rejected"  ? t.pStatusRejected : t.pStatusPending;
+  // statusLabel() was deleted with its last call site (the Sonstiges row). It
+  // is not coming back: LAW #4 says status is colour and an icon, never a word,
+  // and a helper sitting here unused is an invitation to break that again. The
+  // pStatus* keys stay in lib/translations.ts — they are the right source for a
+  // screen-reader-only label on the coloured pill, which is the accessible way
+  // to convey a status that is otherwise invisible to a colour-blind candidate.
 
   if (loading) return <PageLoader />;
 
@@ -3304,11 +3307,17 @@ export default function DashboardPage() {
                               <p className="text-[13px] font-semibold tracking-tight truncate" style={{ color: "var(--w)" }}>
                                 {d.file_name}
                               </p>
+                              {/* LAW #4: status is COLOUR, never a word. The
+                                  coloured pill with its icon (just above)
+                                  already carries it. This row was the only
+                                  place in the whole dashboard that also wrote
+                                  "Genehmigt"/"Abgelehnt" out, so a nurse's
+                                  Sonstiges files read differently from her
+                                  passport, CV, B2 certificate and every
+                                  qualification sitting right next to them.
+                                  The separator went with it, or the line would
+                                  start with a stray middot. */}
                               <p className="text-[11px] mt-0.5 truncate" style={{ color: "var(--w3)" }}>
-                                <span className="font-semibold" style={{ color: dsc.text }}>
-                                  {statusLabel(dStatus)}
-                                </span>
-                                <span className="mx-1.5">·</span>
                                 {fmtDate(d.uploaded_at)}
                               </p>
                             </div>

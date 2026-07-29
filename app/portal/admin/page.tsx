@@ -3249,6 +3249,33 @@ export default function AdminPage() {
                           <IosPdfFrame
                             src={withDlt(`/api/portal/file?docId=${encodeURIComponent(previewDoc.id)}`, dlt)}
                             title={previewDoc?.file_name}
+                            // LAW #39 keeps passport BYTES untouched, so the
+                            // orientation lives only in documents.rotation and
+                            // has to be re-applied client-side on every open.
+                            // These two props were missing here while the
+                            // pdf.js fallback right below had them: the rotate
+                            // persisted to the database and the strip still
+                            // opened sideways, every time, with no way to make
+                            // it stick.
+                            initialRotation={(previewDoc as { rotation?: number | null })?.rotation ?? 0}
+                            onRotate={() => {
+                              const id = previewDoc?.id;
+                              if (!id || !accessToken) return;
+                              fetch(`/api/portal/documents/${id}`, {
+                                method: "PATCH",
+                                headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
+                                body: JSON.stringify({ deltaRotation: 90 }),
+                              })
+                                .then((r) => {
+                                  if (!r.ok) { console.error("[rotation] persist failed:", r.status); return; }
+                                  // Keep the in-memory doc in step so closing and
+                                  // reopening the strip shows the new angle.
+                                  setPreviewDoc((d) => (d && d.id === id
+                                    ? { ...d, rotation: (((d as { rotation?: number | null }).rotation ?? 0) + 90) % 360 }
+                                    : d));
+                                })
+                                .catch((e) => console.error("[rotation] persist failed:", e));
+                            }}
                           />
                         ) : (
                           <PdfViewer
