@@ -133,10 +133,36 @@ type Doc = {
   status: string;
   feedback: string | null;
   drive_file_id: string | null;
+  /** The R2 object key. Files have been R2-primary since 2026-06-09 and
+   *  drive_file_id is null for every one of them, so anything gating on Drive
+   *  alone is gating on a column that no longer gets filled. */
+  r2_key?: string | null;
   // Synthetic docs (e.g. the no-logo Visa CV) carry a render URL instead of a
   // stored file — the preview fetch + download use it instead of /api/portal/file.
   __renderUrl?: string;
 };
+
+/**
+ * A document has retrievable bytes if it is in EITHER store — Drive (legacy) or
+ * R2 (current).
+ *
+ * MEASURED against the live database: of 425 live document rows, 103 are
+ * R2-only, the oldest from 2026-06-09. Every affordance on this page gated on
+ * `drive_file_id`, so for all 103 the row was not clickable and the Replace and
+ * Download buttons never rendered. A nurse uploaded her diploma, saw the row
+ * appear with her filename — it really had saved — and then could not open it,
+ * could not check she had sent the right scan, could not swap a blurry passport
+ * photo, and could not download her own B2 certificate back. A dead row that
+ * swallowed her diploma is exactly what makes her think she did something wrong.
+ *
+ * The admin page hit this at the migration and fixed it there
+ * (app/portal/admin/page.tsx:86, same predicate, same reasoning). The candidate
+ * side was never given the fix. Serving resolves the store server-side from
+ * `?docId=`, so the id is all the UI needs; this only decides whether to SHOW
+ * the controls.
+ */
+const docHasFile = (d?: { drive_file_id?: string | null; r2_key?: string | null } | null): boolean =>
+  !!(d?.drive_file_id || d?.r2_key);
 
 const ALLOWED_PDF_ONLY = ["application/pdf"];
 const ALLOWED_ALL = [
@@ -350,6 +376,10 @@ export default function DashboardPage() {
   const [seenDocIds, setSeenDocIds] = useState<Set<string>>(new Set());
   const [userName, setUserName]     = useState("");
   const [docs, setDocs]           = useState<Doc[]>([]);
+  /** Mirrors `docs` so loadDocs can return what is currently on screen when a
+   *  read FAILS, instead of an empty list that looks like her uploads vanished. */
+  const docsRef                   = useRef<Doc[]>([]);
+  useEffect(() => { docsRef.current = docs; }, [docs]);
   const [loading, setLoading]     = useState(true);
   const [phase, setPhase]         = useState(0);
   const [isReturn, setIsReturn]   = useState(false);
@@ -924,7 +954,7 @@ export default function DashboardPage() {
     if (!passportModal) return;
     if (previewDoc) return; // a preview is already up — don't override
     const passDoc = [...docs]
-      .filter(d => /pass/i.test(d.file_type) && !!d.drive_file_id)
+      .filter(d => /pass/i.test(d.file_type) && docHasFile(d))
       .sort((a, b) => (b.uploaded_at ?? "").localeCompare(a.uploaded_at ?? ""))[0];
     if (passDoc) setPreviewDoc(passDoc);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1298,23 +1328,37 @@ export default function DashboardPage() {
     try {
       // Hide ARCHIVED docs (superseded_at set, LAW #33). Try the column; if it isn't
       // migrated yet the select errors → fall back to the base columns (nothing hidden).
+      // THREE steps, narrowing one column at a time. `r2_key` is what makes an
+      // R2-only document actionable, so it has to be selected — but adding it to
+      // both existing branches would mean an unmigrated r2_key column fails BOTH
+      // and the page renders zero documents, which is far worse than the bug
+      // being fixed. So: full set, then drop superseded_at, then drop r2_key.
+      // Losing r2_key degrades to the old Drive-only behaviour; it never
+      // degrades to an empty page.
       let data: Doc[] | null = null;
-      const withCol = await supabase
-        .from("documents")
-        .select("id, file_name, file_type, uploaded_at, status, feedback, drive_file_id, superseded_at")
-        .eq("user_id", uid)
+      type Row = Doc & { superseded_at?: string | null };
+      const FULL = "id, file_name, file_type, uploaded_at, status, feedback, drive_file_id, r2_key, superseded_at";
+      const NO_SUPERSEDED = "id, file_name, file_type, uploaded_at, status, feedback, drive_file_id, r2_key";
+      const LEGACY = "id, file_name, file_type, uploaded_at, status, feedback, drive_file_id";
+      const q = (cols: string) => supabase
+        .from("documents").select(cols).eq("user_id", uid)
         .order("uploaded_at", { ascending: false });
-      if (withCol.error) {
-        const base = await supabase
-          .from("documents")
-          .select("id, file_name, file_type, uploaded_at, status, feedback, drive_file_id")
-          .eq("user_id", uid)
-          .order("uploaded_at", { ascending: false });
-        if (base.error) console.error("loadDocs error:", base.error.message);
-        data = (base.data ?? []) as Doc[];
-      } else {
-        data = ((withCol.data ?? []) as Array<Doc & { superseded_at?: string | null }>).filter((d) => !d.superseded_at);
+
+      let res = await q(FULL);
+      let hadSuperseded = true;
+      if (res.error) { res = await q(NO_SUPERSEDED); hadSuperseded = false; }
+      if (res.error) { res = await q(LEGACY); }
+      if (res.error) {
+        console.error("loadDocs error:", res.error.message);
+        // A FAILED read is not an empty document list. Returning [] here made a
+        // single mobile-network blip blank every box back to "not submitted" —
+        // her work looked erased, and the upload self-heal read the same empty
+        // result as "the file did not land" and re-uploaded it. Keep whatever is
+        // already on screen instead.
+        return docsRef.current;
       }
+      const rows = (res.data ?? []) as unknown as Row[];
+      data = hadSuperseded ? rows.filter((d) => !d.superseded_at) : rows;
       // Deduplicate: only keep the latest doc per file slot (fileKey).
       // Docs are sorted DESC so first occurrence per fileKey = latest version.
       // EXCEPTION: "other" (Sonstiges) is a multi-doc slot — every uploaded
@@ -2206,15 +2250,15 @@ export default function DashboardPage() {
                 title={lang === "de" ? "Herunterladen" : lang === "fr" ? "Télécharger" : "Download"}>
                 <Download size={14} strokeWidth={1.8} />
               </a>
-            ) : previewDoc.drive_file_id ? (
+            ) : docHasFile(previewDoc) ? (
               <button
-                onClick={() => handleDownload(previewDoc.drive_file_id!, previewDoc.file_name, previewDoc.file_type, previewDoc.id)}
-                disabled={downloadingIds.has(previewDoc.drive_file_id)}
+                onClick={() => handleDownload(previewDoc.id, previewDoc.file_name, previewDoc.file_type, previewDoc.id)}
+                disabled={downloadingIds.has(previewDoc.id)}
                 className="bv-icon-btn w-8 h-8 rounded-full flex items-center justify-center"
                 style={{ color: "var(--w2)" }}
                 aria-label={lang === "de" ? "Herunterladen" : lang === "fr" ? "Télécharger" : "Download"}
                 title={lang === "de" ? "Herunterladen" : lang === "fr" ? "Télécharger" : "Download"}>
-                {downloadingIds.has(previewDoc.drive_file_id)
+                {downloadingIds.has(previewDoc.id)
                   ? <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
                   : <Download size={14} strokeWidth={1.8} />}
               </button>
@@ -2822,14 +2866,14 @@ export default function DashboardPage() {
                                 <div className="flex items-center gap-1 flex-shrink-0"
                                   onClick={e => e.stopPropagation()}
                                   onMouseDown={e => e.stopPropagation()}>
-                                  {sub.subDoc.drive_file_id && (
+                                  {docHasFile(sub.subDoc) && (
                                     <button type="button"
-                                      onClick={() => handleDownload(sub.subDoc!.drive_file_id!, sub.subDoc!.file_name, sub.subKey)}
-                                      disabled={downloadingIds.has(sub.subDoc.drive_file_id)}
+                                      onClick={() => handleDownload(sub.subDoc!.id, sub.subDoc!.file_name, sub.subKey, sub.subDoc!.id)}
+                                      disabled={downloadingIds.has(sub.subDoc.id)}
                                       title={lang === "de" ? "Herunterladen" : lang === "fr" ? "Télécharger" : "Download"}
                                       className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
                                       style={{ color: "var(--w2)" }}>
-                                      {downloadingIds.has(sub.subDoc.drive_file_id)
+                                      {downloadingIds.has(sub.subDoc.id)
                                         ? <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
                                         : <Download size={13} strokeWidth={1.8} />}
                                     </button>
@@ -2945,7 +2989,7 @@ export default function DashboardPage() {
             const rowEmptyOther  = isOther && allOtherDocs.length < 5;
             const rowEmptyCv     = isBuilder && !uploaded;
             const rowClickable =
-              (!isOther && uploaded && doc?.drive_file_id && !isUploading) ||
+              (!isOther && uploaded && docHasFile(doc) && !isUploading) ||
               ((rowEmptyUpload || rowEmptyOther || rowEmptyCv) && !isUploading) ||
               ((isFillSlot || isInlineSign) && !uploaded && !isUploading);
             const rowOnClick = !rowClickable
@@ -3244,7 +3288,7 @@ export default function DashboardPage() {
                           </>
                         )}
                         {/* Non-builder docs: Replace (file picker), only while not approved. */}
-                        {!isOther && uploaded && doc?.drive_file_id && doc.status !== "approved" && !isBuilder && (
+                        {!isOther && uploaded && docHasFile(doc) && doc?.status !== "approved" && !isBuilder && (
                           <button
                             onClick={(e) => { e.stopPropagation(); openPicker(item.key); }}
                             aria-label={t.pReplaceBtn}
@@ -3254,21 +3298,21 @@ export default function DashboardPage() {
                             <RefreshCw size={15} strokeWidth={1.8} />
                           </button>
                         )}
-                        {!isOther && uploaded && doc?.drive_file_id && (
+                        {!isOther && uploaded && docHasFile(doc) && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               // Visa CV → no-logo render; everything else (incl. the
                               // Visa letter, whose doc IS the cover letter) → the file.
                               if (isVisaCv) { downloadVisaCv(); return; }
-                              handleDownload(doc!.drive_file_id!, doc!.file_name, item.key);
+                              handleDownload(doc!.id, doc!.file_name, item.key, doc!.id);
                             }}
-                            disabled={!isVisaCv && downloadingIds.has(doc!.drive_file_id!)}
+                            disabled={!isVisaCv && downloadingIds.has(doc!.id)}
                             aria-label={lang === "fr" ? "Télécharger" : lang === "de" ? "Herunterladen" : "Download"}
                             title={lang === "fr" ? "Télécharger" : lang === "de" ? "Herunterladen" : "Download"}
                             className="bv-icon-btn w-9 h-9 flex items-center justify-center rounded-full"
                             style={{ color: "var(--w2)" }}>
-                            {downloadingIds.has(doc!.drive_file_id!)
+                            {downloadingIds.has(doc!.id)
                               ? <span className="w-4 h-4 rounded-full border-2 border-current border-t-transparent animate-spin" />
                               : <Download size={15} strokeWidth={1.8} />}
                           </button>
@@ -3292,7 +3336,7 @@ export default function DashboardPage() {
                       const sym = dStatus === "approved" ? <CheckCircle2 size={14} strokeWidth={1.8} />
                                 : dStatus === "rejected" ? <XCircle size={14} strokeWidth={1.8} />
                                 :                          <span className="w-1.5 h-1.5 rounded-full" style={{ background: "currentColor" }} />;
-                      const isClickable = !!d.drive_file_id;
+                      const isClickable = docHasFile(d);
                       return (
                         <div key={`${item.key}_${d.id}`}
                           onClick={isClickable ? () => handlePreview(d) : undefined}
@@ -3348,14 +3392,14 @@ export default function DashboardPage() {
                               {isClickable && (
                                 <button onClick={(e) => {
                                     e.stopPropagation();
-                                    handleDownload(d.drive_file_id!, d.file_name, item.key);
+                                    handleDownload(d.id, d.file_name, item.key, d.id);
                                   }}
-                                  disabled={!!d.drive_file_id && downloadingIds.has(d.drive_file_id)}
+                                  disabled={downloadingIds.has(d.id)}
                                   aria-label={lang === "fr" ? "Télécharger" : lang === "de" ? "Herunterladen" : "Download"}
                                   title={lang === "fr" ? "Télécharger" : lang === "de" ? "Herunterladen" : "Download"}
                                   className="bv-icon-btn w-8 h-8 flex items-center justify-center rounded-full"
                                   style={{ color: "var(--w2)" }}>
-                                  {!!d.drive_file_id && downloadingIds.has(d.drive_file_id)
+                                  {downloadingIds.has(d.id)
                                     ? <span className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
                                     : <Download size={13} strokeWidth={1.8} />}
                                 </button>
@@ -3527,7 +3571,7 @@ export default function DashboardPage() {
             // Derive from the real uploaded passport doc so it matches 1:1;
             // fall back to building the same pattern if the doc isn't found.
             const passDoc = [...docs]
-              .filter(d => /pass/i.test(d.file_type) && !!d.drive_file_id && !/dat(en|a)/i.test(d.file_name))
+              .filter(d => /pass/i.test(d.file_type) && docHasFile(d) && !/dat(en|a)/i.test(d.file_name))
               .sort((a, b) => (b.uploaded_at ?? "").localeCompare(a.uploaded_at ?? ""))[0];
             const slug = (s?: string | null) => (s ?? "").trim().toLowerCase()
               .replace(/ä/g,"ae").replace(/ö/g,"oe").replace(/ü/g,"ue").replace(/ß/g,"ss")
@@ -3693,7 +3737,7 @@ export default function DashboardPage() {
                     // (PDFium canvas + bottom bar, native fallback).
                     const _nativePP = _isPdf
                       && isIOSDevice()
-                      && !!previewDoc?.drive_file_id && !!authToken && !!dlt;
+                      && docHasFile(previewDoc) && !!authToken && !!dlt;
                     if (_nativePP) {
                       return (
                         <IosPdfFrame
