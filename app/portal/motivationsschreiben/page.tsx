@@ -399,6 +399,9 @@ function MotivationsschreibenPageInner() {
   const [employerName, setEmployerName] = useState<string>("");
   const [savedAt, setSavedAt] = useState<Date | null>(null);
   const [saveError, setSaveError] = useState(false);
+  /** Set when the server refused the body for being over the length cap, so she
+   *  is told WHY rather than just seeing "not saved". */
+  const [tooLong, setTooLong] = useState(false);
   const [passportStatus, setPassportStatus] = useState<null | "pending" | "approved" | "rejected">(null);
   const [lockedPopupOpen, setLockedPopupOpen] = useState(false);
   const [employerPopupOpen, setEmployerPopupOpen] = useState(false);
@@ -1046,6 +1049,7 @@ function MotivationsschreibenPageInner() {
       if (r.ok) {
         setSavedAt(new Date());
         setSaveError(false);
+        setTooLong(false);
         lastSavedSig.current = html; // remember what's now safely on the server
         // Clear dirty ONLY when no newer local edit happened since this save was
         // scheduled — otherwise a slow save completing after a fresh keystroke
@@ -1056,6 +1060,9 @@ function MotivationsschreibenPageInner() {
         // "I typed and it was gone" happened: a 503 (cover_letter_body
         // column not migrated) or 403 looked like a successful save.
         setSaveError(true);
+        // 413 = over the length cap. The server now REFUSES rather than
+        // truncating and answering 200, so name the reason for her.
+        setTooLong(r.status === 413);
         let msg = `HTTP ${r.status}`;
         try { const j = await r.json(); if (j?.error) msg = j.error; } catch { /* ignore */ }
         console.error("[letter-body PUT] failed:", msg);
@@ -1549,6 +1556,13 @@ function MotivationsschreibenPageInner() {
                   );
                 })()}
                 <AutosaveIndicator savedAt={savedAt} error={saveError} />
+                {tooLong && (
+                  <p role="alert" className="text-[12px] mt-1" style={{ color: "var(--danger)" }}>
+                    {lang === "de" ? "Der Text ist zu lang, um gespeichert zu werden. Bitte kürzen Sie ihn."
+                      : lang === "en" ? "Your text is too long to save. Please shorten it."
+                      : "Votre texte est trop long pour être enregistré. Veuillez le raccourcir."}
+                  </p>
+                )}
                 {/* Live-collab peer row — mirrors CV builder. Renders the
                     Borivon favicon disc for admins from the candidate's
                     POV, real photos admin↔admin via the side channel. */}

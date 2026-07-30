@@ -109,7 +109,27 @@ export async function PUT(req: NextRequest) {
   let html: string | null = null;
   if (body.body === null) html = null;
   else if (typeof body.body === "string") {
-    const clean = sanitizeLetterHtmlServer(body.body).slice(0, MAX_BODY_BYTES);
+    // REFUSE when it is too long. Do not truncate.
+    //
+    // This used to `.slice(0, MAX_BODY_BYTES)` and answer 200 OK. The editor
+    // showed "Saved", then the 5-second poll pulled the SHORTENED body back and
+    // replaced what she had written — mid-sentence, with no warning. She writes
+    // her motivation letter long first, everything about her ward and her German
+    // course, planning to cut it down; instead the end of it silently
+    // disappeared and the editor claimed success.
+    //
+    // A 413 lands in the page's existing save-error path (setSaveError → the
+    // AutosaveIndicator), so she is told rather than quietly edited. Her text
+    // stays in the editor and in localStorage, so nothing is lost by refusing —
+    // she can shorten it and it saves.
+    const sanitized = sanitizeLetterHtmlServer(body.body);
+    if (sanitized.length > MAX_BODY_BYTES) {
+      return NextResponse.json(
+        { error: "too_long", limit: MAX_BODY_BYTES, length: sanitized.length },
+        { status: 413 },
+      );
+    }
+    const clean = sanitized;
     // An emptied editor often leaves structural-only HTML ("<br>", "<p></p>") —
     // that is a CLEAR, not content, so store "" (a written-but-empty letter),
     // never let it read as content. letterHtmlHasText strips tags/nbsp to decide.
