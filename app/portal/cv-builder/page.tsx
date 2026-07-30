@@ -2156,6 +2156,25 @@ function CVBuilderInner() {
   // remote broadcast OR poll, so the poll backstop never re-applies a row
   // that's already on screen (and never re-broadcasts it back out).
   const lastRemoteSnapshot   = useRef<string>("");
+  /**
+   * Did we successfully READ the server draft on load?
+   *
+   * Until this is true, nothing may WRITE to the server. 800 ms after load the
+   * autosave PUTs whatever is in state — and if the draft GET failed, state is
+   * still the empty default, so it overwrote a real saved CV with nothing. A
+   * nurse fills in her whole nursing history over three evenings on her phone,
+   * opens the builder on a flaked connection, and her CV is gone from the
+   * server as well.
+   *
+   * `null` from the fetch means the request FAILED (non-ok or threw). A nurse
+   * with nothing saved yet gets `{ draft: null }` — an object — so the two cases
+   * are cleanly distinguishable, and a genuinely new user is not blocked from
+   * saving her first draft.
+   *
+   * localStorage keeps working regardless: it is per-device and cannot destroy
+   * the server copy.
+   */
+  const serverReadOkRef      = useRef<boolean>(false);
 
   // ── Draft key (per user) ──────────────────────────────────────────────────
   // When admin edits a candidate's CV, key by candidateId so we don't
@@ -2208,6 +2227,10 @@ function CVBuilderInner() {
     const mySeq = ++editSeqRef.current;
     if (serverSaveTimer.current) clearTimeout(serverSaveTimer.current);
     serverSaveTimer.current = setTimeout(() => {
+      // Never write before we have successfully read. Otherwise this fires
+      // 800 ms after a FAILED load and overwrites her real saved CV with the
+      // empty default. localStorage above already has her keystrokes.
+      if (!serverReadOkRef.current) return;
       const draftUrl = adminCandidateId
         ? `/api/portal/admin/cv-draft?candidateId=${adminCandidateId}`
         : "/api/portal/me/cv-draft";
@@ -2263,6 +2286,7 @@ function CVBuilderInner() {
     // Same guard: don't register the flush handler until the draft is restored.
     if (!authToken || loading) return;
     const flush = () => {
+      if (!serverReadOkRef.current) return;   // same rule: no write before a good read
       if (serverSaveTimer.current) {
         clearTimeout(serverSaveTimer.current);
         serverSaveTimer.current = null;
@@ -2302,6 +2326,7 @@ function CVBuilderInner() {
   useEffect(() => {
     cvUnmountFlushRef.current = () => {
       if (!authToken || loading || !userId) return;
+      if (!serverReadOkRef.current) return;   // same rule: no write before a good read
       const { photo, ...rest } = cvData;
       void photo;
       const url = adminCandidateId
@@ -2777,6 +2802,8 @@ function CVBuilderInner() {
           .then(r => r.ok ? r.json() : null)
           .catch(() => null) as { draft: Partial<CVData> | null; photo: string | null; sex?: string | null } | null;
 
+        // A non-null result means the GET actually answered; only then may we write.
+        if (serverDraft) serverReadOkRef.current = true;
         if (serverDraft?.photo) setCvData(d => ({ ...d, photo: serverDraft.photo ?? null }));
 
         // The candidate's sex drives the LOCKED gendered internship title +
@@ -2893,6 +2920,8 @@ function CVBuilderInner() {
       //    was hoisted up to the Promise.all above; serverDraft is the
       //    pre-fetched result now.
 
+      // A non-null result means the GET actually answered; only then may we write.
+      if (serverDraft) serverReadOkRef.current = true;
       // Restore profile photo from server if available
       if (serverDraft?.photo) {
         setCvData(d => ({ ...d, photo: serverDraft.photo ?? null }));
