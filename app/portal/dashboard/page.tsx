@@ -456,6 +456,22 @@ export default function DashboardPage() {
   };
   const [fillForm, setFillForm] = useState<FillFormState | null>(null);
   const [fillFormSubmitting, setFillFormSubmitting] = useState(false);
+  /** Why a fill-and-sign submit failed. Without this the catch below only wrote
+   *  to the console: she filled a German visa form on her phone, photographed
+   *  her signature, placed it, tapped Einreichen — and nothing happened. */
+  const [fillFormError, setFillFormError] = useState<string | null>(null);
+  /** True once the form template has been "loading" long enough that it is not
+   *  coming. Turns an endless spinner into something she can act on. */
+  const [fillFormStalled, setFillFormStalled] = useState(false);
+  // 15 s is well past a slow-but-working load on mobile data, and well short of
+  // the forever she used to get. Resets whenever the modal opens/closes or the
+  // PDF finally arrives, so a genuinely slow load that succeeds never shows it.
+  useEffect(() => {
+    setFillFormStalled(false);
+    if (!fillForm || fillForm.pdfUrl) return;
+    const id = setTimeout(() => setFillFormStalled(true), 15_000);
+    return () => clearTimeout(id);
+  }, [fillForm]);
   // Candidate's reusable signature, loaded from /api/portal/me/signature.
   const [candidateSavedSig, setCandidateSavedSig] = useState<string | null>(null);
   // Sub-popup for first-time candidate signature upload from the fill modal.
@@ -4770,6 +4786,7 @@ export default function DashboardPage() {
                     onClick={async () => {
                       if (!fillForm.pdfUrl) return;
                       setFillFormSubmitting(true);
+                      setFillFormError(null);
                       try {
                         const res = await fetch(fillForm.pdfUrl);
                         // Audit fix: never trust res.arrayBuffer() without
@@ -4806,8 +4823,16 @@ export default function DashboardPage() {
                         uploadFile(file, fillForm.slotId);
                         setFillForm(null);
                       } catch (err) {
-                        // Audit fix: log so failures aren't invisible.
                         console.error("[fillForm submit]", err);
+                        // TELL HER. The modal stays open (the close above is
+                        // inside the try), so her typed fields and placed
+                        // signature are still on screen and she can retry —
+                        // but only if she knows it failed at all.
+                        setFillFormError(
+                          lang === "de" ? "Das Formular konnte nicht eingereicht werden. Ihre Eingaben sind noch da — bitte erneut versuchen."
+                          : lang === "fr" ? "Le formulaire n'a pas pu être soumis. Vos données sont conservées — veuillez réessayer."
+                          : "The form couldn't be submitted. Your entries are still here — please try again.",
+                        );
                       } finally {
                         // Audit fix: was previously only reset on error, leaving
                         // the button locked on the happy path.
@@ -4820,17 +4845,35 @@ export default function DashboardPage() {
                   </button>
                 );
               })()}
-              <button onClick={() => setFillForm(null)} disabled={fillFormSubmitting}
+              <button onClick={() => { setFillFormError(null); setFillForm(null); }} disabled={fillFormSubmitting}
                 className="bv-icon-btn w-8 h-8 flex items-center justify-center rounded-full"
                 style={{ color: "var(--w2)" }}>
                 <XIcon size={14} strokeWidth={2} />
               </button>
             </div>
+            {fillFormError && (
+              <p role="alert" className="text-[12px] px-3 pb-2" style={{ color: "var(--danger)" }}>
+                {fillFormError}
+              </p>
+            )}
             {/* Body */}
             <div className="flex-1 overflow-auto p-3">
               {!fillForm.pdfUrl ? (
-                <div className="h-full flex items-center justify-center">
+                <div className="h-full flex flex-col items-center justify-center gap-3">
                   <div className="w-8 h-8 rounded-full border-2 border-current border-t-transparent animate-spin" style={{ color: "var(--gold)" }} />
+                  {/* A SPINNER WITH A DEADLINE. This used to spin forever when
+                      the template fetch failed — an expired token on a tab left
+                      open, or a dropped connection. She taps the row for her
+                      Arbeitsvertrag or her visa form, the modal opens, and it
+                      turns for as long as she is willing to wait, with no error
+                      and nothing to act on. */}
+                  {fillFormStalled && (
+                    <p role="alert" className="text-[12px] text-center px-4" style={{ color: "var(--danger)" }}>
+                      {lang === "de" ? "Das Formular lädt nicht. Schließen Sie es, laden Sie die Seite neu und versuchen Sie es erneut."
+                        : lang === "fr" ? "Le formulaire ne se charge pas. Fermez-le, rechargez la page puis réessayez."
+                        : "The form isn't loading. Close it, reload the page and try again."}
+                    </p>
+                  )}
                 </div>
               ) : fillForm.nativeMode ? (
                 <PdfNativeFieldFill

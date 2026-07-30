@@ -22,6 +22,73 @@ function EyeIcon({ open }: { open: boolean }) {
   );
 }
 
+/**
+ * Turn a Supabase auth message into something SHE can act on.
+ *
+ * Signup, login, OTP verify and reset all fell through to `err.message`
+ * verbatim outside a two-or-three item allowlist. Everything else landed on
+ * her screen in raw English — "For security purposes, you can only request
+ * this after 47 seconds", "Email rate limit exceeded", "Password should be at
+ * least 6 characters" — in front of a nurse reading French or Arabic, at the
+ * one moment she cannot proceed without understanding it. LAW #19 says every
+ * visible string exists in all three languages, and a passthrough of an English
+ * server message is the same dead end as no message at all.
+ *
+ * Matched on the shapes Supabase actually returns. Anything genuinely unknown
+ * gets a plain, honest fallback in her own language rather than English
+ * internals — nothing is silently swallowed either way.
+ */
+function authErrorMessage(raw: string, lang: "fr" | "en" | "de"): string {
+  const m = (raw || "").toLowerCase();
+  const pick = (fr: string, en: string, de: string) => (lang === "de" ? de : lang === "en" ? en : fr);
+
+  if (/failed to fetch|networkerror|network request failed|load failed/.test(m)) {
+    return pick("Erreur réseau. Vérifiez votre connexion et réessayez.",
+      "Network error. Check your connection and try again.",
+      "Netzwerkfehler. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.");
+  }
+  if (/already registered|already been registered|user already exists/.test(m)) {
+    return pick("Cette adresse e-mail a déjà un compte. Connectez-vous plutôt.",
+      "That email already has an account. Sign in instead.",
+      "Für diese E-Mail existiert bereits ein Konto. Melden Sie sich stattdessen an.");
+  }
+  if (/invalid login credentials|invalid credentials/.test(m)) {
+    return pick("E-mail ou mot de passe incorrect.",
+      "Wrong email or password.",
+      "E-Mail oder Passwort ist falsch.");
+  }
+  // "For security purposes, you can only request this after N seconds" + the
+  // email rate limit. Both are waits, not failures — say so.
+  if (/rate limit|after \d+ seconds|too many requests|security purposes/.test(m)) {
+    return pick("Trop de tentatives. Patientez une minute puis réessayez.",
+      "Too many attempts. Please wait a minute and try again.",
+      "Zu viele Versuche. Bitte warten Sie eine Minute und versuchen Sie es erneut.");
+  }
+  if (/password.*(at least|should be|too short|weak)/.test(m)) {
+    return pick("Choisissez un mot de passe plus long (8 caractères minimum).",
+      "Choose a longer password (at least 8 characters).",
+      "Wählen Sie ein längeres Passwort (mindestens 8 Zeichen).");
+  }
+  if (/expired|invalid.*(token|otp|code)|otp.*invalid/.test(m)) {
+    return pick("Ce code est incorrect ou a expiré. Demandez-en un nouveau.",
+      "That code is wrong or has expired. Ask for a new one.",
+      "Dieser Code ist falsch oder abgelaufen. Fordern Sie einen neuen an.");
+  }
+  if (/email not confirmed|not confirmed/.test(m)) {
+    return pick("Confirmez d'abord votre e-mail avec le code envoyé.",
+      "Confirm your email first using the code we sent.",
+      "Bestätigen Sie zuerst Ihre E-Mail mit dem gesendeten Code.");
+  }
+  if (/invalid.*email|email.*invalid/.test(m)) {
+    return pick("Cette adresse e-mail n'est pas valide.",
+      "That email address isn't valid.",
+      "Diese E-Mail-Adresse ist ungültig.");
+  }
+  return pick("Une erreur s'est produite. Veuillez réessayer.",
+    "Something went wrong. Please try again.",
+    "Etwas ist schiefgelaufen. Bitte erneut versuchen.");
+}
+
 function PortalPageInner() {
   const router = useRouter();
   const params = useSearchParams();
@@ -168,7 +235,7 @@ function PortalPageInner() {
             ? (lang === "de" ? "Code abgelaufen — neuen anfordern." : lang === "fr" ? "Code expiré — demandez-en un nouveau." : "Code expired — request a new one.")
             : /invalid|incorrect|token|otp/i.test(m)
             ? (lang === "de" ? "Falscher Code." : lang === "fr" ? "Code incorrect." : "Incorrect code.")
-            : m,
+            : authErrorMessage(m, lang),   // was raw English server text
         );
         setOtpBusy(false); return;
       }
@@ -197,7 +264,17 @@ function PortalPageInner() {
     if (resendIn > 0 || otpBusy) return;
     setOtpErr("");
     try {
-      await supabase.auth.resend({ type: "signup", email: verifyEmail });
+      // READ the error. supabase-js RESOLVES with { error } instead of throwing
+      // on an API failure, so the catch below only ever sees a network fault —
+      // which meant a rate-limited resend (Supabase allows one per 60s) set the
+      // 30s cooldown and showed nothing at all. She taps Resend, is told
+      // nothing, no second email arrives, and she is stuck on the code screen
+      // with no way to understand why.
+      const { error } = await supabase.auth.resend({ type: "signup", email: verifyEmail });
+      if (error) {
+        setOtpErr(authErrorMessage(error.message, lang));
+        return;
+      }
       setResendIn(30);
     } catch {
       setOtpErr(t.pErrNetwork);
@@ -288,7 +365,9 @@ function PortalPageInner() {
         if (err) {
           const m = err.message;
           const isNetwork = /failed to fetch|networkerror|network request failed|load failed/i.test(m);
-          setError(isNetwork ? t.pErrNetwork : m === "User already registered" ? t.pErrExists : m);
+          setError(isNetwork ? t.pErrNetwork
+            : m === "User already registered" ? t.pErrExists
+            : authErrorMessage(m, lang));   // was the raw English server text
           setLoading(false); return;
         }
       } catch {
@@ -328,7 +407,7 @@ function PortalPageInner() {
         setError(
           isNetwork                          ? t.pErrNetwork :
           m === "Invalid login credentials"  ? t.pErrWrong :
-          m === "Email not confirmed"        ? t.pErrNotConfirmed : m
+          m === "Email not confirmed"        ? t.pErrNotConfirmed : authErrorMessage(m, lang)   // was raw English server text
         );
         setLoading(false); return;
       }
@@ -395,7 +474,14 @@ function PortalPageInner() {
     borderRadius: "12px",
     width: "100%",
     padding: "14px 16px",
-    fontSize: "15px",
+    // 16px, NOT 15px. Below 16 iOS Safari zooms the viewport on focus and does
+    // not zoom back out on blur, so tapping "Prénom" on the register screen left
+    // her looking at a page ~1.3x too big with the rest of the form off-screen,
+    // and every subsequent field zoomed again. app/globals.css already carries
+    // exactly this guard for touch viewports (@layer base, 16px on inputs) —
+    // but an INLINE style beats any CSS layer, so this one line was quietly
+    // overriding the protection on the one page every candidate must use.
+    fontSize: "16px",
     fontWeight: 500,
     outline: "none",
     transition: "border-color 160ms",
