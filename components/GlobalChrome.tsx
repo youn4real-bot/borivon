@@ -1,16 +1,37 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import dynamic from "next/dynamic";
 import { ThemeProvider } from "@/components/ThemeContext";
 import { LangProvider } from "@/components/LangContext";
 import { MobileMenuProvider } from "@/components/MobileMenuContext";
 import { Navbar } from "@/components/Navbar";
-import { NotificationBell } from "@/components/NotificationBell";
-import { MessageIcon } from "@/components/MessageIcon";
-import { ProfileIcon } from "@/components/ProfileIcon";
-import { ChecklistDrawer } from "@/components/ChecklistDrawer";
-import { BugReportButton } from "@/components/BugReportButton";
 import { useLang } from "@/components/LangContext";
+
+/**
+ * The five PORTAL-ONLY widgets, lazy-loaded.
+ *
+ * GlobalChrome is mounted in app/layout.tsx, so it is on EVERY route — including
+ * the public marketing pages where a lead lands. Statically importing these meant
+ * every one of those visitors downloaded the notification bell, message icon,
+ * profile menu (and its stack of modals), checklist drawer and bug reporter — none
+ * of which can ever render outside /portal/*. That was ~60 kB gzipped of the shared
+ * baseline paid by people who will never see any of it.
+ *
+ * ssr:false costs nothing here, and that is not a guess about how it looks: all of
+ * these already gate themselves on an ASYNC supabase session read and return null
+ * until it resolves (see the LAW #1 note below — that async gate is exactly what
+ * caused the recurring chrome-leak bug). They were never present on first paint, so
+ * loading them after hydration changes nothing visible and shifts no layout.
+ *
+ * LAW #1 is untouched: the decision to render them at all is still the synchronous
+ * `pathname` check below, never an auth-state read.
+ */
+const NotificationBell = dynamic(() => import("@/components/NotificationBell").then((m) => m.NotificationBell), { ssr: false });
+const MessageIcon = dynamic(() => import("@/components/MessageIcon").then((m) => m.MessageIcon), { ssr: false });
+const ProfileIcon = dynamic(() => import("@/components/ProfileIcon").then((m) => m.ProfileIcon), { ssr: false });
+const ChecklistDrawer = dynamic(() => import("@/components/ChecklistDrawer").then((m) => m.ChecklistDrawer), { ssr: false });
+const BugReportButton = dynamic(() => import("@/components/BugReportButton").then((m) => m.BugReportButton), { ssr: false });
 
 function HomeLoginButton() {
   const { lang } = useLang();
