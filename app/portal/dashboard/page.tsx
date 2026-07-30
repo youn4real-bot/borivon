@@ -22,10 +22,11 @@ import {
 import { X as XIcon, Download, Upload, RefreshCw, Info, ChevronDown, MoreHorizontal } from "lucide-react";
 import { DropdownMenu } from "@/components/ui/DropdownMenu";
 import { IosPdfFrame } from "@/components/IosPdfFrame";
+import { IosPreviewPending } from "@/components/IosPreviewPending";
 import { EmbedPdfViewer } from "@/components/EmbedPdfViewer";
 import { isIOSDevice } from "@/lib/platform";
-import { triggerIosDownload } from "@/lib/iosDownload";
-import { useDlToken, withDlt } from "@/lib/dlClient";
+import { triggerIosDownload, triggerIosDownloadWithToken } from "@/lib/iosDownload";
+import { useDlToken, withDlt, mintDlToken } from "@/lib/dlClient";
 import { flushSync } from "react-dom";
 import type { BindingId } from "@/lib/pdfAcroFormFill";
 import { removeImageBg } from "@/lib/removeImageBg";
@@ -1805,12 +1806,17 @@ export default function DashboardPage() {
     // clicked inside the tap gesture. We hit the server route with dl=1 so it
     // forces the attachment header. No fetch (gesture must stay intact).
     if (isIOS && authToken) {
-      if (!dlt) { clearSpin(); return; } // token not minted yet (momentary)
-      const fileUrl = withDlt(
-        `${fileQ}&dl=1&name=${encodeURIComponent(fileName || "document")}`,
-        dlt,
-      );
-      triggerIosDownload(fileUrl, fileName || "document", clearSpin);
+      // Used to be `if (!dlt) { clearSpin(); return; }` — a silent no-op that
+      // made Download do nothing at all on a cold start or after one flaked
+      // mint. Now it opens the tab in-gesture, mints, and tells her if it fails.
+      void triggerIosDownloadWithToken({
+        href: (tk) => withDlt(`${fileQ}&dl=1&name=${encodeURIComponent(fileName || "document")}`, tk),
+        filename: fileName || "document",
+        token: dlt,
+        mint: () => mintDlToken(authToken),
+        onSettled: clearSpin,
+        onError: () => setSlotMsgTimed({ key: slotKey, ok: false, type: "errDownload" }),
+      });
       return;
     }
 
@@ -1937,12 +1943,16 @@ export default function DashboardPage() {
     // it directly (in-gesture anchor) with token + dl=1 → real download.
     const _isIOS = isIOSDevice();
     if (_isIOS && authToken) {
-      if (!dlt) { clearSpin(); return; }
-      triggerIosDownload(
-        withDlt(`/api/portal/documents/merge-pdf?origDocId=${encodeURIComponent(origDocId)}&transDocId=${encodeURIComponent(transDocId)}&dl=1&name=${encodeURIComponent(fn)}`, dlt),
-        fn,
-        clearSpin,
-      );
+      void triggerIosDownloadWithToken({
+        href: (tk) => withDlt(`/api/portal/documents/merge-pdf?origDocId=${encodeURIComponent(origDocId)}&transDocId=${encodeURIComponent(transDocId)}&dl=1&name=${encodeURIComponent(fn)}`, tk),
+        filename: fn,
+        token: dlt,
+        mint: () => mintDlToken(authToken),
+        onSettled: clearSpin,
+        // pairKey IS the slot key (this is called with item.key at the row's
+        // onClick), so the failure renders on the row she tapped.
+        onError: () => setSlotMsgTimed({ key: pairKey, ok: false, type: "errDownload" }),
+      });
       return;
     }
 
@@ -2394,10 +2404,14 @@ export default function DashboardPage() {
                 : (previewDoc.id && dlt ? withDlt(`/api/portal/file?docId=${encodeURIComponent(previewDoc.id)}`, dlt) : "");
               if (_nativePdf) {
                 if (!_iosSrc || !authToken) {
+                  // Was a bare <Spinner/> with no timeout: when the dl token had
+                  // not minted, this turned forever with nothing to tap.
                   return (
-                    <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "#525659" }}>
-                      <Spinner size="md" />
-                    </div>
+                    <IosPreviewPending
+                      label={t.dErrDownload}
+                      retryLabel={lang === "de" ? "Erneut versuchen" : lang === "fr" ? "Réessayer" : "Retry"}
+                      onRetry={() => { if (authToken) void mintDlToken(authToken).catch(() => {}); }}
+                    />
                   );
                 }
                 return (
@@ -3684,15 +3698,18 @@ export default function DashboardPage() {
             // as every other iOS download. Anchor clicked in-gesture.
             const _isIOS = isIOSDevice();
             if (_isIOS && authToken) {
-              if (!dlt) { setPassportDataDl(false); return; }
               const json = JSON.stringify({ groups: pdfGroups, docTitle, docSubtitle, filename: outName });
               const b64 = btoa(unescape(encodeURIComponent(json)))
                 .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-              triggerIosDownload(
-                withDlt(`/api/portal/me/passport-data-pdf?dl=1&d=${b64}`, dlt),
-                outName,
-                () => setPassportDataDl(false),
-              );
+              void triggerIosDownloadWithToken({
+                href: (tk) => withDlt(`/api/portal/me/passport-data-pdf?dl=1&d=${b64}`, tk),
+                filename: outName,
+                token: dlt,
+                mint: () => mintDlToken(authToken),
+                onSettled: () => setPassportDataDl(false),
+                // Same visible failure the non-iOS path below already uses.
+                onError: () => alert(t.dErrDownload),
+              });
               return;
             }
 
@@ -4316,14 +4333,20 @@ export default function DashboardPage() {
                       // iOS can't save a POST→blob — stream via GET (payload in
                       // query) so it triggers the native download prompt.
                       if (isIOSDevice() && authToken) {
-                        if (!dlt) return;
+                        // This was the worst of the four: a bare `if (!dlt) return;`
+                        // with no spinner to clear and no message either, so the
+                        // button was simply inert with nothing at all to show for it.
                         const j = JSON.stringify({ groups: pdfGroups, docTitle, docSubtitle, filename: outName });
                         const b64 = btoa(unescape(encodeURIComponent(j)))
                           .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-                        triggerIosDownload(
-                          withDlt(`/api/portal/me/passport-data-pdf?dl=1&d=${b64}`, dlt),
-                          outName,
-                        );
+                        void triggerIosDownloadWithToken({
+                          href: (tk) => withDlt(`/api/portal/me/passport-data-pdf?dl=1&d=${b64}`, tk),
+                          filename: outName,
+                          token: dlt,
+                          mint: () => mintDlToken(authToken),
+                          onSettled: () => {},
+                          onError: () => alert(t.dErrDownload),
+                        });
                         return;
                       }
                       const res = await fetch("/api/portal/me/passport-data-pdf", {
