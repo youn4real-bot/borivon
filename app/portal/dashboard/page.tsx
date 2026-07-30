@@ -27,11 +27,7 @@ import { isIOSDevice } from "@/lib/platform";
 import { triggerIosDownload } from "@/lib/iosDownload";
 import { useDlToken, withDlt } from "@/lib/dlClient";
 import { flushSync } from "react-dom";
-import { PdfFieldFill } from "@/components/PdfFieldFill";
-import { embedFields } from "@/lib/pdfFieldEmbed";
-import { fillAcroFormFields, type BindingId } from "@/lib/pdfAcroFormFill";
-import { PdfNativeFieldFill } from "@/components/PdfNativeFieldFill";
-import { stampSigOnPdf } from "@/lib/stampSigOnPdf";
+import type { BindingId } from "@/lib/pdfAcroFormFill";
 import { removeImageBg } from "@/lib/removeImageBg";
 import { DocxViewer } from "@/components/DocxViewer";
 import { ZoomPanRotateViewer } from "@/components/ZoomPanRotateViewer";
@@ -53,6 +49,36 @@ import { SIGN_FILL_ENABLED } from "@/lib/features";
 const OnboardingTour = dynamic(
   () => import("@/components/OnboardingTour").then(m => ({ default: m.OnboardingTour })),
   { ssr: false, loading: () => null },
+);
+
+/**
+ * THE FILL-FORM STACK — lazy, because it drags pdf-lib.
+ *
+ * MEASURED from the production build: this page pulled a 415.7 kB raw /
+ * 172.5 kB gzipped chunk containing nothing but pdf-lib (PDFDocument,
+ * StandardFonts, AcroForm, WinAnsiEncoding — no app code). That is a THIRD of
+ * the 529 kB a nurse downloaded on Moroccan mobile data before she could see
+ * her own document list, for a library she only touches if she taps Submit
+ * inside the fill-form modal — a flow that is currently disabled outright
+ * (SIGN_FILL_ENABLED).
+ *
+ * pdf-lib had FOUR static edges into this page (PdfFieldFill →
+ * lib/pdfFieldEmbed, lib/pdfAcroFormFill, PdfNativeFieldFill, and
+ * lib/stampSigOnPdf). All four have to be cut or the chunk stays and the win
+ * is exactly zero — the two components here, and the three function imports
+ * moved into the Submit handler below.
+ *
+ * BindingId stays a `import type` above: types are erased at compile time and
+ * create no runtime edge. Same for lib/pdfFieldEmbed's FormField, which this
+ * file already consumes via inline `import("…").FormField` syntax.
+ */
+const PdfNativeFieldFill = dynamic(
+  () => import("@/components/PdfNativeFieldFill").then(m => ({ default: m.PdfNativeFieldFill })),
+  { ssr: false, loading: () => <div className="h-full flex items-center justify-center"><Spinner size="md" /></div> },
+);
+const PdfFieldFill = dynamic(
+  () => import("@/components/PdfFieldFill").then(m => ({ default: m.PdfFieldFill })),
+  { ssr: false, loading: () => <div className="h-full flex items-center justify-center"><Spinner size="md" /></div> },
 );
 
 // FILE_KEY_ALL_LABELS imported from @/lib/fileKeys — shared with admin page.
@@ -472,6 +498,20 @@ export default function DashboardPage() {
     const id = setTimeout(() => setFillFormStalled(true), 15_000);
     return () => clearTimeout(id);
   }, [fillForm]);
+  // WARM UP pdf-lib the moment the fill modal opens. It is no longer imported at
+  // module scope (it was a third of this page's first-load JS — see the
+  // PdfFieldFill note at the top), so without this the download would start when
+  // she taps Einreichen and she would wait for it on mobile data at the worst
+  // possible moment. Starting it here runs the fetch in parallel with the
+  // slot-template PDF fetch that already gates the modal body, so by the time she
+  // has filled the fields the chunk is cached and Submit is instant. Fire and
+  // forget: a failure here is retried by the real import in the Submit handler.
+  useEffect(() => {
+    if (!fillForm) return;
+    void import("@/lib/pdfAcroFormFill");
+    void import("@/lib/pdfFieldEmbed");
+    void import("@/lib/stampSigOnPdf");
+  }, [!!fillForm]);
   // Candidate's reusable signature, loaded from /api/portal/me/signature.
   const [candidateSavedSig, setCandidateSavedSig] = useState<string | null>(null);
   // Sub-popup for first-time candidate signature upload from the fill modal.
@@ -4806,15 +4846,22 @@ export default function DashboardPage() {
                           const mappings = Object.keys(map).map(name => ({
                             name, binding: null, literal: map[name] ?? "",
                           }));
+                          // pdf-lib is imported HERE, not at module scope — see the
+                          // PdfFieldFill/PdfNativeFieldFill note at the top of this file.
+                          // The warm-up effect has almost always fetched it already by
+                          // the time she reaches Submit, so this resolves instantly.
+                          const { fillAcroFormFields } = await import("@/lib/pdfAcroFormFill");
                           bytes = await fillAcroFormFields(bytes, mappings, (_: BindingId) => "");
                         }
                         // 1b) Legacy drawn fields — stamp typed values as static
                         //     text at the drawn coordinates.
                         if (!fillForm.nativeMode && fillForm.fields.length > 0) {
+                          const { embedFields } = await import("@/lib/pdfFieldEmbed");
                           bytes = await embedFields(bytes, fillForm.fields, fillForm.values);
                         }
                         // 2) Stamp candidate signature into the zone (if drawn)
                         if (fillForm.sigZone && fillForm.signedSig) {
+                          const { stampSigOnPdf } = await import("@/lib/stampSigOnPdf");
                           bytes = await stampSigOnPdf(bytes, fillForm.signedSig, [fillForm.sigZone]);
                         }
                         const outAb = new ArrayBuffer(bytes.byteLength);

@@ -62,6 +62,20 @@ export async function appendDlt(url: string, authToken: string): Promise<string>
  * React hook: a live download token, refreshed before expiry. For the
  * inline <IosPdfFrame src=…> previews that render synchronously.
  * Returns null until the first mint resolves.
+ *
+ * RETRIES FAST ON FAILURE, and that is the important part.
+ *
+ * On iPhone this token is not a nicety — it IS the download and it IS the
+ * preview, because WebKit can carry no Authorization header on a navigation or
+ * an iframe. Every caller therefore has some form of "no token yet, do nothing"
+ * branch. Previously a single flaked mint set the token to null and the ONLY
+ * path back was the 150-second refresh interval: on flaky Moroccan mobile data
+ * one dropped request dead-buttoned every Download and froze every iOS preview
+ * on a spinner for a full two and a half minutes, with no error and nothing the
+ * candidate could do. That is the "it spins forever" report.
+ *
+ * Backing off 1s, 2s, 4s … capped at 20s means the page heals itself long
+ * before she gives up, while a genuinely down endpoint is not hammered.
  */
 export function useDlToken(authToken: string | null | undefined): string | null {
   const [tok, setTok] = useState<string | null>(
@@ -70,13 +84,20 @@ export function useDlToken(authToken: string | null | undefined): string | null 
   useEffect(() => {
     if (!authToken) { setTok(null); return; }
     let alive = true;
+    let fails = 0;
+    let retry: ReturnType<typeof setTimeout> | null = null;
     const refresh = () =>
       mintDlToken(authToken)
-        .then(t => { if (alive) setTok(t); })
-        .catch(() => { if (alive) setTok(null); });
+        .then(t => { if (!alive) return; fails = 0; setTok(t); })
+        .catch(() => {
+          if (!alive) return;
+          setTok(null);
+          const delay = Math.min(1000 * 2 ** fails++, 20_000);
+          retry = setTimeout(refresh, delay);
+        });
     refresh();
     const id = setInterval(refresh, 150_000);
-    return () => { alive = false; clearInterval(id); };
+    return () => { alive = false; clearInterval(id); if (retry) clearTimeout(retry); };
   }, [authToken]);
   return tok;
 }
