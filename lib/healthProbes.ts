@@ -22,7 +22,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 
 export type Probe = {
   /** Stable subsystem name. Public — appears in the /api/health body. */
-  name: "google" | "r2" | "database" | "email" | "payments";
+  name: "google" | "r2" | "database" | "email";
   ok: boolean;
   /** Human-readable cause. PRIVATE — never returned to an unauthenticated caller. */
   detail?: string;
@@ -94,8 +94,8 @@ async function checkDatabase(): Promise<Probe> {
 }
 
 /**
- * Email + payments are CONFIG probes, not reachability probes: actually sending a
- * test email costs money and lands in somebody's inbox every single day. Presence of
+ * Email is a CONFIG probe, not a reachability probe: actually sending a test
+ * email costs money and lands in somebody's inbox every single day. Presence of
  * the key is the honest thing to check daily.
  */
 function checkEmail(): Probe {
@@ -104,11 +104,20 @@ function checkEmail(): Probe {
     : { name: "email", ok: false, detail: "RESEND_API_KEY missing — no email of any kind can be sent" };
 }
 
-function checkPayments(): Probe {
-  return process.env.STRIPE_SECRET_KEY
-    ? { name: "payments", ok: true }
-    : { name: "payments", ok: false, detail: "STRIPE_SECRET_KEY missing — no subscription can be taken" };
-}
+/*
+ * NO PAYMENTS PROBE, deliberately.
+ *
+ * The first live run of this watchdog reported payments:false — STRIPE_SECRET_KEY
+ * is genuinely not set on the Worker. That is not a fault: Stripe is not in use.
+ * Alerting on it would have messaged the founder every morning at 05:00 about a
+ * thing he does not want, and a watchdog that cries wolf daily is one you learn to
+ * ignore — which would quietly destroy its value for Google, R2 and email, the
+ * three that actually matter.
+ *
+ * The Stripe integration itself is untouched and still in the codebase; only the
+ * health check stops asserting it should be configured. Add a probe back here if
+ * subscriptions are ever switched on.
+ */
 
 /** Run every probe concurrently. Never throws. */
 export async function runHealthProbes(): Promise<Probe[]> {
@@ -117,7 +126,7 @@ export async function runHealthProbes(): Promise<Probe[]> {
     guard("r2", checkR2),
     guard("database", checkDatabase),
   ]);
-  return [google, r2, database, checkEmail(), checkPayments()];
+  return [google, r2, database, checkEmail()];
 }
 
 /** Public shape: booleans only, no detail, no variable names. */
