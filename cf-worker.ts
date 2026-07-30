@@ -28,6 +28,12 @@ const CRON_ROUTES = {
   // immediately when Telegram isn't configured, the bot is quiet, or nothing is
   // due — ~2 light DB reads a minute.
   "* * * * *": "/api/cron/reminders",
+  // Dependency watchdog at 05:00 Casablanca, an hour before the briefing. Google, R2
+  // and Supabase all fail SILENTLY here (busyIntervals swallows Google errors and
+  // returns [], a dead R2 reads to a candidate as "the portal is broken"), and nobody
+  // reads Worker logs — so this is the only thing that makes a dead dependency loud.
+  // Sends nothing when everything is healthy.
+  "0 4 * * *": "/api/cron/health-watch",
   "0 6 * * *": "/api/cron/briefing",
   "0 12 * * *": "/api/cron/nudge?slot=midday",
   "0 17 * * *": "/api/cron/nudge?slot=evening",

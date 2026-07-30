@@ -53,7 +53,10 @@
     // 3pm" now actually fires at 3pm. MUST stay byte-identical to CRON_ROUTES
     // in cf-worker.ts — Cloudflare passes the matched string verbatim, so one
     // character of drift silently maps a live schedule to nothing.
-    "crons": ["* * * * *", "0 6 * * *", "0 12 * * *", "0 17 * * *", "0 7 * * 1", "0 8 * * *", "30 8 * * *", "0 9 * * *"]
+    // "0 4 * * *" = 05:00 Casablanca — the dependency watchdog, deliberately BEFORE the
+    // 06:00 briefing so a dead Google / R2 / Supabase is known before the day's first
+    // bot message rather than being mistaken for a quiet day. Silent when healthy.
+    "crons": ["* * * * *", "0 4 * * *", "0 6 * * *", "0 12 * * *", "0 17 * * *", "0 7 * * 1", "0 8 * * *", "30 8 * * *", "0 9 * * *"]
   },
   // CUTOVER 2026-07-24 — the scheduled() handler in cf-worker.ts stayed dormant
   // while Vercel was still running the same crons (firing both = double pings).
