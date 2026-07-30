@@ -666,6 +666,10 @@ export default function DashboardPage() {
   // fields WITHOUT marking the passport submitted or regenerating the Drive
   // PDF — only the explicit Submit does that.
   const passportDraftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** The last non-null passport draft seen, so closing the modal can FLUSH it.
+   *  In the close branch `passportModal` is already null, so the data has to be
+   *  remembered here or there is nothing left to send. */
+  const lastPassportSnapshotRef = useRef<{ data: Record<string, unknown>; confirmed: string[] } | null>(null);
   useEffect(() => {
     if (!userId) return;
     const key = `bv-passport-pending-${userId}`;
@@ -673,6 +677,8 @@ export default function DashboardPage() {
     if (passportModal) {
       // 1) Instant local cache (refresh-safe) — data + checkboxes.
       const confArr = Array.from(confirmedFields);
+      // Remember it for the close-flush above.
+      lastPassportSnapshotRef.current = { data: passportModal as Record<string, unknown>, confirmed: confArr };
       try {
         localStorage.setItem(key, JSON.stringify(passportModal));
         localStorage.setItem(confKey, JSON.stringify(confArr));
@@ -696,11 +702,33 @@ export default function DashboardPage() {
           .catch(() => setPassportSaveError(true));
       }, 800);
     } else {
+      // CLOSING FLUSHES — it must never cancel.
+      //
+      // This used to clearTimeout the pending draft-save and delete both
+      // localStorage keys. The debounce is 800 ms, so typing her postal code or
+      // ticking a confirmation box and then tapping the X — or missing the card
+      // and hitting the backdrop — landed well inside the window and the edit
+      // was lost from BOTH stores at once: the timer was killed before it fired
+      // and the local cache was wiped in the same breath. On the longest form in
+      // the product, on a phone, where a mistap closes it.
+      //
+      // Sending the last snapshot immediately means the local cache can still be
+      // cleared safely: the server now holds her draft, so reopening restores it
+      // from there. keepalive lets the request outlive the unmount.
+      const snap = lastPassportSnapshotRef.current;
+      if (passportDraftTimer.current) clearTimeout(passportDraftTimer.current);
+      if (snap && authToken) {
+        fetch("/api/portal/passport", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+          body: JSON.stringify({ ...snap.data, confirmed_fields: snap.confirmed, __draft: true }),
+          keepalive: true,
+        }).catch(() => { /* best-effort: the local cache below is the fallback */ });
+      }
       localStorage.removeItem(key);
       localStorage.removeItem(confKey);
       setPassportSavedAt(null); // closing the modal clears the indicator
       setPassportSaveError(false);
-      if (passportDraftTimer.current) clearTimeout(passportDraftTimer.current);
     }
     return () => { if (passportDraftTimer.current) clearTimeout(passportDraftTimer.current); };
   }, [passportModal, confirmedFields, userId, authToken]);

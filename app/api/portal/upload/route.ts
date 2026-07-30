@@ -1395,11 +1395,25 @@ export async function POST(req: NextRequest) {
               touched = true;
             }
           }
-          // Set passport_status to "pending" only if no status yet — never
-          // demote an "approved" row back to pending.
-          if (touched && (cur.passport_status == null || cur.passport_status === "")) {
-            toWrite.passport_status = "pending";
-          }
+          // DO NOT set passport_status here. OCR extracting a few fields is not
+          // a submission — it is a draft she has not looked at yet.
+          //
+          // This used to write "pending" as soon as OCR filled any empty field.
+          // The candidate's confirmation form reads pending as "submitted, under
+          // review" and renders read-only, so the sequence was: she photographs
+          // her passport, the form opens with the OCR guesses for a heartbeat,
+          // then turns into a grey list saying it is under review. She never got
+          // to check a single box, correct a misread MRZ digit, or submit
+          // anything — and nothing told her why it had locked.
+          //
+          // That also contradicts LAW #38: an unfinished OCR draft must persist
+          // with the confirmation boxes UNCHECKED, and admins are meant to see
+          // the extracted data live marked NICHT EINGEREICHT. A status of
+          // "pending" is precisely the claim that it HAS been submitted.
+          //
+          // The real submit still sets it: app/api/portal/passport/route.ts:200
+          // writes "pending" when isDraft is false. Leaving it null here keeps
+          // "extracted" and "submitted" as the two different things they are.
           if (touched) {
             await dbsvc.from("candidate_profiles").upsert(toWrite, { onConflict: "user_id" });
           }
