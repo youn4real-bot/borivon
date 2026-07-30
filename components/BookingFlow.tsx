@@ -87,17 +87,37 @@ function localDays(instants: number[], lang: string): { key: string; weekday: st
     });
 }
 
-export function BookingFlow() {
+/**
+ * @param initialKind  Set by a shareable per-audience link (/book/nurse etc.).
+ *                     When present, step 0 ("who are you?") is answered already
+ *                     and skipped — the person you sent the link to lands on the
+ *                     calendar, which is the entire point of handing out a link.
+ * @param eventType    The slug, sent with the booking so the server can apply
+ *                     that type's own duration and record which link was used.
+ * @param headline     Per-type title/blurb, already translated by the server.
+ */
+export function BookingFlow({
+  initialKind,
+  eventType,
+  headline,
+  blurb,
+}: {
+  initialKind?: Kind;
+  eventType?: string;
+  headline?: { en: string; de: string; fr: string };
+  blurb?: { en: string; de: string; fr: string };
+} = {}) {
   const { lang } = useLang();
   const T = useCallback((en: string, de: string, fr: string) => tr(lang, en, de, fr), [lang]);
 
-  const [step, setStep] = useState(0);          // 0 who · 1 when · 2 details
+  // Start on "when" when the link already said who they are.
+  const [step, setStep] = useState(initialKind ? 1 : 0);   // 0 who · 1 when · 2 details
   const [loading, setLoading] = useState(true);
   const [instants, setInstants] = useState<number[]>([]);
   const [tz, setTz] = useState("");
   const [slotMinutes, setSlotMinutes] = useState(30);
 
-  const [kind, setKind] = useState<Kind | null>(null);
+  const [kind, setKind] = useState<Kind | null>(initialKind ?? null);
   const [dayKey, setDayKey] = useState<string | null>(null);
   const [at, setAt] = useState<number | null>(null);
 
@@ -114,7 +134,9 @@ export function BookingFlow() {
 
   const loadSlots = useCallback(async () => {
     try {
-      const r = await fetch("/api/book", { cache: "no-store" });
+      // The type decides the meeting length, so the grid must be built for it —
+      // a 45-minute company call cannot be offered on a 30-minute grid.
+      const r = await fetch(eventType ? `/api/book?type=${encodeURIComponent(eventType)}` : "/api/book", { cache: "no-store" });
       const j = await r.json().catch(() => ({}));
       // Only the INSTANTS cross the wire. The server groups by Morocco days
       // because that's where the availability lives; we regroup into the
@@ -130,7 +152,7 @@ export function BookingFlow() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [eventType]);
 
   useEffect(() => { void loadSlots(); }, [loadSlots]);
 
@@ -163,6 +185,9 @@ export function BookingFlow() {
           phone: phone.replace(/^\+\d+\s*$/, "").trim() ? phone.trim() : "",
           company: isOrg ? company.trim() : "",
           selections,
+          // Which shareable link this came through. Decides the meeting length
+          // server-side and records how the lead arrived.
+          ...(eventType ? { type: eventType } : {}),
           // So the confirmation, reminder and any cancellation come back in the
           // language they actually booked in.
           lang,
@@ -260,16 +285,21 @@ export function BookingFlow() {
     <main className="mx-auto px-5 py-14 bv-page-bottom bv-enter" style={{ maxWidth: 720 }}>
       <p className="bv-eyebrow mb-2">{T("Book a call", "Termin buchen", "Réserver un appel")}</p>
       <h1 className="text-[clamp(1.6rem,3.4vw,2.2rem)] font-medium mb-2" style={{ color: "var(--w)", letterSpacing: "-0.02em" }}>
-        {T("Let's talk", "Sprechen wir", "Parlons-en")}
+        {/* A shareable link names its own meeting: someone who was sent
+            /book/company should see "German training for teams", not a generic
+            greeting that leaves them wondering if they clicked the right thing. */}
+        {headline ? headline[lang] : T("Let's talk", "Sprechen wir", "Parlons-en")}
       </h1>
       {/* Say the three things a hesitant visitor needs BEFORE they commit: it
           costs nothing, it's short, and it's a real conversation with a person.
           "Takes 30 seconds" alone was ambiguous — it reads as the length of the
           CALL rather than of the booking. */}
       <p className="text-[15px] mb-3 bv-measure" style={{ color: "var(--w3)" }}>
-        {T(`A free ${slotMinutes}-minute video call with the Borivon team — no obligation.`,
-           `Ein kostenloses ${slotMinutes}-minütiges Videogespräch mit dem Borivon-Team — unverbindlich.`,
-           `Un appel vidéo gratuit de ${slotMinutes} minutes avec l'équipe Borivon — sans engagement.`)}
+        {blurb
+          ? blurb[lang]
+          : T(`A free ${slotMinutes}-minute video call with the Borivon team — no obligation.`,
+              `Ein kostenloses ${slotMinutes}-minütiges Videogespräch mit dem Borivon-Team — unverbindlich.`,
+              `Un appel vidéo gratuit de ${slotMinutes} minutes avec l'équipe Borivon — sans engagement.`)}
       </p>
       <p className="text-[13.5px] mb-8 bv-measure" style={{ color: "var(--w3)" }}>
         {T("Booking takes about 30 seconds.",
@@ -417,9 +447,14 @@ export function BookingFlow() {
           {err && <p className="text-[13px] mt-4" style={{ color: "#ef4444" }} role="alert">{err}</p>}
 
           <div className="flex items-center gap-3 mt-8">
-            <button type="button" onClick={() => setStep(0)} className="bv-btn bv-btn-ghost bv-tap bv-touch flex items-center gap-2">
-              <ArrowLeft size={15} aria-hidden /> {T("Back", "Zurück", "Retour")}
-            </button>
+            {/* Hidden when a shareable link already answered "who are you?" —
+                sending them back to the audience picker is the one place this
+                flow could undo the whole point of handing out /book/company. */}
+            {!initialKind && (
+              <button type="button" onClick={() => setStep(0)} className="bv-btn bv-btn-ghost bv-tap bv-touch flex items-center gap-2">
+                <ArrowLeft size={15} aria-hidden /> {T("Back", "Zurück", "Retour")}
+              </button>
+            )}
             <button
               type="button"
               disabled={at == null}

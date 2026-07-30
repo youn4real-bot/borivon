@@ -7,6 +7,7 @@ import { getAdminUserId } from "@/lib/telegram";
 import { tgSend } from "@/lib/telegram";
 import { sendBookingConfirmedEmail } from "@/lib/email";
 import { loadBookingConfig, newManageToken } from "@/lib/bookingConfig";
+import { loadEventType, overlayEventType, looksLikeSlug, BUILT_IN_SLUGS } from "@/lib/bookingEventTypes";
 import {
   generateSlots, groupByDay, slotLabel, looksLikeEmail,
   followUpsFor, zoneOffsetMinutes, sanitizeSelections, describeSelections,
@@ -139,8 +140,13 @@ async function bookedIntervals(from: number, to: number, slotMs: number): Promis
 const EDGE_TTL_SECONDS = 45;
 
 /** The cache key: fixed, because the response does not vary by visitor or query. */
-function slotsCacheKey(req: NextRequest): Request {
-  return new Request(new URL("/api/book/__slots-v1", req.nextUrl.origin).toString(), { method: "GET" });
+function slotsCacheKey(req: NextRequest, type: string | null): Request {
+  // The TYPE must be part of the key. Each event type can carry its own meeting
+  // length and notice, so their grids genuinely differ — a shared key would
+  // serve a company's 45-minute grid to a nurse booking a 30-minute call, and
+  // the mismatch would only surface as a rejected booking at submit time.
+  const path = type ? `/api/book/__slots-v1/${encodeURIComponent(type)}` : "/api/book/__slots-v1";
+  return new Request(new URL(path, req.nextUrl.origin).toString(), { method: "GET" });
 }
 
 /** Cloudflare's per-colo cache. Absent off-Workers (dev, tests) — then we simply
@@ -155,10 +161,15 @@ function edgeCache(): Cache | null {
 export async function GET(req: NextRequest) {
   const t0 = Date.now();
 
+  // Which shareable link the visitor came through (/book/nurse → type=nurse).
+  // Absent on plain /book, which keeps the global config exactly as before.
+  const typeParam = req.nextUrl.searchParams.get("type");
+  const etSlug = looksLikeSlug(typeParam) ? typeParam : null;
+
   const cache = edgeCache();
   if (cache) {
     try {
-      const hit = await cache.match(slotsCacheKey(req));
+      const hit = await cache.match(slotsCacheKey(req, etSlug));
       if (hit) {
         const res = new NextResponse(hit.body, hit);
         res.headers.set("Server-Timing", `edge;desc=hit, total;dur=${Date.now() - t0}`);
@@ -177,7 +188,10 @@ export async function GET(req: NextRequest) {
   const rl = await enforceRateLimitDistributed(req, "book-slots", { limit: 60, windowMs: 60_000 });
   if (!rl.ok) return NextResponse.json({ error: "rate_limited" }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
-  const { availability: av, accepting } = await configP;
+  const { availability: base, accepting } = await configP;
+  // Per-type overrides (duration / notice / horizon). Only non-null ones apply,
+  // so a type nobody has configured produces the global availability unchanged.
+  const av = overlayEventType(base, etSlug ? await loadEventType(etSlug) : null);
   // The founder can close the page entirely (holiday, full diary) without
   // deleting anything — the picker then shows its "write to us" empty state.
   if (!accepting) {
@@ -232,7 +246,7 @@ export async function GET(req: NextRequest) {
     // fixing all session. The response must be cloned: a body can only be read
     // once, and the visitor is about to read this one.
     const toStore = fresh.clone();
-    keepAlive(() => cache.put(slotsCacheKey(req), toStore));
+    keepAlive(() => cache.put(slotsCacheKey(req, etSlug), toStore));
   }
   return fresh;
 }
@@ -272,7 +286,13 @@ export async function POST(req: NextRequest) {
 
   // The slot must be one we CURRENTLY offer. Without this a crafted POST could
   // put any timestamp — 3am, a Sunday, next year — into the founder's calendar.
-  const { availability: av, accepting } = await loadBookingConfig();
+  // Which shareable link this came through. Re-resolved SERVER-side rather than
+  // trusting any duration the client sends — the whole reason this check exists
+  // is that a crafted POST must not be able to choose its own slot geometry.
+  const etSlug = looksLikeSlug(body?.type) ? (body.type as string) : null;
+  const eventType = etSlug ? await loadEventType(etSlug) : null;
+  const { availability: baseAv, accepting } = await loadBookingConfig();
+  const av = overlayEventType(baseAv, eventType);
   if (!accepting) {
     return NextResponse.json({ error: "not_accepting", message: "Bookings are closed right now." }, { status: 409 });
   }
@@ -307,7 +327,11 @@ export async function POST(req: NextRequest) {
     ends_at: new Date(endsAt).toISOString(),
     source: "public",
   };
-  let ins = await db.from("bookings").insert({ ...row, manage_token: manageToken, lang }).select("id").single();
+  let ins = await db
+    .from("bookings")
+    .insert({ ...row, manage_token: manageToken, lang, ...(etSlug ? { event_type: etSlug } : {}) })
+    .select("id")
+    .single();
 
   /*
    * SCHEMA-TOLERANT, IN TIERS — and the tiers matter.
@@ -325,6 +349,13 @@ export async function POST(req: NextRequest) {
   const missingCol = (msg: string | undefined, col: string) =>
     new RegExp(`${col}|column .* does not exist|schema cache`, "i").test(msg ?? "");
 
+  // event_type FIRST, because it is the least valuable thing on the row: knowing
+  // WHICH link a lead came through is a reporting nicety, and it must never be
+  // the reason a booking is lost when booking_event_types.sql has not been run.
+  if (ins.error && etSlug && missingCol(ins.error.message, "event_type")) {
+    console.warn("[book] `event_type` column missing — run supabase/booking_event_types.sql");
+    ins = await db.from("bookings").insert({ ...row, manage_token: manageToken, lang }).select("id").single();
+  }
   if (ins.error && missingCol(ins.error.message, "lang")) {
     console.warn("[book] `lang` column missing — run supabase/booking_lang.sql");
     ins = await db.from("bookings").insert({ ...row, manage_token: manageToken }).select("id").single();
@@ -461,7 +492,14 @@ export async function POST(req: NextRequest) {
   // double-booked either way.
   {
     const cache = edgeCache();
-    if (cache) keepAlive(() => cache.delete(slotsCacheKey(req)));
+    if (cache) {
+      // EVERY type's grid, not just the one they booked through. There is one
+      // calendar behind all of them, so a nurse taking 10:00 must also stop the
+      // company link offering 10:00 — invalidating only this type's key would
+      // leave the others confidently handing out a slot that is already gone.
+      const keys = [null, ...BUILT_IN_SLUGS, ...(etSlug && !BUILT_IN_SLUGS.includes(etSlug as never) ? [etSlug] : [])];
+      keepAlive(() => Promise.all(keys.map((k) => cache.delete(slotsCacheKey(req, k)))));
+    }
   }
 
   return NextResponse.json({ ok: true, at, endsAt, kind });
