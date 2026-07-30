@@ -40,6 +40,9 @@ function PortalPageInner() {
   // Morocco. Value is "<dialCode> <number>". NO SMS verification — collected
   // only, stored on candidate_profiles.phone.
   const [phone, setPhone]             = useState("+212 ");
+  /** "Forgot password?" state — sending, and the confirmation that it went. */
+  const [resetBusy, setResetBusy]     = useState(false);
+  const [resetSent, setResetSent]     = useState(false);
   const [password, setPassword]       = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -592,6 +595,63 @@ function PortalPageInner() {
               style={{ background: "var(--gold)", color: "#131312", marginTop: "4px", borderRadius: "var(--r-lg)", boxShadow: "var(--shadow-gold-sm)", border: "none" }}>
               {loading ? "…" : mode === "login" ? t.pBtnLogin : t.pBtnSignup}
             </button>
+
+            {/* FORGOT PASSWORD — this page had no way to ask for one.
+                A nurse who forgot her password had no route back in at all: no
+                link here, and the reset flow itself never let anyone set a new
+                password. Her passport, diploma and whole application sit behind
+                this login, so "locked out" meant her application simply ended. */}
+            {mode === "login" && (
+              <button type="button" disabled={resetBusy}
+                onClick={async () => {
+                  const addr = email.trim().toLowerCase();
+                  setError(""); setResetSent(false);
+                  if (!addr) {
+                    setError(lang === "de" ? "Bitte geben Sie zuerst Ihre E-Mail-Adresse ein."
+                      : lang === "en" ? "Please enter your email address first."
+                      : "Veuillez d'abord saisir votre adresse e-mail.");
+                    return;
+                  }
+                  setResetBusy(true);
+                  try {
+                    const { error: rErr } = await supabase.auth.resetPasswordForEmail(addr, {
+                      redirectTo: `${window.location.origin}/portal/auth/callback?type=recovery`,
+                    });
+                    // supabase-js resolves with an error instead of throwing, so
+                    // this must be read or a rate-limited send looks successful.
+                    if (rErr) {
+                      const m = rErr.message || "";
+                      setError(/rate|too many|seconds/i.test(m)
+                        ? (lang === "de" ? "Bitte warten Sie eine Minute und versuchen Sie es erneut."
+                          : lang === "en" ? "Please wait a minute and try again."
+                          : "Veuillez attendre une minute puis réessayer.")
+                        : (lang === "de" ? "E-Mail konnte nicht gesendet werden. Bitte erneut versuchen."
+                          : lang === "en" ? "Couldn't send the email. Please try again."
+                          : "Impossible d'envoyer l'e-mail. Veuillez réessayer."));
+                      return;
+                    }
+                    setResetSent(true);
+                  } catch {
+                    setError(t.pErrNetwork);
+                  } finally {
+                    setResetBusy(false);
+                  }
+                }}
+                className="mx-auto block text-[12.5px] underline bv-tap"
+                style={{ color: "var(--w3)", background: "none", border: "none", padding: "10px 8px", cursor: "pointer" }}>
+                {resetBusy
+                  ? "…"
+                  : lang === "de" ? "Passwort vergessen?" : lang === "en" ? "Forgot your password?" : "Mot de passe oublié ?"}
+              </button>
+            )}
+
+            {resetSent && (
+              <p role="status" className="text-[12.5px] text-center" style={{ color: "var(--success)" }}>
+                {lang === "de" ? "Wir haben Ihnen einen Link zum Zurücksetzen geschickt. Prüfen Sie Ihre E-Mails."
+                  : lang === "en" ? "We've sent you a reset link. Please check your email."
+                  : "Nous vous avons envoyé un lien de réinitialisation. Vérifiez vos e-mails."}
+              </p>
+            )}
           </form>
 
           {/* Consent — register only */}

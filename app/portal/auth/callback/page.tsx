@@ -47,7 +47,26 @@ function CallbackInner() {
     // why a sub-admin could still land on the candidate dashboard — the
     // fallback branches below used to hardcode /portal/dashboard with no
     // redeem and no role check.
+    /**
+     * A RECOVERY link must not land on the dashboard.
+     *
+     * That was the whole password-reset bug: the link exchanged its code for a
+     * session and routed here to /portal/dashboard, so she was signed in with
+     * her OLD password still the only working one and no screen to change it.
+     * Next visit, locked out again.
+     *
+     * Supabase marks recovery in the query on the PKCE flow and in the URL
+     * fragment on the older implicit one, so check both — the fragment never
+     * reaches the server and is invisible to useSearchParams.
+     */
+    const isRecovery = (): boolean => {
+      if (params.get("type") === "recovery") return true;
+      if (typeof window === "undefined") return false;
+      return new URLSearchParams(window.location.hash.replace(/^#/, "")).get("type") === "recovery";
+    };
+
     const routeAfter = async (accessToken: string) => {
+      if (isRecovery()) { router.replace("/portal/reset-password"); return; }
       const inviteCode = params.get("invite")
         || (typeof window !== "undefined" ? localStorage.getItem("bv_invite_code") : null);
       let inviteType: string | null = null;

@@ -117,7 +117,7 @@ export function AuthModal({ open, onClose }: { open: boolean; onClose: () => voi
       try {
         const { error: resetErr } = await supabase.auth.resetPasswordForEmail(
           email.trim().toLowerCase(),
-          { redirectTo: `${window.location.origin}/portal/auth/callback` },
+          { redirectTo: `${window.location.origin}/portal/auth/callback?type=recovery` },
         );
         if (resetErr) {
           const m = resetErr.message;
