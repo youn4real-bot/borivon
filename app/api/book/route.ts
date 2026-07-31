@@ -7,7 +7,7 @@ import { getAdminUserId } from "@/lib/telegram";
 import { tgSend } from "@/lib/telegram";
 import { sendBookingConfirmedEmail } from "@/lib/email";
 import { loadBookingConfig, newManageToken } from "@/lib/bookingConfig";
-import { loadEventType, overlayEventType, looksLikeSlug, BUILT_IN_SLUGS } from "@/lib/bookingEventTypes";
+import { loadEventType, overlayEventType, looksLikeSlug } from "@/lib/bookingEventTypes";
 import {
   generateSlots, groupByDay, slotLabel, looksLikeEmail,
   followUpsFor, zoneOffsetMinutes, sanitizeSelections, describeSelections,
@@ -497,8 +497,22 @@ export async function POST(req: NextRequest) {
       // calendar behind all of them, so a nurse taking 10:00 must also stop the
       // company link offering 10:00 — invalidating only this type's key would
       // leave the others confidently handing out a slot that is already gone.
-      const keys = [null, ...BUILT_IN_SLUGS, ...(etSlug && !BUILT_IN_SLUGS.includes(etSlug as never) ? [etSlug] : [])];
-      keepAlive(() => Promise.all(keys.map((k) => cache.delete(slotsCacheKey(req, k)))));
+      // Enumerate the REAL types rather than assuming the three built-ins.
+      //
+      // My first cut listed BUILT_IN_SLUGS plus the one just booked through. That
+      // silently missed every ADMIN-CREATED event type: add a "45-min employer
+      // call" in booking_event_types and its cached grid would keep offering a
+      // slot somebody had already taken, right up to the 45-second TTL — and the
+      // person who booked it would be told the time was gone only after filling
+      // in the form. listEventTypes() falls back to the built-ins if the table is
+      // unreadable, so this cannot be worse than what it replaces.
+      keepAlive(async () => {
+        const { listEventTypes } = await import("@/lib/bookingEventTypes");
+        const slugs = (await listEventTypes()).map((t) => t.slug);
+        // `null` is the plain /book grid, which has its own key and is equally stale.
+        const keys = [null, ...new Set([...slugs, ...(etSlug ? [etSlug] : [])])];
+        await Promise.all(keys.map((k) => cache.delete(slotsCacheKey(req, k))));
+      });
     }
   }
 

@@ -90,11 +90,38 @@ async function findOrCreateFolder(drive: Drive, name: string, parentId?: string)
  */
 async function resolveWorkRootId(drive: Drive): Promise<string> {
   // 1) A Shared Drive literally named WORK.
-  try {
-    const sd = await drive.drives.list({ q: `name='${esc(WORK_ROOT)}'`, pageSize: 10, fields: "drives(id,name)" });
-    const hit = (sd.data.drives ?? []).find((d) => (d.name ?? "").trim().toUpperCase() === WORK_ROOT);
-    if (hit?.id) return hit.id;
-  } catch { /* no shared-drive access or none exist → fall through */ }
+  //
+  // ON WORKERS THIS CANNOT RUN. The fetch-based Drive shim used on workerd
+  // (lib/googleDriveShim.ts) implements no `drives` namespace at all, so this
+  // throws immediately and the old bare `catch {}` made that indistinguishable
+  // from "checked, found nothing".
+  //
+  // It matters because step 2 below searches for a FOLDER. A Shared DRIVE named
+  // WORK is not a folder and will not match it, so on Workers we would fall all
+  // the way through and CREATE a new WORK folder in My Drive — quietly mirroring
+  // candidate documents somewhere other than the shared drive the team actually
+  // uses, with nobody told.
+  //
+  // Detect the missing namespace explicitly and say so once, rather than
+  // pretending the check happened. Behaviour is otherwise unchanged: it still
+  // falls through, because inventing a shared-drive lookup on the shim here is a
+  // bigger change than this bug warrants.
+  if (typeof (drive as { drives?: { list?: unknown } }).drives?.list !== "function") {
+    console.warn(
+      "[driveMirror] shared-drive lookup unavailable on this runtime (Drive shim has no drives.list) — " +
+      "if the WORK root is a Shared Drive rather than a folder, it will not be found",
+    );
+  } else {
+    try {
+      const sd = await drive.drives.list({ q: `name='${esc(WORK_ROOT)}'`, pageSize: 10, fields: "drives(id,name)" });
+      const hit = (sd.data.drives ?? []).find((d) => (d.name ?? "").trim().toUpperCase() === WORK_ROOT);
+      if (hit?.id) return hit.id;
+    } catch (e) {
+      // A real API error (no shared-drive access, none exist) — distinct from the
+      // runtime simply not supporting the call.
+      console.warn("[driveMirror] drives.list failed:", e instanceof Error ? e.message : e);
+    }
+  }
   // 2) An existing folder named WORK anywhere he keeps it (not only My-Drive root).
   try {
     const f = await drive.files.list({

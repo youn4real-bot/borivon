@@ -32,14 +32,33 @@ type ErrCtx = {
   [k: string]: unknown;
 };
 
-// In-memory throttle so one hot error can't flood the chat: the same message
-// alerts at most once per 60s per warm instance. Best-effort (resets on cold
-// start) — that's fine, the goal is anti-spam, not exactly-once.
+// In-memory throttle so one hot error can't flood the chat.
+//
+// PER-ISOLATE ON WORKERS, and that changes the maths. On a Vercel lambda one warm
+// instance meant one 60-second window, so the same error alerted about once a
+// minute. On workerd this Map lives in EACH isolate, and a burst is exactly when
+// Cloudflare spins up many of them — so the real rate became once per minute
+// PER ISOLATE. The failure mode is not just noise: Telegram rate-limits the bot,
+// and a 429'd bot silently drops the alerts the founder actually needs, so the
+// anti-spam guard turns into an outage of the alerting itself.
+//
+// Two changes, both deliberately dependency-free: this runs inside error
+// handling, and a throttle that needs a database is a throttle that fails
+// exactly when the database is what broke.
+//   • 10-minute window instead of 60s, so N isolates produce at most N messages
+//     per 10 minutes for one error rather than N per minute.
+//   • A hard ceiling per isolate lifetime. Distinct-but-related errors (one per
+//     candidate id, say) evade a per-key window entirely; nothing evades a cap.
+const ALERT_WINDOW_MS = 10 * 60_000;
+const MAX_ALERTS_PER_ISOLATE = 20;
 const _lastAlert = new Map<string, number>();
+let _alertsSent = 0;
 function shouldAlert(key: string): boolean {
+  if (_alertsSent >= MAX_ALERTS_PER_ISOLATE) return false;
   const now = Date.now();
-  if (now - (_lastAlert.get(key) ?? 0) < 60_000) return false;
+  if (now - (_lastAlert.get(key) ?? 0) < ALERT_WINDOW_MS) return false;
   _lastAlert.set(key, now);
+  _alertsSent++;
   if (_lastAlert.size > 200) {
     for (const k of _lastAlert.keys()) { _lastAlert.delete(k); if (_lastAlert.size <= 100) break; }
   }
