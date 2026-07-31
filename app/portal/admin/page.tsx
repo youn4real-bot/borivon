@@ -1392,6 +1392,24 @@ export default function AdminPage() {
               window.scrollTo({ top: 0, behavior: "smooth" });
               window.history.replaceState({}, "", window.location.pathname);
             }
+            // SHAREABLE candidate link: /portal/admin?c=<userId>.
+            //
+            // Deliberately NOT stripped from the URL the way nav_user_id above is.
+            // That one is a one-shot handoff from the Pipeline board, so removing
+            // it stops a refresh re-triggering the jump. This one is the opposite:
+            // the whole point is that the address bar keeps pointing at THIS
+            // candidate, so it can be bookmarked, sent to a colleague, or reopened
+            // tomorrow — instead of scrolling a list to find her again.
+            //
+            // Gated on the candidate existing in the payload, which is already
+            // LAW #25-scoped: getVisibleCandidateIds decides what lands in
+            // json.users, so an org-admin pasting a link to a candidate outside
+            // their org simply opens nothing rather than leaking that she exists.
+            const linkedUser = params.get("c");
+            if (linkedUser && (json.users ?? {})[linkedUser]) {
+              setSelectedUser(linkedUser);
+              window.scrollTo({ top: 0, behavior: "smooth" });
+            }
             if (navEmail) {
               const uid = Object.keys(json.users ?? {}).find(
                 (id: string) => ((json.users[id]?.email as string) ?? "").toLowerCase() === navEmail.toLowerCase()
