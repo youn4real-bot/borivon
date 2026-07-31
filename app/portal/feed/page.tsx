@@ -628,10 +628,17 @@ function PostCard({
           {post.content}
         </p>
 
-        {/* Photo */}
+        {/* Photo.
+            minHeight reserves the space BEFORE the photo arrives. Without it a
+            lazily-loaded image occupies 0px until it decodes and then shoves
+            everything below it down — so on a phone, scrolling the feed makes the
+            post she is reading jump away mid-sentence, and a tap can land on
+            whatever slid under her finger. Reserving 200px (half the cap) keeps
+            the shift to a nudge instead of a leap, without letting a short image
+            leave a large gap. */}
         {post.imageUrl && (
-          <div className="rounded-xl overflow-hidden mb-3" style={{ maxHeight: 400 }}>
-            <img src={post.imageUrl} alt="" loading="lazy" decoding="async" className="w-full object-cover" style={{ maxHeight: 400 }} />
+          <div className="rounded-xl overflow-hidden mb-3" style={{ maxHeight: 400, minHeight: 200 }}>
+            <img src={post.imageUrl} alt="" loading="lazy" decoding="async" className="w-full h-full object-cover" style={{ maxHeight: 400 }} />
           </div>
         )}
 

@@ -379,7 +379,21 @@ export default function DashboardPage() {
   // certificate is CLONED into the Visum category — same fileKey "langcert" →
   // same document), but the upload handler / progress counter / slot-message
   // renderer must see each key exactly ONCE (no double-count).
-  const ALL_ITEMS = _ALL_ITEMS_RAW.filter((it, i) => _ALL_ITEMS_RAW.findIndex(x => x.key === it.key) === i);
+  //
+  // O(n) via a Set instead of O(n²) via findIndex-inside-filter. The old form
+  // rescanned the whole array for EVERY element, and this runs on every single
+  // render of a 5000-line component — including ~4× a second throughout an
+  // upload. Identical output: `filter` keeps the FIRST occurrence of each key,
+  // and so does this, because the Set only rejects keys already seen.
+  //
+  // Deliberately NOT useMemo'd. This is built from `t`, orderVisumItems (which
+  // closes over visumDocOrder), the loaded slot rows and SIGN_FILL_ENABLED, and
+  // an incomplete dependency array would leave her document list STALE — showing
+  // the wrong boxes, or hiding a slot an admin just added. Stale is a worse
+  // failure than slow, so the algorithm gets fixed and the semantics stay exactly
+  // as they are: recomputed every render, correct every render.
+  const _seenKeys = new Set<string>();
+  const ALL_ITEMS = _ALL_ITEMS_RAW.filter(it => !_seenKeys.has(it.key) && _seenKeys.add(it.key));
 
   const [userId, setUserId]         = useState("");
   const [authToken, setAuthToken]   = useState("");
