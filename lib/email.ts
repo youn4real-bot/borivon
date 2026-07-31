@@ -12,6 +12,42 @@ function getResend(): Resend | null {
   return new Resend(key);
 }
 
+/**
+ * Send one email and ACTUALLY FIND OUT whether it was accepted.
+ *
+ * The Resend SDK RESOLVES with `{ data, error }`; it does not throw when the API
+ * refuses. So every `try { await r.emails.send(...) } catch { … }` in this file
+ * was dead code for the failure that actually happens — a bad key, a suppressed
+ * or bounced address, a domain not verified, a 429. The catch only ever fired on
+ * a network fault, and every other refusal was reported as success.
+ *
+ * That is the same shape as the supabase-js `{ error }` trap this codebase has
+ * been bitten by repeatedly, and here it is worse than a silent log: the two
+ * senders that return Promise<boolean> were returning `true` for a mail Resend
+ * had rejected. /api/portal/admin/messages/remind-email then stamps a 72-HOUR
+ * throttle on that `true`, so a refused nudge locked the candidate out of being
+ * nudged again for three days — and nobody was told.
+ *
+ * Returns true only when Resend accepted it. Never throws: a failed email must
+ * not take down the request that triggered it.
+ */
+async function deliver(payload: Parameters<Resend["emails"]["send"]>[0]): Promise<boolean> {
+  const r = getResend();
+  if (!r) return false;
+  try {
+    const { data, error } = await r.emails.send(payload);
+    if (error) {
+      // Log the recipient, never the body — these carry personal data.
+      console.error("[email] Resend refused:", (error as { message?: string }).message ?? error);
+      return false;
+    }
+    return !!data;
+  } catch (e) {
+    console.error("[email] send threw:", e instanceof Error ? e.message : e);
+    return false;
+  }
+}
+
 const FROM = "Borivon <noreply@borivon.com>";
 /**
  * Where a reply actually goes. Booking mail is a CONVERSATION starter — "I'll be
@@ -108,7 +144,7 @@ export async function sendDocApprovedEmail(to: string, docType: string): Promise
   const r = getResend(); if (!r) return;
   const d = esc(docType);
   try {
-    await r.emails.send({
+    await deliver({
       from: FROM,
       to,
       subject: `✅ ${subj(docType)} — validé / approved / genehmigt · Borivon`,
@@ -140,7 +176,7 @@ export async function sendDocApprovedEmail(to: string, docType: string): Promise
 export async function sendDocRejectedEmail(to: string, docType: string, feedback: string | null): Promise<void> {
   const r = getResend(); if (!r) return;
   try {
-    await r.emails.send({
+    await deliver({
       from: FROM,
       to,
       subject: `❌ ${subj(docType)} — à corriger / action needed / bitte korrigieren · Borivon`,
@@ -177,7 +213,7 @@ export async function sendDocRejectedEmail(to: string, docType: string, feedback
 export async function sendVerifiedEmail(to: string, firstName: string): Promise<void> {
   const r = getResend(); if (!r) return;
   try {
-    await r.emails.send({
+    await deliver({
       from: FROM,
       to,
       subject: `🎉 Your profile is verified — Borivon`,
@@ -198,7 +234,7 @@ export async function sendVerifiedEmail(to: string, firstName: string): Promise<
 export async function sendPlacedEmail(to: string, orgName: string): Promise<void> {
   const r = getResend(); if (!r) return;
   try {
-    await r.emails.send({
+    await deliver({
       from: FROM,
       to,
       subject: `🏢 You've been matched — Borivon`,
@@ -226,7 +262,7 @@ export async function sendCandidateMessageEmail(to: string, firstName: string, b
   const r = getResend(); if (!r) return false;
   const safeBody = esc(body).replace(/\n/g, "<br/>");
   try {
-    await r.emails.send({
+    const sent = await deliver({
       from: FROM,
       to,
       subject: `💬 Eine Nachricht von Borivon`,
@@ -238,7 +274,7 @@ export async function sendCandidateMessageEmail(to: string, firstName: string, b
         </a>
       `),
     });
-    return true;
+    return sent;   // Resend ACCEPTED it — not merely "we did not throw"
   } catch (e) { console.warn("[email] sendCandidateMessageEmail failed:", e); return false; }
 }
 
@@ -251,7 +287,7 @@ export async function sendCandidateMessageEmail(to: string, firstName: string, b
 export async function sendUnreadMessagesReminderEmail(to: string, firstName: string): Promise<boolean> {
   const r = getResend(); if (!r) return false;
   try {
-    await r.emails.send({
+    const sent = await deliver({
       from: FROM,
       to,
       subject: `💬 Du hast eine Nachricht — Borivon`,
@@ -266,7 +302,7 @@ export async function sendUnreadMessagesReminderEmail(to: string, firstName: str
         </a>
       `),
     });
-    return true;
+    return sent;   // Resend ACCEPTED it — not merely "we did not throw"
   } catch (e) { console.warn("[email] sendUnreadMessagesReminderEmail failed:", e); return false; }
 }
 
@@ -306,7 +342,7 @@ export async function sendBookingConfirmedEmail(opts: {
   const lang = opts.lang ?? "en";
   const T = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
   try {
-    await r.emails.send({
+    await deliver({
       from: FROM,
       to: opts.to,
       replyTo: REPLY_TO,
@@ -345,7 +381,7 @@ export async function sendBookingReminderEmail(opts: {
   const lang = opts.lang ?? "en";
   const T = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
   try {
-    await r.emails.send({
+    await deliver({
       from: FROM,
       to: opts.to,
       replyTo: REPLY_TO,
@@ -380,7 +416,7 @@ export async function sendBookingChangedEmail(opts: {
   const lang = opts.lang ?? "en";
   const T = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
   try {
-    await r.emails.send({
+    await deliver({
       from: FROM,
       to: opts.to,
       replyTo: REPLY_TO,
