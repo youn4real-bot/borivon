@@ -641,6 +641,40 @@ export default function AdminPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewDoc?.id]);
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
+  /*
+   * KEEP THE ADDRESS BAR POINTING AT WHOEVER IS OPEN.
+   *
+   * Opening a candidate used to leave the URL as a bare /portal/admin, so there
+   * was no way to bookmark her, send a colleague "look at this one", or come back
+   * tomorrow without scrolling the list again. Now every open candidate has a real
+   * address: /portal/admin?c=<userId>
+   *
+   * One effect on `selectedUser` rather than editing all eight places that call
+   * setSelectedUser — the state IS the single source of truth for which panel is
+   * open, so syncing from it cannot drift out of step with the UI.
+   *
+   * replaceState, not pushState: clicking through twenty candidates should not bury
+   * the Back button under twenty entries. Back still leaves the admin page, which
+   * is what Back means here.
+   *
+   * Untouched: the OTHER params. `nav_user_id` and friends are one-shot handoffs
+   * from the Pipeline board that deliberately strip themselves after use, so this
+   * rebuilds the query from the CURRENT search string instead of overwriting it —
+   * clobbering it would resurrect a consumed deep link on the next render.
+   */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const current = url.searchParams.get("c");
+    if (selectedUser) {
+      if (current === selectedUser) return;   // already correct — no history churn
+      url.searchParams.set("c", selectedUser);
+    } else {
+      if (!current) return;
+      url.searchParams.delete("c");
+    }
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [selectedUser]);
   const [activePhase, setActivePhase]   = useState(0);
   const [expandedPairs, setExpandedPairs] = useState<Set<string>>(new Set());
   const [showArchive, setShowArchive]   = useState(false);
