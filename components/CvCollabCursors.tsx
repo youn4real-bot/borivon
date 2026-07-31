@@ -27,7 +27,7 @@
  *      overlap.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import type { CollabPeer } from "./CvCollabPresence";
@@ -106,6 +106,8 @@ function isInteractiveTarget(el: Element | null): boolean {
 export function CvCollabCursors({ channel, selfPeer, peers, viewerRole }: Props) {
   const [peerFields, setPeerFields] = useState<Record<string, { target: CollabTgt | null; at: number }>>({});
   const [positions, setPositions] = useState<Record<string, { x: number; y: number; cluster: number } | null>>({});
+  /** Last committed positions, so the rAF loop can skip identical frames. */
+  const lastPosSig = useRef("");
 
   // ── Local: focus/click → broadcast a structured target descriptor
   //    (anchorId + kind + index) that survives small DOM differences
@@ -246,6 +248,25 @@ export function CvCollabCursors({ channel, selfPeer, peers, viewerRole }: Props)
           next[id] = { x, y, cluster: idx };
         });
       }
+      // Only commit when something ACTUALLY moved.
+      //
+      // This runs on requestAnimationFrame, so it previously handed React a
+      // brand-new object 60 times a second for as long as a colleague was
+      // anchored on a field — and a fresh object is never ===, so every one of
+      // those frames was a real re-render. The avatars only move when the page
+      // scrolls or the layout reflows, which is a small fraction of frames; the
+      // rest were re-rendering to arrive at exactly the same coordinates.
+      //
+      // Rounded to whole pixels first: sub-pixel jitter from
+      // getBoundingClientRect would otherwise defeat the comparison on every
+      // frame and make this pointless.
+      for (const k of Object.keys(next)) {
+        const v = next[k];
+        if (v) next[k] = { x: Math.round(v.x), y: Math.round(v.y), cluster: v.cluster };
+      }
+      const sig = JSON.stringify(next);
+      if (sig === lastPosSig.current) return;
+      lastPosSig.current = sig;
       setPositions(next);
     };
     update();

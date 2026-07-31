@@ -496,6 +496,8 @@ function MotivationsschreibenPageInner() {
   const collabChannelRef = useRef<RealtimeChannel | null>(null);
   const lastLocalEditAt  = useRef(0);
   const lastBroadcastSig = useRef("");
+  /** Trailing-edge debounce for the collab broadcast. See handleBodyInput. */
+  const broadcastTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const applyingRemoteRef = useRef(false);
   // Divergence guards (mirror cv-builder). dirtyRef = there is an unsaved LOCAL
   // edit; only a dirty body may be flushed on unload, so a peer-arrived body
@@ -1005,6 +1007,9 @@ function MotivationsschreibenPageInner() {
     }
 
     return () => {
+      // Cancel any pending debounced broadcast BEFORE the channel goes away —
+      // otherwise it fires 220ms later into a removed channel.
+      if (broadcastTimer.current) { clearTimeout(broadcastTimer.current); broadcastTimer.current = null; }
       try { void ch.untrack(); } catch { /* ignore */ }
       supabase.removeChannel(ch);
       collabChannelRef.current = null;
@@ -1306,20 +1311,36 @@ function MotivationsschreibenPageInner() {
     // path of an incoming remote update). 220ms debounce mirrors the CV
     // builder's collab cadence: smooth feel without saturating the
     // channel.
+    //
+    // THE DEBOUNCE IS NOW REAL. That comment described the intent, but nothing
+    // implemented it: send() and track() fired on EVERY keystroke, each send
+    // carrying the ENTIRE letter HTML. Writing a 300-word motivation letter is
+    // well over a thousand keystrokes, so she was uploading the whole letter a
+    // thousand times — on Moroccan mobile data, out of her own bundle, draining
+    // her battery, to move a cursor nobody may even be watching.
+    //
+    // Trailing edge, so the LAST state always goes out and peers still converge
+    // on exactly what she typed; only the intermediate frames are dropped.
     if (!isRemote && selfPeer && collabChannelRef.current) {
       lastLocalEditAt.current = Date.now();
-      const sig = el.innerHTML;
-      if (sig !== lastBroadcastSig.current) {
+      if (broadcastTimer.current) clearTimeout(broadcastTimer.current);
+      broadcastTimer.current = setTimeout(() => {
+        broadcastTimer.current = null;
+        const ch = collabChannelRef.current;
+        // Re-read the live DOM rather than closing over a stale snapshot: 220ms
+        // is several more keystrokes, and the peer must get the latest text.
+        const sig = editorRef.current?.innerHTML ?? "";
+        if (!ch || !sig || sig === lastBroadcastSig.current) return;
         lastBroadcastSig.current = sig;
-        void collabChannelRef.current.send({
+        void ch.send({
           type:  "broadcast",
           event: "letter-update",
           payload: { by: selfPeer.id, html: sig, at: Date.now() },
         });
         // Bump editingAt so the peer row's gold pulse keeps animating
         // for ~1.5s after each keystroke (matches CV builder UX).
-        void collabChannelRef.current.track(scrubPresencePayload(selfPeer, true));
-      }
+        void ch.track(scrubPresencePayload(selfPeer, true));
+      }, 220);
     }
   }
 
