@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole, canActOnCandidate, ciEmail } from "@/lib/admin-auth";
-import { enforceRateLimit } from "@/lib/rateLimit";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { sendUnreadMessagesReminderEmail } from "@/lib/email";
 
 /**
@@ -34,11 +34,21 @@ async function isOrgSide(db: ReturnType<typeof getServiceSupabase>, role: string
 }
 
 export async function POST(req: NextRequest) {
-  const rl = enforceRateLimit(req, "msg-remind-email", { limit: 20, windowMs: 60_000 });
-  if (!rl.ok) return NextResponse.json({ error: "Too many — slow down." }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
-
+  // AUTH FIRST, then the limit — the order was the other way round.
+  //
+  // Every accepted call here spends Resend credits, and the limiter ran before
+  // requireAdminRole, so anonymous traffic with no token at all could drain the
+  // bucket and lock the founder out of nudging his own candidates. Rejected
+  // requests must never spend someone else's quota. (lib/rateLimit's own header
+  // says as much: call it AFTER auth, BEFORE the expensive work.)
   const auth = await requireAdminRole(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  // Keyed on the ADMIN's email and shared across isolates via Postgres: the
+  // in-process Map is per-isolate on Workers, so the old cap was 20 × live
+  // isolates — which is not a cap on something that costs money per call.
+  const rl = await enforceUserRateLimit("msg-remind-email", `e:${auth.email}`, { limit: 20, windowMs: 60_000 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many — slow down." }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const db = getServiceSupabase();
   if (await isOrgSide(db, auth.role, auth.email)) return NextResponse.json({ error: "Forbidden" }, { status: 403 });

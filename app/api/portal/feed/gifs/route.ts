@@ -1,13 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/admin-auth";
-import { enforceRateLimit } from "@/lib/rateLimit";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 
 export async function GET(req: NextRequest) {
   const auth = await requireUser(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   // Throttle: each call burns the shared GIPHY API quota.
-  const rl = enforceRateLimit(req, "feed-gifs", { limit: 30, windowMs: 60_000 });
+  //
+  // Keyed on the USER, and shared across isolates via Postgres. Two reasons it is
+  // not the IP-keyed limiter:
+  //   • Each Workers isolate keeps its own in-process Map, so the real cap was
+  //     30 × however many isolates happen to be live — barely a limit at all.
+  //   • IP is the WRONG key here. Moroccan mobile carriers put many subscribers
+  //     behind one NAT address, so an IP cap would have several nurses sharing a
+  //     single bucket and locking each other out of the feed.
+  const rl = await enforceUserRateLimit("feed-gifs", `u:${auth.userId}`, { limit: 30, windowMs: 60_000 });
   if (!rl.ok) return NextResponse.json({ gifs: [] }, { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } });
 
   const { searchParams } = new URL(req.url);

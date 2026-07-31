@@ -47,11 +47,29 @@ import { scrubPresencePayload, fullPresencePayload, isAdminRole } from "@/lib/co
  *  share the same scrubbing rules. Re-imported above. */
 import type { RealtimeChannel } from "@supabase/supabase-js";
 import { PhotoCropModal } from "@/components/PhotoCropModal";
-import { PdfViewer } from "@/components/PdfViewer";
-import { IosPdfFrame } from "@/components/IosPdfFrame";
+import dynamic from "next/dynamic";
 import { isIOSDevice } from "@/lib/platform";
-import { triggerIosDownload } from "@/lib/iosDownload";
-import { useDlToken, withDlt } from "@/lib/dlClient";
+import { triggerIosDownload, triggerIosDownloadWithToken } from "@/lib/iosDownload";
+import { useDlToken, withDlt, mintDlToken } from "@/lib/dlClient";
+import { IosPreviewPending } from "@/components/IosPreviewPending";
+
+/**
+ * The PDF preview stack, lazy — it only ever renders inside the preview overlay,
+ * which cannot open until she has generated a CV. Statically importing it made
+ * every candidate download pdfjs-dist just to fill in her name and her ward.
+ *
+ * Both are behind `showPreview`, so there is nothing to flash: the overlay opens
+ * on a tap and the chunk arrives while it animates in. The loading fallback is a
+ * spinner with no status text (LAW #4 keeps status to colour and icon).
+ */
+const PdfViewer = dynamic(
+  () => import("@/components/PdfViewer").then((m) => ({ default: m.PdfViewer })),
+  { ssr: false, loading: () => <div className="h-full flex items-center justify-center"><Spinner size="md" /></div> },
+);
+const IosPdfFrame = dynamic(
+  () => import("@/components/IosPdfFrame").then((m) => ({ default: m.IosPdfFrame })),
+  { ssr: false, loading: () => <div className="h-full flex items-center justify-center"><Spinner size="md" /></div> },
+);
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -2044,6 +2062,16 @@ function CVBuilderInner() {
   // downloaded via the same iOS-safe paths as every other doc. Non-zero
   // once the stash succeeds; also busts the iframe/download cache.
   const [iosCvNonce, setIosCvNonce] = useState(0);
+  // True when the server-side stash of the generated CV FAILED on an iPhone.
+  //
+  // This has to be tracked, because on iOS there is no fallback to fall back to:
+  // WebKit ignores `download` on a blob: URL and will not paint a pdf.js canvas,
+  // so the stashed SERVER copy is the only thing that can be previewed or saved.
+  // The old code swallowed the failure and let both paths fall through to the
+  // desktop behaviour, which on her phone meant a grey rectangle and a Download
+  // button that did nothing — with the spinner cleared on a timer so it even
+  // looked like it had worked.
+  const [iosStashFailed, setIosStashFailed] = useState(false);
   // Always revoke the previous blob URL when replacing — otherwise PDFs leak
   // ~1MB each and a long session burns megabytes.
   const setPdfUrl = (next: string | null) => {
@@ -3452,25 +3480,65 @@ function CVBuilderInner() {
       );
       if (!res.ok) { const j = await res.json().catch(() => ({})); throw new Error(j.error || t.cvbErrFallback); }
       const blob = await res.blob();
-      setPdfBlob(blob);
-      setPdfUrl(URL.createObjectURL(blob));
-      // iOS can't preview/download a client blob — stash it server-side so
-      // the iOS preview (IosPdfFrame) + download (?dl=1) work like every
-      // other doc. Fire-and-forget; bumps the nonce on success.
+      // iOS can neither render nor download a client blob, so the stashed SERVER
+      // copy IS the iOS preview and download source — and it must therefore exist
+      // BEFORE the success card (with its Preview and Download buttons) appears.
+      //
+      // This used to setPdfUrl FIRST and stash afterwards, so React committed the
+      // card while the upload was still in flight: she could tap Preview seconds
+      // before iosCvNonce existed and get the grey pdf.js canvas. Revealing only
+      // after the stash settles costs one short upload on iOS and nothing at all
+      // anywhere else.
       if (isIOSDevice()) {
+        setIosStashFailed(false);
         try {
           const up = await fetch("/api/portal/cv/preview-file", {
             method: "POST",
             headers: { "Content-Type": "application/pdf", ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
             body: blob,
           });
-          if (up.ok) setIosCvNonce(Date.now());
-        } catch { /* preview/download will fall back to blob */ }
+          // A non-2xx is a FAILURE, not a shrug. The route answers
+          // {error:"Store failed"} on its own bad day, and the old `if (up.ok)`
+          // with no else turned that into a permanent silent grey rectangle.
+          if (!up.ok) throw new Error("cv stash " + up.status);
+          setIosCvNonce(Date.now());
+        } catch (e) {
+          console.error("[cv ios stash] failed:", e);
+          setIosStashFailed(true);   // → visible error + Retry, never a grey box
+        }
       }
+      setPdfBlob(blob);
+      setPdfUrl(URL.createObjectURL(blob));
     } catch (err: unknown) {
       setGenError(err instanceof Error ? err.message : t.cvbErrFallback);
     } finally {
       setGenerating(false);
+    }
+  }
+
+  /**
+   * Re-push the ALREADY-GENERATED CV to the iOS stash.
+   *
+   * What the Retry button calls. Deliberately not a full re-generate: the PDF in
+   * `pdfBlob` is fine — only the upload of it failed — so re-rendering it would
+   * make her wait again for work that already succeeded.
+   */
+  async function retryIosStash() {
+    if (!pdfBlob) return;
+    setIosStashFailed(false);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const tok = session?.access_token ?? authToken;
+      const up = await fetch("/api/portal/cv/preview-file", {
+        method: "POST",
+        headers: { "Content-Type": "application/pdf", ...(tok ? { Authorization: `Bearer ${tok}` } : {}) },
+        body: pdfBlob,
+      });
+      if (!up.ok) throw new Error("cv stash retry " + up.status);
+      setIosCvNonce(Date.now());
+    } catch (e) {
+      console.error("[cv ios stash] retry failed:", e);
+      setIosStashFailed(true);
     }
   }
 
@@ -3487,13 +3555,24 @@ function CVBuilderInner() {
 
     // iOS: blob downloads don't work — stream the stashed copy as a forced
     // attachment (same proven path as every other iOS download).
-    if (isIOSDevice() && iosCvNonce && authToken) {
-      if (!dlt) { setCvDl(false); return; }
-      triggerIosDownload(
-        withDlt(`/api/portal/cv/preview-file?dl=1&name=${encodeURIComponent(name)}&_=${iosCvNonce}`, dlt),
-        name,
-        () => setCvDl(false),
-      );
+    if (isIOSDevice() && authToken) {
+      // NO FALL-THROUGH on iOS. Below this block is a blob: anchor, which Safari
+      // silently ignores while the 1.2s timer still clears the spinner — so a
+      // missing stash used to look exactly like a successful download that
+      // produced no file. If the stash isn't there, say so and offer the retry.
+      if (!iosCvNonce) {
+        setIosStashFailed(true);
+        setCvDl(false);
+        return;
+      }
+      void triggerIosDownloadWithToken({
+        href: (tk) => withDlt(`/api/portal/cv/preview-file?dl=1&name=${encodeURIComponent(name)}&_=${iosCvNonce}`, tk),
+        filename: name,
+        token: dlt,
+        mint: () => mintDlToken(authToken),
+        onSettled: () => setCvDl(false),
+        onError: () => setIosStashFailed(true),
+      });
       return;
     }
 
@@ -5304,6 +5383,24 @@ function CVBuilderInner() {
               </div>
             )}
             {uploadErr && <p className="mt-3 text-[12.5px] inline-flex items-center gap-1.5 justify-center" style={{ color: "var(--danger)" }}><AlertTriangle size={12} strokeWidth={1.8} /> {uploadErr}</p>}
+            {/* iOS ONLY, and only when the server-side copy is missing. Without
+                this the state would be set in three places and shown in none —
+                Download would clear its spinner and still produce no file, which
+                is the silent failure being fixed, wearing a different hat. */}
+            {iosStashFailed && (
+              <div className="mt-3 flex flex-col items-center gap-2">
+                <p className="text-[12.5px] inline-flex items-center gap-1.5 justify-center" style={{ color: "var(--danger)" }}>
+                  <AlertTriangle size={12} strokeWidth={1.8} /> {t.cvbErrFallback}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void retryIosStash()}
+                  className="bv-btn bv-btn-ghost bv-tap bv-touch text-[12.5px]"
+                >
+                  {lang === "de" ? "Erneut versuchen" : lang === "fr" ? "Réessayer" : "Retry"}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -5476,6 +5573,25 @@ function CVBuilderInner() {
               <IosPdfFrame
                 src={withDlt(`/api/portal/cv/preview-file?_=${iosCvNonce}`, dlt)}
                 title="Lebenslauf"
+              />
+            ) : isIOSDevice() ? (
+              /* THE GREY RECTANGLE. This used to fall through to <PdfViewer>,
+                 which is the pdf.js CANVAS viewer — and WebKit will not paint a
+                 pdf.js canvas on iPhone. That is the documented reason
+                 IosPdfFrame exists at all. So any missing prerequisite (stash
+                 not uploaded, token not minted) rendered a viewer that CANNOT
+                 work, with no error: she tapped Preview on the CV she had just
+                 built and got a blank grey box.
+
+                 Now it waits, then explains and offers a retry. Retry covers
+                 both causes: re-push the stash, and re-mint the token. */
+              <IosPreviewPending
+                label={t.cvbErrFallback}
+                retryLabel={lang === "de" ? "Erneut versuchen" : lang === "fr" ? "Réessayer" : "Retry"}
+                onRetry={() => {
+                  if (!iosCvNonce) void retryIosStash();
+                  if (authToken) void mintDlToken(authToken).catch(() => {});
+                }}
               />
             ) : (
               <PdfViewer src={pdfUrl} />

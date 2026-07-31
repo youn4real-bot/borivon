@@ -13,14 +13,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireUser } from "@/lib/admin-auth";
 import { getServiceSupabase } from "@/lib/supabase";
 import { meetingToken } from "@/lib/daily";
-import { enforceRateLimit } from "@/lib/rateLimit";
+import { enforceUserRateLimit } from "@/lib/rateLimit";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function GET(req: NextRequest) {
   const user = await requireUser(req);
   if (!user.ok) return NextResponse.json({ error: user.error }, { status: user.status });
-  const rl = enforceRateLimit(req, "academy-class", { limit: 60, windowMs: 60_000 });
+  // Per-USER and cross-isolate: each accepted GET mints a Daily.co meeting token,
+  // which costs money, and a per-isolate Map on Workers capped nothing in practice.
+  const rl = await enforceUserRateLimit("academy-class", `u:${user.userId}`, { limit: 60, windowMs: 60_000 });
   if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
   const me = user.userId;
   const db = getServiceSupabase();
