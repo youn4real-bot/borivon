@@ -1648,14 +1648,27 @@ export default function DashboardPage() {
       // it never stalls regardless of how long the server actually takes.
       xhr.upload.addEventListener("load", () => {
         stopProgressCreep();
+        // 250ms, not 60ms — with the CSS transition below doing the smoothing.
+        //
+        // Every tick is a setState on THIS component, which is the whole 5000-line
+        // dashboard, so 60ms meant ~17 full re-renders per second for the entire
+        // duration of every upload. On an iPhone, during the one action she
+        // performs most, that is exactly when the page must not be janky.
+        //
+        // The bar is animated by the compositor instead: each state change now
+        // glides over 260ms (see `transition: width` at the two render sites), so
+        // it still moves continuously and never stalls — it simply stopped
+        // re-rendering the page 17 times a second to do it. The per-tick easing is
+        // scaled from 0.06 to 0.22 so the curve reaches the same place at the same
+        // time despite firing about a quarter as often.
         progressTimerRef.current = setInterval(() => {
           setSlotProgress(p => {
             const start = 85;
             if (p < start) return p; // upload bar still catching up
-            const next = p + (99 - p) * 0.06;
+            const next = p + (99 - p) * 0.22;
             return next > 98.6 ? 98.6 : next;
           });
-        }, 60);
+        }, 250);
       });
     }
     xhr.addEventListener("load", () => {
@@ -2949,7 +2962,7 @@ export default function DashboardPage() {
                                 {sub.subDoc && sst === "rejected" && sub.subDoc.feedback && (
                                   <p className="text-[10px] mt-0.5 truncate" style={{ color: "var(--danger)" }}>{sub.subDoc.feedback}</p>
                                 )}
-                                {isSubUp && <div className="mt-1"><div className="w-full rounded-full h-1" style={{ background: "var(--border)" }}><div className="h-1 rounded-full" style={{ width: `${slotProgress}%`, background: "var(--gold)", transition: "width .12s linear" }} /></div><p className="text-[9px] mt-0.5" style={{ color: "var(--w3)" }}>{Math.round(slotProgress)}%</p></div>}
+                                {isSubUp && <div className="mt-1"><div className="w-full rounded-full h-1" style={{ background: "var(--border)" }}><div className="h-1 rounded-full" style={{ width: `${slotProgress}%`, background: "var(--gold)", transition: "width .26s linear" }} /></div><p className="text-[9px] mt-0.5" style={{ color: "var(--w3)" }}>{Math.round(slotProgress)}%</p></div>}
                                 {subMsg && <p className="mt-1 text-[9.5px]" style={{ color: subMsg.ok ? "var(--success)" : "var(--danger)" }}>{subMsg.ok ? t.pUploadSuccess.replace("{label}", sub.subLabel) : subMsg.type === "errPdfOnly" ? t.pErrPdfOnly : subMsg.type === "errAllTypes" ? t.pErrAllTypes : subMsg.type === "errSize" ? t.pErrSize : subMsg.type === "errPages" ? (lang === "fr" ? `Trop de pages — limite : ${subMsg.n}.` : lang === "de" ? `Zu viele Seiten — Limit: ${subMsg.n}.` : `Too many pages — limit: ${subMsg.n}.`) : t.pErrUpload}</p>}
                               </div>
                               {!isSubUp && !sub.subDoc && (
