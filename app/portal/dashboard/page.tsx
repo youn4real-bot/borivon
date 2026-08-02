@@ -403,6 +403,38 @@ export default function DashboardPage() {
   // iOS in-gesture download requirement).
   const dlt = useDlToken(authToken || null);
 
+  /*
+   * REMEMBER WHICH LANGUAGE SHE READS.
+   *
+   * The portal has always known — she picked it in the switcher and every page
+   * renders in it — but nothing kept it, so the email telling her a document
+   * blocking her job application was refused went out in all three languages
+   * stacked together.
+   *
+   * Written from HERE rather than from registration, because registration only
+   * ever captures new sign-ups. Doing it on the dashboard means every existing
+   * candidate is recorded the next time she opens the portal: no backfill, no
+   * guessing from nationality, and no asking her a question she already answered
+   * by using the site.
+   *
+   * Fires once per language change, not once per load: the ref holds what we
+   * last sent, so a normal open costs nothing. Fire-and-forget with keepalive —
+   * a failed preference write must never disturb the page, and it will simply be
+   * retried on her next visit.
+   */
+  const sentLangRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!authToken || !lang) return;
+    if (sentLangRef.current === lang) return;
+    sentLangRef.current = lang;
+    void fetch("/api/portal/me/lang", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${authToken}` },
+      body: JSON.stringify({ lang }),
+      keepalive: true,
+    }).catch(() => { sentLangRef.current = null; }); // let the next visit retry
+  }, [authToken, lang]);
+
   // Log each time the candidate opens their interview link (the portal-gated
   // "Join" button). Fire-and-forget + keepalive so it never blocks or delays
   // the link opening, and a failure is silent (engagement signal, not critical).
