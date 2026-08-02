@@ -118,92 +118,118 @@ function baseHtml(body: string): string {
 // ── Email senders ─────────────────────────────────────────────────────────────
 
 /**
- * TRILINGUAL, because we do not know which language she reads.
+ * HER LANGUAGE WHEN WE KNOW IT, ALL THREE WHEN WE DO NOT.
  *
- * These two emails were English-only and took no lang parameter, while the
- * booking emails have been translated for a while. The rejection one is the
- * ONLY push that tells a candidate a document blocking her job application was
- * refused and must be re-uploaded — and it arrived in a language a Moroccan
- * nurse reading French or Arabic may not be able to act on. LAW #19 exists for
- * exactly this.
+ * These two emails were English-only. The rejection one is the ONLY push telling
+ * a candidate that a document blocking her job application was refused and must
+ * be re-uploaded — arriving in a language a Moroccan nurse reading French may
+ * not act on. LAW #19 exists for exactly this.
  *
- * A `lang` parameter would be the tidier answer, but there is nowhere to get it
- * from: no candidate language is stored (bookings capture it per booking, from
- * the page), and it is an ADMIN clicking approve/reject, so the request carries
- * no hint of her language either. Adding a column would need a migration, a
- * registration change and a backfill before a single email improved.
+ * They were made trilingual first, because at the time there was nowhere to read
+ * a language from. candidate_profiles.lang (supabase/candidate_lang.sql) now
+ * stores it, so a candidate whose language is known gets an email written only
+ * for her — heading, body, feedback label, button and subject line.
  *
- * So: all three, French first because most candidates are Moroccan. She reads
- * the block she understands and ignores the rest. Costs nothing, needs no
- * migration, and works for every existing candidate immediately.
+ * The trilingual form REMAINS the fallback and is not going away: the column is
+ * nullable with no backfill, so every existing candidate keeps exactly today's
+ * behaviour until she tells us. Guessing from nationality would be worse than
+ * saying nothing — plenty of Moroccan nurses read French, plenty Arabic, and
+ * some already work in German.
  */
+/** A candidate's known reading language, or null when we have never been told. */
+export type CandidateLang = "fr" | "en" | "de" | null | undefined;
+
+/**
+ * Pick the blocks to show. Given a known language, ONE block — the email reads
+ * like it was written for her. Given nothing, all three, which is the behaviour
+ * every existing candidate keeps until candidate_profiles.lang is populated.
+ *
+ * French first in the fallback: most candidates are Moroccan.
+ */
+function langBlocks(lang: CandidateLang): ("fr" | "en" | "de")[] {
+  return lang === "fr" || lang === "en" || lang === "de" ? [lang] : ["fr", "en", "de"];
+}
+
 const LANG_BLOCK_STYLE = "margin:0 0 14px;font-size:14px;color:#a0a09a;line-height:1.6;";
 const LANG_TAG_STYLE = "display:inline-block;font-size:10px;font-weight:700;color:#6f6f6a;letter-spacing:0.1em;margin-bottom:4px;";
 
-export async function sendDocApprovedEmail(to: string, docType: string): Promise<void> {
+/** Approved-document copy per language. `body` takes the already-escaped docType. */
+const APPROVED = {
+  fr: { tag: "FRANÇAIS", h: "Document validé", subj: "validé", cta: "Mon tableau de bord →",
+        body: (d: string) => `Votre <strong style="color:#fff;">${d}</strong> a été vérifié et accepté. Consultez votre tableau de bord pour voir votre progression.` },
+  en: { tag: "ENGLISH",  h: "Document approved", subj: "approved", cta: "View my dashboard →",
+        body: (d: string) => `Your <strong style="color:#fff;">${d}</strong> has been reviewed and approved. Check your dashboard to see your updated progress.` },
+  de: { tag: "DEUTSCH",  h: "Dokument genehmigt", subj: "genehmigt", cta: "Zu meinem Dashboard →",
+        body: (d: string) => `Ihr <strong style="color:#fff;">${d}</strong> wurde geprüft und genehmigt. Ihren Fortschritt sehen Sie in Ihrem Dashboard.` },
+} as const;
+
+export async function sendDocApprovedEmail(to: string, docType: string, lang?: CandidateLang): Promise<void> {
   const r = getResend(); if (!r) return;
   const d = esc(docType);
+  const _blocks = langBlocks(lang);
+  const _one = _blocks.length === 1;
   try {
     await deliver({
       from: FROM,
       to,
-      subject: `✅ ${subj(docType)} — validé / approved / genehmigt · Borivon`,
+      subject: `✅ ${subj(docType)} — ${_one ? APPROVED[_blocks[0]].subj : "validé / approved / genehmigt"} · Borivon`,
       html: baseHtml(`
-        <h1 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#fff;">Document validé · approved · genehmigt</h1>
+        <h1 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#fff;">${
+          _one ? APPROVED[_blocks[0]].h : "Document validé · approved · genehmigt"
+        }</h1>
+        ${_blocks.map((b) => `
         <p style="${LANG_BLOCK_STYLE}">
-          <span style="${LANG_TAG_STYLE}">FRANÇAIS</span><br>
-          Votre <strong style="color:#fff;">${d}</strong> a été vérifié et accepté.
-          Consultez votre tableau de bord pour voir votre progression.
-        </p>
-        <p style="${LANG_BLOCK_STYLE}">
-          <span style="${LANG_TAG_STYLE}">ENGLISH</span><br>
-          Your <strong style="color:#fff;">${d}</strong> has been reviewed and approved.
-          Check your dashboard to see your updated progress.
-        </p>
-        <p style="margin:0 0 20px;font-size:14px;color:#a0a09a;line-height:1.6;">
-          <span style="${LANG_TAG_STYLE}">DEUTSCH</span><br>
-          Ihr <strong style="color:#fff;">${d}</strong> wurde geprüft und genehmigt.
-          Ihren Fortschritt sehen Sie in Ihrem Dashboard.
-        </p>
+          ${_one ? "" : `<span style="${LANG_TAG_STYLE}">${APPROVED[b].tag}</span><br>`}
+          ${APPROVED[b].body(d)}
+        </p>`).join("")}
         <a href="${BASE}/portal/dashboard" style="display:inline-block;background:#c9a240;color:#131312;font-size:14px;font-weight:700;padding:12px 28px;border-radius:12px;text-decoration:none;">
-          Tableau de bord · Dashboard →
+          ${_one ? APPROVED[_blocks[0]].cta : "Tableau de bord · Dashboard →"}
         </a>
       `),
     });
   } catch (e) { console.warn("[email] sendDocApprovedEmail failed:", e); }
 }
 
-export async function sendDocRejectedEmail(to: string, docType: string, feedback: string | null): Promise<void> {
+export async function sendDocRejectedEmail(
+  to: string,
+  docType: string,
+  feedback: string | null,
+  lang?: CandidateLang,
+): Promise<void> {
   const r = getResend(); if (!r) return;
+  const d = esc(docType);
+  const blocks = langBlocks(lang);
+  const one = blocks.length === 1;
+  const COPY = {
+    fr: { tag: "FRANÇAIS", h: "À corriger", body: `Votre <strong style="color:#fff;">${d}</strong> n'a pas été accepté. Connectez-vous, téléversez une version corrigée et soumettez-la à nouveau.`, fb: "Message", cta: "Corriger mes documents →", subj: "à corriger" },
+    en: { tag: "ENGLISH",  h: "Action needed", body: `Your <strong style="color:#fff;">${d}</strong> was not accepted. Please log in, upload a corrected version, and resubmit.`, fb: "Feedback", cta: "Fix my documents →", subj: "action needed" },
+    de: { tag: "DEUTSCH",  h: "Bitte korrigieren", body: `Ihr <strong style="color:#fff;">${d}</strong> wurde nicht akzeptiert. Bitte melden Sie sich an, laden Sie eine korrigierte Version hoch und reichen Sie sie erneut ein.`, fb: "Rückmeldung", cta: "Dokumente korrigieren →", subj: "bitte korrigieren" },
+  } as const;
+  // With a known language the whole email is hers — heading, body, feedback
+  // label, button AND subject line. Without one, all three stacked as before.
+  const heading = one ? COPY[blocks[0]].h : blocks.map((b) => COPY[b].h).join(" · ");
+  const fbLabel = one ? COPY[blocks[0]].fb : blocks.map((b) => COPY[b].fb).join(" · ");
+  const cta     = one ? COPY[blocks[0]].cta : "Corriger · Fix my documents →";
+  const subjTail = one ? COPY[blocks[0]].subj : "à corriger / action needed / bitte korrigieren";
   try {
     await deliver({
       from: FROM,
       to,
-      subject: `❌ ${subj(docType)} — à corriger / action needed / bitte korrigieren · Borivon`,
+      subject: `❌ ${subj(docType)} — ${subjTail} · Borivon`,
       html: baseHtml(`
-        <h1 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#fff;">À corriger · Action needed · Bitte korrigieren</h1>
+        <h1 style="margin:0 0 16px;font-size:20px;font-weight:700;color:#fff;">${heading}</h1>
+        ${blocks.map((b) => `
         <p style="${LANG_BLOCK_STYLE}">
-          <span style="${LANG_TAG_STYLE}">FRANÇAIS</span><br>
-          Votre <strong style="color:#fff;">${esc(docType)}</strong> n'a pas été accepté.
-          Connectez-vous, téléversez une version corrigée et soumettez-la à nouveau.
-        </p>
-        <p style="${LANG_BLOCK_STYLE}">
-          <span style="${LANG_TAG_STYLE}">ENGLISH</span><br>
-          Your <strong style="color:#fff;">${esc(docType)}</strong> was not accepted.
-          Please log in, upload a corrected version, and resubmit.
-        </p>
-        <p style="${LANG_BLOCK_STYLE}">
-          <span style="${LANG_TAG_STYLE}">DEUTSCH</span><br>
-          Ihr <strong style="color:#fff;">${esc(docType)}</strong> wurde nicht akzeptiert.
-          Bitte melden Sie sich an, laden Sie eine korrigierte Version hoch und reichen Sie sie erneut ein.
-        </p>
+          ${one ? "" : `<span style="${LANG_TAG_STYLE}">${COPY[b].tag}</span><br>`}
+          ${COPY[b].body}
+        </p>`).join("")}
         ${feedback ? `
         <div style="background:#1f1f1d;border:1px solid #2e2e2c;border-radius:12px;padding:14px 18px;margin:4px 0 20px;">
-          <p style="margin:0 0 6px;font-size:12px;font-weight:600;color:#a0a09a;text-transform:uppercase;letter-spacing:0.08em;">Message · Feedback · Rückmeldung</p>
+          <p style="margin:0 0 6px;font-size:12px;font-weight:600;color:#a0a09a;text-transform:uppercase;letter-spacing:0.08em;">${fbLabel}</p>
           <p style="margin:0;font-size:13px;color:#e0e0da;line-height:1.5;">${esc(feedback)}</p>
         </div>` : ""}
         <a href="${BASE}/portal/dashboard" style="display:inline-block;background:#c9a240;color:#131312;font-size:14px;font-weight:700;padding:12px 28px;border-radius:12px;text-decoration:none;">
-          Corriger · Fix my documents →
+          ${cta}
         </a>
       `),
     });

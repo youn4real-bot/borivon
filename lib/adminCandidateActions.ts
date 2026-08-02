@@ -26,7 +26,34 @@ import { scheduleCandidateMirror } from "@/lib/scheduleMirror";
 import { keepAlive } from "@/lib/keepAlive";
 import { DOC_STATUSES } from "@/lib/constants";
 import { ALLOWED_PROFILE_FIELDS } from "@/lib/constants";
-import { sendDocApprovedEmail, sendDocRejectedEmail } from "@/lib/email";
+import { sendDocApprovedEmail, sendDocRejectedEmail, type CandidateLang } from "@/lib/email";
+
+/**
+ * The language this candidate reads, or null if we were never told.
+ *
+ * SCHEMA-TOLERANT: candidate_profiles.lang arrives with
+ * supabase/candidate_lang.sql. Until that is run the select errors, we return
+ * null, and every email stays trilingual exactly as it is today. Losing the
+ * personalisation is a nicety; failing the approve/reject because a column is
+ * missing would cost the founder a review.
+ */
+async function candidateLang(
+  db: ReturnType<typeof getServiceSupabase>,
+  userId: string,
+): Promise<CandidateLang> {
+  try {
+    const { data, error } = await db
+      .from("candidate_profiles")
+      .select("lang")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (error) return null;
+    const l = (data as { lang?: string | null } | null)?.lang;
+    return l === "fr" || l === "en" || l === "de" ? l : null;
+  } catch {
+    return null;
+  }
+}
 import { cvFieldsFromProfile, PASSPORT_DERIVED_COLUMNS, type ProfileLike } from "@/lib/personalData";
 
 type DB = ReturnType<typeof getServiceSupabase>;
@@ -101,8 +128,9 @@ export async function applyDocReview(
           const { data } = await db.auth.admin.getUserById(doc.user_id as string);
           const email = data?.user?.email;
           if (!email) return;
-          if (status === "approved") await sendDocApprovedEmail(email, doc.file_type as string);
-          else await sendDocRejectedEmail(email, doc.file_type as string, typeof feedback === "string" ? feedback : null);
+          const lang = await candidateLang(db, doc.user_id as string);
+          if (status === "approved") await sendDocApprovedEmail(email, doc.file_type as string, lang);
+          else await sendDocRejectedEmail(email, doc.file_type as string, typeof feedback === "string" ? feedback : null, lang);
         });
       }
 
@@ -250,7 +278,7 @@ export async function applyCandidateProfilePatch(
       const { data } = await db.auth.admin.getUserById(userId);
       const email = data?.user?.email;
       if (!email) return;
-      await sendDocRejectedEmail(email, passDoc?.file_type ?? "Passport", (cleanProfile.passport_feedback as string | null) ?? null);
+      await sendDocRejectedEmail(email, passDoc?.file_type ?? "Passport", (cleanProfile.passport_feedback as string | null) ?? null, await candidateLang(db, userId));
     });
     await db.from("candidate_profiles").update({ placement_ready: false }).eq("user_id", userId);
   }

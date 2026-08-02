@@ -43,6 +43,9 @@ export const VERIFICATION_FILE_TYPES = [
  * Any field NOT in this set is silently dropped (mass-assignment prevention).
  */
 export const ALLOWED_PROFILE_FIELDS = new Set<string>([
+  // Language she reads (fr|en|de). Drives which document emails she gets;
+  // absent = the trilingual fallback. See supabase/candidate_lang.sql.
+  "lang",
   "first_name", "last_name", "dob", "sex", "nationality",
   "passport_no", "passport_expiry", "city_of_birth", "country_of_birth",
   "issuing_authority", "issue_date",
