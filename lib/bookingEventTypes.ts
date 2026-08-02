@@ -89,10 +89,28 @@ export function looksLikeSlug(s: unknown): s is string {
   return typeof s === "string" && /^[a-z0-9][a-z0-9-]{0,38}$/.test(s);
 }
 
-const num = (v: unknown, lo: number, hi: number): number | null => {
-  const n = typeof v === "number" ? v : Number(v);
+/**
+ * Read one stored override, or null for "inherit the global availability row".
+ *
+ * NULL IS NOT ZERO. `Number(null)` is 0, so coercing first turned a NULL
+ * buffer_minutes / min_notice_hours — the two columns whose lower bound IS 0 —
+ * into an EXPLICIT 0. overlayEventType then applied it (its guard is
+ * `!== null`, and 0 passes), so every seeded /book/<slug> ran with no buffer
+ * and no minimum notice instead of the global values, and the admin panel
+ * showed a 0 nobody had typed. slot_minutes (floor 5) and horizon_days
+ * (floor 1) hid the bug, because for them 0 falls below the floor.
+ */
+export function parseEventTypeOverride(v: unknown, lo: number, hi: number): number | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "string" && !v.trim()) return null;
+  // Arrays and booleans coerce to 0 as well — never let them reach Number().
+  if (typeof v !== "number" && typeof v !== "string") return null;
+  const n = Number(v);
   return Number.isFinite(n) && n >= lo && n <= hi ? Math.round(n) : null;
-};
+}
+
+/** Local alias so the four call sites in fromRow read the same as before. */
+const num = parseEventTypeOverride;
 
 type Row = Record<string, unknown>;
 
@@ -174,6 +192,98 @@ export function overlayEventType<T extends {
     ...(et.minNoticeHours !== null ? { minNoticeHours: et.minNoticeHours } : {}),
     ...(et.horizonDays !== null ? { horizonDays: et.horizonDays } : {}),
   };
+}
+
+/**
+ * The bounds from the CHECK constraints in supabase/booking_event_types.sql.
+ * Duplicated here on purpose so a bad value is refused with a message the
+ * founder can act on, instead of surfacing as a raw Postgres violation.
+ */
+export const EVENT_TYPE_RANGES = {
+  slot_minutes: [5, 240],
+  buffer_minutes: [0, 120],
+  min_notice_hours: [0, 720],
+  horizon_days: [1, 90],
+} as const;
+
+export type EventTypeOverrideKey = keyof typeof EVENT_TYPE_RANGES;
+
+export type EventTypePatchResult =
+  | { ok: true; patch: Record<string, number | null | boolean> }
+  | { ok: false; error: "bad_active" }
+  | { ok: false; error: "nothing_to_update" }
+  | { ok: false; error: "out_of_range"; field: EventTypeOverrideKey; min: number; max: number };
+
+/**
+ * Turn an admin PATCH body into columns to write.
+ *
+ * Two rules carry the whole feature:
+ *
+ *  1. ABSENT ≠ EMPTY. A key that isn't in the body leaves its column alone; a
+ *     key that IS there but blank writes NULL, which is how an override is
+ *     taken back OFF and the link returned to inheriting the global row. Treat
+ *     them the same and an override could be set but never undone.
+ *  2. REFUSE, NEVER CLAMP. A mistyped 2400 must not be quietly stored as 240
+ *     and reported as saved — that is the same silent-correction failure the
+ *     availability editor was fixed for, and it is worse here because the
+ *     number decides how long every call through that link is.
+ */
+export function parseEventTypePatch(body: unknown): EventTypePatchResult {
+  const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
+  const has = (k: string) => Object.prototype.hasOwnProperty.call(b, k);
+  const patch: Record<string, number | null | boolean> = {};
+
+  if (has("active")) {
+    if (typeof b.active !== "boolean") return { ok: false, error: "bad_active" };
+    patch.active = b.active;
+  }
+
+  for (const key of Object.keys(EVENT_TYPE_RANGES) as EventTypeOverrideKey[]) {
+    if (!has(key)) continue;
+    const raw = b[key];
+    if (raw === null || raw === undefined || (typeof raw === "string" && !raw.trim())) {
+      patch[key] = null; // back to inheriting the global availability
+      continue;
+    }
+    const [min, max] = EVENT_TYPE_RANGES[key];
+    // Number("") is 0 and Number([]) is 0 — both already handled above for the
+    // blank string, but an array or a boolean would sneak a 0 through here.
+    if (typeof raw !== "number" && typeof raw !== "string") {
+      return { ok: false, error: "out_of_range", field: key, min, max };
+    }
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < min || n > max) {
+      return { ok: false, error: "out_of_range", field: key, min, max };
+    }
+    patch[key] = n;
+  }
+
+  if (!Object.keys(patch).length) return { ok: false, error: "nothing_to_update" };
+  return { ok: true, patch };
+}
+
+/**
+ * Every type INCLUDING the inactive ones, for the admin panel.
+ *
+ * Deliberately separate from listEventTypes: the public paths must never see a
+ * deactivated link, but the admin has to see one in order to switch it back on.
+ * `migrated` says whether the row actually came from the database — the panel
+ * uses it to warn that edits cannot be saved yet rather than pretending a
+ * built-in fallback is editable state.
+ */
+export async function listEventTypesForAdmin(): Promise<{ types: BookingEventType[]; migrated: boolean }> {
+  const fallback = BUILT_IN_SLUGS.map((s) => BUILT_IN[s]);
+  try {
+    const { data, error } = await getServiceSupabase()
+      .from("booking_event_types")
+      .select(COLS)
+      .order("sort", { ascending: true });
+    if (error || !Array.isArray(data) || data.length === 0) return { types: fallback, migrated: false };
+    const out = (data as unknown as Row[]).map(fromRow).filter((t): t is BookingEventType => !!t);
+    return out.length ? { types: out, migrated: true } : { types: fallback, migrated: false };
+  } catch {
+    return { types: fallback, migrated: false };
+  }
 }
 
 /** Every active type, for the admin "copy your links" panel. */

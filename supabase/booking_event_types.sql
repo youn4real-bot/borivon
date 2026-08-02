@@ -94,3 +94,15 @@ create unique index if not exists bookings_slot_host_unique
   where status <> 'cancelled';
 
 drop index if exists bookings_slot_unique;
+
+-- ─────────────────────────────── 4. lockdown ───────────────────────────────
+-- SERVICE-ROLE ONLY, the same posture as `bookings` and `booking_availability`.
+-- The public links are read through /api/book and this editor through
+-- /api/portal/admin/booking-types, both on the service key (the admin one
+-- behind requireAdminRole). With RLS on and no policy, PostgREST refuses every
+-- anon/authenticated read AND write, so the anon key that ships in the browser
+-- bundle cannot flip a link off — which would 404 /book/nurse for every
+-- candidate — or rewrite how long the calls on it are. The service role
+-- bypasses RLS, so nothing in the app changes.
+alter table public.booking_event_types enable row level security;
+alter table public.booking_hosts       enable row level security;

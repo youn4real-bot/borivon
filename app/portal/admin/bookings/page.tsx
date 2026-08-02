@@ -24,7 +24,7 @@ import { AddBookingModal } from "@/components/AddBookingModal";
 import { QUESTIONS, type Selections } from "@/lib/booking";
 import {
   ArrowLeft, Plus, Video, Phone, Mail, Loader2, Check, X, CalendarDays, Building2,
-  SlidersHorizontal, Link2, UserPlus, UserCheck,
+  SlidersHorizontal, Link2, UserPlus, UserCheck, Copy, ChevronDown,
 } from "lucide-react";
 
 type Kind = "nurse" | "clinic" | "company";
@@ -37,6 +37,30 @@ type Booking = {
   status: Status; outcome: string | null; source: "public" | "admin"; created_at: string;
   /** Set once this booking's person has been made a Pool candidate. */
   pooled_user_id?: string | null;
+};
+
+/** One shareable booking link — /book/<slug>. NULL override = inherit the global. */
+type EventType = {
+  slug: string;
+  kind: Kind;
+  active: boolean;
+  /** Full public URL, built server-side from the PROD origin, not the tab's. */
+  url: string;
+  slot_minutes: number | null;
+  buffer_minutes: number | null;
+  min_notice_hours: number | null;
+  horizon_days: number | null;
+  title: { en: string; de: string; fr: string };
+  blurb: { en: string; de: string; fr: string };
+};
+
+/** What an unset override resolves to right now — the global availability row. */
+type LinkDefaults = {
+  slot_minutes: number;
+  buffer_minutes: number;
+  min_notice_hours: number;
+  horizon_days: number;
+  accepting: boolean;
 };
 
 const KIND_LABEL: Record<Kind, { en: string; de: string; fr: string }> = {
@@ -65,6 +89,14 @@ export default function AdminBookingsPage() {
   const [availOpen, setAvailOpen] = useState(false);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [poolErr, setPoolErr] = useState<string | null>(null);
+  const [types, setTypes] = useState<EventType[]>([]);
+  const [linkDefaults, setLinkDefaults] = useState<LinkDefaults | null>(null);
+  const [typesMigrated, setTypesMigrated] = useState(true);
+  /** Why the links panel is missing. A CODE, not a sentence: translating in
+   *  here would put `T` — which changes with the language — into loadTypes's
+   *  deps, and loadTypes is a dep of the bootstrap effect, so switching
+   *  language would re-run the whole page load. */
+  const [typesErr, setTypesErr] = useState<null | "expired" | "failed">(null);
 
   const load = useCallback(async (tk: string) => {
     const r = await fetch("/api/portal/admin/bookings", { headers: { Authorization: `Bearer ${tk}` }, cache: "no-store" });
@@ -72,6 +104,30 @@ export default function AdminBookingsPage() {
     const j = await r.json().catch(() => ({ bookings: [] }));
     setRows((j.bookings ?? []) as Booking[]);
   }, [router]);
+
+  /** The shareable links. Sub-admins get 403 here (supreme-admin config) — the
+   *  panel then simply doesn't render, rather than taking the page down. Every
+   *  OTHER failure has to SAY so: silence there means the founder opens the
+   *  page after a hiccup, sees no links panel and no error, and concludes the
+   *  feature was never deployed. A missing panel still never costs the
+   *  bookings list. */
+  const loadTypes = useCallback(async (tk: string) => {
+    try {
+      const r = await fetch("/api/portal/admin/booking-types", { headers: { Authorization: `Bearer ${tk}` }, cache: "no-store" });
+      if (r.status === 403) return; // sub-admin: correctly has no links panel
+      const j = r.ok ? await r.json().catch(() => null) : null;
+      if (!j || !Array.isArray(j.types)) {
+        setTypesErr(r.status === 401 ? "expired" : "failed");
+        return;
+      }
+      setTypes(j.types as EventType[]);
+      setLinkDefaults((j.defaults ?? null) as LinkDefaults | null);
+      setTypesMigrated(j.migrated !== false);
+      setTypesErr(null);
+    } catch {
+      setTypesErr("failed");
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -85,11 +141,14 @@ export default function AdminBookingsPage() {
       }
       if (cancelled) return;
       setToken(tk);
-      await load(tk);
+      // Both are above-the-fold, so they reveal together — a links panel that
+      // pops in a moment after the list is the FOUC the loading pattern exists
+      // to prevent.
+      await Promise.allSettled([load(tk), loadTypes(tk)]);
       if (!cancelled) setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [router, load]);
+  }, [router, load, loadTypes]);
 
   // JWTs refresh every ~55 min — without this every action after an hour 401s.
   useEffect(() => {
@@ -191,6 +250,30 @@ export default function AdminBookingsPage() {
         <p className="text-[13px] mb-4" style={{ color: "#ef4444" }} role="alert">{poolErr}</p>
       )}
 
+      {!types.length && typesErr && (
+        <p className="text-[13px] mb-6" style={{ color: "#ef4444" }} role="alert">
+          {typesErr === "expired"
+            ? T("Your session expired — reload the page to see your booking links.",
+                "Ihre Sitzung ist abgelaufen — laden Sie die Seite neu, um Ihre Buchungslinks zu sehen.",
+                "Votre session a expiré — rechargez la page pour voir vos liens de réservation.")
+            : T("Couldn't load your booking links. Reload the page to try again.",
+                "Ihre Buchungslinks konnten nicht geladen werden. Bitte laden Sie die Seite neu.",
+                "Impossible de charger vos liens de réservation. Rechargez la page.")}
+        </p>
+      )}
+
+      {!!types.length && (
+        <BookingLinksPanel
+          token={token}
+          T={T}
+          lang={lang}
+          types={types}
+          defaults={linkDefaults}
+          migrated={typesMigrated}
+          onSaved={(next, nextDefaults) => { setTypes(next); if (nextDefaults) setLinkDefaults(nextDefaults); }}
+        />
+      )}
+
       {!rows.length ? (
         <div className="bv-card p-8 text-center" style={{ borderRadius: 18 }}>
           <CalendarDays size={22} style={{ color: "var(--w3)" }} className="mx-auto mb-3" />
@@ -237,6 +320,387 @@ export default function AdminBookingsPage() {
 
       {availOpen && <AvailabilityModal token={token} T={T} onClose={() => setAvailOpen(false)} />}
     </main>
+  );
+}
+
+/* ── The shareable booking links ──────────────────────────────────────────────
+ * /book/nurse, /book/clinic, /book/company — the URLs the founder hands to a
+ * candidate or a clinic. Copying one is the panel's primary job, so it is one
+ * tap with no menu in front of it.
+ *
+ * The four durations below each link are OVERRIDES. Empty means NULL in the
+ * database, which means "inherit the global availability" — so every empty box
+ * spells out the value it is currently inheriting. A blank input alone cannot
+ * tell "inherits 30" apart from "explicitly 30", and that distinction is the
+ * whole feature: change the global and the first follows, the second doesn't.
+ * -------------------------------------------------------------------------- */
+
+type OverrideKey = "slot_minutes" | "buffer_minutes" | "min_notice_hours" | "horizon_days";
+
+const OVERRIDE_RANGE: Record<OverrideKey, [number, number]> = {
+  slot_minutes: [5, 240],
+  buffer_minutes: [0, 120],
+  min_notice_hours: [0, 720],
+  horizon_days: [1, 90],
+};
+
+const OVERRIDE_LABEL: Record<OverrideKey, { en: string; de: string; fr: string }> = {
+  slot_minutes:     { en: "Call length",     de: "Termindauer",             fr: "Durée de l'appel" },
+  buffer_minutes:   { en: "Gap after",       de: "Puffer danach",           fr: "Pause après" },
+  min_notice_hours: { en: "Minimum notice",  de: "Mindestvorlauf",          fr: "Préavis minimum" },
+  horizon_days:     { en: "Book up to",      de: "Buchbar bis",             fr: "Réservable jusqu'à" },
+};
+
+function BookingLinksPanel({
+  token, T, lang, types, defaults, migrated, onSaved,
+}: {
+  token: string;
+  T: (en: string, de: string, fr: string) => string;
+  lang: string;
+  types: EventType[];
+  defaults: LinkDefaults | null;
+  migrated: boolean;
+  onSaved: (types: EventType[], defaults: LinkDefaults | null) => void;
+}) {
+  return (
+    <section className="mb-9">
+      <p className="bv-eyebrow mb-3">{T("Your booking links", "Ihre Buchungslinks", "Vos liens de réservation")}</p>
+
+      {!migrated && (
+        <p
+          role="alert"
+          className="rounded-xl px-4 py-3 text-[13px] mb-3"
+          style={{ background: "rgba(245,158,11,.08)", border: "1px solid rgba(245,158,11,.35)", color: "var(--w)" }}
+        >
+          {T("These links work, but their settings aren't stored yet — run supabase/booking_event_types.sql to be able to change them.",
+             "Die Links funktionieren, ihre Einstellungen sind aber noch nicht gespeichert — führen Sie supabase/booking_event_types.sql aus, um sie ändern zu können.",
+             "Ces liens fonctionnent, mais leurs réglages ne sont pas encore enregistrés — exécutez supabase/booking_event_types.sql pour pouvoir les modifier.")}
+        </p>
+      )}
+
+      <div className="grid gap-2">
+        {types.map((et) => (
+          <LinkCard
+            key={et.slug}
+            et={et}
+            T={T}
+            lang={lang}
+            token={token}
+            defaults={defaults}
+            editable={migrated}
+            onSaved={onSaved}
+          />
+        ))}
+      </div>
+
+      {defaults && (
+        <p className="text-[12px] mt-2.5" style={{ color: "var(--w3)" }}>
+          {T(
+            `Global settings, used wherever a link sets nothing of its own: ${defaults.slot_minutes} min call, ${defaults.buffer_minutes} min gap, ${defaults.min_notice_hours} h notice, ${defaults.horizon_days} days ahead.`,
+            `Globale Einstellungen, gültig überall dort, wo ein Link nichts Eigenes setzt: ${defaults.slot_minutes} Min. Termin, ${defaults.buffer_minutes} Min. Puffer, ${defaults.min_notice_hours} Std. Vorlauf, ${defaults.horizon_days} Tage im Voraus.`,
+            `Réglages globaux, utilisés partout où un lien ne définit rien : appel de ${defaults.slot_minutes} min, pause de ${defaults.buffer_minutes} min, préavis de ${defaults.min_notice_hours} h, ${defaults.horizon_days} jours à l'avance.`,
+          )}
+          {" "}
+          {!defaults.accepting && T("Bookings are currently closed for every link.",
+            "Buchungen sind derzeit für alle Links geschlossen.",
+            "Les réservations sont actuellement fermées pour tous les liens.")}
+        </p>
+      )}
+    </section>
+  );
+}
+
+function LinkCard({
+  et, T, lang, token, defaults, editable, onSaved,
+}: {
+  et: EventType;
+  T: (en: string, de: string, fr: string) => string;
+  lang: string;
+  token: string;
+  defaults: LinkDefaults | null;
+  editable: boolean;
+  onSaved: (types: EventType[], defaults: LinkDefaults | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [copyErr, setCopyErr] = useState(false);
+  const [saving, setSaving] = useState(false);
+  /** WHAT was saved, so the confirmation can't claim the four numbers were
+   *  stored when all that happened was the on/off switch. */
+  const [saved, setSaved] = useState<null | "active" | "fields">(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  // "" = inherit. Kept as strings so an empty box stays empty instead of
+  // collapsing to 0 the moment it is touched.
+  const asDraft = useCallback((t: EventType) => ({
+    slot_minutes: t.slot_minutes == null ? "" : String(t.slot_minutes),
+    buffer_minutes: t.buffer_minutes == null ? "" : String(t.buffer_minutes),
+    min_notice_hours: t.min_notice_hours == null ? "" : String(t.min_notice_hours),
+    horizon_days: t.horizon_days == null ? "" : String(t.horizon_days),
+  }), []);
+
+  const [draft, setDraft] = useState<Record<OverrideKey, string>>(() => asDraft(et));
+  const [active, setActive] = useState(et.active);
+
+  // The server hands back the whole refreshed list after every save, so this
+  // card's props change under it — re-sync, or the box would keep showing what
+  // was typed rather than what was stored.
+  //
+  // But re-sync ONLY on what actually changed. Keyed on `et`, every save on
+  // ANY card handed this one a new object and wiped the four boxes: type 45
+  // into Call length, untick "Link is live", and the 45 vanished while a green
+  // "Saved" appeared — the founder walks away believing 45 min is live when
+  // the column is still NULL.
+  useEffect(() => { setActive(et.active); }, [et.active]);
+  useEffect(() => {
+    setDraft(asDraft(et));
+    // Deliberately the four stored numbers, not `et`: an active-only save
+    // leaves them identical, so an edit in progress survives it.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [et.slug, et.slot_minutes, et.buffer_minutes, et.min_notice_hours, et.horizon_days, asDraft]);
+
+  const title = lang === "de" ? et.title.de : lang === "fr" ? et.title.fr : et.title.en;
+  const label = (k: OverrideKey) => T(OVERRIDE_LABEL[k].en, OVERRIDE_LABEL[k].de, OVERRIDE_LABEL[k].fr);
+
+  async function copy() {
+    setCopyErr(false);
+    try {
+      await navigator.clipboard.writeText(et.url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setCopyErr(true);
+    }
+  }
+
+  /** Returns whether the write landed, so an optimistic checkbox can roll back. */
+  async function save(patch: Record<string, unknown>, what: "active" | "fields" = "fields"): Promise<boolean> {
+    setSaving(true);
+    setErr(null);
+    setSaved(null);
+    try {
+      const r = await fetch("/api/portal/admin/booking-types", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ slug: et.slug, ...patch }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        // The server names the value it refused rather than clamping it, so say
+        // which one — the founder shouldn't have to guess across four boxes.
+        if (j?.error === "out_of_range" && j?.field in OVERRIDE_RANGE) {
+          const f = j.field as OverrideKey;
+          setErr(T(
+            `${label(f)} must be between ${j.min} and ${j.max}, or empty to inherit.`,
+            `${label(f)} muss zwischen ${j.min} und ${j.max} liegen — oder leer bleiben, um zu erben.`,
+            `${label(f)} doit être entre ${j.min} et ${j.max}, ou vide pour hériter.`,
+          ));
+        } else if (j?.error === "not_migrated") {
+          setErr(T("Run supabase/booking_event_types.sql first.",
+            "Bitte zuerst supabase/booking_event_types.sql ausführen.",
+            "Exécutez d'abord supabase/booking_event_types.sql."));
+        } else if (j?.error === "unknown_type") {
+          setErr(T("This link no longer exists. Reload the page.",
+            "Diesen Link gibt es nicht mehr. Bitte die Seite neu laden.",
+            "Ce lien n'existe plus. Rechargez la page."));
+        } else {
+          setErr(T("Couldn't save.", "Konnte nicht gespeichert werden.", "Échec de l'enregistrement."));
+        }
+        return false;
+      }
+      if (Array.isArray(j?.types)) onSaved(j.types as EventType[], (j.defaults ?? null) as LinkDefaults | null);
+      setSaved(what);
+      setTimeout(() => setSaved(null), 2200);
+      return true;
+    } catch {
+      setErr(T("Network error.", "Netzwerkfehler.", "Erreur réseau."));
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const num = (v: string) => (v.trim() === "" ? null : Number(v.trim()));
+
+  return (
+    <div className="bv-card" style={{ borderRadius: 14, overflow: "hidden" }}>
+      <div className="p-4 flex items-start gap-3 flex-wrap">
+        {/* LAW #4 — the dot carries live / not live, never a word. */}
+        <span
+          aria-hidden
+          style={{
+            width: 8, height: 8, borderRadius: 999, marginTop: 7, flexShrink: 0,
+            background: et.active ? "#16a34a" : "var(--w3)",
+          }}
+        />
+        <div className="min-w-0 flex-1" style={{ minWidth: 200 }}>
+          <p className="text-[14.5px] font-medium truncate" style={{ color: "var(--w)" }}>{title}</p>
+          <a
+            href={et.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="bv-link block text-[12.5px] mt-1 break-all"
+          >
+            {et.url}
+          </a>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={copy}
+            className="bv-btn bv-btn-ghost bv-tap inline-flex items-center gap-1.5 text-[13px]"
+            style={{ minHeight: 44, borderColor: copied ? "#16a34a" : undefined }}
+            aria-label={T(`Copy the link for ${title}`, `Link für ${title} kopieren`, `Copier le lien pour ${title}`)}
+          >
+            {copied
+              ? <><Check size={14} aria-hidden style={{ color: "#16a34a" }} /> {T("Copied", "Kopiert", "Copié")}</>
+              : <><Copy size={14} aria-hidden /> {T("Copy", "Kopieren", "Copier")}</>}
+          </button>
+          <button
+            onClick={() => setOpen((o) => !o)}
+            className="bv-btn bv-btn-ghost bv-tap inline-flex items-center gap-1.5 text-[13px]"
+            style={{ minHeight: 44 }}
+            aria-expanded={open}
+            aria-label={T(`Settings for ${title}`, `Einstellungen für ${title}`, `Réglages pour ${title}`)}
+          >
+            <SlidersHorizontal size={14} aria-hidden />
+            <ChevronDown size={13} aria-hidden style={{ transform: open ? "rotate(180deg)" : undefined, transition: "transform .18s" }} />
+          </button>
+        </div>
+        {copyErr && (
+          <p className="w-full text-[12.5px]" style={{ color: "#ef4444" }} role="alert">
+            {T("Couldn't copy — select the link above and copy it by hand.",
+               "Kopieren fehlgeschlagen — markieren Sie den Link oben und kopieren Sie ihn manuell.",
+               "Copie impossible — sélectionnez le lien ci-dessus et copiez-le à la main.")}
+          </p>
+        )}
+      </div>
+
+      {open && (
+        <div className="px-4 pb-4 grid gap-4" style={{ borderTop: "1px solid var(--border)", paddingTop: 14 }}>
+          <label className="flex items-center gap-2.5 text-[13.5px] bv-tap" style={{ color: "var(--w2)", minHeight: 44 }}>
+            <input
+              type="checkbox"
+              checked={active}
+              disabled={saving || !editable}
+              onChange={async (e) => {
+                const v = e.target.checked;
+                const prev = active;
+                setActive(v);
+                // If the write fails the database still says `prev` — don't
+                // leave the box, and the "Not found page" warning under it,
+                // contradicting the status dot in the header.
+                const ok = await save({ active: v }, "active");
+                if (!ok) setActive(prev);
+              }}
+            />
+            {T("Link is live", "Link ist aktiv", "Lien actif")}
+          </label>
+          {!active && (
+            <p className="text-[12.5px] -mt-3" style={{ color: "var(--w3)" }}>
+              {T("Anyone opening this link gets a Not found page. Nothing already booked is affected.",
+                 "Wer diesen Link öffnet, sieht eine Nicht-gefunden-Seite. Bereits gebuchte Termine bleiben bestehen.",
+                 "Ce lien affiche une page introuvable. Les rendez-vous déjà pris ne changent pas.")}
+            </p>
+          )}
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            {(Object.keys(OVERRIDE_RANGE) as OverrideKey[]).map((k) => (
+              <OverrideField
+                key={k}
+                id={`et-${et.slug}-${k}`}
+                label={label(k)}
+                value={draft[k]}
+                disabled={saving || !editable}
+                min={OVERRIDE_RANGE[k][0]}
+                max={OVERRIDE_RANGE[k][1]}
+                unit={k === "min_notice_hours" ? T("h", "Std.", "h") : k === "horizon_days" ? T("days", "Tage", "jours") : T("min", "Min.", "min")}
+                inherited={defaults ? defaults[k] : null}
+                onChange={(v) => setDraft((d) => ({ ...d, [k]: v }))}
+                T={T}
+              />
+            ))}
+          </div>
+
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              onClick={() => save({
+                slot_minutes: num(draft.slot_minutes),
+                buffer_minutes: num(draft.buffer_minutes),
+                min_notice_hours: num(draft.min_notice_hours),
+                horizon_days: num(draft.horizon_days),
+              }, "fields")}
+              disabled={saving || !editable}
+              className="bv-btn bv-btn-primary bv-tap inline-flex items-center gap-2 text-[13px]"
+              style={{ minHeight: 44 }}
+            >
+              {saving ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Check size={14} aria-hidden />}
+              {T("Save", "Speichern", "Enregistrer")}
+            </button>
+            {saved && (
+              <span className="text-[13px]" style={{ color: "#16a34a" }} role="status">
+                {saved === "active"
+                  ? T("Saved.", "Gespeichert.", "Enregistré.")
+                  : T("Saved — this link uses these now.", "Gespeichert — dieser Link nutzt das jetzt.", "Enregistré — ce lien l'utilise maintenant.")}
+              </span>
+            )}
+            {err && <span className="text-[13px]" style={{ color: "#ef4444" }} role="alert">{err}</span>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One override box. EMPTY IS A REAL VALUE here — it means "inherit" — so the
+ * line underneath always names the number actually in force, whether it comes
+ * from this link or from the global settings.
+ */
+function OverrideField({
+  id, label, value, onChange, inherited, unit, min, max, disabled, T,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  inherited: number | null;
+  unit: string;
+  min: number;
+  max: number;
+  disabled: boolean;
+  T: (en: string, de: string, fr: string) => string;
+}) {
+  const overriding = value.trim() !== "";
+  return (
+    <div>
+      <label className="bv-label" htmlFor={id}>{label}</label>
+      <input
+        id={id}
+        className="bv-input"
+        type="number"
+        inputMode="numeric"
+        min={min}
+        max={max}
+        value={value}
+        disabled={disabled}
+        style={{ minHeight: 44 }}
+        placeholder={inherited == null
+          ? T("inherit", "erben", "hériter")
+          : `${T("inherit", "erben", "hériter")} · ${inherited} ${unit}`}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      <p className="text-[12px] mt-1" style={{ color: overriding ? "var(--gold)" : "var(--w3)" }}>
+        {overriding
+          ? T(`Only this link. Leave empty to go back to the global setting${inherited == null ? "" : ` (${inherited} ${unit})`}.`,
+              `Nur dieser Link. Leer lassen, um wieder die globale Einstellung zu nutzen${inherited == null ? "" : ` (${inherited} ${unit})`}.`,
+              `Ce lien uniquement. Laissez vide pour revenir au réglage global${inherited == null ? "" : ` (${inherited} ${unit})`}.`)
+          : inherited == null
+            ? T("Inherits the global setting.", "Erbt die globale Einstellung.", "Hérite du réglage global.")
+            : T(`Inherits the global setting: ${inherited} ${unit}.`,
+                `Erbt die globale Einstellung: ${inherited} ${unit}.`,
+                `Hérite du réglage global : ${inherited} ${unit}.`)}
+      </p>
+    </div>
   );
 }
 
