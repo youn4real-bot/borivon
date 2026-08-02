@@ -132,6 +132,31 @@ const nextConfig: NextConfig = {
     }
     return config;
   },
+  /**
+   * The URLs a human actually types or pastes.
+   *
+   * The booking page lives at /book, but "borivon.com/bookings" is what gets
+   * written on a WhatsApp message, said out loud on a call, or guessed by
+   * someone who half-remembers the link. Without these, every one of those
+   * landed on the CATCH-ALL (app/[slug]/page.tsx), which answers 200 with the
+   * generic site shell — so the lead saw a page with no calendar on it and no
+   * error to explain why. A silent wrong page is worse than a 404: nobody
+   * reports it, they just do not book.
+   *
+   * 308 (permanent) rather than 307: the destination is not going to change, so
+   * browsers and link previews can cache it, and search engines fold any link
+   * equity into /book instead of splitting it.
+   */
+  async redirects() {
+    return [
+      { source: "/bookings", destination: "/book", permanent: true },
+      { source: "/booking", destination: "/book", permanent: true },
+      // The same slip for the per-audience links people are handed.
+      { source: "/bookings/:type", destination: "/book/:type", permanent: true },
+      { source: "/booking/:type", destination: "/book/:type", permanent: true },
+    ];
+  },
+
   async headers() {
     return [
       {

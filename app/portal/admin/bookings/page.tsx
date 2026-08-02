@@ -323,6 +323,79 @@ export default function AdminBookingsPage() {
   );
 }
 
+/**
+ * THE universal booking link — the one you actually hand out.
+ *
+ * Deliberately not driven by the event-type list: it is a fixed, permanent
+ * address that works whether or not any migration has run, whether or not a
+ * type is switched off, and whether or not the DB is reachable. The thing you
+ * put in an email signature must never depend on configuration.
+ *
+ * /bookings and /booking both 308 to it (next.config.ts), because those are what
+ * people actually type — and until that redirect existed they landed on the
+ * generic site shell with no calendar and no error.
+ */
+function UniversalLinkCard({ T }: { T: (en: string, de: string, fr: string) => string }) {
+  const url = "https://www.borivon.com/bookings";
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      // Clipboard blocked (insecure context / permission) — the link is
+      // selectable text right there, so say so rather than fail silently.
+      setCopied(false);
+      alert(url);
+    }
+  };
+  return (
+    <div
+      className="rounded-2xl px-4 py-4 sm:px-5"
+      style={{ background: "var(--card)", border: "1px solid var(--border-gold)" }}
+    >
+      <div className="flex flex-wrap items-center gap-3 justify-between">
+        <div className="min-w-0">
+          <p className="text-[14.5px] font-semibold mb-1" style={{ color: "var(--w)" }}>
+            {T("Your booking link", "Ihr Buchungslink", "Votre lien de réservation")}
+          </p>
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[13.5px] break-all underline"
+            style={{ color: "var(--gold)" }}
+          >
+            {url}
+          </a>
+        </div>
+        <button
+          type="button"
+          onClick={copy}
+          className="bv-btn bv-tap inline-flex items-center gap-2"
+          style={{
+            minHeight: 44,
+            background: copied ? "rgba(22,163,74,.15)" : "var(--gold)",
+            color: copied ? "#16a34a" : "#131312",
+            border: copied ? "1px solid rgba(22,163,74,.4)" : "none",
+            fontWeight: 700,
+          }}
+        >
+          {copied
+            ? T("Copied", "Kopiert", "Copié")
+            : T("Copy link", "Link kopieren", "Copier le lien")}
+        </button>
+      </div>
+      <p className="text-[12px] mt-2.5" style={{ color: "var(--w3)" }}>
+        {T("Share this with anyone — nurses, clinics or companies. It asks who they are, then shows your real availability.",
+           "Teilen Sie diesen mit allen — Pflegekräften, Kliniken oder Unternehmen. Er fragt, wer sie sind, und zeigt dann Ihre echte Verfügbarkeit.",
+           "Partagez-le avec tout le monde — infirmiers, cliniques ou entreprises. Il demande qui ils sont, puis affiche vos vraies disponibilités.")}
+      </p>
+    </div>
+  );
+}
+
 /* ── The shareable booking links ──────────────────────────────────────────────
  * /book/nurse, /book/clinic, /book/company — the URLs the founder hands to a
  * candidate or a clinic. Copying one is the panel's primary job, so it is one
@@ -378,20 +451,47 @@ function BookingLinksPanel({
         </p>
       )}
 
-      <div className="grid gap-2">
-        {types.map((et) => (
-          <LinkCard
-            key={et.slug}
-            et={et}
-            T={T}
-            lang={lang}
-            token={token}
-            defaults={defaults}
-            editable={migrated}
-            onSaved={onSaved}
-          />
-        ))}
-      </div>
+      {/* THE ONE LINK. Everything else on this page is optional.
+          /book already asks the visitor who they are before showing the
+          calendar, so a single address serves nurses, clinics and companies —
+          which is what you hand out on a call, put in a signature, or say out
+          loud. Three competing links is a decision the person sharing has to
+          make every time, and the wrong one is a worse first impression than no
+          link at all. */}
+      <UniversalLinkCard T={T} />
+
+      {/* The per-audience links still exist for when you deliberately want to
+          skip the "who are you?" step — a company you already know is a
+          company. Folded away so it is a choice, not the default. */}
+      <details className="mt-4">
+        <summary
+          className="text-[12.5px] cursor-pointer select-none"
+          style={{ color: "var(--w3)", minHeight: 44, display: "flex", alignItems: "center" }}
+        >
+          {T("Direct links per audience (optional)",
+             "Direkte Links pro Zielgruppe (optional)",
+             "Liens directs par public (facultatif)")}
+        </summary>
+        <p className="text-[12px] mt-1 mb-2.5" style={{ color: "var(--w3)" }}>
+          {T("These skip the first question and open straight on the calendar. Use them when you already know who you are sending it to.",
+             "Diese überspringen die erste Frage und öffnen direkt den Kalender. Nutzen Sie sie, wenn Sie bereits wissen, an wen Sie senden.",
+             "Ils sautent la première question et ouvrent directement le calendrier. À utiliser quand vous savez déjà à qui vous l'envoyez.")}
+        </p>
+        <div className="grid gap-2">
+          {types.map((et) => (
+            <LinkCard
+              key={et.slug}
+              et={et}
+              T={T}
+              lang={lang}
+              token={token}
+              defaults={defaults}
+              editable={migrated}
+              onSaved={onSaved}
+            />
+          ))}
+        </div>
+      </details>
 
       {defaults && (
         <p className="text-[12px] mt-2.5" style={{ color: "var(--w3)" }}>
