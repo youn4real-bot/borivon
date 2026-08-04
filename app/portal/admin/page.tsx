@@ -687,10 +687,11 @@ export default function AdminPage() {
   const [employerSaving, setEmployerSaving] = useState<Record<string, boolean>>({});
   const [allEmployers, setAllEmployers] = useState<{ id: string; name: string; agencyId?: string | null }[]>([]);
   // Inline "quick-add a direct employer" form inside the Zuweisung tab —
-  // supreme admin only (the create endpoint is supreme-only). Lets the admin
-  // create a brand-new direct employer right where they assign it, instead of
-  // detouring to /portal/admin/employers. On save it auto-assigns the new
-  // employer to the open candidate.
+  // whole Borivon team (the Zuweisung tab itself is already hidden from org
+  // admins, and POST /employers enforces the same staff-only rule server-side).
+  // Lets an admin create a brand-new direct employer right where they assign it,
+  // instead of detouring to /portal/admin/employers. On save it auto-assigns the
+  // new employer to the open candidate.
   const [addingEmployer, setAddingEmployer] = useState(false);
   const [newEmpName, setNewEmpName]         = useState("");
   const [newEmpAddr, setNewEmpAddr]         = useState("");
@@ -1780,8 +1781,8 @@ export default function AdminPage() {
     }
   }
 
-  /** Supreme-admin quick-add: create a brand-new DIRECT employer (no agency)
-      from inside the Zuweisung tab, then auto-assign it to the open candidate.
+  /** Quick-add: create a brand-new DIRECT employer (no agency) from inside the
+      Zuweisung tab, then auto-assign it to the open candidate. Borivon team.
       Mirrors the create on /portal/admin/employers (POST employers) so the new
       row lights up everywhere (picker + Motivationsschreiben recipient). */
   async function createDirectEmployer() {
@@ -4232,19 +4233,23 @@ export default function AdminPage() {
                                   )}
                                 </div>
 
-                                {/* Quick-add a NEW direct employer right here —
-                                    supreme admin only (POST /employers is
-                                    supreme-only). Saves to the employers table
-                                    and auto-assigns to the open candidate, so
-                                    the admin never has to leave this panel. */}
-                                {isSuperAdmin && !addingEmployer && (
+                                {/* Quick-add a NEW direct employer right here.
+                                    Saves to the employers table and auto-assigns
+                                    to the open candidate, so nobody has to leave
+                                    this panel. Open to the whole Borivon team:
+                                    this block already renders only when
+                                    !isOrgAdmin, and POST /employers applies the
+                                    same staff-only rule server-side. It was
+                                    supreme-only, which dead-ended a sub-admin the
+                                    moment the hospital wasn't already on file. */}
+                                {!addingEmployer && (
                                   <button type="button" onClick={() => setAddingEmployer(true)}
                                     className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-opacity hover:opacity-80"
                                     style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
                                     <Plus size={12} strokeWidth={2} /> {assignT.addEmp}
                                   </button>
                                 )}
-                                {isSuperAdmin && addingEmployer && (
+                                {addingEmployer && (
                                   <div className="mt-2 rounded-xl p-3 space-y-2"
                                     style={{ background: "var(--bg2)", border: "1px solid var(--border-gold)" }}>
                                     <div>

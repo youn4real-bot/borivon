@@ -9,6 +9,7 @@ import { createHash } from "crypto";
 import { r2Configured, r2Put, candidateKey } from "@/lib/r2";
 import { pdfPageLimit } from "@/lib/pdfPageLimits";
 import { PDFDocument } from "pdf-lib";
+import { parseMRZ, MRZ_COUNTRIES, scrubMrzJunk } from "@/lib/mrz";
 
 /**
  * Normalize any country value (ISO 3166-1 alpha-3 like "MAR", or a name in
@@ -528,153 +529,8 @@ function normalizeDate(s: string): string {
   return s;
 }
 
-// ── MRZ check-digit (ICAO 9303) ───────────────────────────────────────────────
-function mrzCheck(s: string): number {
-  const W = [7, 3, 1];
-  const V: Record<string, number> = {
-    "<": 0, "0": 0, "1": 1, "2": 2, "3": 3, "4": 4,
-    "5": 5, "6": 6, "7": 7, "8": 8, "9": 9,
-    A: 10, B: 11, C: 12, D: 13, E: 14, F: 15, G: 16, H: 17,
-    I: 18, J: 19, K: 20, L: 21, M: 22, N: 23, O: 24, P: 25,
-    Q: 26, R: 27, S: 28, T: 29, U: 30, V: 31, W: 32, X: 33,
-    Y: 34, Z: 35,
-  };
-  let sum = 0;
-  for (let i = 0; i < s.length; i++) sum += (V[s[i]] ?? 0) * W[i % 3];
-  return sum % 10;
-}
-
-// Known ICAO 3-letter country codes used in MRZ
-const MRZ_COUNTRIES = new Set([
-  "MAR","DZA","TUN","EGY","LBY","SYR","LBN","JOR","FRA","DEU","GBR","USA",
-  "ESP","ITA","TUR","SEN","NGA","GHA","MLI","PSE","IRQ","IRN","PAK","IND",
-  "PHL","MRT","BEL","NLD","CHE","AUT","PRT","GRC","POL","ROU","BGR","HRV",
-  "SRB","ALB","CAN","AUS","NZL","JPN","CHN","KOR","BRA","ARG","MEX","ZAF",
-  "ETH","KEN","TZA","UGA","RUS","UKR","SAU","ARE","QAT","KWT","BHR","OMN",
-  "YEM","CIV","CMR","COD","SOM","SDN","LKA","BGD","NPL","MMR","VNM","THA",
-  "IDN","MYS","SGP","PHL","HKG","TWN","AFG","UZB","KAZ","AZE","GEO",
-  "D<<",  // Germany in older MRZ
-]);
-
-// ── MRZ parser (TD3 — two lines of 44 chars) ─────────────────────────────────
-function parseMRZ(ocrText: string) {
-
-  // ── Step 1: normalise each OCR line into a MRZ-safe string ────────────────
-  // Important: we do NOT replace O→0 here because names contain the letter O.
-  // We only do it when inspecting numeric positions (DOB, expiry, check digits).
-  const rawLines = ocrText.split("\n");
-  const cleaned = rawLines.map(l =>
-    l.replace(/\s/g, "")           // strip spaces (OCR sometimes inserts them)
-     .toUpperCase()
-     .replace(/[^A-Z0-9<]/g, "<") // replace unexpected chars with MRZ filler
-  );
-
-  // Also try merging consecutive lines in case OCR broke one MRZ row into two
-  const candidates: string[] = [];
-  for (let i = 0; i < cleaned.length; i++) {
-    if (cleaned[i].length >= 20) candidates.push(cleaned[i]);
-    if (i + 1 < cleaned.length) {
-      const merged = cleaned[i] + cleaned[i + 1];
-      if (merged.length >= 40) candidates.push(merged);
-    }
-  }
-
-  // ── Step 2: find MRZ Line 1 with strict country-code anchor ───────────────
-  // TD3 Line 1 format: P<CCC[surname]<<[given]<<...
-  // The key guard: positions 2-4 must be a known ICAO country code.
-  // This rejects "PREFECTURE DE RABAT" → normalized "PREFECTUREDERABAT" whose
-  // positions 2-4 are "EFE" (not a country code).
-  function findLine1(pool: string[]): string {
-    for (const s of pool) {
-      if (s[0] !== "P") continue;
-      if (s.length < 36) continue;
-      // With filler: P<CCC...   Without filler (OCR dropped <): PCCC...
-      const withFiller  = s[1] === "<" && MRZ_COUNTRIES.has(s.slice(2, 5));
-      const withoutFiller = s[1] !== "<" && MRZ_COUNTRIES.has(s.slice(1, 4));
-      if ((withFiller || withoutFiller) && s.includes("<<")) {
-        return s.slice(0, 44).padEnd(44, "<");
-      }
-    }
-    return "";
-  }
-
-  // ── Step 3: find MRZ Line 2 with DOB + optional check-digit validation ────
-  // TD3 Line 2 format: [passport no 9][check][country 3][dob 6][check][sex][expiry 6][check]...
-  function findLine2(pool: string[], line1: string): string {
-    for (const s of pool) {
-      if (s === line1 || s.length < 36) continue;
-      // Digits only at DOB positions (13-18) — use O→0 substitution for numeric check
-      const numericised = s.replace(/O/g, "0");
-      if (!/^\d{6}$/.test(numericised.slice(13, 19))) continue;
-      // Extra validation: check digit for passport number (pos 0-8, check at 9)
-      const checkChar = parseInt(numericised[9]);
-      const calc = mrzCheck(numericised.slice(0, 9).replace(/O/g, "0"));
-      if (!isNaN(checkChar) && checkChar !== calc) continue; // wrong check digit
-      return s.slice(0, 44).padEnd(44, "<");
-    }
-    // Relaxed fallback: any 36+ char string with 6 digits at DOB position
-    for (const s of pool) {
-      if (s === line1 || s.length < 36) continue;
-      const num = s.replace(/O/g, "0");
-      if (/^\d{6}$/.test(num.slice(13, 19))) {
-        return s.slice(0, 44).padEnd(44, "<");
-      }
-    }
-    return "";
-  }
-
-  const line1 = findLine1(candidates);
-  if (!line1) return null;
-  const line2 = findLine2(candidates, line1);
-  if (!line2) return null;
-
-  // ── Step 4: extract fields ────────────────────────────────────────────────
-
-  // Names — Line 1 positions 5-43: SURNAME<<GIVEN NAMES
-  // Detect whether < at position 1 was present (normal) or OCR dropped it (shifted)
-  const nameOffset = line1[1] === "<" ? 5 : 4;
-  const nameZone = line1.slice(nameOffset);
-  const doubleBrk = nameZone.indexOf("<<");
-  let lastName = "", firstName = "";
-  if (doubleBrk >= 0) {
-    lastName  = nameZone.slice(0, doubleBrk).replace(/</g, " ").trim();
-    firstName = nameZone.slice(doubleBrk + 2).replace(/</g, " ").trim();
-  } else {
-    lastName = nameZone.replace(/</g, " ").trim();
-  }
-  // MRZ names only contain A-Z — any leftover 0 was an OCR mis-read of O
-  const fixOcr = (s: string) => s.replace(/0/g, "O");
-  lastName  = fixOcr(lastName);
-  firstName = fixOcr(firstName);
-
-  // Passport number — use O→0 for the number portion
-  const passportNo  = line2.slice(0, 9).replace(/O/g, "0").replace(/</g, "");
-  const nationality = line2.slice(10, 13).replace(/</g, "");
-  const dobRaw      = line2.slice(13, 19).replace(/O/g, "0");
-  const sex         = line2[20] === "M" ? "M" : (line2[20] === "F" ? "F" : "");
-  const expiryRaw   = line2.slice(21, 27).replace(/O/g, "0");
-
-  function yymmdd(s: string, isBirth: boolean): string {
-    if (!/^\d{6}$/.test(s)) return "";
-    const yy = parseInt(s.slice(0, 2), 10);
-    const mm = s.slice(2, 4);
-    const dd = s.slice(4, 6);
-    // Sliding window: if yy is more than 2 years ahead of current → 1900s, else 2000s
-    const cutoff = (new Date().getFullYear() % 100) + 2;
-    const year = isBirth ? (yy > cutoff ? 1900 + yy : 2000 + yy) : 2000 + yy;
-    return `${dd}.${mm}.${year}`;
-  }
-
-  return {
-    first_name:      firstName,
-    last_name:       lastName,
-    dob:             yymmdd(dobRaw, true),
-    sex,
-    nationality,          // ISO 3-letter code; converted to German adjective on save
-    passport_no:     passportNo,
-    passport_expiry: yymmdd(expiryRaw, false),
-  };
-}
+// MRZ reading (check digit, country anchors, TD3 field extraction) lives in
+// lib/mrz.ts so it can be unit-tested without this route's I/O stack.
 
 // ── Extract all JPEG images embedded inside a PDF buffer ─────────────────────
 // Scanned PDFs wrap raw JPEG bytes in a PDF shell. We find them by magic bytes.
@@ -1358,6 +1214,17 @@ export async function POST(req: NextRequest) {
             city_of_residence: vizData.city_of_residence,
           };
         }
+      }
+
+      // Last line of defence on the name fields, whichever branch produced them
+      // (MRZ, Azure VIZ, or a mix). A human name never contains a digit or `<`;
+      // those characters only exist in a machine-readable zone. If any survive
+      // this far, drop the offending word rather than write it — a leaked MRZ row
+      // is shown to admins, printed on the CV and mailed out as the candidate's
+      // name, and the OCR draft is not worth that.
+      if (passportData) {
+        passportData.first_name = scrubMrzJunk(passportData.first_name ?? "");
+        passportData.last_name  = scrubMrzJunk(passportData.last_name  ?? "");
       }
 
       // ── Persist OCR'd values into candidate_profiles immediately ─────────
