@@ -10,6 +10,7 @@ import { r2Configured, r2Put, candidateKey } from "@/lib/r2";
 import { pdfPageLimit } from "@/lib/pdfPageLimits";
 import { PDFDocument } from "pdf-lib";
 import { parseMRZ, MRZ_COUNTRIES, scrubMrzJunk } from "@/lib/mrz";
+import { cleanScalar, cleanPlaceValue, cleanPassportNo, sanePassportDates } from "@/lib/passportSanity";
 
 /**
  * Normalize any country value (ISO 3166-1 alpha-3 like "MAR", or a name in
@@ -1225,6 +1226,40 @@ export async function POST(req: NextRequest) {
       if (passportData) {
         passportData.first_name = scrubMrzJunk(passportData.first_name ?? "");
         passportData.last_name  = scrubMrzJunk(passportData.last_name  ?? "");
+
+        // ── Sanity gates on everything else the OCR produced ────────────────
+        // An audit of the live table found values that could only have come
+        // from the scan being misread, all of them on profiles a human had
+        // already ticked as confirmed and an admin had approved:
+        //   city_of_birth      "Date of birth" / an Arabic+French label strip
+        //   issuing_authority  "الإمضاء Signature/Signature"
+        //   city_of_residence  "Marocaine" (the nationality word) / "LAMIA"
+        //                      (the candidate's own first name)
+        //   passport_no        "AD308237\nFT" — a newline inside the number
+        //   dates              issued 21 years before the holder was born;
+        //                      expiring 4 years before issue; issued in 2041
+        // None of these are recoverable by guessing, and every one of them
+        // reached a German-facing document. So: refuse rather than store.
+        // A blank field is a question the confirmation step asks; a wrong one
+        // is a question nobody thinks to ask.
+        const own = [passportData.first_name, passportData.last_name];
+        passportData.city_of_birth     = cleanPlaceValue(passportData.city_of_birth, own);
+        passportData.city_of_residence = cleanPlaceValue(passportData.city_of_residence, own);
+        passportData.issuing_authority = cleanPlaceValue(passportData.issuing_authority, own);
+        passportData.address_street    = cleanScalar(passportData.address_street);
+        passportData.passport_no       = cleanPassportNo(passportData.passport_no);
+
+        const { dates, dropped } = sanePassportDates({
+          dob:             passportData.dob,
+          issue_date:      passportData.issue_date,
+          passport_expiry: passportData.passport_expiry,
+        });
+        passportData.dob             = dates.dob             ?? "";
+        passportData.issue_date      = dates.issue_date      ?? "";
+        passportData.passport_expiry = dates.passport_expiry ?? "";
+        if (dropped.length) {
+          console.warn(`[upload] withheld impossible passport dates for ${userId}:`, dropped.join("; "));
+        }
       }
 
       // ── Persist OCR'd values into candidate_profiles immediately ─────────
