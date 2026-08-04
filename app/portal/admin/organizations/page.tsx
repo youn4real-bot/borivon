@@ -311,8 +311,23 @@ export default function OrganizationsPage() {
       if (!session?.user) { router.replace("/portal"); return; }
       const token = session.access_token ?? "";
       const roleRes = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${token}` } });
-      const { role } = await roleRes.json().catch(() => ({ role: null }));
-      if (role !== "admin") { router.replace("/portal"); return; }
+      const { role, isAgencyAdmin } = await roleRes.json().catch(() => ({ role: null, isAgencyAdmin: false }));
+      // THE WHOLE BORIVON TEAM, not just the founder.
+      //
+      // This used to be `role !== "admin"`, so placing a candidate with an
+      // agency was one person's job while every sub-admin could already review
+      // documents, run the pipeline and assign an employer. That made the
+      // founder the bottleneck on the single action that actually places a
+      // nurse.
+      //
+      // The line that stays is Borivon staff vs the agencies themselves: an
+      // agency admin (sub_admin with isAgencyAdmin) is an OUTSIDE party and must
+      // never see the roster of orgs they don't belong to, or move candidates
+      // between them. This mirrors the server gate in the route — and the server
+      // is the real one. This check only decides whether to render the page; the
+      // API refuses org-side accounts regardless of what the client believes.
+      const borivonTeam = role === "admin" || (role === "sub_admin" && !isAgencyAdmin);
+      if (!borivonTeam) { router.replace("/portal"); return; }
       setAccessToken(token);
       await loadData(token);
       setLoading(false);

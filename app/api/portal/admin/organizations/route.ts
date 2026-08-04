@@ -27,7 +27,16 @@ function generateInviteCode(len = 8): string {
 export async function GET(req: NextRequest) {
   const auth = await requireAdminRole(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
-  if (auth.role !== "admin" && !auth.isAgencyAdmin) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  // Any admin-role caller may LIST — the scoping below decides what they see,
+  // and it already distinguishes the three cases correctly (see the comment
+  // under it: getVisibleOrgIds returns null for the supreme admin AND for a true
+  // HQ sub-admin, and a concrete list for an org-scoped one).
+  //
+  // The old line was `role !== "admin" && !isAgencyAdmin`, which let the supreme
+  // admin and the AGENCIES in but locked out Borivon's own sub-admins — the one
+  // group whose scoping was already written and waiting for them. They could not
+  // see the list of agencies at all, so they could not place a candidate with
+  // one. That was the bottleneck, not a safety boundary.
 
   const db = getServiceSupabase();
 
