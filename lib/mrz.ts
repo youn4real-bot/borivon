@@ -56,24 +56,42 @@ export type MrzFields = {
  * stored as "IKRAM    EX83287939MAR991OO9OF2" — her own MRZ row 2, glued onto her
  * first name, shown to admins as her name.
  */
-export function splitMrzNameZone(nameZone: string): { firstName: string; lastName: string } {
+export function splitMrzNameZone(
+  nameZone: string,
+  /**
+   * True when the OCR line this zone came from was CUT SHORT — it ended before
+   * character 44 and its last character was not filler, so the text simply stops
+   * mid-field. A truncated zone cannot be trusted: the last name in it is a
+   * fragment ("ZAKARYA" arriving as "ZA"). A wrong name is worse than none — it
+   * is shown to admins, printed on the CV and mailed out — so we return the part
+   * that is provably complete and leave the rest blank for a human to fill.
+   */
+  truncated = false,
+): { firstName: string; lastName: string } {
   const doubleBrk = nameZone.indexOf("<<");
   let last = "", first = "";
   if (doubleBrk >= 0) {
+    // The surname is closed by the `<<`, so it survived; only the given names,
+    // which run to the end of the line, can have been cut off.
     last = nameZone.slice(0, doubleBrk);
     const rest = nameZone.slice(doubleBrk + 2);
     const endOfGiven = rest.indexOf("<<");
-    first = endOfGiven >= 0 ? rest.slice(0, endOfGiven) : rest;
-  } else {
+    first = endOfGiven >= 0 ? rest.slice(0, endOfGiven) : (truncated ? "" : rest);
+  } else if (!truncated) {
     last = nameZone;
   }
   // MRZ names only contain A-Z — any leftover 0 was an OCR mis-read of O. Then
   // drop any word that still holds a digit: a real MRZ name cannot contain one,
   // so such a word is document data (passport number, dates) that leaked in.
+  // Finally strip a TRAILING run of 4+ of the same letter: no name ends that way,
+  // but a run of `<` filler does, and OCR does sometimes read filler as a letter
+  // ("IKRAMKKKKKKKKKKKK"). Four is safely above the two a real doubled letter can
+  // produce ("HASSANN").
   const clean = (s: string) =>
     s.replace(/0/g, "O")
      .replace(/</g, " ")
      .split(/\s+/)
+     .map(w => w.replace(/(.)\1{3,}$/, ""))
      .filter(w => w && !/[0-9]/.test(w))
      .join(" ")
      .trim();
@@ -117,7 +135,7 @@ export function parseMRZ(ocrText: string): MrzFields | null {
   // The key guard: positions 2-4 must be a known ICAO country code.
   // This rejects "PREFECTURE DE RABAT" → normalized "PREFECTUREDERABAT" whose
   // positions 2-4 are "EFE" (not a country code).
-  function findLine1(pool: string[]): string {
+  function findLine1(pool: string[]): { source: string; zone: string; truncated: boolean } {
     for (const s of pool) {
       if (s[0] !== "P") continue;
       // "P<" + country(3) + a 2-char surname + "<<" + a 2-char given name = 12.
@@ -128,10 +146,22 @@ export function parseMRZ(ocrText: string): MrzFields | null {
       const withFiller  = s[1] === "<" && MRZ_COUNTRIES.has(s.slice(2, 5));
       const withoutFiller = s[1] !== "<" && MRZ_COUNTRIES.has(s.slice(1, 4));
       if ((withFiller || withoutFiller) && s.includes("<<")) {
-        return s.slice(0, 44).padEnd(44, "<");
+        // The zone is deliberately NOT padded to 44. Padding would append `<<`,
+        // and the name splitter reads `<<` as "field ends here" — so padding
+        // manufactures a terminator that the document never had, and a name cut
+        // off mid-word ("ZAKARYA" arriving as "ZA") looks perfectly terminated.
+        // Short AND not ending in filler ⇒ the OCR text stops mid-field. Lowering
+        // the length floor to 12 (to stop the merged-pair bug) is what let short
+        // lines in at all, so this flag is the other half of that fix.
+        // `source` is the untouched pool string, kept only so findLine2 can skip it.
+        // The floor is 40, not 44: at 40+ characters the given names have nearly
+        // filled a 44-char row, so a missing tail is far more likely to be filler
+        // the OCR dropped than a name cut in half — blanking those would throw
+        // away good data for nothing.
+        return { source: s, zone: s.slice(0, 44), truncated: s.length < 40 && !s.endsWith("<") };
       }
     }
-    return "";
+    return { source: "", zone: "", truncated: false };
   }
 
   // ── Step 3: find MRZ Line 2 with DOB + optional check-digit validation ────
@@ -159,9 +189,9 @@ export function parseMRZ(ocrText: string): MrzFields | null {
     return "";
   }
 
-  const line1 = findLine1(candidates);
+  const { source: line1Source, zone: line1, truncated } = findLine1(candidates);
   if (!line1) return null;
-  const line2 = findLine2(candidates, line1);
+  const line2 = findLine2(candidates, line1Source);
   if (!line2) return null;
 
   // ── Step 4: extract fields ────────────────────────────────────────────────
@@ -169,7 +199,7 @@ export function parseMRZ(ocrText: string): MrzFields | null {
   // Names — Line 1 positions 5-43: SURNAME<<GIVEN NAMES
   // Detect whether < at position 1 was present (normal) or OCR dropped it (shifted)
   const nameOffset = line1[1] === "<" ? 5 : 4;
-  const { firstName, lastName } = splitMrzNameZone(line1.slice(nameOffset));
+  const { firstName, lastName } = splitMrzNameZone(line1.slice(nameOffset), truncated);
 
   // Passport number — use O→0 for the number portion
   const passportNo  = line2.slice(0, 9).replace(/O/g, "0").replace(/</g, "");
