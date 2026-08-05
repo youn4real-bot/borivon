@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   looksLikeCaption, looksLikeNationalityWord, cleanScalar,
-  cleanPlaceValue, cleanPassportNo, sanePassportDates,
+  cleanPlaceValue, cleanPassportNo, sanePassportDates, detectDocumentType,
 } from "@/lib/passportSanity";
 
 /**
@@ -110,6 +110,50 @@ describe("cleanPassportNo", () => {
     expect(cleanPassportNo("12345")).toBe("");        // too short
     expect(cleanPassportNo(null)).toBe("");
     expect(cleanPassportNo("   ")).toBe("");
+  });
+});
+
+/**
+ * The document-type gate. Nine candidates uploaded their Carte Nationale d'Identité
+ * into the passport slot; the OCR read each card perfectly and filed its CIN as a
+ * passport number. Every string below is real text off one of those scans.
+ */
+describe("detectDocumentType", () => {
+  it("calls a real passport a passport, from its MRZ", () => {
+    // ZAKARYA EL KARRAM's actual passport MRZ (check digits verified).
+    expect(detectDocumentType(
+      "P<MAREL<KARRAM<<ZAKARYA<<<<<<<<<<<<<<<<<<<<<\nEK02706418MAR9907076M2705251P337597<<<<<<<92"
+    )).toBe("passport");
+  });
+
+  it("catches a national ID card by its TD1 MRZ", () => {
+    // HANAE ZAOUIA's actual CNIE MRZ — three rows of 30, starting IDMAR.
+    expect(detectDocumentType(
+      "IDMAROPI5FLF6<5CD759920<<<<<<<\n0403025F3112294MAR<<<<<<<<<<<3\nZAOUIA<<HANAE<<<<<<<<<<<<<<<<<"
+    )).toBe("national_id");
+    // AYA KARMOUNI's.
+    expect(detectDocumentType(
+      "IDMAROPI0TZ48<5F695018<<<<<<<<\n0309301F3104013MAR<<<<<<<<<<<6\nKARMOUNI<<AYA<<<<<<<<<<<<<<<<<"
+    )).toBe("national_id");
+  });
+
+  it("catches a national ID card by its printed title when the MRZ is not in frame", () => {
+    // HIND EL GHANAOUI's card: only the front was legible, no MRZ.
+    expect(detectDocumentType("ROYAUME DU MAROC\nCARTE NATIONALE D'IDENTITE\nHIND\nEL GHANAOUI")).toBe("national_id");
+    expect(detectDocumentType("CARTE NATIONALE D’IDENTITE")).toBe("national_id");
+    expect(detectDocumentType("البطاقة الوطنية للتعريف")).toBe("national_id");
+  });
+
+  it("prefers the MRZ over the title, because a passport page also prints ROYAUME DU MAROC", () => {
+    expect(detectDocumentType(
+      "ROYAUME DU MAROC KINGDOM OF MOROCCO\nPASSEPORT PASSPORT\n" +
+      "P<MARAATMAN<<IKRAM<<<<<<<<<<<<<<<<<<<<<<<<<<\nEX83287939MAR9910090F2605258EE665847<<<<<<04"
+    )).toBe("passport");
+  });
+
+  it("says unknown rather than accusing a bad photo of being the wrong document", () => {
+    expect(detectDocumentType("")).toBe("unknown");
+    expect(detectDocumentType("blurry\nsomething\n1234")).toBe("unknown");
   });
 });
 

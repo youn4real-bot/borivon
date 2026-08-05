@@ -112,6 +112,46 @@ export function cleanPassportNo(value: string | null | undefined): string {
   return /^[A-Z0-9]{6,9}$/.test(v) ? v : "";
 }
 
+/**
+ * Is the document in the PASSPORT slot actually a passport?
+ *
+ * Nine candidates uploaded their Moroccan Carte Nationale d'Identité instead, and nothing
+ * in the pipeline noticed. The OCR read the card perfectly and wrote its CIN number into
+ * `passport_no`, its 10-year card expiry into `passport_expiry`, and an issue date the card
+ * does not even carry. An admin then approved it. One of those candidates was marked
+ * placement-ready. A German visa cannot be issued against a CIN, so every one of those
+ * dossiers would have bounced — and the number would have gone out on forms as a passport
+ * number, which is a false document.
+ *
+ * The two document types are trivially distinguishable and we simply never looked:
+ *
+ *   passport (ICAO TD3)   two MRZ rows of 44 chars, row 1 starts "P<" + country
+ *                         printed title PASSEPORT / PASSPORT, validity 5 years
+ *   ID card  (ICAO TD1)   three MRZ rows of 30 chars, row 1 starts "ID" + country
+ *                         printed title CARTE NATIONALE D'IDENTITE, validity 10 years
+ *
+ * Returns "unknown" when neither signature is present — a bad photo must not be accused of
+ * being the wrong document.
+ */
+export function detectDocumentType(ocrText: string): "passport" | "national_id" | "unknown" {
+  if (!ocrText) return "unknown";
+  const u = norm(ocrText);
+
+  // MRZ first: it is machine-printed and the most reliable signal either way.
+  const rows = ocrText.split("\n").map(l => l.replace(/\s/g, "").toUpperCase());
+  if (rows.some(r => /^ID[A-Z<]{3}/.test(r) && r.length >= 24)) return "national_id";
+  if (rows.some(r => /^P[<A-Z][A-Z<]{2,3}/.test(r) && r.length >= 30 && r.includes("<<"))) return "passport";
+
+  // Then the printed title. The Arabic title is checked too because on a photographed card
+  // the Latin title is often the part that falls outside the crop.
+  if (/CARTE NATIONALE D.?IDENTITE|CARTE D.?IDENTITE|\bCNIE\b|\bCIN\b/.test(u)) return "national_id";
+  if (/البطاقة الوطنية للتعريف/.test(ocrText)) return "national_id";
+  if (/PASSEPORT|PASSPORT/.test(u)) return "passport";
+  if (/جواز سفر/.test(ocrText)) return "passport";
+
+  return "unknown";
+}
+
 export type PassportDates = {
   dob?: string | null;
   issue_date?: string | null;

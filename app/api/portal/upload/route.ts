@@ -10,7 +10,7 @@ import { r2Configured, r2Put, candidateKey } from "@/lib/r2";
 import { pdfPageLimit } from "@/lib/pdfPageLimits";
 import { PDFDocument } from "pdf-lib";
 import { parseMRZ, MRZ_COUNTRIES, scrubMrzJunk } from "@/lib/mrz";
-import { cleanScalar, cleanPlaceValue, cleanPassportNo, sanePassportDates } from "@/lib/passportSanity";
+import { cleanScalar, cleanPlaceValue, cleanPassportNo, sanePassportDates, detectDocumentType } from "@/lib/passportSanity";
 
 /**
  * Normalize any country value (ISO 3166-1 alpha-3 like "MAR", or a name in
@@ -1100,6 +1100,8 @@ export async function POST(req: NextRequest) {
   if (fileKey === "id") {
     try {
       let passportData: Record<string, string> | null = null;
+      /** Set when the uploaded document turns out not to be a passport at all. */
+      let docTypeWarning: "national_id" | null = null;
 
       // ══ Strategy A: Azure Document Intelligence (primary) ══════════════════
       // Passport-specific model — structured JSON out, no parsing needed.
@@ -1108,6 +1110,10 @@ export async function POST(req: NextRequest) {
       // to bubble to the outer catch and short-circuit OCR with
       // passportData:null — even though Vision was available. Now we treat a
       // throw the same as "no data" and let Strategy B (Vision) run.
+      // Raw OCR text from whichever strategy ran, kept so the document-type check
+      // below can ask "is this actually a passport?" — see detectDocumentType.
+      let ocrTextSeen = "";
+
       let azure: Awaited<ReturnType<typeof analyzePassportAzure>> = null;
       try {
         azure = await analyzePassportAzure(buffer);
@@ -1120,6 +1126,7 @@ export async function POST(req: NextRequest) {
         // Still run VIZ on Azure's raw OCR text for fields Azure doesn't extract
         // (address, issuing authority, city of residence).
         const vizData = parseVIZ(azure.rawText);
+        ocrTextSeen = azure.rawText;
         if (process.env.NODE_ENV !== "production") console.log("[Azure VIZ]", JSON.stringify(vizData));
 
         passportData = {
@@ -1157,6 +1164,7 @@ export async function POST(req: NextRequest) {
 
         // Phase 1: standard PDF path
         const ocrText1 = await runOCR(buffer, file.type);
+        ocrTextSeen += "\n" + ocrText1;
         if (process.env.NODE_ENV !== "production") console.log("[Vision phase1] text (first 800):", ocrText1.slice(0, 800));
 
         let mrzData = parseMRZ(ocrText1);
@@ -1171,6 +1179,7 @@ export async function POST(req: NextRequest) {
           if (process.env.NODE_ENV !== "production") console.log(`[Vision phase2] ${jpegs.length} JPEG(s) found`);
           for (const jpeg of jpegs) {
             const ocrText2 = await runOCR(jpeg, "image/jpeg");
+            ocrTextSeen += "\n" + ocrText2;
             const mrzData2 = parseMRZ(ocrText2);
             if (mrzData2) {
               mrzData = mrzData2;
@@ -1260,6 +1269,24 @@ export async function POST(req: NextRequest) {
         if (dropped.length) {
           console.warn(`[upload] withheld impossible passport dates for ${userId}:`, dropped.join("; "));
         }
+
+        // ── Is this actually a passport? ────────────────────────────────────
+        // Nine candidates uploaded their Carte Nationale d'Identité here and the
+        // pipeline never noticed: it read the card correctly and filed the CIN as
+        // a passport number, the card's 10-year expiry as a passport expiry, and
+        // an issue date the card does not carry. Admins approved all nine.
+        //
+        // The identity fields (name, dob, sex, birthplace) are still worth keeping
+        // — a CIN carries them and they are correct. It is only the three
+        // PASSPORT-specific fields that are meaningless, and those are exactly the
+        // ones a visa application needs, so they must not be filled from a card.
+        if (detectDocumentType(ocrTextSeen) === "national_id") {
+          console.warn(`[upload] ${userId} uploaded a national ID card into the passport slot — withholding passport-only fields`);
+          passportData.passport_no     = "";
+          passportData.passport_expiry = "";
+          passportData.issue_date      = "";
+          docTypeWarning = "national_id";
+        }
       }
 
       // ── Persist OCR'd values into candidate_profiles immediately ─────────
@@ -1316,6 +1343,19 @@ export async function POST(req: NextRequest) {
           // The real submit still sets it: app/api/portal/passport/route.ts:200
           // writes "pending" when isDraft is false. Leaving it null here keeps
           // "extracted" and "submitted" as the two different things they are.
+          // A wrong DOCUMENT is not something the admin can spot in a field list —
+          // the values all look plausible because the card really does say them.
+          // Say it in the one place the reviewer is already reading. Written even
+          // when no field changed, because "nothing extracted" is exactly what a
+          // rejected card looks like and the reviewer needs to know why.
+          if (docTypeWarning === "national_id") {
+            toWrite.passport_feedback =
+              "Das hochgeladene Dokument ist eine Carte Nationale d'Identite, kein Reisepass. " +
+              "Passnummer, Ausstellungs- und Ablaufdatum wurden NICHT uebernommen, weil eine " +
+              "CIN-Nummer nicht als Passnummer verwendet werden darf. Bitte die Datenseite des " +
+              "Reisepasses anfordern.";
+            touched = true;
+          }
           if (touched) {
             await dbsvc.from("candidate_profiles").upsert(toWrite, { onConflict: "user_id" });
           }
