@@ -52,11 +52,15 @@ export async function computeStuckCandidates(
   if (candIds.length && includeRejectedDocs) {
     const { data: docs } = await db
       .from("documents")
-      .select("user_id, status, uploaded_at")
+      .select("*") // '*' so a not-yet-migrated superseded_at column never errors
       .in("user_id", candIds)
       .order("uploaded_at", { ascending: false });
     const latest = new Map<string, { status: string | null; uploaded_at: string | null }>();
-    for (const d of (docs ?? []) as { user_id: string; status: string | null; uploaded_at: string | null }[]) {
+    for (const d of (docs ?? []) as { user_id: string; status: string | null; uploaded_at: string | null; superseded_at?: string | null }[]) {
+      // Skip ARCHIVED rows (LAW #33) before picking the newest. Ordering by
+      // uploaded_at already tends to hide them, but "newest row" and "live row"
+      // are not the same thing, and this decides whether she gets chased.
+      if (d.superseded_at) continue;
       if (!latest.has(d.user_id)) latest.set(d.user_id, d); // first = newest (ordered desc)
     }
     for (const [uid, d] of latest) {

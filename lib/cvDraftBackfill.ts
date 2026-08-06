@@ -27,6 +27,41 @@ const FIELD_MAP: ReadonlyArray<readonly [string, string]> = [
 ];
 
 /**
+ * Is this value finished being typed?
+ *
+ * The CV builder autosaves on a keystroke debounce, so this backfill runs while
+ * the candidate is still typing. Combined with the coalesce rule below — fill
+ * only when the column is empty — the FIRST partial value wins and is then
+ * frozen forever, because every later save finds the column non-empty and skips.
+ *
+ * Four candidates had their phone number stored as "+212 6", "+212 695",
+ * "+212 652 6" and "+212 690 29" for exactly this reason. Every real number in
+ * the table is 12 digits; each of those four had their complete number sitting
+ * in their own cv_draft, still updating, while the frozen column fed the CV, the
+ * cover letter and the employer dossier.
+ *
+ * So: a field only gets backfilled once it is long enough to be a real value.
+ * The bar is deliberately far below any genuine entry — it rejects fragments,
+ * not unusual data.
+ */
+function looksFinished(col: string, value: string): boolean {
+  const digits = value.replace(/\D/g, "").length;
+  switch (col) {
+    // +212 plus 9 national digits = 12; a bare national number is 10.
+    case "phone":          return digits >= 9;
+    // Moroccan and German postal codes are both 5 digits.
+    case "address_postal": return digits >= 4;
+    // A single character is someone mid-word, not a name or a city.
+    case "first_name":
+    case "last_name":
+    case "city_of_residence":
+    case "address_street":  return value.trim().length >= 2;
+    // address_number and country are legitimately short ("7", "MA").
+    default:                return true;
+  }
+}
+
+/**
  * Apply the backfill. Caller passes the service-role supabase client and
  * the candidate's user_id + the cv_draft body that was just upserted.
  *
@@ -46,7 +81,11 @@ export async function backfillPassportFromCvDraft(
   const candidateFields: Record<string, string> = {};
   for (const [col, draftKey] of FIELD_MAP) {
     const v = incoming[draftKey];
-    if (typeof v === "string" && v.trim() !== "") candidateFields[col] = v.trim();
+    if (typeof v !== "string" || v.trim() === "") continue;
+    // Skip anything still being typed — see looksFinished. Skipping is free:
+    // the next autosave, a second later, carries the finished value.
+    if (!looksFinished(col, v)) continue;
+    candidateFields[col] = v.trim();
   }
   if (Object.keys(candidateFields).length === 0) return null;
 

@@ -99,14 +99,22 @@ export async function GET(req: NextRequest) {
   // batched query. Powers the "ready to sell" verdict per candidate.
   const { data: docData, error: docErr } = await db
     .from("documents")
-    .select("user_id, file_type, status, uploaded_at")
+    .select("*") // '*' so a not-yet-migrated superseded_at column never errors
     .in("user_id", ids);
   // NEVER let this fail silently again: a bad column here returns null data and
   // would zero out ALL document evidence (CV / diploma / B2 / impfung never
   // auto-advance) — exactly the "approved CV still says needs approval" bug.
   if (docErr) console.error("[journey/pipeline] documents query error:", docErr.message);
   const docsByCandidate = new Map<string, { file_type: string | null; status: string | null }[]>();
-  for (const d of (docData ?? []) as { user_id: string; file_type: string | null; status: string | null }[]) {
+  for (const d of (docData ?? []) as { user_id: string; file_type: string | null; status: string | null; superseded_at?: string | null }[]) {
+    // Skip ARCHIVED rows (LAW #33). A replaced document keeps its old status
+    // forever — 52 rows in production are superseded AND still 'approved',
+    // nearly all of them old Lebenslauf versions. Counting them here means a
+    // candidate whose approved CV was replaced by one still awaiting review
+    // reads as "CV approved" and auto-advances on evidence that no longer
+    // exists. Every other consumer of this table already filters; this one and
+    // autoChase were the two that did not.
+    if (d.superseded_at) continue;
     const arr = docsByCandidate.get(d.user_id) ?? [];
     arr.push({ file_type: d.file_type, status: d.status });
     docsByCandidate.set(d.user_id, arr);

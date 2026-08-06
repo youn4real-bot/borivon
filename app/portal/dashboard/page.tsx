@@ -902,47 +902,6 @@ export default function DashboardPage() {
     }
   }, [pipeline, upgradeOpen, upgradeTargetStage]);
 
-  // Issue 4.3: live passport status — no page refresh needed when admin approves/rejects
-  useEffect(() => {
-    if (!userId) return;
-    const ch = supabase
-      .channel(`profile-status-${userId}`)
-      .on("postgres_changes",
-        { event: "UPDATE", schema: "public", table: "candidate_profiles", filter: `user_id=eq.${userId}` },
-        (payload) => {
-          const row = payload.new as { passport_status?: string; manually_verified?: boolean; payment_tier?: string | null; profile_photo?: string | null };
-          if (row.passport_status !== undefined) setPassportStatus(row.passport_status);
-          // Pick up payment_tier changes pushed by the Stripe webhook (no page refresh needed).
-          if (row.payment_tier !== undefined) {
-            setPaymentTier(row.payment_tier ?? null);
-            // Notify the navbar so the upgrade modal / Starter card hides
-            // immediately without waiting for a page reload.
-            window.dispatchEvent(new CustomEvent("bv-payment-tier-changed", { detail: { tier: row.payment_tier ?? null } }));
-          }
-          // Live profile photo updates — fired when the supreme admin (or
-          // the user themselves elsewhere) swaps the photo. The navbar
-          // ProfileIcon listens to this event and refreshes its avatar.
-          if (row.profile_photo !== undefined) {
-            window.dispatchEvent(new CustomEvent("bv-profile-photo-changed", { detail: { photo: row.profile_photo ?? null } }));
-          }
-          // Fire celebration the instant admin flips manually_verified to true.
-          if (row.manually_verified !== undefined) {
-            setManuallyVerified(!!row.manually_verified);
-          }
-          if (row.manually_verified === true) {
-            // Notify the navbar ProfileIcon so the badge appears immediately.
-            window.dispatchEvent(new CustomEvent("bv-verified-changed"));
-            try {
-              if (!localStorage.getItem(`bv-verified-celebrated-${userId}`)) {
-                setShowCelebration(true);
-              }
-            } catch { /* private mode */ }
-          }
-        },
-      )
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [userId]);
 
   // Realtime: LIVE documents — the instant an admin/sub-admin approves,
   // rejects, requests, or uploads-on-behalf (or the candidate uploads on
@@ -997,6 +956,34 @@ export default function DashboardPage() {
           // passport_status is admin-driven — always honor it.
           if (typeof row.passport_status === "string" || row.passport_status === null) {
             setPassportStatus(row.passport_status ?? null);
+          }
+          // ── Merged in from the old `profile-status-${userId}` channel ──────
+          // That was a SECOND postgres_changes subscription on this same table
+          // with this same filter, so every profile update woke two websockets
+          // and two handlers raced to set passport_status. One channel now
+          // carries both jobs.
+          //
+          // These live ABOVE the local-edit guard below on purpose: the guard
+          // exists to stop an in-flight echo reverting a checkbox the candidate
+          // just toggled, and it must not also swallow an admin flipping her to
+          // verified or a payment landing. That ordering is the whole reason the
+          // first attempt at this merge was reverted.
+          const meta = row as {
+            manually_verified?: boolean; payment_tier?: string | null; profile_photo?: string | null;
+          };
+          if (meta.payment_tier !== undefined) {
+            setPaymentTier(meta.payment_tier ?? null);
+            window.dispatchEvent(new CustomEvent("bv-payment-tier-changed", { detail: { tier: meta.payment_tier ?? null } }));
+          }
+          if (meta.profile_photo !== undefined) {
+            window.dispatchEvent(new CustomEvent("bv-profile-photo-changed", { detail: { photo: meta.profile_photo ?? null } }));
+          }
+          if (meta.manually_verified !== undefined) setManuallyVerified(!!meta.manually_verified);
+          if (meta.manually_verified === true) {
+            window.dispatchEvent(new CustomEvent("bv-verified-changed"));
+            try {
+              if (!localStorage.getItem(`bv-verified-celebrated-${userId}`)) setShowCelebration(true);
+            } catch { /* private mode */ }
           }
           // Guard: if the user just edited locally (typed / toggled a box),
           // skip the field + checkbox patch for a short window so an

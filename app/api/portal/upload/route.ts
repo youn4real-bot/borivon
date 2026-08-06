@@ -497,9 +497,23 @@ function parseVIZ(ocrText: string): {
     // e.g. "/MAR" alone — just clear it
     address_street = "";
   } else {
-    // Normal: first line = street, second line = "CITY /COUNTRY"
+    // Normal: first line = street, second line = "CITY /COUNTRY".
+    //
+    // That contract was written in this comment but never enforced: the code
+    // took whatever the next line happened to be. On a Moroccan passport the
+    // residence is usually ONE line ("LOT SOCOMA NO 1588 MARRAKECH /MAR"), so
+    // "the next line" was frequently the Nationalité or Autorité row instead —
+    // which is how "Marocaine" and "PROVINCE D'OUARZAZATE" ended up stored as
+    // cities of residence, and why one candidate's own first name did too.
+    //
+    // The "/COUNTRY" marker is what makes a line a city line. Without it we do
+    // not know what we are looking at, so we store nothing and the confirmation
+    // step asks. A blank field gets filled in; a wrong one gets ticked and
+    // printed on a visa form.
     const rawCityLine = addrFiltered[1] ?? "";
-    city_of_residence = rawCityLine ? rawCityLine.split(/\s*[\/\\]\s*/)[0].trim() : "";
+    city_of_residence = /[\/\\]\s*[A-Za-z]{2,}\s*$/.test(rawCityLine)
+      ? rawCityLine.split(/\s*[\/\\]\s*/)[0].trim()
+      : "";
   }
 
   // Sanitize city_of_residence: strip digits, keep only letters/spaces/hyphens, discard if < 3 chars

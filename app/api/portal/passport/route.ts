@@ -3,6 +3,7 @@ import { getServiceSupabase, getAnonVerifyClient } from "@/lib/supabase";
 import { uploadPassportPdfToDrive } from "@/lib/passport-pdf";
 import { enforceRateLimit } from "@/lib/rateLimit";
 import { normalizeSex } from "@/lib/sex";
+import { natToLang } from "@/lib/countries";
 import { keepAlive } from "@/lib/keepAlive";
 
 // DD.MM.YYYY → YYYY-MM-DD for Postgres date columns
@@ -126,18 +127,18 @@ export async function POST(req: NextRequest) {
   // Convert ISO code or display name → German adjective for nationality
   const natKey = nationality?.trim().toUpperCase() ?? "";
   const nationalityDe = NATIONALITY_DE[natKey] ?? nationality ?? null;
-  // Convert ISO code → German country name for country_of_birth
-  const COUNTRY_NAME_DE: Record<string, string> = {
-    MAR: "Marokko", DZA: "Algerien", TUN: "Tunesien", EGY: "Ägypten",
-    LBY: "Libyen", SYR: "Syrien", LBN: "Libanon", JOR: "Jordanien",
-    FRA: "Frankreich", DEU: "Deutschland", ESP: "Spanien", ITA: "Italien",
-    GBR: "Vereinigtes Königreich", TUR: "Türkei", SEN: "Senegal",
-    NGA: "Nigeria", GHA: "Ghana", MLI: "Mali", PSE: "Palästina",
-    IRQ: "Irak", IRN: "Iran", PAK: "Pakistan", IND: "Indien",
-    PHL: "Philippinen", MRT: "Mauretanien",
-  };
-  const countryKey = country_of_birth?.trim().toUpperCase() ?? "";
-  const countryDe = COUNTRY_NAME_DE[countryKey] ?? country_of_birth ?? null;
+
+  // Countries are STORED as their German name, never as a raw ISO code.
+  //
+  // This used to compute countryDe and then hand it only to the Drive PDF, while
+  // writing the raw value to the database. 59 rows ended up holding "MAR" — and
+  // every German-facing surface that reads the column straight (the CV, the visa
+  // forms, the employer dossier) printed the three-letter code at a Bundesamt
+  // instead of "Marokko". natToLang replaces the hand-maintained lookup that sat
+  // here: it is the same table lib/countries.ts already uses everywhere else, so
+  // the two can no longer drift, and it accepts a code OR a name in any language.
+  const toDe = (v: string | null | undefined) => (v ? (natToLang(v, "de") || v) : null);
+  const countryDe = toDe(country_of_birth);
   // Normalize sex to canonical "M"/"F" from ANY language (Female/Femme/Weiblich/
   // W/…) so every downstream reader (gendered CV title, salutations) is correct.
   const canonicalSex = normalizeSex(sex);
@@ -148,9 +149,9 @@ export async function POST(req: NextRequest) {
     last_name:         last_name         || null,
     dob:               toIso(dob),
     sex:               canonicalSex,
-    nationality:       nationality        || null,
+    nationality:       nationalityDe      || null,
     city_of_birth:     city_of_birth      || null,
-    country_of_birth:  country_of_birth   || null,
+    country_of_birth:  countryDe          || null,
     passport_no:       passport_no       || null,
     passport_expiry:   toIso(passport_expiry),
     issuing_authority: issuing_authority || null,
@@ -159,7 +160,7 @@ export async function POST(req: NextRequest) {
     address_number:      address_number      || null,
     address_postal:      address_postal      || null,
     city_of_residence:   city_of_residence   || null,
-    country_of_residence: country_of_residence || null,
+    country_of_residence: toDe(country_of_residence) || null,
     marital_status:       marital_status || null,
     children_ages:        children_ages  || null,
     passport_confirmed_fields: confirmedFields,
@@ -185,7 +186,7 @@ export async function POST(req: NextRequest) {
           last_name: last_name || null,
           dob: toIso(dob),
           sex: canonicalSex,
-          nationality: nationality || null,
+          nationality: nationalityDe || null,
           passport_no: passport_no || null,
           passport_expiry: toIso(passport_expiry),
         };
