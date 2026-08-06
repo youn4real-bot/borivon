@@ -2043,7 +2043,15 @@ function CVBuilderInner() {
   const serverSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [userId, setUserId]       = useState<string | null>(null);
-  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  // True when the viewer may override the passport-LOCKED CV fields (name, date
+  // of birth, birthplace, nationality, address). Borivon team: the supreme admin
+  // and the company's own sub-admins. Opened up from supreme-only at the
+  // founder's explicit request — his staff place candidates end to end, and a
+  // locked field they could not correct sent every typo back to him. Agencies
+  // never get it. The server already permitted the write (admin/cv-draft is
+  // gated by canActOnCandidate with no field whitelist), so this was only ever
+  // a UI gate.
+  const [canOverrideLocked, setCanOverrideLocked] = useState(false);
   const [loading, setLoading]     = useState(true);
   const [cvData, setCvData]       = useState<CVData>(() => makeCVData());
 
@@ -2817,10 +2825,15 @@ function CVBuilderInner() {
       // Admin editing a candidate's CV — skip role check + passport gate
       if (adminCandidateId) {
         setPassportStatus("approved");
-        // Check if the editing admin is the supreme admin (unlocks locked fields)
+        // May this viewer override the passport-locked fields? Borivon team yes,
+        // agencies no — the same predicate used everywhere else.
         fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${session.access_token}` } })
           .then(r => r.ok ? r.json() : null)
-          .then(j => { if (j?.isSuperAdmin) setIsSuperAdmin(true); })
+          .then(j => {
+            if (j?.role === "admin" || (j?.role === "sub_admin" && !j?.isAgencyAdmin)) {
+              setCanOverrideLocked(true);
+            }
+          })
           .catch(() => {});
 
         const serverDraft = await fetch(
@@ -3842,46 +3855,46 @@ function CVBuilderInner() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
             <div>
               <Label required>{t.cvb_firstName}</Label>
-              <LockedField value={cvData.firstName} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("firstName")} onChange={isSuperAdmin && adminCandidateId ? v => set("firstName", v) : undefined} />
+              <LockedField value={cvData.firstName} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("firstName")} onChange={canOverrideLocked && adminCandidateId ? v => set("firstName", v) : undefined} />
             </div>
             <div>
               <Label required>{t.cvb_lastName}</Label>
-              <LockedField value={cvData.lastName} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("lastName")} onChange={isSuperAdmin && adminCandidateId ? v => set("lastName", v) : undefined} />
+              <LockedField value={cvData.lastName} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("lastName")} onChange={canOverrideLocked && adminCandidateId ? v => set("lastName", v) : undefined} />
             </div>
             <div>
               <Label required>{t.cvb_birthDate}</Label>
-              <LockedField value={cvData.birthDate} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("birthDate")} onChange={isSuperAdmin && adminCandidateId ? v => set("birthDate", v) : undefined} />
+              <LockedField value={cvData.birthDate} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("birthDate")} onChange={canOverrideLocked && adminCandidateId ? v => set("birthDate", v) : undefined} />
             </div>
             <div>
               <Label required>{t.cvb_birthPlace}</Label>
-              <LockedField value={cvData.birthPlace} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("birthPlace")} onChange={isSuperAdmin && adminCandidateId ? v => set("birthPlace", v) : undefined} />
+              <LockedField value={cvData.birthPlace} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("birthPlace")} onChange={canOverrideLocked && adminCandidateId ? v => set("birthPlace", v) : undefined} />
             </div>
             {/* Country of birth (left) | Nationality (right) */}
             <div>
               <Label>{lang === "de" ? "Geburtsland" : lang === "en" ? "Country of birth" : "Pays de naissance"}</Label>
               <LockedField
-                value={isSuperAdmin && adminCandidateId ? (cvData.countryOfBirth || "") : (() => {
+                value={canOverrideLocked && adminCandidateId ? (cvData.countryOfBirth || "") : (() => {
                   const found = Object.entries(COUNTRY_MAP).find(([,n]) => n.de === cvData.countryOfBirth);
                   return found ? (found[1][lang as "fr"|"en"|"de"] ?? found[1].de) : (cvData.countryOfBirth || "");
                 })()}
-                displayFlag={isSuperAdmin && adminCandidateId ? undefined : (() => {
+                displayFlag={canOverrideLocked && adminCandidateId ? undefined : (() => {
                   const found = Object.entries(COUNTRY_MAP).find(([,n]) => n.de === cvData.countryOfBirth);
                   if (!found) return undefined;
                   const iso2 = ISO3_TO_ISO2[found[0]];
                   return iso2 ? { iso2 } : undefined;
                 })()}
                 onLockedClick={showLocked} passportStatus={passportStatus}
-                onChange={isSuperAdmin && adminCandidateId ? v => set("countryOfBirth", v) : undefined}
+                onChange={canOverrideLocked && adminCandidateId ? v => set("countryOfBirth", v) : undefined}
               />
             </div>
             <div>
               <Label>{t.cvb_nationality}</Label>
               <LockedField
-                value={isSuperAdmin && adminCandidateId ? (cvData.nationality || "") : (() => {
+                value={canOverrideLocked && adminCandidateId ? (cvData.nationality || "") : (() => {
                   const found = Object.entries(COUNTRY_MAP).find(([,n]) => n.de === cvData.nationality);
                   return found ? (found[1][lang as "fr"|"en"|"de"] ?? found[1].de) : (cvData.nationality || "");
                 })()}
-                displayFlag={isSuperAdmin && adminCandidateId ? undefined : (() => {
+                displayFlag={canOverrideLocked && adminCandidateId ? undefined : (() => {
                   const found = Object.entries(COUNTRY_MAP).find(([,n]) => n.de === cvData.nationality);
                   if (!found) return undefined;
                   const iso2 = ISO3_TO_ISO2[found[0]];
@@ -3889,7 +3902,7 @@ function CVBuilderInner() {
                 })()}
                 onLockedClick={showLocked} passportStatus={passportStatus}
                 hasError={validationErrors.has("nationality")}
-                onChange={isSuperAdmin && adminCandidateId ? v => set("nationality", v) : undefined}
+                onChange={canOverrideLocked && adminCandidateId ? v => set("nationality", v) : undefined}
               />
             </div>
             {/* Additional nationalities — only available once the passport
@@ -3949,32 +3962,32 @@ function CVBuilderInner() {
             {/* Address (left) | Postal code (right) */}
             <div>
               <Label>{t.cvb_address}</Label>
-              <LockedField value={cvData.address} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("address")} onChange={isSuperAdmin && adminCandidateId ? v => set("address", v) : undefined} />
+              <LockedField value={cvData.address} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("address")} onChange={canOverrideLocked && adminCandidateId ? v => set("address", v) : undefined} />
             </div>
             <div>
               <Label>{t.cvb_postalCode}</Label>
-              <LockedField value={cvData.postalCode} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("postalCode")} onChange={isSuperAdmin && adminCandidateId ? v => set("postalCode", v) : undefined} />
+              <LockedField value={cvData.postalCode} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("postalCode")} onChange={canOverrideLocked && adminCandidateId ? v => set("postalCode", v) : undefined} />
             </div>
             {/* City of residence (left) | Country of residence (right) */}
             <div>
               <Label>{lang === "de" ? "Wohnort" : lang === "en" ? "City of residence" : "Ville de résidence"}</Label>
-              <LockedField value={cvData.city} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("city")} onChange={isSuperAdmin && adminCandidateId ? v => set("city", v) : undefined} />
+              <LockedField value={cvData.city} onLockedClick={showLocked} passportStatus={passportStatus} hasError={validationErrors.has("city")} onChange={canOverrideLocked && adminCandidateId ? v => set("city", v) : undefined} />
             </div>
             <div>
               <Label>{lang === "de" ? "Wohnsitzland" : lang === "en" ? "Country of residence" : "Pays de résidence"}</Label>
               <LockedField
-                value={isSuperAdmin && adminCandidateId ? (cvData.countryOfResidence || "") : (() => {
+                value={canOverrideLocked && adminCandidateId ? (cvData.countryOfResidence || "") : (() => {
                   const found = Object.entries(COUNTRY_MAP).find(([,n]) => n.de === cvData.countryOfResidence);
                   return found ? (found[1][lang as "fr"|"en"|"de"] ?? found[1].de) : (cvData.countryOfResidence || "");
                 })()}
-                displayFlag={isSuperAdmin && adminCandidateId ? undefined : (() => {
+                displayFlag={canOverrideLocked && adminCandidateId ? undefined : (() => {
                   const found = Object.entries(COUNTRY_MAP).find(([,n]) => n.de === cvData.countryOfResidence);
                   if (!found) return undefined;
                   const iso2 = ISO3_TO_ISO2[found[0]];
                   return iso2 ? { iso2 } : undefined;
                 })()}
                 onLockedClick={showLocked} passportStatus={passportStatus}
-                onChange={isSuperAdmin && adminCandidateId ? v => set("countryOfResidence", v) : undefined}
+                onChange={canOverrideLocked && adminCandidateId ? v => set("countryOfResidence", v) : undefined}
               />
             </div>
             {/* Phone (left) | Email (right) */}
