@@ -194,7 +194,7 @@ export function ProfileIcon() {
   // route only loads its bundle — it doesn't bypass any auth gate (LAW #1).
   useEffect(() => {
     if (!open || !user?.isAdmin) return;
-    const routes = ["/portal/admin", "/portal/admin/pipeline", "/portal/admin/progress", "/portal/admin/b2-status", "/portal/admin/leads", "/portal/admin/expiry"];
+    const routes = ["/portal/admin", "/portal/admin/pipeline", "/portal/admin/progress", "/portal/admin/b2-status", "/portal/admin/leads", "/portal/admin/expiry", "/portal/admin/chase"];
     if (!user.isOrgAdmin) routes.push("/portal/admin/bookings");
     if (!user.isOrgAdmin) routes.push("/portal/admin/organizations", "/portal/admin/employers");
     if (user.isSuperAdmin) routes.push("/portal/admin/manage", "/portal/admin/online-courses", "/portal/admin/academy", "/portal/admin/batches");
@@ -711,6 +711,22 @@ export function ProfileIcon() {
                     {lang === "fr" ? "Classe en direct" : lang === "de" ? "Live-Klassenzimmer" : "Live classroom"}
                   </button>
                   </>)}
+                  {/* Chase list — who is waiting on something, with a one-tap
+                      WhatsApp per person. Sits directly above the expiry radar
+                      because an expiring passport is one of the things it
+                      chases; the radar stays as the full date view. */}
+                  <button
+                    onClick={() => { setOpen(false); router.push("/portal/admin/chase"); }}
+                    className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
+                    style={{ color: "var(--w2)", borderRadius: "var(--r-sm)" }}
+                    onMouseEnter={e => { e.currentTarget.style.background = "var(--bg2)"; e.currentTarget.style.color = "var(--w)"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "var(--w2)"; }}
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+                    </svg>
+                    {lang === "fr" ? "À relancer" : lang === "de" ? "Nachfassliste" : "Chase list"}
+                  </button>
                   <button
                     onClick={() => { setOpen(false); router.push("/portal/admin/expiry"); }}
                     className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"

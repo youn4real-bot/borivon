@@ -1,0 +1,200 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase";
+import { useLang } from "@/components/LangContext";
+import { PageLoader } from "@/components/ui/states";
+import { ArrowLeft, RefreshCw, MessageCircle, Copy, Check, PhoneOff } from "lucide-react";
+
+type Reason = "passport_expired" | "passport_expiring" | "id_card_not_passport" | "doc_rejected" | "stalled";
+type Row = {
+  userId: string; name: string; reason: Reason; detail: string; urgency: number;
+  placementReady: boolean; phone: string | null; lang: string; message: string; waLink: string;
+};
+
+// Colour carries the urgency, the way status does everywhere else (LAW #4).
+const TONE: Record<Reason, { fg: string; bg: string; bd: string }> = {
+  id_card_not_passport: { fg: "var(--danger)",  bg: "var(--danger-bg)",  bd: "var(--danger-border)" },
+  passport_expired:     { fg: "var(--danger)",  bg: "var(--danger-bg)",  bd: "var(--danger-border)" },
+  passport_expiring:    { fg: "var(--gold)",    bg: "var(--gdim)",       bd: "var(--border-gold)" },
+  doc_rejected:         { fg: "var(--gold)",    bg: "var(--gdim)",       bd: "var(--border-gold)" },
+  stalled:              { fg: "var(--w2)",      bg: "var(--bg2)",        bd: "var(--border)" },
+};
+
+export default function ChasePage() {
+  const router = useRouter();
+  const { lang } = useLang();
+  const T = (en: string, de: string, fr: string) => (lang === "de" ? de : lang === "fr" ? fr : en);
+
+  const [loading, setLoading] = useState(true);
+  const [token, setToken] = useState("");
+  const [rows, setRows] = useState<Row[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
+  // Default to "needs action", NOT everything. On the real roster "gone quiet"
+  // is 37 of 54 people — a true fact, but if it shares one list with the 17 who
+  // have a concrete blocker (wrong document, expired passport) it buries them,
+  // and a list where two thirds is one bucket stops being a to-do list. Quiet
+  // candidates get their own chip, one tap away.
+  const [filter, setFilter] = useState<Reason | "all" | "action">("action");
+
+  const REASON_LABEL: Record<Reason, string> = {
+    id_card_not_passport: T("Sent an ID card, not a passport", "Personalausweis statt Reisepass", "A envoyé une carte d'identité, pas un passeport"),
+    passport_expired:     T("Passport expired", "Reisepass abgelaufen", "Passeport expiré"),
+    passport_expiring:    T("Passport expiring", "Reisepass läuft ab", "Passeport bientôt expiré"),
+    doc_rejected:         T("Document refused, not re-sent", "Dokument abgelehnt, nicht neu geschickt", "Document refusé, non renvoyé"),
+    stalled:              T("Gone quiet", "Keine Reaktion", "Sans nouvelles"),
+  };
+
+  async function load(tk: string) {
+    setBusy(true);
+    try {
+      const r = await fetch("/api/portal/admin/chase", { headers: { Authorization: `Bearer ${tk}` } });
+      const j = await r.json().catch(() => ({}));
+      setRows(Array.isArray(j?.rows) ? j.rows : []);
+    } finally { setBusy(false); }
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) { router.replace("/portal"); return; }
+      const tk = session.access_token ?? "";
+      if (cancelled) return;
+      setToken(tk);
+      // Borivon team + agency admins. The API scopes what each one sees.
+      const roleRes = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${tk}` } });
+      const rj = await roleRes.json().catch(() => ({}));
+      if (rj?.role !== "admin" && rj?.role !== "sub_admin") { router.replace("/portal"); return; }
+      await load(tk);
+      if (!cancelled) setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [router]);
+
+  if (loading) return <PageLoader />;
+
+  const shown = filter === "all" ? rows
+    : filter === "action" ? rows.filter(r => r.reason !== "stalled")
+    : rows.filter(r => r.reason === filter);
+  const counts = rows.reduce<Record<string, number>>((a, r) => { a[r.reason] = (a[r.reason] ?? 0) + 1; return a; }, {});
+  const actionCount = rows.filter(r => r.reason !== "stalled").length;
+
+  async function copy(r: Row) {
+    try {
+      await navigator.clipboard.writeText(r.message);
+      setCopied(r.userId);
+      setTimeout(() => setCopied(c => (c === r.userId ? null : c)), 1800);
+    } catch { /* clipboard blocked — the WhatsApp button still carries the text */ }
+  }
+
+  return (
+    <main id="main" className="max-w-3xl mx-auto px-4 py-6">
+      <div className="flex items-center gap-2 mb-1">
+        <button onClick={() => router.push("/portal/admin")} aria-label={T("Back", "Zurück", "Retour")}
+          className="w-9 h-9 flex items-center justify-center rounded-full" style={{ color: "var(--w2)" }}>
+          <ArrowLeft size={17} />
+        </button>
+        <h1 className="text-[19px] font-bold" style={{ color: "var(--w)" }}>
+          {T("Chase list", "Nachfassliste", "À relancer")}
+        </h1>
+        <button onClick={() => token && load(token)} disabled={busy} aria-label={T("Refresh", "Aktualisieren", "Actualiser")}
+          className="ml-auto w-9 h-9 flex items-center justify-center rounded-full disabled:opacity-40" style={{ color: "var(--w2)" }}>
+          <RefreshCw size={15} className={busy ? "animate-spin" : ""} />
+        </button>
+      </div>
+
+      <p className="text-[12px] mb-4" style={{ color: "var(--w3)" }}>
+        {T("Everyone waiting on something, most urgent first. Tap WhatsApp — the message is already written in her language; you just press send.",
+           "Alle, bei denen etwas offen ist, dringendste zuerst. Auf WhatsApp tippen — die Nachricht ist bereits in ihrer Sprache verfasst, du drückst nur auf Senden.",
+           "Toutes celles en attente de quelque chose, les plus urgentes d'abord. Touchez WhatsApp — le message est déjà rédigé dans sa langue, vous n'avez qu'à l'envoyer.")}
+      </p>
+
+      <div className="flex flex-wrap gap-1.5 mb-4">
+        {([
+          ["action", T("Needs action", "Zu erledigen", "À traiter"), actionCount],
+          ...(Object.keys(REASON_LABEL) as Reason[]).map(k => [k, REASON_LABEL[k], counts[k] ?? 0] as const),
+          ["all", T("Everyone", "Alle", "Tout le monde"), rows.length],
+        ] as [Reason | "all" | "action", string, number][])
+          .filter(([, , n]) => n > 0)
+          .map(([k, label, n]) => (
+            <button key={k} onClick={() => setFilter(k)}
+              className="px-3 py-1.5 rounded-full text-[11.5px] font-semibold transition-opacity hover:opacity-80"
+              style={filter === k
+                ? { background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }
+                : { background: "var(--card)", color: "var(--w2)", border: "1px solid var(--border)" }}>
+              {label} {n}
+            </button>
+          ))}
+      </div>
+
+      {shown.length === 0 && (
+        <div className="rounded-2xl p-6 text-center" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+          <p className="text-[13px]" style={{ color: "var(--w2)" }}>
+            {T("Nobody is waiting on you. ", "Niemand wartet auf dich. ", "Personne n'attend après vous. ")}
+          </p>
+        </div>
+      )}
+
+      <div className="space-y-2.5">
+        {shown.map(r => {
+          const tone = TONE[r.reason];
+          return (
+            <div key={r.userId + r.reason} className="rounded-2xl p-3.5"
+              style={{ background: "var(--card)", border: `1px solid ${tone.bd}` }}>
+              <div className="flex items-start gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button onClick={() => router.push(`/portal/admin?candidate=${r.userId}`)}
+                      className="text-[14px] font-bold text-left hover:underline" style={{ color: "var(--w)" }}>
+                      {r.name}
+                    </button>
+                    {r.placementReady && (
+                      <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded"
+                        style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>
+                        {T("MARKED READY", "ALS BEREIT MARKIERT", "MARQUÉE PRÊTE")}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11.5px] mt-0.5 font-semibold" style={{ color: tone.fg }}>{REASON_LABEL[r.reason]}</p>
+                  <p className="text-[11px] mt-0.5" style={{ color: "var(--w3)" }}>{r.detail}</p>
+                </div>
+
+                <div className="flex flex-col gap-1.5 flex-shrink-0">
+                  {r.waLink ? (
+                    <a href={r.waLink} target="_blank" rel="noopener noreferrer"
+                      className="min-h-[44px] px-3 rounded-xl text-[12px] font-semibold flex items-center gap-1.5 transition-opacity hover:opacity-85"
+                      style={{ background: "#25D366", color: "#06251A" }}>
+                      <MessageCircle size={14} strokeWidth={2.2} /> WhatsApp
+                    </a>
+                  ) : (
+                    <span className="min-h-[44px] px-3 rounded-xl text-[11px] font-medium flex items-center gap-1.5"
+                      style={{ background: "var(--bg2)", color: "var(--w3)", border: "1px solid var(--border)" }}
+                      title={T("No usable phone number on file", "Keine brauchbare Telefonnummer hinterlegt", "Aucun numéro utilisable au dossier")}>
+                      <PhoneOff size={13} /> {T("No number", "Keine Nummer", "Pas de numéro")}
+                    </span>
+                  )}
+                  <button onClick={() => copy(r)}
+                    className="min-h-[36px] px-3 rounded-xl text-[11px] font-medium flex items-center justify-center gap-1.5 transition-opacity hover:opacity-80"
+                    style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>
+                    {copied === r.userId ? <><Check size={12} /> {T("Copied", "Kopiert", "Copié")}</> : <><Copy size={12} /> {T("Copy text", "Text kopieren", "Copier")}</>}
+                  </button>
+                </div>
+              </div>
+
+              <details className="mt-2">
+                <summary className="text-[11px] cursor-pointer select-none" style={{ color: "var(--w3)" }}>
+                  {T("See the message", "Nachricht ansehen", "Voir le message")}
+                </summary>
+                <pre className="mt-1.5 text-[11px] whitespace-pre-wrap font-sans rounded-xl p-2.5"
+                  style={{ background: "var(--bg2)", color: "var(--w2)", border: "1px solid var(--border)" }}>{r.message}</pre>
+              </details>
+            </div>
+          );
+        })}
+      </div>
+    </main>
+  );
+}
