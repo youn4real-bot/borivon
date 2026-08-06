@@ -11,6 +11,7 @@ type Reason = "passport_expired" | "passport_expiring" | "id_card_not_passport" 
 type Row = {
   userId: string; name: string; reason: Reason; detail: string; urgency: number;
   placementReady: boolean; phone: string | null; lang: string; message: string; waLink: string;
+  batch: string | null;
 };
 
 // Colour carries the urgency, the way status does everywhere else (LAW #4).
@@ -32,12 +33,12 @@ export default function ChasePage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
-  // Default to "needs action", NOT everything. On the real roster "gone quiet"
-  // is 37 of 54 people — a true fact, but if it shares one list with the 17 who
-  // have a concrete blocker (wrong document, expired passport) it buries them,
-  // and a list where two thirds is one bucket stops being a to-do list. Quiet
-  // candidates get their own chip, one tap away.
-  const [filter, setFilter] = useState<Reason | "all" | "action">("action");
+  // Default to IN A BATCH. The founder chases the intake, not the roster: a
+  // candidate with no batch has no seat to be late for, so putting them in the
+  // same list as someone holding up UKSH Kiel is what made the first version
+  // unusable. Everyone else stays one tap away rather than hidden — a real
+  // blocker on an unbatched candidate should still be findable.
+  const [filter, setFilter] = useState<Reason | "all" | "action" | "batch">("batch");
 
   const REASON_LABEL: Record<Reason, string> = {
     id_card_not_passport: T("Sent an ID card, not a passport", "Personalausweis statt Reisepass", "A envoyé une carte d'identité, pas un passeport"),
@@ -77,10 +78,12 @@ export default function ChasePage() {
   if (loading) return <PageLoader />;
 
   const shown = filter === "all" ? rows
+    : filter === "batch" ? rows.filter(r => r.batch)
     : filter === "action" ? rows.filter(r => r.reason !== "stalled")
     : rows.filter(r => r.reason === filter);
   const counts = rows.reduce<Record<string, number>>((a, r) => { a[r.reason] = (a[r.reason] ?? 0) + 1; return a; }, {});
   const actionCount = rows.filter(r => r.reason !== "stalled").length;
+  const batchCount = rows.filter(r => r.batch).length;
 
   async function copy(r: Row) {
     try {
@@ -107,17 +110,18 @@ export default function ChasePage() {
       </div>
 
       <p className="text-[12px] mb-4" style={{ color: "var(--w3)" }}>
-        {T("Everyone waiting on something, most urgent first. Tap WhatsApp — the message is already written in her language; you just press send.",
-           "Alle, bei denen etwas offen ist, dringendste zuerst. Auf WhatsApp tippen — die Nachricht ist bereits in ihrer Sprache verfasst, du drückst nur auf Senden.",
-           "Toutes celles en attente de quelque chose, les plus urgentes d'abord. Touchez WhatsApp — le message est déjà rédigé dans sa langue, vous n'avez qu'à l'envoyer.")}
+        {T("Candidates in an employer batch who are holding something up, most urgent first. Tap WhatsApp — the message is already written in her language; you just press send.",
+           "Kandidatinnen in einem Arbeitgeber-Batch, bei denen etwas offen ist, dringendste zuerst. Auf WhatsApp tippen — die Nachricht ist bereits in ihrer Sprache verfasst, du drückst nur auf Senden.",
+           "Candidates d'un lot employeur qui bloquent quelque chose, les plus urgentes d'abord. Touchez WhatsApp — le message est déjà rédigé dans sa langue, vous n'avez qu'à l'envoyer.")}
       </p>
 
       <div className="flex flex-wrap gap-1.5 mb-4">
         {([
+          ["batch",  T("In a batch", "Im Batch", "Dans un lot"), batchCount],
           ["action", T("Needs action", "Zu erledigen", "À traiter"), actionCount],
           ...(Object.keys(REASON_LABEL) as Reason[]).map(k => [k, REASON_LABEL[k], counts[k] ?? 0] as const),
           ["all", T("Everyone", "Alle", "Tout le monde"), rows.length],
-        ] as [Reason | "all" | "action", string, number][])
+        ] as [Reason | "all" | "action" | "batch", string, number][])
           .filter(([, , n]) => n > 0)
           .map(([k, label, n]) => (
             <button key={k} onClick={() => setFilter(k)}
@@ -151,6 +155,12 @@ export default function ChasePage() {
                       className="text-[14px] font-bold text-left hover:underline" style={{ color: "var(--w)" }}>
                       {r.name}
                     </button>
+                    {r.batch && (
+                      <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded"
+                        style={{ background: "var(--gdim)", color: "var(--gold)", border: "1px solid var(--border-gold)" }}>
+                        {r.batch}
+                      </span>
+                    )}
                     {r.placementReady && (
                       <span className="text-[9.5px] font-bold px-1.5 py-0.5 rounded"
                         style={{ background: "var(--danger-bg)", color: "var(--danger)", border: "1px solid var(--danger-border)" }}>

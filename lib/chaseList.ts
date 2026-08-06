@@ -35,6 +35,16 @@ export type ChaseRow = {
   days?: number;
   docType?: string;
   placementReady: boolean;
+  /**
+   * The employer intake this candidate is assigned to, or null.
+   *
+   * The founder chases the batch, not the roster: someone with no intake date has
+   * nothing to be late for, so nagging them is noise that buries the people who
+   * are actually holding up a seat at UKSH. 17 of the 78 are in a batch. The list
+   * still computes everyone — hiding a real blocker completely would be worse —
+   * but the batch is what it leads with.
+   */
+  batch: string | null;
 };
 
 function parseDate(raw: string | null | undefined): number | null {
@@ -65,6 +75,23 @@ export async function computeChaseList(now = Date.now()): Promise<ChaseRow[]> {
     .order("uploaded_at", { ascending: false });
   const docs = (docsRaw ?? []) as Record<string, unknown>[];
 
+  // Which employer intake each candidate is assigned to. Schema-tolerant: if the
+  // employer_batches migration has not been run, every row simply comes back with
+  // batch=null and the page still works — it must never return an empty list
+  // because a column is missing.
+  const batchOf = new Map<string, string>();
+  {
+    const { data: pipe } = await db.from("candidate_pipeline").select("user_id, batch_id");
+    const ids = [...new Set(((pipe ?? []) as { batch_id: string | null }[]).map(r => r.batch_id).filter(Boolean))] as string[];
+    if (ids.length) {
+      const { data: batches } = await db.from("employer_batches").select("id, name").in("id", ids);
+      const nameOf = new Map(((batches ?? []) as { id: string; name: string }[]).map(b => [b.id, b.name]));
+      for (const r of (pipe ?? []) as { user_id: string; batch_id: string | null }[]) {
+        if (r.batch_id && nameOf.has(r.batch_id)) batchOf.set(r.user_id, nameOf.get(r.batch_id)!);
+      }
+    }
+  }
+
   // Newest LIVE document per candidate — archived rows are not evidence (LAW #33).
   const latestDoc = new Map<string, { status: string | null; type: string | null; at: number | null }>();
   for (const d of docs) {
@@ -90,6 +117,7 @@ export async function computeChaseList(now = Date.now()): Promise<ChaseRow[]> {
       phone: (p.phone as string) ?? null,
       lang: (p.lang as string) ?? null,
       placementReady: p.placement_ready === true,
+      batch: batchOf.get(userId) ?? null,
     };
 
     // 1 — She sent a national ID card instead of a passport. Highest priority:
@@ -135,6 +163,12 @@ export async function computeChaseList(now = Date.now()): Promise<ChaseRow[]> {
     }
   }
 
-  out.sort((a, b) => a.urgency - b.urgency || (a.days ?? 0) - (b.days ?? 0) || a.name.localeCompare(b.name));
+  // Batch members first, then by urgency. Someone holding up a seat at UKSH
+  // outranks an equally-urgent problem on a candidate with no intake date.
+  out.sort((a, b) =>
+    (a.batch ? 0 : 1) - (b.batch ? 0 : 1) ||
+    a.urgency - b.urgency ||
+    (a.days ?? 0) - (b.days ?? 0) ||
+    a.name.localeCompare(b.name));
   return out;
 }

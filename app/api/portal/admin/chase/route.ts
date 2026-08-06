@@ -42,6 +42,7 @@ export async function GET(req: NextRequest) {
       detail: r.detail,
       urgency: r.urgency,
       placementReady: r.placementReady,
+      batch: r.batch,
       phone: r.phone,
       lang,
       message,
