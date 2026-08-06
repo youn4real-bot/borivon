@@ -196,7 +196,8 @@ export function ProfileIcon() {
     if (!open || !user?.isAdmin) return;
     const routes = ["/portal/admin", "/portal/admin/pipeline", "/portal/admin/progress", "/portal/admin/b2-status", "/portal/admin/leads", "/portal/admin/expiry"];
     if (!user.isOrgAdmin) routes.push("/portal/admin/bookings");
-    if (user.isSuperAdmin) routes.push("/portal/admin/organizations", "/portal/admin/manage", "/portal/admin/employers", "/portal/admin/online-courses", "/portal/admin/academy", "/portal/admin/batches");
+    if (!user.isOrgAdmin) routes.push("/portal/admin/organizations", "/portal/admin/employers");
+    if (user.isSuperAdmin) routes.push("/portal/admin/manage", "/portal/admin/online-courses", "/portal/admin/academy", "/portal/admin/batches");
     for (const r of routes) { try { router.prefetch(r); } catch { /* ignore */ } }
   }, [open, user, router]);
 
@@ -683,10 +684,20 @@ export function ProfileIcon() {
                   {lang === "fr" ? "Lots" : lang === "de" ? "Batches" : "Batches"}
                 </button>
               )}
-              {/* Supreme-admin only — sub-admins must NOT see org CRUD /
-                  manage-admins (those routes are supreme-only anyway). */}
-              {user.isSuperAdmin && (
+              {/* BORIVON TEAM — supreme admin AND the company's own sub-admins.
+                  Agencies (isOrgAdmin) are excluded: these pages list every
+                  employer and every agency, including their competitors'.
+
+                  Agencies and Employers used to sit in a supreme-only block, so
+                  a sub-admin could place a candidate with an employer from inside
+                  the candidate panel but had no way to reach the list of who the
+                  employers even are. A permission nobody can find is the same as
+                  not having it. The three entries that really are the founder's
+                  alone — Live classroom, Manage sub-admins, Reset a password —
+                  are wrapped individually below. */}
+              {user.isAdmin && !user.isOrgAdmin && (
                 <>
+                  {user.isSuperAdmin && (<>
                   <button
                     onClick={() => { setOpen(false); router.push("/portal/admin/classroom"); }}
                     className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
@@ -699,6 +710,7 @@ export function ProfileIcon() {
                     </svg>
                     {lang === "fr" ? "Classe en direct" : lang === "de" ? "Live-Klassenzimmer" : "Live classroom"}
                   </button>
+                  </>)}
                   <button
                     onClick={() => { setOpen(false); router.push("/portal/admin/expiry"); }}
                     className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
@@ -724,6 +736,7 @@ export function ProfileIcon() {
                     </svg>
                     {T.organizations}
                   </button>
+                  {user.isSuperAdmin && (<>
                   <button
                     onClick={() => { setOpen(false); router.push("/portal/admin/manage"); }}
                     className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
@@ -737,6 +750,8 @@ export function ProfileIcon() {
                     </svg>
                     {T.manageAdmins}
                   </button>
+                  </>)}
+                  {user.isSuperAdmin && (<>
                   <button
                     onClick={() => { setOpen(false); router.push("/portal/admin/reset-password"); }}
                     className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"
@@ -749,6 +764,7 @@ export function ProfileIcon() {
                     </svg>
                     {lang === "fr" ? "Réinitialiser un mot de passe" : lang === "de" ? "Passwort zurücksetzen" : "Reset a password"}
                   </button>
+                  </>)}
                   <button
                     onClick={() => { setOpen(false); router.push("/portal/admin/employers"); }}
                     className="w-full text-left px-3 py-2.5 text-[12.5px] font-medium flex items-center gap-2.5 transition-colors"

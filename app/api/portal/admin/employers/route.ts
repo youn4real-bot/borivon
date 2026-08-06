@@ -95,9 +95,18 @@ export async function GET(req: NextRequest) {
   const wantAll = req.nextUrl.searchParams.get("all") === "1";
   const db = getServiceSupabase();
 
-  // Manage page: full rows, all (active + inactive). SUPREME only.
+  // Manage page: full rows, all (active + inactive). Borivon team.
+  //
+  // This is the list behind /portal/admin/employers. It was supreme-only, which
+  // meant a sub-admin could assign a candidate to an employer but could never
+  // open the page that shows which employers exist, what their addresses are, or
+  // which are retired — so the one screen that makes placement legible was
+  // invisible to the people doing the placing. Agencies stay out: the roster of
+  // every employer, including the ones parented to a competitor, is not theirs.
   if (wantAll) {
-    if (auth.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    if (await isOrgSide(db, auth.role, auth.email)) {
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    }
     const { data, error } = await db
       .from("employers")
       .select("id, slug, name, address_lines, agency_id, active, notes, created_at, updated_at")
@@ -166,7 +175,10 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   const auth = await requireAdminRole(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
-  if (auth.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const db0 = getServiceSupabase();
+  if (await isOrgSide(db0, auth.role, auth.email)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const body = (await req.json().catch(() => ({}))) as Body;
   const id = typeof body.id === "string" ? body.id.trim() : "";
@@ -175,6 +187,13 @@ export async function PATCH(req: NextRequest) {
   const { err, row } = sanitizeIn(body, { isCreate: false });
   if (err || !row) return NextResponse.json({ error: err ?? "Bad request" }, { status: 400 });
   if (Object.keys(row).length === 0) return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
+  // Correcting a hospital's address or retiring it is placement work. MOVING an
+  // employer under a different agency re-assigns whose roster it belongs to and
+  // which branding its candidates' CVs carry — that is a registry decision, and
+  // it stays with the supreme admin, exactly as it does on create.
+  if (auth.role !== "admin" && "agency_id" in row) {
+    return NextResponse.json({ error: "Only the supreme admin can move an employer between agencies" }, { status: 403 });
+  }
 
   const db = getServiceSupabase();
   const { data, error } = await db.from("employers").update(row).eq("id", id).select().single();

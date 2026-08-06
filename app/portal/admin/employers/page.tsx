@@ -215,7 +215,12 @@ export default function AdminEmployersPage() {
         const r = await fetch("/api/portal/me/role", { headers: { Authorization: `Bearer ${session.access_token}` } });
         const j = await r.json().catch(() => ({}));
         if (cancelled) return;
-        if (!j?.isSuperAdmin) { router.replace("/portal/admin"); return; }
+        // Borivon team, not supreme-only: a sub-admin who can place a candidate
+        // with an employer has to be able to SEE the employer list. Agencies stay
+        // out — this page shows every employer, including other agencies'.
+        // Mirrors the same predicate the API applies server-side.
+        const borivonTeam = j?.role === "admin" || (j?.role === "sub_admin" && !j?.isAgencyAdmin);
+        if (!borivonTeam) { router.replace("/portal/admin"); return; }
       } catch { router.replace("/portal/admin"); return; }
     })();
     return () => { cancelled = true; };
