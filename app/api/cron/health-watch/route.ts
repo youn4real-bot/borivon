@@ -105,6 +105,40 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // ── UNREACHABLE DOCUMENTS — a standalone check, not a footnote ─────────────
+  //
+  // driveOnlyDocCount() was only ever called INSIDE the Google-broke branch
+  // above, as blast-radius colour on an alert that was already firing. That made
+  // sense when Drive was a working fallback and the count meant "temporarily
+  // unreachable". It is not true any more: the legacy Drive client is built from
+  // GOOGLE_SERVICE_ACCOUNT_EMAIL / GOOGLE_PRIVATE_KEY, neither of which exists
+  // on the Worker, so a document with no r2_key is unreachable PERMANENTLY and
+  // no probe reports it — Google isn't "down", it is simply not wired up, so the
+  // branch that would have mentioned this never runs.
+  //
+  // One such document exists today: a candidate's nursing diploma, uploaded in
+  // May, still showing "waiting for review", with nothing behind it. Nobody
+  // noticed for three months. This is the check that would have said so.
+  //
+  // Daily rather than 6-hourly: this is a backlog, not an outage. It cannot
+  // "recover" on its own — somebody has to re-collect the file — so nagging
+  // faster than once a day only teaches him to ignore it.
+  try {
+    const stranded = await driveOnlyDocCount();
+    if (stranded !== null && stranded > 0 && telegramConfigured() && process.env.TELEGRAM_CHAT_ID) {
+      const gate = await enforceUserRateLimit("health-alert", "docs:stranded", { limit: 1, windowMs: 24 * 60 * 60_000 });
+      if (gate.ok) {
+        await tgSend(
+          process.env.TELEGRAM_CHAT_ID,
+          `${stranded} candidate document(s) cannot be opened by anyone — the file was never copied to storage. They still show as waiting for review. Ask those candidates to upload again.`,
+        );
+      }
+    }
+  } catch (e) {
+    // Never let this sink the healthy-path response.
+    console.error("[health-watch] stranded-doc check failed:", e instanceof Error ? e.message : e);
+  }
+
   return NextResponse.json({
     ok: broken.length === 0,
     probes: publicSummary(probes),

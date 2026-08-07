@@ -54,16 +54,26 @@ export async function POST(req: NextRequest) {
   // Record invites + fire a "live class is starting" notification per candidate.
   // Notification action="live_class", doc_id=room → bell deep-links to
   // /portal/classroom?room=<room> → auto-joins. Best-effort (never block start).
+  // How many were actually TOLD, as opposed to how many were listed. These were
+  // the same number before, regardless of whether the notification worked.
+  let notified = 0;
   if (sessionId && invitedUserIds.length) {
     try {
       await db.from("classroom_invites").upsert(
         invitedUserIds.map((uid) => ({ session_id: sessionId, user_id: uid })),
         { onConflict: "session_id,user_id" },
       );
-      await db.from("notifications").insert(
+      // doc_id is a UUID column and `room` is a NAME — it defaults to the
+      // literal "borivon-class". Writing it here made every insert fail with
+      // 22P02 (invalid input syntax for type uuid), the catch below swallowed
+      // it, and the response still reported `invited: N`. So starting a class
+      // added the invite rows and told the candidates nothing, while the API
+      // said everyone had been invited. The room name lives in doc_name, which
+      // is text; doc_id carries the session uuid, which is what it is for.
+      const { error: notifyErr } = await db.from("notifications").insert(
         invitedUserIds.map((uid) => ({
           user_id: uid,
-          doc_id: room,
+          doc_id: sessionId,
           doc_name: room,
           doc_type: "live_class",
           action: "live_class",
@@ -71,11 +81,22 @@ export async function POST(req: NextRequest) {
           read: false,
         })),
       );
+      if (notifyErr) {
+        console.error("[classroom/token] invite notify failed:", notifyErr.message);
+      } else {
+        notified = invitedUserIds.length;
+      }
     } catch (e) {
       console.error("[classroom/token] invite/notify failed (non-fatal):", e instanceof Error ? e.message : e);
     }
   }
 
   const token = await mintClassroomToken({ room, identity: auth.userId, name, canPublish: true });
-  return NextResponse.json({ token, url: livekitUrl(), identity: auth.userId, sessionId, invited: invitedUserIds.length });
+  return NextResponse.json({
+    token, url: livekitUrl(), identity: auth.userId, sessionId,
+    invited: invitedUserIds.length,
+    // Distinct from `invited` on purpose: if the bell notification fails, the
+    // caller must be able to see that nobody was actually told.
+    notified,
+  });
 }

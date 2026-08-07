@@ -432,7 +432,11 @@ function CandidateBell({ userId, accessToken }: { userId: string; accessToken: s
     // "live_class" — the admin assigned them to a class that's live NOW → jump
     // straight into the room (/portal/classroom auto-joins after the consent gate).
     if (n.action === "live_class") {
-      const room = n.doc_id ?? "";
+      // doc_NAME holds the room; doc_id is the session uuid. It used to read
+      // doc_id, which was being written with the room name — into a uuid column,
+      // so the row never existed to be clicked. doc_id is kept as a fallback in
+      // case any row was ever written the old way.
+      const room = n.doc_name || n.doc_id || "";
       router.push(`/portal/classroom${room ? `?room=${encodeURIComponent(room)}` : ""}`);
       return;
     }

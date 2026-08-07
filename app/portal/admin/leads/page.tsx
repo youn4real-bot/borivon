@@ -10,7 +10,7 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
-import { ArrowLeft, Mail, Phone, Clock, MessageSquare, UserPlus, UserCheck, Loader2 } from "lucide-react";
+import { ArrowLeft, Mail, Phone, Clock, MessageSquare, UserPlus, UserCheck, Loader2, Check, Archive, RotateCcw } from "lucide-react";
 import { isPlaceableLead } from "@/lib/leadKinds";
 
 type Lead = {
@@ -18,6 +18,9 @@ type Lead = {
   message: string; details: Record<string, string> | null; created_at: string;
   /** Set once the lead has been turned into a Pool candidate. */
   candidate_user_id?: string | null;
+  /** new | contacted | closed. Present since the table was created; nothing
+   *  read or wrote it, so every lead looked untouched for ever. */
+  status?: string | null;
 };
 
 // Friendly label per funnel kind (trilingual).
@@ -42,6 +45,29 @@ export default function AdminLeadsPage() {
   const [token, setToken] = useState("");
   const [poolBusy, setPoolBusy] = useState<string | null>(null);
   const [poolErr, setPoolErr] = useState<string | null>(null);
+  const [statusBusy, setStatusBusy] = useState<string | null>(null);
+  // Default view hides what has been dealt with. With no ping on arrival, this
+  // list WAS the funnel — and an un-workable list of eleven identical-looking
+  // rows is why none of them were ever marked done.
+  const [showDone, setShowDone] = useState(false);
+
+  async function setStatus(leadId: string, status: "new" | "contacted" | "closed") {
+    setStatusBusy(leadId);
+    const prev = leads;
+    // Optimistic: the row re-sorts/hides immediately, and we put it back if the
+    // write fails, so a dropped connection can never leave a lead looking
+    // handled when it is not.
+    setLeads((ls) => ls.map((l) => (l.id === leadId ? { ...l, status } : l)));
+    try {
+      const r = await fetch("/api/portal/admin/leads", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ id: leadId, status }),
+      });
+      if (!r.ok) setLeads(prev);
+    } catch { setLeads(prev); }
+    setStatusBusy(null);
+  }
 
   async function addToPool(leadId: string) {
     setPoolBusy(leadId);
@@ -111,6 +137,13 @@ export default function AdminLeadsPage() {
   };
   const kindLabel = (k: string) => { const e = KIND_LABEL[k]; return e ? T(e.en, e.de, e.fr) : k; };
 
+  // A lead with no status at all is untouched — every existing row predates the
+  // column being used, so treating null as "new" is what keeps them visible.
+  const isDone = (l: Lead) => l.status === "contacted" || l.status === "closed";
+  const openLeads = leads.filter((l) => !isDone(l));
+  const doneCount = leads.length - openLeads.length;
+  const shown = showDone ? leads : openLeads;
+
   return (
     <main id="bv-main" className="mx-auto px-5 py-8 sm:py-12 bv-page-bottom" style={{ maxWidth: 920 }}>
       <button onClick={() => router.push("/portal/admin")} className="bv-btn bv-btn-ghost mb-6 inline-flex">
@@ -120,27 +153,47 @@ export default function AdminLeadsPage() {
       <div className="mb-6">
         <h1 className="bv-h1">{T("Leads", "Anfragen", "Prospects")}</h1>
         <p className="bv-body mt-1">
-          {leads.length}{" "}
-          {T("enquiry(ies) from the homepage form",
-             "Anfrage(n) vom Formular auf der Startseite",
-             "demande(s) depuis le formulaire de la page d'accueil")}
+          <b>{openLeads.length}</b>{" "}
+          {T("waiting for you", "warten auf dich", "en attente")}
+          {doneCount > 0 && (
+            <>
+              {" · "}
+              <button onClick={() => setShowDone((v) => !v)} className="bv-link text-[13px]">
+                {showDone
+                  ? T(`hide ${doneCount} done`, `${doneCount} erledigte ausblenden`, `masquer ${doneCount} traité(s)`)
+                  : T(`show ${doneCount} done`, `${doneCount} erledigte anzeigen`, `voir ${doneCount} traité(s)`)}
+              </button>
+            </>
+          )}
         </p>
       </div>
 
-      {leads.length === 0 ? (
+      {shown.length === 0 ? (
         <div className="text-center py-16 text-[14px]" style={{ color: "var(--w3)" }}>
-          {T("No leads yet.", "Noch keine Anfragen.", "Aucune demande pour le moment.")}
+          {leads.length === 0
+            ? T("No leads yet.", "Noch keine Anfragen.", "Aucune demande pour le moment.")
+            : T("Nothing waiting — every lead is dealt with.",
+                "Nichts offen — alle Anfragen sind erledigt.",
+                "Rien en attente — toutes les demandes sont traitées.")}
         </div>
       ) : (
         <div className="space-y-3">
           {poolErr && (
             <p className="text-[13px] pb-1" style={{ color: "#ef4444" }} role="alert">{poolErr}</p>
           )}
-          {leads.map((l) => {
+          {shown.map((l) => {
             const extras = Object.entries(l.details ?? {}).filter(([, v]) => !!v);
             return (
               <div key={l.id} className="p-4 sm:p-5"
-                style={{ background: "var(--card)", border: "1px solid var(--border)", borderRadius: "var(--r-xl)", boxShadow: "var(--shadow-sm)" }}>
+                style={{
+                  background: "var(--card)",
+                  // Done rows recede rather than disappear when the filter is
+                  // off, so "show done" reads as history, not as a second inbox.
+                  border: `1px solid ${isDone(l) ? "var(--border)" : "var(--border-gold)"}`,
+                  borderRadius: "var(--r-xl)",
+                  boxShadow: "var(--shadow-sm)",
+                  opacity: isDone(l) ? 0.62 : 1,
+                }}>
                 <div className="flex items-start justify-between gap-4 flex-wrap">
                   <div className="min-w-0">
                     {l.name && <p className="text-[15px] font-semibold" style={{ color: "var(--w)" }}>{l.name}</p>}
@@ -166,6 +219,49 @@ export default function AdminLeadsPage() {
                     <span className="inline-flex items-center gap-1.5 text-[11.5px]" style={{ color: "var(--w3)" }}>
                       <Clock size={12} /> {fmt(l.created_at)}
                     </span>
+                    {/* Mark it dealt with. `status` shipped with the table and
+                        nothing ever wrote it, so eleven enquiries sat at "new"
+                        for three months with no way to tell an answered one
+                        from an ignored one. */}
+                    <div className="flex items-center gap-1.5">
+                      {isDone(l) ? (
+                        <button
+                          onClick={() => setStatus(l.id, "new")}
+                          disabled={statusBusy === l.id}
+                          className="bv-btn bv-btn-ghost bv-tap text-[12px] inline-flex items-center gap-1.5"
+                          title={T("Put it back in the waiting list", "Zurück in die Warteliste", "Remettre en attente")}
+                        >
+                          <RotateCcw size={12} strokeWidth={2} />
+                          {l.status === "closed"
+                            ? T("Closed", "Geschlossen", "Fermé")
+                            : T("Contacted", "Kontaktiert", "Contacté")}
+                        </button>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => setStatus(l.id, "contacted")}
+                            disabled={statusBusy === l.id}
+                            className="bv-btn bv-btn-ghost bv-tap text-[12px] inline-flex items-center gap-1.5"
+                            title={T("I have replied to this person", "Ich habe geantwortet", "J'ai répondu")}
+                          >
+                            {statusBusy === l.id
+                              ? <Loader2 size={12} className="animate-spin" aria-hidden />
+                              : <Check size={12} strokeWidth={2.4} style={{ color: "#16a34a" }} />}
+                            {T("Contacted", "Kontaktiert", "Contacté")}
+                          </button>
+                          <button
+                            onClick={() => setStatus(l.id, "closed")}
+                            disabled={statusBusy === l.id}
+                            className="bv-btn bv-btn-ghost bv-tap text-[12px] inline-flex items-center gap-1.5"
+                            title={T("Not going anywhere — hide it", "Nicht relevant — ausblenden", "Sans suite — masquer")}
+                          >
+                            <Archive size={12} strokeWidth={2} />
+                            {T("Close", "Schließen", "Fermer")}
+                          </button>
+                        </>
+                      )}
+                    </div>
+
                     {/* The missing hop: a lead is somebody who reached out, but
                         the Pool lives in candidate_pipeline and only holds real
                         accounts — so until now every lead had to be re-created
