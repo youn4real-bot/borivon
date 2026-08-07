@@ -30,10 +30,30 @@ type LookupResult = {
  * migration needed, tolerant of a missing is_agency_admin column.
  * Returns an error message or null.
  */
+/**
+ * `agencyScoped` decides whether this person is a Borivon HQ sub-admin (false —
+ * sees every candidate) or an outside agency's admin (true — sees only their
+ * org's, LAW #25).
+ *
+ * It used to be hard-coded false for BOTH invite branches, which armed a real
+ * trap on the org branch. An org member scoped only by their organization_members
+ * row is scoped by that row ALONE, and lib/admin-auth.ts:219 reads:
+ *
+ *     if (!isAgencyAdmin && myOrgs.length === 0) return null;   // sees ALL
+ *
+ * So removing an invite-joined partner from their organization did not cut them
+ * off — it PROMOTED them from one agency's candidates to all 78. The button
+ * meant to end the relationship was the one that opened every dossier.
+ *
+ * The admin-panel path (organizations/[id]/members POST) already inserts
+ * is_agency_admin: true. Only the invite path disagreed, and the invite link is
+ * how partners actually join.
+ */
 async function grantSubAdmin(
   db: ReturnType<typeof getServiceSupabase>,
   email: string,
   name: string,
+  agencyScoped = false,
 ): Promise<string | null> {
   const ci = ciEmail(email);
   const dupOk = (m?: string) => !!m && /duplicate key|unique|already exists|23505/i.test(m);
@@ -44,7 +64,7 @@ async function grantSubAdmin(
 
   // Insert exactly one canonical row.
   let { error } = await db.from("sub_admins")
-    .insert({ email, name, label: "", is_agency_admin: false });
+    .insert({ email, name, label: "", is_agency_admin: agencyScoped });
   if (error && colMissing(error.message)) {
     ({ error } = await db.from("sub_admins").insert({ email, name, label: "" }));
   }
@@ -338,7 +358,10 @@ export async function POST(req: NextRequest, ctx: { params: Promise<{ code: stri
   // `.upsert(onConflict:"email")` 500'd (no unique index on sub_admins.email).
   const { data: authUser } = await db.auth.admin.getUserById(auth.userId);
   const fullName = (authUser?.user?.user_metadata?.full_name ?? "").trim();
-  await grantSubAdmin(db, auth.email, fullName || auth.email);
+  // agencyScoped = TRUE: this is the ORGANISATION branch. They belong to one
+  // agency and must stay scoped to it even if that membership is later removed
+  // — see the note on grantSubAdmin.
+  await grantSubAdmin(db, auth.email, fullName || auth.email, true);
 
   await db.from("organization_members").insert({
     org_id: org.id,

@@ -168,5 +168,28 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
     console.error("[org members DELETE] failed:", error);
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
+
+  // If that was their LAST organisation, drop the sub_admins row too.
+  //
+  // Removing an agency person from their only org used to leave the sub_admins
+  // row behind. With is_agency_admin=true that scopes to nothing, which is at
+  // least safe — but an agency contact with no agency is a login that should not
+  // exist, and the row is exactly what a future migration or a hand-edit could
+  // flip back to full visibility. Cutting the relationship should cut the access.
+  //
+  // GUARDED to is_agency_admin=true so this can never strip a Borivon HQ
+  // sub-admin who was temporarily added to an org: they carry false, and they
+  // keep their row and their full visibility.
+  const { data: stillIn } = await db
+    .from("organization_members").select("org_id").ilike("sub_admin_email", ciEmail(email)).limit(1);
+  if (!stillIn?.length) {
+    const { data: subRows } = await db
+      .from("sub_admins").select("is_agency_admin").ilike("email", ciEmail(email)).limit(1);
+    const isAgency = ((subRows ?? [])[0] as { is_agency_admin?: boolean } | undefined)?.is_agency_admin === true;
+    if (isAgency) {
+      const { error: subErr } = await db.from("sub_admins").delete().ilike("email", ciEmail(email));
+      if (subErr) console.error("[org members DELETE] sub_admins cleanup failed:", subErr);
+    }
+  }
   return NextResponse.json({ success: true });
 }

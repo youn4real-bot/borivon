@@ -81,5 +81,27 @@ export async function DELETE(req: NextRequest) {
     console.error("[sub-admins DELETE] row delete failed:", subErr);
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
+
+  // AND their organisation membership — otherwise "Remove" removed nothing that
+  // mattered to a partner.
+  //
+  // The org side does not read sub_admins at all: every route under
+  // /api/portal/org/** authenticates with requireUser and then looks the caller
+  // up directly in organization_members (see org/me, org/candidates/[userId],
+  // org/requirements). So deleting only the sub_admins row locked them out of
+  // the admin panel while leaving the org dossier — candidate names, documents,
+  // progress — fully readable, and the button reported success.
+  //
+  // Deliberately AFTER the sub_admins delete and non-fatal: the admin-panel
+  // lockout is the part that must not be rolled back, and a failure here is
+  // visible in the response rather than silent.
+  const { error: memErr } = await db.from("organization_members").delete().ilike("sub_admin_email", ciEmail(email));
+  if (memErr) {
+    console.error("[sub-admins DELETE] org membership delete failed:", memErr);
+    return NextResponse.json({
+      success: true,
+      warning: "Removed from the admin panel, but their organisation access could not be cleared — try again.",
+    });
+  }
   return NextResponse.json({ success: true });
 }
