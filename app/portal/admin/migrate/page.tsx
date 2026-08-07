@@ -21,7 +21,7 @@ export default function MigrateToR2Page() {
   const [verifying, setVerifying] = useState(false);
   const [auditComplete, setAuditComplete] = useState(false);
   const [vLog, setVLog] = useState<string[]>([]);
-  const [vSummary, setVSummary] = useState<{ verified: number; missing: number; mismatch: number; notMigrated: number; total: number } | null>(null);
+  const [vSummary, setVSummary] = useState<{ verified: number; unchecked: number; missing: number; mismatch: number; notMigrated: number; total: number } | null>(null);
 
   const add = (line: string) => setLog(l => [...l, line]);
   const vadd = (line: string) => setVLog(l => [...l, line]);
@@ -61,10 +61,10 @@ export default function MigrateToR2Page() {
 
   async function verify() {
     setVerifying(true); setVLog([]); setVSummary(null); setAuditComplete(false);
-    let verified = 0, missing = 0, mismatch = 0, notMigrated = 0, total = 0;
+    let verified = 0, unchecked = 0, missing = 0, mismatch = 0, notMigrated = 0, total = 0;
     let complete = false;
     type V = {
-      verified?: number; missingInR2?: Failed[];
+      verified?: number; presentNotCrossChecked?: number; missingInR2?: Failed[];
       sizeMismatch?: (Failed & { r2: number; drive: number })[];
       notMigrated?: Failed[]; total?: number; nextOffset?: number; done?: boolean; error?: string;
     };
@@ -91,6 +91,7 @@ export default function MigrateToR2Page() {
         if (!j) { vadd(`⚠️ Audit paused at ${offset}. Click "Verify all files" again to finish.`); break; }
 
         verified += j.verified ?? 0;
+        unchecked += j.presentNotCrossChecked ?? 0;
         missing += j.missingInR2?.length ?? 0;
         mismatch += j.sizeMismatch?.length ?? 0;
         notMigrated += j.notMigrated?.length ?? 0;
@@ -100,14 +101,15 @@ export default function MigrateToR2Page() {
         j.sizeMismatch?.forEach(f => vadd(`   ⚠️ SIZE DIFFERS: ${f.name ?? f.id.slice(0, 8)} [${f.type ?? "?"}] — R2 ${f.r2}B vs Drive ${f.drive}B`));
         j.notMigrated?.forEach(f => vadd(`   ⏭ not copied: ${f.name ?? f.id.slice(0, 8)} [${f.type ?? "?"}]`));
 
-        setVSummary({ verified, missing, mismatch, notMigrated, total });
+        setVSummary({ verified, unchecked, missing, mismatch, notMigrated, total });
         offset = j.nextOffset ?? (offset + 15);
         await new Promise(r => setTimeout(r, 250)); // gentle pacing vs Drive throttle
         if (j.done) { complete = true; break; }
       }
       if (complete) {
         setAuditComplete(true);
-        vadd(`— audit complete: ${verified} verified, ${missing} missing, ${mismatch} size-diff, ${notMigrated} not copied —`);
+        vadd(`— audit complete: ${verified} verified, ${unchecked} present-but-unchecked, ${missing} missing, ${mismatch} size-diff, ${notMigrated} not copied —`);
+        if (unchecked > 0) vadd(`   ⚠️ ${unchecked} file(s) are in R2 but could NOT be compared against the Drive original — Google is unreachable, so this run proves presence, not integrity.`);
       }
     } catch (e) {
       vadd(`💥 ${e instanceof Error ? e.message : String(e)}`);
@@ -177,11 +179,21 @@ export default function MigrateToR2Page() {
           ✅ Verified: <b>{vSummary.verified}</b> / {vSummary.total} ·
           {" "}❌ Missing: <b style={{ color: vSummary.missing ? "#ef4444" : undefined }}>{vSummary.missing}</b> ·
           {" "}⚠️ Size diff: <b style={{ color: vSummary.mismatch ? "#f59e0b" : undefined }}>{vSummary.mismatch}</b> ·
-          {" "}⏭ Not copied: <b>{vSummary.notMigrated}</b>
+          {" "}⏭ Not copied: <b style={{ color: vSummary.notMigrated ? "#f59e0b" : undefined }}>{vSummary.notMigrated}</b> ·
+          {" "}🔍 Unchecked: <b style={{ color: vSummary.unchecked ? "#f59e0b" : undefined }}>{vSummary.unchecked}</b>
+          {/* The all-clear now has to be EARNED. It used to require only
+              missing === 0 && mismatch === 0 — but the Drive size comparison is
+              wrapped in a catch that yields -1, and a -1 skipped the comparison
+              and still counted the row as verified. So once the Google
+              credentials went away every run printed the celebration while
+              checking nothing, and `notMigrated` was not even part of the
+              condition: the one document that never made it to R2 was listed in
+              the log while the banner said all files confirmed. */}
           {verifying ? "  — checking…"
-            : auditComplete && vSummary.missing === 0 && vSummary.mismatch === 0 ? "  — ✅ all files confirmed in R2 🎉"
-            : auditComplete ? "  — ⚠️ see problems above"
-            : "  — incomplete, click Verify again"}
+            : !auditComplete ? "  — incomplete, click Verify again"
+            : vSummary.missing || vSummary.mismatch || vSummary.notMigrated ? "  — ⚠️ see problems above"
+            : vSummary.unchecked ? "  — ⚠️ present in R2, but NOT verified against Google (Google unreachable)"
+            : "  — ✅ all files confirmed in R2 🎉"}
         </p>
       )}
 

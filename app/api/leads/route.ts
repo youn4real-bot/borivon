@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { enforceRateLimitDistributed } from "@/lib/rateLimit";
+import { tgSend } from "@/lib/telegram";
 
 /**
  * Public lead-capture endpoint for the homepage funnel (components/Funnel.tsx).
@@ -67,12 +68,67 @@ export async function POST(req: NextRequest) {
   const { data: dup } = await db
     .from("leads")
     .select("id").eq("email", email).eq("kind", kind).gte("created_at", oneHourAgo).maybeSingle();
-  if (dup) return NextResponse.json({ ok: true, duplicate: true });
+  if (dup) {
+    // A second submission inside the hour is almost always the SAME person
+    // fixing something — a mistyped phone number, a message they cut short.
+    // This used to answer "ok" and drop the new values on the floor, so the
+    // version the founder called back on was the wrong one. Keep one row, but
+    // let the correction win: overwrite only the fields that arrived non-empty
+    // so a shorter second pass can never blank out detail from the first.
+    const patch: Record<string, unknown> = {};
+    for (const k of ["name", "phone", "message"] as const) if (row[k]) patch[k] = row[k];
+    if (Object.keys(details).length) patch.details = details;
+    if (Object.keys(patch).length) {
+      const { error: updErr } = await db.from("leads").update(patch).eq("id", (dup as { id: string }).id);
+      if (updErr) console.error("[/api/leads] duplicate update failed:", updErr.message);
+    }
+    return NextResponse.json({ ok: true, duplicate: true });
+  }
 
   const { error } = await db.from("leads").insert(row);
   if (error) {
     console.error("[/api/leads] insert error:", error.message);
     return NextResponse.json({ error: "insert_failed" }, { status: 500 });
   }
+
+  // ── Telegram ping — the lead is worthless if nobody is told it arrived ──────
+  //
+  // This route stored the lead and stopped. /api/v2/contact — the ENTERPRISE
+  // form — has pinged the founder from day one, so B2B enquiries buzzed his
+  // phone while the homepage funnel, which is where NURSES apply, was silent:
+  // a lead only surfaced if he happened to open /portal/admin/leads. Eleven
+  // arrived that way between May and July and every one was still marked "new".
+  //
+  // Deliberately awaited, not fire-and-forget: on Workers an unawaited promise
+  // is cancelled when the response is sent, which is what silently killed five
+  // other notifications after the Cloudflare cutover. tgSend is one HTTPS call
+  // and the whole thing is wrapped, so a Telegram outage cannot cost the lead
+  // that is already safely in the table.
+  const tgChat = (process.env.TELEGRAM_CHAT_ID || "").trim();
+  if (tgChat) {
+    const KIND_LABEL: Record<string, string> = {
+      person:      "👩‍⚕️ Nouvelle candidate — INFIRMIÈRE",
+      fachkraefte: "👩‍⚕️ Nouvelle candidate — FACHKRÄFTE",
+      work:        "💼 Nouvelle demande — TRAVAIL",
+      org:         "🏢 Nouvelle demande — ORGANISATION",
+      general:     "✉️ Nouveau message — SITE",
+    };
+    const extras = Object.entries(details).map(([k, v]) => `${k} : ${v}`);
+    const tgText = [
+      `${KIND_LABEL[kind] ?? `✉️ Nouveau lead — ${kind}`} — borivon.com`,
+      "",
+      row.name ? `Nom      : ${row.name}` : null,
+      `E-mail   : ${row.email}`,
+      row.phone ? `Téléphone: ${row.phone}` : null,
+      ...extras,
+      row.message ? "" : null,
+      row.message || null,
+      "",
+      "→ /portal/admin/leads",
+    ].filter((l) => l !== null).join("\n");
+    try { await tgSend(tgChat, tgText); }
+    catch (e) { console.error("[/api/leads] telegram ping failed:", e instanceof Error ? e.message : e); }
+  }
+
   return NextResponse.json({ ok: true });
 }

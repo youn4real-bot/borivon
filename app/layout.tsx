@@ -90,14 +90,21 @@ export const metadata: Metadata = {
     description: "Cours d'allemand A1-B2 pour particuliers et entreprises.",
     images: ["/og-image.png"],
   },
-  alternates: {
-    canonical: "https://borivon.com",
-    languages: {
-      "fr-MA": "https://borivon.com",
-      "en-MA": "https://borivon.com?lang=en",
-      "de-MA": "https://borivon.com?lang=de",
-    },
-  },
+  // NOTE: no `alternates.canonical` here on purpose.
+  //
+  // Next merges the ROOT layout's metadata into every page, so a canonical set
+  // at this level is emitted verbatim on every URL of the site. It was
+  // "https://borivon.com", which told Google that /v2, the join page, every
+  // public candidate page and even /portal are all duplicates of the homepage —
+  // i.e. index none of them, show the homepage instead. That is the whole
+  // public site asking not to be found, and it silently undid every SEO change
+  // made above it.
+  //
+  // A canonical is only correct when it is per-page, so each page that wants
+  // one now declares it in its own `metadata` (see app/page.tsx). The hreflang
+  // set moved with it — it described the homepage's language variants, not
+  // every page's. `metadataBase` at the top of this object is what lets a page
+  // declare a relative canonical and have it resolve to the right absolute URL.
   icons: {
     icon: "/favicon.png",
     apple: "/favicon.png",

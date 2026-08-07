@@ -855,12 +855,30 @@ export function buildAssistantTools(
         if (m.status === "ambiguous") return { status: "ambiguous", matches: m.matches.map((x) => ({ candidateUserId: x.userId, name: x.name })) };
         const id = m.candidate.userId;
         if (!(await canActOnCandidate(scope.role, scope.email, id))) return { error: "out_of_scope" };
-        const { data } = await db.from("documents").select("file_type, file_name, r2_key, superseded_at").eq("user_id", id);
-        const docs = activeDocs((data ?? []) as { file_type: string | null; file_name: string | null; r2_key: string | null; superseded_at?: string | null }[]).filter((d) => d.r2_key);
-        if (docs.length === 0) return { error: "no_documents" };
+        const { data } = await db.from("documents").select("status, file_type, file_name, r2_key, superseded_at").eq("user_id", id);
+        const all = activeDocs((data ?? []) as { status: string | null; file_type: string | null; file_name: string | null; r2_key: string | null; superseded_at?: string | null }[]).filter((d) => d.r2_key);
+        // APPROVED ONLY. This folder exists to be SHARED — the tool's own
+        // description is "I need to share Y's documents with someone", and the
+        // founder hands the link to a clinic. It used to copy every active
+        // document regardless of review status, so a rejected phone photo of a
+        // B2 certificate ("Handyfotos sind verboten") and unreviewed paperwork
+        // landed in the same folder as the good documents with nothing marking
+        // them. The batch mirror has always been .eq("status","approved") — this
+        // path is the one that drifted. Worse, these copies are written outside
+        // the tree the retraction machinery scans and carry no doc marker, so
+        // nothing can ever pull them back once shared.
+        const docs = all.filter((d) => d.status === "approved");
+        const heldBack = all.length - docs.length;
+        if (docs.length === 0) {
+          return heldBack > 0
+            ? { error: "no_approved_documents", heldBack, hint: `${heldBack} document(s) exist but none are approved yet — approve them first, they are not shareable.` }
+            : { error: "no_documents" };
+        }
         const res = await mirrorCandidateToDrive(docs.map((d) => ({ r2_key: d.r2_key, file_name: d.file_name, file_type: d.file_type })), m.candidate.name);
         if (!res.ok) return { error: res.error, hint: res.hint };
-        return { mirrored: true, name: m.candidate.name, folderUrl: res.folderUrl, uploaded: res.uploaded, skipped: res.skipped };
+        // heldBack is surfaced so the bot can SAY what it left out — silence
+        // would read as "here is everything she has".
+        return { mirrored: true, name: m.candidate.name, folderUrl: res.folderUrl, uploaded: res.uploaded, skipped: res.skipped, heldBackNotApproved: heldBack };
       },
     }),
 

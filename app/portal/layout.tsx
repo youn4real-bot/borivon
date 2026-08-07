@@ -12,6 +12,16 @@ export const metadata: Metadata = {
     template: "%s | Borivon Portal",
     default: "Borivon Portal",
   },
+  // The portal is a logged-in application, not content. It inherited the root
+  // layout's `index, follow`, so the login screen and every dashboard URL under
+  // it were being offered to Google — nothing there is useful in a search
+  // result, and a candidate landing on a bare login page from Google is a worse
+  // first touch than the homepage. Overrides the root for this whole subtree.
+  robots: {
+    index: false,
+    follow: false,
+    googleBot: { index: false, follow: false },
+  },
 };
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {

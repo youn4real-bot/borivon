@@ -1356,9 +1356,33 @@ describe("Google Sheet candidate mirror (one-way)", () => {
     delete process.env.GOOGLE_VERTEX_CREDENTIALS;
     h.authUsers = [{ id: "cand-a", email: "a@cand.com", user_metadata: { full_name: "Amina Test" } }];
     h.tables.candidate_profiles = { data: [{ user_id: "cand-a" }], error: null };
-    h.tables.documents = { data: [{ file_type: "passport", file_name: "amina_passport.pdf", r2_key: "candidates/cand-a/passport.pdf", superseded_at: null }], error: null };
+    // `status: "approved"` matters: the mirror only ships approved documents,
+    // so an unstatused fixture would stop at no_approved_documents and never
+    // reach the Drive call this test is actually about.
+    h.tables.documents = { data: [{ status: "approved", file_type: "passport", file_name: "amina_passport.pdf", r2_key: "candidates/cand-a/passport.pdf", superseded_at: null }], error: null };
     const r = (await run(buildAssistantTools(SUPREME), "mirrorCandidateDocsToDrive", { candidate: "Amina Test" })) as { error?: string };
     expect(r.error).toBe("workspace_not_connected");
+  });
+
+  it("mirrorCandidateDocsToDrive refuses to share documents that were REJECTED or not yet reviewed", async () => {
+    // The folder this builds is the one the founder hands to a clinic. It used
+    // to copy every non-archived document regardless of review status, so a
+    // rejected phone photo of a B2 certificate travelled alongside the good
+    // paperwork — and those copies land outside the tree the retraction
+    // machinery scans, so nothing can pull them back afterwards.
+    delete process.env.GOOGLE_WORKSPACE_CREDENTIALS;
+    delete process.env.GOOGLE_VERTEX_CREDENTIALS;
+    h.authUsers = [{ id: "cand-r", email: "r@cand.com", user_metadata: { full_name: "Rejected Only" } }];
+    h.tables.candidate_profiles = { data: [{ user_id: "cand-r" }], error: null };
+    h.tables.documents = { data: [
+      { status: "rejected", file_type: "b2", file_name: "b2_phone_photo.pdf", r2_key: "candidates/cand-r/b2.pdf", superseded_at: null },
+      { status: "pending",  file_type: "diplom", file_name: "diplom.pdf",     r2_key: "candidates/cand-r/d.pdf",  superseded_at: null },
+    ], error: null };
+    const r = (await run(buildAssistantTools(SUPREME), "mirrorCandidateDocsToDrive", { candidate: "Rejected Only" })) as { error?: string; heldBack?: number };
+    // Not "no_documents" — she HAS documents, none of them shareable. The bot
+    // must be able to say which, rather than claiming she has nothing.
+    expect(r.error).toBe("no_approved_documents");
+    expect(r.heldBack).toBe(2);
   });
 
   it("setWorkplacePreference saves altenheim/klinik for the supreme admin (and blocks sub-admins)", async () => {

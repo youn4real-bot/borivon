@@ -42,6 +42,15 @@ export async function POST(req: NextRequest) {
 
   const drive = await getDriveClient();
   let verified = 0;
+  // Rows whose bytes ARE in R2 but which no Drive call could be compared
+  // against. Counting these as "verified" is what made this route useless: the
+  // Drive lookup below is wrapped in a catch that falls back to -1, and the
+  // size check is skipped when the size is -1, so once the Google credentials
+  // went away EVERY row fell straight through to verified++. The endpoint went
+  // on reporting a clean sweep while doing none of the cross-checking it
+  // exists for. Present-in-R2 and proven-identical are different claims and are
+  // now reported as different numbers.
+  let presentNotCrossChecked = 0;
   const missingInR2: Tag[] = [];
   const sizeMismatch: (Tag & { r2: number; drive: number })[] = [];
   const notMigrated: Tag[] = [];
@@ -61,7 +70,8 @@ export async function POST(req: NextRequest) {
       driveSize = Number(dm.data.size ?? -1);
     } catch { driveSize = -1; }
 
-    if (driveSize >= 0 && head.size !== driveSize) {
+    if (driveSize < 0) { presentNotCrossChecked++; continue; }
+    if (head.size !== driveSize) {
       sizeMismatch.push({ ...tag, r2: head.size, drive: driveSize });
       continue;
     }
@@ -74,6 +84,11 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     processed: rows?.length ?? 0,
     verified,
+    presentNotCrossChecked,
+    // The caller must not print an all-clear off `verified` alone. When Google
+    // is unreachable this comes back false and `verified` is 0 — the honest
+    // answer being "the files are in R2, but nothing was compared".
+    crossCheckAvailable: presentNotCrossChecked === 0,
     missingInR2,
     sizeMismatch,
     notMigrated,

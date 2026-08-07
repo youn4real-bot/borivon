@@ -11,6 +11,7 @@ import { supabase } from "@/lib/supabase";
 import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
 import { ArrowLeft, Mail, Phone, Clock, MessageSquare, UserPlus, UserCheck, Loader2 } from "lucide-react";
+import { isPlaceableLead } from "@/lib/leadKinds";
 
 type Lead = {
   id: string; kind: string; email: string; name: string; phone: string;
@@ -181,7 +182,7 @@ export default function AdminLeadsPage() {
                         <UserCheck size={12} strokeWidth={2} style={{ color: "#16a34a" }} />
                         {T("In the pool", "Im Pool", "Dans le vivier")}
                       </button>
-                    ) : l.kind === "nurse" ? (
+                    ) : isPlaceableLead(l.kind) ? (
                       <button
                         onClick={() => addToPool(l.id)}
                         disabled={poolBusy === l.id}
@@ -192,7 +193,7 @@ export default function AdminLeadsPage() {
                           : <UserPlus size={12} strokeWidth={2} />}
                         {T("Add to pool", "In den Pool", "Ajouter au vivier")}
                       </button>
-                    ) : null /* Only nurses go in the candidate pool. A clinic or
+                    ) : null /* Only individuals go in the candidate pool. A clinic or
                         a company is a counterparty, not somebody we place, and
                         offering the button on their row invited a click that
                         would have made them a candidate account. */}

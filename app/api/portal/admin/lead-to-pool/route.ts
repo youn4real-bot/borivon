@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServiceSupabase } from "@/lib/supabase";
 import { requireAdminRole } from "@/lib/admin-auth";
 import { looksLikeEmail } from "@/lib/booking";
+import { isPlaceableLead } from "@/lib/leadKinds";
 
 /**
  * LEAD → POOL. The missing hop in Borivon's own funnel.
@@ -126,14 +127,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, alreadyConverted: true, userId: row.candidate_user_id, leadId: row.id });
   }
 
-  // Only a NURSE belongs in the candidate pool. This guard existed on the
-  // booking path but not here, while the Leads page shows "Add to pool" on
-  // every row — so one click on a clinic or a company enquiry would have made a
-  // portal account for a hospital and filed it as somebody we are placing.
-  if (row.kind !== "nurse") {
+  // Only an INDIVIDUAL belongs in the candidate pool — never a clinic or a
+  // company, or one click would make a portal account for a hospital and file
+  // it as somebody we are placing.
+  //
+  // This used to test `kind !== "nurse"`, which is the kind the BOOKING path
+  // and the bot mint. The website funnel never emits it: an individual arrives
+  // as "work" (wants to work in Germany, carries the field, e.g. "pflege") or
+  // "person" (came in through the German-course path). So every lead from the
+  // website failed this guard and the Leads page hid the button to match —
+  // the whole lead-to-pool hop was unreachable for real traffic. See
+  // lib/leadKinds.ts for what each kind actually is.
+  if (!isPlaceableLead(row.kind)) {
     return NextResponse.json({
       error: "not_a_candidate",
-      message: "Only nurse enquiries can join the candidate pool — a clinic or a company is a counterparty, not someone we place.",
+      message: "Only an individual can join the candidate pool — a clinic or a company is a counterparty, not someone we place.",
     }, { status: 400 });
   }
 

@@ -239,7 +239,16 @@ export async function GET(req: NextRequest) {
     const { data: blob, error: dlErr } = await db.storage
       .from(BUCKET)
       .download(signedStoragePath);
-    if (!dlErr && blob) {
+    // `blob.size > 0` is the point of this guard, not defensiveness. An empty
+    // object is truthy, so a zero-byte file used to sail through all three
+    // branches below and be answered as `200 application/pdf` with no body —
+    // which every viewer renders as a blank or "preview not available", i.e. a
+    // transient-looking glitch rather than "this file is missing". One live
+    // candidate's nursing diploma has been sitting "waiting for review" since
+    // May because of exactly that: the reviewer saw a hiccup, not an absence,
+    // so nobody ever asked her to send it again. Empty means MISSING; fall
+    // through to the next source and let the request end in an honest 404.
+    if (!dlErr && blob && blob.size > 0) {
       const srcBuf = Buffer.from(await blob.arrayBuffer());
       const outBuf = await safeRotatePdf(srcBuf, effectiveRotation);
       // LAW #39 integrity audit on signed-storage-path passport serves.
@@ -262,7 +271,7 @@ export async function GET(req: NextRequest) {
   // isn't there yet (old file not migrated), fall through to the Storage mirror.
   if (r2Key) {
     const obj = await r2GetObject(r2Key);
-    if (obj) {
+    if (obj && obj.body.length > 0) {
       const mime = obj.contentType ?? "application/pdf";
       const outBuf = mime === "application/pdf"
         ? await safeRotatePdf(obj.body, effectiveRotation)
@@ -294,8 +303,8 @@ export async function GET(req: NextRequest) {
     const { data: blob, error: dlErr } = await db.storage
       .from("sign-documents")
       .download(`doc-cache/${fileId}`);
-    if (dlErr || !blob) {
-      console.error("[file proxy] Storage fallback failed:", dlErr);
+    if (dlErr || !blob || blob.size === 0) {
+      console.error("[file proxy] Storage fallback failed:", dlErr ?? `empty object doc-cache/${fileId}`);
       return new NextResponse("File not found", { status: 404 });
     }
     const srcBuf = Buffer.from(await blob.arrayBuffer());
