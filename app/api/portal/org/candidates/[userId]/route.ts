@@ -84,11 +84,14 @@ export async function GET(
     cv_draft: unknown;
   } | null;
 
-  // Count documents by status
+  // Count documents by status. Archived rows are excluded (LAW #33): a replaced
+  // document keeps its row so it stays recoverable, and counting it here would
+  // show the partner agency two of everything a candidate ever re-sent.
   const { data: docs } = await db
     .from("documents")
     .select("status")
-    .eq("user_id", candidateId);
+    .eq("user_id", candidateId)
+    .is("superseded_at", null);
 
   const docRows = (docs ?? []) as { status: string }[];
   const docCount   = docRows.length;

@@ -12,6 +12,7 @@ import {
 } from "@/lib/passport-pdf";
 import { r2Configured, r2Put, candidateKey } from "@/lib/r2";
 import { scheduleCandidateMirror } from "@/lib/scheduleMirror";
+import { archivedCopyOf } from "@/lib/documentArchive";
 
 const MAX_BYTES = 10 * 1024 * 1024;
 
@@ -62,13 +63,18 @@ export async function POST(req: NextRequest) {
   // The target row must be THIS candidate's passport scan doc.
   const { data: docRow } = await db
     .from("documents")
-    .select("id, user_id, file_name, file_type, drive_file_id")
+    // r2_key / file_sha256 / status are read so the OUTGOING scan can be
+    // preserved on an archived row before this one is overwritten (LAW #33).
+    .select("id, user_id, file_name, file_type, drive_file_id, r2_key, file_sha256, status, feedback, rotation, uploaded_at")
     .eq("id", docId)
     .maybeSingle();
   if (!docRow) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const d = docRow as {
     id: string; user_id: string; file_name: string;
     file_type: string; drive_file_id: string | null;
+    r2_key: string | null; file_sha256: string | null;
+    status: string | null; feedback: string | null;
+    rotation: number | null; uploaded_at: string | null;
   };
   if (d.user_id !== userId) {
     return NextResponse.json({ error: "Mismatch" }, { status: 403 });
@@ -147,6 +153,34 @@ export async function POST(req: NextRequest) {
       await r2Put(key, buffer, "application/pdf");
       r2Key = key;
     } catch { r2Key = null; }
+  }
+
+  // ── LAW #33: preserve the OUTGOING scan before its pointer is overwritten ──
+  //
+  // The swap below is in-place by design (LAW #37 — the approved status,
+  // feedback and OCR-derived passport data must survive an admin override), but
+  // that meant `r2_key` was reassigned to the new object and the previous scan's
+  // key was gone. The bytes stayed in the bucket, unreferenced and unreachable
+  // from the portal — deleted in every sense the law cares about, and the only
+  // code that ever archived anything here is the Drive block above, which is
+  // inert without GOOGLE_DRIVE_FOLDER_ID.
+  //
+  // So: clone the old pointer onto an archived sibling row first. It is hidden
+  // from every live list (superseded_at) but still opens through the normal
+  // preview/download machinery, so a bad replace is recoverable.
+  //
+  // Done BEFORE the update on purpose. If the clone fails we stop and change
+  // nothing, rather than proceeding and losing the old scan; a retry is cheap.
+  const archived = archivedCopyOf(d);
+  if (archived) {
+    const { error: archErr } = await db.from("documents").insert(archived);
+    if (archErr) {
+      console.error("[replace-passport-pdf] could not archive the old scan — aborting:", archErr);
+      return NextResponse.json(
+        { error: "Der alte Scan konnte nicht archiviert werden — nichts wurde geändert. Bitte erneut versuchen." },
+        { status: 500 },
+      );
+    }
   }
 
   // ── Swap the file IN PLACE — keep status/feedback/passport data intact ────

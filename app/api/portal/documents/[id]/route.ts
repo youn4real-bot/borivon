@@ -4,6 +4,7 @@ import { getServiceSupabase } from "@/lib/supabase";
 import { requireUser, requireAdminRole, canActOnCandidate } from "@/lib/admin-auth";
 import { enforceUserRateLimit } from "@/lib/rateLimit";
 import { UUID_RE } from "@/lib/uuid";
+import { archivePatch } from "@/lib/documentArchive";
 
 // Must match the rest of the app (upload/route.ts, delete-user/route.ts).
 // The old `GOOGLE_DRIVE_ROOT_FOLDER_ID` is never set → archiving was always
@@ -133,9 +134,30 @@ export async function DELETE(req: NextRequest, ctx: { params: Promise<{ id: stri
     }
   }
 
-  const { error } = await db.from("documents").delete().eq("id", id);
+  // LAW #33 — ARCHIVE, never delete.
+  //
+  // This used to be `db.from("documents").delete()`. The Drive move above is the
+  // only thing that ever archived anything, and it is skipped entirely whenever
+  // GOOGLE_DRIVE_FOLDER_ID is unset — which it is, everywhere, since the store of
+  // record became R2. So the whole handler reduced to a hard delete: the
+  // dashboard's "Replace" calls this on the OLD document once the new upload
+  // lands, meaning every replaced or removed file lost its row while its bytes
+  // stayed in the bucket with nothing pointing at them. Unreachable is deleted.
+  //
+  // Setting `superseded_at` is what every other archive path in the codebase
+  // does, and every live list already hides non-null rows (loadDocs on the
+  // dashboard, the admin panel, the agency mirror, the shortlist, the chase
+  // list), so the document vanishes from the UI exactly as before — it is simply
+  // still there to recover.
+  //
+  // Deliberately NO hard-delete fallback if this fails: being unable to remove a
+  // document is a far smaller problem than removing it irreversibly.
+  const { error } = await db
+    .from("documents")
+    .update(archivePatch())
+    .eq("id", id);
   if (error) {
-    console.error("[documents DELETE] db delete failed:", error);
+    console.error("[documents DELETE] archive failed:", error);
     return NextResponse.json({ error: "Internal error" }, { status: 500 });
   }
   return NextResponse.json({ success: true });

@@ -236,6 +236,9 @@ export async function POST(req: NextRequest) {
           .select("file_name, file_type")
           .eq("user_id", user.id)
           .ilike("file_type", "%pass%")
+          // Skip archived scans (LAW #33) — a replaced passport keeps its row,
+          // and the notification must name the scan that is actually current.
+          .is("superseded_at", null)
           .order("uploaded_at", { ascending: false })
           .limit(1);
         const passDoc = passDocs?.[0];
