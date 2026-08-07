@@ -18,6 +18,7 @@
 import { getServiceSupabase } from "@/lib/supabase";
 import { getStaffUserIdsAmong } from "@/lib/admin-auth";
 import { computeStuckCandidates } from "@/lib/autoChase";
+import { computeChaseList } from "@/lib/chaseList";
 import { computeCriticalDates } from "@/lib/criticalDates";
 import { listTodayEvents } from "@/lib/workspaceCalendar";
 import { getUnansweredEmails } from "@/lib/gmailInbox";
@@ -181,6 +182,28 @@ export async function computeBriefing(adminUserId: string | null): Promise<Brief
       count += stuck.candidates.length;
       lines.push(`🔔 ${stuck.candidates.length} candidate(s) may need a nudge:`);
       for (const c of stuck.candidates.slice(0, 10)) lines.push(`   • ${c.name} — ${c.reasons.join("; ")}`);
+      lines.push("");
+    }
+    // 🚪 SIGNED UP BUT NEVER GOT IN.
+    //
+    // These people are invisible to every other line above, because all of them
+    // read candidate_profiles and no profile row is written until the account is
+    // confirmed. Eight of eighty-four accounts sat in this state — one person
+    // twice, on two addresses ten minutes apart with the same phone number,
+    // which is what somebody does when the code never arrives. It took three
+    // months and an unrelated audit for anyone to notice.
+    //
+    // Named separately from a nudge because the action is different: she cannot
+    // log in, cannot be emailed (that is the broken part), and can only be
+    // reached on the number she typed into the form.
+    const neverIn = (await computeChaseList(now).catch(() => []))
+      .filter((r) => r.reason === "never_confirmed");
+    if (neverIn.length) {
+      count += neverIn.length;
+      lines.push(`🚪 ${neverIn.length} signed up but never got in (confirmation code never arrived):`);
+      for (const r of neverIn.slice(0, 10)) {
+        lines.push(`   • ${r.name}${r.phone ? ` — ${r.phone}` : " — no number on file"} (${r.days}d)`);
+      }
       lines.push("");
     }
     if (emails && emails.length) {
