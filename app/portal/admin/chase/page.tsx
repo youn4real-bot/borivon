@@ -7,7 +7,7 @@ import { useLang } from "@/components/LangContext";
 import { PageLoader } from "@/components/ui/states";
 import { ArrowLeft, RefreshCw, MessageCircle, Copy, Check, PhoneOff } from "lucide-react";
 
-type Reason = "passport_expired" | "passport_expiring" | "id_card_not_passport" | "doc_rejected" | "stalled";
+type Reason = "passport_expired" | "passport_expiring" | "id_card_not_passport" | "doc_rejected" | "stalled" | "never_confirmed";
 type Row = {
   userId: string; name: string; reason: Reason; detail: string; urgency: number;
   placementReady: boolean; phone: string | null; lang: string; message: string; waLink: string;
@@ -21,6 +21,9 @@ const TONE: Record<Reason, { fg: string; bg: string; bd: string }> = {
   passport_expiring:    { fg: "var(--gold)",    bg: "var(--gdim)",       bd: "var(--border-gold)" },
   doc_rejected:         { fg: "var(--gold)",    bg: "var(--gdim)",       bd: "var(--border-gold)" },
   stalled:              { fg: "var(--w2)",      bg: "var(--bg2)",        bd: "var(--border)" },
+  // Gold, not red: nothing is broken for HER — she simply never got in, and one
+  // message fixes it. It is an opportunity, not an emergency.
+  never_confirmed:      { fg: "var(--gold)",    bg: "var(--gdim)",       bd: "var(--border-gold)" },
 };
 
 export default function ChasePage() {
@@ -46,6 +49,7 @@ export default function ChasePage() {
     passport_expiring:    T("Passport expiring", "Reisepass läuft ab", "Passeport bientôt expiré"),
     doc_rejected:         T("Document refused, not re-sent", "Dokument abgelehnt, nicht neu geschickt", "Document refusé, non renvoyé"),
     stalled:              T("Gone quiet", "Keine Reaktion", "Sans nouvelles"),
+    never_confirmed:      T("Never got in", "Nie reingekommen", "N'a jamais pu entrer"),
   };
 
   async function load(tk: string) {

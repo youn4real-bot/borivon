@@ -15,7 +15,7 @@
 
 import { getServiceSupabase } from "@/lib/supabase";
 import { getStaffUserIdsAmong } from "@/lib/admin-auth";
-import type { ChaseReason } from "@/lib/whatsapp";
+import { waNumber, type ChaseReason } from "@/lib/whatsapp";
 
 const DAY = 86_400_000;
 const STALL_DAYS = 21;
@@ -46,6 +46,88 @@ export type ChaseRow = {
    */
   batch: string | null;
 };
+
+/**
+ * People who filled in the registration form and never confirmed, so no account
+ * was ever opened for them.
+ *
+ * They live ONLY in the auth records: no `candidate_profiles` row is written
+ * until confirmation, so nothing in the portal has ever shown them. Eight of the
+ * eighty-four accounts are in this state, and one person is in it twice — she
+ * registered on a Gmail address and then, ten minutes later, on an iCloud one,
+ * with the same phone number. That is not somebody losing interest, that is
+ * somebody who never received the code and tried another mailbox.
+ *
+ * The phone number is what makes this worth surfacing: they typed it into the
+ * form, so there is a way to reach every one of them.
+ */
+type UnconfirmedSignup = {
+  userId: string; email: string; name: string; firstName: string;
+  phone: string | null; createdAt: number;
+};
+
+async function unconfirmedSignups(): Promise<(UnconfirmedSignup & { attempts: number })[]> {
+  const db = getServiceSupabase();
+  const out: UnconfirmedSignup[] = [];
+  try {
+    for (let page = 1; page <= 20; page++) {
+      const { data, error } = await db.auth.admin.listUsers({ page, perPage: 200 });
+      if (error || !data?.users?.length) break;
+      for (const u of data.users) {
+        if (u.email_confirmed_at) continue;
+        // Accounts the founder soft-deleted keep a scrambled address; they are
+        // not people waiting to be let in.
+        const email = (u.email ?? "").toLowerCase();
+        if (!email || email.endsWith("@borivon.invalid")) continue;
+        const m = (u.user_metadata ?? {}) as Record<string, unknown>;
+        const first = typeof m.first_name === "string" ? m.first_name.trim() : "";
+        const full = typeof m.full_name === "string" ? m.full_name.trim() : "";
+        out.push({
+          userId: u.id,
+          email,
+          name: full || first || email,
+          firstName: first || full.split(/\s+/)[0] || "",
+          phone: typeof m.phone === "string" && m.phone.trim() ? m.phone.trim() : null,
+          createdAt: Date.parse(u.created_at) || Date.now(),
+        });
+      }
+      if (data.users.length < 200) break;
+    }
+  } catch {
+    // Never let this sink the whole chase list — the four reasons above are the
+    // ones tied to a live batch.
+  }
+  return dedupeByPhone(out);
+}
+
+/**
+ * One row per PERSON, not per abandoned account.
+ *
+ * Somebody who never receives the code often just tries again with another
+ * address, so the same person can hold two or three unconfirmed accounts. Doha
+ * Zini has exactly two, ten minutes apart, on the same number. Listing both
+ * would have the founder message her twice about the same problem.
+ *
+ * Keyed on the dialable number, since that is what a message would actually go
+ * to. The EARLIEST attempt wins — it is the one that says how long she has been
+ * waiting — and the retry count rides along, because someone who tried twice
+ * tried harder than someone who tried once.
+ */
+function dedupeByPhone<T extends { phone: string | null; createdAt: number }>(rows: T[]): (T & { attempts: number })[] {
+  const byPhone = new Map<string, T & { attempts: number }>();
+  const noPhone: (T & { attempts: number })[] = [];
+  for (const r of rows) {
+    const key = waNumber(r.phone);
+    if (!key) { noPhone.push({ ...r, attempts: 1 }); continue; }
+    const seen = byPhone.get(key);
+    if (!seen) { byPhone.set(key, { ...r, attempts: 1 }); continue; }
+    byPhone.set(key, {
+      ...(r.createdAt < seen.createdAt ? r : seen),
+      attempts: seen.attempts + 1,
+    });
+  }
+  return [...byPhone.values(), ...noPhone];
+}
 
 function parseDate(raw: string | null | undefined): number | null {
   if (!raw) return null;
@@ -161,6 +243,36 @@ export async function computeChaseList(now = Date.now()): Promise<ChaseRow[]> {
         days: Math.round((now - last.at) / DAY),
         detail: `nothing new for ${Math.round((now - last.at) / DAY)} days` });
     }
+  }
+
+  // 5 — She never got IN. Registered with her real name and phone, and the
+  //     confirmation code never reached her, so there is no account, no profile
+  //     row, and nothing anywhere shows her: she is invisible to every list in
+  //     the portal, including the four reasons above, which all read
+  //     candidate_profiles. She has to be pulled out of the auth records.
+  //
+  //     Never batched (she has no account to be batched into), so she can only
+  //     ever appear under her own filter — the founder's rule is that the
+  //     default view is the batch, and a signup that never completed is not
+  //     holding up a seat. She is still worth one message: her phone number is
+  //     right there and she wanted in.
+  for (const u of await unconfirmedSignups()) {
+    if (staff.has(u.userId)) continue;
+    out.push({
+      userId: u.userId,
+      name: u.name || u.email || "—",
+      firstName: u.firstName,
+      phone: u.phone,
+      lang: null,
+      placementReady: false,
+      batch: null,
+      reason: "never_confirmed",
+      urgency: 6,
+      days: Math.round((now - u.createdAt) / DAY),
+      detail: u.attempts > 1
+        ? `tried to sign up ${u.attempts} times, ${Math.round((now - u.createdAt) / DAY)} days ago — the confirmation code never arrived`
+        : `signed up ${Math.round((now - u.createdAt) / DAY)} days ago and never got in — the confirmation code never arrived`,
+    });
   }
 
   // Batch members first, then by urgency. Someone holding up a seat at UKSH

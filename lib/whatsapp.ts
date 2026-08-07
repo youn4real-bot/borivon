@@ -18,7 +18,8 @@ export type ChaseReason =
   | "passport_expiring"
   | "id_card_not_passport"
   | "doc_rejected"
-  | "stalled";
+  | "stalled"
+  | "never_confirmed";
 
 /**
  * Normalise a Moroccan number to the digits-only form wa.me needs.
@@ -88,6 +89,18 @@ export function chaseMessage(
       fr: `ça fait un moment qu'on n'a pas eu de nouvelles et ton dossier est en pause.\n\nEst-ce que tout va bien ? Dis-nous simplement où tu en es — même si tu as besoin de plus de temps, ça nous aide à savoir.`,
       en: `we have not heard from you in a while and your file is on hold.\n\nIs everything alright? Just let us know where you stand — even if you need more time, it helps us to know.`,
       de: `wir haben länger nichts von dir gehört und dein Dossier liegt still.\n\nIst alles in Ordnung? Sag uns einfach kurz, wo du stehst — auch wenn du mehr Zeit brauchst, hilft uns das.`,
+    },
+    // She never got in AT ALL. She filled the whole registration form — we have
+    // her name and this number because she typed them — and the confirmation
+    // code never reached her, so there is no account and no way for her to tell
+    // us. Deliberately does NOT say "check your email" or "confirm your
+    // address": the email not arriving is the entire problem, and telling her to
+    // go look for it puts the failure back on her. It offers the one channel
+    // that is demonstrably working — this one.
+    never_confirmed: {
+      fr: `tu as commencé ton inscription chez Borivon, mais le code de confirmation n'est jamais arrivé — ton compte n'a donc pas pu s'ouvrir. Ce n'est pas de ta faute, ce message se perd parfois.\n\nRéponds simplement ici et on t'ouvre l'accès à la main.`,
+      en: `you started signing up with Borivon, but the confirmation code never reached you — so your account was never opened. That is not your fault, that message sometimes gets lost.\n\nJust reply here and we will open your access by hand.`,
+      de: `du hast deine Anmeldung bei Borivon begonnen, aber der Bestätigungscode ist nie angekommen — dein Konto konnte also nicht geöffnet werden. Das liegt nicht an dir, diese Nachricht geht manchmal verloren.\n\nAntworte einfach hier, dann schalten wir dich von Hand frei.`,
     },
   };
 
